@@ -1896,10 +1896,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("verifying the overflow workload stays pending")
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
-			gomega.Consistently(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
-				g.Expect(wl.Status.Admission).Should(gomega.BeNil())
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
 
 			ginkgo.By("reparenting child cohort from root-a to root-b")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1913,6 +1910,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "on-demand", "500m").Obj()).
 				Obj()
 			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl, expectAdmission)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl1, wl2)
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 3)
 		})
@@ -3496,17 +3494,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, borrowerCq.Name, wl1)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(borrowerCq), borrowerCq)).Should(gomega.Succeed())
-				g.Expect(borrowerCq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(1)))
-				g.Expect(borrowerCq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			gomega.Consistently(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(borrowerCq), borrowerCq)).Should(gomega.Succeed())
-				g.Expect(borrowerCq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(1)))
-				g.Expect(borrowerCq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			util.ExpectReservingActiveWorkloadsMetric(borrowerCq, 1)
+			util.ExpectPendingWorkloadsMetric(borrowerCq, 0, 1)
 		})
 	})
 	ginkgo.When("Cohort borrowingLimit blocks sibling borrowing in hierarchy", func() {
@@ -3615,17 +3604,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}
 
 			ginkgo.By("verifying research admits only 2 workloads and cannot borrow")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(researchCq), researchCq)).Should(gomega.Succeed())
-				g.Expect(researchCq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(2)))
-				g.Expect(researchCq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			gomega.Consistently(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(researchCq), researchCq)).Should(gomega.Succeed())
-				g.Expect(researchCq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(2)))
-				g.Expect(researchCq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			util.ExpectReservingActiveWorkloadsMetric(researchCq, 2)
+			util.ExpectPendingWorkloadsMetric(researchCq, 0, 1)
 		})
 
 		ginkgo.It("should allow burst queue to borrow idle capacity while orgs stay isolated", func() {
@@ -3716,17 +3696,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.MustCreate(ctx, k8sClient, overflowWl)
 
 			ginkgo.By("verifying org-a is full and overflow is pending")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(orgACq), orgACq)).Should(gomega.Succeed())
-				g.Expect(orgACq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(2)))
-				g.Expect(orgACq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			gomega.Consistently(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(orgACq), orgACq)).Should(gomega.Succeed())
-				g.Expect(orgACq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(2)))
-				g.Expect(orgACq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			util.ExpectReservingActiveWorkloadsMetric(orgACq, 2)
+			util.ExpectPendingWorkloadsMetric(orgACq, 0, 1)
 
 			ginkgo.By("submitting burst workloads that borrow idle capacity from org-b")
 			for i := range 2 {
@@ -3737,16 +3708,9 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}
 
 			ginkgo.By("verifying burst queue borrows while org-a overflow stays pending")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(burstCq), burstCq)).Should(gomega.Succeed())
-				g.Expect(burstCq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(2)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			gomega.Consistently(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(orgACq), orgACq)).Should(gomega.Succeed())
-				g.Expect(orgACq.Status.AdmittedWorkloads).Should(gomega.Equal(int32(2)))
-				g.Expect(orgACq.Status.PendingWorkloads).Should(gomega.Equal(int32(1)))
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			util.ExpectReservingActiveWorkloadsMetric(burstCq, 2)
+			util.ExpectReservingActiveWorkloadsMetric(orgACq, 2)
+			util.ExpectPendingWorkloadsMetric(orgACq, 0, 1)
 		})
 	})
 	ginkgo.When("Workload slicing with multiple podSets", func() {
