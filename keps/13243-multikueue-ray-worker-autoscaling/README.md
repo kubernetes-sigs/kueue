@@ -82,11 +82,6 @@ remains the quota authority.
 - Keep the manager as the single quota authority: worker-originated resizes flow
   through the manager's workload-slicing admission (quota re-reservation), never
   bypass it.
-- Make the resize handover non-disruptive to the running job: no false
-  `OutOfSync` finish, no stranded pods, no quota under-reservation.
-- Keep the reflected worker count bounded to the RayCluster's own
-  `[minReplicas, maxReplicas]`, which the Ray autoscaler already enforces on the
-  worker cluster.
 
 ### Non-Goals
 
