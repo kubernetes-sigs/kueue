@@ -17,6 +17,7 @@ limitations under the License.
 package scheduler
 
 import (
+	"errors"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -95,6 +96,47 @@ func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	expectQuota("alpha", 0)
 	expectStatus("beta", len(metrics.CQStatuses))
 	expectQuota("beta", 1)
+}
+
+func TestCohortCycleClearsAdmittedActiveWorkloadMetrics(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	defer metrics.InitMetricVectors(nil)
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+
+	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
+	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels))
+
+	if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()); err != nil {
+		t.Fatalf("Adding cohort-a: %v", err)
+	}
+	if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-b").Obj()); err != nil {
+		t.Fatalf("Adding cohort-b: %v", err)
+	}
+
+	cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Label("team", "alpha").Obj()
+	customLabels.CQStore("cq", cq.GetLabels(), cq.GetAnnotations())
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Adding ClusterQueue: %v", err)
+	}
+	cache.ResyncClusterQueueGaugeMetrics("cq")
+
+	metricLabels := func(cohort string) map[string]string {
+		return map[string]string{"cohort": cohort, "custom_team": "alpha"}
+	}
+	for _, cohort := range []string{"cohort-a", "cohort-b"} {
+		if got := len(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeAdmittedActiveWorkloads, metricLabels(cohort))); got != 1 {
+			t.Fatalf("Active-workload metric count for %q before cycle = %d, want 1", cohort, got)
+		}
+	}
+
+	if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()); !errors.Is(err, ErrCohortHasCycle) {
+		t.Fatalf("Creating cohort cycle: got error %v, want %v", err, ErrCohortHasCycle)
+	}
+	for _, cohort := range []string{"cohort-a", "cohort-b"} {
+		if got := len(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeAdmittedActiveWorkloads, metricLabels(cohort))); got != 0 {
+			t.Errorf("Active-workload metric count for %q during cycle = %d, want 0", cohort, got)
+		}
+	}
 }
 
 func TestResyncCohortGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
