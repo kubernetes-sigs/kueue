@@ -437,7 +437,6 @@ Changes since `v0.15.0`:
 - Kubeflow TrainJob v2: fix the bug to prevent duplicate pod template overrides when starting the Job is retried. (#8269, @j-skiba)
 - LeaderWorkerSet: Fixed a bug that prevented deleting the workload when the LeaderWorkerSet was scaled down. (#8671, @mbobrovskyi)
 - LeaderWorkerSet: add missing RBAC configuration for editor and viewer roles to kustomize and helm. (#8513, @kannon92)
-- MultiKueue now waits for WorkloadAdmitted (instead of QuotaReserved) before deleting workloads from non-selected worker clusters. To revert to the previous behavior, disable the `MultiKueueWaitForWorkloadAdmitted` feature gate. (#8592, @IrvingMg)
 - MultiKueue via ClusterProfile: Fix the panic if the configuration for ClusterProfiles wasn't provided in the configMap. (#8071, @mszadkow)
 - MultiKueue: Fix a bug that the priority change by mutating the `kueue.x-k8s.io/priority-class` label on the management cluster is not propagated to the worker clusters. (#8464, @mbobrovskyi)
 - MultiKueue: Fixed status sync for CRD-based jobs (JobSet, Kubeflow, Ray, etc.) that was blocked while the local job was suspended. (#8308, @IrvingMg)

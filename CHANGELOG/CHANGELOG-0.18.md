@@ -271,7 +271,6 @@ Changes since `v0.17.0`:
 - Observability: Introduced the workload_eviction_latency_seconds histogram metric, which records the time from when an eviction starts to when it is finalized. (#10323, @vladikkuzn)
 - Promote ElasticJobsViaWorkloadSlices feature gate to beta (#11547, @sohankunkerkar)
 - Promote MultiKueueRedoAdmissionOnEvictionInWorker to stable. (#10695, @mbobrovskyi)
-- Promote MultiKueueWaitForWorkloadAdmitted to stable. (#10656, @mbobrovskyi)
 - Promote SkipFinalizersForPodsSuspendedByParent to stable. (#10645, @mbobrovskyi)
 - RBAC: Each per-resource editor and viewer ClusterRoles carries the label `rbac.kueue.x-k8s.io/role=<resource>-<access>` (e.g., `clusterqueue-viewer`). (#11205, @amy)
 - Scheduling: Introduce Concurrent Admission, an alpha feature disabled by default, allowing
