@@ -55,6 +55,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -2509,7 +2510,7 @@ func TestReconciler(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						LastTransitionTime: metav1.NewTime(now),
-						Reason:             "Pending",
+						Reason:             workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message:            "Preempted to accommodate a higher priority Workload",
 					}).
 					Condition(metav1.Condition{
@@ -6325,7 +6326,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
