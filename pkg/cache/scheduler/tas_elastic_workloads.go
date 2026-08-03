@@ -86,6 +86,43 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 	// Previous pods consume capacity.
 	addAssumedUsage(assumedUsage, prevAssignment, &workers)
 
+	if isRequired(workers.PodSet.TopologyRequest) {
+		currAssignment := prevAssignment
+
+		for i := range deltaCount {
+			iterRequest := workers
+			iterRequest.Count = 1
+			iterRequest.PreviousAssignment = nil
+
+			requiredDomain := s.findScaleUpDomain(&iterRequest, currAssignment)
+
+			iterLeader := leader
+			if i > 0 {
+				iterLeader = nil // Only process leader in the first iteration
+			}
+
+			deltaAssignments, reason := s.findTopologyAssignment(ctx, iterRequest, iterLeader, assumedUsage, opts.simulateEmpty, requiredDomain, opts.workload)
+			if reason != "" {
+				result[workers.PodSet.Name] = tasPodSetAssignmentResult{FailureReason: reason}
+				return elasticPlacementResult{applied: true, assignments: result}
+			}
+
+			deltaAssignment := deltaAssignments[workers.PodSet.Name]
+			currAssignment = s.mergeTopologyAssignments(deltaAssignment, currAssignment)
+
+			if iterLeader != nil {
+				result[iterLeader.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: deltaAssignments[iterLeader.PodSet.Name]}
+				addAssumedUsage(assumedUsage, deltaAssignments[iterLeader.PodSet.Name], iterLeader)
+			}
+
+			// Add only the 1-pod delta to avoid double-counting.
+			addAssumedUsage(assumedUsage, deltaAssignment, &iterRequest)
+		}
+
+		result[workers.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: currAssignment}
+		return elasticPlacementResult{applied: true, assignments: result}
+	}
+
 	deltaAssignments, reason := s.findTopologyAssignment(ctx, deltaRequest, leader, assumedUsage, opts.simulateEmpty, "", opts.workload)
 	if reason != "" {
 		result[workers.PodSet.Name] = tasPodSetAssignmentResult{FailureReason: reason}

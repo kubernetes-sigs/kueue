@@ -58,10 +58,6 @@ func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Inf
 			var previousAssignment *kueue.TopologyAssignment
 
 			if workload.IsElasticWorkload(wl.Obj) && features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
-				if podSet.TopologyRequest != nil && podSet.TopologyRequest.Required != nil {
-					a.psError(psAssignment, ErrElasticRequiredTopologyNotSupported)
-					continue
-				}
 				previousAssignment = getPreviousTopologyAssignment(a.replaceWorkloadSlice, podSet.Name)
 			}
 
