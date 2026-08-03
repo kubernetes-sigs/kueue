@@ -2129,6 +2129,7 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, false)
 			ctx, log := utiltesting.ContextWithLog(t)
