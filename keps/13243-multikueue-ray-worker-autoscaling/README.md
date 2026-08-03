@@ -304,18 +304,18 @@ None beyond the coverage described below.
 
 ### Graduation Criteria
 
-Alpha:
+The feature follows the standard Kueue maturity progression, riding the existing
+`ElasticJobsViaWorkloadSlices` alpha feature gate together with MultiKueue.
 
-- Reverse elastic sync implemented for RayCluster and RayJob behind the existing
-  `ElasticJobsViaWorkloadSlices` gate + MultiKueue.
-- Unit, integration, and real-autoscaler e2e coverage as above.
+**Alpha**: Reverse elastic sync is implemented for RayCluster and RayJob behind the
+`ElasticJobsViaWorkloadSlices` gate, with basic functionality covered by tests and
+accompanying documentation.
 
-Beta (tentative):
+**Beta**: Positive feedback from Alpha, broader test coverage, and any documented
+follow-ups addressed.
 
-- Address the documented follow-up: an optional time bound on the resize
-  tolerance.
-- Metrics/observability for reverse-sync resizes.
-- Broader soak/e2e coverage in CI (fullray periodic jobs).
+**Stable (GA)**: The feature has spent at least one release cycle in beta with no
+major outstanding bugs.
 
 ## Implementation History
 
