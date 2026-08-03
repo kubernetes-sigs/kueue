@@ -395,9 +395,7 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					return fetchCalls.Load() > 1
 				}, "expected at least one update after burst of informer events")
 
-				time.Sleep(700 * time.Millisecond)
-
-				calls := fetchCalls.Load()
+				calls := waitForStableCount(t, testTimeout, 10*time.Millisecond, 3*debounceDelay, fetchCalls.Load)
 				if calls >= events+1 {
 					t.Fatalf("data fetch calls = %d, want less than %d due to debounce", calls, events+1)
 				}
@@ -534,4 +532,31 @@ func waitUntil(t *testing.T, timeout, interval time.Duration, condition func() b
 	}
 
 	t.Fatalf("timeout after %v: %s", timeout, failMessage)
+}
+
+// waitForStableCount polls count until it stops changing for stableFor, then
+// returns the settled value. This is used instead of a fixed sleep to wait
+// out a debounce window: it fails fast once the value has genuinely
+// stabilized rather than guessing a fixed margin, and gives an informative
+// failure message (last observed value) if it never stabilizes.
+func waitForStableCount(t *testing.T, timeout, interval, stableFor time.Duration, count func() int64) int64 {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	last := count()
+	lastChange := time.Now()
+	for {
+		current := count()
+		if current != last {
+			last = current
+			lastChange = time.Now()
+		} else if time.Since(lastChange) >= stableFor {
+			return last
+		}
+
+		if time.Now().After(deadline) {
+			t.Fatalf("timeout after %v waiting for count to stabilize: last value = %d", timeout, last)
+		}
+		time.Sleep(interval)
+	}
 }

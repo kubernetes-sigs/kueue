@@ -1,0 +1,71 @@
+name: 'Report result'
+description: 'Logs command execution details to a dedicated section in the release issue body'
+inputs:
+  command:
+    description: 'The triggering command, e.g. sync-release-notes'
+    required: false
+    default: ''
+  alias:
+    description: 'Command alias'
+    required: false
+    default: ''
+  message:
+    description: 'The message/log content to post'
+    required: false
+    default: ''
+  cleanup:
+    description: 'If true, move the command from Log to History without adding a new entry'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Log Execution Details
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ISSUE_NUMBER: ${{ github.event.issue.number }}
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_ALIAS: ${{ inputs.alias }}
+        INPUT_MESSAGE: ${{ inputs.message }}
+        INPUT_CLEANUP: ${{ inputs.cleanup }}
+      run: |
+        if [ -z "$ISSUE_NUMBER" ]; then
+          echo "Error: No issue found" >&2
+          exit 1
+        fi
+
+        if [ -z "$INPUT_COMMAND" ] && [ -z "$INPUT_ALIAS" ]; then
+          echo "Error: Neither command nor alias was provided." >&2
+          exit 1
+        fi
+
+        if [ "$INPUT_CLEANUP" = "true" ] && [ -n "$INPUT_MESSAGE" ]; then
+          echo "Error: message must be empty when cleanup is true." >&2
+          exit 1
+        fi
+
+        if [ "$INPUT_CLEANUP" = "false" ] && [ -z "$INPUT_MESSAGE" ]; then
+          echo "Error: message cannot be empty when cleanup is false." >&2
+          exit 1
+        fi
+
+        # Fetch the issue body
+        ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --repo "${GITHUB_REPOSITORY}" --json body --jq '.body')
+
+        export ISSUE_BODY
+        
+        # Run python script to build the new issue body
+        SCRIPT_PATH="${{ github.workspace }}/hack/releasing/log_to_issue.py"
+        if [ ! -f "$SCRIPT_PATH" ]; then
+          SCRIPT_PATH="${{ github.workspace }}/.automation/hack/releasing/log_to_issue.py"
+        fi
+        python3 "$SCRIPT_PATH" > new_body.md
+
+        # Update the issue body
+        gh issue edit "$ISSUE_NUMBER" --repo "${GITHUB_REPOSITORY}" --body-file new_body.md
+
+        if [ "$INPUT_CLEANUP" = "false" ] && [ -n "$INPUT_MESSAGE" ]; then
+          gh issue comment "$ISSUE_NUMBER" --body "$INPUT_MESSAGE"
+        fi

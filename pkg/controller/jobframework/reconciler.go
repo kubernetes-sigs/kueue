@@ -965,7 +965,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		}
 
 		if jobWithCustomAnnotations, ok := job.(JobWithCustomAnnotations); ok {
-			customAnnotations, err := jobWithCustomAnnotations.GetCustomAnnotations(ctx, r.client, podSets)
+			customAnnotations, err := jobWithCustomAnnotations.GetCustomAnnotations(ctx, r.client)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get custom annotations based on pod sets from job %s: %w", job.Object().GetName(), err)
 			}

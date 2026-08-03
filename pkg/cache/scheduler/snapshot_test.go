@@ -17,9 +17,11 @@ limitations under the License.
 package scheduler
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -30,9 +32,12 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -238,7 +243,7 @@ func TestSnapshot(t *testing.T) {
 							"a": {
 								Name:                          "a",
 								AllocatableResourceGeneration: 2,
-								ResourceGroups: []ResourceGroup{
+								ResourceGroups: []resourcegroups.ResourceGroup{
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"demand", "spot"},
@@ -278,7 +283,7 @@ func TestSnapshot(t *testing.T) {
 							"b": {
 								Name:                          "b",
 								AllocatableResourceGeneration: 1,
-								ResourceGroups: []ResourceGroup{
+								ResourceGroups: []resourcegroups.ResourceGroup{
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"spot"},
@@ -340,7 +345,7 @@ func TestSnapshot(t *testing.T) {
 							"c": {
 								Name:                          "c",
 								AllocatableResourceGeneration: 1,
-								ResourceGroups: []ResourceGroup{
+								ResourceGroups: []resourcegroups.ResourceGroup{
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"default"},
@@ -498,7 +503,7 @@ func TestSnapshot(t *testing.T) {
 							"a": {
 								Name:                          "a",
 								AllocatableResourceGeneration: 2,
-								ResourceGroups: []ResourceGroup{
+								ResourceGroups: []resourcegroups.ResourceGroup{
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
@@ -559,7 +564,7 @@ func TestSnapshot(t *testing.T) {
 							"b": {
 								Name:                          "b",
 								AllocatableResourceGeneration: 1,
-								ResourceGroups: []ResourceGroup{
+								ResourceGroups: []resourcegroups.ResourceGroup{
 									{
 										CoveredResources: sets.New(corev1.ResourceCPU),
 										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
@@ -640,7 +645,7 @@ func TestSnapshot(t *testing.T) {
 						"cq": {
 							Name:                          "cq",
 							AllocatableResourceGeneration: 2,
-							ResourceGroups: []ResourceGroup{
+							ResourceGroups: []resourcegroups.ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
 									Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
@@ -720,7 +725,7 @@ func TestSnapshot(t *testing.T) {
 						"cq-nocycle": {
 							Name:                          "cq-nocycle",
 							AllocatableResourceGeneration: 2,
-							ResourceGroups: []ResourceGroup{
+							ResourceGroups: []resourcegroups.ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
 									Flavors:          []kueue.ResourceFlavorReference{"arm"},
@@ -817,7 +822,7 @@ func TestSnapshot(t *testing.T) {
 						"tas-cq": {
 							Name:                          "tas-cq",
 							AllocatableResourceGeneration: 2,
-							ResourceGroups: []ResourceGroup{
+							ResourceGroups: []resourcegroups.ResourceGroup{
 								{
 									CoveredResources: sets.New(corev1.ResourceCPU),
 									Flavors:          []kueue.ResourceFlavorReference{"tas-flavor"},
@@ -889,6 +894,100 @@ func TestSnapshot(t *testing.T) {
 						}
 					}
 				}
+			}
+		})
+	}
+}
+
+// TestSnapshotLog is a sanity check for logging the snapshot, which the
+// scheduler does on every scheduling cycle when running with high verbosity.
+func TestSnapshotLog(t *testing.T) {
+	testCases := map[string]struct {
+		nodes []*corev1.Node
+		// wantFreeCapacityPerDomain holds one entry per logged "TAS Snapshot
+		// Free Capacity" line, so a case can also assert that nothing is logged.
+		wantFreeCapacityPerDomain []any
+	}{
+		"domain with capacity, but no admitted TAS workloads": {
+			nodes: []*corev1.Node{
+				node.MakeNode("node-a").
+					Label(corev1.LabelHostname, "node-a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			wantFreeCapacityPerDomain: []any{`{"node-a":{"freeCapacity":{"cpu":"2","pods":"10"},"tasUsage":{}}}`},
+		},
+		"multiple domains are reported in a stable order": {
+			nodes: []*corev1.Node{
+				node.MakeNode("node-b").
+					Label(corev1.LabelHostname, "node-b").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("5"),
+					}).
+					Ready().
+					Obj(),
+				node.MakeNode("node-a").
+					Label(corev1.LabelHostname, "node-a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			wantFreeCapacityPerDomain: []any{`{"node-a":{"freeCapacity":{"cpu":"2","pods":"10"},"tasUsage":{}},"node-b":{"freeCapacity":{"cpu":"1","pods":"5"},"tasUsage":{}}}`},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			clientBuilder := utiltesting.NewClientBuilder()
+			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+			cache := New(clientBuilder.Build())
+
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName("topology").Obj())
+			cache.AddOrUpdateTopology(log, utiltestingapi.MakeDefaultOneLevelTopology("topology"))
+			cq := utiltestingapi.MakeClusterQueue("tas-cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-flavor").Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj()
+			if err := cache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding ClusterQueue: %v", err)
+			}
+			for _, n := range tc.nodes {
+				cache.TASCache().SyncNode(n)
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Failed building snapshot: %v", err)
+			}
+
+			var entries []map[string]any
+			capturingLog := funcr.NewJSON(func(obj string) {
+				entry := make(map[string]any)
+				if err := json.Unmarshal([]byte(obj), &entry); err != nil {
+					t.Errorf("Failed to parse log entry %q: %v", obj, err)
+					return
+				}
+				entries = append(entries, entry)
+			}, funcr.Options{})
+
+			snapshot.Log(capturingLog)
+
+			var gotFreeCapacityPerDomain []any
+			for _, entry := range entries {
+				if entry["msg"] == "TAS Snapshot Free Capacity" {
+					gotFreeCapacityPerDomain = append(gotFreeCapacityPerDomain, entry["freeCapacityPerDomain"])
+				}
+			}
+			if diff := cmp.Diff(tc.wantFreeCapacityPerDomain, gotFreeCapacityPerDomain); diff != "" {
+				t.Errorf("Unexpected logged TAS free capacity (-want,+got):\n%s", diff)
 			}
 		})
 	}

@@ -42,6 +42,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
@@ -537,7 +538,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "Pending",
+						Reason:             workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message:            "The workload was deactivated",
 						ObservedGeneration: 1,
 					}).

@@ -232,6 +232,16 @@ func TestCountInWithLimitingResource(t *testing.T) {
 			wantCount:            0,
 			wantLimitingResource: corev1.ResourceCPU,
 		},
+		"count above int32 is clamped to MaxInt32": {
+			requests: MapRequests{
+				corev1.ResourceMemory: 1,
+			},
+			capacity: MapRequests{
+				corev1.ResourceMemory: math.MaxInt32 + 1,
+			},
+			wantCount:            math.MaxInt32,
+			wantLimitingResource: corev1.ResourceMemory,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -290,6 +300,17 @@ func TestGreaterKeys(t *testing.T) {
 				"r4": 1,
 			},
 			want: nil,
+		},
+		"multiple_greater_sorted": {
+			a: MapRequests{
+				"r2": 2,
+				"r1": 2,
+			},
+			b: MapRequests{
+				"r2": 1,
+				"r1": 1,
+			},
+			want: []corev1.ResourceName{"r1", "r2"},
 		},
 	}
 	for name, tc := range cases {
@@ -522,14 +543,14 @@ func TestLazyRequests(t *testing.T) {
 				t.Errorf("expected cachedCreated=%t, got cached=%v", tc.wantCachedCreated, lazy.cached)
 			}
 
-			gotResult := ToMapRequests(lazy.Get())
+			gotResult := MapRequests(ToMap(lazy.Get()))
 			wantResult := tc.wantResult
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected Get() result, diff (-want +got):\n%s", diff)
 			}
 
 			if base != nil {
-				if diff := cmp.Diff(ToMapRequests(originalBase), ToMapRequests(base)); diff != "" {
+				if diff := cmp.Diff(MapRequests(ToMap(originalBase)), MapRequests(ToMap(base))); diff != "" {
 					t.Errorf("base map was mutated! diff (-want +got):\n%s", diff)
 				}
 			}
@@ -583,7 +604,7 @@ func TestFloorToZero(t *testing.T) {
 				r = &SliceRequests{}
 			}
 			r.FloorToZero()
-			got := ToMapRequests(r)
+			got := MapRequests(ToMap(r))
 			want := tc.want
 			if len(want) == 0 {
 				want = nil
@@ -755,7 +776,7 @@ func TestMapRequestsClone(t *testing.T) {
 	})
 }
 
-func TestToMapRequests(t *testing.T) {
+func TestToMap(t *testing.T) {
 	cases := map[string]struct {
 		req  Requests
 		want MapRequests
@@ -791,9 +812,9 @@ func TestToMapRequests(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := ToMapRequests(tc.req)
+			got := MapRequests(ToMap(tc.req))
 			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("ToMapRequests mismatch (-want +got):\n%s", diff)
+				t.Errorf("ToMap mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

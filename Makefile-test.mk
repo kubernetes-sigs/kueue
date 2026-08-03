@@ -114,6 +114,22 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 # written only when a race is actually detected, so green runs stay clean.
 	GORACE="log_path=$(ARTIFACTS)/race$(OPTIONAL_SHARD_SUFFIX)" TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(OPTIONAL_SHARD_SUFFIX).xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out
 
+# Time budget for fuzzing each individual fuzz target.
+# TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.27
+FUZZTIME ?= 1000x
+
+.PHONY: test-fuzz
+test-fuzz: ## Run all fuzz tests with fuzzing enabled, FUZZTIME per target.
+# 'go test -fuzz' expects a bare fuzz function name, but grep emits whole source
+# lines. The sed replacement extracts the name, for example:
+#   "func FuzzSliceRequestsEquivalence(f *testing.F) {" -> "FuzzSliceRequestsEquivalence"
+	@$(GO_CMD) list -f '{{.ImportPath}} {{.Dir}}' ./... | while read -r pkg dir; do \
+		for target in $$(grep -hs '^func Fuzz' $$dir/*_test.go | $(SED) -E 's/^func (Fuzz[A-Za-z0-9_]*).*/\1/'); do \
+			echo "=== fuzzing $$target in $$pkg (budget $(FUZZTIME))"; \
+			$(GO_CMD) test $$pkg $(GOFLAGS) -run='^$$' -fuzz="^$$target$$" -fuzztime=$(FUZZTIME) || exit 1; \
+		done; \
+	done
+
 ## Label Taxonomy:
 ##   Controllers: controller:workload, controller:localqueue, controller:clusterqueue, controller:admissioncheck, controller:resourceflavor, controller:provisioning
 ##   Job Types: job:batch, job:pod, job:jobset, job:pytorch, job:tensorflow, job:mpi, job:paddle, job:xgboost, job:jax, job:train, job:ray, job:appwrapper, job:sparkapplication

@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -108,12 +109,12 @@ func checkRequestsEquivalence(t *testing.T, opName string, mapRes Requests, slic
 		if m, ok := mapRes.(MapRequests); ok {
 			mapM = normalizeMap(m)
 		} else if s, ok := mapRes.(*SliceRequests); ok {
-			mapM = normalizeMap(s.ToMapRequests())
+			mapM = normalizeMap(MapRequests(s.ToMap()))
 		}
 	}
 	if sliceRes != nil {
 		if s, ok := sliceRes.(*SliceRequests); ok {
-			sliceM = normalizeMap(s.ToMapRequests())
+			sliceM = normalizeMap(MapRequests(s.ToMap()))
 		} else if m, ok := sliceRes.(MapRequests); ok {
 			sliceM = normalizeMap(m)
 		}
@@ -215,6 +216,11 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 			opChoice: opCountIn,
 			m1:       MapRequests{},
 			m2:       MapRequests{corev1.ResourceCPU: 100},
+		},
+		{
+			opChoice: opCountIn,
+			m1:       MapRequests{corev1.ResourceMemory: 1},
+			m2:       MapRequests{corev1.ResourceMemory: math.MaxInt32 + 1},
 		},
 		{
 			opChoice: opSet,

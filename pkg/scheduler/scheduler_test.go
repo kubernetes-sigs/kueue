@@ -8398,7 +8398,7 @@ func TestResourcesToReserve(t *testing.T) {
 					},
 				},
 				Borrowing: tc.borrowing,
-				Usage:     workload.Usage{Quota: tc.assignmentUsage},
+				Usage:     workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.assignmentUsage}},
 			}
 			e := &entry{assignment: assignment, Info: *workload.NewInfo(
 				&kueue.Workload{},
@@ -8434,7 +8434,7 @@ func TestResourcesToReserve(t *testing.T) {
 			cqSnapshot := snapshot.ClusterQueue("cq")
 
 			got := resourcesToReserve(logr.Discard(), e, cqSnapshot)
-			if !reflect.DeepEqual(tc.wantReserved, got.Quota) {
+			if !reflect.DeepEqual(tc.wantReserved, got.Quota.Assigned) {
 				t.Errorf("%s failed\n: Want reservedMem: %v, got: %v", tc.name, tc.wantReserved, got)
 			}
 		})

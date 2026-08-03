@@ -29,6 +29,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -161,7 +162,7 @@ func onlyTASFlavor(
 	return nil, &MultipleTASFlavorsAssignedError{Flavors: sets.List(flavors)}
 }
 
-func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor, rg *schdcache.ResourceGroup) *string {
+func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor, rg *resourcegroups.ResourceGroup) *string {
 	if isTASRequested(ps, cq) {
 		if isTASImplied(ps, cq) {
 			// If this is a TAS-only CQ, then we don't need to check the flavor because

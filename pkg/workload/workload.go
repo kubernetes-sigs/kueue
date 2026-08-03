@@ -32,7 +32,6 @@ import (
 	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -379,7 +378,7 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 			"name":            ps.Name,
 			"spec":            utilpod.SpecShape(&ps.Template.Spec),
 			"count":           effectiveCount,
-			"requests":        resources.ToMapRequests(effectiveRequests),
+			"requests":        resources.ToMap(effectiveRequests),
 			"minCount":        ps.MinCount,
 			"topologyRequest": ps.TopologyRequest,
 		})
@@ -413,27 +412,35 @@ func (i *Info) CanBePartiallyAdmitted() bool {
 // quota and TAS usage.
 func (i *Info) Usage() Usage {
 	return Usage{
-		Quota: i.FlavorResourceUsage(),
+		Quota: i.ResourceUsage(),
 		TAS:   i.TASUsage(),
 	}
 }
 
-// FlavorResourceUsage returns the total resource usage for the workload,
-// per flavor (if assigned, otherwise flavor shows as empty string), per resource.
-func (i *Info) FlavorResourceUsage() resources.FlavorResourceQuantities {
-	total := make(resources.FlavorResourceQuantities)
+// ResourceUsage returns the total resource usage for the workload,
+// separating assigned flavors and unassigned requests.
+func (i *Info) ResourceUsage() ResourceUsage {
+	ru := ResourceUsage{
+		Assigned:   make(resources.FlavorResourceQuantities),
+		Unassigned: make(resources.MapRequests),
+	}
 	if i == nil {
-		return total
+		return ru
 	}
 	for _, psReqs := range i.TotalRequests {
 		if psReqs.Requests != nil {
 			psReqs.Requests.ForEach(func(res corev1.ResourceName, q int64) {
 				flv := psReqs.Flavors[res]
-				total[resources.FlavorResource{Flavor: flv, Resource: res}] = total[resources.FlavorResource{Flavor: flv, Resource: res}].AddInt64(q)
+				if flv == "" {
+					ru.Unassigned[res] += q
+				} else {
+					fr := resources.FlavorResource{Flavor: flv, Resource: res}
+					ru.Assigned[fr] = ru.Assigned[fr].AddInt64(q)
+				}
 			})
 		}
 	}
-	return total
+	return ru
 }
 
 func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string) corev1.ResourceList {
@@ -475,16 +482,11 @@ func (i *Info) CalcLocalQueueFSUsage(
 		penalty = afsEntryPenalties.Peek(lqKey)
 	}
 
-	var lq kueue.LocalQueue
 	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
-	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
-		if apierrors.IsNotFound(err) {
-			ctrl.LoggerFrom(ctx).V(3).Info("LocalQueue is missing, gracefully falling back to the default weight (1.0)", "localQueue", lqObjKey)
-			return afs.CalculateUsage(consumed, penalty, 1.0, resWeights), nil
-		}
+	lqWeight, err := afs.ResolveLQWeight(ctx, c, lqObjKey)
+	if err != nil {
 		return 0, err
 	}
-	lqWeight := afs.LQWeightAsFloat64(&lq)
 	return afs.CalculateUsage(consumed, penalty, lqWeight, resWeights), nil
 }
 
