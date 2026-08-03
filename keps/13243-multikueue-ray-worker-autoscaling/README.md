@@ -47,7 +47,7 @@ through its existing workload-slicing machinery.
 
 ## Motivation
 
-Ray's in-tree autoscaler is the natural way to run elastic Ray workloads: it
+The [Ray Autoscaler](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html) is the natural way to run elastic Ray workloads: it
 grows and shrinks worker groups in response to the actual resource demands of the
 application (pending tasks, actors, placement groups). Many real workloads depend
 on it — mixed online/offline inference, and training colocated with evaluation in
@@ -84,7 +84,7 @@ remains the quota authority.
 
 ### Non-Goals
 
-- A brand-new autoscaling algorithm — this reuses Ray's in-tree autoscaler and
+- A brand-new autoscaling algorithm — this reuses the Ray Autoscaler and
   Kueue's existing workload slicing.
 - Extending reverse elastic sync to non-Ray integrations in this KEP (the adapter
   hooks are designed to generalize, but only Ray is implemented here).
