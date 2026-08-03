@@ -2145,7 +2145,7 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 			cl: wlOnlyCustomLabels,
 			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
 				wl1 := makeWorkload("wl1", map[string]string{"project": "project-a", "type": "type-a"})
-				wl2 := makeWorkload("wl2", map[string]string{"project": config.UntrackedCustomLabelValue, "type": config.UntrackedCustomLabelValue})
+				wl2 := makeWorkload("wl2", map[string]string{"project": "untracked-value", "type": "untracked-value"})
 				cq.pushOrUpdatePending(wl1)
 				cq.pushOrUpdatePending(wl2)
 			},

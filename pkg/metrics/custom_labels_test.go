@@ -436,12 +436,7 @@ func TestCustomLabelsDisabled(t *testing.T) {
 	nilCl.CohortDelete(kueue.CohortReference("cohort"))
 }
 
-type pair struct {
-	First  int
-	Second int
-}
-
-func TestLabelValueSetCounter(t *testing.T) {
+func TestLabelValsTracker(t *testing.T) {
 	k1 := labelValsSet{
 		vals: [MaxCustomLabelsForSourceKind]string{"v1", "v2"},
 		size: 2,
@@ -455,7 +450,7 @@ func TestLabelValueSetCounter(t *testing.T) {
 		size: 1,
 	}
 
-	// 1. Test NewLabelSetCount and Empty
+	// 1. Test NewLabelValsTracker and Empty
 	c1 := NewLabelValsTracker()
 	if c1.Total() != 0 {
 		t.Errorf("expected empty counter total to be 0, got %d", c1.Total())
@@ -464,49 +459,85 @@ func TestLabelValueSetCounter(t *testing.T) {
 		t.Errorf("expected empty counter Get to return 0, got %d", got)
 	}
 
-	// 2. Test Incr and Add
+	// 2. Test count manipulation operations
 	c1.Incr(k1)
-	c1.Add(k1, 2)
-	c1.Incr(k2)
-	if c1.Total() != 4 {
-		t.Errorf("expected total to be 4, got %d", c1.Total())
+	c1.Incr(k1)
+	c1.Incr(k1)
+	if c1.get(k1) != 3 {
+		t.Errorf("expected triple increment to result in 3, got %d", c1.get(k1))
 	}
-	if got := c1.get(k1); got != 3 {
-		t.Errorf("expected Get(k1) to be 3, got %d", got)
+	if c1.Total() != 3 {
+		t.Errorf("expected total to be 3, got %d", c1.Total())
 	}
-	if got := c1.get(k2); got != 1 {
-		t.Errorf("expected Get(k2) to be 1, got %d", got)
+
+	c1.Decr(k1)
+	c1.Decr(k1)
+	if c1.get(k1) != 1 {
+		t.Errorf("expected value to go form 3 to 1, got %d", c1.get(k2))
 	}
-	if got := c1.get(k3); got != 0 {
-		t.Errorf("expected Get(k3) to be 0, got %d", got)
+
+	c1.Decr(k1)
+	c1.Decr(k1)
+	if c1.get(k1) != 0 {
+		t.Errorf("expected value not to decrement to 0 and persist, got %d", c1.get(k2))
+	}
+
+	c1.Add(k1, 1)
+	c1.Add(k2, 5)
+	if c1.get(k2) != 5 {
+		t.Errorf("expected 5 to be added, got %d", c1.get(k2))
+	}
+	if c1.Total() != 6 {
+		t.Errorf("expected total to be 6, got %d", c1.Total())
+	}
+
+	c1.Add(k2, 3)
+	if c1.get(k2) != 8 {
+		t.Errorf("expected 3 to be added reuslting in 8, got %d", c1.get(k2))
+	}
+	c1.Add(k2, -4)
+	if c1.get(k2) != 4 {
+		t.Errorf("expected 4 to be subtracted reuslting in 4, got %d", c1.get(k2))
+	}
+	if c1.Total() != 5 {
+		t.Errorf("expected total to be 5, got %d", c1.Total())
+	}
+
+	c1.Add(k2, -5)
+	if c1.get(k2) != 0 {
+		t.Errorf("expected subtracting over count to go to 0, got %d", c1.get(k2))
+	}
+	if c1.Total() != 1 {
+		t.Errorf("expected total to be 1, got %d", c1.Total())
 	}
 
 	// 3. Test merge
 	c2 := NewLabelValsTracker()
-	c2.Incr(k2)
-	c2.Incr(k3)
+	c2.Add(k1, 1)
+	c2.Add(k2, 2)
+	c2.Add(k3, 3)
 
 	c1.merge(c2)
-	if c1.Total() != 6 {
-		t.Errorf("expected total after merge to be 6, got %d", c1.Total())
+	if c1.Total() != 7 {
+		t.Errorf("expected total after merge to be 7, got %d", c1.Total())
 	}
-	if got := c1.get(k1); got != 3 {
-		t.Errorf("expected Get(k1) to be 3, got %d", got)
+	if got := c1.get(k1); got != 2 {
+		t.Errorf("expected Get(k1) to be 2, got %d", got)
 	}
-	if got := c1.get(k2); got != 2 { // 1 from c1 + 1 from c2
+	if got := c1.get(k2); got != 2 {
 		t.Errorf("expected Get(k2) to be 2, got %d", got)
 	}
-	if got := c1.get(k3); got != 1 {
-		t.Errorf("expected Get(k3) to be 1, got %d", got)
+	if got := c1.get(k3); got != 3 {
+		t.Errorf("expected Get(k3) to be 3, got %d", got)
 	}
 
 	// Test merge nil
 	c1.merge(nil)
-	if c1.Total() != 6 {
-		t.Errorf("expected total after merge(nil) to remain 6, got %d", c1.Total())
+	if c1.Total() != 7 {
+		t.Errorf("expected total after merge(nil) to remain 7, got %d", c1.Total())
 	}
 
-	// 4. Test CombinedCounters
+	// 4. Test MergedTracker
 	a := NewLabelValsTracker()
 	a.Incr(k1)
 	b := NewLabelValsTracker()
