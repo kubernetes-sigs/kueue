@@ -17,7 +17,6 @@
     - [RayJob](#rayjob)
     - [Workload-slice naming under annotation reflection](#workload-slice-naming-under-annotation-reflection)
   - [Worker-side resize tolerance](#worker-side-resize-tolerance)
-  - [Retaining enableInTreeAutoscaling on the remote copy](#retaining-enableintreeautoscaling-on-the-remote-copy)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit tests](#unit-tests)
@@ -279,13 +278,6 @@ transient mismatch during handover is not treated as divergence:
 - On scale-up, extra pods stay behind scheduling gates and are never admitted
   past quota.
 - On scale-down, the workload briefly over-reserves and is never under-reserved.
-
-### Retaining enableInTreeAutoscaling on the remote copy
-
-In autoscaling mode the remote copy keeps `enableInTreeAutoscaling`, so the worker
-runs the autoscaler sidecar (accounted for in the head PodSet). The forward sync
-never pushes replicas in this mode; its only duty is repointing the remote's
-prebuilt-workload marker at the current slice, which is idempotent.
 
 ### Test Plan
 
