@@ -113,17 +113,16 @@ which feed the manager's PodSets derivation and the workload-slice name.
 
 ### User Stories
 
-#### Story 1: Multi-modal inference
+#### Story 1: Online and offline inference
 
-A multi-modal inference pipeline processes data through stages with very different
-resource needs — for example, CPU workers for image decoding and GPU workers for
-captioning. Ray's autoscaler sizes each worker group independently to match
-per-stage demand:
+The Ray autoscaler sizes each worker group independently to match its demand:
 
 - Online inference is served by a long-lived `RayService`; its worker groups scale
   up as request load rises and back down when it subsides.
-- Offline / batch inference runs as a `RayCluster` or `RayJob`; its worker groups
-  scale with the batch in flight.
+- Offline / batch inference runs as a `RayCluster` or `RayJob` over multi-modal
+  data whose stages need different resources — for example CPU workers for image
+  decoding and GPU workers for captioning — so the autoscaler grows and shrinks
+  each worker group as the batch moves through the pipeline.
 
 #### Story 2: Colocated training and evaluation
 
