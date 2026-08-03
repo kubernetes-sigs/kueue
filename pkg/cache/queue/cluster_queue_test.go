@@ -788,6 +788,113 @@ func TestPendingResources(t *testing.T) {
 	}
 }
 
+// TestPendingResourcesAfterLocalQueueResync verifies the invariant that a
+// pending workload is tracked in exactly one bucket: an AddFromLocalQueue
+// resync must not push a workload that is already tracked as inadmissible
+// into the heap, and pendingResourcesTotal must count it exactly once
+// through the follow-up transitions.
+func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+
+	tests := map[string]struct {
+		beforeResync       func(t *testing.T, cq *ClusterQueue, wInfo *workload.Info)
+		afterResync        func(cq *ClusterQueue, wInfo *workload.Info)
+		wantInHeap         bool
+		wantInInadmissible bool
+		wantInInflight     bool
+		wantPendingActive  int
+		wantCPU            func(wInfo *workload.Info) int64
+	}{
+		"the workload stays tracked as inadmissible": {
+			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
+				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+			},
+			wantInInadmissible: true,
+			wantCPU:            singleWorkloadCPU,
+		},
+		"requeuing all inadmissible workloads moves it to the heap": {
+			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
+				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+			},
+			afterResync: func(cq *ClusterQueue, _ *workload.Info) {
+				cq.namespaceSelector = labels.Everything()
+				queueInadmissibleWorkloads(ctx, cq, utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace)))
+			},
+			wantInHeap:        true,
+			wantPendingActive: 1,
+			wantCPU:           singleWorkloadCPU,
+		},
+		"deleting the workload removes it and its resources": {
+			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
+				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+			},
+			afterResync: func(cq *ClusterQueue, wInfo *workload.Info) {
+				cq.Delete(log, workloadKey(wInfo))
+			},
+			wantCPU: func(*workload.Info) int64 { return 0 },
+		},
+		"the workload stays tracked as inflight": {
+			beforeResync: func(t *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
+				cq.PushOrUpdate(wInfo)
+				if popped := cq.Pop(); popped == nil {
+					t.Fatal("expected to pop a workload")
+				}
+			},
+			wantInInflight:    true,
+			wantPendingActive: 1,
+			wantCPU:           singleWorkloadCPU,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+			ps := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Request(corev1.ResourceCPU, "1")
+			wInfo := workload.NewInfo(utiltestingapi.MakeWorkload("workload", defaultNamespace).
+				PodSets(*ps.Obj()).
+				Creation(now).Obj())
+			key := workloadKey(wInfo)
+
+			tc.beforeResync(t, cq, wInfo)
+			lq := &LocalQueue{items: map[workload.Reference]*workload.Info{
+				key: wInfo,
+			}}
+			if added := cq.AddFromLocalQueue(lq, nil, nil); added {
+				t.Error("AddFromLocalQueue() = true, want false; the workload is already tracked")
+			}
+
+			if tc.afterResync != nil {
+				tc.afterResync(cq, wInfo)
+			}
+
+			inHeap := cq.heap.GetByKey(key) != nil
+			inInadmissible := cq.inadmissibleWorkloads.hasKey(key)
+			inInflight := cq.inflight != nil && workloadKey(cq.inflight) == key
+			if inHeap != tc.wantInHeap {
+				t.Errorf("in heap = %v, want %v", inHeap, tc.wantInHeap)
+			}
+			if inInadmissible != tc.wantInInadmissible {
+				t.Errorf("in inadmissibleWorkloads = %v, want %v", inInadmissible, tc.wantInInadmissible)
+			}
+			if inInflight != tc.wantInInflight {
+				t.Errorf("in inflight = %v, want %v", inInflight, tc.wantInInflight)
+			}
+			if got := cq.pendingActive(); got != tc.wantPendingActive {
+				t.Errorf("pending active workloads = %d, want %d", got, tc.wantPendingActive)
+			}
+			if gotCPU, wantCPU := cq.pendingResources()[corev1.ResourceCPU], tc.wantCPU(wInfo); gotCPU != wantCPU {
+				t.Errorf("pending CPU = %d, want %d", gotCPU, wantCPU)
+			}
+		})
+	}
+}
+
+func singleWorkloadCPU(wInfo *workload.Info) int64 {
+	return wInfo.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU)
+}
+
 func TestPendingInLocalQueueCountsInflight(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := time.Now()
