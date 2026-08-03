@@ -71,7 +71,7 @@ response to the actual resource demands of the application:
 Many real workloads depend on it — mixed online/offline inference, and training
 colocated with evaluation in a single long-lived RayCluster. The manager-driven-only
 model shuts out every such use case. To unblock them, the resize decision must be
-allowed to *originate on the worker* and flow back to the manager, which remains
+allowed to *originate on the worker* and *flow back to the manager*, which remains
 the quota authority.
 
 ### Goals
