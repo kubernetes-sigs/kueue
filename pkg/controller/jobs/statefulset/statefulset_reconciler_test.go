@@ -252,6 +252,10 @@ func TestReconciler(t *testing.T) {
 						Type:   kueue.WorkloadAdmitted,
 						Status: metav1.ConditionTrue,
 					}).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}).
 					Obj(),
 			},
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -267,6 +271,10 @@ func TestReconciler(t *testing.T) {
 					Admission(utiltestingapi.MakeAdmission("cluster-queue").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
 						Status: metav1.ConditionTrue,
 					}).
 					ReclaimablePods(kueue.ReclaimablePod{
@@ -294,6 +302,10 @@ func TestReconciler(t *testing.T) {
 						Type:   kueue.WorkloadAdmitted,
 						Status: metav1.ConditionTrue,
 					}).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}).
 					Obj(),
 			},
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -309,6 +321,10 @@ func TestReconciler(t *testing.T) {
 					Admission(utiltestingapi.MakeAdmission("cluster-queue").Obj()).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
 						Status: metav1.ConditionTrue,
 					}).
 					Obj(),

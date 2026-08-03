@@ -722,6 +722,10 @@ func TestValidateUpdate(t *testing.T) {
 						Type:   kueue.WorkloadAdmitted,
 						Status: metav1.ConditionTrue,
 					}).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}).
 					Obj(),
 			},
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
