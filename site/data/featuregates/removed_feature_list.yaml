@@ -218,7 +218,7 @@
   default: true
   stage: Beta
   from: "0.16"
-  to: "0.18"
+  to: "0.17"
 - feature: MultiKueueWaitForWorkloadAdmitted
   default: true
   stage: GA
