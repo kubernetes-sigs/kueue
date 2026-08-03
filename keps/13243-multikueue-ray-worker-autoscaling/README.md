@@ -137,8 +137,6 @@ temporarily.
 - Only per-worker-group replica counts move in the worker→manager direction, and
   only as annotations — the manager spec is never rewritten. Structural changes
   (adding/removing worker groups, resource shapes) remain manager-owned.
-- The reflected count is whatever the worker autoscaler settled on, which the
-  RayCluster's own `[minReplicas, maxReplicas]` already bounds on the worker side.
 
 ### Risks and Mitigations
 
