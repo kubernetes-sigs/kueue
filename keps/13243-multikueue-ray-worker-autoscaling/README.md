@@ -167,9 +167,8 @@ The end-to-end flow of a worker-side autoscaler resize:
    machinery **re-reserves quota**: a freshly named replacement slice on scale-up,
    or an in-place update on scale-down.
 6. On scale-up the admitted slice changes name, so the forward sync **repoints**
-   the worker job's prebuilt-workload marker to the new slice — its only duty in
-   autoscaling mode — keeping the already-running worker job linked to the current
-   slice.
+   the worker job's prebuilt-workload marker to the new slice, keeping the
+   already-running worker job linked to the current slice.
 
 The subsections below detail each step.
 
