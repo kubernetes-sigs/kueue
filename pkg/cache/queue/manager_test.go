@@ -41,6 +41,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -538,6 +539,30 @@ func expectGaugeValue(t *testing.T, collector prometheus.Collector, labels map[s
 	}
 }
 
+func TestAddOrUpdateCohortCycle(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil)
+	for _, cohort := range []*kueue.Cohort{
+		utiltestingapi.MakeCohort("top").Obj(),
+		utiltestingapi.MakeCohort("parent").Parent("top").Obj(),
+		utiltestingapi.MakeCohort("child").Parent("parent").Obj(),
+	} {
+		manager.AddOrUpdateCohort(ctx, cohort)
+	}
+
+	manager.AddOrUpdateCohort(ctx, utiltestingapi.MakeCohort("parent").Parent("child").Obj())
+	parent := manager.hm.Cohort("parent")
+	if !hierarchy.HasCycle(parent) {
+		t.Error("Cycle should be detected in hierarchy")
+	}
+
+	// Resolve cycle
+	manager.AddOrUpdateCohort(ctx, utiltestingapi.MakeCohort("parent").Parent("top").Obj())
+	if hierarchy.HasCycle(parent) {
+		t.Error("Cycle should no longer exist after resolution")
+	}
+}
+
 func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cohorts := []*kueue.Cohort{
@@ -593,6 +618,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 		wantActive                map[kueue.ClusterQueueReference][]workload.Reference
 		wantMoveWorkloadsLogCount int
 		wantMovedCount            int
+		forceCycle                bool
 	}{
 		"deduplication with shared root": {
 			// Tree structure:
@@ -688,6 +714,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 				"cq1": {"default/a"},
 			},
 			wantActive: nil,
+			forceCycle: true,
 		},
 	}
 
@@ -706,6 +733,9 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 
 			for _, cohort := range tc.cohorts {
 				manager.AddOrUpdateCohort(ctx, cohort)
+			}
+			if tc.forceCycle {
+				manager.hm.UpdateCohortEdge("cohort-c", "cohort-a")
 			}
 			for _, cq := range tc.clusterQueues {
 				if err := manager.AddClusterQueue(ctx, cq); err != nil {
