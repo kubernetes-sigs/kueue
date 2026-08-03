@@ -201,7 +201,7 @@ type ClusterQueue struct {
 	pendingResourcesTotal map[corev1.ResourceName]int64
 }
 
-func (c *ClusterQueue) updateInadmissible(key workload.Reference, wInfo *workload.Info) {
+func (c *ClusterQueue) recordInadmissible(key workload.Reference, wInfo *workload.Info) {
 	if c.breakDownByWorkloadLabels() {
 		if oldInfo := c.inadmissibleWorkloads.get(key); oldInfo != nil {
 			c.inadmissibleWorkloadsTracker.Decr(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, oldInfo.Obj.Labels, oldInfo.Obj.Annotations))
@@ -211,14 +211,14 @@ func (c *ClusterQueue) updateInadmissible(key workload.Reference, wInfo *workloa
 	c.inadmissibleWorkloads.insert(key, wInfo)
 }
 
-func (c *ClusterQueue) removeInadmissible(key workload.Reference, wInfo *workload.Info) {
+func (c *ClusterQueue) untrackInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.inadmissibleWorkloads.delete(key)
 	if c.breakDownByWorkloadLabels() {
 		c.inadmissibleWorkloadsTracker.Decr(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations))
 	}
 }
 
-func (c *ClusterQueue) replaceInadmissible(newInadmissibleWorkloads inadmissibleWorkloads) {
+func (c *ClusterQueue) recorcManyInadmissible(newInadmissibleWorkloads inadmissibleWorkloads) {
 	if c.breakDownByWorkloadLabels() {
 		for _, wInfo := range c.inadmissibleWorkloads {
 			c.inadmissibleWorkloadsTracker.Decr(c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wInfo.Obj.Labels, wInfo.Obj.Annotations))
@@ -482,7 +482,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) &&
 			workload.HasClosedPreemptionGate(oldInfo.Obj) == workload.HasClosedPreemptionGate(wInfo.Obj) &&
 			!draRequestsChanged(oldInfo, wInfo) {
-			c.updateInadmissible(key, wInfo)
+			c.recordInadmissible(key, wInfo)
 			return
 		}
 		// Workload is leaving inadmissible; account for its resources before moving.
@@ -582,13 +582,13 @@ func (c *ClusterQueue) subtractPendingResources(wInfo *workload.Info) {
 }
 
 func (c *ClusterQueue) insertInadmissible(key workload.Reference, wInfo *workload.Info) {
-	c.updateInadmissible(key, wInfo)
+	c.recordInadmissible(key, wInfo)
 	c.addPendingResources(wInfo)
 }
 
 func (c *ClusterQueue) removeFromInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.subtractPendingResources(wInfo)
-	c.removeInadmissible(key, wInfo)
+	c.untrackInadmissible(key, wInfo)
 }
 
 // Delete removes the workload from ClusterQueue.
@@ -679,7 +679,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 		// If the workload was inadmissible, move it back into the queue.
 		if inadmissibleWl != nil {
 			wInfo = inadmissibleWl
-			c.removeInadmissible(key, wInfo)
+			c.untrackInadmissible(key, wInfo)
 		}
 		pushed := c.pushPendingIfNotPresent(wInfo)
 		if pushed && !wasTracked {
@@ -696,7 +696,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 		return false
 	}
 
-	c.updateInadmissible(key, wInfo)
+	c.recordInadmissible(key, wInfo)
 	if !wasTracked {
 		c.addPendingResources(wInfo)
 	}
@@ -736,7 +736,7 @@ func (c *ClusterQueue) handleInadmissibleHash(hash workload.EquivalenceHash, rea
 		if wInfo.SchedulingHash == hash {
 			key := workloadKey(wInfo)
 			c.deletePending(key, wInfo)
-			c.updateInadmissible(key, wInfo)
+			c.recordInadmissible(key, wInfo)
 			moved++
 		}
 	}
@@ -763,12 +763,18 @@ func (c *ClusterQueue) pendingResources() map[corev1.ResourceName]int64 {
 
 // PendingTotal returns the total number of pending workloads.
 func (c *ClusterQueue) PendingTotal() int {
-	active, inadmissible := c.Pending()
+	active, inadmissible := c.PendingBreakdown()
 	return active.Total() + inadmissible.Total()
 }
 
 // Pending returns the number of active and inadmissible pending workloads.
-func (c *ClusterQueue) Pending() (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
+func (c *ClusterQueue) Pending() (int, int) {
+	active, inadmissible := c.PendingBreakdown()
+	return active.Total(), inadmissible.Total()
+}
+
+// Pending returns the number of active and inadmissible pending workloads.
+func (c *ClusterQueue) PendingBreakdown() (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.pendingActive(), c.pendingInadmissible()

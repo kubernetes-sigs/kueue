@@ -461,7 +461,7 @@ func TestLabelValueSetCounter(t *testing.T) {
 	if c1.Total() != 0 {
 		t.Errorf("expected empty counter total to be 0, got %d", c1.Total())
 	}
-	if got := c1.Get(k1); got != 0 {
+	if got := c1.get(k1); got != 0 {
 		t.Errorf("expected empty counter Get to return 0, got %d", got)
 	}
 
@@ -472,13 +472,13 @@ func TestLabelValueSetCounter(t *testing.T) {
 	if c1.Total() != 4 {
 		t.Errorf("expected total to be 4, got %d", c1.Total())
 	}
-	if got := c1.Get(k1); got != 3 {
+	if got := c1.get(k1); got != 3 {
 		t.Errorf("expected Get(k1) to be 3, got %d", got)
 	}
-	if got := c1.Get(k2); got != 1 {
+	if got := c1.get(k2); got != 1 {
 		t.Errorf("expected Get(k2) to be 1, got %d", got)
 	}
-	if got := c1.Get(k3); got != 0 {
+	if got := c1.get(k3); got != 0 {
 		t.Errorf("expected Get(k3) to be 0, got %d", got)
 	}
 
@@ -491,13 +491,13 @@ func TestLabelValueSetCounter(t *testing.T) {
 	if c1.Total() != 6 {
 		t.Errorf("expected total after merge to be 6, got %d", c1.Total())
 	}
-	if got := c1.Get(k1); got != 3 {
+	if got := c1.get(k1); got != 3 {
 		t.Errorf("expected Get(k1) to be 3, got %d", got)
 	}
-	if got := c1.Get(k2); got != 2 { // 1 from c1 + 1 from c2
+	if got := c1.get(k2); got != 2 { // 1 from c1 + 1 from c2
 		t.Errorf("expected Get(k2) to be 2, got %d", got)
 	}
-	if got := c1.Get(k3); got != 1 {
+	if got := c1.get(k3); got != 1 {
 		t.Errorf("expected Get(k3) to be 1, got %d", got)
 	}
 
@@ -516,8 +516,8 @@ func TestLabelValueSetCounter(t *testing.T) {
 	if combined.Total() != 2 {
 		t.Errorf("expected combined total to be 2, got %d", combined.Total())
 	}
-	if combined.Get(k1) != 1 || combined.Get(k2) != 1 {
-		t.Errorf("expected combined to have k1 and k2, got k1=%d, k2=%d", combined.Get(k1), combined.Get(k2))
+	if combined.get(k1) != 1 || combined.get(k2) != 1 {
+		t.Errorf("expected combined to have k1 and k2, got k1=%d, k2=%d", combined.get(k1), combined.get(k2))
 	}
 
 	// 5. Test ParallelIter

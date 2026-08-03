@@ -1726,11 +1726,11 @@ func TestRecordInadmissibleHash(t *testing.T) {
 			}
 
 			active, inadmissible := cq.Pending()
-			if active.Total() != tc.wantActive {
-				t.Errorf("active workloads = %d, want %d", active.Total(), tc.wantActive)
+			if active != tc.wantActive {
+				t.Errorf("active workloads = %d, want %d", active, tc.wantActive)
 			}
-			if inadmissible.Total() != tc.wantInadmissible {
-				t.Errorf("inadmissible workloads = %d, want %d", inadmissible.Total(), tc.wantInadmissible)
+			if inadmissible != tc.wantInadmissible {
+				t.Errorf("inadmissible workloads = %d, want %d", inadmissible, tc.wantInadmissible)
 			}
 		})
 	}
@@ -1773,11 +1773,11 @@ func TestPushOrUpdateRespectsInadmissibleHashes(t *testing.T) {
 			cq.PushOrUpdate(info)
 
 			active, inadmissible := cq.Pending()
-			if active.Total() != tc.wantActive {
-				t.Errorf("active = %d, want %d", active.Total(), tc.wantActive)
+			if active != tc.wantActive {
+				t.Errorf("active = %d, want %d", active, tc.wantActive)
 			}
-			if inadmissible.Total() != tc.wantInadmissible {
-				t.Errorf("inadmissible = %d, want %d", inadmissible.Total(), tc.wantInadmissible)
+			if inadmissible != tc.wantInadmissible {
+				t.Errorf("inadmissible = %d, want %d", inadmissible, tc.wantInadmissible)
 			}
 		})
 	}
@@ -1809,8 +1809,8 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 	}
 
 	active, inadmissible := cq.Pending()
-	if active.Total() != 1 || inadmissible.Total() != 0 {
-		t.Errorf("after requeue: active=%d inadmissible=%d, want active=1 inadmissible=0", active.Total(), inadmissible.Total())
+	if active != 1 || inadmissible != 0 {
+		t.Errorf("after requeue: active=%d inadmissible=%d, want active=1 inadmissible=0", active, inadmissible)
 	}
 }
 
@@ -2172,7 +2172,7 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 				tc.ops(ctx, log, cq)
 			}
 
-			gotPending, gotInadmissible := cq.Pending()
+			gotPending, gotInadmissible := cq.PendingBreakdown()
 			cmpAllowUnexported := cmp.AllowUnexported(metrics.LabelValsTracker{})
 			if diff := cmp.Diff(tc.wantPending, *gotPending, cmpAllowUnexported); diff != "" {
 				t.Errorf("Unexpected pending tracker (-want +got):\n%s", diff)

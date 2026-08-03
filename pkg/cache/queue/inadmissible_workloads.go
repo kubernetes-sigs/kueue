@@ -188,7 +188,7 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 		}
 	}
 
-	c.replaceInadmissible(newInadmissibleWorkloads)
+	c.recorcManyInadmissible(newInadmissibleWorkloads)
 	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", len(c.inadmissibleWorkloads))
 	return moved
 }

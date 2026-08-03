@@ -113,8 +113,7 @@ func (cl *CustomLabels) MakeValsSet(kind configapi.SourceKind, labels, annotatio
 		return Empty()
 	}
 	vals := cl.m[kind].extractValues(labels, annotations)
-	copy(ls.vals[:], vals)
-	ls.size = len(vals)
+	ls.size = copy(ls.vals[:], vals)
 	return
 }
 
@@ -338,7 +337,7 @@ func ParallelIter[S any](first, second *LabelValsTracker, collect func(first int
 	allValSets = allValSets.Union(sets.KeySet(second.counts))
 	return func(yield func(labelValsSet, S) bool) {
 		for ls := range allValSets {
-			if !yield(ls, collect(first.Get(ls), second.Get(ls))) {
+			if !yield(ls, collect(first.get(ls), second.get(ls))) {
 				return
 			}
 		}
@@ -365,13 +364,13 @@ func (c *LabelValsTracker) Decr(ls labelValsSet) {
 }
 
 func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
-	c.counts[ls] += incr
-	c.counts[ls] = max(0, c.counts[ls])
-	c.total += incr
-	c.total = max(0, c.total)
+	oldCount := c.counts[ls]
+	newCount := max(0, oldCount+incr)
+	c.counts[ls] = newCount
+	c.total += newCount - oldCount
 }
 
-func (c *LabelValsTracker) Get(ls labelValsSet) int {
+func (c *LabelValsTracker) get(ls labelValsSet) int {
 	return c.counts[ls]
 }
 
