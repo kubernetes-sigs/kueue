@@ -110,7 +110,7 @@ func (cl *CustomLabels) KindConfigured(kind configapi.SourceKind) (isConfigured 
 
 func (cl *CustomLabels) MakeValsSet(kind configapi.SourceKind, labels, annotations map[string]string) (ls labelValsSet) {
 	if !cl.enabled() || cl.m[kind] == nil {
-		return Empty()
+		return EmptyValsSet()
 	}
 	vals := cl.m[kind].extractValues(labels, annotations)
 	ls.size = copy(ls.vals[:], vals)
@@ -383,7 +383,7 @@ func (c *LabelValsTracker) merge(other *LabelValsTracker) *LabelValsTracker {
 	return c
 }
 
-func Empty() labelValsSet {
+func EmptyValsSet() labelValsSet {
 	return labelValsSet{}
 }
 

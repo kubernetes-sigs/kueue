@@ -800,7 +800,7 @@ func (c *ClusterQueue) pendingActive() *metrics.LabelValsTracker {
 		return result
 	}
 	result := metrics.NewLabelValsTracker()
-	emptyVals := metrics.Empty()
+	emptyVals := metrics.EmptyValsSet()
 	result.Add(emptyVals, c.heap.Len())
 	if c.inflight != nil {
 		result.Incr(emptyVals)
@@ -816,7 +816,7 @@ func (c *ClusterQueue) pendingInadmissible() *metrics.LabelValsTracker {
 		return metrics.Copy(c.inadmissibleWorkloadsTracker)
 	}
 	result := metrics.NewLabelValsTracker()
-	emptyVals := metrics.Empty()
+	emptyVals := metrics.EmptyValsSet()
 	result.Add(emptyVals, len(c.inadmissibleWorkloads))
 	return result
 }

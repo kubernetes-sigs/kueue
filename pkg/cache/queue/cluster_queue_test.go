@@ -1999,12 +1999,12 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 			},
 			wantPending: func() metrics.LabelValsTracker {
 				t := metrics.NewLabelValsTracker()
-				t.Add(metrics.Empty(), 1)
+				t.Add(metrics.EmptyValsSet(), 1)
 				return *t
 			}(),
 			wantInadmissible: func() metrics.LabelValsTracker {
 				t := metrics.NewLabelValsTracker()
-				t.Add(metrics.Empty(), 1)
+				t.Add(metrics.EmptyValsSet(), 1)
 				return *t
 			}(),
 		},
@@ -2020,12 +2020,12 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 			},
 			wantPending: func() metrics.LabelValsTracker {
 				t := metrics.NewLabelValsTracker()
-				t.Add(metrics.Empty(), 1)
+				t.Add(metrics.EmptyValsSet(), 1)
 				return *t
 			}(),
 			wantInadmissible: func() metrics.LabelValsTracker {
 				t := metrics.NewLabelValsTracker()
-				t.Add(metrics.Empty(), 1)
+				t.Add(metrics.EmptyValsSet(), 1)
 				return *t
 			}(),
 		},
