@@ -62,7 +62,8 @@ Please do not remove items from the checklist
         A single invocation does both: it creates the `v$MAJ.$(($MIN+1))` milestone in this repo and opens the
         `milestone_applier` PR against `kubernetes/test-infra`, so there is no milestone to create by hand.
         *Note: until the `KUEUE_RELEASE_BOT_TOKEN` secret is configured, the ChatOps command creates the milestone
-        and reports that the PR half is not enabled yet; open it with `SKIP_MILESTONE=1 ./hack/releasing/milestone_pull.sh $VERSION`.*
+        and reports that the PR half is not enabled yet; open it with
+        `SKIP_MILESTONE=1 GITHUB_USER=<your-user> ./hack/releasing/milestone_pull.sh $VERSION`.*
     - [ ] Wait for this PR to merge <!-- MILESTONE_PULL --> <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
   - [ ] Create the presubmits and the periodic jobs for the next patch release: <!-- CI_PULL -->
         <!-- example: https://github.com/kubernetes/test-infra/pull/34561 -->

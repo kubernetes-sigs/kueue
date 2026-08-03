@@ -662,6 +662,12 @@ jobs:
           SCRIPT_EXIT_CODE=$?
           set -e
 
+          # Exit 2 means the script declined before doing anything — a patch release, or an
+          # unmet precondition. Reporting that as a creation failure hides the real reason.
+          if [ $SCRIPT_EXIT_CODE -eq 2 ]; then
+            echo "message=❌ \`/milestone-pull\` declined to run for \`$VERSION\`. It applies only to major and minor releases; see the job log for the exact precondition." >> "$GITHUB_OUTPUT"
+            exit $SCRIPT_EXIT_CODE
+          fi
           if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
             echo "message=❌ Failed to create the milestone for version \`$VERSION\`." >> "$GITHUB_OUTPUT"
             exit $SCRIPT_EXIT_CODE
@@ -693,6 +699,7 @@ jobs:
           KUBERNETES_TEST_INFRA_PATH: ${{ github.workspace }}/kubernetes/test-infra
           KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE: origin
           KUBERNETES_TEST_INFRA_FORK_REMOTE: fork
+          NEXT_MINOR: ${{ steps.milestone.outputs.next_minor }}
         run: |
           gh auth setup-git
           git -C "$KUBERNETES_TEST_INFRA_PATH" remote add fork \
@@ -704,7 +711,7 @@ jobs:
           set -e
 
           if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
-            echo "message=❌ Milestone \`${{ steps.milestone.outputs.next_minor }}\` is present, but the milestone_applier PR failed." >> "$GITHUB_OUTPUT"
+            echo "message=❌ Milestone \`$NEXT_MINOR\` is present, but the milestone_applier PR failed." >> "$GITHUB_OUTPUT"
             exit $SCRIPT_EXIT_CODE
           fi
 
