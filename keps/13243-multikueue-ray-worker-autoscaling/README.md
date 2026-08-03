@@ -320,21 +320,11 @@ major outstanding bugs.
 ## Implementation History
 
 - 2026-07-26: KEP drafted.
-- Prototype and verification in
-  [#13435](https://github.com/kubernetes-sigs/kueue/pull/13435) (reverse elastic
-  sync, worker-side resize tolerance; verified with unit, integration, and
-  real-autoscaler e2e — including on real GPU clusters).
-- 2026-08-01: reverse sync unified onto a single annotation-based
-  `Runtime{Fetch, Apply}` for both RayCluster and RayJob — RayCluster no longer
-  writes back to the manager spec; the reflected size reuses the existing
-  `raycluster-podset-replica-sizes` annotation; the elastic workload-slice name
-  folds in the reflected revision so annotation-only reflection still mints fresh
-  slices; e2e specs hardened to up/down/up with name-based, overshoot-tolerant
-  slice assertions.
-- The initially-prototyped ElasticJobUngater chain-root workaround was dropped in
-  favor of the merged root-cause fix
-  [#13489](https://github.com/kubernetes-sigs/kueue/pull/13489) (finish a replaced
-  slice as `WorkloadSliceReplaced`).
+- 2026-07: Prototyped in
+  [#13435](https://github.com/kubernetes-sigs/kueue/pull/13435) — reverse elastic
+  sync and worker-side resize tolerance for RayCluster and RayJob.
+- 2026-08: Reverse sync unified onto a single annotation-based
+  `Runtime{Fetch, Apply}`, leaving the manager spec untouched.
 
 ## Drawbacks
 
