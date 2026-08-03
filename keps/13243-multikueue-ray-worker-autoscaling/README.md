@@ -7,7 +7,7 @@
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
-    - [Story 1: Online/offline inference](#story-1-onlineoffline-inference)
+    - [Story 1: Online and offline inference](#story-1-online-and-offline-inference)
     - [Story 2: Colocated training and evaluation](#story-2-colocated-training-and-evaluation)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
