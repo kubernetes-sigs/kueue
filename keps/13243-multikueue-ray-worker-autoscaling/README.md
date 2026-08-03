@@ -111,12 +111,6 @@ In both cases `Apply` records the counts (and a revision) on the manager copy as
 the `raycluster-podset-replica-sizes` and `raycluster-generation` annotations,
 which feed the manager's PodSets derivation and the workload-slice name.
 
-The handover is made safe by a worker-scoped resize tolerance in the jobframework
-(this KEP), together with the already-merged
-[#13489](https://github.com/kubernetes-sigs/kueue/pull/13489), which finishes a
-replaced slice as `WorkloadSliceReplaced` so MultiKueue does not delete a slice
-mid-handover and strand its pods.
-
 ### User Stories
 
 #### Story 1: Online/offline inference
