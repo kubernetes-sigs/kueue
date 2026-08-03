@@ -368,7 +368,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					&kueue.LocalQueueFairSharingStatus{
 						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("6827m"),
+								corev1.ResourceCPU: resource.MustParse("6828427124n"),
 							},
 						},
 					}).
@@ -414,7 +414,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					&kueue.LocalQueueFairSharingStatus{
 						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("7980m"),
+								corev1.ResourceCPU: resource.MustParse("7980769063n"),
 							},
 						},
 					}).
@@ -454,7 +454,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					&kueue.LocalQueueFairSharingStatus{
 						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								resourceGPU: resource.MustParse("6827m"),
+								resourceGPU: resource.MustParse("6828427124n"),
 							},
 						},
 					}).
