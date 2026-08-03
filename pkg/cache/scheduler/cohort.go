@@ -89,12 +89,19 @@ func (c *cohort) fairWeight() float64 {
 // Returns all ancestors starting with self and ending with root
 func (c *cohort) PathSelfToRoot() iter.Seq[*cohort] {
 	return func(yield func(*cohort) bool) {
-		cohort := c
-		for cohort != nil {
-			if !yield(cohort) {
+		// Use a map for cycle detection by pointer identity, consistent with
+		// ClusterQueueSnapshot.PathParentToRoot and calculateLendable.
+		cur := c
+		seen := make(map[*cohort]struct{})
+		for cur != nil {
+			if _, ok := seen[cur]; ok {
 				return
 			}
-			cohort = cohort.Parent()
+			seen[cur] = struct{}{}
+			if !yield(cur) {
+				return
+			}
+			cur = cur.Parent()
 		}
 	}
 }

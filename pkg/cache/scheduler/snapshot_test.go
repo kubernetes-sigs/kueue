@@ -2016,3 +2016,106 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		})
 	}
 }
+
+func TestSnapshotWithCohortCycle(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("arm").Obj())
+
+	cqs := []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("cq-autocycle").
+			Cohort("autocycle").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").Obj(),
+			).Obj(),
+		utiltestingapi.MakeClusterQueue("cq-a").
+			Cohort("cycle-a").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").Obj(),
+			).Obj(),
+		utiltestingapi.MakeClusterQueue("cq-b").
+			Cohort("cycle-b").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").Obj(),
+			).Obj(),
+		utiltestingapi.MakeClusterQueue("cq-nocycle").
+			Cohort("nocycle").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "0").Obj(),
+			).Obj(),
+	}
+	cohorts := []*kueue.Cohort{
+		utiltestingapi.MakeCohort("cycle-a").Parent("cycle-b").Obj(),
+		utiltestingapi.MakeCohort("cycle-b").Obj(),
+		utiltestingapi.MakeCohort("autocycle").Obj(),
+		utiltestingapi.MakeCohort("nocycle").Obj(),
+	}
+
+	for _, cq := range cqs {
+		if err := cache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Failed adding ClusterQueue: %v", err)
+		}
+	}
+	for _, cohort := range cohorts {
+		_ = cache.AddOrUpdateCohort(cohort)
+	}
+
+	cache.hm.UpdateCohortEdge("autocycle", "autocycle")
+	cache.hm.UpdateCohortEdge("cycle-b", "cycle-a")
+
+	wantSnapshot := Snapshot{
+		Manager: hierarchy.NewManagerForTest(
+			map[kueue.CohortReference]*CohortSnapshot{
+				"nocycle": {
+					Name: "nocycle",
+					ResourceNode: resourceNode{
+						SubtreeQuota: resources.FlavorResourceQuantities{
+							{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+						},
+					},
+					FairWeight: defaultWeight,
+				},
+			},
+			map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+				"cq-nocycle": {
+					Name:                          "cq-nocycle",
+					AllocatableResourceGeneration: 2,
+					FlavorFungibility:             defaultFlavorFungibility,
+					Preemption:                    defaultPreemption,
+					FairWeight:                    defaultWeight,
+					NamespaceSelector:             labels.Everything(),
+					Status:                        active,
+					ResourceGroups: []resourcegroups.ResourceGroup{
+						{
+							CoveredResources: sets.New(corev1.ResourceCPU),
+							Flavors:          []kueue.ResourceFlavorReference{"arm"},
+						},
+					},
+					ResourceNode: resourceNode{
+						Quotas: map[resources.FlavorResource]ResourceQuota{
+							{Flavor: "arm", Resource: corev1.ResourceCPU}: {
+								Nominal: resources.NewAmount(0),
+							},
+						},
+						SubtreeQuota: resources.FlavorResourceQuantities{
+							{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+						},
+					},
+				},
+			},
+		),
+		InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference]("cq-a", "cq-autocycle", "cq-b"),
+		ResourceFlavors: map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+			"arm": utiltestingapi.MakeResourceFlavor("arm").Obj(),
+		},
+	}
+
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	if diff := cmp.Diff(wantSnapshot, *snapshot, snapCmpOpts...); len(diff) != 0 {
+		t.Errorf("Unexpected Snapshot (-want,+got):\n%s", diff)
+	}
+}
