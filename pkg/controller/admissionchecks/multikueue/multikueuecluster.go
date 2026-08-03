@@ -843,10 +843,10 @@ func (c *clustersReconciler) doReconcile(ctx context.Context, req reconcile.Requ
 	log.V(2).Info("Reconcile MultiKueueCluster")
 
 	// Warn about deprecated Path usage when the validation feature gate is off.
-	if isLeader {
-		if cluster.Spec.ClusterSource.KubeConfig != nil &&
-			cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType &&
-			!features.Enabled(features.MultiKueueKubeConfigPathValidation) {
+	if cluster.Spec.ClusterSource.KubeConfig != nil &&
+		cluster.Spec.ClusterSource.KubeConfig.LocationType == kueue.PathLocationType &&
+		!features.Enabled(features.MultiKueueKubeConfigPathValidation) {
+		if isLeader {
 			c.recorder.Eventf(cluster, nil, corev1.EventTypeWarning, "DeprecatedPathUsage", "DeprecatedPathUsage",
 				"Using locationType=Path without MultiKueueKubeConfigPathValidation feature gate is deprecated and will be removed in a future release. "+
 					"Enable the MultiKueueKubeConfigPathValidation feature gate and place kubeconfig files under /etc/multikueue/kubeconfigs/.")
