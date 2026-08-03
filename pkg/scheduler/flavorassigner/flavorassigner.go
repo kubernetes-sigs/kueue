@@ -690,7 +690,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 			if podSet.Requests != nil {
 				podSet.Requests.Set(corev1.ResourcePods, int64(podSet.Count))
 			} else {
-				podSet.Requests = resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourcePods: int64(podSet.Count)})
+				podSet.Requests = resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: int64(podSet.Count)})
 			}
 		}
 
@@ -749,7 +749,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 			maps.Copy(groupFlavors, ips.podSetAssignment.Flavors)
 		}
 		var groupStatus Status
-		for resName, quantity := range resources.ToMapRequests(requests) {
+		for resName, quantity := range requests.Iter() {
 			// Skip zero-quantity requests for resources not defined in the ClusterQueue (#8079) or
 			// If quotaCheckStrategy is IgnoreUndeclared, skip resources not declared in the ClusterQueue.
 			if a.cq.RGByResource(resName) == nil {

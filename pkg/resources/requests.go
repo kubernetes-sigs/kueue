@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"iter"
 	"maps"
 	"math"
 
@@ -151,7 +152,7 @@ func (r MapRequests) GreaterKeys(other Requests) []corev1.ResourceName {
 	if len(r) == 0 || isEmpty(other) {
 		return nil
 	}
-	otherMap := ToMapRequests(other)
+	otherMap := ToMap(other)
 	var result []corev1.ResourceName
 	for name, value := range r {
 		if otherValue, found := otherMap[name]; found && value > otherValue {
@@ -219,4 +220,14 @@ func CountInWithLimitingResource(requests Requests, capacity Requests) (int32, c
 		}
 	})
 	return ptr.Deref(result, 0), limitingResource
+}
+
+func (r MapRequests) Iter() iter.Seq2[corev1.ResourceName, int64] {
+	return func(yield func(corev1.ResourceName, int64) bool) {
+		for k, v := range r {
+			if !yield(k, v) {
+				return
+			}
+		}
+	}
 }

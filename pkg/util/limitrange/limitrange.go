@@ -70,7 +70,7 @@ func (s Summary) validatePodSpecContainers(containers []corev1.Container, path *
 		if resNames := resources.NewRequestsFromResourceList(cMax).GreaterKeysRL(containerRange.Max); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(containerPath, resNames, RequestsMustNotBeAboveLimitRangeMaxMessage))
 		}
-		if resNames := resources.NewRequestsFromResourceList(containerRange.Min).GreaterKeys(resources.NewMapRequests(cMin)); len(resNames) > 0 {
+		if resNames := resources.NewRequestsFromResourceList(containerRange.Min).GreaterKeys(resources.NewRequestsFromResourceListRetainZero(cMin)); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(containerPath, resNames, RequestsMustNotBeBelowLimitRangeMinMessage))
 		}
 	}
@@ -83,11 +83,11 @@ func (s Summary) ValidatePodSpec(ps *corev1.PodSpec, path *field.Path) field.Err
 	allErrs = append(allErrs, s.validatePodSpecContainers(ps.InitContainers, path.Child("initContainers"))...)
 	allErrs = append(allErrs, s.validatePodSpecContainers(ps.Containers, path.Child("containers"))...)
 	if podRange, found := s[corev1.LimitTypePod]; found {
-		total := resources.NewMapRequestsFromPodSpec(ps)
+		total := resources.NewRequestsFromPodSpecRetainZero(ps)
 		if resNames := total.GreaterKeysRL(podRange.Max); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(path, resNames, RequestsMustNotBeAboveLimitRangeMaxMessage))
 		}
-		if resNames := resources.NewMapRequests(podRange.Min).GreaterKeys(total); len(resNames) > 0 {
+		if resNames := resources.NewRequestsFromResourceList(podRange.Min).GreaterKeys(total); len(resNames) > 0 {
 			allErrs = append(allErrs, field.Invalid(path, resNames, RequestsMustNotBeBelowLimitRangeMinMessage))
 		}
 	}
