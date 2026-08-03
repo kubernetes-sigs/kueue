@@ -323,8 +323,6 @@ major outstanding bugs.
 - 2026-07: Prototyped in
   [#13435](https://github.com/kubernetes-sigs/kueue/pull/13435) — reverse elastic
   sync and worker-side resize tolerance for RayCluster and RayJob.
-- 2026-08: Reverse sync unified onto a single annotation-based
-  `Runtime{Fetch, Apply}`, leaving the manager spec untouched.
 
 ## Drawbacks
 
