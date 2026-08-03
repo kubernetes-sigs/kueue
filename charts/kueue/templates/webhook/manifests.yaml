@@ -628,8 +628,10 @@ webhooks:
           - v1beta2
         operations:
           - CREATE
+          - UPDATE
         resources:
           - workloads
+          - workloads/status
     sideEffects: None
     reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
   - admissionReviewVersions:
