@@ -37,7 +37,7 @@ Kueue can dispatch an elastic RayCluster or RayJob (`ElasticJobsViaWorkloadSlice
 to a worker cluster through MultiKueue, and the manager-driven forward sync
 ([#12885](https://github.com/kubernetes-sigs/kueue/pull/12885)) propagates
 manager-side resizes down to that worker copy. But when the workload is meant to
-be resized by the **Ray in-tree autoscaler running on the worker cluster**, there
+be resized by the [Ray Autoscaler](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/configuring-autoscaling.html), there
 is no path for those worker-side resizes to travel back to the manager. As a
 result, the manager's quota accounting drifts from reality and the manager can
 overwrite the autoscaler's changes, tearing down the running job.
