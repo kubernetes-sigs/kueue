@@ -116,8 +116,10 @@ function read_mapping_state() {
 # $3 - next minor, e.g. v0.21
 # $4 - release branch key, e.g. release-0.20
 # $5 - released minor, e.g. v0.20
+# $6 - "yes" when the release-branch entry is already present, so only `main` is bumped.
+#      Inserting it again would produce a duplicate mapping key, which is invalid YAML.
 function apply_mapping_edit() {
-  awk -v next_minor="$3" -v branch="$4" -v released="$5" '
+  awk -v next_minor="$3" -v branch="$4" -v released="$5" -v has_entry="${6:-no}" '
     /^[A-Za-z_][A-Za-z0-9_]*:/ {
       in_section = ($0 ~ /^milestone_applier:[[:space:]]*$/) ? 1 : 0
       in_kueue = 0
@@ -131,7 +133,9 @@ function apply_mapping_edit() {
     }
     in_kueue && /^    main:[[:space:]]/ {
       printf "    main: %s\n", next_minor
-      printf "    %s: %s\n", branch, released
+      if (has_entry != "yes") {
+        printf "    %s: %s\n", branch, released
+      }
       edited = 1
       next
     }
@@ -151,8 +155,7 @@ function ensure_milestone() {
   local repo="$1" title="$2" state
 
   state=$(gh api "repos/${repo}/milestones?state=all" --paginate \
-    | jq -r --arg t "${title}" '.[] | select(.title == $t) | .state' \
-    | head -n 1)
+    | jq -r --arg t "${title}" 'first(.[] | select(.title == $t) | .state) // empty')
 
   if [[ -n "${state}" ]]; then
     if [[ "${state}" == "closed" ]]; then
@@ -256,6 +259,20 @@ function submit_mapping_pr() {
   # A CI checkout can leave a detached HEAD, so fall back to the commit.
   TEST_INFRA_STARTING_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse HEAD)
 
+  local existing_pr
+  existing_pr=$(gh pr list --repo="${test_infra_repo}" --search "${PR_TITLE} in:title" --json title,url \
+    | jq -r --arg t "${PR_TITLE}" 'first(.[] | select(.title == $t) | .url) // empty')
+  if [[ -n "${existing_pr}" ]]; then
+    PR_RESULT="already open: ${existing_pr}"
+    echo "+++ A pull request for this change is already open: ${existing_pr}"
+    return 0
+  fi
+
+  TEST_INFRA_WORK_BRANCH="${PR_BRANCH}-$(date +%s)"
+
+  echo "+++ Creating local branch ${TEST_INFRA_WORK_BRANCH}"
+  git checkout -b "${TEST_INFRA_WORK_BRANCH}" "${upstream_remote}/master"
+
   local state main_val has_entry
   if ! state=$(read_mapping_state "${plugins_file}" "${RELEASE_BRANCH}"); then
     echo "!!! Could not locate milestone_applier -> kubernetes-sigs/kueue -> main in ${plugins_file}."
@@ -278,25 +295,9 @@ function submit_mapping_pr() {
     exit 2
   fi
 
-  local existing_pr
-  existing_pr=$(gh pr list --repo="${test_infra_repo}" --search "${PR_TITLE} in:title" --json title,url \
-    | jq -r --arg t "${PR_TITLE}" '.[] | select(.title == $t) | .url' | head -n 1)
-  if [[ -n "${existing_pr}" ]]; then
-    PR_RESULT="already open: ${existing_pr}"
-    echo "+++ A pull request for this change is already open: ${existing_pr}"
-    return 0
-  fi
-
-  # The remote branch name is stable so a retry force-pushes over the previous attempt, while
-  # the local name is unique so a leftover local branch never blocks one.
-  TEST_INFRA_WORK_BRANCH="${PR_BRANCH}-$(date +%s)"
-
-  echo "+++ Creating local branch ${TEST_INFRA_WORK_BRANCH}"
-  git checkout -b "${TEST_INFRA_WORK_BRANCH}" "${upstream_remote}/master"
-
   local tmp_file
   tmp_file=$(mktemp)
-  if ! apply_mapping_edit "${plugins_file}" "${tmp_file}" "${NEXT_MINOR}" "${RELEASE_BRANCH}" "${RELEASED_MINOR}"; then
+  if ! apply_mapping_edit "${plugins_file}" "${tmp_file}" "${NEXT_MINOR}" "${RELEASE_BRANCH}" "${RELEASED_MINOR}" "${has_entry}"; then
     rm -f "${tmp_file}"
     echo "!!! The milestone_applier edit did not match anything in ${plugins_file}. Refusing to open an empty pull request."
     PR_RESULT="FAILED"
@@ -379,7 +380,7 @@ function main() {
   fi
 
   RELEASE_ISSUE_NAME="Release ${RELEASE_VERSION}"
-  RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${kueue_repo}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk '{print $1}' | head -n 1 || true)
+  RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${kueue_repo}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk 'NR==1{print $1}' || true)
   if [ -z "${RELEASE_ISSUE_NUMBER}" ]; then
     echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create '${RELEASE_ISSUE_NAME}' issue first."
     exit 2
