@@ -149,6 +149,26 @@ temporarily.
 
 ## Design Details
 
+The end-to-end flow of a worker-side autoscaler resize:
+
+1. An elastic, autoscaling `RayCluster` (or `RayJob`) is dispatched through
+   MultiKueue and runs on a **worker** cluster with `enableInTreeAutoscaling` on;
+   the **manager** holds the admitted workload slice (the quota).
+2. A Ray application on the worker creates pending tasks, actors, or placement
+   groups.
+3. The **Ray Autoscaler** grows or shrinks the worker group to meet that demand,
+   editing the worker RayCluster's replicas; KubeRay then adds or removes worker
+   pods.
+4. On the next manager reconcile, the adapter's reverse-sync **`Fetch`** reads the
+   worker's effective per-worker-group counts plus a revision, and **`Apply`**
+   records them on the manager copy as annotations — the manager spec is never
+   touched.
+5. The manager's PodSets follow the reflected counts, so the workload-slicing
+   machinery **re-reserves quota**: a freshly named replacement slice on scale-up,
+   or an in-place update on scale-down.
+
+The subsections below detail each step.
+
 ### Reverse elastic sync
 
 The shared Ray adapter gains a single reverse-sync hook, `Runtime{Fetch, Apply}`,
