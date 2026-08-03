@@ -219,7 +219,7 @@ func (c *ClusterQueue) recordInadmissible(key workload.Reference, wInfo *workloa
 	c.inadmissibleWorkloads.insert(key, wInfo)
 }
 
-func (c *ClusterQueue) untrackInadmissible(key workload.Reference, wInfo *workload.Info) {
+func (c *ClusterQueue) forgetInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.inadmissibleWorkloads.delete(key)
 	if c.breakDownByWorkloadLabels() {
 		untrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, wInfo.Obj)
@@ -596,7 +596,7 @@ func (c *ClusterQueue) insertInadmissible(key workload.Reference, wInfo *workloa
 
 func (c *ClusterQueue) removeFromInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.subtractPendingResources(wInfo)
-	c.untrackInadmissible(key, wInfo)
+	c.forgetInadmissible(key, wInfo)
 }
 
 // Delete removes the workload from ClusterQueue.
@@ -687,7 +687,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 		// If the workload was inadmissible, move it back into the queue.
 		if inadmissibleWl != nil {
 			wInfo = inadmissibleWl
-			c.untrackInadmissible(key, wInfo)
+			c.forgetInadmissible(key, wInfo)
 		}
 		pushed := c.pushPendingIfNotPresent(wInfo)
 		if pushed && !wasTracked {
