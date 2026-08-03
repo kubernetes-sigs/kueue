@@ -77,6 +77,14 @@ spec:
 ...
 ```
 
+## Referencing a WorkloadPriorityClass
+
+The `WorkloadPriorityClass` referenced by the `kueue.x-k8s.io/priority-class` label must exist in the cluster.
+
+If the label explicitly references a nonexistent `WorkloadPriorityClass`, Kueue cannot resolve the workload priority and does not fall back to the Pod `PriorityClass`, the global default `PriorityClass`, or the default priority value. As a result, the corresponding `Workload` cannot be created or updated until the reference is corrected or the referenced `WorkloadPriorityClass` is created.
+
+This differs from omitting the `kueue.x-k8s.io/priority-class` label. When the label is omitted, Kueue determines the workload priority from the applicable Pod `PriorityClass`, the global default `PriorityClass`, or the default priority value. When the alpha `WorkloadPriorityClassDefaulting` feature is enabled and a `WorkloadPriorityClass` named `default` exists, an omitted label is first defaulted to that class; see [Setup default WorkloadPriorityClass](/docs/tasks/manage/enforce_job_management/setup_default_workload_priority_class).
+
 ## The relationship between pod's priority and workload's priority
 
 When creating a `Workload` for a given job, Kueue considers the following scenarios:
