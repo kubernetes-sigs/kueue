@@ -376,7 +376,12 @@ artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Gen
 	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 
 .PHONY: release-artifacts
+release-artifacts: export GIT_TAG := $(GIT_TAG)
 release-artifacts: ## Generate release artifacts.
+	@if [[ "$${GIT_TAG}" != v* ]]; then \
+		echo "GIT_TAG must start with v" >&2; \
+		exit 1; \
+	fi
 	$(MAKE) artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
 .PHONY: prepare-release-branch
