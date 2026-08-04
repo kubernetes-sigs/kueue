@@ -27,11 +27,18 @@ metadata:
   name: '{{ include "kueue.fullname" . }}-kueueviz-backend-ingress'
   namespace: '{{ .Release.Namespace }}'
 spec:
-  {{- if .Values.kueueViz.backend.ingress.tlsSecretName }}
+  {{- $tlsEnabled := .Values.kueueViz.backend.ingress.tlsEnabled }}
+  {{- $tlsEnabledUnset := and (empty $tlsEnabled) (ne $tlsEnabled false) }}
+  {{- $tlsSecretName := .Values.kueueViz.backend.ingress.tlsSecretName }}
+  {{- $tlsSecretNameSet := empty $tlsSecretName | not }}
+  {{- $hasTls := or $tlsEnabled (and $tlsEnabledUnset $tlsSecretNameSet) }}
+  {{- if $hasTls }}
   tls:
     - hosts:
         - '{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
-      secretName: '{{ .Values.kueueViz.backend.ingress.tlsSecretName }}'
+      {{- with $tlsSecretName }}
+      secretName: '{{ . }}'
+      {{- end }}
   {{- end }}
   {{- if .Values.kueueViz.backend.ingress.ingressClassName }}
   ingressClassName: {{ .Values.kueueViz.backend.ingress.ingressClassName }}
