@@ -921,6 +921,10 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		if len(e.Obj.Status.UnhealthyNodes) > 0 {
 			replacedNodeName = e.Obj.Status.UnhealthyNodes[0].Name
 		}
+		patchOptions := []workloadpatching.PatchStatusOption{workloadpatching.WithRetryOnConflict()}
+		if !features.Enabled(features.TASReplaceMultipleFailedNodes) {
+			patchOptions = append(patchOptions, workloadpatching.WithLooseOnApply())
+		}
 		err := workloadpatching.PatchAdmissionStatus(ctx, s.client, newWorkload, s.clock, func(wl *kueue.Workload) (bool, error) {
 			s.prepareWorkload(log, wl, cq, admission)
 			if features.Enabled(features.TopologyAwareScheduling) && workload.HasUnhealthyNodes(wl) {
@@ -940,7 +944,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 				}
 			}
 			return true, nil
-		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict())
+		}, patchOptions...)
 		if err == nil {
 			// Make sure the preemption expectation for an assumed workload is satisfied.
 			// See: https://github.com/kubernetes-sigs/kueue/issues/11480

@@ -8420,6 +8420,47 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 				},
 			},
 		},
+		"replacement tolerates a concurrent failed node before status catches up": {
+			// The scheduler can queue replacement of node-1 before the node
+			// controller appends concurrently failed node-2 to UnhealthyNodes.
+			// node-2 is already absent from the snapshot, so it must not block
+			// replacement of the recorded head node.
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceMultipleFailedNodes: true,
+			},
+			levels: []string{corev1.LabelHostname},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("node-1").
+					Label(corev1.LabelHostname, "node-1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("node-2").
+					Label(corev1.LabelHostname, "node-2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("node-3").
+					Label(corev1.LabelHostname, "node-3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			existingTA: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-1"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-2"}}).
+				Obj(),
+			admissionCount: 2,
+			unhealthyNode:  "node-1",
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required: ptr.To(corev1.LabelHostname),
+			},
+			count: 2,
+			wantAssignment: &tas.TopologyAssignment{
+				Levels: []string{corev1.LabelHostname},
+				Domains: []tas.TopologyDomainAssignment{
+					{Count: 1, Values: []string{"node-2"}},
+					{Count: 1, Values: []string{"node-3"}},
+				},
+			},
+		},
 		"replacement fails when no capacity in incomplete slice domain": {
 			//       b1
 			//   /        \

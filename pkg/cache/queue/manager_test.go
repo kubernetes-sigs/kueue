@@ -2180,6 +2180,56 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 	}
 }
 
+func TestQueueSecondPassRefreshesMultipleNodeReplacementWorkload(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASReplaceMultipleFailedNodes, true)
+
+	now := time.Now()
+	queuedWl := utiltestingapi.MakeWorkload("foo", "default").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						Obj(),
+				).
+				Obj(),
+			now,
+		).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		}).
+		UnhealthyNodes("x3").
+		Obj()
+	latestWl := queuedWl.DeepCopy()
+	latestWl.Status.UnhealthyNodes = append(latestWl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: "x1"})
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	fakeClock := testingclock.NewFakeClock(now)
+	manager := NewManagerForUnitTests(
+		utiltesting.NewFakeClient(latestWl),
+		nil,
+		WithClock(fakeClock),
+	)
+
+	manager.QueueSecondPassIfNeeded(ctx, queuedWl, 0)
+	fakeClock.Step(time.Second)
+
+	ready := manager.secondPassQueue.takeAllReady()
+	if len(ready) != 1 {
+		t.Fatalf("expected one ready workload, got %d", len(ready))
+	}
+	if diff := cmp.Diff(latestWl.Status.UnhealthyNodes, ready[0].Obj.Status.UnhealthyNodes); diff != "" {
+		t.Errorf("unexpected unhealthy nodes (-want,+got):\n%s", diff)
+	}
+}
+
 func TestUpdateUnadmittedWorkload(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()

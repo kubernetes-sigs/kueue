@@ -1000,6 +1000,17 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 	defer m.Unlock()
 
 	log := ctrl.LoggerFrom(ctx)
+	if features.Enabled(features.TASReplaceMultipleFailedNodes) {
+		var latest kueue.Workload
+		if err := m.client.Get(ctx, client.ObjectKeyFromObject(w), &latest); err == nil {
+			w = &latest
+		} else if apierrors.IsNotFound(err) {
+			m.secondPassQueue.deleteByKey(workload.Key(w))
+			return
+		} else {
+			log.Error(err, "Failed to refresh workload before the second pass", "workload", workload.Key(w))
+		}
+	}
 	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
 	wInfo.UpdateSchedulingHash(log)
 	wInfo.SecondPassIteration = iteration

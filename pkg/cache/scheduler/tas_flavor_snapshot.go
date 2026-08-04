@@ -734,10 +734,20 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	// succeed and the workload would be stuck without an automatic eviction
 	// safety net.
 	var ignoreNodes sets.Set[string]
-	if features.Enabled(features.TASReplaceMultipleFailedNodes) && len(wl.Status.UnhealthyNodes) > 1 {
+	if features.Enabled(features.TASReplaceMultipleFailedNodes) {
 		ignoreNodes = sets.New[string]()
 		for _, n := range wl.Status.UnhealthyNodes[1:] {
 			ignoreNodes.Insert(n.Name)
+		}
+		// The node controller can append a concurrently failed node after the
+		// scheduler has already queued this replacement attempt. Treat any
+		// other missing node-level domain as pending replacement too; the
+		// admission patch removes only the recorded head and preserves newer
+		// UnhealthyNodes observed from the API server.
+		for _, domain := range existingAssignment.Domains {
+			if _, found := s.domains[utiltas.DomainID(domain.Values)]; !found {
+				ignoreNodes.Insert(domain.Values[len(domain.Values)-1])
+			}
 		}
 	}
 	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoring(existingAssignment, ignoreNodes); isStale {
