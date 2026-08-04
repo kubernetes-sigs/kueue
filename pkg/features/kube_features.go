@@ -533,6 +533,19 @@ const (
 	// begun, and suspend defaulting only ever adds suspend, so no path exists to
 	// unsuspend an object or bypass quota via create-then-delete.
 	SkipAncestorCheckForDeletedWorkloads featuregate.Feature = "SkipAncestorCheckForDeletedWorkloads"
+
+	// owner: @vladikkuzn
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13382
+	// Recomputes the kueue.x-k8s.io/role-hash annotation from the Pod spec in the Pod
+	// webhook instead of trusting a user-supplied value, preserving a supplied hash only
+	// for prebuilt Workloads and for Pods suspended by a parent whose Kueue-managed
+	// ancestor matches the annotated integration. It also makes the Pod controller refuse
+	// to adopt a Pod that requests more resources than its role reserves in the existing
+	// Workload. Disable to restore the previous behavior of honoring the supplied role
+	// hash and adopting such Pods, at the cost of allowing a forged role hash to run an
+	// oversized Pod under a cheaper role.
+	PodIntegrationRecomputeRoleHash featuregate.Feature = "PodIntegrationRecomputeRoleHash"
 )
 
 func init() {
@@ -831,6 +844,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	SkipAncestorCheckForDeletedWorkloads: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PodIntegrationRecomputeRoleHash: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
