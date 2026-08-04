@@ -693,6 +693,12 @@ func TestUpdateConfig(t *testing.T) {
 			}
 			reconciler.builderOverride = fakeClientBuilder(ctx)
 
+			t.Cleanup(func() {
+				for _, rc := range reconciler.remoteClients {
+					rc.StopWatchers()
+				}
+			})
+
 			features.SetFeatureGateDuringTest(t, features.MultiKueueKubeConfigPathValidation, tc.multiKueueSafePathFeatureGate)
 
 			if tc.overrideKubeConfigPrefix {
@@ -857,6 +863,7 @@ func TestReconnectBackoff(t *testing.T) {
 			rc.clock = fc
 			rc.builderOverride = reconciler.builderOverride
 			reconciler.remoteClients["worker1"] = rc
+			t.Cleanup(rc.StopWatchers)
 
 			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}}
 
@@ -1439,6 +1446,11 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil, recorder)
 	reconciler.rootContext = ctx
 	reconciler.builderOverride = gatedBuilder
+	t.Cleanup(func() {
+		for _, rc := range reconciler.remoteClients {
+			rc.StopWatchers()
+		}
+	})
 
 	slowDone := make(chan struct{})
 	go func() {
@@ -1642,4 +1654,39 @@ func TestRemoteClientConcurrentSetConfigAndReaders(t *testing.T) {
 		_ = remoteCl.Get(ctx, wlKey, &kueue.Workload{}) // workload.go-style read
 		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // clusterqueue.go-style read
 	})
+}
+
+func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	fw := watch.NewFake()
+	t.Cleanup(fw.Stop)
+
+	rc := newTestClient(ctx, []byte("placeholder"), nil, nil)
+	rc.client = NewNeverCachingClient(getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+		Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+			return fw, nil
+		},
+	}).Build())
+
+	watchCtx, cancel := context.WithCancel(ctx)
+	rc.setWatchCancel(cancel)
+
+	startWatcher, err := rc.establishWatcher(watchCtx, "Workload", &workloadKueueWatcher{})
+	if err != nil {
+		t.Fatalf("unexpected error establishing the watcher: %v", err)
+	}
+	startWatcher()
+
+	stopped := make(chan struct{})
+	go func() {
+		rc.StopWatchers()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(30 * time.Second):
+		t.Fatal("StopWatchers did not return: the watcher goroutine was never joined")
+	}
 }

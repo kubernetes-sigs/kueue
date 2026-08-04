@@ -124,6 +124,7 @@ type remoteClient struct {
 	watchEndedCh chan<- event.GenericEvent
 	cqUpdateCh   chan<- event.TypedGenericEvent[kueue.ClusterQueueReference]
 	watchCancel  func()
+	watchers     sync.WaitGroup
 	config       *clientConfig
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
@@ -306,7 +307,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		}
 	}
 
-	watchCtx, rc.watchCancel = context.WithCancel(watchCtx)
+	var watchCancel context.CancelFunc
+	watchCtx, watchCancel = context.WithCancel(watchCtx)
+	rc.setWatchCancel(watchCancel)
 
 	builder := newClientWithWatch
 	if rc.builderOverride != nil {
@@ -418,44 +421,60 @@ func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w job
 	}
 
 	return func() {
-		go func() {
+		rc.runWatcher(func() {
 			log.V(2).Info("Starting watch")
-			for r := range newWatcher.ResultChan() {
-				switch r.Type {
-				case watch.Bookmark:
-					// Bookmark events are periodic signals from the API server to
-					// keep the connection alive. They carry no meaningful payload
-					// and can be safely ignored.
-					log.V(5).Info("Watch bookmark received")
-				case watch.Error:
-					switch s := r.Object.(type) {
-					case *metav1.Status:
-						log.V(3).Info("Watch error", "status", s.Status, "message", s.Message, "reason", s.Reason)
-					default:
-						log.V(3).Info("Watch error with unexpected type", "type", fmt.Sprintf("%T", s))
-					}
-				default:
-					wlKeys, err := w.WorkloadKeysFor(r.Object)
-					if err != nil {
-						log.Error(err, "Cannot get workload keys", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
-					} else {
-						for _, wlKey := range wlKeys {
-							rc.queueWorkloadEvent(ctx, wlKey)
-						}
-					}
-				}
-			}
+			rc.consumeWatch(ctx, log, newWatcher, w)
 			log.V(2).Info("Watch ended", "ctxErr", ctx.Err())
-			// If the context is not yet Done , queue a reconcile to attempt reconnection
 			if ctx.Err() == nil {
-				// reconnect if this is the first watch failing.
 				if wasConnected := rc.connState.markDisconnected(rc.clock.Now()); wasConnected {
 					log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
 					rc.queueWatchEndedEvent(ctx)
 				}
 			}
-		}()
+		})
 	}, nil
+}
+
+// consumeWatch dispatches events until the watch ends or ctx is cancelled. Cancelling does
+// not close the result channel, so the ctx arm is what lets StopWatchers join this goroutine.
+func (rc *remoteClient) consumeWatch(ctx context.Context, log logr.Logger, watcher watch.Interface, w jobframework.MultiKueueWatcher) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case r, ok := <-watcher.ResultChan():
+			if !ok {
+				return
+			}
+			rc.handleWatchEvent(ctx, log, r, w)
+		}
+	}
+}
+
+func (rc *remoteClient) handleWatchEvent(ctx context.Context, log logr.Logger, r watch.Event, w jobframework.MultiKueueWatcher) {
+	switch r.Type {
+	case watch.Bookmark:
+		// Bookmark events are periodic signals from the API server to
+		// keep the connection alive. They carry no meaningful payload
+		// and can be safely ignored.
+		log.V(5).Info("Watch bookmark received")
+	case watch.Error:
+		switch s := r.Object.(type) {
+		case *metav1.Status:
+			log.V(3).Info("Watch error", "status", s.Status, "message", s.Message, "reason", s.Reason)
+		default:
+			log.V(3).Info("Watch error with unexpected type", "type", fmt.Sprintf("%T", s))
+		}
+	default:
+		wlKeys, err := w.WorkloadKeysFor(r.Object)
+		if err != nil {
+			log.Error(err, "Cannot get workload keys", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
+			return
+		}
+		for _, wlKey := range wlKeys {
+			rc.queueWorkloadEvent(ctx, wlKey)
+		}
+	}
 }
 
 func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
@@ -564,13 +583,37 @@ func (rc *remoteClient) setClient(c SelectivelyCachingClient) {
 	rc.client = c
 }
 
-func (rc *remoteClient) StopWatchers() {
+// setWatchCancel stores the cancel func of the watch context the next watchers will observe.
+// A non-nil value is what marks the client as accepting new watchers, see runWatcher.
+func (rc *remoteClient) setWatchCancel(cancel context.CancelFunc) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
+	rc.watchCancel = cancel
+}
+
+// runWatcher starts fn as a tracked watcher goroutine, unless the watchers were already
+// stopped. Registering under rc.mu makes it mutually exclusive with StopWatchers, so a
+// watcher can never begin after StopWatchers has decided what to wait for.
+func (rc *remoteClient) runWatcher(fn func()) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	if rc.watchCancel == nil {
+		return
+	}
+	rc.watchers.Go(fn)
+}
+
+// StopWatchers cancels the watch context and blocks until every watcher goroutine returned.
+func (rc *remoteClient) StopWatchers() {
+	rc.mu.Lock()
 	if rc.watchCancel != nil {
 		rc.watchCancel()
 		rc.watchCancel = nil
 	}
+	rc.mu.Unlock()
+
+	// Not under rc.mu: watcher goroutines take it themselves via getClient.
+	rc.watchers.Wait()
 }
 
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
