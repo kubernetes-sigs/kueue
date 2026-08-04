@@ -85,6 +85,22 @@ resources:
     - gpu-h100.example.com
 ```
 
+{{% alert title="Note" color="primary" %}}
+Kueue reads the Configuration once, at manager startup. If you change
+`deviceClassMappings` on a running cluster, restart the controller so the new
+mapping takes effect:
+
+```shell
+kubectl rollout restart deployment/kueue-controller-manager -n kueue-system
+```
+
+Until then the manager keeps using the mapping it loaded at startup. A Workload
+whose claim references a `DeviceClass` that mapping does not contain is not
+admitted, rather than admitted without quota accounting: Kueue unsets its quota
+reservation and marks the Workload inadmissible, with `DeviceClass <class> is not
+mapped in DRA configuration for podset <podset>`.
+{{% /alert %}}
+
 ### 2. Add the DRA resource to your ClusterQueue
 
 Include the logical resource name from `deviceClassMappings` in the
