@@ -353,9 +353,19 @@ prepare-manifests:
 	cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
 	cd cmd/experimental/kueue-priority-booster/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
 
+# Must stay the first artifacts prerequisite: helm-chart-package and
+# prepare-manifests rewrite tracked files, so an invalid tag has to fail
+# before them to avoid leaving the working tree modified.
+.PHONY: verify-git-tag
+verify-git-tag:
+	@if [[ "$(GIT_TAG)" != v* ]]; then \
+		echo "GIT_TAG must start with v, got \"$(GIT_TAG)\"" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: artifacts
 artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
-artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate local artifacts.
+artifacts: verify-git-tag clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate local artifacts.
 	$(KUSTOMIZE) build config/default -o $(ARTIFACTS)/manifests.yaml
 	$(KUSTOMIZE) build config/dev -o $(ARTIFACTS)/manifests-dev.yaml
 	$(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
@@ -368,12 +378,7 @@ artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Gen
 	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 
 .PHONY: release-artifacts
-release-artifacts: export GIT_TAG := $(GIT_TAG)
 release-artifacts: ## Generate release artifacts.
-	@if [[ "$${GIT_TAG}" != v* ]]; then \
-		echo "GIT_TAG must start with v" >&2; \
-		exit 1; \
-	fi
 	$(MAKE) artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
 .PHONY: prepare-release-branch
