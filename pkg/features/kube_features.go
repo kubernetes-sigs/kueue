@@ -258,12 +258,6 @@ const (
 	// Enabled skip adding finalizers for serving workloads.
 	SkipFinalizersForPodsSuspendedByParent featuregate.Feature = "SkipFinalizersForPodsSuspendedByParent"
 
-	// owner: @mszadkow
-	//
-	// issue: https://github.com/kubernetes-sigs/kueue/issues/8302
-	// Redo admission on eviction in worker cluster.
-	MultiKueueRedoAdmissionOnEvictionInWorker featuregate.Feature = "MultiKueueRedoAdmissionOnEvictionInWorker"
-
 	// owner: @kannon92
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8190
@@ -653,9 +647,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	SkipFinalizersForPodsSuspendedByParent: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
-	},
-	MultiKueueRedoAdmissionOnEvictionInWorker: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
 	},
 	TLSOptions: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.20
