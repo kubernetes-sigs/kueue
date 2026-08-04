@@ -228,3 +228,13 @@
   stage: GA
   from: "0.18"
   to: "0.20"
+- feature: MultiKueueRedoAdmissionOnEvictionInWorker
+  default: true
+  stage: Beta
+  from: "0.16"
+  to: "0.20"
+- feature: MultiKueueRedoAdmissionOnEvictionInWorker
+  default: true
+  stage: GA
+  from: "0.18"
+  to: "0.20"
