@@ -494,3 +494,27 @@ func TestMatchDevicesWithSelectors_CELErrorPropagation(t *testing.T) {
 		t.Errorf("Expected error containing 'unsupported attribute value', got: %s", errs[0].Detail)
 	}
 }
+
+func TestPrepareDeviceSelectors_DeviceClassErrorUsesRequestPath(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cl := utiltesting.NewClientBuilder().Build()
+	claimPath := field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0)
+
+	_, _, errs := prepareDeviceSelectors(
+		ctx,
+		cl,
+		"missing-device-class",
+		nil,
+		make(map[string]*resourcev1.DeviceClass),
+		claimPath,
+		1,
+	)
+
+	if len(errs) != 1 {
+		t.Fatalf("expected one error, got %d: %v", len(errs), errs)
+	}
+	const wantPath = "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[1]"
+	if errs[0].Field != wantPath {
+		t.Errorf("field path = %q, want %q", errs[0].Field, wantPath)
+	}
+}
