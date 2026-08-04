@@ -665,6 +665,12 @@ func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
 	// so any differences should not be considered as out-of-sync.
 	local.PreemptionGates = nil
 	remote.PreemptionGates = nil
+	// Active is managed independently on the remote: the manager sets it to false
+	// to propagate a manager-side eviction, so a difference must not be treated as
+	// out of sync (which would delete the remote instead of letting the worker
+	// deactivate it).
+	local.Active = nil
+	remote.Active = nil
 	return !equality.Semantic.DeepEqual(local, remote)
 }
 
