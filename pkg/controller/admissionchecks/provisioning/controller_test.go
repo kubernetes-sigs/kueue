@@ -1430,6 +1430,36 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"when the request has no conditions yet the previous check message is cleared": {
+			// The autoscaler has not reported anything about the request below, so there is no
+			// condition message to propagate and nothing the earlier one still describes.
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:    "check1",
+					State:   kueue.CheckStatePending,
+					Message: `Error creating ProvisioningRequest "wl-check1-1": provisioningrequests.autoscaling.x-k8s.io "wl-check1-1" already exists`,
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:   []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:  []autoscaling.ProvisioningRequest{*baseRequest.DeepCopy()},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStatePending,
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+		},
 		"when the request is provisioned the previous check message is cleared": {
 			// The Provisioned condition below deliberately carries no message, which is what the
 			// autoscaler reports once provisioning succeeds and there is nothing left to say.
