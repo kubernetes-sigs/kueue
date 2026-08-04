@@ -53,6 +53,55 @@ tests:
     asserts:
       - notExists:
           path: spec.template.spec.nodeSelector
+  - it: should set the Deployment strategy when provided
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        strategy:
+          type: RollingUpdate
+          rollingUpdate:
+            maxSurge: 0
+            maxUnavailable: 1
+    asserts:
+      - equal:
+          path: spec.strategy
+          value:
+            type: RollingUpdate
+            rollingUpdate:
+              maxSurge: 0
+              maxUnavailable: 1
+  - it: should not render strategy if not set
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        strategy: {}
+    asserts:
+      - notExists:
+          path: spec.strategy
+  - it: should set hostNetwork and dnsPolicy when provided
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        hostNetwork: true
+        dnsPolicy: ClusterFirstWithHostNet
+    asserts:
+      - equal:
+          path: spec.template.spec.hostNetwork
+          value: true
+      - equal:
+          path: spec.template.spec.dnsPolicy
+          value: ClusterFirstWithHostNet
+  - it: should not render hostNetwork or dnsPolicy if not set
+    template: manager/manager.yaml
+    set:
+      controllerManager:
+        hostNetwork: false
+        dnsPolicy: ""
+    asserts:
+      - notExists:
+          path: spec.template.spec.hostNetwork
+      - notExists:
+          path: spec.template.spec.dnsPolicy
   - it: should set tolerations when provided
     template: manager/manager.yaml
     set:
