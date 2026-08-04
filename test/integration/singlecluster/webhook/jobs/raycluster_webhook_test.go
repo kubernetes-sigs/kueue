@@ -65,6 +65,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 	ginkgo.When("With manageJobsWithoutQueueName enabled", func() {
 		ginkgo.BeforeEach(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+				integrationManager := jobframework.ProcessOptions(opts...).IntegrationManager
 				reconciler, err := raycluster.NewReconciler(
 					ctx,
 					mgr.GetClient(),
@@ -94,7 +95,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				err = workloadrayjob.SetupRayJobWebhook(mgr, opts...)
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
-				jobframework.EnableIntegration(workloadrayjob.FrameworkName)
+				integrationManager.EnableIntegration(workloadrayjob.FrameworkName)
 
 				failedWebhook, err := webhooks.Setup(mgr, nil)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)

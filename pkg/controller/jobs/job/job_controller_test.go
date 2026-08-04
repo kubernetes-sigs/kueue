@@ -599,7 +599,8 @@ func TestReconciler(t *testing.T) {
 	)
 	clusterQueueNameWith100Chars := strings.Repeat("cq", 50)
 
-	t.Cleanup(jobframework.EnableIntegrationsForTest(t, FrameworkName))
+	integrationManager := newTestIntegrationManager(t)
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, FrameworkName))
 	baseJobWrapper := utiltestingjob.MakeJob("job", "ns").
 		Suspend(true).
 		Queue(localQueueName).
@@ -4482,8 +4483,18 @@ func TestReconciler(t *testing.T) {
 					}
 				}
 				recorder := &utiltesting.EventRecorder{}
-				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder,
-					append(tc.reconcilerOptions, jobframework.WithCache(schdcache.New(kClient)), jobframework.WithClock(testingclock.NewFakeClock(now)))...)
+				reconciler, err := NewReconciler(
+					ctx,
+					kClient,
+					indexer,
+					recorder,
+					append(
+						tc.reconcilerOptions,
+						jobframework.WithIntegrationManager(integrationManager),
+						jobframework.WithCache(schdcache.New(kClient)),
+						jobframework.WithClock(testingclock.NewFakeClock(now)),
+					)...,
+				)
 				if err != nil {
 					t.Errorf("Error creating the reconciler: %v", err)
 				}
