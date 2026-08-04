@@ -361,12 +361,14 @@ GPU memory quota, while a team requesting a 7g.80gb profile should consume 80Gi.
   time on a best-effort basis. Workloads with CEL selectors that match fewer devices than requested are rejected
   to prevent quota leaks. This validation uses the upstream DRA CEL compiler from [`k8s.io/dynamic-resource-allocation/cel`](https://github.com/kubernetes/dynamic-resource-allocation/tree/master/cel).
   On the other hand, devices can be allocated between Kueue's check and scheduling, and new ResourceSlices published after
-  validation can make previously-unsatisfiable workloads satisfiable. Kueue does not
-  currently have a ResourceSlice informer. Inadmissible workloads are only re-evaluated
-  when the ClusterQueue is notified through other events such as quota changes. Adding
-  event-driven requeuing on ResourceSlice changes is an Alpha graduation criterion.
-  `WaitForPodsReady` serves as the safety net for cases where the validation state
-  diverges from actual device availability at scheduling time.
+  validation can make previously-unsatisfiable workloads satisfiable. Kueue has a
+  `ResourceSliceReconciler`, but it registers watched drivers only from source-backed
+  `deviceClassMappings` (their `sources`), so a mapping with no sources (this CEL-validated
+  count path included) registers no driver and is not requeued on ResourceSlice changes;
+  such workloads are re-evaluated only when the ClusterQueue is notified through other events
+  such as quota changes. Extending event-driven requeuing to cover these paths is an Alpha
+  graduation criterion. `WaitForPodsReady` serves as the safety net for cases where the
+  validation state diverges from actual device availability at scheduling time.
 
 ### Risks and Mitigations
 
