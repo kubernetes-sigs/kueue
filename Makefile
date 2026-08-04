@@ -353,9 +353,18 @@ prepare-manifests:
 	cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
 	cd cmd/experimental/kueue-priority-booster/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
 
+# Keep first so serial builds fail before helm-chart-package and
+# prepare-manifests rewrite tracked files.
+.PHONY: verify-git-tag
+verify-git-tag:
+	@if [[ "$(GIT_TAG)" != v* ]]; then \
+		echo "GIT_TAG must start with v, got \"$(GIT_TAG)\"" >&2; \
+		exit 1; \
+	fi
+
 .PHONY: artifacts
 artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
-artifacts: clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate local artifacts.
+artifacts: verify-git-tag clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate local artifacts.
 	$(KUSTOMIZE) build config/default -o $(ARTIFACTS)/manifests.yaml
 	$(KUSTOMIZE) build config/dev -o $(ARTIFACTS)/manifests-dev.yaml
 	$(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
