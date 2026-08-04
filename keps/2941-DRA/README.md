@@ -429,9 +429,9 @@ released.
 Feature gates controlling DRA support in Kueue:
 - `KueueDRAIntegration` (Beta, default on since v0.18): gates ResourceClaimTemplate-based
   DRA quota accounting. Uses `deviceClassMappings` for DeviceClass-to-quota-resource mapping.
-- `KueueDRAIntegrationExtendedResource` (Alpha): gates extended resources support, including
+- `KueueDRAIntegrationExtendedResource` (Beta, default on since v0.19): gates extended resources support, including
   DeviceClass auto-discovery via `extendedResourceName`. Requires `KueueDRAIntegration`.
-- `KueueDRAIntegrationPartitionableDevices` (Alpha): gates counter-based quota for
+- `KueueDRAIntegrationPartitionableDevices` (Beta, default on since v0.19): gates counter-based quota for
   partitionable devices. Enables the `counter` source type on `deviceClassMappings` entries.
   Requires `KueueDRAIntegration`. Also requires the Kubernetes `DRAPartitionableDevices`
   feature gate (beta in K8s 1.36).
@@ -1805,6 +1805,16 @@ top-level requests, the realized charge cannot exceed the admitted envelope. Thi
 every alternative resolves to a complete, non-negative charge vector; unmapped, unsupported, or
 unknown forms are rejected rather than charged.
 
+The bound rests on two further assumptions. First, the `ResourceClaimSpec` Kueue charges is the one
+later used to create the generated `ResourceClaim`. A `ResourceClaimTemplate` spec is immutable in
+place, but deleting and recreating one under the same name can change the spec between charging
+(while the workload is `Pending`) and claim generation, so the running claim could differ from the
+charged envelope. This gap is shared by all Kueue DRA charging, including the existing `Exactly`
+path, rather than introduced here, and warrants a separate prerequisite issue on binding the charge
+to the generated claim's spec. Second, the bound covers the logical resources the target
+`ClusterQueue` manages; `quotaCheckStrategy: IgnoreUndeclared` deliberately omits undeclared
+dimensions from enforcement, so an alternative that resolves to an omitted resource is not charged.
+
 #### Scope
 
 Supported: `ResourceClaimTemplate` references; `ExactCount` subrequests; count-based
@@ -1849,11 +1859,13 @@ Two properties must be distinguished:
   ResourceSlice controller, but it builds its driver set from the `sources` of each device class
   mapping and filters slice events on that set, so a count-only mapping registers no driver and its
   slice changes trigger no requeue. The initial Alpha also reserves quota without running the
-  cardinality or allocator checks, so it never produces a supported-but-infeasible result to
-  requeue in the first place. A workload that becomes schedulable is noticed on the next
-  ClusterQueue event, and one that never does holds its reservation until `WaitForPodsReady` evicts
-  it. Extending the controller to count-only mappings, or reaching feasibility through the
-  scheduler library, is a graduation criterion rather than something the current controller covers.
+  cardinality or allocator checks, so Kueue never produces a supported-but-infeasible result to
+  requeue in the first place; once quota is reserved, kube-scheduler owns dynamic feasibility and
+  retries the Pending Pod on ResourceClaim, DeviceClass, ResourceSlice, and node events. A workload
+  still waiting on quota is requeued on the next ClusterQueue event, and an admitted one whose Pod
+  never becomes schedulable holds its reservation until `WaitForPodsReady` evicts it. Extending the
+  controller to count-only mappings, or reaching feasibility through the scheduler library, is a
+  graduation criterion rather than something the current controller covers.
 
 The quota and feasibility paths MUST consume the same static-support classification, from one
 helper, so a claim is never accepted by one and rejected by the other. Splitting the two invites
@@ -1935,7 +1947,7 @@ is more valuable than CPU time for fair sharing purposes.
 
 ### MultiKueue Integration
 
-DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism. ResourceClaimTemplates must be deployed on worker clusters by users; they are not automatically synced.
+DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism. ResourceClaimTemplates must be deployed on worker clusters by users; they are not automatically synced. Count-based `firstAvailable` requests are excluded while `KueueDRAIntegrationPrioritizedList` is Alpha; they remain rejected (fail-closed) rather than dispatched, so a manager and worker cannot charge different envelopes for the same workload.
 
 ### Test Plan
 
@@ -2095,7 +2107,8 @@ the realized allocation.
   DeviceClass-to-logical-resource mapping
 - rejection of counter-backed and capacity-backed alternatives, and of `All`, unknown allocation
   modes, and unmapped DeviceClasses
-- alignment with the feasibility path on the supported-versus-rejected predicate
+- a shared static-support classifier that the quota path consumes, with table-driven tests freezing
+  the supported-versus-rejected contract (agreement with the feasibility path is a Beta criterion)
 - integration and e2e tests
 
 #### Beta
