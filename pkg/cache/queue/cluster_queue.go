@@ -235,15 +235,6 @@ func (c *ClusterQueue) forgetInadmissible(key workload.Reference, wInfo *workloa
 	c.untrackWorkload(c.inadmissibleWorkloadsTracker, wInfo.Obj)
 }
 
-func (c *ClusterQueue) pushOrUpdatePending(wInfo *workload.Info) {
-	key := workloadKey(wInfo)
-	if oldInfo := c.heap.GetByKey(key); oldInfo != nil {
-		c.untrackWorkload(c.pendingWorkloadsTracker, oldInfo.Obj)
-	}
-	c.inadmissibleWorkloads.insert(key, wInfo)
-	c.trackWorkload(c.inadmissibleWorkloadsTracker, wInfo.Obj)
-}
-
 func (c *ClusterQueue) popPending() *workload.Info {
 	wInfo := c.heap.Pop()
 	if wInfo != nil {
@@ -520,7 +511,7 @@ func (c *ClusterQueue) RebuildLocalQueue(lqName string) {
 	defer c.rwm.Unlock()
 	for _, wl := range c.heap.List() {
 		if string(wl.Obj.Spec.QueueName) == lqName {
-			c.pushOrUpdatePending(wl)
+			c.heap.PushOrUpdate(wl)
 		}
 	}
 }
@@ -596,8 +587,7 @@ func (c *ClusterQueue) pushToHeapIfNotTracked(wInfo *workload.Info) bool {
 // The old copy's resources are subtracted before the new copy's are added,
 // because the requests may have changed.
 func (c *ClusterQueue) pushOrUpdateHeap(wInfo *workload.Info) {
-	old := c.heap.GetByKey(workload.Key(wInfo.Obj))
-	if old != nil {
+	if old := c.heap.GetByKey(workload.Key(wInfo.Obj)); old != nil {
 		c.untrackWorkload(c.pendingWorkloadsTracker, old.Obj)
 		c.subtractPendingResources(old)
 	}
@@ -916,7 +906,7 @@ func (c *ClusterQueue) Pop() *workload.Info {
 // rebuildAll rebuilds the entire heap. Must be called with lock held.
 func (c *ClusterQueue) rebuildAll() {
 	for _, wl := range c.heap.List() {
-		c.pushOrUpdatePending(wl)
+		c.heap.PushOrUpdate(wl)
 	}
 }
 
