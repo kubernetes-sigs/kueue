@@ -949,22 +949,10 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 			"replacement", klog.KObj(wl), "retained", klog.KObj(retained))
 		live = append(live, retained)
 	}
-	eligible := make([]*kueue.Workload, 0, len(live))
-	for _, slice := range live {
-		if slice == nil {
-			continue
-		}
-		// A slice that reserved quota without a priorityClassRef keeps it: the
-		// API server refuses to add one once quota is reserved, and retrying
-		// would only fail the reconcile for good.
-		if workload.HasQuotaReservation(slice) && workload.HasNoPriority(slice) {
-			log.V(2).Info("Leaving a workload slice that reserved quota with no priority class alone, since one can no longer be added",
-				"workload", klog.KObj(slice))
-			continue
-		}
-		eligible = append(eligible, slice)
-	}
-	return updateWorkloadPriorities(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), eligible...)
+	// The quota-reserved/no-priorityClassRef legality check lives in
+	// updateWorkloadPriorities so the ordinary Job and LeaderWorkerSet paths, which
+	// reach the shared helper without this caller's filtering, get the same guard.
+	return updateWorkloadPriorities(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), live...)
 }
 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
@@ -1209,6 +1197,7 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 // belong to one object cannot end up on different values when the class is edited
 // while they are being written.
 func updateWorkloadPriorities(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
 	jobPriorityClassName := WorkloadPriorityClassName(obj)
 	var (
 		priorityClassRef *kueue.PriorityClassRef
@@ -1216,6 +1205,22 @@ func updateWorkloadPriorities(ctx context.Context, c client.Client, r events.Eve
 		resolved         bool
 	)
 	for _, wl := range wls {
+		if wl == nil {
+			continue
+		}
+		// A workload that reserved quota without a priorityClassRef keeps it: the
+		// API server refuses to add one once quota is reserved (Workload CEL), so
+		// retrying would only fail the reconcile for good. Centralizing the guard
+		// here, rather than in the workload-slice caller alone, covers the ordinary
+		// Job and LeaderWorkerSet paths, which reach this helper directly. Gating on
+		// a non-empty label keeps ordinary no-class reserved workloads from logging
+		// on every reconcile.
+		if jobPriorityClassName != "" && workload.HasQuotaReservation(wl) && workload.HasNoPriority(wl) {
+			log.V(2).Info("Leaving a workload that reserved quota with no priority class alone, since one can no longer be added",
+				"workload", klog.KObj(wl))
+			continue
+		}
+
 		wlPriorityClassName := workloadpatching.PriorityClassName(wl)
 
 		// This handles both: changing priority (old -> new) AND adding priority (none -> new)

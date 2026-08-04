@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	batchv1 "k8s.io/api/batch/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -91,5 +92,60 @@ func TestUpdateWorkloadPrioritiesResolvesTheClassOnce(t *testing.T) {
 	}
 	if live[0].Spec.PriorityClassRef == live[1].Spec.PriorityClassRef {
 		t.Error("both workloads point at one priorityClassRef, so editing either would move both")
+	}
+}
+
+// A quota-reserved workload with no priorityClassRef must be left untouched on the
+// ordinary (non-slice) path too: the API server refuses to add a ref once quota is
+// reserved, so attempting the update would wedge the reconcile. The guard lives in
+// the shared helper, which the ordinary Job and LeaderWorkerSet paths reach
+// directly through UpdateWorkloadPriority.
+func TestUpdateWorkloadPrioritiesLeavesReservedNoRefWorkload(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+	highClass := utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj()
+	reserved := utiltestingapi.MakeWorkload("reserved", "ns").
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadQuotaReserved,
+			Status:             metav1.ConditionTrue,
+			Reason:             "AdmittedByTest",
+			Message:            "reserved",
+			LastTransitionTime: metav1.Now(),
+		}).Obj()
+
+	// The fake client does not run the Workload CEL rules, so if the guard is lost
+	// this update would succeed here and set the ref, which the assertions catch.
+	updates := 0
+	cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+		WithObjects(job, highClass, reserved).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if _, ok := obj.(*kueue.Workload); ok {
+					updates++
+				}
+				return c.Update(ctx, obj, opts...)
+			},
+		}).
+		Build()
+
+	wl := &kueue.Workload{}
+	if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "reserved"}, wl); err != nil {
+		t.Fatalf("getting workload: %v", err)
+	}
+
+	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, wl, nil); err != nil {
+		t.Fatalf("UpdateWorkloadPriority: %v", err)
+	}
+
+	if updates != 0 {
+		t.Errorf("workload was updated %d times, want 0: a priorityClassRef cannot be added after quota reservation", updates)
+	}
+	persisted := &kueue.Workload{}
+	if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "reserved"}, persisted); err != nil {
+		t.Fatalf("re-getting workload: %v", err)
+	}
+	if persisted.Spec.PriorityClassRef != nil {
+		t.Errorf("priorityClassRef = %v, want nil (left unchanged)", persisted.Spec.PriorityClassRef)
 	}
 }
