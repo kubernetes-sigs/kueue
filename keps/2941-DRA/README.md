@@ -1878,9 +1878,10 @@ to the same workload; this design does not let a user use `firstAvailable` to by
   the current rejection. An already-admitted workload keeps the `resourceUsage` recorded in its
   status, so a controller restart or downgrade does not lose admitted accounting and no envelope is
   recomputed for it.
-- Version skew: the gate requires `KueueDRAIntegration`. On Kubernetes 1.34 and 1.35 the upstream
-  `DRAPrioritizedList` gate must be enabled; it is Stable in 1.36. If the API does not offer
-  `firstAvailable`, no envelope is charged and the request is handled as today.
+- Version skew: the gate requires `KueueDRAIntegration`, and it requires that a cluster has not
+  disabled the upstream `DRAPrioritizedList` gate, which has been Beta and on by default since
+  Kubernetes 1.34 and GA since 1.36. If the API does not offer `firstAvailable`, no envelope is
+  charged and the request is handled as today.
 - MultiKueue: `firstAvailable` is out of scope for the initial Alpha. MultiKueue resolves
   ResourceClaimTemplates against cluster-local objects, and the DRA end-to-end test depends on that:
   it gives the manager and both workers a template of the same name with different device counts,
