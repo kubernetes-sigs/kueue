@@ -1031,11 +1031,9 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 			return 1
 		}
 
-		// 1. Then process workloads pending preemption.
-		aPendingPreempt := workload.IsPendingPreemption(a.Obj)
-		bPendingPreempt := workload.IsPendingPreemption(b.Obj)
-		if aPendingPreempt != bPendingPreempt {
-			if aPendingPreempt {
+		// 2. Then process workloads pending preemption (marked sticky by the queue).
+		if a.IsSticky != b.IsSticky {
+			if a.IsSticky {
 				return -1
 			}
 			return 1

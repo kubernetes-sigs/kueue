@@ -174,11 +174,9 @@ type entryComparer struct {
 }
 
 func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bool {
-	// 1: First process workloads which are pending preemption.
-	aPendingPreempt := workload.IsPendingPreemption(a.Obj)
-	bPendingPreempt := workload.IsPendingPreemption(b.Obj)
-	if aPendingPreempt != bPendingPreempt {
-		return aPendingPreempt
+	// 1: First process workloads which are pending preemption (marked sticky by the queue).
+	if a.IsSticky != b.IsSticky {
+		return a.IsSticky
 	}
 
 	aDrs := e.drsValues[drsKey{parentCohort: parentCohort, workloadKey: workload.Key(a.Obj)}]
