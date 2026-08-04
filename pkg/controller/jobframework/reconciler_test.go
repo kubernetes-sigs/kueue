@@ -652,6 +652,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 					Obj(),
 			},
 			job: testingjob.MakeJob(childJobName, jobNamespace).
+				UID(childJobName).
 				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
 				Obj(),
 			wantErr: ErrCyclicOwnership,
@@ -858,6 +859,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "cronjob",
 						Namespace: jobNamespace,
+						UID:       "cronjob",
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "aw",
 							APIVersion: awv1beta2.GroupVersion.String(),
@@ -873,6 +875,24 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 				Obj(),
 			wantManaged: testingaw.MakeAppWrapper("aw", jobNamespace).UID("aw").Queue("test-q").Obj(),
 		},
+		"child job has ownerReference whose UID does not match the referenced object => nil": {
+			integrations: []string{"kubeflow.org/mpijob"},
+			ancestors: []client.Object{
+				testingmpijob.MakeMPIJob(parentJobName, jobNamespace).
+					UID(parentJobName).
+					Queue("test-q").
+					Obj(),
+			},
+			job: func() client.Object {
+				job := testingjob.MakeJob(childJobName, jobNamespace).
+					OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
+					Obj()
+				// Point owner reference at the real parent by name with a mismatched UID.
+				job.OwnerReferences[0].UID = "forged-uid"
+				return job
+			}(),
+			wantManaged: nil,
+		},
 		"Pod -> ReplicaSet -> Deployment (queue-name) => Deployment": {
 			integrations: []string{"pod", "deployment"},
 			ancestors: []client.Object{
@@ -881,6 +901,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "rs",
 						Namespace: jobNamespace,
+						UID:       "rs",
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "deploy",
 							APIVersion: appsv1.SchemeGroupVersion.String(),
