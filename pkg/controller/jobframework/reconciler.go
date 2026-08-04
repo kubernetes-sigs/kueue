@@ -925,9 +925,6 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 	}
 }
 
-// ensureOneWorkload will query for the single matched workload corresponding to job and return it.
-// If there are more than one workload, we should delete the excess ones.
-// The returned workload could be nil.
 // syncWorkloadSlicePriority applies a priority-class label change to the slices
 // a compatible scale decision leaves live. Slice compatibility only considers
 // the pod set shape, so the label change arrives here with the old priority
@@ -952,6 +949,7 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 			"replacement", klog.KObj(wl), "retained", klog.KObj(retained))
 		live = append(live, retained)
 	}
+	eligible := make([]*kueue.Workload, 0, len(live))
 	for _, slice := range live {
 		if slice == nil {
 			continue
@@ -964,14 +962,14 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 				"workload", klog.KObj(slice))
 			continue
 		}
-		log.V(6).Info("Reconciling the priority class of a workload slice", "workload", klog.KObj(slice))
-		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), slice, getCustomPriorityClassFuncFromJob(job)); err != nil {
-			return err
-		}
+		eligible = append(eligible, slice)
 	}
-	return nil
+	return updateWorkloadPriorities(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), eligible...)
 }
 
+// ensureOneWorkload will query for the single matched workload corresponding to job and return it.
+// If there are more than one workload, we should delete the excess ones.
+// The returned workload could be nil.
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -1203,23 +1201,46 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 
 // UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	jobPriorityClassName := WorkloadPriorityClassName(obj)
-	wlPriorityClassName := workloadpatching.PriorityClassName(wl)
+	return updateWorkloadPriorities(ctx, c, r, obj, customPriorityClassFunc, wl)
+}
 
-	// This handles both: changing priority (old -> new) AND adding priority (none -> new)
-	if (workload.HasNoPriority(wl) || workload.IsWorkloadPriorityClass(wl)) && jobPriorityClassName != wlPriorityClassName {
-		if err := PrepareWorkloadPriority(ctx, c, obj, wl, customPriorityClassFunc); err != nil {
-			return fmt.Errorf("prepare workload priority: %w", err)
+// updateWorkloadPriorities updates each workload whose priority still follows the
+// object's label. The class is looked up once for the whole set, so workloads that
+// belong to one object cannot end up on different values when the class is edited
+// while they are being written.
+func updateWorkloadPriorities(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
+	jobPriorityClassName := WorkloadPriorityClassName(obj)
+	var (
+		priorityClassRef *kueue.PriorityClassRef
+		priority         int32
+		resolved         bool
+	)
+	for _, wl := range wls {
+		wlPriorityClassName := workloadpatching.PriorityClassName(wl)
+
+		// This handles both: changing priority (old -> new) AND adding priority (none -> new)
+		if (workload.HasNoPriority(wl) || workload.IsWorkloadPriorityClass(wl)) && jobPriorityClassName != wlPriorityClassName {
+			if !resolved {
+				var err error
+				// Resolved from the first workload that needs it.
+				priorityClassRef, priority, err = ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
+				if err != nil {
+					return fmt.Errorf("prepare workload priority: %w", err)
+				}
+				resolved = true
+			}
+			wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
+			wl.Spec.Priority = new(priority)
+			if err := c.Update(ctx, wl); err != nil {
+				return fmt.Errorf("updating existing workload: %w", err)
+			}
+			r.Eventf(obj,
+				nil,
+				corev1.EventTypeNormal, ReasonUpdatedWorkload,
+				"UpdatedWorkload",
+				"Updated workload priority class: %v", klog.KObj(wl),
+			)
 		}
-		if err := c.Update(ctx, wl); err != nil {
-			return fmt.Errorf("updating existing workload: %w", err)
-		}
-		r.Eventf(obj,
-			nil,
-			corev1.EventTypeNormal, ReasonUpdatedWorkload,
-			"UpdatedWorkload",
-			"Updated workload priority class: %v", klog.KObj(wl),
-		)
 	}
 	return nil
 }

@@ -3462,7 +3462,10 @@ func TestReconciler(t *testing.T) {
 		},
 		// Deterministic counterpart to the integration spec: the fake client has no
 		// such class, so the lookup cannot race with anything creating it.
-		"a workload slice is left untouched when the new class does not exist": {
+		// The API server refuses to add a priorityClassRef once quota is reserved,
+		// so the slice keeps none. The fake client does not enforce that rule, which
+		// is what makes this case fail if the reconciler stops skipping the slice.
+		"a workload slice that reserved quota with no priority class is left alone": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:      false,
 				features.AssignQueueLabelsForPods:     true,
@@ -3472,27 +3475,25 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				Suspend(true).
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
-				WorkloadPriorityClass("missing-wpc").
+				WorkloadPriorityClass(highWPCWrapper.Name).
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
 				Suspend(true).
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
-				WorkloadPriorityClass("missing-wpc").
+				WorkloadPriorityClass(highWPCWrapper.Name).
 				UID("test-uid").
 				Obj(),
-			// missing-wpc is deliberately absent.
 			priorityClasses: []client.Object{
-				baseWPCWrapper.Obj(),
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
 			},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("job", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localQueueName).
-					Priority(baseWPCWrapper.Value).
-					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -3503,14 +3504,12 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localQueueName).
-					Priority(baseWPCWrapper.Value).
-					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
 			},
-			wantErr: cmpopts.AnyError,
 		},
 		"shouldn't update workload when priority class no changes": {
 			featureGates: map[featuregate.Feature]bool{
