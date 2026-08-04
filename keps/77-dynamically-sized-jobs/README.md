@@ -286,11 +286,55 @@ both ElasticJobsViaWorkloadSlices and TopologyAwareScheduling), Kueue attempts
 to preserve topology locality across workload slice transitions during scaling
 operations.
 
-For the initial iteration (v0.17), only **unconstrained** topology mode is supported for scaling
-operations. Jobs with `kueue.x-k8s.io/elastic-job: "true"` that also specify required or preferred
-topology annotations are rejected at job creation via webhook validation. Support for
-required/preferred modes will be added in future iterations. During node repair (unhealthy nodes),
-both scale-up and scale-down operations are blocked until the nodes recover.
+Unconstrained, preferred, and required topology modes are all supported for scaling
+operations. During node repair (unhealthy nodes), both scale-up and scale-down operations
+are blocked until the nodes recover.
+
+#### Example: Preferred Topology
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tas-elastic-preferred
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+    kueue.x-k8s.io/elastic-job: "true"
+spec:
+  parallelism: 4
+  template:
+    metadata:
+      annotations:
+        kueue.x-k8s.io/podset-preferred-topology: cloud.provider.com/topology-rack
+    spec:
+      containers:
+      - name: worker
+        image: mpioperator/mpi-pi:openmpi
+```
+If this job scales from 4 to 8, the algorithm attempts to pack all 8 pods into the existing rack. If the rack only holds 6, it will allocate 6 pods to the current rack and fallback to placing the remaining 2 in the next available rack.
+
+#### Example: Required Topology
+
+```yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tas-elastic-required
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+    kueue.x-k8s.io/elastic-job: "true"
+spec:
+  parallelism: 4
+  template:
+    metadata:
+      annotations:
+        kueue.x-k8s.io/podset-required-topology: cloud.provider.com/topology-rack
+    spec:
+      containers:
+      - name: worker
+        image: mpioperator/mpi-pi:openmpi
+```
+If this job scales from 4 to 8, it *must* find 4 slots within the exact same rack as the original 4 pods. If the rack cannot accommodate them, the scale-up is capped or rejected.
 
 #### Pod Identification Across Slices
 
@@ -309,24 +353,30 @@ const (
 )
 ```
 
-#### Scale Up
+#### Fast-Path Scale-Up (Preferred & Unconstrained)
 
-When a new workload slice replaces an old one during scale-up, the scheduler extracts
-the `TopologyAssignment` from the old slice and passes it to TAS. TAS attempts to place
-new pods in the same topology domain as existing pods. If the previous assignment is
-stale (e.g., nodes are unhealthy), TAS blocks the scale-up operation until the nodes recover.
+Preferred and unconstrained topology during elastic scale-up leverages a "Fast-Path" placement strategy utilizing standard TAS logic (e.g., `LeastFreeCapacity` or `BestFit`):
+1. The scheduler extracts the `TopologyAssignment` from the old slice and passes it to TAS.
+2. It attempts to satisfy the full capacity (`currCount + deltaCount`) starting within the preferred domain footprint.
+3. If the preferred domain lacks sufficient capacity, the algorithm naturally falls back to satisfying the placement in the next best available domains. The placement is fragmented across domains optimally based on the scoring algorithm.
+4. If the previous assignment is stale (e.g., nodes are unhealthy), TAS blocks the scale-up operation until the nodes recover.
 
-**Note:** This blocking behavior is a tentative plan for Alpha and will be re-evaluated before Beta.
+#### Node-Hot-Swap Iterative Scale-Up (Required)
+
+Placing all `deltaCount` pods at once via standard logic in Required mode could result in a fragmented placement that spans multiple topology domains unacceptably. 
+
+To resolve this, we use an iterative **Node-Hot-Swap Algorithm**:
+1. We analyze the current assignment footprint via a `findScaleUpDomain` helper function. This helper navigates the topology tree to identify the minimal bounding topology domain where the delta pods should be securely placed.
+2. Rather than a bulk placement, the scaler iterates pod-by-pod.
+3. For each `1..deltaCount` iteration, a single pod is mapped into the `currAssignment` strictly within the identified required boundary.
+4. If at any point during the loop the required domain fills up, the scale-up placement terminates early. This guarantees we incrementally build the assignment without ever violating the required boundary.
+5. The `currAssignment` is passed as the final TopologyAssignment for the new workload slice.
 
 #### Scale Down
 
-During scale-down, the workload slice retains the existing topology assignment for the
-remaining pods. If unhealthy nodes are detected during the scale-down operation, the
-operation is blocked to prevent violating the expected minimum replica count. For example,
-if a job has 3 replicas with minCount=2 and one node becomes unhealthy (leaving 2 active
-pods), allowing scale-down to 2 replicas could result in only 1 active pod.
+During scale-down operations, the workload slice simply retains the existing topology assignment for the remaining pods. Pods are removed from the assignment proportionately, ensuring that the tightest possible topology is preserved for the reduced workload size. 
 
-**Note:** This blocking behavior is a tentative plan for Alpha and will be re-evaluated before Beta.
+If unhealthy nodes are detected during the scale-down operation, the operation is blocked to prevent violating the expected minimum replica count. For example, if a job has 3 replicas with minCount=2 and one node becomes unhealthy (leaving 2 active pods), allowing scale-down to 2 replicas could result in only 1 active pod.
 
 See [KEP-2724: Topology Aware Scheduling](../2724-topology-aware-scheduling#support-for-elastic-workloads) for TAS details.
 
@@ -542,7 +592,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [x] Feature opt-in is supported via workload annotation (`kueue.x-k8s.io/elastic-job: "true"`).
 * [x] Documented enablement steps, slice behavior, and known limitations.
 * [x] Kueue-native Deployment support leveraging WorkloadSlices.
-* [x] Topology Aware Scheduling integration: elastic workloads with unconstrained topology preserve topology assignment during scale-up. Scale-down and required/preferred modes are not yet supported.
+* [x] Topology Aware Scheduling integration: elastic workloads preserve topology assignment during scale-up. Scale-down and required/preferred modes are fully supported.
 
 #### Beta
 
@@ -578,15 +628,13 @@ TAS integration is gated separately via `ElasticJobsViaWorkloadSlicesWithTAS`
 
 #### Alpha
 
-* [x] Unconstrained topology mode supported for scale-up.
-* [x] Webhook validation to reject elastic jobs with required/preferred topology annotations.
-* [x] Integration tests for elastic workloads with unconstrained topology.
+* [x] Unconstrained topology mode supported for scale-up and scale-down.
+* [x] Preferred and Required topology modes supported for scale-up and scale-down.
+* [x] Integration tests for elastic workloads across all topology modes.
 
 #### Beta
 
 * [ ] Re-evaluate in production-like environments with scale-up/scale-down cycles.
-* [ ] Re-evaluate full integration with required/preferred topology modes.
-* [ ] Re-evaluate handling scale-ups and scale-downs during node repair.
 * [ ] Correct handling of rank-based ordering for scale-downs.
 
 ## Implementation History
