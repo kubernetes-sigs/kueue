@@ -361,9 +361,8 @@ prepare-manifests:
 	cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
 	cd cmd/experimental/kueue-priority-booster/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
 
-# Must stay the first artifacts prerequisite: helm-chart-package and
-# prepare-manifests rewrite tracked files, so an invalid tag has to fail
-# before them to avoid leaving the working tree modified.
+# Keep first so serial builds fail before helm-chart-package and
+# prepare-manifests rewrite tracked files.
 .PHONY: verify-git-tag
 verify-git-tag:
 	@if [[ "$(GIT_TAG)" != v* ]]; then \
