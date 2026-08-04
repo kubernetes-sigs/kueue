@@ -423,45 +423,9 @@ func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w job
 	return func() {
 		rc.runWatcher(func() {
 			log.V(2).Info("Starting watch")
-			resultCh := newWatcher.ResultChan()
-		watching:
-			for {
-				select {
-				case <-ctx.Done():
-					break watching
-				case r, ok := <-resultCh:
-					if !ok {
-						break watching
-					}
-					switch r.Type {
-					case watch.Bookmark:
-						// Bookmark events are periodic signals from the API server to
-						// keep the connection alive. They carry no meaningful payload
-						// and can be safely ignored.
-						log.V(5).Info("Watch bookmark received")
-					case watch.Error:
-						switch s := r.Object.(type) {
-						case *metav1.Status:
-							log.V(3).Info("Watch error", "status", s.Status, "message", s.Message, "reason", s.Reason)
-						default:
-							log.V(3).Info("Watch error with unexpected type", "type", fmt.Sprintf("%T", s))
-						}
-					default:
-						wlKeys, err := w.WorkloadKeysFor(r.Object)
-						if err != nil {
-							log.Error(err, "Cannot get workload keys", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
-						} else {
-							for _, wlKey := range wlKeys {
-								rc.queueWorkloadEvent(ctx, wlKey)
-							}
-						}
-					}
-				}
-			}
+			rc.consumeWatch(ctx, log, newWatcher, w)
 			log.V(2).Info("Watch ended", "ctxErr", ctx.Err())
-			// If the context is not yet Done , queue a reconcile to attempt reconnection
 			if ctx.Err() == nil {
-				// reconnect if this is the first watch failing.
 				if wasConnected := rc.connState.markDisconnected(rc.clock.Now()); wasConnected {
 					log.V(2).Info("Queue reconcile for reconnect", "cluster", rc.clusterName)
 					rc.queueWatchEndedEvent(ctx)
@@ -469,6 +433,48 @@ func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w job
 			}
 		})
 	}, nil
+}
+
+// consumeWatch dispatches events until the watch ends or ctx is cancelled. Cancelling does
+// not close the result channel, so the ctx arm is what lets StopWatchers join this goroutine.
+func (rc *remoteClient) consumeWatch(ctx context.Context, log logr.Logger, watcher watch.Interface, w jobframework.MultiKueueWatcher) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case r, ok := <-watcher.ResultChan():
+			if !ok {
+				return
+			}
+			rc.handleWatchEvent(ctx, log, r, w)
+		}
+	}
+}
+
+func (rc *remoteClient) handleWatchEvent(ctx context.Context, log logr.Logger, r watch.Event, w jobframework.MultiKueueWatcher) {
+	switch r.Type {
+	case watch.Bookmark:
+		// Bookmark events are periodic signals from the API server to
+		// keep the connection alive. They carry no meaningful payload
+		// and can be safely ignored.
+		log.V(5).Info("Watch bookmark received")
+	case watch.Error:
+		switch s := r.Object.(type) {
+		case *metav1.Status:
+			log.V(3).Info("Watch error", "status", s.Status, "message", s.Message, "reason", s.Reason)
+		default:
+			log.V(3).Info("Watch error with unexpected type", "type", fmt.Sprintf("%T", s))
+		}
+	default:
+		wlKeys, err := w.WorkloadKeysFor(r.Object)
+		if err != nil {
+			log.Error(err, "Cannot get workload keys", "jobKind", r.Object.GetObjectKind().GroupVersionKind())
+			return
+		}
+		for _, wlKey := range wlKeys {
+			rc.queueWorkloadEvent(ctx, wlKey)
+		}
+	}
 }
 
 func (rc *remoteClient) startQueueWatchers(ctx context.Context) error {
@@ -546,10 +552,7 @@ func (rc *remoteClient) queueEventsForLQ(ctx context.Context, remoteLQ *kueue.Lo
 		return
 	}
 
-	select {
-	case rc.cqUpdateCh <- event.TypedGenericEvent[kueue.ClusterQueueReference]{Object: localLQ.Spec.ClusterQueue}:
-	case <-ctx.Done():
-	}
+	rc.cqUpdateCh <- event.TypedGenericEvent[kueue.ClusterQueueReference]{Object: localLQ.Spec.ClusterQueue}
 }
 
 func (rc *remoteClient) getFailedConnAttempts() uint {
@@ -616,10 +619,7 @@ func (rc *remoteClient) StopWatchers() {
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
 	localWl := &kueue.Workload{}
 	if err := rc.localClient.Get(ctx, wlKey, localWl); err == nil {
-		select {
-		case rc.wlUpdateCh <- event.GenericEvent{Object: localWl}:
-		case <-ctx.Done():
-		}
+		rc.wlUpdateCh <- event.GenericEvent{Object: localWl}
 	} else if !apierrors.IsNotFound(err) {
 		ctrl.LoggerFrom(ctx).Error(err, "reading local workload")
 	}
@@ -628,10 +628,7 @@ func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.Name
 func (rc *remoteClient) queueWatchEndedEvent(ctx context.Context) {
 	cluster := &kueue.MultiKueueCluster{}
 	if err := rc.localClient.Get(ctx, types.NamespacedName{Name: rc.clusterName}, cluster); err == nil {
-		select {
-		case rc.watchEndedCh <- event.GenericEvent{Object: cluster}:
-		case <-ctx.Done():
-		}
+		rc.watchEndedCh <- event.GenericEvent{Object: cluster}
 	} else {
 		ctrl.LoggerFrom(ctx).Error(err, "sending watch ended event")
 	}
