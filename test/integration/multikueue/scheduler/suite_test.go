@@ -41,7 +41,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -110,7 +109,8 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 }
 
 func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.IntegrationManager {
-	integrationManager := jobcontrollers.NewIntegrationManager()
+	integrationManager := jobframework.NewIntegrationManager()
+	gomega.Expect(workloadjob.RegisterIntegration(integrationManager)).To(gomega.Succeed())
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 

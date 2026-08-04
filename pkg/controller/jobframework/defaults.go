@@ -46,7 +46,13 @@ func (m *IntegrationManager) ApplyDefaultForSuspend(ctx context.Context, job Gen
 	return nil
 }
 
-func (m *IntegrationManager) ApplyDefaultLocalQueue(ctx context.Context, k8sClient client.Client, jobObj client.Object, defaultQueueExist func(string) bool, managedJobsNamespaceSelector labels.Selector) error {
+func (m *IntegrationManager) ApplyDefaultLocalQueue(
+	ctx context.Context,
+	k8sClient client.Client,
+	jobObj client.Object,
+	defaultQueueExist func(string) bool,
+	managedJobsNamespaceSelector labels.Selector,
+) error {
 	if !defaultQueueExist(jobObj.GetNamespace()) {
 		return nil
 	}

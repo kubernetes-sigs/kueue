@@ -4483,8 +4483,18 @@ func TestReconciler(t *testing.T) {
 					}
 				}
 				recorder := &utiltesting.EventRecorder{}
-				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder,
-					append(tc.reconcilerOptions, jobframework.WithIntegrationManager(integrationManager), jobframework.WithCache(schdcache.New(kClient)), jobframework.WithClock(testingclock.NewFakeClock(now)))...)
+				reconciler, err := NewReconciler(
+					ctx,
+					kClient,
+					indexer,
+					recorder,
+					append(
+						tc.reconcilerOptions,
+						jobframework.WithIntegrationManager(integrationManager),
+						jobframework.WithCache(schdcache.New(kClient)),
+						jobframework.WithClock(testingclock.NewFakeClock(now)),
+					)...,
+				)
 				if err != nil {
 					t.Errorf("Error creating the reconciler: %v", err)
 				}

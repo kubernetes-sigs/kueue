@@ -451,7 +451,13 @@ func main() {
 	}
 }
 
-func setupIndexes(ctx context.Context, mgr ctrl.Manager, cfg *configapi.Configuration, integrationManager *jobframework.IntegrationManager, resourceSliceAPIAvailable bool) error {
+func setupIndexes(
+	ctx context.Context,
+	mgr ctrl.Manager,
+	cfg *configapi.Configuration,
+	integrationManager *jobframework.IntegrationManager,
+	resourceSliceAPIAvailable bool,
+) error {
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	if err != nil {
 		return err
