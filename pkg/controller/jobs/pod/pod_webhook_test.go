@@ -41,25 +41,37 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	kueuedeployment "sigs.k8s.io/kueue/pkg/controller/jobs/deployment"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	kubeflowjobs "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
+	testingreplicaset "sigs.k8s.io/kueue/pkg/util/testingjobs/replicaset"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	testingxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
 )
 
 func TestDefault(t *testing.T) {
 	defaultNamespace := utiltesting.MakeNamespaceWrapper("test-ns").Label(corev1.LabelMetadataName, "test-ns").Obj()
+	basePodSpec := testingpod.MakePod("base", defaultNamespace.Name).Image("", nil).Obj().Spec
+	expectedRoleHash, err := utilpod.GenerateRoleHash(&basePodSpec)
+	if err != nil {
+		t.Fatalf("failed to generate expected role hash: %v", err)
+	}
+	// preservedParentRoleHash is the role-hash set by a parent-managed pod; the webhook
+	// preserves it without recomputation from the pod spec.
+	const preservedParentRoleHash = "leader"
 	defaultNamespaceSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
@@ -96,7 +108,7 @@ func TestDefault(t *testing.T) {
 		want                         *corev1.Pod
 		wantErr                      error
 	}{
-		"pod with suspend by parent annotation should skip finalizer": {
+		"pod with forged suspend by parent annotation recomputes role-hash and skips finalizer": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
@@ -104,12 +116,13 @@ func TestDefault(t *testing.T) {
 			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				SuspendedByParent("test").
 				Queue("test-queue").
+				RoleHash("forged").
 				Obj(),
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				SuspendedByParent("test").
 				Queue("test-queue").
 				KueueSchedulingGate().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				Obj(),
 		},
 		"pod with queue nil ns selector": {
@@ -122,8 +135,75 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueFinalizer().
+				Obj(),
+		},
+		"tenant-supplied role-hash is ignored and recomputed from the spec": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			initObjects:  []client.Object{defaultNamespace},
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				RoleHash("forged").
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash(expectedRoleHash).
+				KueueFinalizer().
+				Obj(),
+		},
+		"parent-managed pod preserves its role-hash": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			initObjects: []client.Object{
+				defaultNamespace,
+				testingdeployment.MakeDeployment("parent-deployment", defaultNamespace.Name).
+					UID("parent-deployment").
+					Queue("test-queue").
+					Obj(),
+				testingreplicaset.MakeReplicaSet("parent-replicaset", defaultNamespace.Name).
+					UID("parent-replicaset").
+					ControllerOwnerReference("parent-deployment", appsv1.SchemeGroupVersion.String(), "Deployment", "parent-deployment").
+					Obj(),
+			},
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent(kueuedeployment.FrameworkName).
+				Queue("test-queue").
+				RoleHash(preservedParentRoleHash).
+				OwnerReference("parent-replicaset", appsv1.SchemeGroupVersion.WithKind("ReplicaSet")).
+				Obj(),
+			enableIntegrations: []string{kueuedeployment.FrameworkName},
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent(kueuedeployment.FrameworkName).
+				Queue("test-queue").
+				KueueSchedulingGate().
+				RoleHash(preservedParentRoleHash).
+				OwnerReference("parent-replicaset", appsv1.SchemeGroupVersion.WithKind("ReplicaSet")).
+				Obj(),
+		},
+		"pod claims a real integration name but the resolvable ancestor GVK mismatches recomputes role-hash": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			initObjects: []client.Object{
+				defaultNamespace,
+				testingjob.MakeJob("parent-job", defaultNamespace.Name).
+					UID("parent-job").
+					Queue("test-queue").
+					Obj(),
+			},
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent(kueuedeployment.FrameworkName).
+				Queue("test-queue").
+				RoleHash("forged").
+				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			enableIntegrations: []string{kueuedeployment.FrameworkName, "batch/job"},
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				SuspendedByParent(kueuedeployment.FrameworkName).
+				Queue("test-queue").
+				KueueSchedulingGate().
+				RoleHash(expectedRoleHash).
+				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
 		},
 		"pod with queue matching ns selector": {
@@ -138,7 +218,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueFinalizer().
 				Obj(),
 		},
@@ -153,7 +233,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueFinalizer().
 				Obj(),
 		},
@@ -173,7 +253,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueFinalizer().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
@@ -355,7 +435,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				GroupNameLabel("test-group").
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
@@ -373,7 +453,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("test-queue").
 				GroupNameLabel("test-group").
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
@@ -393,7 +473,7 @@ func TestDefault(t *testing.T) {
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, "block").
 				ManagedByKueueLabel().
 				KueueFinalizer().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueSchedulingGate().
 				TopologySchedulingGate().
 				Obj(),
@@ -416,7 +496,7 @@ func TestDefault(t *testing.T) {
 				Label("test-label", "test-value").
 				Label(kueue.PodGroupPodIndexLabel, "test-value").
 				ManagedByKueueLabel().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueFinalizer().
 				KueueSchedulingGate().
 				TopologySchedulingGate().
@@ -434,7 +514,7 @@ func TestDefault(t *testing.T) {
 				Queue("default").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueFinalizer().
 				Obj(),
 		},
@@ -462,7 +542,7 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueFinalizer().
 				Obj(),
 		},
@@ -477,7 +557,7 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueFinalizer().
 				Obj(),
 		},
@@ -504,7 +584,7 @@ func TestDefault(t *testing.T) {
 			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
 				Queue("queue").
 				ManagedByKueueLabel().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -534,7 +614,7 @@ func TestDefault(t *testing.T) {
 				Label(corev1.LabelMetadataName, "test-pod").
 				Queue("queue").
 				ManagedByKueueLabel().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -571,7 +651,7 @@ func TestDefault(t *testing.T) {
 				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueFinalizer().
 				Obj(),
 		},
@@ -593,7 +673,7 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueFinalizer().
 				Obj(),
 		},
@@ -617,7 +697,7 @@ func TestDefault(t *testing.T) {
 				Label(constants.WorkloadPriorityClassLabel, "high").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueFinalizer().
 				Obj(),
 		},
@@ -636,7 +716,7 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
-				RoleHash("a9f06f3a").
+				RoleHash(expectedRoleHash).
 				KueueFinalizer().
 				Obj(),
 		},
@@ -1375,6 +1455,7 @@ func newTestIntegrationManager(t *testing.T) *jobframework.IntegrationManager {
 	manager := jobframework.NewIntegrationManager()
 	for _, registerIntegration := range []func(*jobframework.IntegrationManager) error{
 		RegisterIntegration,
+		kueuedeployment.RegisterIntegration,
 		workloadjob.RegisterIntegration,
 		kubeflowjobs.RegisterIntegrations,
 		mpijob.RegisterIntegration,
