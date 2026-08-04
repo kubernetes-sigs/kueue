@@ -1382,9 +1382,10 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"when a foreign object of the same name already exists": {
+		"when the existing request is already visible in the cache": {
 			// The request below carries no ownerReferences, so indexRequestsOwner keeps it out of
-			// the List and the controller creates over it - the collision the user has to resolve.
+			// the List and the controller creates over it. The cache can see it, so there is no
+			// evidence that retrying resolves anything and the collision is reported.
 			interceptorFuncsCreate: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
 				if _, ok := obj.(*autoscaling.ProvisioningRequest); ok {
 					return errProvisioningRequestExists
@@ -2182,6 +2183,40 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 			gotResult := controller.activeOrLastPRForChecks(ctx, workload, checkConfig, tc.requests)
 			if diff := cmp.Diff(tc.wantResult, gotResult, reqCmpOptions...); diff != "" {
 				t.Errorf("unexpected request %q (-want/+got):\n%s", name, diff)
+			}
+		})
+	}
+}
+
+func TestIsMissingInCache(t *testing.T) {
+	request := &autoscaling.ProvisioningRequest{
+		ObjectMeta: metav1.ObjectMeta{Namespace: TestNamespace, Name: "wl-check1-1"},
+	}
+	cases := map[string]struct {
+		requests []autoscaling.ProvisioningRequest
+		want     bool
+	}{
+		"the cache has not observed the request yet": {
+			want: true,
+		},
+		"the request is already visible": {
+			requests: []autoscaling.ProvisioningRequest{*request.DeepCopy()},
+			want:     false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
+			builder = builder.WithLists(&autoscaling.ProvisioningRequestList{Items: tc.requests})
+			controller, err := NewController(builder.Build(), &utiltesting.EventRecorder{}, nil)
+			if err != nil {
+				t.Fatalf("Setting up the provisioning request controller: %v", err)
+			}
+
+			// The helper reads into the object it is given, so pass a copy.
+			if got := controller.isMissingInCache(ctx, request.DeepCopy()); got != tc.want {
+				t.Errorf("unexpected result: got %t, want %t", got, tc.want)
 			}
 		})
 	}
