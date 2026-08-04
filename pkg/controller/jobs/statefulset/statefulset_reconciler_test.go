@@ -36,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -54,6 +55,12 @@ var (
 
 func TestReconciler(t *testing.T) {
 	now := time.Now()
+	createdWorkloadEvents := []utiltesting.EventRecord{{
+		Key:       types.NamespacedName{Name: "sts", Namespace: "ns"},
+		EventType: corev1.EventTypeNormal,
+		Reason:    jobframework.ReasonCreatedWorkload,
+		Message:   "Created Workload: ns/statefulset-sts-d8800",
+	}}
 	cases := map[string]struct {
 		featureGates    map[featuregate.Feature]bool
 		stsKey          client.ObjectKey
@@ -64,6 +71,9 @@ func TestReconciler(t *testing.T) {
 		wantPods        []corev1.Pod
 		wantWorkloads   []kueue.Workload
 		wantErr         error
+
+		workloadPriorityClasses []kueue.WorkloadPriorityClass
+		wantEvents              []utiltesting.EventRecord
 	}{
 		"statefulset not found": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
@@ -233,6 +243,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create workload when replicas > 0 and workload doesn't exist": {
+			wantEvents:   createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -263,7 +274,30 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"should report a missing workload priority class and create no workload": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				WorkloadPriorityClass("missing-wpc").
+				Obj(),
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				WorkloadPriorityClass("missing-wpc").
+				DeepCopy(),
+			// missing-wpc is deliberately not in workloadPriorityClasses.
+			wantErr: cmpopts.AnyError,
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "sts", Namespace: "ns"},
+				EventType: corev1.EventTypeWarning,
+				Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
+				Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+			}},
+		},
 		"should create workload with TAS topology request when TAS enabled": {
+			wantEvents:   createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -417,6 +451,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: nil,
 		},
 		"statefulset with single AdmissionGatedBy gate should propagate to workload": {
+			wantEvents: createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 				features.AdmissionGatedBy:        true,
@@ -454,6 +489,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"statefulset with multiple AdmissionGatedBy gates should propagate to workload": {
+			wantEvents: createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 				features.AdmissionGatedBy:        true,
@@ -491,6 +527,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"statefulset with AdmissionGatedBy annotation but feature gate disabled should not propagate": {
+			wantEvents:   createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false, features.AdmissionGatedBy: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -548,9 +585,14 @@ func TestReconciler(t *testing.T) {
 				objs = append(objs, wl.DeepCopy())
 			}
 
+			for _, wpc := range tc.workloadPriorityClasses {
+				objs = append(objs, wpc.DeepCopy())
+			}
+
 			kClient := clientBuilder.WithObjects(objs...).Build()
 
-			reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+			recorder := &utiltesting.EventRecorder{}
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)
 			}
@@ -589,6 +631,10 @@ func TestReconciler(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloadList.Items, baseCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {
+				t.Errorf("Events after reconcile (-want,+got):\n%s", diff)
 			}
 		})
 	}

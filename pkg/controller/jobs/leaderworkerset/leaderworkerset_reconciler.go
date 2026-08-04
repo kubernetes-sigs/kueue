@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
@@ -226,15 +227,27 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 
 	eg, ctx := errgroup.WithContext(ctx)
 
+	// Reported from the worker rather than from the caller: errgroup keeps only
+	// the first error and parallelize.Until only one per branch, so a conflict
+	// elsewhere would otherwise hide a missing class entirely. Once per
+	// reconcile, since every component names the same class.
+	var reported atomic.Bool
+	report := func(err error) error {
+		if jobframework.IsWorkloadPriorityClassNotFound(err) && reported.CompareAndSwap(false, true) {
+			jobframework.RecordWorkloadPriorityClassNotFoundEvent(r.record, lws, err)
+		}
+		return err
+	}
+
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toCreate), func(i int) error {
-			return r.createWorkload(ctx, lws, toCreate[i].name, toCreate[i].index)
+			return report(r.createWorkload(ctx, lws, toCreate[i].name, toCreate[i].index))
 		})
 	})
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
-			return r.updateWorkload(ctx, lws, toUpdate[i])
+			return report(r.updateWorkload(ctx, lws, toUpdate[i]))
 		})
 	})
 

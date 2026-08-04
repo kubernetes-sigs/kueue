@@ -313,6 +313,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	ctx = ctrl.LoggerInto(ctx, log)
 
 	defer func() {
+		// Ahead of ignoreUnretryableError, which can replace err with nil.
+		RecordWorkloadPriorityClassNotFoundEvent(r.record, object, err)
 		err = r.ignoreUnretryableError(log, err)
 	}()
 
@@ -1680,9 +1682,52 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
+// workloadPriorityClassNotFoundError wraps the API error so the reconciler can
+// tell this failure apart without losing apierrors.IsNotFound.
+type workloadPriorityClassNotFoundError struct {
+	name string
+	err  error
+}
+
+func (e *workloadPriorityClassNotFoundError) Error() string { return e.err.Error() }
+
+func (e *workloadPriorityClassNotFoundError) Unwrap() error { return e.err }
+
+// IsWorkloadPriorityClassNotFound reports whether err is the failure to find the
+// WorkloadPriorityClass named by the label. Exported for reconcilers that run
+// their Workloads in parallel and have to recognise it before an unrelated
+// error displaces it.
+func IsWorkloadPriorityClassNotFound(err error) bool {
+	var missing *workloadPriorityClassNotFoundError
+	return errors.As(err, &missing)
+}
+
+// RecordWorkloadPriorityClassNotFoundEvent reports a missing class on the object
+// that carries the label, and ignores every other error. Exported because the
+// statefulset and leaderworkerset reconcilers do not run ReconcileGenericJob and
+// cannot see the error type from their own packages.
+//
+// The generic and statefulset reconcilers call it at an outer error boundary.
+// LeaderWorkerSet calls it from inside its workers, since its parallel error
+// aggregation keeps one error per branch and would otherwise drop this one.
+func RecordWorkloadPriorityClassNotFoundEvent(recorder events.EventRecorder, object client.Object, err error) {
+	var missing *workloadPriorityClassNotFoundError
+	if !errors.As(err, &missing) {
+		return
+	}
+	recorder.Eventf(object, nil, corev1.EventTypeWarning, ReasonWorkloadPriorityClassNotFound,
+		"WorkloadPriorityClassNotFound", "WorkloadPriorityClass %q not found", missing.name)
+}
+
 func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
 	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
-		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
+		ref, priority, err := utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
+		if apierrors.IsNotFound(err) {
+			// Only the class the label named; a NotFound from elsewhere would
+			// make the message a guess.
+			err = &workloadPriorityClassNotFoundError{name: workloadPriorityClass, err: err}
+		}
+		return ref, priority, err
 	}
 	if customPriorityClassFunc != nil {
 		return utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityClassFunc())
