@@ -422,7 +422,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			createdJob := batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
-				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(ptr.To(true)))
+				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

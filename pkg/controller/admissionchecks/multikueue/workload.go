@@ -589,7 +589,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
 		if workload.HasQuotaReservation(group.local) && evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
 			if workload.IsActive(remoteWl) {
-				remoteWl.Spec.Active = ptr.To(false)
+				remoteWl.Spec.Active = new(false)
 				if err := remoteCl.Update(ctx, remoteWl); err != nil {
 					log.Error(err, "Failed to deactivate remote workload")
 					return reconcile.Result{}, err
