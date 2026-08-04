@@ -280,7 +280,15 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 // verifyWorkloadOwnership checks if the workload is genuinely owned by the referenced Job to prevent Confused Deputy attacks.
 // This check runs for both active and deleted workloads to prevent the deletion bypass via spoofed finalizers.
 // It returns a boolean indicating whether the reconciliation should stop, along with the result and error.
-func (w *wlReconciler) verifyWorkloadOwnership(ctx context.Context, req reconcile.Request, wl *kueue.Workload, owner *metav1.OwnerReference, adapter jobframework.MultiKueueAdapter, mkAc *kueue.AdmissionCheckState, isDeleted bool) (reconcile.Result, bool, error) {
+func (w *wlReconciler) verifyWorkloadOwnership(
+	ctx context.Context,
+	req reconcile.Request,
+	wl *kueue.Workload,
+	owner *metav1.OwnerReference,
+	adapter jobframework.MultiKueueAdapter,
+	mkAc *kueue.AdmissionCheckState,
+	isDeleted bool,
+) (reconcile.Result, bool, error) {
 	watcher, implements := adapter.(jobframework.MultiKueueWatcher)
 	if !implements {
 		return reconcile.Result{}, false, nil
