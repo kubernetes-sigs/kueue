@@ -277,6 +277,12 @@ func (j *JobWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersi
 	return j
 }
 
+// OwnerReferenceWithUID adds an ownerReference with an explicit UID.
+func (j *JobWrapper) OwnerReferenceWithUID(ownerName string, ownerGVK schema.GroupVersionKind, uid string) *JobWrapper {
+	utiltesting.AppendOwnerReference(&j.Job, ownerGVK, ownerName, uid, new(true), new(true))
+	return j
+}
+
 func (j *JobWrapper) Containers(containers ...corev1.Container) *JobWrapper {
 	j.Spec.Template.Spec.Containers = containers
 	return j
