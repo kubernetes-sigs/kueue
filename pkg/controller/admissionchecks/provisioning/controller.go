@@ -356,24 +356,16 @@ func (c *Controller) syncOwnedProvisionRequest(
 	return nil
 }
 
-// isDuplicateCreate reports whether an AlreadyExists error came from a reconcile that ran before
-// the cache observed the object an earlier one created. Names are derived from the Workload and the
-// check, so that is the common case; a collision with a foreign object is not, and no retry
-// resolves it, because indexRequestsOwner only lists requests the Workload owns.
-func (c *Controller) isDuplicateCreate(ctx context.Context, wl *kueue.Workload, obj client.Object) bool {
-	existing, ok := obj.DeepCopyObject().(client.Object)
-	if !ok {
-		return false
-	}
-	if err := c.client.Get(ctx, client.ObjectKeyFromObject(obj), existing); err != nil {
-		// A cache that has not caught up is the very case we are retrying for.
-		return apierrors.IsNotFound(err)
-	}
-	return metav1.IsControlledBy(existing, wl)
+// isMissingInCache reports whether the object is absent from the cache. Paired with an
+// AlreadyExists from the API server it means the cache has not observed an object an earlier
+// reconcile created. Anything the cache can already see is left to the caller to report, since
+// there is no evidence that retrying resolves it. The object doubles as the target of the Get.
+func (c *Controller) isMissingInCache(ctx context.Context, obj client.Object) bool {
+	return apierrors.IsNotFound(c.client.Get(ctx, client.ObjectKeyFromObject(obj), obj))
 }
 
 func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, obj client.Object, msg string, err error) error {
-	if apierrors.IsAlreadyExists(err) && c.isDuplicateCreate(ctx, wl, obj) {
+	if apierrors.IsAlreadyExists(err) && c.isMissingInCache(ctx, obj) {
 		// A message recorded here outlives the condition it describes: it stays on the admission
 		// check and is appended to every later event built from it, up to the reason a Workload
 		// is deactivated. Just retry once the cache catches up.
