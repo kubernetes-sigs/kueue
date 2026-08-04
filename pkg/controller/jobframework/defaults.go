@@ -51,7 +51,7 @@ func (m *IntegrationManager) ApplyDefaultLocalQueue(
 	k8sClient client.Client,
 	jobObj client.Object,
 	defaultQueueExist func(string) bool,
-	managedJobsNamespaceSelector labels.Selector,
+	managedJobsNamespaceSelector, localQueueDefaultingNamespaceSelector labels.Selector,
 ) error {
 	if !m.defaultLocalQueueApplies(jobObj, defaultQueueExist) {
 		return nil
@@ -64,6 +64,15 @@ func (m *IntegrationManager) ApplyDefaultLocalQueue(
 	}
 	if !managed {
 		return nil
+	}
+	if features.Enabled(features.LocalQueueDefaultingPerNamespace) {
+		defaultingAllowed, err := namespaceMatchesSelector(ctx, k8sClient, jobObj.GetNamespace(), localQueueDefaultingNamespaceSelector)
+		if err != nil {
+			return err
+		}
+		if !defaultingAllowed {
+			return nil
+		}
 	}
 	setDefaultLocalQueue(jobObj)
 	return nil

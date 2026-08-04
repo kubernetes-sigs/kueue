@@ -107,6 +107,11 @@ func (in *Configuration) DeepCopyInto(out *Configuration) {
 		*out = new(v1.LabelSelector)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.LocalQueueDefaultingNamespaceSelector != nil {
+		in, out := &in.LocalQueueDefaultingNamespaceSelector, &out.LocalQueueDefaultingNamespaceSelector
+		*out = new(v1.LabelSelector)
+		(*in).DeepCopyInto(*out)
+	}
 	if in.InternalCertManagement != nil {
 		in, out := &in.InternalCertManagement, &out.InternalCertManagement
 		*out = new(InternalCertManagement)

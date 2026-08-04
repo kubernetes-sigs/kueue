@@ -41,24 +41,26 @@ var (
 )
 
 type RayJobWebhook struct {
-	integrationManager           *jobframework.IntegrationManager
-	client                       client.Client
-	queues                       *qcache.Manager
-	manageJobsWithoutQueueName   bool
-	managedJobsNamespaceSelector labels.Selector
-	cache                        *schdcache.Cache
+	integrationManager                    *jobframework.IntegrationManager
+	client                                client.Client
+	queues                                *qcache.Manager
+	manageJobsWithoutQueueName            bool
+	managedJobsNamespaceSelector          labels.Selector
+	localQueueDefaultingNamespaceSelector labels.Selector
+	cache                                 *schdcache.Cache
 }
 
 // SetupRayJobWebhook configures the webhook for RayJob.
 func SetupRayJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &RayJobWebhook{
-		integrationManager:           options.IntegrationManager,
-		client:                       mgr.GetClient(),
-		queues:                       options.Queues,
-		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
-		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-		cache:                        options.Cache,
+		integrationManager:                    options.IntegrationManager,
+		client:                                mgr.GetClient(),
+		queues:                                options.Queues,
+		manageJobsWithoutQueueName:            options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector:          options.ManagedJobsNamespaceSelector,
+		localQueueDefaultingNamespaceSelector: options.LocalQueueDefaultingNamespaceSelector,
+		cache:                                 options.Cache,
 	}
 	obj := &rayv1.RayJob{}
 	if options.NoopWebhook {
@@ -80,7 +82,14 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj *rayv1.RayJob) error {
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Applying defaults")
-	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, job.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
+	if err := w.integrationManager.ApplyDefaultLocalQueue(
+		ctx,
+		w.client,
+		job.Object(),
+		w.queues.DefaultLocalQueueExist,
+		w.managedJobsNamespaceSelector,
+		w.localQueueDefaultingNamespaceSelector,
+	); err != nil {
 		return err
 	}
 	w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())

@@ -76,6 +76,20 @@ a kueue.x-k8s.io/queue-name label will be managed by Kueue only when ManageJobsW
 true and the job's namespace matches ManagedJobsNamespaceSelector.</p>
 </td>
 </tr>
+<tr><td><code>localQueueDefaultingNamespaceSelector</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#labelselector-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.LabelSelector</code></a>
+</td>
+<td>
+   <p>LocalQueueDefaultingNamespaceSelector restricts which namespaces
+participate in LocalQueue defaulting. When set and the
+LocalQueueDefaultingPerNamespace feature gate is enabled, only
+workloads in namespaces matching this selector will have the default
+LocalQueue label injected if a LocalQueue named &quot;default&quot; exists in
+the namespace.
+When nil, defaulting is active in all managed namespaces where a
+&quot;default&quot; LocalQueue exists (preserving current behavior).</p>
+</td>
+</tr>
 <tr><td><code>internalCertManagement</code> <B>[Required]</B><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-InternalCertManagement"><code>InternalCertManagement</code></a>
 </td>

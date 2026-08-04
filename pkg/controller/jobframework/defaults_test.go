@@ -24,6 +24,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -171,7 +172,9 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 	integrationManager := newDefaultsIntegrationManager(t)
 	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
-	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
+	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Label("lq-defaulting", "true").Obj()
+	defaultingNamespace := utiltesting.MakeNamespaceWrapper("defaulting-ns").Label(corev1.LabelMetadataName, "defaulting-ns").Label("lq-defaulting", "true").Obj()
+	noDefaultingNamespace := utiltesting.MakeNamespaceWrapper("no-defaulting-ns").Label(corev1.LabelMetadataName, "no-defaulting-ns").Obj()
 	ls := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
@@ -182,10 +185,16 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 		},
 	}
 	namespaceSelector, _ := metav1.LabelSelectorAsSelector(ls)
+	lqdLS := &metav1.LabelSelector{
+		MatchLabels: map[string]string{"lq-defaulting": "true"},
+	}
+	lqdSelector, _ := metav1.LabelSelectorAsSelector(lqdLS)
 
 	cases := map[string]struct {
-		job            *batchv1.Job
-		wantQueueLabel string
+		featureGates                          map[featuregate.Feature]bool
+		job                                   *batchv1.Job
+		localQueueDefaultingNamespaceSelector labels.Selector
+		wantQueueLabel                        string
 	}{
 		"job in managed namespace gets default queue label": {
 			job:            utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
@@ -199,12 +208,36 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 			job:            utiltestingjob.MakeJob("test-job", managedNamespace.Name).Queue("other").Obj(),
 			wantQueueLabel: "other",
 		},
+		"managed namespace with defaulting label gets default queue label": {
+			featureGates:                          map[featuregate.Feature]bool{features.LocalQueueDefaultingPerNamespace: true},
+			localQueueDefaultingNamespaceSelector: lqdSelector,
+			job:                                   utiltestingjob.MakeJob("test-job", defaultingNamespace.Name).Obj(),
+			wantQueueLabel:                        "default",
+		},
+		"managed namespace without defaulting label does not get default queue label": {
+			featureGates:                          map[featuregate.Feature]bool{features.LocalQueueDefaultingPerNamespace: true},
+			localQueueDefaultingNamespaceSelector: lqdSelector,
+			job:                                   utiltestingjob.MakeJob("test-job", noDefaultingNamespace.Name).Obj(),
+			wantQueueLabel:                        "",
+		},
+		"unmanaged namespace with defaulting label does not get default queue label": {
+			featureGates:                          map[featuregate.Feature]bool{features.LocalQueueDefaultingPerNamespace: true},
+			localQueueDefaultingNamespaceSelector: lqdSelector,
+			job:                                   utiltestingjob.MakeJob("test-job", unmanagedNamespace.Name).Obj(),
+			wantQueueLabel:                        "",
+		},
+		"feature gate disabled ignores defaulting selector": {
+			localQueueDefaultingNamespaceSelector: lqdSelector,
+			job:                                   utiltestingjob.MakeJob("test-job", noDefaultingNamespace.Name).Obj(),
+			wantQueueLabel:                        "default",
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			builder := utiltesting.NewClientBuilder()
-			builder.WithObjects(managedNamespace, unmanagedNamespace)
+			builder.WithObjects(managedNamespace, unmanagedNamespace, defaultingNamespace, noDefaultingNamespace)
 			cl := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
@@ -212,7 +245,7 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 				return true
 			}
 
-			if err := integrationManager.ApplyDefaultLocalQueue(ctx, cl, tc.job, defaultQueueExist, namespaceSelector); err != nil {
+			if err := integrationManager.ApplyDefaultLocalQueue(ctx, cl, tc.job, defaultQueueExist, namespaceSelector, tc.localQueueDefaultingNamespaceSelector); err != nil {
 				t.Fatalf("ApplyDefaultLocalQueue() returned error: %v", err)
 			}
 

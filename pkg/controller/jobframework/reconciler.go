@@ -116,24 +116,25 @@ func (r *JobReconciler) RoleTracker() *roletracker.RoleTracker {
 }
 
 type Options struct {
-	ManageJobsWithoutQueueName   bool
-	ManagedJobsNamespaceSelector labels.Selector
-	WaitForPodsReady             bool
-	KubeServerVersion            *kubeversion.ServerVersionFetcher
-	IntegrationOptions           map[string]any // IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
-	EnabledFrameworks            sets.Set[string]
-	EnabledExternalFrameworks    sets.Set[string]
-	ManagerName                  string
-	LabelKeysToCopy              sets.Set[string]
-	AnnotationsToCopy            sets.Set[string]
-	Queues                       *qcache.Manager
-	Cache                        *schdcache.Cache
-	Clock                        clock.Clock
-	WorkloadRetentionPolicy      WorkloadRetentionPolicy
-	RoleTracker                  *roletracker.RoleTracker
-	CustomLabels                 *metrics.CustomLabels
-	IntegrationManager           *IntegrationManager
-	NoopWebhook                  bool
+	ManageJobsWithoutQueueName            bool
+	ManagedJobsNamespaceSelector          labels.Selector
+	LocalQueueDefaultingNamespaceSelector labels.Selector
+	WaitForPodsReady                      bool
+	KubeServerVersion                     *kubeversion.ServerVersionFetcher
+	IntegrationOptions                    map[string]any // IntegrationOptions key is "$GROUP/$VERSION, Kind=$KIND".
+	EnabledFrameworks                     sets.Set[string]
+	EnabledExternalFrameworks             sets.Set[string]
+	ManagerName                           string
+	LabelKeysToCopy                       sets.Set[string]
+	AnnotationsToCopy                     sets.Set[string]
+	Queues                                *qcache.Manager
+	Cache                                 *schdcache.Cache
+	Clock                                 clock.Clock
+	WorkloadRetentionPolicy               WorkloadRetentionPolicy
+	RoleTracker                           *roletracker.RoleTracker
+	CustomLabels                          *metrics.CustomLabels
+	IntegrationManager                    *IntegrationManager
+	NoopWebhook                           bool
 }
 
 // Option configures the reconciler.
@@ -159,6 +160,13 @@ func WithManageJobsWithoutQueueName(f bool) Option {
 func WithManagedJobsNamespaceSelector(ls labels.Selector) Option {
 	return func(o *Options) {
 		o.ManagedJobsNamespaceSelector = ls
+	}
+}
+
+// WithLocalQueueDefaultingNamespaceSelector restricts which namespaces participate in LocalQueue defaulting.
+func WithLocalQueueDefaultingNamespaceSelector(ls labels.Selector) Option {
+	return func(o *Options) {
+		o.LocalQueueDefaultingNamespaceSelector = ls
 	}
 }
 

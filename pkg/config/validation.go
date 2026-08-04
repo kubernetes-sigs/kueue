@@ -59,29 +59,30 @@ const (
 )
 
 var (
-	integrationsPath                      = field.NewPath("integrations")
-	integrationsFrameworksPath            = integrationsPath.Child("frameworks")
-	integrationsExternalFrameworkPath     = integrationsPath.Child("externalFrameworks")
-	managedJobsNamespaceSelectorPath      = field.NewPath("managedJobsNamespaceSelector")
-	waitForPodsReadyPath                  = field.NewPath("waitForPodsReady")
-	requeuingStrategyPath                 = waitForPodsReadyPath.Child("requeuingStrategy")
-	multiKueuePath                        = field.NewPath("multiKueue")
-	clusterProfileAccessProvidersPath     = multiKueuePath.Child("clusterProfile").Child("accessProviders")
-	clusterProfileCredentialProvidersPath = multiKueuePath.Child("clusterProfile").Child("credentialsProviders")
-	fsPreemptionStrategiesPath            = field.NewPath("fairSharing", "preemptionStrategies")
-	afsResourceWeightsPath                = field.NewPath("admissionFairSharing", "resourceWeights")
-	afsPath                               = field.NewPath("admissionFairSharing")
-	internalCertManagementPath            = field.NewPath("internalCertManagement")
-	resourceTransformationPath            = field.NewPath("resources", "transformations")
-	dynamicResourceAllocationPath         = field.NewPath("resources", "deviceClassMappings")
-	objectRetentionPoliciesPath           = field.NewPath("objectRetentionPolicies")
-	objectRetentionPoliciesWorkloadsPath  = objectRetentionPoliciesPath.Child("workloads")
-	tlsPath                               = field.NewPath("tls")
-	featureGatesPath                      = field.NewPath("featureGates")
-	visibilityServerBindAddressPath       = field.NewPath("visibilityServer", "bindAddress")
-	visibilityServerBindPortPath          = field.NewPath("visibilityServer", "bindPort")
-	customLabelsPath                      = field.NewPath("metrics", "customLabels")
-	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
+	integrationsPath                          = field.NewPath("integrations")
+	integrationsFrameworksPath                = integrationsPath.Child("frameworks")
+	integrationsExternalFrameworkPath         = integrationsPath.Child("externalFrameworks")
+	managedJobsNamespaceSelectorPath          = field.NewPath("managedJobsNamespaceSelector")
+	localQueueDefaultingNamespaceSelectorPath = field.NewPath("localQueueDefaultingNamespaceSelector")
+	waitForPodsReadyPath                      = field.NewPath("waitForPodsReady")
+	requeuingStrategyPath                     = waitForPodsReadyPath.Child("requeuingStrategy")
+	multiKueuePath                            = field.NewPath("multiKueue")
+	clusterProfileAccessProvidersPath         = multiKueuePath.Child("clusterProfile").Child("accessProviders")
+	clusterProfileCredentialProvidersPath     = multiKueuePath.Child("clusterProfile").Child("credentialsProviders")
+	fsPreemptionStrategiesPath                = field.NewPath("fairSharing", "preemptionStrategies")
+	afsResourceWeightsPath                    = field.NewPath("admissionFairSharing", "resourceWeights")
+	afsPath                                   = field.NewPath("admissionFairSharing")
+	internalCertManagementPath                = field.NewPath("internalCertManagement")
+	resourceTransformationPath                = field.NewPath("resources", "transformations")
+	dynamicResourceAllocationPath             = field.NewPath("resources", "deviceClassMappings")
+	objectRetentionPoliciesPath               = field.NewPath("objectRetentionPolicies")
+	objectRetentionPoliciesWorkloadsPath      = objectRetentionPoliciesPath.Child("workloads")
+	tlsPath                                   = field.NewPath("tls")
+	featureGatesPath                          = field.NewPath("featureGates")
+	visibilityServerBindAddressPath           = field.NewPath("visibilityServer", "bindAddress")
+	visibilityServerBindPortPath              = field.NewPath("visibilityServer", "bindPort")
+	customLabelsPath                          = field.NewPath("metrics", "customLabels")
+	resourceQuotaCheckStrategyPath            = field.NewPath("resources", "quotaCheckStrategy")
 	// Values in this map should never exceed metrics.MaxCustomLabelsForSourceKind.
 	maxCustomLabelsPerSourceKind = map[configapi.SourceKind]int{
 		configapi.SourceKindWorkload:     min(2, metrics.MaxCustomLabelsForSourceKind),
@@ -103,6 +104,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationMan
 	allErrs = append(allErrs, validateResourceTransformations(c)...)
 	allErrs = append(allErrs, validateDeviceClassMappings(c)...)
 	allErrs = append(allErrs, validateManagedJobsNamespaceSelector(c)...)
+	allErrs = append(allErrs, validateLocalQueueDefaultingNamespaceSelector(c)...)
 	allErrs = append(allErrs, validateObjectRetentionPolicies(c)...)
 	allErrs = append(allErrs, validateTLS(c)...)
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
@@ -635,6 +637,34 @@ func validateManagedJobsNamespaceSelector(c *configapi.Configuration) field.Erro
 	for _, pn := range prohibitedNamespaces {
 		if selector.Matches(pn) {
 			allErrs = append(allErrs, field.Invalid(managedJobsNamespaceSelectorPath, c.ManagedJobsNamespaceSelector,
+				fmt.Sprintf("should not match the %q namespace", pn[corev1.LabelMetadataName])))
+		}
+	}
+
+	return allErrs
+}
+
+func validateLocalQueueDefaultingNamespaceSelector(c *configapi.Configuration) field.ErrorList {
+	if c.LocalQueueDefaultingNamespaceSelector == nil {
+		return nil
+	}
+
+	var allErrs field.ErrorList
+
+	prohibitedNamespaces := []labels.Set{{corev1.LabelMetadataName: metav1.NamespaceSystem}}
+	if c.Namespace != nil && *c.Namespace != "" {
+		prohibitedNamespaces = append(prohibitedNamespaces, labels.Set{corev1.LabelMetadataName: *c.Namespace})
+	}
+
+	allErrs = append(allErrs, validation.ValidateLabelSelector(c.LocalQueueDefaultingNamespaceSelector, validation.LabelSelectorValidationOptions{}, localQueueDefaultingNamespaceSelectorPath)...)
+	selector, err := metav1.LabelSelectorAsSelector(c.LocalQueueDefaultingNamespaceSelector)
+	if err != nil {
+		return allErrs
+	}
+
+	for _, pn := range prohibitedNamespaces {
+		if selector.Matches(pn) {
+			allErrs = append(allErrs, field.Invalid(localQueueDefaultingNamespaceSelectorPath, c.LocalQueueDefaultingNamespaceSelector,
 				fmt.Sprintf("should not match the %q namespace", pn[corev1.LabelMetadataName])))
 		}
 	}

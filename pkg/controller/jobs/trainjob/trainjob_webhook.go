@@ -34,24 +34,26 @@ import (
 )
 
 type TrainJobWebhook struct {
-	integrationManager           *jobframework.IntegrationManager
-	client                       client.Client
-	manageJobsWithoutQueueName   bool
-	managedJobsNamespaceSelector labels.Selector
-	queues                       *qcache.Manager
-	cache                        *schdcache.Cache
+	integrationManager                    *jobframework.IntegrationManager
+	client                                client.Client
+	manageJobsWithoutQueueName            bool
+	managedJobsNamespaceSelector          labels.Selector
+	localQueueDefaultingNamespaceSelector labels.Selector
+	queues                                *qcache.Manager
+	cache                                 *schdcache.Cache
 }
 
 // SetupTrainJobWebhook configures the webhook for kubeflow TrainJob.
 func SetupTrainJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &TrainJobWebhook{
-		integrationManager:           options.IntegrationManager,
-		client:                       mgr.GetClient(),
-		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
-		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-		queues:                       options.Queues,
-		cache:                        options.Cache,
+		integrationManager:                    options.IntegrationManager,
+		client:                                mgr.GetClient(),
+		manageJobsWithoutQueueName:            options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector:          options.ManagedJobsNamespaceSelector,
+		localQueueDefaultingNamespaceSelector: options.LocalQueueDefaultingNamespaceSelector,
+		queues:                                options.Queues,
+		cache:                                 options.Cache,
 	}
 	obj := &kftrainerapi.TrainJob{}
 	if options.NoopWebhook {
@@ -74,7 +76,14 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
 	log.V(5).Info("Applying defaults")
 
-	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, trainJob.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
+	if err := w.integrationManager.ApplyDefaultLocalQueue(
+		ctx,
+		w.client,
+		trainJob.Object(),
+		w.queues.DefaultLocalQueueExist,
+		w.managedJobsNamespaceSelector,
+		w.localQueueDefaultingNamespaceSelector,
+	); err != nil {
 		return err
 	}
 	w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, trainJob.Object())

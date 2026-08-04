@@ -53,26 +53,28 @@ var (
 )
 
 type MpiJobWebhook struct {
-	integrationManager           *jobframework.IntegrationManager
-	client                       client.Client
-	manageJobsWithoutQueueName   bool
-	managedJobsNamespaceSelector labels.Selector
-	kubeServerVersion            *kubeversion.ServerVersionFetcher
-	queues                       *qcache.Manager
-	cache                        *schdcache.Cache
+	integrationManager                    *jobframework.IntegrationManager
+	client                                client.Client
+	manageJobsWithoutQueueName            bool
+	managedJobsNamespaceSelector          labels.Selector
+	localQueueDefaultingNamespaceSelector labels.Selector
+	kubeServerVersion                     *kubeversion.ServerVersionFetcher
+	queues                                *qcache.Manager
+	cache                                 *schdcache.Cache
 }
 
 // SetupMPIJobWebhook configures the webhook for MPIJob.
 func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &MpiJobWebhook{
-		integrationManager:           options.IntegrationManager,
-		client:                       mgr.GetClient(),
-		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
-		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-		kubeServerVersion:            options.KubeServerVersion,
-		queues:                       options.Queues,
-		cache:                        options.Cache,
+		integrationManager:                    options.IntegrationManager,
+		client:                                mgr.GetClient(),
+		manageJobsWithoutQueueName:            options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector:          options.ManagedJobsNamespaceSelector,
+		localQueueDefaultingNamespaceSelector: options.LocalQueueDefaultingNamespaceSelector,
+		kubeServerVersion:                     options.KubeServerVersion,
+		queues:                                options.Queues,
+		cache:                                 options.Cache,
 	}
 	obj := &v2beta1.MPIJob{}
 	if options.NoopWebhook {
@@ -95,7 +97,14 @@ func (w *MpiJobWebhook) Default(ctx context.Context, obj *v2beta1.MPIJob) error 
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.V(5).Info("Applying defaults")
 
-	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, mpiJob.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
+	if err := w.integrationManager.ApplyDefaultLocalQueue(
+		ctx,
+		w.client,
+		mpiJob.Object(),
+		w.queues.DefaultLocalQueueExist,
+		w.managedJobsNamespaceSelector,
+		w.localQueueDefaultingNamespaceSelector,
+	); err != nil {
 		return err
 	}
 	w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, mpiJob.Object())
