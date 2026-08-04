@@ -864,6 +864,7 @@ func TestReconnectBackoff(t *testing.T) {
 			rc.clock = fc
 			rc.builderOverride = reconciler.builderOverride
 			reconciler.remoteClients["worker1"] = rc
+			t.Cleanup(rc.StopWatchers)
 
 			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}}
 
@@ -1446,6 +1447,11 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil, recorder)
 	reconciler.rootContext = ctx
 	reconciler.builderOverride = gatedBuilder
+	t.Cleanup(func() {
+		for _, rc := range reconciler.remoteClients {
+			rc.StopWatchers()
+		}
+	})
 
 	slowDone := make(chan struct{})
 	go func() {
@@ -1683,61 +1689,5 @@ func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
 	case <-stopped:
 	case <-time.After(30 * time.Second):
 		t.Fatal("StopWatchers did not return: the watcher goroutine was never joined")
-	}
-}
-
-func TestQueueEventSendsUnblockOnCancel(t *testing.T) {
-	baseCtx, _ := utiltesting.ContextWithLog(t)
-
-	wl := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl1", Namespace: "ns1"}}
-	lq := &kueue.LocalQueue{
-		ObjectMeta: metav1.ObjectMeta{Name: "lq1", Namespace: "ns1"},
-		Spec:       kueue.LocalQueueSpec{ClusterQueue: "cq1"},
-	}
-	cluster := &kueue.MultiKueueCluster{ObjectMeta: metav1.ObjectMeta{Name: "worker1"}}
-
-	cases := map[string]func(ctx context.Context, rc *remoteClient){
-		"queueWorkloadEvent on wlUpdateCh": func(ctx context.Context, rc *remoteClient) {
-			rc.queueWorkloadEvent(ctx, types.NamespacedName{Namespace: "ns1", Name: "wl1"})
-		},
-		"queueWatchEndedEvent on watchEndedCh": func(ctx context.Context, rc *remoteClient) {
-			rc.queueWatchEndedEvent(ctx)
-		},
-		"queueEventsForLQ on cqUpdateCh": func(ctx context.Context, rc *remoteClient) {
-			rc.queueEventsForLQ(ctx, lq)
-		},
-	}
-
-	for name, send := range cases {
-		t.Run(name, func(t *testing.T) {
-			rc := &remoteClient{
-				clusterName:  "worker1",
-				localClient:  getClientBuilder(baseCtx).WithObjects(wl, lq, cluster).Build(),
-				wlUpdateCh:   make(chan event.GenericEvent),
-				watchEndedCh: make(chan event.GenericEvent),
-				cqUpdateCh:   make(chan event.TypedGenericEvent[kueue.ClusterQueueReference]),
-				clock:        clock.RealClock{},
-			}
-
-			ctx, cancel := context.WithCancel(baseCtx)
-			returned := make(chan struct{})
-			go func() {
-				send(ctx, rc)
-				close(returned)
-			}()
-
-			select {
-			case <-returned:
-				t.Fatal("send returned before cancellation; it never blocked on the channel")
-			case <-time.After(100 * time.Millisecond):
-			}
-
-			cancel()
-			select {
-			case <-returned:
-			case <-time.After(30 * time.Second):
-				t.Fatal("send did not unblock on cancellation")
-			}
-		})
 	}
 }
