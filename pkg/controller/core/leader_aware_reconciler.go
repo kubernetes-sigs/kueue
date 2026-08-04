@@ -34,8 +34,9 @@ type ReconcilerWithFollowerObserver interface {
 }
 
 type leaderAwareReconcilerObserver struct {
-	elected  <-chan struct{}
-	delegate ReconcilerWithFollowerObserver
+	elected         <-chan struct{}
+	delegate        ReconcilerWithFollowerObserver
+	requeueDuration time.Duration
 }
 
 func (r *leaderAwareReconcilerObserver) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -76,10 +77,11 @@ func WithLeadingManager(mgr ctrl.Manager, reconciler reconcile.Reconciler, obj c
 	}
 }
 
-func WithLeadingManagerObserver(mgr ctrl.Manager, reconciler ReconcilerWithFollowerObserver) reconcile.Reconciler {
+func WithLeadingManagerObserver(mgr ctrl.Manager, reconciler ReconcilerWithFollowerObserver, cfg *config.Configuration) reconcile.Reconciler {
 	return &leaderAwareReconcilerObserver{
-		elected:  mgr.Elected(),
-		delegate: reconciler,
+		elected:         mgr.Elected(),
+		delegate:        reconciler,
+		requeueDuration: cfg.LeaderElection.LeaseDuration.Duration,
 	}
 }
 
