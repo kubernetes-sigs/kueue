@@ -297,6 +297,10 @@ var (
 	ClusterQueueResourceLendingLimit *prometheus.GaugeVec
 
 	// +metricsdoc:group=optional_clusterqueue_resources
+	// +metricsdoc:labels=cohort="the name of the Cohort",cluster_queue="the name of the ClusterQueue",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
+	ClusterQueueLendableResources *prometheus.GaugeVec
+
+	// +metricsdoc:group=optional_clusterqueue_resources
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cohort="the name of the Cohort",replica_role="one of `leader`, `follower`, or `standalone`"
 	ClusterQueueWeightedShare *prometheus.GaugeVec
 
@@ -307,6 +311,10 @@ var (
 	// +metricsdoc:group=cohort
 	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
 	CohortSubtreeQuota *prometheus.GaugeVec
+
+	// +metricsdoc:group=cohort
+	// +metricsdoc:labels=cohort="the name of the Cohort",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
+	CohortLendableResources *prometheus.GaugeVec
 
 	// +metricsdoc:group=cohort
 	// +metricsdoc:labels=cohort="the name of the Cohort",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
@@ -932,6 +940,15 @@ admission penalties, divided by the LocalQueue's fair sharing weight`,
 	)
 	trackGaugeVec(ClusterQueueResourceLendingLimit, gaugeCleanupScopeClusterQueueResource)
 
+	ClusterQueueLendableResources = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cluster_queue_lendable_resources",
+			Help:      `Reports the instantaneous amount of quota a ClusterQueue can lend to peers now, per flavor-resource pair. Based on reservation. Reports 0 for inactive (pending/stopped/terminating) ClusterQueues.`,
+		}, append([]string{"cohort", "cluster_queue", "flavor", "resource", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+	trackGaugeVec(ClusterQueueLendableResources, gaugeCleanupScopeClusterQueueResource)
+
 	ClusterQueueWeightedShare = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -966,6 +983,15 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 		}, append([]string{"cohort", "flavor", "resource", "replica_role"}, cohortMetricLabels...),
 	)
 	trackGaugeVec(CohortSubtreeQuota, gaugeCleanupScopeCohort)
+
+	CohortLendableResources = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cohort_lendable_resources",
+			Help:      `Reports the instantaneous lendable capacity available in a cohort for each flavor-resource, computed from direct children's lendable quota minus current reservation. Series is absent when lendable is zero.`,
+		}, append([]string{"cohort", "flavor", "resource", "replica_role"}, cohortMetricLabels...),
+	)
+	trackGaugeVec(CohortLendableResources, gaugeCleanupScopeCohort)
 
 	CohortSubtreeAdmittedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -1308,6 +1334,18 @@ func ReportClusterQueueQuotas(cohort kueue.CohortReference, queue, flavor, resou
 	ClusterQueueResourceLendingLimit.WithLabelValues(labels...).Set(lending)
 }
 
+func ReportClusterQueueLendableResources(
+	cohort kueue.CohortReference,
+	queue, flavor,
+	resource string,
+	lendable float64,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	labels := append([]string{string(cohort), queue, flavor, resource, roletracker.GetRole(tracker)}, customLabelValues...)
+	ClusterQueueLendableResources.WithLabelValues(labels...).Set(lendable)
+}
+
 func ReportCohortSubtreeQuota(
 	cohort kueue.CohortReference,
 	flavor kueue.ResourceFlavorReference,
@@ -1325,6 +1363,18 @@ func ReportCohortSubtreeAdmittedWorkload(cohort kueue.CohortReference, priorityC
 	CohortSubtreeAdmittedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
+func ReportCohortLendableResources(
+	cohort kueue.CohortReference,
+	flavor kueue.ResourceFlavorReference,
+	resource corev1.ResourceName,
+	lendable float64,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	labels := append([]string{string(cohort), string(flavor), string(resource), roletracker.GetRole(tracker)}, customLabelValues...)
+	CohortLendableResources.WithLabelValues(labels...).Set(lendable)
+}
+
 func cohortPartialMatchLabels(cohort kueue.CohortReference, flavor, resource string) prometheus.Labels {
 	lbls := prometheus.Labels{"cohort": string(cohort)}
 	if len(flavor) != 0 {
@@ -1339,6 +1389,11 @@ func cohortPartialMatchLabels(cohort kueue.CohortReference, flavor, resource str
 func ClearCohortSubtreeQuota(cohort kueue.CohortReference, flavor kueue.ResourceFlavorReference, resource corev1.ResourceName) {
 	lbls := cohortPartialMatchLabels(cohort, string(flavor), string(resource))
 	CohortSubtreeQuota.DeletePartialMatch(lbls)
+}
+
+func ClearCohortLendableResources(cohort kueue.CohortReference, flavor kueue.ResourceFlavorReference, resource corev1.ResourceName) {
+	lbls := cohortPartialMatchLabels(cohort, string(flavor), string(resource))
+	CohortLendableResources.DeletePartialMatch(lbls)
 }
 
 func ReportCohortSubtreeResourceReservations(
@@ -1496,6 +1551,7 @@ func ClearClusterQueueResourceQuotas(cqName, flavor, resource string) {
 	ClusterQueueResourceNominalQuota.DeletePartialMatch(lbls)
 	ClusterQueueResourceBorrowingLimit.DeletePartialMatch(lbls)
 	ClusterQueueResourceLendingLimit.DeletePartialMatch(lbls)
+	ClusterQueueLendableResources.DeletePartialMatch(lbls)
 }
 
 func ClearClusterQueueResourceUsage(cqName, flavor, resource string) {
@@ -1557,11 +1613,13 @@ func Register() {
 		ClusterQueueResourceNominalQuota,
 		ClusterQueueResourceBorrowingLimit,
 		ClusterQueueResourceLendingLimit,
+		ClusterQueueLendableResources,
 		ClusterQueueWeightedShare,
 		ClusterQueueInfo,
 		CohortInfo,
 		CohortWeightedShare,
 		CohortSubtreeQuota,
+		CohortLendableResources,
 		CohortSubtreeAdmittedWorkloadsTotal,
 		CohortSubtreeResourceReservations,
 		CohortSubtreeAdmittedActiveWorkloads,

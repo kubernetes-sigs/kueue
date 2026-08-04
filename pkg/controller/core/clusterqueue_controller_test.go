@@ -700,3 +700,103 @@ func TestRecordResourceMetrics(t *testing.T) {
 		})
 	}
 }
+
+func TestRecordClusterQueueLendableResourceMetrics(t *testing.T) {
+	mkQuantity := func(v string) *resource.Quantity {
+		q := resource.MustParse(v)
+		return &q
+	}
+
+	testCases := map[string]struct {
+		addFlavor    bool
+		stopPolicy   *kueue.StopPolicy
+		lendingLimit *resource.Quantity
+		usage        string
+		wantLendable float64
+	}{
+		"active no lending limit": {
+			addFlavor:    true,
+			usage:        "4",
+			wantLendable: 6,
+		},
+		"active lending limit below nominal": {
+			addFlavor:    true,
+			lendingLimit: mkQuantity("6"),
+			usage:        "4",
+			wantLendable: 2,
+		},
+		"active lending limit zero": {
+			addFlavor:    true,
+			lendingLimit: mkQuantity("0"),
+			usage:        "1",
+			wantLendable: 0,
+		},
+		"active fully utilized": {
+			addFlavor:    true,
+			lendingLimit: mkQuantity("6"),
+			usage:        "6",
+			wantLendable: 0,
+		},
+		"stopped cluster queue reports zero": {
+			addFlavor:    true,
+			stopPolicy:   func() *kueue.StopPolicy { sp := kueue.Hold; return &sp }(),
+			lendingLimit: mkQuantity("6"),
+			usage:        "1",
+			wantLendable: 0,
+		},
+		"pending cluster queue reports zero": {
+			addFlavor:    false,
+			usage:        "1",
+			wantLendable: 0,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			cl := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cl)
+			if tc.addFlavor {
+				cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("flavor").Obj())
+			}
+
+			cq := utiltestingapi.MakeClusterQueue("lendable-cq").
+				Cohort("cohort").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor").Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj()
+			cq.Spec.StopPolicy = tc.stopPolicy
+			if tc.lendingLimit != nil {
+				cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].LendingLimit = tc.lendingLimit
+			}
+
+			t.Cleanup(func() {
+				metrics.ClearClusterQueueResourceMetrics(cq.Name)
+			})
+
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Unexpected error adding queue: %v", err)
+			}
+
+			if tc.usage != "0" {
+				wl := workloadForReservation("lendable-cq", []kueue.FlavorUsage{{
+					Name: "flavor",
+					Resources: []kueue.ResourceUsage{{
+						Name:  corev1.ResourceCPU,
+						Total: resource.MustParse(tc.usage),
+					}},
+				}})
+				cqCache.AddOrUpdateWorkload(log, wl)
+			}
+
+			cqCache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(cq.Name))
+			got := testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueLendableResources, map[string]string{"cluster_queue": cq.Name})
+			if len(got) != 1 {
+				t.Fatalf("expected 1 lendable metric, got %d", len(got))
+			}
+			if got[0].Value != tc.wantLendable {
+				t.Fatalf("unexpected lendable value: got %v, want %v", got[0].Value, tc.wantLendable)
+			}
+		})
+	}
+}
