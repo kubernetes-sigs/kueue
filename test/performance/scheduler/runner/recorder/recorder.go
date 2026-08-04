@@ -86,7 +86,9 @@ func (cqs *CQState) CsvRecord() []string {
 type CQStore map[string]*CQState
 
 type WLEvent struct {
-	Time time.Time
+	Time          time.Time
+	CreationTime  time.Time
+	AdmissionTime time.Time
 	types.NamespacedName
 	UID       types.UID
 	ClassName string
@@ -196,7 +198,15 @@ func (r *Recorder) recordWLEvent(ev *WLEvent) {
 	}
 
 	if ev.Admitted && !state.LastEvent.Admitted {
-		state.TimeToAdmitMs = ev.Time.Sub(state.FirstEventTime).Milliseconds()
+		admissionStartTime := state.FirstEventTime
+		admissionTime := ev.Time
+		if !ev.CreationTime.IsZero() &&
+			!ev.AdmissionTime.IsZero() &&
+			!ev.AdmissionTime.Before(ev.CreationTime) {
+			admissionStartTime = ev.CreationTime
+			admissionTime = ev.AdmissionTime
+		}
+		state.TimeToAdmitMs = admissionTime.Sub(admissionStartTime).Milliseconds()
 	}
 
 	if ev.Evicted && !state.LastEvent.Evicted {
@@ -451,15 +461,24 @@ func (r *Recorder) RecordWorkloadState(wl *kueue.Workload) {
 	if !r.running.Load() {
 		return
 	}
+	admitted := workload.IsAdmitted(wl)
+	admissionTime := time.Time{}
+	if admitted {
+		if condition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted); condition != nil {
+			admissionTime = condition.LastTransitionTime.Time
+		}
+	}
 	ev := &WLEvent{
-		Time: time.Now(),
+		Time:          time.Now(),
+		CreationTime:  wl.CreationTimestamp.Time,
+		AdmissionTime: admissionTime,
 		NamespacedName: types.NamespacedName{
 			Namespace: wl.Namespace,
 			Name:      wl.Name,
 		},
 		UID:       wl.UID,
 		ClassName: wl.Labels[generator.ClassLabel],
-		Admitted:  workload.IsAdmitted(wl),
+		Admitted:  admitted,
 		Evicted:   workloadevict.IsEvicted(wl),
 		Finished:  workloadfinish.IsFinished(wl),
 	}

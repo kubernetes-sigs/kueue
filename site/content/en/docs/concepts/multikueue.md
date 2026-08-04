@@ -212,13 +212,15 @@ MultiKueueCluster supports three sources for cluster credentials:
 | `Secret` | ✅ Production | Kubeconfig stored in a Kubernetes Secret. |
 | `Path` | ⚠️ Development only | File path on the controller pod's filesystem. |
 
-**`locationType=Path` validation is available as an alpha feature.**
-The `MultiKueueKubeConfigPathValidation` feature gate (disabled by default)
-restricts kubeconfig file paths to the hardcoded prefix
-`/etc/multikueue/kubeconfigs/`. When enabled, the controller rejects paths
-containing `..`, relative paths, and symlinks that resolve outside the prefix.
-To enable this validation, set the feature gate:
-`--feature-gates=MultiKueueKubeConfigPathValidation=true`.
+**`locationType=Path` validation is available as a beta feature, enabled by default.**
+The `MultiKueueKubeConfigPathValidation` feature gate restricts kubeconfig file
+paths to the hardcoded prefix `/etc/multikueue/kubeconfigs/`. When enabled, the
+controller rejects paths containing `..`, relative paths, and symlinks that
+resolve outside the prefix.
+To disable this validation, set the feature gate:
+`--feature-gates=MultiKueueKubeConfigPathValidation=false`.
+Disabling this restores the legacy behavior of allowing any file path, which can
+expose sensitive files on the controller's filesystem to be read as a kubeconfig.
 
 For production deployments, use `ClusterProfile` or `Secret` instead of `Path`.
 

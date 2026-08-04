@@ -22,6 +22,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // AdjustConditionsForDisabledObservabilityInWorkloadController adjusts a slice of workload status conditions
@@ -139,4 +140,34 @@ func AdjustEventsForDisabledObservabilityInScheduler(events []EventRecord) {
 			}
 		}
 	}
+}
+
+// UnadmittedConditions returns the conditions if the UnadmittedWorkloadsObservability
+// feature gate is enabled, otherwise it returns nil.
+func UnadmittedConditions(conds ...metav1.Condition) []metav1.Condition {
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		return conds
+	}
+	return nil
+}
+
+// ExplicitStatusConditions returns the conditions if both UnadmittedWorkloadsObservability
+// and UnadmittedWorkloadsExplicitStatus feature gates are enabled, otherwise it returns nil.
+func ExplicitStatusConditions(conds ...metav1.Condition) []metav1.Condition {
+	if features.Enabled(features.UnadmittedWorkloadsObservability) && features.Enabled(features.UnadmittedWorkloadsExplicitStatus) {
+		return conds
+	}
+	return nil
+}
+
+// WantChangeWithObservability returns true if defaultWantChange is true or if
+// the UnadmittedWorkloadsObservability feature gate is enabled.
+func WantChangeWithObservability(defaultWantChange bool) bool {
+	return defaultWantChange || features.Enabled(features.UnadmittedWorkloadsObservability)
+}
+
+// WantChangeWithExplicitStatus returns true if defaultWantChange is true or if both
+// UnadmittedWorkloadsObservability and UnadmittedWorkloadsExplicitStatus feature gates are enabled.
+func WantChangeWithExplicitStatus(defaultWantChange bool) bool {
+	return defaultWantChange || (features.Enabled(features.UnadmittedWorkloadsObservability) && features.Enabled(features.UnadmittedWorkloadsExplicitStatus))
 }
