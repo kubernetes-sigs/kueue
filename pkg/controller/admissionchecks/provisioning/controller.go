@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -320,7 +321,9 @@ func (c *Controller) syncOwnedProvisionRequest(
 					_, err := c.createPodTemplate(ctx, wl, ptName, mergedPodSet.PodSet, mergedPodSet.PodSetAssignment)
 					if err != nil {
 						msg := fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err)
-						return c.handleError(ctx, wl, ac, msg, err)
+						// the Get above left pt empty, so name the colliding object here
+						conflicting := &corev1.PodTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: wl.Namespace, Name: ptName}}
+						return c.handleError(ctx, wl, ac, conflicting, msg, err)
 					}
 				}
 
@@ -338,7 +341,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 
 			if err := c.client.Create(ctx, req); err != nil {
 				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
-				return c.handleError(ctx, wl, ac, msg, err)
+				return c.handleError(ctx, wl, ac, req, msg, err)
 			}
 			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created", "Created ProvisioningRequest: %q", req.Name)
 			activeOrLastPRForChecks[checkName] = req
@@ -350,7 +353,30 @@ func (c *Controller) syncOwnedProvisionRequest(
 	return nil
 }
 
-func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, msg string, err error) error {
+// isDuplicateCreate reports whether an AlreadyExists error came from a reconcile that ran before
+// the cache observed the object an earlier one created. Names are derived from the Workload and the
+// check, so that is the common case; a collision with a foreign object is not, and no retry
+// resolves it, because indexRequestsOwner only lists requests the Workload owns.
+func (c *Controller) isDuplicateCreate(ctx context.Context, wl *kueue.Workload, obj client.Object) bool {
+	existing, ok := obj.DeepCopyObject().(client.Object)
+	if !ok {
+		return false
+	}
+	if err := c.client.Get(ctx, client.ObjectKeyFromObject(obj), existing); err != nil {
+		// A cache that has not caught up is the very case we are retrying for.
+		return apierrors.IsNotFound(err)
+	}
+	return metav1.IsControlledBy(existing, wl)
+}
+
+func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, obj client.Object, msg string, err error) error {
+	if apierrors.IsAlreadyExists(err) && c.isDuplicateCreate(ctx, wl, obj) {
+		// A message recorded here outlives the condition it describes: it stays on the admission
+		// check and is appended to every later event built from it, up to the reason a Workload
+		// is deactivated. Just retry once the cache catches up.
+		ctrl.LoggerFrom(ctx).V(2).Info("Object already exists, retrying once the cache is up to date", "reason", msg)
+		return err
+	}
 	c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", api.TruncateEventMessage(msg))
 	patchErr := workload.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wl *kueue.Workload) (bool, error) {
 		ac.Message = api.TruncateConditionMessage(msg)
@@ -487,8 +513,11 @@ func containerUses(cont *corev1.Container, resourceSet sets.Set[corev1.ResourceN
 	return false
 }
 
+// updateCheckMessage sets the message of the check, reporting whether it changed. An empty message
+// is applied as well: a message describing a previous state of the ProvisioningRequest is not only
+// misleading in the Workload status, it is appended to the events built from the check.
 func updateCheckMessage(checkState *kueue.AdmissionCheckState, message string) bool {
-	if message == "" || checkState.Message == message {
+	if checkState.Message == message {
 		return false
 	}
 	checkState.Message = message
@@ -618,6 +647,9 @@ func (c *Controller) syncCheckStates(
 						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 					}
 				default:
+					// Nothing to report until the autoscaler sets a condition, and whatever the
+					// previous state left behind, notably a handleError message, no longer holds.
+					updated = updateCheckMessage(&checkState, "") || updated
 					updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 				}
 			}
