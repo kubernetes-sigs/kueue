@@ -58,6 +58,7 @@
       - [Until v0.14](#until-v014)
       - [Since v0.15](#since-v015)
     - [Re-computation of TAS assignments within the workload evaluation phase](#re-computation-of-tas-assignments-within-the-workload-evaluation-phase)
+    - [Skipping flavors whose TAS placement failed in recent cycles](#skipping-flavors-whose-tas-placement-failed-in-recent-cycles)
   - [Two-level Topology Aware scheduling](#two-level-topology-aware-scheduling)
     - [Example](#example-1)
   - [Multi-level Topology Aware scheduling](#multi-level-topology-aware-scheduling)
@@ -1684,6 +1685,36 @@ previously evaluated Workloads. During this recomputation, the PodSet-to-Resourc
 remains sticky so that the quota calculations made earlier in the cycle remain valid.
 This behavior was introduced in 0.19.0 and guarded by the `TASRecomputeAssignmentWithinSchedulingCycle`
 feature gate (enabled by defualt as Beta). The fix is also cherry-picked to 0.17.6 and 0.18.2.
+
+#### Skipping flavors whose TAS placement failed in recent cycles
+
+The recomputation above is triggered by the stale-placement check, so it only covers Workloads whose
+placement succeeded during nomination and was invalidated later in the same cycle; it cannot help one
+whose placement already failed during nomination. Such a Workload can stay pinned to a single
+ResourceFlavor across cycles, because flavors are selected on quota alone and the placement check runs
+only after a flavor has been selected, so its verdict cannot influence the selection. A flavor whose
+`nominalQuota` exceeds what its nodes can actually host therefore keeps being selected and keeps
+failing placement, even when another flavor of the ResourceGroup has ample topological capacity. The
+flavors a Workload has already tried are tracked in `LastTriedFlavorIdx`, but that state is discarded
+whenever the ClusterQueue's `AllocatableResourceGeneration` advances — on every admission or eviction
+in the Cohort — and again whenever the Workload's `Info` is rebuilt in the queue cache on a Workload
+update event, including the status update Kueue itself writes while requeueing. Under sustained load
+both happen every cycle, so the flavor walk restarts from the first flavor indefinitely.
+
+We therefore record, per Workload, the flavors for which the placement search found no viable topology
+domains, and skip them during flavor selection in later cycles. The record is held by the scheduler
+rather than on the Workload's `Info`, so that neither mechanism above discards it, and entries expire
+after a fixed number of scheduling cycles. Cycle-based expiry is deliberate: any invalidation signal
+derived from cluster state fires many times per cycle on a large flavor with steady churn, dropping the
+record precisely in the conditions it is meant to address, while tracking which change could make a
+given Workload fit would require remembering the domains its search rejected. A flavor is recorded only
+once the Workload has failed to be admitted for the cycle with no preemption or migration pending, so a
+preemption that could still admit it there is not discarded. This behavior was introduced in 0.20.0 and
+guarded by the `TASSkipRecentlyFailedFlavors` feature gate (disabled by default as Alpha). Two
+limitations are known: the placement result reports only the first failing PodSet, so a Workload with
+several converges more slowly; and the record is in memory, so a restart or leader change re-walks
+flavors already tried — the cycle counter the expiry is measured against restarts with it, so the two
+stay consistent.
 
 ### Two-level Topology Aware scheduling
 In consideration of a [Story 5](#story-5) a two-level scheduling is introduced.

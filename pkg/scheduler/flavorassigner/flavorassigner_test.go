@@ -3648,6 +3648,7 @@ func TestAssignFlavors(t *testing.T) {
 					tc.preemptWorkloadSlice,
 					configapi.QuotaCheckBlockUndeclared,
 					resources.NewResourceFormatter(),
+					nil,
 				)
 				assignment := flvAssigner.Assign(ctx, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
@@ -3842,7 +3843,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), nil)
 			assignment := flvAssigner.Assign(ctx, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
@@ -3990,7 +3991,7 @@ func TestDeletedFlavors(t *testing.T) {
 				cache.DeleteResourceFlavor(log, flavorMap["deleted-flavor"])
 				delete(flavorMap, "deleted-flavor")
 
-				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), nil)
 
 				assignment := flvAssigner.Assign(ctx, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
@@ -4179,7 +4180,7 @@ func TestHierarchical(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), nil)
 			assignment := flvAssigner.Assign(ctx, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
@@ -5146,7 +5147,7 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 			}
 			cqSnapshot := snapshot.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 
-			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), nil)
 			gotAssignment := assigner.Assign(ctx, nil)
 
 			if gotAssignment.RepresentativeMode() != tc.wantRepMode {
@@ -5631,6 +5632,7 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			assigner := New(
 				wlInfo, cqSnapshot, testFlavors, false, &testOracle{simulationResult: tc.simulationResult},
 				tc.replaceWl, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(),
+				nil,
 			)
 			gotAssignment := assigner.Assign(ctx, nil)
 
@@ -5894,7 +5896,7 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 				t.Fatalf("Failed to create CQ snapshot")
 			}
 
-			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), nil)
 			assignment := flvAssigner.Assign(ctx, nil)
 
 			gotErrors := map[kueue.PodSetReference]error{}
@@ -5976,5 +5978,150 @@ func TestTasFlavorsOnly(t *testing.T) {
 	got := tasFlavorsOnly(in, tasFlavors)
 	if diff := cmp.Diff(want, got, cmpopts.IgnoreUnexported(FlavorAssignment{})); diff != "" {
 		t.Errorf("tasFlavorsOnly() mismatch (-want,+got):\n%s", diff)
+	}
+}
+
+func flavorSets(pairs map[kueue.PodSetReference][]kueue.ResourceFlavorReference) map[kueue.PodSetReference]sets.Set[kueue.ResourceFlavorReference] {
+	if pairs == nil {
+		return nil
+	}
+	out := make(map[kueue.PodSetReference]sets.Set[kueue.ResourceFlavorReference], len(pairs))
+	for ps, flavors := range pairs {
+		out[ps] = sets.New(flavors...)
+	}
+	return out
+}
+
+func TestRecordFailedFlavorPlacement(t *testing.T) {
+	cases := map[string]struct {
+		record []struct {
+			podSet kueue.PodSetReference
+			flavor kueue.ResourceFlavorReference
+		}
+		want map[kueue.PodSetReference]sets.Set[kueue.ResourceFlavorReference]
+	}{
+		"nothing recorded leaves the map nil": {
+			want: nil,
+		},
+		"a single failure is recorded": {
+			record: []struct {
+				podSet kueue.PodSetReference
+				flavor kueue.ResourceFlavorReference
+			}{
+				{podSet: "main", flavor: "flavor-a"},
+			},
+			want: flavorSets(map[kueue.PodSetReference][]kueue.ResourceFlavorReference{"main": {"flavor-a"}}),
+		},
+		"failures accumulate per PodSet": {
+			record: []struct {
+				podSet kueue.PodSetReference
+				flavor kueue.ResourceFlavorReference
+			}{
+				{podSet: "main", flavor: "flavor-a"},
+				{podSet: "main", flavor: "flavor-b"},
+			},
+			want: flavorSets(map[kueue.PodSetReference][]kueue.ResourceFlavorReference{"main": {"flavor-a", "flavor-b"}}),
+		},
+		"PodSets are tracked independently": {
+			record: []struct {
+				podSet kueue.PodSetReference
+				flavor kueue.ResourceFlavorReference
+			}{
+				{podSet: "leader", flavor: "flavor-a"},
+				{podSet: "worker", flavor: "flavor-b"},
+			},
+			want: flavorSets(map[kueue.PodSetReference][]kueue.ResourceFlavorReference{
+				"leader": {"flavor-a"},
+				"worker": {"flavor-b"},
+			}),
+		},
+		"repeating a failure is idempotent": {
+			record: []struct {
+				podSet kueue.PodSetReference
+				flavor kueue.ResourceFlavorReference
+			}{
+				{podSet: "main", flavor: "flavor-a"},
+				{podSet: "main", flavor: "flavor-a"},
+			},
+			want: flavorSets(map[kueue.PodSetReference][]kueue.ResourceFlavorReference{"main": {"flavor-a"}}),
+		},
+		"an empty flavor is ignored": {
+			record: []struct {
+				podSet kueue.PodSetReference
+				flavor kueue.ResourceFlavorReference
+			}{
+				{podSet: "main", flavor: ""},
+			},
+			want: nil,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			a := &Assignment{}
+			for _, r := range tc.record {
+				a.recordFailedFlavorPlacement(r.podSet, r.flavor)
+			}
+			if diff := cmp.Diff(tc.want, a.FailedFlavorPlacements, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("FailedFlavorPlacements differs (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestPlacementFailedRecently(t *testing.T) {
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		PodSets(
+			*utiltestingapi.MakePodSet("leader", 1).Obj(),
+			*utiltestingapi.MakePodSet("worker", 1).Obj(),
+		).Obj()
+
+	cases := map[string]struct {
+		recorded map[kueue.PodSetReference][]kueue.ResourceFlavorReference
+		flavor   kueue.ResourceFlavorReference
+		psIDs    []int
+		want     bool
+	}{
+		"no record: nothing is skipped": {
+			flavor: "flavor-a",
+			psIDs:  []int{0},
+			want:   false,
+		},
+		"a flavor recorded for the PodSet is skipped": {
+			recorded: map[kueue.PodSetReference][]kueue.ResourceFlavorReference{"leader": {"flavor-a"}},
+			flavor:   "flavor-a",
+			psIDs:    []int{0},
+			want:     true,
+		},
+		"a flavor that was not recorded is not skipped": {
+			recorded: map[kueue.PodSetReference][]kueue.ResourceFlavorReference{"leader": {"flavor-a"}},
+			flavor:   "flavor-b",
+			psIDs:    []int{0},
+			want:     false,
+		},
+		"a record for another PodSet does not skip this one": {
+			recorded: map[kueue.PodSetReference][]kueue.ResourceFlavorReference{"worker": {"flavor-a"}},
+			flavor:   "flavor-a",
+			psIDs:    []int{0},
+			want:     false,
+		},
+		"a record for any PodSet in the group skips the flavor": {
+			recorded: map[kueue.PodSetReference][]kueue.ResourceFlavorReference{"worker": {"flavor-a"}},
+			flavor:   "flavor-a",
+			psIDs:    []int{0, 1},
+			want:     true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			a := &FlavorAssigner{
+				wl:                     &workload.Info{Obj: wl},
+				failedFlavorPlacements: flavorSets(tc.recorded),
+			}
+			if got := a.placementFailedRecently(tc.flavor, tc.psIDs); got != tc.want {
+				t.Errorf("placementFailedRecently(%q, %v) = %t, want %t", tc.flavor, tc.psIDs, got, tc.want)
+			}
+		})
 	}
 }

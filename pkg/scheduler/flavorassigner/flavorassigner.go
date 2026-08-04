@@ -82,6 +82,35 @@ type Assignment struct {
 
 	// NoFitReason contains the reason why the overall assignment failed with NoFit.
 	NoFitReason string
+
+	// FailedFlavorPlacements records, per PodSet, the flavors for which the TAS
+	// placement search found no viable topology domains during this assignment.
+	// A flavor listed here was rejected on placement grounds, not on quota grounds,
+	// so retrying it is pointless until the flavor's topology gains capacity.
+	//
+	// The scheduler carries these across scheduling cycles (see
+	// features.TASSkipRecentlyFailedFlavors) so that the next cycle tries the
+	// remaining flavors of the ClusterQueue instead of re-picking the same one.
+	//
+	// TODO(#13658): TASAssignmentsResult.Failure reports only the first failing
+	// PodSet, so a Workload with several failing PodSets records one of them per
+	// cycle. Record every failing PodSet once Failure can report them all.
+	FailedFlavorPlacements map[kueue.PodSetReference]sets.Set[kueue.ResourceFlavorReference]
+}
+
+// recordFailedFlavorPlacement notes that the TAS placement search rejected flavor
+// for podSet, so later scheduling cycles can skip it while it stays infeasible.
+func (a *Assignment) recordFailedFlavorPlacement(podSet kueue.PodSetReference, flavor kueue.ResourceFlavorReference) {
+	if flavor == "" {
+		return
+	}
+	if a.FailedFlavorPlacements == nil {
+		a.FailedFlavorPlacements = make(map[kueue.PodSetReference]sets.Set[kueue.ResourceFlavorReference], 1)
+	}
+	if a.FailedFlavorPlacements[podSet] == nil {
+		a.FailedFlavorPlacements[podSet] = sets.New[kueue.ResourceFlavorReference]()
+	}
+	a.FailedFlavorPlacements[podSet].Insert(flavor)
 }
 
 // UpdateForTASResult updates the Assignment with the TAS result
@@ -603,6 +632,14 @@ type FlavorAssigner struct {
 	replaceWorkloadSlice *workload.Info
 	quotaCheckStrategy   configapi.QuotaCheckStrategy
 	resourceFormatter    *resources.ResourceFormatter
+
+	// failedFlavorPlacements lists, per PodSet, the flavors whose TAS placement failed
+	// in a recent scheduling cycle. They are skipped during flavor selection so that a
+	// Workload advances to the remaining flavors of the ClusterQueue instead of being
+	// re-nominated to a flavor that quota alone still reports as fitting.
+	//
+	// Empty unless features.TASSkipRecentlyFailedFlavors is enabled.
+	failedFlavorPlacements map[kueue.PodSetReference]sets.Set[kueue.ResourceFlavorReference]
 }
 
 func New(
@@ -614,16 +651,18 @@ func New(
 	preemptWorkloadSlice *workload.Info,
 	quotaCheckStrategy configapi.QuotaCheckStrategy,
 	resourceFormatter *resources.ResourceFormatter,
+	failedFlavorPlacements map[kueue.PodSetReference]sets.Set[kueue.ResourceFlavorReference],
 ) *FlavorAssigner {
 	return &FlavorAssigner{
-		wl:                   wl,
-		cq:                   cq,
-		resourceFlavors:      resourceFlavors,
-		enableFairSharing:    enableFairSharing,
-		oracle:               oracle,
-		replaceWorkloadSlice: preemptWorkloadSlice,
-		quotaCheckStrategy:   quotaCheckStrategy,
-		resourceFormatter:    resourceFormatter,
+		wl:                     wl,
+		cq:                     cq,
+		resourceFlavors:        resourceFlavors,
+		enableFairSharing:      enableFairSharing,
+		oracle:                 oracle,
+		replaceWorkloadSlice:   preemptWorkloadSlice,
+		quotaCheckStrategy:     quotaCheckStrategy,
+		resourceFormatter:      resourceFormatter,
+		failedFlavorPlacements: failedFlavorPlacements,
 	}
 }
 
@@ -819,6 +858,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 				// There is at least one PodSet which does not fit
 				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
 				psAssignment.reason(failure.Reason)
+				assignment.recordFailedFlavorPlacement(failure.PodSetName, failure.Flavor)
 				// update the mode for all flavors and the representative mode
 				assignment.updateMode(failure.PodSetName, Preempt)
 			} else {
@@ -841,6 +881,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 				if features.Enabled(features.UnadmittedWorkloadsObservability) {
 					psAssignment.markFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
 				}
+				assignment.recordFailedFlavorPlacement(failure.PodSetName, failure.Flavor)
 				// update the mode for all flavors and the representative mode
 				assignment.updateMode(failure.PodSetName, NoFit)
 			} else {
@@ -1049,6 +1090,11 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		}
 		if features.Enabled(features.ConcurrentAdmission) && !concurrentadmission.IsFlavorAllowedForVariant(a.wl.Obj, fName) {
 			status.appendf("skipping flavor %s due to WorkloadAllowedResourceFlavorAnnotation annotation", fName)
+			continue
+		}
+		if a.placementFailedRecently(fName, psIDs) {
+			log.V(5).Info("Skipping flavor as its topology placement failed in a recent scheduling cycle", "resName", resName, "flavorName", fName)
+			status.appendf("skipping flavor %s for resource %s as its topology placement failed in a recent scheduling cycle", fName, resName)
 			continue
 		}
 
@@ -1346,6 +1392,24 @@ func filterRequestedResources(req resources.Requests, allowList sets.Set[corev1.
 		}
 	})
 	return filtered
+}
+
+// placementFailedRecently reports whether the flavor's TAS placement failed for any of
+// the PodSets in the group during a recent scheduling cycle, in which case re-picking it
+// would repeat a placement search already known to fail.
+//
+// Returns false unless features.TASSkipRecentlyFailedFlavors is enabled, because the
+// scheduler only supplies failedFlavorPlacements while the gate is on.
+func (a *FlavorAssigner) placementFailedRecently(fName kueue.ResourceFlavorReference, psIDs []int) bool {
+	if len(a.failedFlavorPlacements) == 0 {
+		return false
+	}
+	for _, psID := range psIDs {
+		if a.failedFlavorPlacements[a.wl.Obj.Spec.PodSets[psID].Name].Has(fName) {
+			return true
+		}
+	}
+	return false
 }
 
 // shouldRespectNominationMapping returns true if flavor stickiness should be enforced.

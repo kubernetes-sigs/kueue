@@ -94,6 +94,34 @@ type Scheduler struct {
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
 	schedulingCycle int64
+
+	// failedFlavorPlacements remembers, per Workload, the flavors whose TAS placement
+	// failed in a recent scheduling cycle, so that the next cycles skip them and try
+	// the remaining flavors of the ClusterQueue instead of re-picking the same one.
+	// Entries expire after failedFlavorPlacementTTL cycles.
+	//
+	// Deliberately in-memory and scoped to this Scheduler instance: entries are stamped
+	// with schedulingCycle, which also restarts from zero on process restart or leader
+	// change, so the two always agree. Persisting entries without switching the TTL to
+	// wall-clock time would make stale stamps compare as arbitrarily fresh and block a
+	// flavor forever. Losing the map on restart only costs re-walking flavors already
+	// tried, which is how LastAssignment already behaves.
+	//
+	// Only accessed from schedule(), which runs in a single goroutine, so no locking.
+	failedFlavorPlacements map[types.UID]failedFlavorPlacement
+}
+
+// failedFlavorPlacementTTL is how many scheduling cycles a recorded TAS placement
+// failure keeps a flavor out of consideration for a Workload. It doubles as the bound
+// on how many flavors a Workload can walk before its record expires and the walk
+// restarts from the first flavor.
+const failedFlavorPlacementTTL = 4
+
+// failedFlavorPlacement holds the flavors whose TAS placement failed for a Workload,
+// stamped with the scheduling cycle of the most recent failure.
+type failedFlavorPlacement struct {
+	flavors       map[kueue.PodSetReference]sets.Set[kueue.ResourceFlavorReference]
+	recordedCycle int64
 }
 
 type options struct {
@@ -214,6 +242,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		roleTracker:             options.roleTracker,
 		customLabels:            options.customLabels,
 		resourceFormatter:       options.resourceFormatter,
+		failedFlavorPlacements:  make(map[types.UID]failedFlavorPlacement),
 	}
 	return s
 }
@@ -298,6 +327,80 @@ func (s *Scheduler) reportSkippedPreemptions(p map[kueue.ClusterQueueReference]i
 	}
 }
 
+// placementRetryPending reports whether an action already issued for the entry may still
+// admit it on the flavor it was nominated to. Recording a placement failure in that case
+// would skip the flavor next cycle and discard a viable preemption or migration path.
+func placementRetryPending(reason qcache.RequeueReason) bool {
+	switch reason {
+	case qcache.RequeueReasonPendingPreemption,
+		qcache.RequeueReasonPendingMigration,
+		qcache.RequeueReasonPreemptionGated:
+		return true
+	}
+	return false
+}
+
+// recordFailedFlavorPlacements persists the flavors whose TAS placement failed for an
+// entry that was not admitted this cycle, so that later cycles try other flavors.
+//
+// Recording happens here rather than where the failure is detected because only after
+// the whole cycle has run do we know that no preemption or migration is in flight which
+// could still admit the Workload on its nominated flavor.
+//
+// Newly failed flavors are merged into any unexpired record and the stamp is refreshed,
+// so a Workload that keeps discovering fresh failures keeps walking. Once every flavor
+// is recorded the assignment short-circuits to NoFit before the TAS search runs, so
+// nothing refreshes the stamp and the record expires, restarting the walk.
+func (s *Scheduler) recordFailedFlavorPlacements(log logr.Logger, e *entry) {
+	if !features.Enabled(features.TASSkipRecentlyFailedFlavors) {
+		return
+	}
+	if len(e.assignment.FailedFlavorPlacements) == 0 || placementRetryPending(e.requeueReason) {
+		return
+	}
+	record, ok := s.failedFlavorPlacements[e.Obj.UID]
+	if !ok || s.failedFlavorPlacementExpired(record) {
+		record = failedFlavorPlacement{flavors: make(map[kueue.PodSetReference]sets.Set[kueue.ResourceFlavorReference], len(e.assignment.FailedFlavorPlacements))}
+	}
+	for psName, flavors := range e.assignment.FailedFlavorPlacements {
+		if record.flavors[psName] == nil {
+			record.flavors[psName] = sets.New[kueue.ResourceFlavorReference]()
+		}
+		record.flavors[psName].Insert(flavors.UnsortedList()...)
+	}
+	record.recordedCycle = s.schedulingCycle
+	s.failedFlavorPlacements[e.Obj.UID] = record
+	log.V(2).Info("Recorded flavors whose TAS placement failed; they are skipped until the record expires",
+		"workload", klog.KObj(e.Obj), "flavors", record.flavors, "expiresAfterCycle", record.recordedCycle+failedFlavorPlacementTTL-1)
+}
+
+// failedFlavorPlacementsFor returns the flavors to skip for a Workload, or nil when it
+// has no unexpired record.
+func (s *Scheduler) failedFlavorPlacementsFor(uid types.UID) map[kueue.PodSetReference]sets.Set[kueue.ResourceFlavorReference] {
+	if !features.Enabled(features.TASSkipRecentlyFailedFlavors) {
+		return nil
+	}
+	record, ok := s.failedFlavorPlacements[uid]
+	if !ok || s.failedFlavorPlacementExpired(record) {
+		return nil
+	}
+	return record.flavors
+}
+
+func (s *Scheduler) failedFlavorPlacementExpired(record failedFlavorPlacement) bool {
+	return s.schedulingCycle-record.recordedCycle >= failedFlavorPlacementTTL
+}
+
+// sweepFailedFlavorPlacements drops expired records, which also reclaims the entries of
+// Workloads that have since been admitted or deleted.
+func (s *Scheduler) sweepFailedFlavorPlacements() {
+	for uid, record := range s.failedFlavorPlacements {
+		if s.failedFlavorPlacementExpired(record) {
+			delete(s.failedFlavorPlacements, uid)
+		}
+	}
+}
+
 func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	s.schedulingCycle++
 	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx), s.roleTracker).WithValues("schedulingCycle", s.schedulingCycle)
@@ -307,6 +410,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	defer func() {
 		log.V(2).Info("Scheduling cycle complete", "duration", s.clock.Since(cycleStartTime))
 	}()
+	s.sweepFailedFlavorPlacements()
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
@@ -360,6 +464,12 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		// When the workload is evicted by scheduler we skip requeueAndUpdate.
 		// The eviction process will be finalized by the workload controller.
 		if e.status != assumed && e.status != evicted {
+			// Runs after every processEntry, so e.assignment is the post-recompute one:
+			// updateAssignmentIfNeeded replaces it wholesale, which drops the failures
+			// seen during nomination. That is intentional — a flavor whose placement
+			// recovered is not recorded, and one that failed again is re-derived by the
+			// recompute's own TAS search, since stickiness keeps it on the same flavor.
+			s.recordFailedFlavorPlacements(log, &e)
 			s.requeueAndUpdate(ctx, e)
 		} else {
 			result = metrics.AdmissionResultSuccess
@@ -796,6 +906,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
 		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
 		s.quotaCheckStrategy, s.resourceFormatter,
+		s.failedFlavorPlacementsFor(wl.Obj.UID),
 	)
 	fullAssignment := flvAssigner.Assign(ctx, nil)
 
