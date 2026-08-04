@@ -1772,7 +1772,10 @@ envelope(q)[r] = max over a in A_q of charge(q, a)[r]
 
 The per-Pod DRA charge is the existing `Exactly` charges plus the sum, over all `firstAvailable`
 requests, of `envelope(q)`. PodSet scaling is unchanged: the per-Pod charge is multiplied by the
-effective PodSet count by the existing workload-request calculation.
+effective PodSet count by the existing workload-request calculation. With
+`ElasticJobsViaWorkloadSlices`, each slice carries its own PodSet count, so each computes its
+envelope independently and multiplies the same per-Pod envelope by its own count; nothing is shared
+between the slices of one Job.
 
 Device-count sums use saturating `int64` arithmetic (`utilmath.SaturatingAdd`, as in
 `countDevicesPerClass`), so no envelope or per-request sum wraps negative. Charges that map to the
@@ -1829,28 +1832,38 @@ to `structured.Allocator`.
 
 Two properties must be distinguished:
 
-- Static support: whether Kueue can correctly account for a request shape. Unsupported shapes (for
-  example a source-backed alternative in the initial scope) are permanent errors, rejected as
-  inadmissible.
+- Static support: whether Kueue can correctly account for a request shape. Unsupported shapes are
+  permanent errors, rejected as inadmissible. Where one alternative carries a counter or capacity
+  source, the whole request is rejected rather than that alternative skipped: the envelope is a
+  maximum over every alternative, so dropping one of them stops bounding the allocation the
+  scheduler may still choose.
 - Dynamic feasibility: whether the current cluster state can schedule a supported claim. A
-  supported-but-infeasible claim is retryable rather than a permanent error. Kueue has no
-  ResourceSlice informer today, so it is re-evaluated on ClusterQueue events, the same recovery
-  path and the same limitation the CEL selector check above carries: a workload that became
-  schedulable is not noticed until such an event, and one that never becomes schedulable holds its
-  reservation until `WaitForPodsReady` evicts it. Event-driven requeuing on ResourceSlice changes
-  is already an Alpha graduation criterion, and it covers this path as well.
+  supported-but-infeasible claim is retryable rather than a permanent error. Kueue has a
+  ResourceSlice controller, but it builds its driver set from the `sources` of each device class
+  mapping and filters slice events on that set, so a count-only mapping registers no driver and its
+  slice changes trigger no requeue. The initial Alpha also reserves quota without running the
+  cardinality or allocator checks, so it never produces a supported-but-infeasible result to
+  requeue in the first place. A workload that becomes schedulable is noticed on the next
+  ClusterQueue event, and one that never does holds its reservation until `WaitForPodsReady` evicts
+  it. Extending the controller to count-only mappings, or reaching feasibility through the
+  scheduler library, is a graduation criterion rather than something the current controller covers.
 
-The quota and feasibility paths must apply equivalent static-support validation, preferably through
-a shared helper, so a claim is never accepted by one and rejected by the other. A feasibility
-result of "infeasible" must not be surfaced as "unsupported".
+The quota and feasibility paths MUST consume the same static-support classification, from one
+helper, so a claim is never accepted by one and rejected by the other. Splitting the two invites
+the failures that are hardest to notice: a shape the quota path charges and the feasibility path
+refuses forever, a shape the feasibility path admits and the quota path never charges, or a new API
+field that only one of them learns to reject. A feasibility result of "infeasible" must not be
+surfaced as "unsupported", and a failed object read or slice listing is neither.
 
 #### Relationship with Kubernetes ResourceQuota
 
 This is a Kueue-specific quota policy and does not change Kubernetes `ResourceQuota`. Core
-`ResourceQuota` (KEP-4816) requires quota for each `DeviceSubRequest` under every `FirstAvailable`,
-keyed per DeviceClass. Kueue's envelope keeps every logical resource an alternative maps to and
-only collapses to a maximum where an administrator has deliberately mapped several DeviceClasses to
-one Kueue logical resource. Namespace `ResourceQuota` and Kueue `ClusterQueue` quota may both apply
+`ResourceQuota` (KEP-4816) takes, within each top-level `FirstAvailable`, the largest device count
+among the alternatives that name a given DeviceClass, and adds those per-class maxima across
+top-level requests; it does not sum the alternatives of one request. Kueue applies the same
+per-request maximum, but after mapping DeviceClasses into logical resources, so a mapping that
+sends several DeviceClasses to one logical resource collapses charges that core `ResourceQuota`
+keeps apart. Namespace `ResourceQuota` and Kueue `ClusterQueue` quota may both apply
 to the same workload; this design does not let a user use `firstAvailable` to bypass namespace
 `ResourceQuota`.
 
@@ -1863,10 +1876,13 @@ to the same workload; this design does not let a user use `firstAvailable` to by
 - Version skew: the gate requires `KueueDRAIntegration`. On Kubernetes 1.34 and 1.35 the upstream
   `DRAPrioritizedList` gate must be enabled; it is Stable in 1.36. If the API does not offer
   `firstAvailable`, no envelope is charged and the request is handled as today.
-- MultiKueue: the envelope is computed on the management cluster from the ResourceClaimTemplate
-  spec, and admitted `resourceUsage` is synchronized to workers unchanged, so a worker does not
-  recompute a different charge. Full cross-version manager/worker behavior is out of scope for the
-  initial Alpha and is a Beta consideration.
+- MultiKueue: `firstAvailable` is out of scope for the initial Alpha. MultiKueue resolves
+  ResourceClaimTemplates against cluster-local objects, and the DRA end-to-end test depends on that:
+  it gives the manager and both workers a template of the same name with different device counts,
+  and asserts the admitted usage on the worker matches the worker's own template rather than the
+  manager's. A manager and a worker can therefore select different alternatives, or map the same
+  DeviceClass differently, and arrive at different envelopes. Deciding which side is authoritative,
+  and covering a template or mapping mismatch, is Beta work.
 - Observability: the envelope appears in
   `Workload.status.admission.podSetAssignments[].resourceUsage`; a debug log records each
   alternative's charge vector and the resulting envelope, and a rejection names the alternative,
