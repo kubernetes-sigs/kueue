@@ -853,7 +853,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+			cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
 			ps := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 				Request(corev1.ResourceCPU, "1")
 			wInfo := workload.NewInfo(utiltestingapi.MakeWorkload("workload", defaultNamespace).
@@ -885,8 +885,8 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 			if inInflight != tc.wantInInflight {
 				t.Errorf("in inflight = %v, want %v", inInflight, tc.wantInInflight)
 			}
-			if got := cq.pendingActive(); got != tc.wantPendingActive {
-				t.Errorf("pending active workloads = %d, want %d", got, tc.wantPendingActive)
+			if got := cq.pendingActive(); got.Total() != tc.wantPendingActive {
+				t.Errorf("pending active workloads = %d, want %d", got.Total(), tc.wantPendingActive)
 			}
 			if gotCPU, wantCPU := cq.pendingResources()[corev1.ResourceCPU], tc.wantCPU(wInfo); gotCPU != wantCPU {
 				t.Errorf("pending CPU = %d, want %d", gotCPU, wantCPU)
