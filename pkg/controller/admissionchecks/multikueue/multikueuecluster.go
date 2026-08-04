@@ -68,6 +68,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
 )
@@ -810,6 +811,7 @@ func (c *clustersReconciler) stopAndRemoveCluster(clusterName string) {
 		rc.StopWatchers()
 		delete(c.remoteClients, clusterName)
 	}
+	metrics.ClearMultiKueueClusterMetrics(clusterName)
 }
 
 // disconnectCluster marks the remoteClient for clusterName as disconnected
@@ -1167,6 +1169,11 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.Mu
 	if active {
 		newCondition.Status = metav1.ConditionTrue
 	}
+
+	// Report before the up-to-date early return below: Set is idempotent, and
+	// reporting on every pass repopulates the gauge after a manager restart,
+	// when the condition is already correct and never changes again.
+	metrics.ReportMultiKueueClusterStatus(cluster.Name, newCondition.Status, c.roleTracker)
 
 	// if the condition is up-to-date
 	oldCondition := apimeta.FindStatusCondition(cluster.Status.Conditions, kueue.MultiKueueClusterActive)

@@ -96,6 +96,10 @@ var (
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",cluster="the name of the worker cluster",replica_role="one of `leader`, `follower`, or `standalone`"
 	MultiKueueWorkloadsAdmittedTotal *prometheus.CounterVec
 
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=cluster="the name of the worker cluster",active="one of `True`, `False`, or `Unknown`",replica_role="one of `leader`, `follower`, or `standalone`"
+	MultiKueueClusterByStatus *prometheus.GaugeVec
+
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
 	AdmissionCyclePreemptionSkips *prometheus.GaugeVec
@@ -357,6 +361,7 @@ const (
 	gaugeCleanupScopeLocalQueueCache
 	gaugeCleanupScopeLocalQueueResource
 	gaugeCleanupScopeCohort
+	gaugeCleanupScopeMultiKueueCluster
 )
 
 var gaugeVecsByScope map[gaugeCleanupScope][]*prometheus.GaugeVec
@@ -414,6 +419,16 @@ The label 'result' can have the following values:
 			Help:      `The total number of remote workload admissions on a worker cluster, per 'cluster_queue' and 'cluster'. A workload may be counted more than once if it is evicted and re-admitted.`,
 		}, []string{"cluster_queue", "cluster", "replica_role"},
 	)
+
+	MultiKueueClusterByStatus = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.MultiKueueName,
+			Name:      "cluster_status",
+			Help: `Reports a MultiKueue worker 'cluster' with its 'active' status (with possible values 'True', 'False', or 'Unknown'), mirroring the Active condition of the MultiKueueCluster, whose reason explains why a cluster is not active.
+For a worker cluster, the metric only reports a value of 1 for one of the statuses.`,
+		}, []string{"cluster", "active", "replica_role"},
+	)
+	trackGaugeVec(MultiKueueClusterByStatus, gaugeCleanupScopeMultiKueueCluster)
 
 	AdmissionCyclePreemptionSkips = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -1063,6 +1078,21 @@ func ReportMultiKueueWorkloadAdmitted(cqName kueue.ClusterQueueReference, cluste
 	MultiKueueWorkloadsAdmittedTotal.WithLabelValues(string(cqName), cluster, roletracker.GetRole(tracker)).Inc()
 }
 
+func ReportMultiKueueClusterStatus(cluster string, conditionStatus metav1.ConditionStatus, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
+	for _, status := range ConditionStatusValues {
+		var v float64
+		if status == conditionStatus {
+			v = 1
+		}
+		MultiKueueClusterByStatus.WithLabelValues(cluster, string(status), role).Set(v)
+	}
+}
+
+func ClearMultiKueueClusterMetrics(cluster string) {
+	clearScopedGaugeMetrics(gaugeCleanupScopeMultiKueueCluster, prometheus.Labels{"cluster": cluster})
+}
+
 func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
 	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
@@ -1571,6 +1601,7 @@ func Register() {
 		admissionAttemptDuration,
 		MultiKueueWorkloadsDispatchedTotal,
 		MultiKueueWorkloadsAdmittedTotal,
+		MultiKueueClusterByStatus,
 		AdmissionCyclePreemptionSkips,
 		PreemptionTargetRecomputationsTotal,
 		PendingWorkloads,
