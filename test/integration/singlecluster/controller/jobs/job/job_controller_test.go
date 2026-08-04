@@ -5287,26 +5287,41 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			gomega.Expect(wl.Spec.PriorityClassRef).To(gomega.BeNil())
 		})
 
-		ginkgo.By("adding the label to the admitted job", func() {
+		ginkgo.By("waiting for the job to be running", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+				g.Expect(job.Spec.Suspend).Should(gomega.Equal(new(false)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// A priority class cannot be added to a job that is not suspended, so the
+		// label arrives in the same update that suspends it.
+		ginkgo.By("suspending the job and adding the label in one update", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
 				if job.Labels == nil {
 					job.Labels = map[string]string{}
 				}
 				job.Labels[constants.WorkloadPriorityClassLabel] = highPriorityClass.Name
+				job.Spec.Suspend = new(true)
 				g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		// The API server refuses to add a priorityClassRef once quota is
-		// reserved, so the slice keeps none rather than the reconcile failing
-		// for good on every retry.
-		ginkgo.By("checking the admitted slice is left alone", func() {
-			gomega.Consistently(func(g gomega.Gomega) {
-				wl := &kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, sliceKey, wl)).To(gomega.Succeed())
-				g.Expect(wl.Spec.PriorityClassRef).To(gomega.BeNil())
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		// The API server refuses to add a priorityClassRef once quota is reserved.
+		// Resuming the job is what shows the reconcile got past the slice priority
+		// sync: were the update attempted, it would fail before the job is started.
+		ginkgo.By("checking the controller resumes the job", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+				g.Expect(job.Spec.Suspend).Should(gomega.Equal(new(false)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the admitted slice kept no priority class", func() {
+			wl := &kueue.Workload{}
+			gomega.Expect(k8sClient.Get(ctx, sliceKey, wl)).To(gomega.Succeed())
+			gomega.Expect(wl.Spec.PriorityClassRef).To(gomega.BeNil())
 		})
 	})
 
