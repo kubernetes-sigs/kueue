@@ -138,7 +138,7 @@ func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
 }
 
 // UpdateNonTASUsage updates the non-TAS resource usage cache for the pod.
-// Returns the node name when a terminated pod is removed from the cache.
+// Returns the node name when capacity may have been freed on a node.
 func (t *tasCache) UpdateNonTASUsage(pod *corev1.Pod, log logr.Logger) string {
 	return t.nonTasUsageCache.update(pod, log)
 }
