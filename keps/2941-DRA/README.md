@@ -440,9 +440,10 @@ Feature gates controlling DRA support in Kueue:
 - `KueueDRAIntegrationPrioritizedList` (Alpha, default off): gates count-based quota accounting
   for `firstAvailable` (prioritized alternative) requests via the component-wise-max envelope.
   Requires `KueueDRAIntegration`; the manager fails validation at startup if this gate is enabled
-  while `KueueDRAIntegration` is off. On Kubernetes 1.34 and 1.35 the upstream `DRAPrioritizedList`
-  gate must be enabled; the Kubernetes feature is Stable in 1.36. Counter-backed and capacity-backed
-  alternatives are rejected.
+  while `KueueDRAIntegration` is off. The upstream `DRAPrioritizedList` gate has been Beta and on by
+  default since Kubernetes 1.34 and GA since 1.36, and it locks to enabled in 1.37, so the
+  requirement on a cluster is that the gate has not been turned off rather than that an admin turns
+  it on. Counter-backed and capacity-backed alternatives are rejected.
 - `KueueDRARejectWorkloadsWhenDRADisabled` (Beta, default on since v0.18): rejects workloads
   that use DRA resources (ResourceClaimTemplates or ResourceClaims) when `KueueDRAIntegration`
   is disabled. Without this gate, DRA workloads submitted while `KueueDRAIntegration` is off
@@ -1755,16 +1756,18 @@ This architecture separates concerns between DRA processing (controller) and que
 This section is gated behind the `KueueDRAIntegrationPrioritizedList` Kueue feature gate (Alpha,
 default off). It adds quota accounting for prioritized-list requests, expressed with the
 `firstAvailable` field of a `DeviceRequest` (the Kubernetes `DRAPrioritizedList` feature, GA in
-1.36). A `firstAvailable` request lists ordered alternatives; kube-scheduler selects exactly one at
-allocation time, which is not known when Kueue reserves quota. With the gate off, such requests
-remain rejected as before.
+1.36). A `firstAvailable` request lists ordered alternatives, at most eight of them
+(`FirstAvailableDeviceRequestMaxSize`); kube-scheduler selects exactly one at allocation time, which
+is not known when Kueue reserves quota. With the gate off, such requests remain rejected as
+before.
 
 #### Accounting rule
 
 For a top-level `firstAvailable` request `q` with alternatives `A_q`, Kueue resolves each
 subrequest's DeviceClass to its logical quota resource through `deviceClassMappings` and forms a
-non-negative charge vector `charge(q, a)` per alternative `a`. The request is charged the
-component-wise maximum:
+non-negative charge vector `charge(q, a)` per alternative `a`. `DeviceSubRequest` has no
+`adminAccess` field, so admin access cannot appear on an alternative and its zero-charge rule stays
+confined to `Exactly` requests. The request is charged the component-wise maximum:
 
 ```text
 envelope(q)[r] = max over a in A_q of charge(q, a)[r]
@@ -1822,9 +1825,11 @@ feasibility may reduce such cases in the future.
 
 #### Coordination with feasibility
 
-This quota accounting is independently safe: the envelope is a conservative upper bound and does
-not depend on any feasibility check. Two related efforts inform admission accuracy and are linked
-here but do not block this KEP: the TAS+DRA work
+This quota accounting is independently safe. Whichever alternative kube-scheduler picks, that
+alternative's charge is at most the envelope, so reserving the envelope cannot under-charge the
+allocation that follows. The argument never needs to predict the choice, so it does not rest on
+ResourceSlice inspection or on any node-level fit check. Two related efforts inform admission
+accuracy and are linked here but do not block this KEP: the TAS+DRA work
 ([#10548](https://github.com/kubernetes-sigs/kueue/issues/10548)), and the broader admission-time
 scheduling-feasibility umbrella
 ([#12422](https://github.com/kubernetes-sigs/kueue/issues/12422)), which passes the full claim spec
@@ -2138,7 +2143,9 @@ the realized allocation.
 
 - gate default remains off, or a documented rationale to enable it by default
 - quota and feasibility paths agree on the supported-versus-rejected predicate, with tests
-- no known quota under-accounting, including the aggregation-boundary overflow cases
+- no known quota under-accounting at the aggregation boundaries: the per-Pod sum across requests,
+  the PodSet-count multiplication, and the `resource.Quantity` to `int64` conversion where several
+  DeviceClasses map to one logical resource
 - upgrade and downgrade behavior verified
 - E2E stability for the count-based case
 - decision on whether source-backed alternatives are a Beta prerequisite
@@ -2500,4 +2507,5 @@ between partitioning schemes on the same counter set. This is a partitionable de
 concern: it lives on `DeviceCounterConsumption` and only applies to devices sharing a
 counter set. Consumable capacity devices that use `Device.Capacity` without
 `consumesCounters` are not affected. Kueue would handle compatibility groups as part
-of the counter source path.
+of the counter source path. Counter-backed alternatives are rejected in this Alpha, so
+compatibility groups do not interact with prioritized-list quota.
