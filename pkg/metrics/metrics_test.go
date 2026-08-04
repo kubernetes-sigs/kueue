@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -326,6 +327,30 @@ func TestReportAndCleanupClusterQueueUsage(t *testing.T) {
 
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 1, "cluster_queue", "queue")
 	expectFilteredMetricsCount(t, ClusterQueueResourceUsage, 0, "cluster_queue", "queue", "flavor", "flavor", "resource", "res2")
+}
+
+func TestReportAndCleanupClusterQueueLendableResources(t *testing.T) {
+	ReportClusterQueueLendableResources("cohort", "queue", "flavor", "res", 5, nil, nil)
+	ReportClusterQueueLendableResources("cohort", "queue", "flavor2", "res", 3, nil, nil)
+
+	expectFilteredMetricsCount(t, ClusterQueueLendableResources, 2, "cluster_queue", "queue")
+
+	ClearClusterQueueResourceMetrics("queue")
+
+	expectFilteredMetricsCount(t, ClusterQueueLendableResources, 0, "cluster_queue", "queue")
+}
+
+func TestReportAndCleanupCohortLendableResources(t *testing.T) {
+	ReportCohortLendableResources("cohort", "flavor", corev1.ResourceCPU, 7, nil, nil)
+	ReportCohortLendableResources("cohort", "flavor2", corev1.ResourceCPU, 2, nil, nil)
+
+	expectFilteredMetricsCount(t, CohortLendableResources, 2, "cohort", "cohort")
+
+	ClearCohortLendableResources("cohort", "flavor2", corev1.ResourceCPU)
+	expectFilteredMetricsCount(t, CohortLendableResources, 1, "cohort", "cohort")
+
+	ClearCohortMetrics("cohort")
+	expectFilteredMetricsCount(t, CohortLendableResources, 0, "cohort", "cohort")
 }
 
 func TestReportMultiKueueWorkloadDispatched(t *testing.T) {
