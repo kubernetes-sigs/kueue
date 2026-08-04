@@ -286,9 +286,9 @@ both ElasticJobsViaWorkloadSlices and TopologyAwareScheduling), Kueue attempts
 to preserve topology locality across workload slice transitions during scaling
 operations.
 
-Unconstrained, preferred, and required topology modes are all supported for scaling
-operations. During node repair (unhealthy nodes), both scale-up and scale-down operations
-are blocked until the nodes recover.
+Unconstrained topology mode is currently supported for scaling operations. 
+Preferred and required topology modes are proposed (see details below) but are currently rejected by the scheduler during elastic workload slices. Support for these modes will be added in upcoming iterations. 
+During node repair (unhealthy nodes), both scale-up and scale-down operations are blocked until the nodes recover.
 
 #### Example: Preferred Topology
 
@@ -299,6 +299,7 @@ metadata:
   name: tas-elastic-preferred
   labels:
     kueue.x-k8s.io/queue-name: user-queue
+  annotations:
     kueue.x-k8s.io/elastic-job: "true"
 spec:
   parallelism: 4
@@ -322,6 +323,7 @@ metadata:
   name: tas-elastic-required
   labels:
     kueue.x-k8s.io/queue-name: user-queue
+  annotations:
     kueue.x-k8s.io/elastic-job: "true"
 spec:
   parallelism: 4
@@ -592,7 +594,7 @@ Here’s a structured and detailed **Graduation Criteria** section for KEP-77: *
 * [x] Feature opt-in is supported via workload annotation (`kueue.x-k8s.io/elastic-job: "true"`).
 * [x] Documented enablement steps, slice behavior, and known limitations.
 * [x] Kueue-native Deployment support leveraging WorkloadSlices.
-* [x] Topology Aware Scheduling integration: elastic workloads preserve topology assignment during scale-up. Scale-down and required/preferred modes are fully supported.
+* [x] Topology Aware Scheduling integration: elastic workloads with unconstrained topology preserve topology assignment during scale-up. Scale-down and required/preferred modes are not yet supported.
 
 #### Beta
 
@@ -628,9 +630,10 @@ TAS integration is gated separately via `ElasticJobsViaWorkloadSlicesWithTAS`
 
 #### Alpha
 
-* [x] Unconstrained topology mode supported for scale-up and scale-down.
-* [x] Preferred and Required topology modes supported for scale-up and scale-down.
-* [x] Integration tests for elastic workloads across all topology modes.
+* [x] Unconstrained topology mode supported for scale-up.
+* [ ] Unconstrained topology mode supported for scale-down.
+* [ ] Preferred and Required topology modes supported for scale-up and scale-down.
+* [ ] Integration tests for elastic workloads across all topology modes.
 
 #### Beta
 
