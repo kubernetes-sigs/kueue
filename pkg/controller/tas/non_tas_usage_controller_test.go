@@ -250,6 +250,38 @@ func TestNonTasUsageReconcilerUpdatePredicate(t *testing.T) {
 			newPod: testingpod.MakePod("pod", "ns").StatusPhase(corev1.PodPending).Obj(),
 			want:   false,
 		},
+		{
+			name: "reconciles when non-TAS pod resources change (resize)",
+			oldPod: func() *corev1.Pod {
+				p := testingpod.MakePod("pod", "ns").NodeName("node-a").Request(corev1.ResourceCPU, "2").Obj()
+				p.Generation = 1
+				return p
+			}(),
+			newPod: func() *corev1.Pod {
+				p := testingpod.MakePod("pod", "ns").NodeName("node-a").Request(corev1.ResourceCPU, "4").Obj()
+				p.Generation = 2
+				return p
+			}(),
+			want: true,
+		},
+		{
+			name:   "reconciles when non-TAS pod moves between nodes",
+			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").Request(corev1.ResourceCPU, "2").Obj(),
+			newPod: testingpod.MakePod("pod", "ns").NodeName("node-b").Request(corev1.ResourceCPU, "2").Obj(),
+			want:   true,
+		},
+		{
+			name:   "ignores non-TAS pod update with same resources",
+			oldPod: testingpod.MakePod("pod", "ns").NodeName("node-a").Request(corev1.ResourceCPU, "2").Obj(),
+			newPod: testingpod.MakePod("pod", "ns").NodeName("node-a").Request(corev1.ResourceCPU, "2").Obj(),
+			want:   false,
+		},
+		{
+			name:   "ignores unscheduled non-TAS pod with changed resources",
+			oldPod: testingpod.MakePod("pod", "ns").Request(corev1.ResourceCPU, "2").Obj(),
+			newPod: testingpod.MakePod("pod", "ns").Request(corev1.ResourceCPU, "4").Obj(),
+			want:   false,
+		},
 	}
 
 	reconciler := &NonTasUsageReconciler{}

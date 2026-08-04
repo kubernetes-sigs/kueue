@@ -128,7 +128,7 @@ func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
 }
 
 // Update may add a pod to the cache, or delete a terminated pod.
-// Returns the node name when a terminated pod is removed from the cache.
+// Returns the node name when capacity may have been freed on a node.
 func (t *tasCache) Update(pod *corev1.Pod, log logr.Logger) string {
 	return t.nonTasUsageCache.update(pod, log)
 }
