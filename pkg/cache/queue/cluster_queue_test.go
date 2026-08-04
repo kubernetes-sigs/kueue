@@ -617,7 +617,11 @@ func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
 
 			// Writer: continuously set the sticky workload via a preemption requeue.
 			stop := make(chan struct{})
+			started := make(chan struct{})
 			go func() {
+				// Perform an initial requeue to ensure sticky state changes.
+				cq.RequeueIfNotPresent(ctx, workload.NewInfo(wls[0]), RequeueReasonPendingPreemption, "")
+				close(started)
 				for {
 					select {
 					case <-stop:
@@ -629,6 +633,7 @@ func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
 					}
 				}
 			}()
+			<-started
 			defer close(stop)
 
 			// Reader: Snapshot reads the sticky workload through the comparator.
@@ -706,6 +711,11 @@ func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
 			stop := make(chan struct{})
 			started := make(chan struct{})
 			go func() {
+				// Perform initial mutation cycle before signaling started.
+				for _, k := range keys {
+					cq.sw.set(k)
+				}
+				cq.sw.clear()
 				close(started)
 				for {
 					select {
