@@ -41,6 +41,10 @@ const (
 	// defaultLeaderWorkerSetReplicas mirrors the LeaderWorkerSet API default for
 	// spec.replicas (+kubebuilder:default=1), and is used when the field is unset.
 	defaultLeaderWorkerSetReplicas = 1
+	// defaultLeaderWorkerSetSize mirrors the LeaderWorkerSet API default for
+	// spec.leaderWorkerTemplate.size (+kubebuilder:default=1), and is used when the
+	// field is unset.
+	defaultLeaderWorkerSetSize = 1
 	// maxLeaderWorkerSetReplicas is a sanity upper bound on spec.replicas that guards
 	// against unbounded per-replica Workload creation from an unreasonably large value.
 	maxLeaderWorkerSetReplicas = 1_000_000
