@@ -1031,14 +1031,24 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 			return 1
 		}
 
-		// 1. Request under nominal quota.
+		// 1. Then process workloads pending preemption.
+		aPendingPreempt := workload.IsPendingPreemption(a.Obj)
+		bPendingPreempt := workload.IsPendingPreemption(b.Obj)
+		if aPendingPreempt != bPendingPreempt {
+			if aPendingPreempt {
+				return -1
+			}
+			return 1
+		}
+
+		// 2. Request under nominal quota.
 		aBorrows := a.assignment.Borrows()
 		bBorrows := b.assignment.Borrows()
 		if aBorrows != bBorrows {
 			return cmp.Compare(aBorrows, bBorrows)
 		}
 
-		// 2. Higher priority first if not disabled.
+		// 3. Higher priority first if not disabled.
 		if features.Enabled(features.PrioritySortingWithinCohort) {
 			p1 := priority.EffectivePriority(log, a.Obj)
 			p2 := priority.EffectivePriority(log, b.Obj)
@@ -1047,7 +1057,7 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 			}
 		}
 
-		// 3. FIFO.
+		// 4. FIFO.
 		aComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(a.Obj)
 		bComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(b.Obj)
 		if aComparisonTimestamp.Before(bComparisonTimestamp) {
