@@ -122,11 +122,6 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 			}
 		}
 	}
-	var podSetGroupName *string
-	if podSet.TopologyRequest != nil {
-		podSetGroupName = podSet.TopologyRequest.PodSetGroupName
-	}
-
 	return &schdcache.TASPodSetRequests{
 		Count:              podCount,
 		SinglePodRequests:  singlePodRequests,
@@ -134,9 +129,17 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		PodSetUpdates:      podSetUpdates,
 		Flavor:             *tasFlvr,
 		Implied:            isTASImplied,
-		PodSetGroupName:    podSetGroupName,
+		PodSetGroupName:    podSetGroupName(podSet),
 		PreviousAssignment: previousAssignment,
 	}, nil
+}
+
+// podSetGroupName returns ps's PodSetGroupName, or nil if ps has no TopologyRequest.
+func podSetGroupName(ps *kueue.PodSet) *string {
+	if ps.TopologyRequest == nil {
+		return nil
+	}
+	return ps.TopologyRequest.PodSetGroupName
 }
 
 func onlyTASFlavor(
