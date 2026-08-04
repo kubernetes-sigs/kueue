@@ -55,6 +55,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		DepCRDPaths: []string{
 			util.MpiOperatorCrds,
 			util.JobsetCrds,
+			util.LeaderWorkerSetCrds,
 			util.RayOperatorCrds,
 			util.TrainingOperatorCrds,
 			util.AppWrapperCrds,
