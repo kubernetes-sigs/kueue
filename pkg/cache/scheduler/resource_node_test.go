@@ -67,6 +67,40 @@ func TestCohortLendable(t *testing.T) {
 	}
 }
 
+func TestCurrentLendable(t *testing.T) {
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+	lendingLimit := resources.NewAmount(6)
+
+	cases := map[string]struct {
+		lendingLimit *resources.Amount
+		usage        int64
+		want         int64
+	}{
+		"no lending limit, partly used":      {usage: 4, want: 6},
+		"lending limit, usage inside local":  {lendingLimit: &lendingLimit, usage: 4, want: 6},
+		"lending limit, usage past local":    {lendingLimit: &lendingLimit, usage: 7, want: 3},
+		"lending limit, fully used":          {lendingLimit: &lendingLimit, usage: 10, want: 0},
+		"lending limit, overadmitted":        {lendingLimit: &lendingLimit, usage: 12, want: 0},
+		"lending limit, unused":              {lendingLimit: &lendingLimit, usage: 0, want: 6},
+		"no lending limit, overadmitted":     {usage: 12, want: 0},
+		"no lending limit, fully used":       {usage: 10, want: 0},
+		"lending limit, usage at local edge": {lendingLimit: &lendingLimit, usage: 5, want: 5},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := NewResourceNode()
+			r.Quotas[fr] = ResourceQuota{Nominal: resources.NewAmount(10), LendingLimit: tc.lendingLimit}
+			r.SubtreeQuota[fr] = resources.NewAmount(10)
+			r.Usage[fr] = resources.NewAmount(tc.usage)
+
+			got := r.currentLendable(fr)
+			if got.Cmp(resources.NewAmount(tc.want)) != 0 {
+				t.Errorf("currentLendable = %v, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCohortEffectiveQuotasUpdateAndFallback(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
 

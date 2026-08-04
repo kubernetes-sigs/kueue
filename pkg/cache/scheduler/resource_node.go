@@ -84,6 +84,15 @@ func (r resourceNode) localQuota(fr resources.FlavorResource) resources.Amount {
 	return resources.NewAmount(0)
 }
 
+// currentLendable is how much of this node's quota peers can still borrow now:
+// the part stored in the parent, minus the usage that spilled past localQuota.
+func (r resourceNode) currentLendable(fr resources.FlavorResource) resources.Amount {
+	lq := r.localQuota(fr)
+	storedInParent := r.SubtreeQuota[fr].Sub(lq)
+	usedInParent := resources.MaxAmount(resources.NewAmount(0), r.Usage[fr].Sub(lq))
+	return resources.MaxAmount(resources.NewAmount(0), storedInParent.Sub(usedInParent))
+}
+
 // hierarchicalResourceNode extends flatResourceNode
 // with the ability to navigate to the parent node.
 type hierarchicalResourceNode interface {
