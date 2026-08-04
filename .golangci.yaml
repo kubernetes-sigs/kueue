@@ -2,6 +2,8 @@
 # see: https://golangci-lint.run/usage/configuration/
 
 version: "2"
+run:
+  allow-parallel-runners: true
 linters:
   enable:
     - copyloopvar

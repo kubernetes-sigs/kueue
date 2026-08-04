@@ -80,17 +80,20 @@ func (t *tasCache) AddOrUpdateFlavor(flavor *kueue.ResourceFlavor) {
 	defer t.Unlock()
 	name := kueue.ResourceFlavorReference(flavor.Name)
 	tolerations := slices.Clone(flavor.Spec.Tolerations)
+	nodeLabels := maps.Clone(flavor.Spec.NodeLabels)
 	if flavorInfo, ok := t.flavors[name]; ok {
 		flavorInfo.Tolerations = tolerations
+		flavorInfo.NodeLabels = nodeLabels
 		t.flavors[name] = flavorInfo
 		if flavorCache, ok := t.flavorCache[name]; ok {
 			flavorCache.updateTolerations(tolerations)
+			flavorCache.updateNodeLabels(nodeLabels)
 		}
 		return
 	}
 	flavorInfo := flavorInformation{
 		TopologyName: *flavor.Spec.TopologyName,
-		NodeLabels:   maps.Clone(flavor.Spec.NodeLabels),
+		NodeLabels:   nodeLabels,
 		Tolerations:  tolerations,
 	}
 	t.flavors[name] = flavorInfo
@@ -135,13 +138,15 @@ func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
 }
 
 // UpdateNonTASUsage updates the non-TAS resource usage cache for the pod.
-func (t *tasCache) UpdateNonTASUsage(pod *corev1.Pod, log logr.Logger) {
-	t.nonTasUsageCache.update(pod, log)
+// Returns the node name when a terminated pod is removed from the cache.
+func (t *tasCache) UpdateNonTASUsage(pod *corev1.Pod, log logr.Logger) string {
+	return t.nonTasUsageCache.update(pod, log)
 }
 
 // DeleteNonTASUsageByKey removes the pod from the non-TAS resource usage cache.
-func (t *tasCache) DeleteNonTASUsageByKey(key client.ObjectKey, log logr.Logger) {
-	t.nonTasUsageCache.delete(key, log)
+// Returns the node name when an entry is removed.
+func (t *tasCache) DeleteNonTASUsageByKey(key client.ObjectKey, log logr.Logger) string {
+	return t.nonTasUsageCache.delete(key, log)
 }
 
 // TrackPod notifies the scheduling simulator that a pod is running on a node.

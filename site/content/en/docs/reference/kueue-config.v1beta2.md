@@ -1531,8 +1531,9 @@ evicted and requeued in the same cluster queue.</p>
 <code>bool</code>
 </td>
 <td>
-   <p>BlockAdmission when true, the cluster queue will block admissions for all
-subsequent jobs until the jobs reach the PodsReady=true condition.
+   <p>BlockAdmission when true, Kueue blocks admission of all workloads across
+all ClusterQueues until every previously-admitted workload reaches the
+PodsReady=true condition.
 Defaults to false.</p>
 </td>
 </tr>

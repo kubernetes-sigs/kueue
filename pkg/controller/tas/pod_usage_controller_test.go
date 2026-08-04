@@ -17,12 +17,20 @@ limitations under the License.
 package tas
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -264,5 +272,73 @@ func TestPodUsageReconcilerUpdate(t *testing.T) {
 	})
 	if !got {
 		t.Errorf("Update() = %v, want %v", got, true)
+	}
+}
+
+func TestDrainPendingNodes(t *testing.T) {
+	tests := map[string]struct {
+		initialNodes    []string
+		objects         []corev1.Node
+		interceptGet    bool
+		wantPendingLen  int
+		wantPendingKeys sets.Set[string]
+	}{
+		"empty set is a no-op": {
+			wantPendingLen: 0,
+		},
+		"NotFound node is skipped without re-insert": {
+			initialNodes:   []string{"deleted-node"},
+			wantPendingLen: 0,
+		},
+		"existing node is drained": {
+			initialNodes:   []string{"node-a"},
+			objects:        []corev1.Node{{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}}},
+			wantPendingLen: 0,
+		},
+		"duplicate nodes are deduplicated": {
+			initialNodes: []string{"node-a", "node-a", "node-b"},
+			objects: []corev1.Node{
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "node-b"}},
+			},
+			wantPendingLen: 0,
+		},
+		"transient error re-inserts node for next cycle": {
+			initialNodes:    []string{"flaky-node"},
+			interceptGet:    true,
+			wantPendingLen:  1,
+			wantPendingKeys: sets.New[string]("flaky-node"),
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			builder := fake.NewClientBuilder()
+			for i := range tc.objects {
+				builder = builder.WithObjects(&tc.objects[i])
+			}
+			if tc.interceptGet {
+				builder = builder.WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(_ context.Context, _ client.WithWatch, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+						return errors.New("transient error")
+					},
+				})
+			}
+			cl := builder.Build()
+			cache := schdcache.New(cl)
+			r := newPodUsageReconciler(cl, nil, cache, nil)
+
+			for _, n := range tc.initialNodes {
+				r.notifyFreedNode(n)
+			}
+			r.drainPendingNodes(t.Context())
+
+			if r.pending.nodes.Len() != tc.wantPendingLen {
+				t.Errorf("pendingRequeueNodes has %d items, want %d", r.pending.nodes.Len(), tc.wantPendingLen)
+			}
+			if tc.wantPendingKeys != nil && !r.pending.nodes.Equal(tc.wantPendingKeys) {
+				t.Errorf("pendingRequeueNodes = %v, want %v", r.pending.nodes, tc.wantPendingKeys)
+			}
+		})
 	}
 }

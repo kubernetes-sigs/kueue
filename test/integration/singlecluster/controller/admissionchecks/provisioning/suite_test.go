@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -85,6 +86,7 @@ func runJobController(opts *managerSetupOpts) {
 
 func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
+		integrationManager := jobcontrollers.NewIntegrationManager()
 		var opts managerSetupOpts
 		for _, opt := range options {
 			opt(&opts)
@@ -114,15 +116,15 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 				ctx,
 				mgr.GetClient(),
 				mgr.GetFieldIndexer(),
-				mgr.GetEventRecorder(constants.JobControllerName))
+				mgr.GetEventRecorder(constants.JobControllerName), jobframework.WithIntegrationManager(integrationManager))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			err = jobReconciler.SetupWithManager(mgr)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			err = job.SetupWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+			err = job.SetupWebhook(mgr, jobframework.WithIntegrationManager(integrationManager), jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-			jobframework.EnableIntegration(job.FrameworkName)
+			integrationManager.EnableIntegration(job.FrameworkName)
 		}
 
 		failedCtrl, err := core.SetupControllers(

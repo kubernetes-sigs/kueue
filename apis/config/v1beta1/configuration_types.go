@@ -286,8 +286,9 @@ type WaitForPodsReady struct {
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
-	// BlockAdmission when true, cluster queue will block admissions for all
-	// subsequent jobs until the jobs reach the PodsReady=true condition.
+	// BlockAdmission when true, Kueue blocks admission of all workloads across
+	// all ClusterQueues until every previously-admitted workload reaches the
+	// PodsReady=true condition.
 	// This setting is only honored when `Enable` is set to true.
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
 

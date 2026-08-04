@@ -119,6 +119,12 @@ func (c *TASFlavorCache) updateTolerations(tolerations []corev1.Toleration) {
 	c.flavor.Tolerations = tolerations
 }
 
+func (c *TASFlavorCache) updateNodeLabels(nodeLabels map[string]string) {
+	c.Lock()
+	defer c.Unlock()
+	c.flavor.NodeLabels = nodeLabels
+}
+
 func (c *TASFlavorCache) NodeLabels() map[string]string {
 	return c.flavor.NodeLabels
 }
