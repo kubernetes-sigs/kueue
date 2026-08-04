@@ -45,9 +45,17 @@ type SetupOptions struct {
 	dispatcherName       string
 	clusterProfileConfig *configapi.ClusterProfile
 	roleTracker          *roletracker.RoleTracker
+	configuration        *configapi.Configuration
 }
 
 type SetupOption func(o *SetupOptions)
+
+// WithConfiguration sets the global configuration for leader election options.
+func WithConfiguration(cfg *configapi.Configuration) SetupOption {
+	return func(o *SetupOptions) {
+		o.configuration = cfg
+	}
+}
 
 // WithGCInterval - sets the interval between two garbage collection runs.
 // If 0 the garbage collection is disabled.
@@ -157,7 +165,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		options.adapters, cpAccessProvider, options.roleTracker,
 		mgr.GetEventRecorder("multikueue-cluster"),
 	)
-	err = cRec.setupWithManager(mgr)
+	err = cRec.setupWithManager(mgr, options.configuration)
 	if err != nil {
 		return err
 	}
@@ -178,5 +186,5 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 
 	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorder(constants.WorkloadControllerName),
 		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker)
-	return wlRec.setupWithManager(mgr)
+	return wlRec.setupWithManager(mgr, options.configuration)
 }

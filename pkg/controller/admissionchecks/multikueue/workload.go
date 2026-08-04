@@ -1083,7 +1083,7 @@ func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName 
 	return errors.Join(errs...)
 }
 
-func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
+func (w *wlReconciler) setupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
@@ -1103,7 +1103,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 			NeedLeaderElection: new(false),
 			LogConstructor:     roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload"),
 		}).
-		Complete(core.WithLeadingManagerObserver(mgr, w))
+		Complete(core.WithLeadingManagerObserver(mgr, w, cfg))
 }
 
 func findPodSetAssignment(assignments []kueue.PodSetAssignment, name kueue.PodSetReference) *kueue.PodSetAssignment {

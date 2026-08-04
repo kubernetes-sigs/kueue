@@ -63,6 +63,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -1168,7 +1169,7 @@ func (c *clustersReconciler) logger() logr.Logger {
 	return roletracker.WithReplicaRole(ctrl.Log.WithName(c.logName), c.roleTracker)
 }
 
-func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
+func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	err := mgr.Add(c)
 	if err != nil {
 		return err
@@ -1211,7 +1212,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 			Watches(&inventoryv1alpha1.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, builder.WithPredicates(systemNamespacePredicate))
 	}
 
-	return controllerBuilder.Complete(core.WithLeadingManagerObserver(mgr, c))
+	return controllerBuilder.Complete(core.WithLeadingManagerObserver(mgr, c, cfg))
 }
 
 func (c *clustersReconciler) Generic(e event.GenericEvent) bool {
