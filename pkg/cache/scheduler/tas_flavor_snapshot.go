@@ -904,6 +904,64 @@ func (s *TASFlavorSnapshot) findIncompleteSliceDomain(tr *TASPodSetRequests, ta 
 	return ""
 }
 
+// findScaleUpDomain finds the bounding domain for scaling up an elastic workload by 1 pod.
+// It first attempts to find a leaf domain that has an incomplete slice, to ensure slices
+// are packed correctly. If no incomplete slices exist, it falls back to the top-level
+// Required topology domain, enforcing the strict scale-up boundary.
+func (s *TASFlavorSnapshot) findScaleUpDomain(tr *TASPodSetRequests, ta *utiltas.TopologyAssignment) utiltas.TopologyDomainID {
+	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(tr.PodSet.TopologyRequest)
+	if reason != "" {
+		return ""
+	}
+
+	if slicesRequested(tr.PodSet.TopologyRequest) {
+		topologyKey := s.sliceLevelKeyWithDefault(tr.PodSet.TopologyRequest, s.lowestLevel())
+		sliceLevelIdx, found := s.resolveLevelIdx(topologyKey)
+		if found {
+			nodeLevel := len(s.levelKeys) - 1
+			domainToUsage := make(map[utiltas.TopologyDomainID]int32)
+			for _, domainFromAssignment := range ta.Domains {
+				domain, ok := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domainFromAssignment.Values)]
+				if !ok {
+					continue
+				}
+				for i := nodeLevel; i > sliceLevelIdx; i-- {
+					domain = domain.parent
+				}
+				domainToUsage[domain.id] += domainFromAssignment.Count
+			}
+
+			for domainID, count := range domainToUsage {
+				if count%sliceSize != 0 {
+					return domainID
+				}
+			}
+		}
+	}
+
+	if !isRequired(tr.PodSet.TopologyRequest) {
+		return ""
+	}
+
+	levelIdx := slices.Index(s.levelKeys, *tr.PodSet.TopologyRequest.Required)
+	if levelIdx == -1 {
+		return ""
+	}
+	nodeLevel := len(s.levelKeys) - 1
+	domainValues := ta.Domains[0].Values
+	if len(domainValues) == 0 {
+		return ""
+	}
+	domain, found := s.domainsPerLevel[nodeLevel][utiltas.DomainID(domainValues)]
+	if !found {
+		return ""
+	}
+	for i := nodeLevel; i > levelIdx; i-- {
+		domain = domain.parent
+	}
+	return domain.id
+}
+
 // Algorithm overview:
 // Phase 1:
 //
