@@ -17,6 +17,8 @@ limitations under the License.
 package scheduler
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -137,4 +139,41 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestTASFlavorCacheNodeLabelsConcurrentAccess reproduces the data race between
+// the ResourceFlavor informer handler updating the cached node labels and the
+// node event handlers reading them. It only fails under `go test -race`.
+func TestTASFlavorCacheNodeLabelsConcurrentAccess(t *testing.T) {
+	const (
+		iterations = 1000
+		readers    = 4
+	)
+	const labelKey = "cloud.provider.com/node-group"
+
+	cache := &TASFlavorCache{
+		flavor: flavorInformation{
+			NodeLabels: map[string]string{labelKey: "group-0"},
+		},
+	}
+	nodeLabels := map[string]string{labelKey: "group-0"}
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for i := range iterations {
+			cache.updateNodeLabels(map[string]string{labelKey: fmt.Sprintf("group-%d", i)})
+		}
+	})
+	matches := make([]int, readers)
+	for r := range readers {
+		wg.Go(func() {
+			for range iterations {
+				if utiltas.NodeMatchesFlavor(nodeLabels, cache.NodeLabels(), nil) {
+					matches[r]++
+				}
+			}
+		})
+	}
+	wg.Wait()
+	t.Logf("matches per reader: %v", matches)
 }
