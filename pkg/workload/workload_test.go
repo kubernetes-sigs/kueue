@@ -3365,6 +3365,51 @@ func TestUnhealthyNodesEvictionThreshold(t *testing.T) {
 	}
 }
 
+func TestIsWithinUnhealthyNodesEvictionThreshold(t *testing.T) {
+	cases := map[string]struct {
+		threshold      string
+		unhealthyNodes []string
+		want           bool
+	}{
+		"default threshold with no unhealthy nodes": {
+			want: true,
+		},
+		"default threshold reached": {
+			unhealthyNodes: []string{"x1"},
+			want:           false,
+		},
+		"configured threshold not reached": {
+			threshold:      "2",
+			unhealthyNodes: []string{"x1"},
+			want:           true,
+		},
+		"configured threshold reached": {
+			threshold:      "2",
+			unhealthyNodes: []string{"x1", "x2"},
+			want:           false,
+		},
+		"unlimited threshold": {
+			threshold:      "0",
+			unhealthyNodes: []string{"x1", "x2"},
+			want:           true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wlWrapper := utiltestingapi.MakeWorkload("wl", "ns").UnhealthyNodes(tc.unhealthyNodes...)
+			if tc.threshold != "" {
+				wlWrapper = wlWrapper.Annotation(kueue.TASUnhealthyNodesEvictionThresholdAnnotation, tc.threshold)
+			}
+			if got := IsWithinUnhealthyNodesEvictionThreshold(wlWrapper.Obj()); got != tc.want {
+				t.Errorf("IsWithinUnhealthyNodesEvictionThreshold() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+	if !IsWithinUnhealthyNodesEvictionThreshold(nil) {
+		t.Error("IsWithinUnhealthyNodesEvictionThreshold(nil) = false, want true")
+	}
+}
+
 func TestCalcLocalQueueFSUsage(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	errOther := errors.New("other error")

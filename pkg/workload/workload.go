@@ -1397,6 +1397,12 @@ func UnhealthyNodesEvictionThreshold(w *kueue.Workload) int {
 	return DefaultUnhealthyNodesEvictionThreshold
 }
 
+// IsWithinUnhealthyNodesEvictionThreshold indicates whether the Workload can
+// continue replacing unhealthy nodes without scheduler fail-fast eviction.
+func IsWithinUnhealthyNodesEvictionThreshold(w *kueue.Workload) bool {
+	return w == nil || len(w.Status.UnhealthyNodes) < UnhealthyNodesEvictionThreshold(w)
+}
+
 // IsAdmittedByTAS checks if a workload is admitted by TAS.
 func IsAdmittedByTAS(w *kueue.Workload) bool {
 	return w.Status.Admission != nil && IsAdmitted(w) &&
