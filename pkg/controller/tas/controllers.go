@@ -17,6 +17,8 @@ limitations under the License.
 package tas
 
 import (
+	"fmt"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -43,9 +45,13 @@ func SetupControllers(mgr ctrl.Manager, queues *qcache.Manager, cache *schdcache
 	if ctrlName, err := nodeRec.SetupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}
-	nonTasUsageController := newNonTasUsageReconciler(mgr.GetClient(), cache, roleTracker)
+	nonTasUsageController := newNonTasUsageReconciler(mgr.GetClient(), queues, cache, roleTracker)
 	if ctrlName, err := nonTasUsageController.SetupWithManager(mgr); err != nil {
 		return ctrlName, err
+	}
+	if err := mgr.Add(nonTasUsageController); err != nil {
+		return TASNonTasUsageController, fmt.Errorf(
+			"unable to add %s runnable: %w", TASNonTasUsageController, err)
 	}
 	return "", nil
 }
