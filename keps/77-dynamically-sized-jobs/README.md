@@ -24,18 +24,21 @@
     - [Garbage Collection of Preempted Workload Slices](#garbage-collection-of-preempted-workload-slices)
   - [Pod Scheduling Gates](#pod-scheduling-gates)
   - [Topology Aware Scheduling Integration](#topology-aware-scheduling-integration)
+    - [Example: Preferred Topology](#example-preferred-topology)
+    - [Example: Required Topology](#example-required-topology)
     - [Pod Identification Across Slices](#pod-identification-across-slices)
-    - [Scale Up](#scale-up)
+    - [Fast-Path Scale-Up (Preferred &amp; Unconstrained)](#fast-path-scale-up-preferred--unconstrained)
+    - [Node-Hot-Swap Iterative Scale-Up (Required)](#node-hot-swap-iterative-scale-up-required)
     - [Scale Down](#scale-down)
   - [Limitations and Incompatibilities](#limitations-and-incompatibilities)
     - [PartialAdmission](#partialadmission)
 - [Phases for MVP (alpha)](#phases-for-mvp-alpha)
   - [Phase 1 - batchv1/Job WorkloadSlices Support in Single-Cluster Configuration.](#phase-1---batchv1job-workloadslices-support-in-single-cluster-configuration)
     - [Scale Down](#scale-down-1)
-    - [Scale Up](#scale-up-1)
+    - [Scale Up](#scale-up)
   - [Phase 2 – RayCluster WorkloadSlice Support in Single-Cluster Configuration](#phase-2--raycluster-workloadslice-support-in-single-cluster-configuration)
     - [Scale Down](#scale-down-2)
-    - [Scale Up](#scale-up-2)
+    - [Scale Up](#scale-up-1)
   - [Phase 3 – Enabling Workload Slicing for batch/v1.Job in Multi-Cluster Configuration](#phase-3--enabling-workload-slicing-for-batchv1job-in-multi-cluster-configuration)
 - [Additional Details](#additional-details)
   - [Test Plan](#test-plan)
@@ -286,7 +289,7 @@ both ElasticJobsViaWorkloadSlices and TopologyAwareScheduling), Kueue attempts
 to preserve topology locality across workload slice transitions during scaling
 operations.
 
-Unconstrained topology mode is currently supported for scaling operations. 
+Unconstrained topology mode is currently supported for scale-up operations. 
 Preferred and required topology modes are proposed (see details below) but are currently rejected by the scheduler during elastic workload slices. Support for these modes will be added in upcoming iterations. 
 During node repair (unhealthy nodes), both scale-up and scale-down operations are blocked until the nodes recover.
 
