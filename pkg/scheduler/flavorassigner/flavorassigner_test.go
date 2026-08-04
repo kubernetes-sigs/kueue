@@ -4389,6 +4389,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					Count:  2,
 					Status: *NewStatus(),
 				}},
+				representativeMode: new(Fit),
 				replaceWorkloadSlice: workload.NewInfo(&kueue.Workload{
 					Status: kueue.WorkloadStatus{
 						Admission: &kueue.Admission{
