@@ -395,16 +395,6 @@ const (
 	AnyClusterQueue PreemptionRelationConstraint = "AnyClusterQueue"
 )
 
-type QuotaConstraint string
-
-type PreemptionRelationConstraint string
-
-const (
-	SameLocalQueue PreemptionRelationConstraint = "SameLocalQueue"
-SameClusterQueue PreemptionRelationConstraint = "SameClusterQueue"
-	SameCohort PreemptionRelationConstraint = "SameCohort"
-SameCohortTree PreemptionRelationConstraint = "SameCohortTree" 	AnyClusterQueue PreemptionRelationConstraint = "AnyClusterQueue" 
-)
 
 type QuotaConstraint string
 
@@ -432,14 +422,27 @@ type PreemptionCandidateSelector struct{
 	// Accepts all if not set
 	WorkloadSelector metav1.LabelSelector
 
-	// Accepts all if not set. Items are AND-ed.
-	PriorityExpression []PrioirtyExpression
-	
-	// Accepts all if not set. Items are AND-ed.
-	ExecutionTimeSelector []TimeSelector
+	// Matches all workload priority classes if not set.
+	PreemptingWorkloadPrioritySelector metav1.LabelSelector
 
-	// Accepts all if not set. Items are AND-ed.
-	TimeFromCreationSelector []TimeSelector 	
+	// Matches all workload priority classes if not set.
+	CandidateWorkloadPrioritySelector metav1.LabelSelector
+
+	// The comparison is made against the preempting workload.
+	// Lower means that the candidate
+	// has lower priority than the preemptor and so on. No check is made
+	// if the field is nil.
+	RelativeWorkloadPrioirty *RelativeConstraint
+
+	// Accepts any execution times if not set
+	MinExecutionTimeSeconds *int64
+	MaxExecutionTimeSeconds *int64
+	ExecutionTimeRelation RelativeConstraint
+
+	// Accepts any time from creation if not set
+	MinTimeFromCreationSeconds *int64
+	MaxTimeFromCreationSeconds *int64
+	TimeFromCreationRelation RelativeConstraint
 }
 
 
@@ -452,35 +455,14 @@ const (
 	GreaterOrEquals RelativeConstraint = "GreaterOrEqual"
 )
 
-type PriorityExpression struct {
-	// Matches all workload priority classes if not set.
-	PreemptingWorkloadPrioritySelector metav1.LabelSelector
-
-	// Matches all workload priority classes if not set. 
-	CandidateWorkloadPrioritySelector metav1.LabelSelector
-
-	// The comparison is made against the preempting workload. 
-	// Lower means that the candidate 
-	// has lower priority than the preemptor and so on. 
-	// No check is made if the field is nil. 
-	RelativePrioirty *RelativeConstraint
-}
-
-type TimeSelector struct {
-	Operator RelativeConstraint
-
-	// If value is not provided, the comparison is 
-	// made against the preempting workload
-	ValueInSeconds *int64 
-}
 
 type OrderingField string
 const (
 	Priority OrderingField = "Priority"
 	AdmissionTimestamp OrderingField = "AdmissionTimestamp"
-	CreationTimestamp OrderingField = "CreationTimestamp"
 	ClusterQueueDRS OrderingField = "ClusterQueueDRS"
 	IsOtherCQ OrderingField = "IsOtherCQ"
+	IsOtherCohort OrderingField = "IsOtherCohort"
 	IsDRSLessThanInitialShare OrderingField = "IsDRSLessThanInitialShare"
 	IsDRSLessThanOrEqualToFinalShare OrderingField = "IsDRSLessThanOrEqualToFinalShare"
 )
@@ -494,9 +476,14 @@ The order is right now based on:
 4. Workloads admitted more recently first.
 
 ```go
+type Order struct {
+	OrderingField OrderingField
+	Descending bool TODO
+}
+
 
 type Ordering struct {
-	Order []OrderingField
+	Order []Order
 }
 ```
 
