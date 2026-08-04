@@ -83,6 +83,19 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 			t.Error("cleanup failed to restore TASFailedNodeReplacementFailFast to enabled state")
 		}
 	})
+
+	t.Run("explicit map values take precedence over implicit dependency resolution", func(t *testing.T) {
+		SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+			TopologyAwareScheduling:          true,
+			TASFailedNodeReplacementFailFast: false,
+		})
+		if !utilfeature.DefaultFeatureGate.Enabled(TopologyAwareScheduling) {
+			t.Error("expected explicit TopologyAwareScheduling=true to be respected")
+		}
+		if utilfeature.DefaultFeatureGate.Enabled(TASFailedNodeReplacementFailFast) {
+			t.Error("expected explicit TASFailedNodeReplacementFailFast=false to be respected")
+		}
+	})
 }
 
 func TestSetFeatureGateDuringTest(t *testing.T) {

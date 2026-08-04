@@ -1806,6 +1806,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 	cases := map[string]struct {
 		featureGatesCLI string
 		featureGateMap  map[string]bool
+		ignoreDetail    bool
 		wantErr         field.ErrorList
 	}{
 		"no feature gates is null": {
@@ -2180,7 +2181,14 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			// Ensure clean up is registered for the feature gates to their default values
 			features.SetFeatureGatesDuringTest(t, nil)
 			got := LoadAndValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
-			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			// Ignore "Detail" field when multiple feature gate dependency errors occur (or when ignoreDetail is set/Detail is empty),
+			// because k8s.io/component-base/featuregate iterates over internal Go maps,
+			// making the aggregated error message order non-deterministic across different test runs.
+			ignoreFields := []string{"BadValue"}
+			if tc.ignoreDetail || (len(tc.wantErr) > 0 && tc.wantErr[0].Detail == "") {
+				ignoreFields = append(ignoreFields, "Detail")
+			}
+			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, ignoreFields...)); diff != "" {
 				t.Errorf("Unexpected result from LoadAndValidateFeatureGates (-want,+got):\n%s", diff)
 			}
 		})

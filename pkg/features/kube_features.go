@@ -888,6 +888,10 @@ func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Featu
 			enableWithDependencies(fg)
 		}
 	}
+	// Re-apply explicit caller choices so caller intent is never silently overwritten
+	for fg, enable := range featureGates {
+		stringMap[string(fg)] = enable
+	}
 
 	if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(stringMap); err != nil {
 		tb.Fatalf("Failed to set feature gates: %v", err)
