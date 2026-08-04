@@ -47,6 +47,16 @@ func (m *AfsEntryPenalties) Sub(lqKey utilqueue.LocalQueueReference, penalty cor
 	}
 	m.penalties.UpdateOrDelete(lqKey, func(existing corev1.ResourceList) (corev1.ResourceList, bool) {
 		merged := resource.MergeResourceListKeepSum(existing, negated)
+		// Sub recomputes the amount at settlement time rather than recording it at
+		// push time, so it can exceed what was pushed (e.g. after a restart loses the
+		// in-memory penalties). Clamp at zero: a mismatch must not become a permanent
+		// usage discount for the LocalQueue.
+		for k, v := range merged {
+			if v.Sign() < 0 {
+				v.Set(0)
+				merged[k] = v
+			}
+		}
 		return merged, canClearPenalty(merged)
 	})
 }

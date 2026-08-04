@@ -50,6 +50,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
@@ -598,7 +599,8 @@ func TestReconciler(t *testing.T) {
 	)
 	clusterQueueNameWith100Chars := strings.Repeat("cq", 50)
 
-	t.Cleanup(jobframework.EnableIntegrationsForTest(t, FrameworkName))
+	integrationManager := newTestIntegrationManager(t)
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, FrameworkName))
 	baseJobWrapper := utiltestingjob.MakeJob("job", "ns").
 		Suspend(true).
 		Queue(localQueueName).
@@ -1390,7 +1392,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -1485,7 +1487,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -1580,7 +1582,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -1672,7 +1674,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -1773,7 +1775,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -1865,7 +1867,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "The workload is deactivated",
 					}).
 					Condition(metav1.Condition{
@@ -1944,7 +1946,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "Exceeded the PodsReady timeout",
 					}).
 					Condition(metav1.Condition{
@@ -2017,7 +2019,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "At least one admission check is false",
 					}).
 					Condition(metav1.Condition{
@@ -2102,7 +2104,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "The ClusterQueue is stopped",
 					}).
 					Condition(metav1.Condition{
@@ -2187,7 +2189,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "The LocalQueue is stopped",
 					}).
 					Condition(metav1.Condition{
@@ -2272,7 +2274,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "Preempted",
 					}).
 					Condition(metav1.Condition{
@@ -2337,7 +2339,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "The workload is deactivated",
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -2368,7 +2370,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  "Pending",
+						Reason:  workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
 						Message: "The workload is deactivated",
 					}).
 					AdmissionCheck(kueue.AdmissionCheckState{
@@ -4481,8 +4483,18 @@ func TestReconciler(t *testing.T) {
 					}
 				}
 				recorder := &utiltesting.EventRecorder{}
-				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder,
-					append(tc.reconcilerOptions, jobframework.WithCache(schdcache.New(kClient)), jobframework.WithClock(testingclock.NewFakeClock(now)))...)
+				reconciler, err := NewReconciler(
+					ctx,
+					kClient,
+					indexer,
+					recorder,
+					append(
+						tc.reconcilerOptions,
+						jobframework.WithIntegrationManager(integrationManager),
+						jobframework.WithCache(schdcache.New(kClient)),
+						jobframework.WithClock(testingclock.NewFakeClock(now)),
+					)...,
+				)
 				if err != nil {
 					t.Errorf("Error creating the reconciler: %v", err)
 				}
@@ -4569,17 +4581,22 @@ func TestCleanLabels(t *testing.T) {
 	}
 }
 
-func TestCompletedIndexesCount(t *testing.T) {
+func TestTerminalIndexesCount(t *testing.T) {
 	cases := map[string]struct {
 		completedIndexes string
+		failedIndexes    string
 		completions      int32
 		want             int32
 	}{
 		"empty":                         {completedIndexes: "", completions: 10, want: 0},
 		"zero completions":              {completedIndexes: "0-9", completions: 0, want: 0},
-		"single index":                  {completedIndexes: "0", completions: 10, want: 1},
+		"single completed index":        {completedIndexes: "0", completions: 10, want: 1},
+		"single failed index":           {failedIndexes: "1", completions: 10, want: 1},
 		"single range":                  {completedIndexes: "0-4", completions: 10, want: 5},
 		"mixed intervals":               {completedIndexes: "0-4,7,9-11", completions: 10, want: 7},
+		"completed and failed indexes":  {completedIndexes: "0-2,7", failedIndexes: "3-5,8", completions: 10, want: 8},
+		"overlapping terminal indexes":  {completedIndexes: "0-4", failedIndexes: "3-7", completions: 10, want: 8},
+		"contained failed indexes":      {completedIndexes: "0-9", failedIndexes: "2-3", completions: 10, want: 10},
 		"surviving low indexes":         {completedIndexes: "0-8", completions: 10, want: 9},
 		"all completed within range":    {completedIndexes: "0-14", completions: 10, want: 10},
 		"range straddling the cap":      {completedIndexes: "5-19", completions: 10, want: 5},
@@ -4592,39 +4609,54 @@ func TestCompletedIndexesCount(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := completedIndexesCount(logr.Discard(), tc.completedIndexes, tc.completions); got != tc.want {
-				t.Errorf("completedIndexesCount(%q, %d) = %d, want %d", tc.completedIndexes, tc.completions, got, tc.want)
+			if got := terminalIndexesCount(logr.Discard(), tc.completedIndexes, tc.failedIndexes, tc.completions); got != tc.want {
+				t.Errorf("terminalIndexesCount(%q, %q, %d) = %d, want %d", tc.completedIndexes, tc.failedIndexes, tc.completions, got, tc.want)
 			}
 		})
 	}
 }
 
 func TestReclaimablePods(t *testing.T) {
-	indexedJob := func(succeeded int32, completedIndexes string) *Job {
+	indexedJob := func(succeeded, failed int32, completedIndexes, failedIndexes string) *Job {
 		j := utiltestingjob.MakeJob("job", "ns").
 			Indexed(true).
 			Parallelism(8).
 			Completions(8).
 			Obj()
 		j.Status.Succeeded = succeeded
+		j.Status.Failed = failed
 		j.Status.CompletedIndexes = completedIndexes
+		if failedIndexes != "" {
+			j.Spec.BackoffLimitPerIndex = ptr.To[int32](0)
+			j.Status.FailedIndexes = new(failedIndexes)
+		}
 		return (*Job)(j)
 	}
+	retryableFailureJob := indexedJob(1, 1, "0", "")
+	retryableFailureJob.Spec.BackoffLimitPerIndex = ptr.To[int32](1)
 	cases := map[string]struct {
 		job  *Job
 		want []kueue.ReclaimablePod
 	}{
 		// An ordinary (non-elastic) Indexed Job must reclaim its completed indexes
-		// exactly as before, now that the count is derived from completedIndexes.
+		// exactly as before, now that the count is derived from the terminal index sets.
 		"indexed Job reclaims its completed indexes": {
-			job:  indexedJob(4, "0-3"),
+			job:  indexedJob(4, 0, "0-3", ""),
 			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 4}},
 		},
-		// Succeeded set without completedIndexes should not happen with the native
-		// Job controller (both are written in one update), but can with a custom
-		// spec.managedBy controller. We trust completedIndexes and hold the quota.
-		"indexed Job with empty completedIndexes holds quota": {
-			job:  indexedJob(4, ""),
+		"indexed Job holds quota for a retryable failure": {
+			job:  retryableFailureJob,
+			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}},
+		},
+		"indexed Job reclaims completed and failed indexes": {
+			job:  indexedJob(1, 1, "0", "1"),
+			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 2}},
+		},
+		// Status counters without terminal index sets should not happen with the
+		// native Job controller, but can with a custom spec.managedBy controller.
+		// We trust completedIndexes and failedIndexes and hold the quota.
+		"indexed Job with empty terminal indexes holds quota": {
+			job:  indexedJob(4, 0, "", ""),
 			want: nil,
 		},
 	}

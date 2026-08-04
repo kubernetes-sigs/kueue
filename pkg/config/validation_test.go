@@ -36,6 +36,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
@@ -1795,7 +1796,7 @@ func TestValidate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			if diff := cmp.Diff(tc.wantErr, Validate(tc.cfg, testScheme), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, Validate(tc.cfg, testScheme, jobs.NewIntegrationManager()), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
 			}
 		})
@@ -1806,7 +1807,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 	cases := map[string]struct {
 		featureGatesCLI string
 		featureGateMap  map[string]bool
-		gatesToRestore  map[featuregate.Feature]bool
+		ignoreDetail    bool
 		wantErr         field.ErrorList
 	}{
 		"no feature gates is null": {
@@ -1820,11 +1821,6 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			) + "=false," + string(
 				features.KueueDRAIntegrationPartitionableDevices,
 			) + "=false",
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                     false,
-				features.KueueDRAIntegrationExtendedResource:     false,
-				features.KueueDRAIntegrationPartitionableDevices: false,
-			},
 		},
 		"cannot specify both feature gates": {
 			featureGatesCLI: string(features.KueueDRAIntegration) + "=false",
@@ -1833,11 +1829,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.KueueDRAIntegrationExtendedResource):     false,
 				string(features.KueueDRAIntegrationPartitionableDevices): false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegration:                     false,
-				features.KueueDRAIntegrationExtendedResource:     false,
-				features.KueueDRAIntegrationPartitionableDevices: false,
-			},
+
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
@@ -1857,20 +1849,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):       false,
 				string(features.TASMultiLayerTopology):            false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TASProfileMixed:                  false,
-				features.TopologyAwareScheduling:          true,
-				features.TASFailedNodeReplacement:         true,
-				features.TASFailedNodeReplacementFailFast: true,
-				features.TASReplaceNodeOnPodTermination:   true,
-				features.TASReplaceNodeOnNodeTaints:       true,
-				features.TASMultiLayerTopology:            true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "cannot use a TAS profile with TAS disabled",
+					Detail: "TASProfileMixed is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
 				},
 			},
 		},
@@ -1883,19 +1866,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnPodTermination):           false,
 				string(features.TASProfileMixed):                          false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TASReplaceNodeDueToNotReadyOverFixedTime: false,
-				features.TopologyAwareScheduling:                  true,
-				features.TASFailedNodeReplacement:                 true,
-				features.TASFailedNodeReplacementFailFast:         true,
-				features.TASReplaceNodeOnPodTermination:           true,
-				features.TASProfileMixed:                          false,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "TASReplaceNodeDueToNotReadyOverFixedTime requires TASFailedNodeReplacement to be enabled",
+					Detail: "TASReplaceNodeDueToNotReadyOverFixedTime is enabled, but depends on features that are disabled: [TASFailedNodeReplacement]",
 				},
 			},
 		},
@@ -1906,17 +1881,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.ElasticJobsViaWorkloadSlices):        false,
 				string(features.TASProfileMixed):                     false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
-				features.TopologyAwareScheduling:             false,
-				features.ElasticJobsViaWorkloadSlices:        true,
-				features.TASProfileMixed:                     true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled",
+					Detail: "ElasticJobsViaWorkloadSlicesWithTAS is enabled, but depends on features that are disabled: [ElasticJobsViaWorkloadSlices]",
 				},
 			},
 		},
@@ -1933,22 +1902,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):          false,
 				string(features.TASMultiLayerTopology):               false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
-				features.ElasticJobsViaWorkloadSlices:        false,
-				features.TopologyAwareScheduling:             true,
-				features.TASProfileMixed:                     true,
-				features.TASFailedNodeReplacement:            true,
-				features.TASFailedNodeReplacementFailFast:    true,
-				features.TASReplaceNodeOnPodTermination:      true,
-				features.TASReplaceNodeOnNodeTaints:          true,
-				features.TASMultiLayerTopology:               true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled",
+					Detail: "ElasticJobsViaWorkloadSlicesWithTAS is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
 				},
 			},
 		},
@@ -1958,12 +1916,6 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.ElasticJobsViaWorkloadSlices):        true,
 				string(features.TopologyAwareScheduling):             true,
 				string(features.TASProfileMixed):                     false,
-			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
-				features.ElasticJobsViaWorkloadSlices:        false,
-				features.TopologyAwareScheduling:             false,
-				features.TASProfileMixed:                     true,
 			},
 		},
 		"multiple FG validation errors at once": {
@@ -1979,114 +1931,10 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):          false,
 				string(features.TASMultiLayerTopology):               false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TASProfileMixed:                     false,
-				features.TopologyAwareScheduling:             true,
-				features.TASHandleOverlappingFlavors:         true,
-				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
-				features.ElasticJobsViaWorkloadSlices:        true,
-				features.TASFailedNodeReplacement:            true,
-				features.TASFailedNodeReplacementFailFast:    true,
-				features.TASReplaceNodeOnPodTermination:      true,
-				features.TASReplaceNodeOnNodeTaints:          true,
-				features.TASMultiLayerTopology:               true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "cannot use a TAS profile with TAS disabled",
-				},
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "TASHandleOverlappingFlavors requires TopologyAwareScheduling to be enabled",
-				},
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled",
-				},
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling to be enabled",
-				},
-			},
-		},
-		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
-			featureGateMap: map[string]bool{
-				string(features.KueueDRAIntegrationExtendedResource):     true,
-				string(features.KueueDRAIntegration):                     false,
-				string(features.KueueDRAIntegrationPartitionableDevices): false,
-			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationExtendedResource:     false,
-				features.KueueDRAIntegration:                     true,
-				features.KueueDRAIntegrationPartitionableDevices: true,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "KueueDRAIntegrationExtendedResource requires KueueDRAIntegration to be enabled",
-				},
-			},
-		},
-		"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration": {
-			featureGateMap: map[string]bool{
-				string(features.KueueDRAIntegrationPartitionableDevices): true,
-				string(features.KueueDRAIntegration):                     false,
-				string(features.KueueDRAIntegrationExtendedResource):     false,
-			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationPartitionableDevices: false,
-				features.KueueDRAIntegration:                     true,
-				features.KueueDRAIntegrationExtendedResource:     true,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration to be enabled",
-				},
-			},
-		},
-		"KueueDRAIntegrationConsumableCapacity requires KueueDRAIntegration": {
-			featureGateMap: map[string]bool{
-				string(features.KueueDRAIntegrationConsumableCapacity):   true,
-				string(features.KueueDRAIntegration):                     false,
-				string(features.KueueDRAIntegrationExtendedResource):     false,
-				string(features.KueueDRAIntegrationPartitionableDevices): false,
-			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.KueueDRAIntegrationConsumableCapacity:   false,
-				features.KueueDRAIntegration:                     true,
-				features.KueueDRAIntegrationExtendedResource:     true,
-				features.KueueDRAIntegrationPartitionableDevices: true,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "KueueDRAIntegrationConsumableCapacity requires KueueDRAIntegration to be enabled",
-				},
-			},
-		},
-		"UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability": {
-			featureGateMap: map[string]bool{
-				string(features.UnadmittedWorkloadsExplicitStatus): true,
-				string(features.UnadmittedWorkloadsObservability):  false,
-			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.UnadmittedWorkloadsExplicitStatus: false,
-				features.UnadmittedWorkloadsObservability:  true,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "UnadmittedWorkloadsExplicitStatus requires UnadmittedWorkloadsObservability to be enabled",
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
 				},
 			},
 		},
@@ -2101,21 +1949,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):       false,
 				string(features.TASMultiLayerTopology):            false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TASHandleOverlappingFlavors:      true,
-				features.TopologyAwareScheduling:          true,
-				features.TASProfileMixed:                  true,
-				features.TASFailedNodeReplacement:         true,
-				features.TASFailedNodeReplacementFailFast: true,
-				features.TASReplaceNodeOnPodTermination:   true,
-				features.TASReplaceNodeOnNodeTaints:       true,
-				features.TASMultiLayerTopology:            true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "TASHandleOverlappingFlavors requires TopologyAwareScheduling to be enabled",
+					Detail: "TASHandleOverlappingFlavors is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
 				},
 			},
 		},
@@ -2123,11 +1961,6 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):     true,
 				string(features.TASHandleOverlappingFlavors): true,
-			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TASHandleOverlappingFlavors: true,
-				features.TopologyAwareScheduling:     true,
-				features.TASProfileMixed:             true,
 			},
 		},
 		"TASFailedNodeReplacement requires TopologyAwareScheduling": {
@@ -2141,21 +1974,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):       false,
 				string(features.TASMultiLayerTopology):            false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:          true,
-				features.TASProfileMixed:                  true,
-				features.TASHandleOverlappingFlavors:      true,
-				features.TASFailedNodeReplacement:         true,
-				features.TASFailedNodeReplacementFailFast: true,
-				features.TASReplaceNodeOnPodTermination:   true,
-				features.TASReplaceNodeOnNodeTaints:       true,
-				features.TASMultiLayerTopology:            true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "TASFailedNodeReplacement requires TopologyAwareScheduling to be enabled",
+					Detail: "TASFailedNodeReplacement is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
 				},
 			},
 		},
@@ -2171,22 +1994,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASBalancedPlacement):             true,
 				string(features.TASMultiLayerTopology):            false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:          true,
-				features.TASProfileMixed:                  true,
-				features.TASHandleOverlappingFlavors:      true,
-				features.TASFailedNodeReplacement:         true,
-				features.TASFailedNodeReplacementFailFast: true,
-				features.TASReplaceNodeOnPodTermination:   true,
-				features.TASReplaceNodeOnNodeTaints:       true,
-				features.TASBalancedPlacement:             false,
-				features.TASMultiLayerTopology:            true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "TASBalancedPlacement requires TopologyAwareScheduling to be enabled",
+					Detail: "TASBalancedPlacement is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
 				},
 			},
 		},
@@ -2201,21 +2013,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):       true,
 				string(features.TASMultiLayerTopology):            false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:          true,
-				features.TASProfileMixed:                  true,
-				features.TASHandleOverlappingFlavors:      true,
-				features.TASFailedNodeReplacement:         true,
-				features.TASFailedNodeReplacementFailFast: true,
-				features.TASReplaceNodeOnPodTermination:   true,
-				features.TASReplaceNodeOnNodeTaints:       true,
-				features.TASMultiLayerTopology:            true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "TASReplaceNodeOnNodeTaints requires TopologyAwareScheduling to be enabled",
+					Detail: "TASReplaceNodeOnNodeTaints is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
 				},
 			},
 		},
@@ -2230,21 +2032,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):       false,
 				string(features.TASMultiLayerTopology):            true,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:          true,
-				features.TASProfileMixed:                  true,
-				features.TASHandleOverlappingFlavors:      true,
-				features.TASFailedNodeReplacement:         true,
-				features.TASFailedNodeReplacementFailFast: true,
-				features.TASReplaceNodeOnPodTermination:   true,
-				features.TASReplaceNodeOnNodeTaints:       true,
-				features.TASMultiLayerTopology:            false,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "TASMultiLayerTopology requires TopologyAwareScheduling to be enabled",
+					Detail: "TASMultiLayerTopology is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
 				},
 			},
 		},
@@ -2260,22 +2052,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRespectNodeAffinityPreferred):  true,
 				string(features.TASMultiLayerTopology):            false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:          true,
-				features.TASProfileMixed:                  true,
-				features.TASHandleOverlappingFlavors:      true,
-				features.TASFailedNodeReplacement:         true,
-				features.TASFailedNodeReplacementFailFast: true,
-				features.TASReplaceNodeOnPodTermination:   true,
-				features.TASReplaceNodeOnNodeTaints:       true,
-				features.TASRespectNodeAffinityPreferred:  false,
-				features.TASMultiLayerTopology:            true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "TASRespectNodeAffinityPreferred requires TopologyAwareScheduling to be enabled",
+					Detail: "TASRespectNodeAffinityPreferred is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
 				},
 			},
 		},
@@ -2287,18 +2068,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnPodTermination):   false,
 				string(features.TASMultiLayerTopology):            false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:          true,
-				features.TASFailedNodeReplacement:         true,
-				features.TASFailedNodeReplacementFailFast: true,
-				features.TASReplaceNodeOnPodTermination:   true,
-				features.TASMultiLayerTopology:            true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "TASFailedNodeReplacementFailFast requires TASFailedNodeReplacement to be enabled",
+					Detail: "TASFailedNodeReplacementFailFast is enabled, but depends on features that are disabled: [TASFailedNodeReplacement]",
 				},
 			},
 		},
@@ -2309,17 +2083,11 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASFailedNodeReplacementFailFast): false,
 				string(features.TASReplaceNodeOnPodTermination):   true,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:          true,
-				features.TASFailedNodeReplacement:         true,
-				features.TASFailedNodeReplacementFailFast: true,
-				features.TASReplaceNodeOnPodTermination:   true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "TASReplaceNodeOnPodTermination requires TASFailedNodeReplacement to be enabled",
+					Detail: "TASReplaceNodeOnPodTermination is enabled, but depends on features that are disabled: [TASFailedNodeReplacement]",
 				},
 			},
 		},
@@ -2334,26 +2102,10 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):       false,
 				string(features.TASMultiLayerTopology):            false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:          true,
-				features.TASProfileMixed:                  true,
-				features.TASHandleOverlappingFlavors:      true,
-				features.TASFailedNodeReplacement:         true,
-				features.TASFailedNodeReplacementFailFast: true,
-				features.TASReplaceNodeOnPodTermination:   true,
-				features.TASReplaceNodeOnNodeTaints:       true,
-				features.TASMultiLayerTopology:            true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "TASFailedNodeReplacementFailFast requires TopologyAwareScheduling to be enabled",
-				},
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "TASFailedNodeReplacementFailFast requires TASFailedNodeReplacement to be enabled",
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
 				},
 			},
 		},
@@ -2368,26 +2120,10 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):       false,
 				string(features.TASMultiLayerTopology):            false,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:          true,
-				features.TASProfileMixed:                  true,
-				features.TASHandleOverlappingFlavors:      true,
-				features.TASFailedNodeReplacement:         true,
-				features.TASFailedNodeReplacementFailFast: true,
-				features.TASReplaceNodeOnPodTermination:   true,
-				features.TASReplaceNodeOnNodeTaints:       true,
-				features.TASMultiLayerTopology:            true,
-			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "TASReplaceNodeOnPodTermination requires TopologyAwareScheduling to be enabled",
-				},
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "TASReplaceNodeOnPodTermination requires TASFailedNodeReplacement to be enabled",
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
 				},
 			},
 		},
@@ -2403,25 +2139,57 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRespectNodeAffinityPreferred):  true,
 				string(features.TASHandleOverlappingFlavors):      true,
 			},
-			gatesToRestore: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:          true,
-				features.TASFailedNodeReplacement:         true,
-				features.TASFailedNodeReplacementFailFast: true,
-				features.TASReplaceNodeOnPodTermination:   true,
-				features.TASBalancedPlacement:             false,
-				features.TASReplaceNodeOnNodeTaints:       true,
-				features.TASMultiLayerTopology:            false,
-				features.TASRespectNodeAffinityPreferred:  false,
-				features.TASHandleOverlappingFlavors:      true,
+		},
+		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegrationExtendedResource): true,
+				string(features.KueueDRAIntegration):                 false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
+				},
+			},
+		},
+		"KueueDRAIntegrationPartitionableDevices requires KueueDRAIntegration": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegrationPartitionableDevices): true,
+				string(features.KueueDRAIntegration):                     false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
+				},
+			},
+		},
+		"KueueDRAIntegrationConsumableCapacity requires KueueDRAIntegration": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegrationConsumableCapacity): true,
+				string(features.KueueDRAIntegration):                   false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "featureGates",
+				},
 			},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			// Ensure clean up is registered for the feature gates to their default values
-			features.SetFeatureGatesDuringTest(t, tc.gatesToRestore)
+			features.SetFeatureGatesDuringTest(t, nil)
 			got := LoadAndValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
-			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
+			// Ignore "Detail" field when multiple feature gate dependency errors occur (or when ignoreDetail is set/Detail is empty),
+			// because k8s.io/component-base/featuregate iterates over internal Go maps,
+			// making the aggregated error message order non-deterministic across different test runs.
+			ignoreFields := []string{"BadValue"}
+			if tc.ignoreDetail || (len(tc.wantErr) > 0 && tc.wantErr[0].Detail == "") {
+				ignoreFields = append(ignoreFields, "Detail")
+			}
+			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, ignoreFields...)); diff != "" {
 				t.Errorf("Unexpected result from LoadAndValidateFeatureGates (-want,+got):\n%s", diff)
 			}
 		})

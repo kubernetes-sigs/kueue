@@ -94,3 +94,51 @@ func TestTASCacheUpdateFlavorTolerationsPreservesUsage(t *testing.T) {
 		t.Error("Workload usage was removed after removing toleration")
 	}
 }
+
+func TestTASCacheUpdateFlavorNodeLabelsPreservesUsage(t *testing.T) {
+	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	topology := utiltestingapi.MakeDefaultOneLevelTopology("default")
+	tasCache.AddTopology(topology)
+
+	flavor := utiltestingapi.MakeResourceFlavor("tas-flavor").
+		NodeLabel("node-group", "tas").
+		TopologyName(topology.Name).
+		Obj()
+	tasCache.AddOrUpdateFlavor(flavor)
+
+	const wlKey = workload.Reference("default/wl")
+	topologyRequests := []workload.TopologyDomainRequests{{
+		Values: []string{"x1"},
+		Count:  1,
+		SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+			corev1.ResourceCPU: 1,
+		}),
+	}}
+	originalFlavorCache := tasCache.Get("tas-flavor")
+	originalFlavorCache.addUsage(logr.Discard(), wlKey, topologyRequests)
+
+	updatedNodeLabels := map[string]string{"node-group": "other"}
+	flavor.Spec.NodeLabels = updatedNodeLabels
+	tasCache.AddOrUpdateFlavor(flavor)
+
+	updatedFlavorCache := tasCache.Get("tas-flavor")
+	if updatedFlavorCache != originalFlavorCache {
+		t.Fatal("TAS flavor cache was replaced while updating nodeLabels")
+	}
+
+	wantUsage := map[utiltas.TopologyDomainID]resources.Requests{
+		"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+			corev1.ResourceCPU:  1,
+			corev1.ResourcePods: 1,
+		}),
+	}
+	if diff := cmp.Diff(updatedNodeLabels, updatedFlavorCache.flavor.NodeLabels); diff != "" {
+		t.Errorf("Unexpected nodeLabels after update (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(wantUsage, updatedFlavorCache.usage, cmp.Comparer(resources.Equal)); diff != "" {
+		t.Errorf("Unexpected usage after updating nodeLabels (-want +got):\n%s", diff)
+	}
+	if _, found := updatedFlavorCache.wlUsage[wlKey]; !found {
+		t.Error("Workload usage was removed after updating nodeLabels")
+	}
+}

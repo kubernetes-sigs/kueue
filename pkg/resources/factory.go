@@ -78,23 +78,6 @@ func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	return NewRequestsFromResourceList(rl)
 }
 
-// NewRequestsFromResourceListRetainZero creates a Requests instance from a corev1.ResourceList,
-// ensuring that explicitly zero-valued resources are retained.
-func NewRequestsFromResourceListRetainZero(rl corev1.ResourceList) Requests {
-	// For now, returning MapRequests ensures zeroes are retained regardless of feature gates.
-	return NewMapRequests(rl)
-}
-
-// NewRequestsFromPodSpecRetainZero creates a Requests instance from a PodSpec,
-// ensuring that explicitly zero-valued resources are retained.
-func NewRequestsFromPodSpecRetainZero(podSpec *corev1.PodSpec) Requests {
-	if podSpec == nil {
-		return CreateEmpty()
-	}
-	rl := resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
-	return NewRequestsFromResourceListRetainZero(rl)
-}
-
 // ToMap converts any Requests instance into a MapRequests map.
 func ToMap(r Requests) map[corev1.ResourceName]int64 {
 	if isEmpty(r) {

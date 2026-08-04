@@ -474,7 +474,7 @@ func (s *Scheduler) processEntry(
 		return
 	}
 
-	s.waitForPodsReadyIfBlocked(ctx, log, e)
+	s.waitForPodsReadyIfNeeded(ctx, log, e)
 
 	// Copy ClusterName from old slice before admission (needed for MultiKueue).
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
@@ -544,10 +544,21 @@ func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *en
 	e.markPreemptionOutcome(preempted, errors)
 }
 
-// waitForPodsReadyIfBlocked blocks admission until all currently admitted
+// waitForPodsReadyIfNeeded blocks admission until all currently admitted
 // workloads are in the PodsReady condition. Active only when WaitForPodsReady
 // is enabled with BlockAdmission=true.
-func (s *Scheduler) waitForPodsReadyIfBlocked(ctx context.Context, log logr.Logger, e *entry) {
+//
+// Workloads taking a second pass are exempt. They already hold a quota reservation and
+// consume no new quota, so the one-at-a-time sequencing the block provides for fresh
+// admissions cannot prevent anything on their behalf - the capacity is already
+// committed to them and unavailable to everyone else. Worse, such a workload is itself
+// among the admitted-but-not-ready workloads the block waits on, so blocking would trip
+// on the very workload being evaluated and unset its own reservation - and, for a
+// failed-node replacement, its admission along with it.
+func (s *Scheduler) waitForPodsReadyIfNeeded(ctx context.Context, log logr.Logger, e *entry) {
+	if workload.NeedsSecondPass(e.Obj) {
+		return
+	}
 	if s.cache.PodsReadyForAllAdmittedWorkloads(log) {
 		return
 	}

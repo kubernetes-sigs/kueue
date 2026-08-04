@@ -41,7 +41,11 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	kubeflowjobs "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -52,10 +56,6 @@ import (
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	testingxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
-
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 )
 
 func TestDefault(t *testing.T) {
@@ -645,7 +645,8 @@ func TestDefault(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
+			integrationManager := newTestIntegrationManager(t)
+			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			builder := utiltesting.NewClientBuilder(rayv1.AddToScheme, kfmpi.AddToScheme, kftraining.AddToScheme, appsv1.AddToScheme)
 			builder = builder.WithObjects(tc.initObjects...)
 			cli := builder.Build()
@@ -663,6 +664,7 @@ func TestDefault(t *testing.T) {
 			}
 
 			w := &PodWebhook{
+				integrationManager:           integrationManager,
 				client:                       cli,
 				queues:                       queueManager,
 				manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
@@ -772,7 +774,8 @@ func TestGetRoleHash(t *testing.T) {
 }
 
 func TestValidateCreate(t *testing.T) {
-	t.Cleanup(jobframework.EnableIntegrationsForTest(t, "batch/job"))
+	integrationManager := newTestIntegrationManager(t)
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
 	testCases := map[string]struct {
 		pod          *corev1.Pod
 		wantErr      error
@@ -1032,7 +1035,8 @@ func TestValidateCreate(t *testing.T) {
 			cli := builder.Build()
 
 			w := &PodWebhook{
-				client: cli,
+				integrationManager: integrationManager,
+				client:             cli,
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -1049,7 +1053,8 @@ func TestValidateCreate(t *testing.T) {
 }
 
 func TestValidateUpdate(t *testing.T) {
-	t.Cleanup(jobframework.EnableIntegrationsForTest(t, "batch/job"))
+	integrationManager := newTestIntegrationManager(t)
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
 	testCases := map[string]struct {
 		oldPod       *corev1.Pod
 		newPod       *corev1.Pod
@@ -1348,7 +1353,8 @@ func TestValidateUpdate(t *testing.T) {
 			cli := builder.Build()
 
 			w := &PodWebhook{
-				client: cli,
+				integrationManager: integrationManager,
+				client:             cli,
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -1362,4 +1368,21 @@ func TestValidateUpdate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newTestIntegrationManager(t *testing.T) *jobframework.IntegrationManager {
+	t.Helper()
+	manager := jobframework.NewIntegrationManager()
+	for _, registerIntegration := range []func(*jobframework.IntegrationManager) error{
+		RegisterIntegration,
+		workloadjob.RegisterIntegration,
+		kubeflowjobs.RegisterIntegrations,
+		mpijob.RegisterIntegration,
+		raycluster.RegisterIntegration,
+	} {
+		if err := registerIntegration(manager); err != nil {
+			t.Fatalf("RegisterIntegration() error = %v", err)
+		}
+	}
+	return manager
 }

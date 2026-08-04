@@ -50,13 +50,12 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
 var (
@@ -683,7 +682,7 @@ func TestUpdateConfig(t *testing.T) {
 			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueue.MultiKueueCluster) client.Object { return c })...)
 			c := builder.Build()
 
-			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 			recorder := &utiltesting.EventRecorder{}
 			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil, recorder)
 
@@ -693,6 +692,12 @@ func TestUpdateConfig(t *testing.T) {
 				reconciler.remoteClients = tc.remoteClients
 			}
 			reconciler.builderOverride = fakeClientBuilder(ctx)
+
+			t.Cleanup(func() {
+				for _, rc := range reconciler.remoteClients {
+					rc.StopWatchers()
+				}
+			})
 
 			features.SetFeatureGateDuringTest(t, features.MultiKueueKubeConfigPathValidation, tc.multiKueueSafePathFeatureGate)
 
@@ -842,7 +847,7 @@ func TestReconnectBackoff(t *testing.T) {
 			builder = builder.WithStatusSubresource(&kueue.MultiKueueCluster{})
 			c := builder.Build()
 
-			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 			recorder := &utiltesting.EventRecorder{}
 			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder)
 			reconciler.rootContext = ctx
@@ -858,6 +863,7 @@ func TestReconnectBackoff(t *testing.T) {
 			rc.clock = fc
 			rc.builderOverride = reconciler.builderOverride
 			reconciler.remoteClients["worker1"] = rc
+			t.Cleanup(rc.StopWatchers)
 
 			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}}
 
@@ -898,7 +904,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	builder = builder.WithStatusSubresource(&kueue.MultiKueueCluster{})
 	c := builder.Build()
 
-	adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 	recorder := &utiltesting.EventRecorder{}
 	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder)
 	reconciler.rootContext = ctx
@@ -1078,7 +1084,7 @@ func TestRemoteClientGC(t *testing.T) {
 			worker1Builder = worker1Builder.WithLists(&kueue.WorkloadList{Items: tc.workersWorkloads}, &batchv1.JobList{Items: tc.workersJobs})
 			worker1Client := NewNeverCachingClient(worker1Builder.Build())
 
-			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 			w1remoteClient.client = worker1Client
 			w1remoteClient.connState.markConnected()
@@ -1440,6 +1446,11 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil, recorder)
 	reconciler.rootContext = ctx
 	reconciler.builderOverride = gatedBuilder
+	t.Cleanup(func() {
+		for _, rc := range reconciler.remoteClients {
+			rc.StopWatchers()
+		}
+	})
 
 	slowDone := make(chan struct{})
 	go func() {
@@ -1643,4 +1654,39 @@ func TestRemoteClientConcurrentSetConfigAndReaders(t *testing.T) {
 		_ = remoteCl.Get(ctx, wlKey, &kueue.Workload{}) // workload.go-style read
 		_ = remoteCl.List(ctx, &kueue.LocalQueueList{}) // clusterqueue.go-style read
 	})
+}
+
+func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	fw := watch.NewFake()
+	t.Cleanup(fw.Stop)
+
+	rc := newTestClient(ctx, []byte("placeholder"), nil, nil)
+	rc.client = NewNeverCachingClient(getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+		Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+			return fw, nil
+		},
+	}).Build())
+
+	watchCtx, cancel := context.WithCancel(ctx)
+	rc.setWatchCancel(cancel)
+
+	startWatcher, err := rc.establishWatcher(watchCtx, "Workload", &workloadKueueWatcher{})
+	if err != nil {
+		t.Fatalf("unexpected error establishing the watcher: %v", err)
+	}
+	startWatcher()
+
+	stopped := make(chan struct{})
+	go func() {
+		rc.StopWatchers()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(30 * time.Second):
+		t.Fatal("StopWatchers did not return: the watcher goroutine was never joined")
+	}
 }

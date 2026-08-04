@@ -41,7 +41,7 @@ const (
 	// VeryLongTimeout is meant for waiting for Kueue startup including
 	// cert propagation and component readiness.
 	VeryLongTimeout         = 5 * time.Minute
-	ConsistentDuration      = 1 * time.Second
+	ConsistentDuration      = 300 * time.Millisecond
 	ShortConsistentDuration = 100 * time.Millisecond
 	ShortInterval           = 10 * time.Millisecond
 	Interval                = time.Millisecond * 250
@@ -64,6 +64,7 @@ var (
 	ArtifactsDir             = filepath.Join(ProjectBaseDir, "artifacts")
 	AutoscalerCrds           = filepath.Join(ProjectBaseDir, "dep-crds", "cluster-autoscaler")
 	JobsetCrds               = filepath.Join(ProjectBaseDir, "dep-crds", "jobset-operator")
+	LeaderWorkerSetCrds      = filepath.Join(ProjectBaseDir, "dep-crds", "leaderworkerset-operator")
 	TrainingOperatorCrds     = filepath.Join(ProjectBaseDir, "dep-crds", "training-operator-crds")
 	KfTrainerCrds            = filepath.Join(ProjectBaseDir, "dep-crds", "kf-trainer-crds")
 	KfTrainerClusterRuntimes = filepath.Join(ProjectBaseDir, "dep-crds", "kf-trainer-runtimes")

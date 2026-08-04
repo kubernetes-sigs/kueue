@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -252,36 +253,57 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 	}
 }
 
-func TestReconcileRemovesFinalizerWithFinishedWorkloads(t *testing.T) {
-	testCases := map[string]struct {
-		cqName string
-		wlName string
+// TestClusterQueueReconcile exercises ClusterQueueReconciler.Reconcile for a
+// ClusterQueue that is being deleted, covering both the empty case (finalizer
+// removed, ClusterQueue garbage-collected) and the terminating-but-not-empty case
+// (finalizer held, status kept accurate).
+func TestClusterQueueReconcile(t *testing.T) {
+	const cqName = "cq"
+	now := time.Now()
+
+	cases := map[string]struct {
+		// workload holds quota in the ClusterQueue; whether it still reserves quota
+		// after the ClusterQueue is deleted decides if the finalizer is released.
+		workload      *kueue.Workload
+		wantDeleted   bool
+		wantActive    metav1.ConditionStatus
+		wantReason    string
+		wantReserving int32
 	}{
-		"finished workload should not block deletion": {
-			cqName: "cq",
-			wlName: "wl",
+		"finished workload does not block deletion: finalizer removed and ClusterQueue deleted": {
+			workload: utiltestingapi.MakeWorkload("wl", "").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: cqName,
+			}, now).FinishedAt(now).Obj(),
+			wantDeleted: true,
+		},
+		"reserving workload keeps ClusterQueue terminating: status refreshed to Active=Terminating": {
+			workload: utiltestingapi.MakeWorkload("wl", "").ReserveQuotaAt(&kueue.Admission{
+				ClusterQueue: cqName,
+			}, now).Obj(),
+			wantActive:    metav1.ConditionFalse,
+			wantReason:    kueue.ClusterQueueActiveReasonTerminating,
+			wantReserving: 1,
 		},
 	}
 
-	for name, tc := range testCases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			now := time.Now()
 
-			cq := utiltestingapi.MakeClusterQueue(tc.cqName).Obj()
+			cq := utiltestingapi.MakeClusterQueue(cqName).Generation(1).Obj()
 			cq.Finalizers = []string{kueue.ResourceInUseFinalizerName}
 
-			cl := utiltesting.NewClientBuilder().WithObjects(cq).Build()
+			cl := utiltesting.NewClientBuilder().WithObjects(cq).WithStatusSubresource(cq).Build()
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("Inserting clusterQueue in cache: %v", err)
 			}
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Inserting clusterQueue in manager: %v", err)
+			}
 
-			finishedWl := utiltestingapi.MakeWorkload(tc.wlName, "").ReserveQuotaAt(&kueue.Admission{
-				ClusterQueue: kueue.ClusterQueueReference(tc.cqName),
-			}, now).FinishedAt(now).Obj()
-			cqCache.AddOrUpdateWorkload(log, finishedWl)
+			cqCache.AddOrUpdateWorkload(log, tc.workload)
 
 			r := &ClusterQueueReconciler{
 				client:   cl,
@@ -294,15 +316,40 @@ func TestReconcileRemovesFinalizerWithFinishedWorkloads(t *testing.T) {
 				t.Fatalf("Failed to delete ClusterQueue: %v", err)
 			}
 
-			_, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: tc.cqName}})
-			if err != nil {
+			if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: cqName}}); err != nil {
 				t.Fatalf("Reconcile failed: %v", err)
 			}
 
 			got := &kueue.ClusterQueue{}
-			err = cl.Get(ctx, types.NamespacedName{Name: tc.cqName}, got)
-			if !apierrors.IsNotFound(err) {
-				t.Fatalf("Expected ClusterQueue to be deleted after finalizer removal, but got: %v", err)
+			err := cl.Get(ctx, types.NamespacedName{Name: cqName}, got)
+
+			if tc.wantDeleted {
+				if !apierrors.IsNotFound(err) {
+					t.Fatalf("Expected ClusterQueue to be deleted after finalizer removal, but got: %v", err)
+				}
+				return
+			}
+
+			// The ClusterQueue is terminating but not empty, so the finalizer is held
+			// and the object still exists.
+			if err != nil {
+				t.Fatalf("Terminating ClusterQueue should still exist while the finalizer is held: %v", err)
+			}
+
+			// Regression guard: before the fix, Reconcile returned early in the
+			// finalizer-held deletion branch and never refreshed status, leaving the
+			// Active condition and workload counters frozen at their pre-deletion values.
+			// The fix falls through to updateCqStatusIfChanged so the terminating
+			// ClusterQueue reports accurate status.
+			active := apimeta.FindStatusCondition(got.Status.Conditions, kueue.ClusterQueueActive)
+			if active == nil {
+				t.Fatalf("Active condition not set: status was not refreshed while the CQ was terminating")
+			}
+			if active.Status != tc.wantActive || active.Reason != tc.wantReason {
+				t.Errorf("Active condition = %s/%q, want %s/%q", active.Status, active.Reason, tc.wantActive, tc.wantReason)
+			}
+			if got.Status.ReservingWorkloads != tc.wantReserving {
+				t.Errorf("ReservingWorkloads = %d, want %d", got.Status.ReservingWorkloads, tc.wantReserving)
 			}
 		})
 	}

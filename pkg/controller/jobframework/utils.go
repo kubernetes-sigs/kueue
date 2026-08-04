@@ -110,10 +110,10 @@ func RecordWorkloadCreationLatency(ctx context.Context, job client.Object, jobKi
 }
 
 // WorkloadShouldBeSuspended determines whether jobObj should be default suspended on creation
-func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
+func (m *IntegrationManager) WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) (bool, error) {
 	// Do not default suspend a job whose ancestor is already managed by Kueue
-	ancestorJob, err := FindAncestorJobManagedByKueue(ctx, k8sClient, jobObj, manageJobsWithoutQueueName)
+	ancestorJob, err := m.FindAncestorJobManagedByKueue(ctx, k8sClient, jobObj, manageJobsWithoutQueueName)
 	if err != nil || ancestorJob != nil {
 		return false, err
 	}
