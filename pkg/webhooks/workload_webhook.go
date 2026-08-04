@@ -169,6 +169,12 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
+	// validate metadata labels and annotations
+	if features.Enabled(features.WorkloadValidationForPodSetMetadata) {
+		allErrs = append(allErrs, metav1validation.ValidateLabels(ps.Template.Labels, path.Child("template", "metadata", "labels"))...)
+		allErrs = append(allErrs, apivalidation.ValidateAnnotations(ps.Template.Annotations, path.Child("template", "metadata", "annotations"))...)
+	}
+
 	// validate initContainers
 	icPath := path.Child("template", "spec", "initContainers")
 	for ci := range ps.Template.Spec.InitContainers {
