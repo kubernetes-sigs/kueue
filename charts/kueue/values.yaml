@@ -30,6 +30,15 @@ controllerManager:
   featureGates: []
   #  - name: PartialAdmission
   #    enabled: true
+  # -- ControllerManager Deployment's update strategy. When hostNetwork is enabled the
+  # manager's ports bind to the node, so the default RollingUpdate surge cannot schedule
+  # a second pod onto an already-occupied node; set maxSurge: 0 to roll in place.
+  strategy: {}
+  # -- Run the ControllerManager pod on the host network. Needed where the API server
+  # reaches the webhook/visibility endpoints via node IPs rather than pod IPs.
+  hostNetwork: false
+  # -- ControllerManager pod's dnsPolicy. Set to ClusterFirstWithHostNet when hostNetwork is enabled.
+  dnsPolicy: ""
   manager:
     # -- ControllerManager's pod priorityClassName
     priorityClassName:
