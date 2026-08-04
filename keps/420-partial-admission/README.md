@@ -10,12 +10,20 @@
 - [Design Details](#design-details)
   - [Workload API](#workload-api)
   - [Scheduler / Flavorassignment](#scheduler--flavorassignment)
-    - [Order-Based Policy (<code>order-based</code>)](#order-based-policy-order-based)
-    - [Proportional Policy (<code>proportional</code> - default)](#proportional-policy-proportional---default)
+    - [Partial Admission for one PodSets](#partial-admission-for-one-podsets)
+    - [Partial Admission for multiple PodSets](#partial-admission-for-multiple-podsets)
+    - [Order-Based policy (<code>order-based</code>)](#order-based-policy-order-based)
   - [Jobframework](#jobframework)
+  - [ElasticJob](#elasticjob)
+    - [Example: Two-Step Scale Up under Quota Constraints (with Partial Admission)](#example-two-step-scale-up-under-quota-constraints-with-partial-admission)
+      - [Step 0: Job Creation (Initial Size: 5)](#step-0-job-creation-initial-size-5)
+      - [Step 1: Scale Up from 5 to 10](#step-1-scale-up-from-5-to-10)
+      - [Step 2: Scale Up to 12 (Quota Constraint: 7)](#step-2-scale-up-to-12-quota-constraint-7)
+      - [Step 3: Quota increases to 12](#step-3-quota-increases-to-12)
   - [batch/Job controller](#batchjob-controller)
   - [kubeflow/MPIJob controller](#kubeflowmpijob-controller)
   - [RayJob/RayService/RayCluster controller](#rayjobrayserviceraycluster-controller)
+  - [Limitations](#limitations)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -46,8 +54,6 @@ Since this is an opt-in feature, the parent job should accept the partial admiss
 
 Kueue will not take any measure to ensure that the parent job respects the assigned quota.
 
-Partial admission is not allowed for concurrent admission in order to not increase the complexity. The webhook will reject workloads that support partial admission to be created for a cluster queue with concurrent admission policy. 
-
 ## Proposal
 
 Change the way the flavor assigner works to support decrementing the pods count in order to find a better fit for the current workload.
@@ -57,7 +63,11 @@ In case a partial fit is chosen, the jobframework reconciler should provide the 
 
 Kueue issue [420](https://github.com/kubernetes-sigs/kueue/issues/420) provides details on the initial feature details and its applicability for `batch/Job`.
 
+Autoscaled RayJob is running and scaled up from 1000 to 5000 pods, but only capacity for 2000 more pod is available. With partial admission, the Kueue admits a 2000 out of 4000 pods to the cluster instead of rejecting the scale up.
+
 ## Design Details
+
+Jobs with `kueue.x-k8s.io/partial-admission=true` annotation are eligible for partial admission.
 
 ### Workload API
 
@@ -65,12 +75,11 @@ Kueue issue [420](https://github.com/kubernetes-sigs/kueue/issues/420) provides 
 type PodSet struct {
     // .......
 
-    // count is the number of pods for the spec.
-    // +kubebuilder:validation:Minimum=1
+    // // count is the number of pods requested by the Job.
+    // +kubebuilder:validation:Minimum=0
     Count int32 `json:"count"`
 
-    // minimumCount is the minimum number of pods for the spec acceptable
-    // in case of partial admission.
+    // minCount is the minimum number of pods acceptable for admission in case of partial admission.
     //
     // If not provided, partial admission for the current PodSet is not
     // enabled.
@@ -78,17 +87,58 @@ type PodSet struct {
     MinCount *int32 `json:"minCount,omitempty"`
 }
 
+type WorkloadStatus struct {
+    // ........
+
+    // admission holds the parameters of the admission of the workload by a
+    // ClusterQueue. admission can be set back to null, but its fields cannot be
+    // changed once set.
+    // +optional
+    Admission *Admission `json:"admission,omitempty"`
+    
+    // ........
+}
+
+type Admission struct {
+    // .........
+
+    // podSetAssignments hold the admission results for each of the .spec.podSets entries.
+    // +listType=map
+    // +listMapKey=name
+    // +kubebuilder:validation:MaxItems=10
+    PodSetAssignments []PodSetAssignment `json:"podSetAssignments"`
+}
+
+type PodSetAssignment struct {
+    // ........
+
+    // count is the number of pods taken into account at admission time.
+    // This field will not change in case of quota reclaim.
+    // Value could be missing for Workloads created before this field was added,
+    // in that case spec.podSets[*].count value will be used.
+    //
+    // +optional
+    // +kubebuilder:validation:Minimum=0
+    Count *int32 `json:"count,omitempty"`
+}
 ```
 
 ### Scheduler / Flavorassignment
 
-In case the workload proposed for the current scheduling cycle does not fit, with or without preemption, in the current available quota and any of its PodSets allow partial admission, try to find a lower counts combination that fits the available quota with or without borrowing.
+In case the workload proposed for the current scheduling cycle does not fit, with or without preemption, in the current available quota and any of its PodSets allow partial admission, kueue will try to find a lower counts combination that fits the available quota with or without borrowing.
 
-The policy for shrinking PodSet counts is configured via the `kueue.x-k8s.io/partial-admission-policy` annotation on the Job. The supported policies are:
-- **`proportional` (default)**: Shrinks the counts of all variable PodSets proportionally to their allowable reduction ranges.
-- **`order-based`**: Shrinks the counts of the PodSets sequentially starting from the last one (suits for the cases when the podsets are ordered by priority). The Workload PodSet order is usually the same as the order of the PodSet in the Job spec. For the RayCluster the Workload PodSets starting from Head PodSet and following by WorkerGroupPodSets in the same order as in RayCluster.
+#### Partial Admission for one PodSets
 
-#### Order-Based Policy (`order-based`)
+The search for appopriate count value is done using binary search algorithm.
+
+#### Partial Admission for multiple PodSets
+
+The are multiple ways how to approach multiple podsets shrinking in case of insufficient quota. For simplisity reason we'll start with the order-based one and will expand option if needed in future.
+Another approch that was considered is proportional. However it was disgarded because of insufficiency for some use cases.
+
+- **`order-based` (default)**: Shrinks the counts of the PodSets sequentially starting from the last one (suits for the cases when the podsets are ordered by priority). The Workload PodSet order is usually the same as the order of the PodSet in the Job spec. For the RayCluster the Workload PodSets starting from Head PodSet and following by WorkerGroupPodSets in the same order as in RayCluster.
+
+#### Order-Based policy (`order-based`)
 
 Under the `order-based` policy, Kueue shrinks the PodSets starting from the last one and moving towards the beginning as needed.
 Specifically, if multiple PodSets have variable counts, Kueue iterates over them in the order they are defined in the Workload spec, starting from the last one. It decreases the count of the current PodSet down to its `minCount` until the workload fits the available quota. If shrinking the last PodSet to its `minCount` is still not enough to fit, Kueue keeps it at its `minCount` and moves to the second-to-last PodSet, decreasing its count down to its `minCount`, and so on.
@@ -134,63 +184,7 @@ Total requested pods: `1 + 4 + 20 = 25` pods.
      - `ps2` was reduced to 10. Kueue tries to increase its count back to 20. This succeeds since `rf2` has 20 available quota.
   6. Admitted counts: `ps0: 1`, `ps1: 2`, `ps2: 20`.
 
-#### Proportional Policy (`proportional` - default)
-
-Under the `proportional` policy, Kueue reduces the counts of all variable PodSets proportionally to their maximum allowable reduction range (i.e., `count - minCount`).
-
-For each PodSet $j$ that allows partial admission, let:
-- $C_j$ be the maximum requested count.
-- $M_j$ be the minimum acceptable count (`minCount`).
-- $D_j = C_j - M_j$ be the maximum reduction delta for PodSet $j$.
-- $T_D = \sum D_j$ be the sum of all maximum reduction deltas.
-
-To find the optimal fit, Kueue performs a binary search on a scaling index $i$ in the range $[0, T_D]$. For a given index $i$, the count for PodSet $j$ is computed as:
-$$currentCount_j = C_j - \lfloor \frac{D_j \times i}{T_D} \rfloor$$
-
-Kueue finds the smallest index $i$ (corresponding to the minimal reduction) for which the resulting counts fit the available quota.
-
-**Example:**
-Consider a Job with three PodSets:
-- `ps0`: `count: 1`, no `minCount` ($D_0 = 0$).
-- `ps1`: `count: 4`, `minCount: 2` ($D_1 = 2$).
-- `ps2`: `count: 20`, `minCount: 10` ($D_2 = 10$).
-
-Total requested pods: `1 + 4 + 20 = 25` pods.
-Total reduction delta: $T_D = 0 + 2 + 10 = 12$ pods.
-
-- **Scenario A: Available quota is 19 pods** (requires a reduction of at least 6 pods).
-  - For $i = 6$:
-    - `ps0` count: $1 - \lfloor \frac{0 \times 6}{12} \rfloor = 1 - 0 = 1$
-    - `ps1` count: $4 - \lfloor \frac{2 \times 6}{12} \rfloor = 4 - 1 = 3$
-    - `ps2` count: $20 - \lfloor \frac{10 \times 6}{12} \rfloor = 20 - 5 = 15$
-    - Total count: `1 + 3 + 15 = 19` pods. This fits the 19-pod quota.
-  - For $i = 5$:
-    - `ps0` count: $1 - \lfloor \frac{0 \times 5}{12} \rfloor = 1 - 0 = 1$
-    - `ps1` count: $4 - \lfloor \frac{2 \times 5}{12} \rfloor = 4 - 0 = 4$
-    - `ps2` count: $20 - \lfloor \frac{10 \times 5}{12} \rfloor = 20 - 4 = 16$
-    - Total count: `1 + 4 + 16 = 21` pods. This does not fit the 19-pod quota.
-  - Thus, the binary search selects $i = 6$.
-  - Admitted counts: `ps0: 1`, `ps1: 3`, `ps2: 15` (total 19 pods).
-
-- **Scenario B: Available quota is 13 pods** (requires a reduction of at least 12 pods).
-  - For $i = 12$:
-    - `ps0` count: $1 - \lfloor \frac{0 \times 12}{12} \rfloor = 1 - 0 = 1$
-    - `ps1` count: $4 - \lfloor \frac{2 \times 12}{12} \rfloor = 4 - 2 = 2$
-    - `ps2` count: $20 - \lfloor \frac{10 \times 12}{12} \rfloor = 20 - 10 = 10$
-    - Total count: `1 + 2 + 10 = 13` pods. This fits the 13-pod quota.
-  - For $i = 11$:
-    - `ps0` count: $1 - \lfloor \frac{0 \times 11}{12} \rfloor = 1 - 0 = 1$
-    - `ps1` count: $4 - \lfloor \frac{2 \times 11}{12} \rfloor = 4 - 1 = 3$
-    - `ps2` count: $20 - \lfloor \frac{10 \times 11}{12} \rfloor = 20 - 9 = 11$
-    - Total count: `1 + 3 + 11 = 15` pods. This does not fit the 13-pod quota.
-  - Thus, the binary search selects $i = 12$.
-  - Admitted counts: `ps0: 1`, `ps1: 2`, `ps2: 10` (total 13 pods).
-
-- **Scenario C: Available quota is 10 pods** (requires a reduction of at least 15 pods).
-  - Even with the maximum possible index $i = 12$ (maximum reduction), the total count is `1 + 2 + 10 = 13` pods, which does not fit in 10 pods.
-  - Thus, the binary search fails, and the job remains unadmitted.
-
-The accepted number of pods in each PodSet is recorded in `workload.Status.Admission.PodSetAssignments[*].ResourceUsage.Count`.
+The accepted number of pods in each PodSet is recorded in `workload.Status.Admission.PodSetAssignments[*].Count`.
 
 ### Jobframework
 
@@ -213,6 +207,77 @@ type GenericJob interface {
 
 ```
 
+### ElasticJob
+
+For ElasticJobs, updating `job.spec.parallelism` or `job.spec.count` could cause race conditions between partial admission and scaling up/down activity. 
+To avoid this, the `podSets` count won't be updated in `RunWithPodSetsInfo` for elastic jobs. Instead, the workload controller will use the `workload.Status.Admission.PodSetAssignments[*].Count` value to calculate the number of pods from which Kueue should remove scheduling gates. 
+The `minCount` value for an ElasticJob workload will represent the currently admitted value + 1.
+Also, a new Workload representing the full job will be created and added to the queue, to admit the remaining capacity once it becomes available.
+
+#### Example: Two-Step Scale Up under Quota Constraints (with Partial Admission)
+
+Consider a scenario where:
+1. The ClusterQueue has a total quota of **7** for the requested resource flavor.
+2. The Job is configured for both `ElasticJobs` and `PartialAdmission`.
+3. The user performs a two-step scale up of the Job: starting at **5** replicas, scaling up to **10**, and then to **12**.
+
+##### Step 0: Job Creation (Initial Size: 5)
+* **Job spec.parallelism**: 5
+* **Workloads**:
+  * `wl-A` (Admitted):
+    * `spec.podSets.count` = 5
+    * `spec.podSets.minCount` = 2
+    * `status.admission.count` = 5
+* **Controller Actions**:
+  1. **Job Controller**: Detects the Job creation, sets `.spec.suspend = false`, and creates 5 Pods. Due to Kueue's webhook mutation, the Pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
+  2. **Kueue Job Framework / Workload Controller**: Detects the Job and creates `wl-A` with `spec.podSets.count = 5` and `spec.podSets.minCount = 2`.
+  3. **Kueue Scheduler**: Evaluates `wl-A`. Since the requested 5 pods fit within the available quota of 7, it admits `wl-A` (`status.admission.count = 5`), reserving 5 units of quota.
+  4. **ElasticJobUngater Controller**: Detects that `wl-A` is admitted and removes the scheduling gate from the 5 pods.
+  5. **Kube-scheduler**: Schedules the 5 ungated pods, which transition to the Running state.
+* **Quota usage**: 5/7 (2 available).
+
+##### Step 1: Scale Up from 5 to 10
+* **Job spec.parallelism**: 10
+* **Workloads**:
+  * `wl-A` (Finished - aggregated/replaced by `wl-B`)
+  * `wl-B` (Admitted - Partially):
+    * `spec.podSets.count` = 7 (originally requested 10, but updated to 7 during partial admission)
+    * `spec.podSets.minCount` = 6 (the current running count 5 + 1)
+    * `status.admission.count` = 7
+  * `wl-C` (Pending, since there is no capacity for 10 pods)
+    * `spec.podSets.count` = 10 (representing the job count)
+    * `spec.podSets.minCount` = 8 (the current running count 7 + 1)
+* **Controller Actions**:
+  1. **Job Controller**: Detects the parallelism increase and creates 5 new Pods (total 10 pods: 5 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
+  2. **Workload Controller**: Observes the scale-up and creates a new Workload slice `wl-B` with `spec.podSets.count = 10` and `spec.podSets.minCount = 6` (inheriting/adjusting the minimum count based on the currently running/admitted count of 5 + 1 from `wl-A`). It is annotated as a replacement for `wl-A` via `kueue.x-k8s.io/workload-slice-replacement-for`.
+  3. **Kueue Scheduler**: Evaluates `wl-B`. Since it replaces `wl-A`, it calculates the demand: `10 (new request) - 5 (already admitted in wl-A) = 5`. The available quota is only 2. Since the Workload could not be fully admitted, the Kueue scheduler evaluates whether it can partially admit the workload with any count between 6 and 10. Given the available quota of 2, the scheduler admits `wl-B` with a count of `5 + 2 = 7` (`status.admission.count = 7`), reserving 2 more units of quota (total 7).
+  4. **WorkloadSlice Controller**: Creates another WorkloadSlice `wl-C` that represents the current state of the job with `.spec.podSets[0].count` = 10 and `spec.podSets.minCount` = 8. This workload is added to the queue to be evaluated when capacity becomes available, and it currently stays `Pending`. `wl-A` is marked as finished.
+  5. **ElasticJobUngater Controller**: Detects that `wl-B` is admitted with count 7. It removes the scheduling gate from 2 of the new pods (bringing running pods to 7). The other 3 new pods remain gated.
+* **Quota usage**: 7/7 (0 available).
+
+##### Step 2: Scale Up to 12 (Quota Constraint: 7)
+* **Job spec.parallelism**: 12
+* **Workloads**:
+  * `wl-B` (Admitted)
+  * `wl-C` (Updated, keep pending):
+    * `spec.podSets.count` = 12
+    * `spec.podSets.minCount` = 8 (7 + 1)
+* **Controller Actions**:
+  1. **Job Controller**: Detects the parallelism increase and creates 2 more Pods (total 12 pods: 7 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
+  2. **Workload Controller**: Detects the update. Since the Job's parallelism is updated to 12, Kueue updates the pending workload `wl-C` with `spec.podSets.count = 12`.
+  3. **Kueue Scheduler**: Evaluates `wl-C`. The demand is `12 - 7 = 5`. The available quota is 0, so the scheduler puts `wl-C` in the queue.
+
+##### Step 3: Quota increases to 12
+If the available quota in the ClusterQueue increases to 12 (or more) in the future:
+* **Workloads**:
+  * `wl-B` (Finished)
+  * `wl-C` (Admitted):
+    * `spec.podSets.count` = 12
+    * `spec.podSets.minCount` = 8 (7 + 1)
+    * `status.admission.count` = 12
+
+In the next scheduler loop, the Kueue scheduler will evaluate and admit `wl-C`. It will also update its `spec.podSets.minCount` to match the job's minCount.
+
 ### batch/Job controller
 
 Besides adapting `RunWithPodSetsInfo` and `RestorePodSetsInfo` it should also:
@@ -231,9 +296,11 @@ Additional research is needed into the potential usage of multiple variable coun
 
 ### RayJob/RayService/RayCluster controller
 
-RayClusters with 'kueue.x-k8s.io/partial-admission=true' annotation are eligible for partial admission. The
-RayCluster.workerGroupSpec[i].minReplicas will be translated to the PodSet.MinCount for the Worker PodSet.
-There will be no update on RayCluster object. If the number of admitted pods is less than requested count, the leftover pods should remain scheduling gated. In order to achieve that, the same mechanism as for elastic workloads will be applied – the podTemplate will be initially gated and then the correct amount of pods will be ungated.
+The RayCluster.workerGroupSpec[i].minReplicas will be translated to the PodSet.MinCount for the Worker PodSet.
+
+### Limitations
+
+Partial admission is not supported for concurrent admission to avoid increasing complexity. The webhook will reject the creation of workloads that support partial admission for a ClusterQueue with a concurrent admission policy. 
 
 ### Test Plan
 

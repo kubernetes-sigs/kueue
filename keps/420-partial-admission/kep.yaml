@@ -11,6 +11,11 @@ reviewers:
 approvers:
   - "@alculquicondor"
   - "@ahg-g"
+  - "@mimiwo"
+
+see-also:
+  - "/keps/77-dynamically-sized-jobs"
+  - "/keps/8691-concurrent-admission"
 
 
 # The target maturity stage in the current dev cycle for this KEP.
@@ -28,3 +33,4 @@ milestone:
 
 feature-gates:
   - name: PartialAdmission
+  - name: PartialAdmissionForElasticJobs
