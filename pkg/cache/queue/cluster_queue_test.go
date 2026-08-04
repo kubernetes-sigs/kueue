@@ -587,7 +587,7 @@ func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 // sticky workload: Snapshot sorts a copy of the pending workloads through the
 // comparator (which reads stickyWorkload.workloadName) without holding the
 // ClusterQueue lock, while RequeueIfNotPresent writes that field during a
-// BestEffortFIFO preemption requeue. Run with -race to detect regressions.
+// preemption requeue. Run with -race to detect regressions.
 func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cq, err := newClusterQueue(ctx, nil,
