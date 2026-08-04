@@ -915,6 +915,50 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there are more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
+// syncWorkloadSlicePriority applies a priority-class label change to the slices
+// a compatible scale decision leaves live. Slice compatibility only considers
+// the pod set shape, so the label change arrives here with the old priority
+// still on the slice.
+//
+// While a scale-up waits for quota the admitted slice is kept alongside its
+// pending replacement and only the replacement is returned, but both are
+// ordered against other Workloads during preemption, so updating one alone
+// would split the Job's priority. wl is nil when a new slice is to be created.
+func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Quota-reserved rather than admitted: FindLatestActiveWorkload selects on
+	// the reservation, and the distinction is what makes the skip below matter.
+	retained, err := workloadslicing.FindLatestActiveWorkload(ctx, r.client, object, job.GVK())
+	if err != nil {
+		return err
+	}
+	live := []*kueue.Workload{wl}
+	if retained != nil && (wl == nil || retained.Name != wl.Name) {
+		log.V(4).Info("Workload slice priority applies to the replacement and to the quota-reserved slice it is waiting behind",
+			"replacement", klog.KObj(wl), "retained", klog.KObj(retained))
+		live = append(live, retained)
+	}
+	for _, slice := range live {
+		if slice == nil {
+			continue
+		}
+		// A slice that reserved quota without a priorityClassRef keeps it: the
+		// API server refuses to add one once quota is reserved, and retrying
+		// would only fail the reconcile for good.
+		if workload.HasQuotaReservation(slice) && workload.HasNoPriority(slice) {
+			log.V(2).Info("Leaving a workload slice that reserved quota with no priority class alone, since one can no longer be added",
+				"workload", klog.KObj(slice))
+			continue
+		}
+		log.V(6).Info("Reconciling the priority class of a workload slice", "workload", klog.KObj(slice))
+		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), slice, getCustomPriorityClassFuncFromJob(job)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -987,6 +1031,9 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 		if compatible {
+			if err := r.syncWorkloadSlicePriority(ctx, job, object, wl); err != nil {
+				return nil, err
+			}
 			return wl, nil
 		}
 		// Fallback.
