@@ -18,6 +18,7 @@ package tas
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"time"
 
@@ -38,6 +39,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -215,7 +217,24 @@ func (r *NonTasUsageReconciler) Create(e event.TypedCreateEvent[*corev1.Pod]) bo
 }
 
 func (r *NonTasUsageReconciler) Update(e event.TypedUpdateEvent[*corev1.Pod]) bool {
-	return belongsToNonTASCache(e.ObjectOld) != belongsToNonTASCache(e.ObjectNew)
+	return belongsToNonTASCache(e.ObjectOld) != belongsToNonTASCache(e.ObjectNew) ||
+		podUsageChanged(e.ObjectOld, e.ObjectNew)
+}
+
+func podUsageChanged(oldPod, newPod *corev1.Pod) bool {
+	if !belongsToNonTASCache(oldPod) || !belongsToNonTASCache(newPod) {
+		return false
+	}
+	if oldPod.Spec.NodeName != newPod.Spec.NodeName {
+		return true
+	}
+	if oldPod.Generation == newPod.Generation {
+		return false
+	}
+	return !maps.Equal(
+		resources.ToMap(resources.NewRequestsFromPodSpec(&oldPod.Spec)),
+		resources.ToMap(resources.NewRequestsFromPodSpec(&newPod.Spec)),
+	)
 }
 
 func (r *NonTasUsageReconciler) Delete(e event.TypedDeleteEvent[*corev1.Pod]) bool {
