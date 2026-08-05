@@ -80,6 +80,11 @@ func TestExtractPriorityClassifiesMissingWorkloadPriorityClass(t *testing.T) {
 
 			_, _, err := ExtractPriority(t.Context(), cl, tc.job, tc.podSets, nil)
 
+			// wantNotFound doubles as whether the row expects an error at all.
+			if !tc.wantNotFound && err != nil {
+				t.Fatalf("ExtractPriority() = %v, want no error", err)
+			}
+
 			var missing *workloadPriorityClassNotFoundError
 			if got := errors.As(err, &missing); got != tc.wantMissingWPC {
 				t.Fatalf("recognised as a missing WorkloadPriorityClass = %v, want %v (err: %v)",

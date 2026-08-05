@@ -81,7 +81,7 @@ spec:
 
 The `WorkloadPriorityClass` referenced by the `kueue.x-k8s.io/priority-class` label must exist in the cluster.
 
-If the label explicitly references a nonexistent `WorkloadPriorityClass`, Kueue cannot resolve the workload priority and does not fall back to the Pod `PriorityClass`, the global default `PriorityClass`, or the default priority value. A `Workload` whose priority is resolved from that label therefore cannot be created or updated until the reference is corrected or the referenced `WorkloadPriorityClass` is created.
+If the label explicitly references a nonexistent `WorkloadPriorityClass`, Kueue cannot resolve the workload priority and does not fall back to the Pod `PriorityClass`, the global default `PriorityClass`, or the default priority value. Kueue therefore cannot create the corresponding `Workload`, and cannot point an existing one at the named class, until the reference is corrected or the referenced `WorkloadPriorityClass` is created.
 
 Whenever Kueue resolves the label, either to create a `Workload` or to update one whose priority already comes from a `WorkloadPriorityClass`, it reports a missing class as a `Warning` event with the reason `WorkloadPriorityClassNotFound` on the object carrying the label, so `kubectl describe` on that object names the class. Creation or the update succeeds on a later reconciliation once the class exists.
 

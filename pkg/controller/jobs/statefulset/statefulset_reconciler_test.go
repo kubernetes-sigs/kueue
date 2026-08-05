@@ -71,9 +71,7 @@ func TestReconciler(t *testing.T) {
 		wantPods        []corev1.Pod
 		wantWorkloads   []kueue.Workload
 		wantErr         error
-
-		workloadPriorityClasses []kueue.WorkloadPriorityClass
-		wantEvents              []utiltesting.EventRecord
+		wantEvents      []utiltesting.EventRecord
 	}{
 		"statefulset not found": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
@@ -287,7 +285,7 @@ func TestReconciler(t *testing.T) {
 				Queue("lq").
 				WorkloadPriorityClass("missing-wpc").
 				DeepCopy(),
-			// missing-wpc is deliberately not in workloadPriorityClasses.
+			// missing-wpc is deliberately never created.
 			wantErr: cmpopts.AnyError,
 			wantEvents: []utiltesting.EventRecord{{
 				Key:       types.NamespacedName{Name: "sts", Namespace: "ns"},
@@ -583,10 +581,6 @@ func TestReconciler(t *testing.T) {
 
 			for _, wl := range tc.workloads {
 				objs = append(objs, wl.DeepCopy())
-			}
-
-			for _, wpc := range tc.workloadPriorityClasses {
-				objs = append(objs, wpc.DeepCopy())
 			}
 
 			kClient := clientBuilder.WithObjects(objs...).Build()

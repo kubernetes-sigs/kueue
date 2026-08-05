@@ -3317,6 +3317,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantErr: cmpopts.AnyError,
+			// The compatible slice path now reaches the class lookup, so the failure
+			// is reported rather than passing silently.
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
+					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+				},
+			},
 		},
 		"the workload slice is updated when priority class has changed for suspended job": {
 			featureGates: map[featuregate.Feature]bool{

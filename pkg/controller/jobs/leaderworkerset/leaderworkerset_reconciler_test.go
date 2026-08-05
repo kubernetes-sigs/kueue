@@ -845,6 +845,8 @@ func TestReconciler(t *testing.T) {
 				lookupStarted := make(chan struct{})
 				var once sync.Once
 				surplus := GetWorkloadName(testLWS, testLWS, "1")
+				// Returned on timeout, so an ordering that stops holding fails as itself.
+				errNotOrdered := errors.New("the other branch never arrived")
 				return interceptor.Funcs{
 					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
 						// workload.Delete clears the finalizer before deleting, so
@@ -853,6 +855,7 @@ func TestReconciler(t *testing.T) {
 							select {
 							case <-lookupStarted:
 							case <-time.After(30 * time.Second):
+								return errNotOrdered
 							}
 							return errComponentConflict
 						}
@@ -864,6 +867,7 @@ func TestReconciler(t *testing.T) {
 							select {
 							case <-ctx.Done():
 							case <-time.After(30 * time.Second):
+								return errNotOrdered
 							}
 							return c.Get(context.WithoutCancel(ctx), key, obj, opts...)
 						}
