@@ -360,20 +360,22 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 	// 6. Requeue the heads that were not scheduled.
 	result := metrics.AdmissionResultInadmissible
+	entriesToRequeue := []entry{}
 	for _, e := range entries {
 		logAdmissionAttemptIfVerbose(log, &e)
 		// When the workload is evicted by scheduler we skip requeueAndUpdate.
 		// The eviction process will be finalized by the workload controller.
 		if e.status != assumed && e.status != evicted {
-			s.requeueAndUpdate(ctx, e)
+			entriesToRequeue = append(entriesToRequeue, e)
 		} else {
 			result = metrics.AdmissionResultSuccess
 		}
 	}
 	for _, e := range inadmissibleEntries {
 		logAdmissionAttemptIfVerbose(log, &e)
-		s.requeueAndUpdate(ctx, e)
+		entriesToRequeue = append(entriesToRequeue, e)
 	}
+	s.requeueAndUpdateAsync(ctx, entriesToRequeue...)
 
 	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
 	s.reportSkippedPreemptions(skippedPreemptions)
@@ -1081,6 +1083,13 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 	})
 	return &classicalIterator{
 		entries: entries,
+	}
+}
+func (s *Scheduler) requeueAndUpdateAsync(ctx context.Context, entries ...entry) {
+	for _, e := range entries {
+		s.schedulerRoutineWrapper.Run(func() {
+			s.requeueAndUpdate(ctx, e)
+		})
 	}
 }
 
