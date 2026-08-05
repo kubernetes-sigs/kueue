@@ -577,6 +577,10 @@ const (
 	// serveConfigV2 edit) onto the worker copy after admission, and to watch the manager
 	// job so such a change is forwarded promptly instead of on the next periodic requeue.
 	MultiKueueRemoteSpecSync featuregate.Feature = "MultiKueueRemoteSpecSync"
+
+	// Enable recomputing preemption targets if they overlap with another workload's targets
+	// within the same scheduling cycle.
+	RecomputePreemptionTargetsUponOverlap featuregate.Feature = "RecomputePreemptionTargetsUponOverlap"
 )
 
 func init() {
@@ -885,6 +889,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	MultiKueueRemoteSpecSync: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	RecomputePreemptionTargetsUponOverlap: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
