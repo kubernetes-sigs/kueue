@@ -314,8 +314,8 @@ func (c *Controller) syncOwnedProvisionRequest(
 			for _, mergedPodSet := range mergedPodSets {
 				ptName := getProvisioningRequestPodTemplateName(requestName, mergedPodSet.Name)
 
-				pt := &corev1.PodTemplate{}
-				err := c.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: ptName}, pt)
+				pt := &corev1.PodTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: wl.Namespace, Name: ptName}}
+				err := c.client.Get(ctx, client.ObjectKeyFromObject(pt), pt)
 				if client.IgnoreNotFound(err) != nil {
 					return err
 				}
@@ -324,9 +324,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 					_, err := c.createPodTemplate(ctx, wl, ptName, mergedPodSet.PodSet, mergedPodSet.PodSetAssignment)
 					if err != nil {
 						msg := fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err)
-						// the Get above left pt empty, so name the colliding object here
-						conflicting := &corev1.PodTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: wl.Namespace, Name: ptName}}
-						return c.handleError(ctx, wl, ac, conflicting, msg, err)
+						return c.handleError(ctx, wl, ac, pt, msg, err)
 					}
 				}
 
@@ -356,20 +354,14 @@ func (c *Controller) syncOwnedProvisionRequest(
 	return nil
 }
 
-// isMissingInCache reports whether the object is absent from the cache. Paired with an
-// AlreadyExists from the API server it means the cache has not observed an object an earlier
-// reconcile created. Anything the cache can already see is left to the caller to report, since
-// there is no evidence that retrying resolves it. The object doubles as the target of the Get.
-func (c *Controller) isMissingInCache(ctx context.Context, obj client.Object) bool {
-	return apierrors.IsNotFound(c.client.Get(ctx, client.ObjectKeyFromObject(obj), obj))
-}
-
 func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, obj client.Object, msg string, err error) error {
 	if apierrors.IsAlreadyExists(err) && c.isMissingInCache(ctx, obj) {
-		// A message recorded here outlives the condition it describes: it stays on the admission
-		// check and is appended to every later event built from it, up to the reason a Workload
-		// is deactivated. Just retry once the cache catches up.
-		ctrl.LoggerFrom(ctx).V(2).Info("Object already exists, retrying once the cache is up to date", "reason", msg)
+		// The object exists on the API server but not yet in the cache, so an earlier reconcile
+		// created it and this one raced it. The message set below would outlive the state it
+		// describes: it stays on the admission check until another update replaces it, and every
+		// event built from that check appends it, up to the one reporting why a Workload was
+		// deactivated. Report nothing and leave the error to the caller.
+		ctrl.LoggerFrom(ctx).V(2).Info("Object already exists but is not in the cache yet, not recording the error", "reason", msg)
 		return err
 	}
 	c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", api.TruncateEventMessage(msg))
@@ -379,6 +371,14 @@ func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *ku
 		return workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock), nil
 	})
 	return errors.Join(err, patchErr)
+}
+
+// isMissingInCache reports whether the object is absent from the cache. Paired with an
+// AlreadyExists from the API server it means the cache has not observed an object an earlier
+// reconcile created. Anything the cache can already see is left to the caller to report, since
+// there is no evidence that retrying resolves it. The object doubles as the target of the Get.
+func (c *Controller) isMissingInCache(ctx context.Context, obj client.Object) bool {
+	return apierrors.IsNotFound(c.client.Get(ctx, client.ObjectKeyFromObject(obj), obj))
 }
 
 func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, name string, ps *kueue.PodSet, psa *kueue.PodSetAssignment) (*corev1.PodTemplate, error) {
@@ -509,8 +509,9 @@ func containerUses(cont *corev1.Container, resourceSet sets.Set[corev1.ResourceN
 }
 
 // updateCheckMessage sets the message of the check, reporting whether it changed. An empty message
-// is applied as well: a message describing a previous state of the ProvisioningRequest is not only
-// misleading in the Workload status, it is appended to the events built from the check.
+// is applied as well. Otherwise a message describing a previous state of the ProvisioningRequest
+// would not only be misleading in the Workload status, it would also be appended to the events
+// built from the check.
 func updateCheckMessage(checkState *kueue.AdmissionCheckState, message string) bool {
 	if checkState.Message == message {
 		return false

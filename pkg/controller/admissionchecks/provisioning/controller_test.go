@@ -1347,8 +1347,8 @@ func TestReconcile(t *testing.T) {
 		},
 		"when the provisioning request already exists": {
 			// The interceptor rejects the create without persisting anything, so the lookup in
-			// isDuplicateCreate misses as well - the reconcile that lost the race to a cache that
-			// has not caught up.
+			// isMissingInCache misses as well - this simulates the reconcile that lost the race to
+			// a cache that has not caught up.
 			interceptorFuncsCreate: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
 				if _, ok := obj.(*autoscaling.ProvisioningRequest); ok {
 					return errProvisioningRequestExists
