@@ -605,6 +605,13 @@ const (
 	// for the considered workload to get it. We don't immediately admit this workload as we have
 	// to wait for these preemptions to complete.
 	RecomputeAssignmentUponPreemptionTargetsOverlap featuregate.Feature = "RecomputeAssignmentUponPreemptionTargetsOverlap"
+
+	// owner: @vladikkuzn
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/pull/13014
+	// Refuse to adopt an existing Workload by pod-group name when it was not created
+	// by the pod-group framework (missing is-group-workload annotation).
+	PodIntegrationValidateGroupOwner featuregate.Feature = "PodIntegrationValidateGroupOwner"
 )
 
 func init() {
@@ -923,6 +930,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	RecomputeAssignmentUponPreemptionTargetsOverlap: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	PodIntegrationValidateGroupOwner: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
