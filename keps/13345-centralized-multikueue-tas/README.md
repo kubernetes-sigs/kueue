@@ -75,7 +75,7 @@ As a machine learning engineer, I submit a high-priority distributed training jo
 
 ## Drawbacks
 
-- **Scalability Limits**: Centralizing all node and pod state into a single manager introduces a fundamental scalability limit. While the TAS cache is optimized (storing only aggregated resource counters rather than full pod specs), the manager must still process a high volume of watch events from every worker cluster. However, this architecture should comfortably support the currently documented limits for TAS (2,500 nodes) and MultiKueue (20 worker clusters).
+- **Scalability Limits**: Centralizing all node and pod state into a single manager introduces a fundamental scalability limit. While the TAS cache is optimized (storing only aggregated resource counters rather than full pod specs), the manager must still process a high volume of watch events from every worker cluster. However, this architecture should comfortably support the currently documented limits for TAS (100k nodes) and MultiKueue (20 worker clusters).
 - **Distributed System Complexity**: The manager's view of worker capacity is eventually consistent. Network partitions, watch delays, or API server latency on worker clusters can cause the manager to make scheduling decisions based on stale physical capacity data, potentially leading to transient placement failures or race conditions.
 - **Single Point of Failure**: While MultiKueue already relies on the manager for admission, centralizing TAS makes the manager a harder dependency for actual node-level placement. If the manager's TAS cache is degraded, no topology-aware workloads can be scheduled anywhere in the fleet.
 
