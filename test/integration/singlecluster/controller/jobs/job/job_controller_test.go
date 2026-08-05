@@ -5173,10 +5173,16 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		})
 
 		// The lookup fails, so the slice keeps the priority it was admitted with
-		// rather than being left half updated.
+		// rather than being left half updated. Read here rather than through the
+		// helper, which waits internally: inside Consistently that would retry
+		// until the value came back, and so could not see it move away at all.
 		ginkgo.By("checking the slice keeps the class it was admitted with", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
-				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, lowPriorityClass.Name, lowPriorityClass.Value, sliceKey)
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, sliceKey, wl)).To(gomega.Succeed())
+				g.Expect(wl.Spec.PriorityClassRef).ToNot(gomega.BeNil())
+				g.Expect(wl.Spec.PriorityClassRef.Name).To(gomega.Equal(lowPriorityClass.Name))
+				g.Expect(wl.Spec.Priority).To(gomega.Equal(&lowPriorityClass.Value))
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 
