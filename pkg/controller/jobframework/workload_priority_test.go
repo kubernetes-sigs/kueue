@@ -36,7 +36,7 @@ import (
 // The workloads of one job are written one after another, so a class edited in
 // between could otherwise give each of them a different value, and later
 // reconciles would not repair that because they compare the class name only.
-func TestUpdateWorkloadPrioritiesResolvesTheClassOnce(t *testing.T) {
+func TestUpdateWorkloadPriorityResolvesTheClassOnce(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
@@ -74,8 +74,8 @@ func TestUpdateWorkloadPrioritiesResolvesTheClassOnce(t *testing.T) {
 		live = append(live, wl)
 	}
 
-	if err := updateWorkloadPriorities(ctx, cl, &utiltesting.EventRecorder{}, job, nil, live...); err != nil {
-		t.Fatalf("updateWorkloadPriorities: %v", err)
+	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, live...); err != nil {
+		t.Fatalf("UpdateWorkloadPriority: %v", err)
 	}
 
 	if reads != 1 {
@@ -114,7 +114,7 @@ func TestUpdateWorkloadPrioritiesResolvesTheClassOnce(t *testing.T) {
 // reserved, so attempting the update would wedge the reconcile. The guard lives in
 // the shared helper, which the ordinary Job and LeaderWorkerSet paths reach
 // directly through UpdateWorkloadPriority.
-func TestUpdateWorkloadPrioritiesLeavesReservedNoRefWorkload(t *testing.T) {
+func TestUpdateWorkloadPriorityLeavesReservedNoRefWorkload(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
@@ -148,7 +148,7 @@ func TestUpdateWorkloadPrioritiesLeavesReservedNoRefWorkload(t *testing.T) {
 		t.Fatalf("getting workload: %v", err)
 	}
 
-	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, wl, nil); err != nil {
+	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, wl); err != nil {
 		t.Fatalf("UpdateWorkloadPriority: %v", err)
 	}
 
@@ -168,7 +168,7 @@ func TestUpdateWorkloadPrioritiesLeavesReservedNoRefWorkload(t *testing.T) {
 // the object on the current value, including one that already carries the right
 // class name but a stale value. A name-only comparison skips such a workload and
 // leaves it pinned to the old value.
-func TestUpdateWorkloadPrioritiesConvergesAfterPartialWrite(t *testing.T) {
+func TestUpdateWorkloadPriorityConvergesAfterPartialWrite(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
@@ -205,8 +205,8 @@ func TestUpdateWorkloadPrioritiesConvergesAfterPartialWrite(t *testing.T) {
 		live = append(live, wl)
 	}
 
-	if err := updateWorkloadPriorities(ctx, cl, &utiltesting.EventRecorder{}, job, nil, live...); err != nil {
-		t.Fatalf("updateWorkloadPriorities: %v", err)
+	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, live...); err != nil {
+		t.Fatalf("UpdateWorkloadPriority: %v", err)
 	}
 
 	if reads != 1 {
@@ -229,7 +229,7 @@ func TestUpdateWorkloadPrioritiesConvergesAfterPartialWrite(t *testing.T) {
 // The split state that breaks name-only convergence is reachable from a real
 // partial write: the first slice persists at the old value, the second fails, the
 // class value then changes, and the retry must still bring both to the new value.
-func TestUpdateWorkloadPrioritiesConvergesAfterConflictRetry(t *testing.T) {
+func TestUpdateWorkloadPriorityConvergesAfterConflictRetry(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
@@ -266,7 +266,7 @@ func TestUpdateWorkloadPrioritiesConvergesAfterConflictRetry(t *testing.T) {
 	}
 
 	// First invocation: first persists as high/100, second's update fails.
-	if err := updateWorkloadPriorities(ctx, cl, &utiltesting.EventRecorder{}, job, nil, readLive()...); err == nil {
+	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, readLive()...); err == nil {
 		t.Fatal("expected the simulated conflict to surface on the first invocation")
 	}
 
@@ -281,7 +281,7 @@ func TestUpdateWorkloadPrioritiesConvergesAfterConflictRetry(t *testing.T) {
 	}
 
 	// Retry from freshly-read state: both must converge to high/200.
-	if err := updateWorkloadPriorities(ctx, cl, &utiltesting.EventRecorder{}, job, nil, readLive()...); err != nil {
+	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, readLive()...); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
 
