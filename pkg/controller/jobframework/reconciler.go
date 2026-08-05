@@ -1189,13 +1189,13 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 
 // UpdateWorkloadPriority reconciles the priority of each workload that still
 // follows the object's kueue.x-k8s.io/priority-class label. Every workload
-// passed must belong to obj, since the desired class is resolved once for the
-// whole set: that is what stops workloads of one object from ending up on
-// different values when the class is edited while they are being written. The
-// resolved value is then applied to every eligible workload whose full priority
-// state has drifted, so a partial write followed by a class-value change still
-// converges on retry instead of leaving same-name workloads pinned to a stale
-// value. The workloads are written one by one rather than atomically.
+// passed must belong to obj, since the class is resolved once for the whole set
+// rather than per workload, so one batch cannot itself write two different
+// values. The resolved value is applied to every eligible workload whose full
+// priority state has drifted, so a partial write followed by a class-value
+// change converges on retry instead of leaving same-name workloads pinned to a
+// stale value. The workloads are written one by one rather than atomically, and
+// a class edited once every workload already names it is not re-resolved here.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	jobPriorityClassName := WorkloadPriorityClassName(obj)
