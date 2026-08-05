@@ -355,6 +355,16 @@ func (s *Scheduler) recordFailedFlavorPlacements(log logr.Logger, e *entry) {
 	if !features.Enabled(features.TASSkipRecentlyFailedFlavors) {
 		return
 	}
+	// PodSets are placed one after another within a single search and consume each
+	// other's capacity, so a failure reported for one PodSet of a multi-PodSet Workload
+	// only proves that the whole arrangement did not fit. Recording it against that
+	// PodSet would claim more than was learned, and would skip arrangements that were
+	// never tried and might fit - for example excluding worker->flavor-1 also rules out
+	// leader->flavor-2 combined with worker->flavor-1. Multi-PodSet Workloads therefore
+	// keep relying on LastTriedFlavorIdx alone.
+	if len(e.Obj.Spec.PodSets) > 1 {
+		return
+	}
 	if len(e.assignment.FailedFlavorPlacements) == 0 || placementRetryPending(e.requeueReason) {
 		return
 	}

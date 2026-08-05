@@ -90,11 +90,10 @@ type Assignment struct {
 	//
 	// The scheduler carries these across scheduling cycles (see
 	// features.TASSkipRecentlyFailedFlavors) so that the next cycle tries the
-	// remaining flavors of the ClusterQueue instead of re-picking the same one.
-	//
-	// TODO(#13658): TASAssignmentsResult.Failure reports only the first failing
-	// PodSet, so a Workload with several failing PodSets records one of them per
-	// cycle. Record every failing PodSet once Failure can report them all.
+	// remaining flavors of the ClusterQueue instead of re-picking the same one. It
+	// only does so for single-PodSet Workloads: PodSets are placed in sequence and
+	// consume each other's capacity, so for several PodSets a reported failure
+	// describes the arrangement rather than the PodSet named here.
 	FailedFlavorPlacements map[kueue.PodSetReference]sets.Set[kueue.ResourceFlavorReference]
 }
 

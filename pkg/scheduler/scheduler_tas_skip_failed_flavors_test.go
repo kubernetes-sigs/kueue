@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -285,11 +286,19 @@ func failedPlacements(pairs map[kueue.PodSetReference][]kueue.ResourceFlavorRefe
 }
 
 // entryWithFailedPlacements builds an entry as it looks after a scheduling cycle in
-// which the TAS placement search rejected the given flavors.
-func entryWithFailedPlacements(reason qcache.RequeueReason, placements map[kueue.PodSetReference][]kueue.ResourceFlavorReference) *entry {
+// which the TAS placement search rejected the given flavors. podSetCount controls the
+// shape of the Workload, since recording is limited to single-PodSet Workloads.
+func entryWithFailedPlacements(reason qcache.RequeueReason, placements map[kueue.PodSetReference][]kueue.ResourceFlavorReference, podSetCount int) *entry {
+	podSets := make([]kueue.PodSet, podSetCount)
+	for i := range podSets {
+		podSets[i] = kueue.PodSet{Name: kueue.PodSetReference("ps" + strconv.Itoa(i))}
+	}
 	return &entry{
 		Info: workload.Info{
-			Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns", UID: testWorkloadUID}},
+			Obj: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns", UID: testWorkloadUID},
+				Spec:       kueue.WorkloadSpec{PodSets: podSets},
+			},
 		},
 		requeueReason: reason,
 		assignment: flavorassigner.Assignment{
@@ -301,6 +310,9 @@ func entryWithFailedPlacements(reason qcache.RequeueReason, placements map[kueue
 func TestRecordFailedFlavorPlacements(t *testing.T) {
 	cases := map[string]struct {
 		enabled bool
+		// multiPodSet builds the Workload with two PodSets instead of one. Recording is
+		// limited to single-PodSet Workloads, so this must suppress it.
+		multiPodSet bool
 		// cycles are replayed in order; each records one entry at the given cycle.
 		cycles []struct {
 			cycle      int64
@@ -433,8 +445,9 @@ func TestRecordFailedFlavorPlacements(t *testing.T) {
 			readAtCycle: 2,
 			want:        nil,
 		},
-		"tracks each PodSet separately": {
-			enabled: true,
+		"multi-PodSet Workload records nothing": {
+			enabled:     true,
+			multiPodSet: true,
 			cycles: []struct {
 				cycle      int64
 				reason     qcache.RequeueReason
@@ -444,10 +457,7 @@ func TestRecordFailedFlavorPlacements(t *testing.T) {
 				{cycle: 2, reason: qcache.RequeueReasonNoFit, placements: map[kueue.PodSetReference][]kueue.ResourceFlavorReference{"worker": {"flavor-b"}}},
 			},
 			readAtCycle: 3,
-			want: failedPlacements(map[kueue.PodSetReference][]kueue.ResourceFlavorReference{
-				"leader": {"flavor-a"},
-				"worker": {"flavor-b"},
-			}),
+			want:        nil,
 		},
 	}
 
@@ -456,10 +466,14 @@ func TestRecordFailedFlavorPlacements(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASSkipRecentlyFailedFlavors, tc.enabled)
 			_, log := utiltesting.ContextWithLog(t)
 
+			podSetCount := 1
+			if tc.multiPodSet {
+				podSetCount = 2
+			}
 			s := &Scheduler{failedFlavorPlacements: make(map[types.UID]failedFlavorPlacement)}
 			for _, c := range tc.cycles {
 				s.schedulingCycle = c.cycle
-				s.recordFailedFlavorPlacements(log, entryWithFailedPlacements(c.reason, c.placements))
+				s.recordFailedFlavorPlacements(log, entryWithFailedPlacements(c.reason, c.placements, podSetCount))
 			}
 
 			s.schedulingCycle = tc.readAtCycle

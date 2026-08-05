@@ -1701,20 +1701,23 @@ in the Cohort — and again whenever the Workload's `Info` is rebuilt in the que
 update event, including the status update Kueue itself writes while requeueing. Under sustained load
 both happen every cycle, so the flavor walk restarts from the first flavor indefinitely.
 
-We therefore record, per Workload, the flavors for which the placement search found no viable topology
-domains, and skip them during flavor selection in later cycles. The record is held by the scheduler
-rather than on the Workload's `Info`, so that neither mechanism above discards it, and entries expire
-after a fixed number of scheduling cycles. Cycle-based expiry is deliberate: any invalidation signal
-derived from cluster state fires many times per cycle on a large flavor with steady churn, dropping the
-record precisely in the conditions it is meant to address, while tracking which change could make a
-given Workload fit would require remembering the domains its search rejected. A flavor is recorded only
-once the Workload has failed to be admitted for the cycle with no preemption or migration pending, so a
-preemption that could still admit it there is not discarded. This behavior was introduced in 0.20.0 and
-guarded by the `TASSkipRecentlyFailedFlavors` feature gate (disabled by default as Alpha). Two
-limitations are known: the placement result reports only the first failing PodSet, so a Workload with
-several converges more slowly; and the record is in memory, so a restart or leader change re-walks
-flavors already tried — the cycle counter the expiry is measured against restarts with it, so the two
-stay consistent.
+We therefore record, for single-PodSet Workloads, the flavors for which the placement search found no
+viable topology domains, and skip them during flavor selection in later cycles. The record is held by
+the scheduler rather than on the Workload's `Info`, so that neither mechanism above discards it, and
+entries expire after a fixed number of scheduling cycles. Cycle-based expiry is deliberate: any
+invalidation signal derived from cluster state fires many times per cycle on a large flavor with steady
+churn, dropping the record precisely in the conditions it is meant to address, while tracking which
+change could make a given Workload fit would require remembering the domains its search rejected. A
+flavor is recorded only once the Workload has failed to be admitted for the cycle with no preemption or
+migration pending, so a preemption that could still admit it there is not discarded. This behavior was
+introduced in 0.20.0 and guarded by the `TASSkipRecentlyFailedFlavors` feature gate (disabled by default
+as Alpha).
+
+Multi-PodSet Workloads are excluded. PodSets are placed in sequence and consume each other's capacity, so
+a failure reported for one PodSet only proves that the combination of flavors did not fit, not that the
+named PodSet cannot use its own flavor. Recording it per PodSet would therefore skip combinations that
+were never tried. Such Workloads continue to rely on `LastTriedFlavorIdx`, which carries the same
+attribution but is not made durable here.
 
 ### Two-level Topology Aware scheduling
 In consideration of a [Story 5](#story-5) a two-level scheduling is introduced.
