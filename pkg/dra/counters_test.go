@@ -503,7 +503,15 @@ func TestSelectorErrorPaths(t *testing.T) {
 		{
 			name: "request selector compilation error",
 			run: func() field.ErrorList {
-				_, _, errs := prepareCounterCharge(ctx, cl, "valid-device-class", []resourcev1.DeviceSelector{{CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver =="}}}, make(map[string]*resourcev1.DeviceClass), claimPath, 1)
+				_, _, errs := prepareCounterCharge(
+					ctx,
+					cl,
+					"valid-device-class",
+					[]resourcev1.DeviceSelector{{CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver =="}}},
+					make(map[string]*resourcev1.DeviceClass),
+					claimPath,
+					1,
+				)
 				return errs
 			},
 			wantField: reqPath.Child("exactly", "selectors").Index(0).Child("cel", "expression").String(),
