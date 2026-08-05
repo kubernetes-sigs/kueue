@@ -51,6 +51,8 @@ import (
 var (
 	errInvalidPodTemplate         = errors.New("invalid PodTemplate error")
 	errInvalidProvisioningRequest = errors.New("invalid ProvisioningRequest error")
+	errProvisioningRequestExists  = apierrors.NewAlreadyExists(
+		schema.GroupResource{Group: "autoscaling.x-k8s.io", Resource: "provisioningrequests"}, "wl-check1-1")
 )
 
 var (
@@ -1343,6 +1345,182 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"when the provisioning request already exists": {
+			// The interceptor rejects the create without persisting anything, so the lookup in
+			// isMissingInCache misses as well - this simulates the reconcile that lost the race to
+			// a cache that has not caught up.
+			interceptorFuncsCreate: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if _, ok := obj.(*autoscaling.ProvisioningRequest); ok {
+					return errProvisioningRequestExists
+				}
+				return client.Create(ctx, obj, opts...)
+			},
+			workload:           baseWorkload.DeepCopy(),
+			checks:             []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:            []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:            []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:           []autoscaling.ProvisioningRequest{},
+			templates:          []corev1.PodTemplate{},
+			wantReconcileError: errProvisioningRequestExists,
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(schema.GroupVersionKind{
+						Group:   "kueue.x-k8s.io",
+						Version: "v1beta2",
+						Kind:    "Workload",
+					}, "wl", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(schema.GroupVersionKind{
+						Group:   "kueue.x-k8s.io",
+						Version: "v1beta2",
+						Kind:    "Workload",
+					}, "wl", "").
+					Obj(),
+			},
+		},
+		"when the existing request is already visible in the cache": {
+			// The request below carries no ownerReferences, so indexRequestsOwner keeps it out of
+			// the List and the controller creates over it. The cache can see it, so there is no
+			// evidence that retrying resolves anything and the collision is reported.
+			interceptorFuncsCreate: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+				if _, ok := obj.(*autoscaling.ProvisioningRequest); ok {
+					return errProvisioningRequestExists
+				}
+				return client.Create(ctx, obj, opts...)
+			},
+			workload: baseWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      "wl-check1-1",
+					},
+				},
+			},
+			templates:          []corev1.PodTemplate{},
+			wantReconcileError: errProvisioningRequestExists,
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): baseWorkload.
+					Clone().
+					AdmissionChecks(
+						kueue.AdmissionCheckState{
+							Name:    "check1",
+							State:   kueue.CheckStatePending,
+							Message: `Error creating ProvisioningRequest "wl-check1-1": provisioningrequests.autoscaling.x-k8s.io "wl-check1-1" already exists`,
+						},
+						kueue.AdmissionCheckState{
+							Name:  "not-provisioning",
+							State: kueue.CheckStatePending,
+						},
+					).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeWarning,
+					Reason:    "FailedCreate",
+					Message:   `Error creating ProvisioningRequest "wl-check1-1": provisioningrequests.autoscaling.x-k8s.io "wl-check1-1" already exists`,
+				},
+			},
+		},
+		"when the request has no conditions yet the previous check message is cleared": {
+			// The autoscaler has not reported anything about the request below, so there is no
+			// condition message to propagate and nothing the earlier one still describes.
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:    "check1",
+					State:   kueue.CheckStatePending,
+					Message: `Error creating ProvisioningRequest "wl-check1-1": provisioningrequests.autoscaling.x-k8s.io "wl-check1-1" already exists`,
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			checks:    []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:   []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:   []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests:  []autoscaling.ProvisioningRequest{*baseRequest.DeepCopy()},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStatePending,
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+		},
+		"when the request is provisioned the previous check message is cleared": {
+			// The Provisioned condition below deliberately carries no message, which is what the
+			// autoscaler reports once provisioning succeeds and there is nothing left to say.
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:    "check1",
+					State:   kueue.CheckStatePending,
+					Message: `Error creating ProvisioningRequest "wl-check1-1": provisioningrequests.autoscaling.x-k8s.io "wl-check1-1" already exists`,
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithConditions(baseRequest, []metav1.Condition{{
+					Type:   autoscaling.Provisioned,
+					Status: metav1.ConditionTrue,
+					Reason: autoscaling.Provisioned,
+				}}),
+			},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "ps1",
+								Annotations: map[string]string{
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
+								},
+							},
+							{
+								Name: "ps2",
+								Annotations: map[string]string{
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check1-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
+								},
+							},
+						},
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "AdmissionCheckUpdated",
+					Message:   `Admission check check1 updated state from Pending to Ready`,
+				},
+			},
+		},
 		"when request is provisioned and has NodeSelector specified via ProvisioningClassDetail": {
 			workload: baseWorkload.DeepCopy(),
 			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
@@ -2005,6 +2183,88 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 			gotResult := controller.activeOrLastPRForChecks(ctx, workload, checkConfig, tc.requests)
 			if diff := cmp.Diff(tc.wantResult, gotResult, reqCmpOptions...); diff != "" {
 				t.Errorf("unexpected request %q (-want/+got):\n%s", name, diff)
+			}
+		})
+	}
+}
+
+func TestIsMissingInCache(t *testing.T) {
+	request := &autoscaling.ProvisioningRequest{
+		ObjectMeta: metav1.ObjectMeta{Namespace: TestNamespace, Name: "wl-check1-1"},
+	}
+	cases := map[string]struct {
+		requests []autoscaling.ProvisioningRequest
+		want     bool
+	}{
+		"the cache has not observed the request yet": {
+			want: true,
+		},
+		"the request is already visible": {
+			requests: []autoscaling.ProvisioningRequest{*request.DeepCopy()},
+			want:     false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
+			builder = builder.WithLists(&autoscaling.ProvisioningRequestList{Items: tc.requests})
+			controller, err := NewController(builder.Build(), &utiltesting.EventRecorder{}, nil)
+			if err != nil {
+				t.Fatalf("Setting up the provisioning request controller: %v", err)
+			}
+
+			// The helper reads into the object it is given, so pass a copy.
+			if got := controller.isMissingInCache(ctx, request.DeepCopy()); got != tc.want {
+				t.Errorf("unexpected result: got %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUpdateCheckMessage(t *testing.T) {
+	cases := map[string]struct {
+		message     string
+		newMessage  string
+		wantMessage string
+		wantChanged bool
+	}{
+		"sets a message on a check that has none": {
+			newMessage:  "provisioned",
+			wantMessage: "provisioned",
+			wantChanged: true,
+		},
+		"replaces an existing message": {
+			message:     "waiting for capacity",
+			newMessage:  "provisioned",
+			wantMessage: "provisioned",
+			wantChanged: true,
+		},
+		"clears an existing message when the new one is empty": {
+			message:     `Error creating ProvisioningRequest "wl-check1-1": already exists`,
+			newMessage:  "",
+			wantMessage: "",
+			wantChanged: true,
+		},
+		"reports no change when the message is unchanged": {
+			message:     "provisioned",
+			newMessage:  "provisioned",
+			wantMessage: "provisioned",
+			wantChanged: false,
+		},
+		"reports no change when both messages are empty": {
+			wantChanged: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			checkState := kueue.AdmissionCheckState{Name: "check1", Message: tc.message}
+			gotChanged := updateCheckMessage(&checkState, tc.newMessage)
+			if gotChanged != tc.wantChanged {
+				t.Errorf("unexpected changed report: got %t, want %t", gotChanged, tc.wantChanged)
+			}
+			if diff := cmp.Diff(tc.wantMessage, checkState.Message); diff != "" {
+				t.Errorf("unexpected message (-want/+got):\n%s", diff)
 			}
 		})
 	}
