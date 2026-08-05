@@ -365,8 +365,8 @@ prepare-manifests:
 # prepare-manifests rewrite tracked files.
 .PHONY: verify-git-tag
 verify-git-tag:
-	@if [[ "$(GIT_TAG)" != v* ]]; then \
-		echo "GIT_TAG must start with v, got \"$(GIT_TAG)\"" >&2; \
+	@if [[ ! "$(GIT_TAG)" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then \
+		echo "GIT_TAG must match vX.X.X* format, got \"$(GIT_TAG)\"" >&2; \
 		exit 1; \
 	fi
 
