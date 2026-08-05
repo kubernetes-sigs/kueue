@@ -517,6 +517,9 @@ const (
 	// the size, or disable this gate to accept the previous behavior.
 	LWSImmutableGroupSize featuregate.Feature = "LWSImmutableGroupSize"
 
+	// owner: @pajakd
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13320
+	//
 	// Enable recomputing preemption targets if they overlap with another workload's targets
 	// within the same scheduling cycle.
 	RecomputePreemptionTargetsUponOverlap featuregate.Feature = "RecomputePreemptionTargetsUponOverlap"
@@ -816,6 +819,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	LWSImmutableGroupSize: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
+
 	RecomputePreemptionTargetsUponOverlap: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
