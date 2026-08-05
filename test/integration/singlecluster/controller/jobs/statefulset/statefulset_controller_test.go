@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
@@ -150,6 +151,57 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			g.Expect(workloads.Items).To(gomega.HaveLen(1))
 			g.Expect(workloads.Items[0].Name).To(gomega.Equal(legacyName))
 			util.MustHaveOwnerReference(g, workloads.Items[0].OwnerReferences, createdSTS, k8sClient.Scheme())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should update the Workload priority when the StatefulSet priority class changes", func() {
+		lowPriority := utiltestingapi.MakeWorkloadPriorityClass("low-" + ns.Name).PriorityValue(10).Obj()
+		highPriority := utiltestingapi.MakeWorkloadPriorityClass("high-" + ns.Name).PriorityValue(100).Obj()
+		util.MustCreate(ctx, k8sClient, lowPriority)
+		util.MustCreate(ctx, k8sClient, highPriority)
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lowPriority, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, highPriority, true)
+		})
+
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			WorkloadPriorityClass(lowPriority.Name).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		wlKey := types.NamespacedName{
+			Name:      statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name),
+			Namespace: ns.Name,
+		}
+		wl := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Spec.PriorityClassRef).ShouldNot(gomega.BeNil())
+			g.Expect(wl.Spec.PriorityClassRef.Name).To(gomega.Equal(lowPriority.Name))
+			g.Expect(wl.Spec.Priority).To(gomega.Equal(ptr.To[int32](10)))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Changing the StatefulSet WorkloadPriorityClass label")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Labels[controllerconstants.WorkloadPriorityClassLabel] = highPriority.Name
+			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the existing Workload uses the new priority")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Spec.PriorityClassRef).ShouldNot(gomega.BeNil())
+			g.Expect(wl.Spec.PriorityClassRef.Name).To(gomega.Equal(highPriority.Name))
+			g.Expect(wl.Spec.Priority).To(gomega.Equal(ptr.To[int32](100)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 

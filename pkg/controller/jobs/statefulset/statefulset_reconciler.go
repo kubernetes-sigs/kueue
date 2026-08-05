@@ -261,6 +261,15 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		}
 	}
 
+	// Sync the workload priority after other spec changes are persisted.
+	// UpdateWorkloadPriority resolves the object's priority class and writes
+	// only when the workload's priority state has actually drifted, so a
+	// StatefulSet priority-class change propagates to its running workload
+	// instead of being ignored once the workload already exists.
+	if err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, sts, nil, wl); err != nil {
+		return err
+	}
+
 	if shouldReleaseReservation {
 		return r.releaseScaleDownReservation(ctx, wl)
 	}
