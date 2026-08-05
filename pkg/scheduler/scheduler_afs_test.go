@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestScheduleForAFS(t *testing.T) {
@@ -939,5 +940,72 @@ func TestScheduleForAFS(t *testing.T) {
 				},
 			)
 		}
+	}
+}
+
+func TestShouldApplyEntryPenalty(t *testing.T) {
+	// shouldApplyEntryPenalty reads the AdmissionFairSharing gate through
+	// afs.Enabled; pin it so the cases below turn on the config and the
+	// ClusterQueue mode rather than on the process-global default.
+	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
+	now := time.Now().Truncate(time.Second)
+	afsConfig := &config.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: 10 * time.Second},
+		UsageSamplingInterval: metav1.Duration{Duration: 1 * time.Second},
+	}
+
+	pendingWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "4").
+		Obj()
+	reservedWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "4").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+		Obj()
+
+	cases := map[string]struct {
+		afsConfig     *config.AdmissionFairSharing
+		admissionMode kueue.AdmissionMode
+		wl            *kueue.Workload
+		want          bool
+	}{
+		"pushes for a first-pass workload on a usage-based ClusterQueue": {
+			afsConfig:     afsConfig,
+			admissionMode: kueue.UsageBasedAdmissionFairSharing,
+			wl:            pendingWl,
+			want:          true,
+		},
+		"skips when no AdmissionFairSharing config is set": {
+			admissionMode: kueue.UsageBasedAdmissionFairSharing,
+			wl:            pendingWl,
+			want:          false,
+		},
+		"skips for a ClusterQueue without usage-based admission mode": {
+			afsConfig: afsConfig,
+			wl:        pendingWl,
+			want:      false,
+		},
+		"skips a second-pass workload that already holds a quota reservation": {
+			afsConfig:     afsConfig,
+			admissionMode: kueue.UsageBasedAdmissionFairSharing,
+			wl:            reservedWl,
+			want:          false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := &Scheduler{admissionFairSharing: tc.afsConfig}
+			e := &entry{
+				Info: *workload.NewInfo(tc.wl),
+				clusterQueueSnapshot: &schdcache.ClusterQueueSnapshot{
+					AdmissionScope: kueue.AdmissionScope{AdmissionMode: tc.admissionMode},
+				},
+			}
+
+			if got := s.shouldApplyEntryPenalty(e); got != tc.want {
+				t.Errorf("shouldApplyEntryPenalty() = %t, want %t", got, tc.want)
+			}
+		})
 	}
 }
