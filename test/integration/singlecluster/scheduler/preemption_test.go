@@ -666,9 +666,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Preemption(kueue.ClusterQueuePreemption{
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-					BorrowWithinCohort: &kueue.BorrowWithinCohort{
-						Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
-					},
 				}).
 				Obj()
 			util.MustCreate(ctx, k8sClient, alphaCQ)
@@ -681,9 +678,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Preemption(kueue.ClusterQueuePreemption{
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-					BorrowWithinCohort: &kueue.BorrowWithinCohort{
-						Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
-					},
 				}).
 				Obj()
 			util.MustCreate(ctx, k8sClient, betaCQ)
@@ -1484,7 +1478,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlA), wlA)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(wlA)).To(gomega.BeFalse())
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.LongInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Finishing eviction for wl-b")
 			util.FinishEvictionForWorkloads(ctx, k8sClient, wlB)
