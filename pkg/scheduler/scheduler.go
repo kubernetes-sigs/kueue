@@ -906,7 +906,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		// by an event.
 		_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
 		s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
-		if afs.Enabled(s.admissionFairSharing) {
+		if s.shouldApplyEntryPenalty(e) {
 			s.updateEntryPenalty(log, e, subtract)
 		}
 		if apierrors.IsNotFound(err) {
@@ -939,7 +939,7 @@ func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.Clus
 	e.markAssumed()
 	log.V(2).Info("Workload assumed in the cache")
 
-	if afs.Enabled(s.admissionFairSharing) {
+	if s.shouldApplyEntryPenalty(e) {
 		s.updateEntryPenalty(log, e, add)
 		// Trigger LocalQueue reconciler to apply any pending penalties
 		s.queues.NotifyWorkloadUpdateWatchers(e.Obj, cacheWl)
@@ -1182,6 +1182,25 @@ func filterByNames(requests corev1.ResourceList, allowed sets.Set[corev1.Resourc
 		}
 	}
 	return filtered
+}
+
+// shouldApplyEntryPenalty gates both the entry-penalty push at assume time and
+// its rollback on a failed admission patch, so the two always pair up.
+func (s *Scheduler) shouldApplyEntryPenalty(e *entry) bool {
+	if !afs.Enabled(s.admissionFairSharing) {
+		return false
+	}
+	// Only UsageBasedAdmissionFairSharing ClusterQueues settle, so a penalty pushed
+	// for any other ClusterQueue would never be consolidated and would inflate the
+	// LocalQueue's usage until restart.
+	if e.clusterQueueSnapshot.AdmissionScope.AdmissionMode != kueue.UsageBasedAdmissionFairSharing {
+		return false
+	}
+	// A second scheduling pass (delayed topology, node-failure replacement)
+	// re-assumes an already-reserved workload whose penalty was pushed on the first
+	// pass. One reservation contributes at most one push, mirroring netUsage, which
+	// books no additional quota for an already-reserved workload.
+	return !workload.HasQuotaReservation(e.Obj)
 }
 
 func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
