@@ -544,7 +544,6 @@ func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entr
 	wlCopy := migrationVictim.Obj.DeepCopy()
 	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 	message := fmt.Sprintf("Evicted to accommodate a workload (UID: %s) due to migration to more favorable resource flavor", e.Obj.UID)
-	// TODO: evaluate (just synchronious)
 	err := workloadevict.Evict(
 		ctx, s.client, s.recorder, wlCopy, kueue.WorkloadEvictedByFlavorMigration, message, "", s.clock, exposeLqMetrics, s.roleTracker, s.customLabels,
 		workloadevict.WithLooseOnApply(), workloadevict.WithRetryOnConflict(),
@@ -585,7 +584,6 @@ func (s *Scheduler) waitForPodsReadyIfNeeded(ctx context.Context, log logr.Logge
 	}
 	log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 	wl := e.Obj.DeepCopy()
-	// TODO: evaluate (Synchronous + Channel Wait)
 	if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		reason := workload.UnadmittedWorkloadReasonWithFallback(
 			kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
@@ -862,7 +860,6 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled", "unhealthyNodes", unhealthyNodes)
 	msg := fmt.Sprintf("Workload was evicted as there was no replacement for unhealthy node(s): %s", unhealthyNodesCsv)
 	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
-	// TODO: evaluate (just synchronous)
 	if err := workloadevict.Evict(
 		ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock, exposeLqMetrics, s.roleTracker, s.customLabels,
 		workloadevict.WithLooseOnApply(), workloadevict.WithRetryOnConflict(),
@@ -1103,7 +1100,6 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	if s.queues.QueueSecondPassIfNeeded(ctx, e.Obj, e.SecondPassIteration) {
 		log.V(2).
 			Info("Workload re-queued for second pass", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "status", e.status)
-			// TODO: evaluate (just synchronous)
 		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "SecondPassFailed", "SecondPassFailed", api.TruncateEventMessage(e.inadmissibleMsg))
 		return
 	}
@@ -1118,7 +1114,6 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		}
 		wl := e.Obj.DeepCopy()
 		condReason := workload.UnadmittedWorkloadReasonWithFallback(e.quotaReservedReason, "Pending")
-		// TODO: evaluate (just synchronous)
 		if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := workload.UnsetQuotaReservationWithCondition(wl, condReason, e.inadmissibleMsg, s.clock.Now())
 			if workload.PropagateResourceRequests(wl, &e.Info, s.resourceFormatter) {
