@@ -733,59 +733,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 			// under https://github.com/kubernetes-sigs/kueue/issues/8141#issuecomment-3641580881
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, useAllAlphaWl)
 		})
-
-		ginkgo.It("Should prevent other workloads from stealing quota when a preemptor is waiting for multiple evictions", func() {
-			ginkgo.By("Creating initial workloads in cohort to consume all quota")
-			wlA := utiltestingapi.MakeWorkload("wl-a", ns.Name).
-				Queue("alpha-lq").
-				Priority(midPriority).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			wlB := utiltestingapi.MakeWorkload("wl-b", ns.Name).
-				Queue("beta-lq").
-				Priority(midPriority).
-				Request(corev1.ResourceCPU, "3").
-				Obj()
-			util.MustCreate(ctx, k8sClient, wlA)
-			util.MustCreate(ctx, k8sClient, wlB)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA, wlB)
-
-			ginkgo.By("Creating a lower priority workload that will wait in queue")
-			wlC := utiltestingapi.MakeWorkload("wl-c", ns.Name).
-				Queue("beta-lq").
-				Priority(lowPriority).
-				Request(corev1.ResourceCPU, "1").
-				Obj()
-			util.MustCreate(ctx, k8sClient, wlC)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlC)
-
-			ginkgo.By("Creating a high priority preemptor requesting cohort's full capacity")
-			preemptor := utiltestingapi.MakeWorkload("preemptor", ns.Name).
-				Queue("alpha-lq").
-				Priority(highPriority).
-				Request(corev1.ResourceCPU, "4").
-				Obj()
-			util.MustCreate(ctx, k8sClient, preemptor)
-
-			ginkgo.By("Verifying both wl-a and wl-b are marked for preemption")
-			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlA, wlB)
-
-			ginkgo.By("Finishing eviction only for wl-a")
-			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
-
-			ginkgo.By("Ensuring the lower priority workload wl-c is not admitted in the interim")
-			gomega.Consistently(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlC), wlC)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(wlC)).To(gomega.BeFalse())
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
-
-			ginkgo.By("Finishing eviction for wl-b")
-			util.FinishEvictionForWorkloads(ctx, k8sClient, wlB)
-
-			ginkgo.By("Verifying preemptor is admitted")
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlC)
-		})
 	})
 
 	ginkgo.Context("When most quota is in a shared ClusterQueue in a cohort", func() {
@@ -1447,6 +1394,106 @@ var _ = ginkgo.Describe("Preemption", func() {
 				util.MustCreate(ctx, k8sClient, lowWl2)
 				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl2)
 			})
+		})
+	})
+
+	ginkgo.Context("Preemptor is waiting for multiple evictions", func() {
+		var (
+			cohort *kueue.Cohort
+			cq1    *kueue.ClusterQueue
+			cq2    *kueue.ClusterQueue
+			lq1    *kueue.LocalQueue
+			lq2    *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cohort = utiltestingapi.MakeCohort(kueue.CohortReference("thrash-cohort-" + ns.Name)).Obj()
+			util.MustCreate(ctx, k8sClient, cohort)
+
+			cq1 = utiltestingapi.MakeClusterQueue("cq-1-" + ns.Name).
+				Cohort(kueue.CohortReference(cohort.Name)).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("alpha").
+						Resource(corev1.ResourceCPU, "10").
+						Resource(corev1.ResourceMemory, "0").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq1)
+
+			cq2 = utiltestingapi.MakeClusterQueue("cq-2-" + ns.Name).
+				Cohort(kueue.CohortReference(cohort.Name)).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("alpha").
+						Resource(corev1.ResourceCPU, "0").
+						Resource(corev1.ResourceMemory, "10").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq2)
+
+			lq1 = utiltestingapi.MakeLocalQueue("lq-1", ns.Name).ClusterQueue(cq1.Name).Obj()
+			util.MustCreate(ctx, k8sClient, lq1)
+
+			lq2 = utiltestingapi.MakeLocalQueue("lq-2", ns.Name).ClusterQueue(cq2.Name).Obj()
+			util.MustCreate(ctx, k8sClient, lq2)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+		})
+
+		ginkgo.It("Should prevent other workloads from stealing quota", func() {
+			ginkgo.By("Creating initial workloads in cohort to consume CPU quota")
+			wlA := utiltestingapi.MakeWorkload("wl-a", ns.Name).
+				Queue(kueue.LocalQueueName(lq2.Name)).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			wlB := utiltestingapi.MakeWorkload("wl-b", ns.Name).
+				Queue(kueue.LocalQueueName(lq2.Name)).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, wlA)
+			util.MustCreate(ctx, k8sClient, wlB)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA, wlB)
+
+			ginkgo.By("Creating a low priority preemptor requesting CPU and Memory")
+			preemptor := utiltestingapi.MakeWorkload("preemptor", ns.Name).
+				Queue(kueue.LocalQueueName(lq1.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "10").
+				Request(corev1.ResourceMemory, "10").
+				Obj()
+			util.MustCreate(ctx, k8sClient, preemptor)
+
+			ginkgo.By("Verifying both wl-a and wl-b are marked for preemption")
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlA, wlB)
+
+			ginkgo.By("Finishing eviction only for wl-a")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+
+			ginkgo.By("Ensuring the higher priority workload wl-a is not re-admitted in the interim")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlA), wlA)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(wlA)).To(gomega.BeFalse())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing eviction for wl-b")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlB)
+
+			ginkgo.By("Verifying preemptor is admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
 		})
 	})
 })
