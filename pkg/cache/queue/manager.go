@@ -997,7 +997,7 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 
 func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration int) {
 	log := ctrl.LoggerFrom(ctx)
-	if features.Enabled(features.TASReplaceMultipleFailedNodes) {
+	if features.Enabled(features.TASReplaceMultipleFailedNodes) && workload.HasTopologyAssignmentWithUnhealthyNode(w) {
 		var latest kueue.Workload
 		if err := m.client.Get(ctx, client.ObjectKeyFromObject(w), &latest); err == nil {
 			w = &latest
