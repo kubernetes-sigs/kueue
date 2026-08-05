@@ -50,6 +50,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestPodsReady(t *testing.T) {
@@ -3110,6 +3111,401 @@ func TestReconciler(t *testing.T) {
 					Reason:    "UpdatedWorkload",
 					Message:   "Updated workload priority class: ns/job",
 				},
+			},
+		},
+		// An elastic Job whose pod set counts have not changed takes the workload
+		// slice path, which returns the existing slice as compatible before the
+		// priority is reconciled.
+		// The negative half of the slice path, pinned here rather than only in
+		// envtest: a reconcile against a fake client is synchronous, so the failed
+		// lookup is observed rather than inferred from the absence of a change.
+		"the workload slice is left alone when the class does not exist": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass("missing-wpc").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass("missing-wpc").
+				UID("test-uid").
+				Obj(),
+			// missing-wpc is deliberately absent.
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantErr: cmpopts.AnyError,
+		},
+		"the workload slice is updated when priority class has changed for suspended job": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(highWPCWrapper.Value).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated workload priority class: ns/job",
+				},
+			},
+		},
+		// EnsureWorkloadSlices writes the new counts itself before reporting the
+		// slice compatible, so the priority update is a second write to the same
+		// object in one reconcile.
+		"the workload slice takes both a count and a priority class change": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(highWPCWrapper.Value).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated workload priority class: ns/job",
+				},
+			},
+		},
+		// A scale-up waiting for quota keeps the admitted slice alongside its
+		// pending replacement, and normalizeActiveSlices returns only the
+		// replacement. Both are live, so both have to follow the label.
+		"the workload slice and its retained admitted slice both follow the label": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("admitted", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("replacement", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("admitted", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(highWPCWrapper.Value).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("replacement", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(highWPCWrapper.Value).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			// Compared in order, and the reconciler visits the returned slice
+			// before the retained admitted one.
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated workload priority class: ns/replacement",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated workload priority class: ns/admitted",
+				},
+			},
+		},
+		// Scaling up an admitted slice returns no slice at all, because a new one
+		// is about to be created. The admitted slice is still live and still has to
+		// follow the label.
+		"the admitted slice follows the label when a scale-up replaces it": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("admitted", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("admitted", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(highWPCWrapper.Value).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("job-job-2e122", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(highWPCWrapper.Value).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					Annotations(map[string]string{
+						constants.ElasticJobAnnotation:              "true",
+						kueue.WorkloadSliceNameAnnotation:           "admitted",
+						workloadslicing.WorkloadSliceReplacementFor: "ns/admitted",
+					}).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated workload priority class: ns/admitted",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/job-job-2e122",
+				},
+			},
+		},
+		// Deterministic counterpart to the integration spec: the fake client has no
+		// such class, so the lookup cannot race with anything creating it.
+		// The API server refuses to add a priorityClassRef once quota is reserved,
+		// so the slice keeps none. The fake client does not enforce that rule, which
+		// is what makes this case fail if the reconciler stops skipping the slice.
+		"a workload slice that reserved quota with no priority class is left alone": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
 			},
 		},
 		"shouldn't update workload when priority class no changes": {
