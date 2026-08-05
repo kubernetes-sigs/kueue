@@ -117,11 +117,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling skipping recently failed flav
 		// Quota on each flavor exceeds what its single node can host, so flavor-1 keeps
 		// looking admissible to the quota-only flavor selection after its node is full.
 		//
-		// The test runs with a specific preemption policy. Neither offers
+		// The ClusterQueue sets two preemption policies. Neither policy offers
 		// flavor-1 a way forward here: the two Workloads share a priority, so
-		// LowerPriority finds no victim within the ClusterQueue, and no other
-		// ClusterQueue in the Cohort is borrowing for ReclaimWithinCohort to reclaim
-		// from. That combination is what leaves a Workload pinned to one flavor.
+		// WithinClusterQueue: LowerPriority finds no victim in the ClusterQueue, and
+		// no other ClusterQueue in the Cohort is borrowing, so ReclaimWithinCohort
+		// has nothing to reclaim. That combination leaves a Workload pinned to one
+		// flavor.
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			Cohort("tas-cohort").
 			Preemption(kueue.ClusterQueuePreemption{
