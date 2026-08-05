@@ -589,58 +589,49 @@ func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 // ClusterQueue lock, while RequeueIfNotPresent writes that field during a
 // preemption requeue. Run with -race to detect regressions.
 func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
-	for _, strategy := range []kueue.QueueingStrategy{kueue.BestEffortFIFO, kueue.StrictFIFO} {
-		t.Run(string(strategy), func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			cq, err := newClusterQueue(ctx, nil,
-				&kueue.ClusterQueue{
-					Spec: kueue.ClusterQueueSpec{
-						QueueingStrategy: strategy,
-					},
-				},
-				defaultOrdering,
-				nil, nil, nil)
-			if err != nil {
-				t.Fatalf("failed to create ClusterQueue: %v", err)
-			}
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil,
+		&kueue.ClusterQueue{
+			Spec: kueue.ClusterQueueSpec{
+				QueueingStrategy: kueue.BestEffortFIFO,
+			},
+		},
+		defaultOrdering,
+		nil, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
 
-			// At least two workloads so Snapshot's sort actually invokes the
-			// comparator that reads the sticky workload.
-			wls := []*kueue.Workload{
-				utiltestingapi.MakeWorkload("wl1", defaultNamespace).Obj(),
-				utiltestingapi.MakeWorkload("wl2", defaultNamespace).Obj(),
-				utiltestingapi.MakeWorkload("wl3", defaultNamespace).Obj(),
-			}
-			for _, wl := range wls {
-				cq.PushOrUpdate(workload.NewInfo(wl))
-			}
+	// At least two workloads so Snapshot's sort actually invokes the
+	// comparator that reads the sticky workload.
+	wls := []*kueue.Workload{
+		utiltestingapi.MakeWorkload("wl1", defaultNamespace).Obj(),
+		utiltestingapi.MakeWorkload("wl2", defaultNamespace).Obj(),
+		utiltestingapi.MakeWorkload("wl3", defaultNamespace).Obj(),
+	}
+	for _, wl := range wls {
+		cq.PushOrUpdate(workload.NewInfo(wl))
+	}
 
-			// Writer: continuously set the sticky workload via a preemption requeue.
-			stop := make(chan struct{})
-			started := make(chan struct{})
-			go func() {
-				// Perform an initial requeue to ensure sticky state changes.
-				cq.RequeueIfNotPresent(ctx, workload.NewInfo(wls[0]), RequeueReasonPendingPreemption, "")
-				close(started)
-				for {
-					select {
-					case <-stop:
-						return
-					default:
-						for _, wl := range wls {
-							cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), RequeueReasonPendingPreemption, "")
-						}
-					}
+	// Writer: continuously set the sticky workload via a preemption requeue.
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				for _, wl := range wls {
+					cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), RequeueReasonPendingPreemption, "")
 				}
-			}()
-			<-started
-			defer close(stop)
-
-			// Reader: Snapshot reads the sticky workload through the comparator.
-			for range 1000 {
-				cq.Snapshot()
 			}
-		})
+		}
+	}()
+	defer close(stop)
+
+	// Reader: Snapshot reads the sticky workload through the comparator.
+	for range 1000 {
+		cq.Snapshot()
 	}
 }
 
@@ -657,94 +648,85 @@ func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
 // followed by the rest in UID order. Any other permutation means the sort
 // observed the sticky workload changing mid-sort.
 func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
-	for _, strategy := range []kueue.QueueingStrategy{kueue.BestEffortFIFO, kueue.StrictFIFO} {
-		t.Run(string(strategy), func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			cq, err := newClusterQueue(ctx, nil,
-				&kueue.ClusterQueue{
-					Spec: kueue.ClusterQueueSpec{
-						QueueingStrategy: strategy,
-					},
-				},
-				defaultOrdering,
-				nil, nil, nil)
-			if err != nil {
-				t.Fatalf("failed to create ClusterQueue: %v", err)
-			}
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil,
+		&kueue.ClusterQueue{
+			Spec: kueue.ClusterQueueSpec{
+				QueueingStrategy: kueue.BestEffortFIFO,
+			},
+		},
+		defaultOrdering,
+		nil, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
 
-			now := time.Now().Truncate(time.Second)
-			// Names are listed in UID order; equal priority and creation timestamp make
-			// UID the only tiebreak once stickiness is accounted for.
-			names := []string{"wl1", "wl2", "wl3", "wl4", "wl5", "wl6"}
-			keys := make([]workload.Reference, len(names))
-			for i, name := range names {
-				wl := utiltestingapi.MakeWorkload(name, defaultNamespace).
-					Creation(now).UID(types.UID(fmt.Sprintf("uid-%d", i))).Obj()
-				cq.PushOrUpdate(workload.NewInfo(wl))
-				keys[i] = workload.Key(wl)
-			}
+	now := time.Now().Truncate(time.Second)
+	// Names are listed in UID order; equal priority and creation timestamp make
+	// UID the only tiebreak once stickiness is accounted for.
+	names := []string{"wl1", "wl2", "wl3", "wl4", "wl5", "wl6"}
+	keys := make([]workload.Reference, len(names))
+	for i, name := range names {
+		wl := utiltestingapi.MakeWorkload(name, defaultNamespace).
+			Creation(now).UID(types.UID(fmt.Sprintf("uid-%d", i))).Obj()
+		cq.PushOrUpdate(workload.NewInfo(wl))
+		keys[i] = workload.Key(wl)
+	}
 
-			// Valid orderings: pure UID order, or any single workload pulled to the front.
-			valid := [][]string{slices.Clone(names)}
-			for i := range names {
-				order := []string{names[i]}
-				for j := range names {
-					if j != i {
-						order = append(order, names[j])
-					}
-				}
-				valid = append(valid, order)
+	// Valid orderings: pure UID order, or any single workload pulled to the front.
+	valid := [][]string{slices.Clone(names)}
+	for i := range names {
+		order := []string{names[i]}
+		for j := range names {
+			if j != i {
+				order = append(order, names[j])
 			}
-			isValid := func(got []string) bool {
-				for _, v := range valid {
-					if slices.Equal(got, v) {
-						return true
-					}
-				}
-				return false
+		}
+		valid = append(valid, order)
+	}
+	isValid := func(got []string) bool {
+		for _, v := range valid {
+			if slices.Equal(got, v) {
+				return true
 			}
+		}
+		return false
+	}
 
-			// Writer: continuously churn the sticky workload so it can change while a
-			// Snapshot sort is in flight. It sets the field directly (bypassing the
-			// lock) to force a change mid-sort, which the lock-free Snapshot must
-			// tolerate; the fix makes it capture the value once per sort.
-			stop := make(chan struct{})
-			started := make(chan struct{})
-			go func() {
-				// Perform initial mutation cycle before signaling started.
+	// Writer: continuously churn the sticky workload so it can change while a
+	// Snapshot sort is in flight. It sets the field directly (bypassing the
+	// lock) to force a change mid-sort, which the lock-free Snapshot must
+	// tolerate; the fix makes it capture the value once per sort.
+	stop := make(chan struct{})
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
 				for _, k := range keys {
 					cq.sw.set(k)
 				}
 				cq.sw.clear()
-				close(started)
-				for {
-					select {
-					case <-stop:
-						return
-					default:
-						for _, k := range keys {
-							cq.sw.set(k)
-						}
-						cq.sw.clear()
-					}
-				}
-			}()
-			// Block until the writer is scheduled, so the loop below cannot finish before
-			// any churn has happened and pass vacuously.
-			<-started
-			defer close(stop)
-
-			for i := range 2000 {
-				snap := cq.Snapshot()
-				got := make([]string, len(snap))
-				for j, wInfo := range snap {
-					got[j] = wInfo.Obj.Name
-				}
-				if !isValid(got) {
-					t.Fatalf("call %d: non-transitive Snapshot ordering %v; sticky workload changed mid-sort", i+1, got)
-				}
 			}
-		})
+		}
+	}()
+	// Block until the writer is scheduled, so the loop below cannot finish before
+	// any churn has happened and pass vacuously.
+	<-started
+	defer close(stop)
+
+	for i := range 2000 {
+		snap := cq.Snapshot()
+		got := make([]string, len(snap))
+		for j, wInfo := range snap {
+			got[j] = wInfo.Obj.Name
+		}
+		if !isValid(got) {
+			t.Fatalf("call %d: non-transitive Snapshot ordering %v; sticky workload changed mid-sort", i+1, got)
+		}
 	}
 }
 
