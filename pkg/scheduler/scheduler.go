@@ -24,6 +24,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -80,7 +81,7 @@ type Scheduler struct {
 	cache                   *schdcache.Cache
 	client                  client.Client
 	recorder                events.EventRecorder
-	admissionRoutineWrapper routine.Wrapper
+	schedulerRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
 	fairSharing             *config.FairSharing
@@ -206,7 +207,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 			options.preemptionExpectations,
 			options.customLabels,
 		),
-		admissionRoutineWrapper: routine.DefaultWrapper,
+		schedulerRoutineWrapper: routine.DefaultWrapper,
 		workloadOrdering:        wo,
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
@@ -233,7 +234,7 @@ func (s *Scheduler) NeedLeaderElection() bool {
 }
 
 func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
-	s.admissionRoutineWrapper = wrapper
+	s.schedulerRoutineWrapper = wrapper
 }
 
 // markSkipped marks the entry as skipped for this cycle. The flavor
@@ -349,9 +350,13 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	phaseStartTime = s.clock.Now()
 	preemptedWorkloads := make(preemption.PreemptedWorkloads)
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
+
+	wg := &sync.WaitGroup{}
 	for iterator.hasNext() {
-		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions)
+		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions, wg)
 	}
+	// Wait untill all processing is done and all entries are updated.
+	wg.Wait()
 
 	// 6. Requeue the heads that were not scheduled.
 	result := metrics.AdmissionResultInadmissible
@@ -379,6 +384,14 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	return wait.KeepGoing
 }
 
+func (s *Scheduler) runWithWaitGroup(wg *sync.WaitGroup, f func()) {
+	wg.Add(1)
+	s.schedulerRoutineWrapper.Run(func() {
+		defer wg.Done()
+		f()
+	})
+}
+
 // processEntry runs the admission pipeline for a single entry: TAS replacement,
 // preempt-mode pre-checks, fits/overlap checks, preemption issuance, pods-ready
 // gating, workload-slice replacement, and admission. State (entry status,
@@ -389,6 +402,7 @@ func (s *Scheduler) processEntry(
 	snapshot *schdcache.Snapshot,
 	preemptedWorkloads preemption.PreemptedWorkloads,
 	skippedPreemptions map[kueue.ClusterQueueReference]int,
+	wg *sync.WaitGroup,
 ) {
 	cq := snapshot.ClusterQueue(e.ClusterQueue)
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)))
@@ -416,7 +430,9 @@ func (s *Scheduler) processEntry(
 	mode := e.assignment.RepresentativeMode()
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
-		s.handleFailedTASReplacement(ctx, log, e)
+		s.runWithWaitGroup(wg, func() {
+			s.handleFailedTASReplacement(ctx, log, e)
+		})
 		return
 	}
 
@@ -483,12 +499,14 @@ func (s *Scheduler) processEntry(
 
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
 		if lessFavorableSibling := s.findAdmittedLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil {
-			if !s.isMigrationAllowed(cq, e, log) {
-				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
-				return
-			}
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
-			s.issueMigration(ctx, log, e, lessFavorableSibling)
+			s.runWithWaitGroup(wg, func() {
+				if !s.isMigrationAllowed(cq, e, log) {
+					e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+					return
+				}
+				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+				s.issueMigration(ctx, log, e, lessFavorableSibling)
+			})
 			return
 		}
 	}
@@ -524,6 +542,7 @@ func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entr
 	wlCopy := migrationVictim.Obj.DeepCopy()
 	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 	message := fmt.Sprintf("Evicted to accommodate a workload (UID: %s) due to migration to more favorable resource flavor", e.Obj.UID)
+	// TODO: evaluate (just synchronious)
 	err := workloadevict.Evict(
 		ctx, s.client, s.recorder, wlCopy, kueue.WorkloadEvictedByFlavorMigration, message, "", s.clock, exposeLqMetrics, s.roleTracker, s.customLabels,
 		workloadevict.WithLooseOnApply(), workloadevict.WithRetryOnConflict(),
@@ -564,6 +583,7 @@ func (s *Scheduler) waitForPodsReadyIfNeeded(ctx context.Context, log logr.Logge
 	}
 	log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
 	wl := e.Obj.DeepCopy()
+	// TODO: evaluate (Synchronous + Channel Wait)
 	if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		reason := workload.UnadmittedWorkloadReasonWithFallback(
 			kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
@@ -840,6 +860,7 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 	log.V(3).Info("Evicting workload after failed try to find a node replacement; TASFailedNodeReplacementFailFast enabled", "unhealthyNodes", unhealthyNodes)
 	msg := fmt.Sprintf("Workload was evicted as there was no replacement for unhealthy node(s): %s", unhealthyNodesCsv)
 	exposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
+	// TODO: evaluate (just synchronous)
 	if err := workloadevict.Evict(
 		ctx, s.client, s.recorder, wl, kueue.WorkloadEvictedDueToNodeFailures, msg, "", s.clock, exposeLqMetrics, s.roleTracker, s.customLabels,
 		workloadevict.WithLooseOnApply(), workloadevict.WithRetryOnConflict(),
@@ -913,7 +934,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	}
 
 	newWorkload := e.Obj.DeepCopy()
-	s.admissionRoutineWrapper.Run(func() {
+	s.schedulerRoutineWrapper.Run(func() {
 		err := workloadpatching.PatchAdmissionStatus(ctx, s.client, newWorkload, s.clock, func(wl *kueue.Workload) (bool, error) {
 			s.prepareWorkload(log, wl, cq, admission)
 			if features.Enabled(features.TopologyAwareScheduling) && workload.HasUnhealthyNodes(e.Obj) {
@@ -1073,6 +1094,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	if s.queues.QueueSecondPassIfNeeded(ctx, e.Obj, e.SecondPassIteration) {
 		log.V(2).
 			Info("Workload re-queued for second pass", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "status", e.status)
+			// TODO: evaluate (just synchronous)
 		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "SecondPassFailed", "SecondPassFailed", api.TruncateEventMessage(e.inadmissibleMsg))
 		return
 	}
@@ -1087,6 +1109,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		}
 		wl := e.Obj.DeepCopy()
 		condReason := workload.UnadmittedWorkloadReasonWithFallback(e.quotaReservedReason, "Pending")
+		// TODO: evaluate (just synchronous)
 		if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := workload.UnsetQuotaReservationWithCondition(wl, condReason, e.inadmissibleMsg, s.clock.Now())
 			if workload.PropagateResourceRequests(wl, &e.Info, s.resourceFormatter) {

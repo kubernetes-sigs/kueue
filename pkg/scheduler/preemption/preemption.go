@@ -235,6 +235,7 @@ func (p *Preemptor) IssuePreemptions(
 		message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
 		exposeLqMetrics := cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
+		// TODO: evaluate (Parallel Workers (Blocking))
 		err := workloadevict.Evict(
 			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
 			workloadevict.WithCustomPrepare(func(wl *kueue.Workload) {
@@ -255,6 +256,7 @@ func (p *Preemptor) IssuePreemptions(
 			"preemptorPath", preemptorPath, "preempteePath", preempteePath,
 			"preemptorEffectivePriority", preemptorEffPri, "preemptorBoost", preemptorBoost,
 			"targetEffectivePriority", targetEffPri, "targetBoost", targetBoost)
+		// TODO: evaluate (Parallel Workers (Blocking))
 		p.recorder.Eventf(target.WorkloadInfo.Obj, nil, corev1.EventTypeNormal, "Preempted", "Preempted",
 			message+fmt.Sprintf("; preemptor effective priority: %d (base: %d, boost: %d); preemptee effective priority: %d (base: %d, boost: %d)",
 				preemptorEffPri, preemptorBase, preemptorBoost, targetEffPri, targetBase, targetBoost))
