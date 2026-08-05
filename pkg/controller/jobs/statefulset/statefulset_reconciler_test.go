@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -68,6 +69,7 @@ func TestReconciler(t *testing.T) {
 		statefulSet     *appsv1.StatefulSet
 		pods            []corev1.Pod
 		workloads       []kueue.Workload
+		priorityClasses []client.Object
 		wantStatefulSet *appsv1.StatefulSet
 		wantPods        []corev1.Pod
 		wantWorkloads   []kueue.Workload
@@ -238,6 +240,81 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					OwnerReference(gvk, "sts", "sts-uid").
+					Obj(),
+			},
+		},
+		"should update WorkloadPriorityClass on an existing Workload": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(0).
+				Queue("lq").
+				WorkloadPriorityClass("high").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").
+					WorkloadPriorityClassRef("low").
+					Priority(10).
+					Obj(),
+			},
+			priorityClasses: []client.Object{
+				utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(0).
+				Queue("lq").
+				WorkloadPriorityClass("high").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").
+					WorkloadPriorityClassRef("high").
+					Priority(100).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonUpdatedWorkload,
+					Message:   fmt.Sprintf("Updated workload priority class: ns/%s", GetWorkloadName("sts-uid", "sts")),
+				},
+			},
+		},
+		"should not update manager-owned priority for a MultiKueue remote StatefulSet": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				WorkloadPriorityClass("low").
+				Label(kueue.MultiKueueOriginLabel, "manager").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					WorkloadPriorityClassRef("high").
+					Priority(100).
+					Obj(),
+			},
+			priorityClasses: []client.Object{
+				utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(10).Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				WorkloadPriorityClass("low").
+				Label(kueue.MultiKueueOriginLabel, "manager").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					WorkloadPriorityClassRef("high").
+					Priority(100).
 					Obj(),
 			},
 		},
@@ -693,7 +770,7 @@ func TestReconciler(t *testing.T) {
 				t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
 			}
 
-			objs := make([]client.Object, 0, len(tc.pods)+len(tc.workloads)+1)
+			objs := make([]client.Object, 0, len(tc.pods)+len(tc.workloads)+len(tc.priorityClasses)+1)
 			if tc.statefulSet != nil {
 				objs = append(objs, tc.statefulSet)
 			}
@@ -705,6 +782,7 @@ func TestReconciler(t *testing.T) {
 			for _, wl := range tc.workloads {
 				objs = append(objs, wl.DeepCopy())
 			}
+			objs = append(objs, tc.priorityClasses...)
 
 			kClient := clientBuilder.WithObjects(objs...).Build()
 
@@ -754,6 +832,55 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Events after reconcile (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestReconcilerReleasesReservationWhenPriorityUpdateFails(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	sts := statefulsettesting.MakeStatefulSet("sts", "ns").
+		UID("sts-uid").
+		Replicas(0).
+		Queue("lq").
+		WorkloadPriorityClass("missing").
+		Obj()
+	wl := utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+		Queue("lq").
+		OwnerReference(gvk, "sts", "sts-uid").
+		WorkloadPriorityClassRef("low").
+		Priority(10).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+		AdmittedAt(true, now).
+		Obj()
+
+	clientBuilder := utiltesting.NewClientBuilder().
+		WithObjects(sts, wl).
+		WithStatusSubresource(sts, wl)
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
+		t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
+	}
+	cl := clientBuilder.Build()
+	reconciler, err := NewReconciler(ctx, cl, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("NewReconciler() error: %v", err)
+	}
+
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sts)})
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("Reconcile() error = %v, want NotFound", err)
+	}
+
+	got := &kueue.Workload{}
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
+		t.Fatalf("failed to get workload: %v", err)
+	}
+	if got.Status.Admission != nil {
+		t.Fatalf("expected admission to be released, got %+v", got.Status.Admission)
+	}
+	cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadQuotaReserved)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != kueue.WorkloadOnHold {
+		t.Fatalf("unexpected quota reserved condition: %+v", cond)
 	}
 }
 

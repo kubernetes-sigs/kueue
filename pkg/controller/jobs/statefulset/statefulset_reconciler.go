@@ -18,6 +18,7 @@ package statefulset
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -265,15 +266,19 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
 	}
 
+	var priorityErr error
+	if _, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]; !isMultiKueueRemote {
+		priorityErr = jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, sts, nil, wl)
+	}
+
+	var lifecycleErr error
 	if shouldReleaseReservation {
-		return r.releaseScaleDownReservation(ctx, wl)
+		lifecycleErr = r.releaseScaleDownReservation(ctx, wl)
+	} else if shouldClearOnHold {
+		lifecycleErr = r.clearOnHold(ctx, wl)
 	}
 
-	if shouldClearOnHold {
-		return r.clearOnHold(ctx, wl)
-	}
-
-	return nil
+	return errors.Join(priorityErr, lifecycleErr)
 }
 
 func (r *Reconciler) clearOnHold(ctx context.Context, wl *kueue.Workload) error {
