@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -310,8 +311,8 @@ func (c *Controller) syncOwnedProvisionRequest(
 			for _, mergedPodSet := range mergedPodSets {
 				ptName := getProvisioningRequestPodTemplateName(requestName, mergedPodSet.Name)
 
-				pt := &corev1.PodTemplate{}
-				err := c.client.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: ptName}, pt)
+				pt := &corev1.PodTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: wl.Namespace, Name: ptName}}
+				err := c.client.Get(ctx, client.ObjectKeyFromObject(pt), pt)
 				if client.IgnoreNotFound(err) != nil {
 					return err
 				}
@@ -320,7 +321,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 					_, err := c.createPodTemplate(ctx, wl, ptName, mergedPodSet.PodSet, mergedPodSet.PodSetAssignment)
 					if err != nil {
 						msg := fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err)
-						return c.handleError(ctx, wl, ac, msg, err)
+						return c.handleError(ctx, wl, ac, pt, msg, err)
 					}
 				}
 
@@ -338,7 +339,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 
 			if err := c.client.Create(ctx, req); err != nil {
 				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
-				return c.handleError(ctx, wl, ac, msg, err)
+				return c.handleError(ctx, wl, ac, req, msg, err)
 			}
 			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created", "Created ProvisioningRequest: %q", req.Name)
 			activeOrLastPRForChecks[checkName] = req
@@ -350,7 +351,16 @@ func (c *Controller) syncOwnedProvisionRequest(
 	return nil
 }
 
-func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, msg string, err error) error {
+func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, obj client.Object, msg string, err error) error {
+	if apierrors.IsAlreadyExists(err) && c.isMissingInCache(ctx, obj) {
+		// The object exists on the API server but not yet in the cache, so an earlier reconcile
+		// created it and this one raced it. The message set below would outlive the state it
+		// describes: it stays on the admission check until another update replaces it, and every
+		// event built from that check appends it, up to the one reporting why a Workload was
+		// deactivated. Report nothing and leave the error to the caller.
+		ctrl.LoggerFrom(ctx).V(2).Info("Object already exists but is not in the cache yet, not recording the error", "reason", msg)
+		return err
+	}
 	c.record.Eventf(wl, nil, corev1.EventTypeWarning, "FailedCreate", "FailedCreate", api.TruncateEventMessage(msg))
 	patchErr := workload.PatchStatus(ctx, c.client, wl, kueue.ProvisioningRequestControllerName, func(wl *kueue.Workload) (bool, error) {
 		ac.Message = api.TruncateConditionMessage(msg)
@@ -358,6 +368,14 @@ func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *ku
 		return workload.SetAdmissionCheckState(&wl.Status.AdmissionChecks, *ac, c.clock), nil
 	})
 	return errors.Join(err, patchErr)
+}
+
+// isMissingInCache reports whether the object is absent from the cache. Paired with an
+// AlreadyExists from the API server it means the cache has not observed an object an earlier
+// reconcile created. Anything the cache can already see is left to the caller to report, since
+// there is no evidence that retrying resolves it. The object doubles as the target of the Get.
+func (c *Controller) isMissingInCache(ctx context.Context, obj client.Object) bool {
+	return apierrors.IsNotFound(c.client.Get(ctx, client.ObjectKeyFromObject(obj), obj))
 }
 
 func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, name string, ps *kueue.PodSet, psa *kueue.PodSetAssignment) (*corev1.PodTemplate, error) {
@@ -487,8 +505,12 @@ func containerUses(cont *corev1.Container, resourceSet sets.Set[corev1.ResourceN
 	return false
 }
 
+// updateCheckMessage sets the message of the check, reporting whether it changed. An empty message
+// is applied as well. Otherwise a message describing a previous state of the ProvisioningRequest
+// would not only be misleading in the Workload status, it would also be appended to the events
+// built from the check.
 func updateCheckMessage(checkState *kueue.AdmissionCheckState, message string) bool {
-	if message == "" || checkState.Message == message {
+	if checkState.Message == message {
 		return false
 	}
 	checkState.Message = message
@@ -618,6 +640,9 @@ func (c *Controller) syncCheckStates(
 						updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 					}
 				default:
+					// Nothing to report until the autoscaler sets a condition, and whatever the
+					// previous state left behind, notably a handleError message, no longer holds.
+					updated = updateCheckMessage(&checkState, "") || updated
 					updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 				}
 			}
