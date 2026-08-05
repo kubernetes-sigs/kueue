@@ -593,6 +593,9 @@ const (
 	// job so such a change is forwarded promptly instead of on the next periodic requeue.
 	MultiKueueRemoteSpecSync featuregate.Feature = "MultiKueueRemoteSpecSync"
 
+	// owner: @pajakd
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13320
+	//
 	// Enable recomputing preemption targets if they overlap with another workload's targets
 	// within the same scheduling cycle.
 	RecomputePreemptionTargetsUponOverlap featuregate.Feature = "RecomputePreemptionTargetsUponOverlap"
@@ -911,6 +914,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MultiKueueRemoteSpecSync: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
+
 	RecomputePreemptionTargetsUponOverlap: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
