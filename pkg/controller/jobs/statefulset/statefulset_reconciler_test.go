@@ -36,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -54,6 +55,14 @@ var (
 
 func TestReconciler(t *testing.T) {
 	now := time.Now()
+	createdWorkloadEvents := []utiltesting.EventRecord{
+		{
+			Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			EventType: corev1.EventTypeNormal,
+			Reason:    jobframework.ReasonCreatedWorkload,
+			Message:   fmt.Sprintf("Created Workload: ns/%s", GetWorkloadName("sts-uid", "sts")),
+		},
+	}
 	cases := map[string]struct {
 		featureGates    map[featuregate.Feature]bool
 		stsKey          client.ObjectKey
@@ -63,6 +72,7 @@ func TestReconciler(t *testing.T) {
 		wantStatefulSet *appsv1.StatefulSet
 		wantPods        []corev1.Pod
 		wantWorkloads   []kueue.Workload
+		wantEvents      []utiltesting.EventRecord
 		wantErr         error
 	}{
 		"statefulset not found": {
@@ -262,6 +272,7 @@ func TestReconciler(t *testing.T) {
 					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
 					Obj(),
 			},
+			wantEvents: createdWorkloadEvents,
 		},
 		"should create workload with TAS topology request when TAS enabled": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
@@ -299,6 +310,7 @@ func TestReconciler(t *testing.T) {
 					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
 					Obj(),
 			},
+			wantEvents: createdWorkloadEvents,
 		},
 		"should not create workload when replicas == 0": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
@@ -452,6 +464,7 @@ func TestReconciler(t *testing.T) {
 					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
 					Obj(),
 			},
+			wantEvents: createdWorkloadEvents,
 		},
 		"statefulset with multiple AdmissionGatedBy gates should propagate to workload": {
 			featureGates: map[featuregate.Feature]bool{
@@ -489,6 +502,151 @@ func TestReconciler(t *testing.T) {
 					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
 					Obj(),
 			},
+			wantEvents: createdWorkloadEvents,
+		},
+		"should emit an event when the AdmissionGatedBy annotation is propagated to an existing workload": {
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonUpdatedWorkload,
+					Message:   `Updated workload AdmissionGatedBy to "example.com/controller1"`,
+				},
+			},
+		},
+		"should propagate the AdmissionGatedBy annotation and emit an event alongside an owner reference update": {
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonUpdatedWorkload,
+					Message:   `Updated workload AdmissionGatedBy to "example.com/controller1"`,
+				},
+			},
+		},
+		"should emit an event when the AdmissionGatedBy annotation changes value": {
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller2").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonUpdatedWorkload,
+					Message:   `Updated workload AdmissionGatedBy to "example.com/controller2"`,
+				},
+			},
+		},
+		"should not propagate the AdmissionGatedBy annotation to an existing workload nor emit an event when the feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
 		},
 		"statefulset with AdmissionGatedBy annotation but feature gate disabled should not propagate": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false, features.AdmissionGatedBy: false},
@@ -522,6 +680,7 @@ func TestReconciler(t *testing.T) {
 					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
 					Obj(),
 			},
+			wantEvents: createdWorkloadEvents,
 		},
 	}
 	for name, tc := range cases {
@@ -550,7 +709,8 @@ func TestReconciler(t *testing.T) {
 
 			kClient := clientBuilder.WithObjects(objs...).Build()
 
-			reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+			recorder := &utiltesting.EventRecorder{}
+			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder)
 			if err != nil {
 				t.Errorf("Error creating the reconciler: %v", err)
 			}
@@ -589,6 +749,10 @@ func TestReconciler(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloadList.Items, baseCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+			}
+
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Events after reconcile (-want,+got):\n%s", diff)
 			}
 		})
 	}
