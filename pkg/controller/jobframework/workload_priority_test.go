@@ -243,7 +243,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 					st.before(t, ctx, cl)
 				}
 				live = readLive()
-				err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, live...)
+				err := updateWorkloadPriorities(ctx, cl, &utiltesting.EventRecorder{}, job, nil, live...)
 				switch {
 				case st.wantErr && err == nil:
 					t.Fatalf("invocation %d: want an error, got none", i)
