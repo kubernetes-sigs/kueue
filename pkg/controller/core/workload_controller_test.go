@@ -555,17 +555,26 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 			Active(true).
 			Request(corev1.ResourceCPU, "4")
 	}
+	// A reserved Workload's requests are read back from the admission rather than
+	// from the PodSets, so the assignment has to carry them: without it the
+	// settlement recomputes an empty penalty and the test cannot tell the
+	// transitions apart.
+	makeAdmission := func() *kueue.Admission {
+		return utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "rf", "4").Obj()).
+			Obj()
+	}
 	pending := makeWl().Obj()
 	quotaReserved := makeWl().
-		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+		ReserveQuotaAt(makeAdmission(), now).
 		Obj()
 	admitted := makeWl().
-		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+		ReserveQuotaAt(makeAdmission(), now).
 		AdmittedAt(true, now).
 		Obj()
 	deactivatedAdmitted := makeWl().
 		Active(false).
-		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+		ReserveQuotaAt(makeAdmission(), now).
 		AdmittedAt(true, now).
 		Obj()
 
@@ -626,7 +635,11 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 
 			// Seed the penalty with the same amount the settlement recomputes,
 			// mirroring the push done by the scheduler at assume time.
-			qManager.AfsEntryPenalties.Push(lqKey, afs.CalculateEntryPenalty(workload.NewInfo(tc.newWl).SumTotalRequests(), afsConfig))
+			seeded := afs.CalculateEntryPenalty(workload.NewInfo(tc.newWl).SumTotalRequests(), afsConfig)
+			if len(seeded) == 0 {
+				t.Fatal("the seeded penalty is empty, so the settlement would subtract nothing and every case would pass")
+			}
+			qManager.AfsEntryPenalties.Push(lqKey, seeded)
 
 			reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
 				ObjectOld: tc.oldWl.DeepCopy(),
