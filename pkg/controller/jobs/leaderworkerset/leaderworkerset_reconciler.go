@@ -446,7 +446,7 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 		}
 	}
 
-	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, wl, nil)
+	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)
 	if err != nil {
 		log.Error(err, "Failed to update workload priority")
 		return err
