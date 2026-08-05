@@ -18,6 +18,7 @@ package statefulset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -359,24 +360,31 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	if waitForPodsReadyUpdated {
 		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, sts)
 	}
+
+	var priorityErr error
+	if _, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]; !isMultiKueueRemote {
+		priorityErr = jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, sts, nil, wl)
+	}
+
 	if shouldPutOnHold {
 		hasActivePods, recheckAfter, err := r.hasActiveOwnedPods(ctx, sts, time.Now())
 		if err != nil {
-			return 0, err
+			return 0, errors.Join(priorityErr, err)
 		}
 		if hasActivePods {
 			ctrl.LoggerFrom(ctx).V(4).Info("Waiting for active StatefulSet Pods before putting Workload on hold",
 				"statefulSet", klog.KObj(sts), "workload", klog.KObj(wl))
-			return recheckAfter, nil
+			return recheckAfter, priorityErr
 		}
-		return 0, r.putWorkloadOnHold(ctx, wl)
+		return 0, errors.Join(priorityErr, r.putWorkloadOnHold(ctx, wl))
 	}
 
+	var lifecycleErr error
 	if shouldClearOnHold {
-		return 0, r.clearOnHold(ctx, wl)
+		lifecycleErr = r.clearOnHold(ctx, wl)
 	}
 
-	return 0, nil
+	return 0, errors.Join(priorityErr, lifecycleErr)
 }
 
 func (r *Reconciler) hasActiveOwnedPods(ctx context.Context, sts *appsv1.StatefulSet, now time.Time) (bool, time.Duration, error) {
