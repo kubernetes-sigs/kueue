@@ -988,7 +988,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
 				{Name: "wl_kind", SourceLabelKey: "workload-kind", SourceKind: ptr.To(config.SourceKindWorkload), TrackedValues: []string{"kind1", "kind2"}},
-				{Name: "wl_anno", SourceAnnotationKey: "workload-anno", SourceKind: ptr.To(config.SourceKindWorkload)},
+				{Name: "wl_anno", SourceAnnotationKey: "workload-anno", SourceKind: ptr.To(config.SourceKindWorkload), TrackedValues: []string{"anno1", "anno2"}},
 				{Name: "lq_label", SourceLabelKey: "lq-label", SourceKind: ptr.To(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
