@@ -232,7 +232,7 @@
   default: true
   stage: Beta
   from: "0.16"
-  to: "0.20"
+  to: "0.17"
 - feature: MultiKueueRedoAdmissionOnEvictionInWorker
   default: true
   stage: GA
