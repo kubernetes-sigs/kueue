@@ -937,9 +937,9 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 		live = append(live, retained)
 	}
 	// The quota-reserved/no-priorityClassRef legality check lives in
-	// updateWorkloadPriorities so the ordinary Job and LeaderWorkerSet paths, which
+	// UpdateWorkloadPriority so the ordinary Job and LeaderWorkerSet paths, which
 	// reach the shared helper without this caller's filtering, get the same guard.
-	return updateWorkloadPriorities(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), live...)
+	return UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), live...)
 }
 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
@@ -1107,7 +1107,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			}
 		}
 
-		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), match, getCustomPriorityClassFuncFromJob(job)); err != nil {
+		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), match); err != nil {
 			return nil, err
 		}
 	}
@@ -1174,20 +1174,16 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 	return false
 }
 
-// UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
-func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	return updateWorkloadPriorities(ctx, c, r, obj, customPriorityClassFunc, wl)
-}
-
-// updateWorkloadPriorities reconciles the priority of each workload that still
-// follows the object's priority-class label. The desired class is resolved once
-// for the whole set, so workloads that belong to one object cannot end up on
-// different values when the class is edited while they are being written; the
+// UpdateWorkloadPriority reconciles the priority of each workload that still
+// follows the object's kueue.x-k8s.io/priority-class label. Every workload
+// passed must belong to obj, since the desired class is resolved once for the
+// whole set: that is what stops workloads of one object from ending up on
+// different values when the class is edited while they are being written. The
 // resolved value is then applied to every eligible workload whose full priority
 // state has drifted, so a partial write followed by a class-value change still
 // converges on retry instead of leaving same-name workloads pinned to a stale
-// value.
-func updateWorkloadPriorities(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
+// value. The workloads are written one by one rather than atomically.
+func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	jobPriorityClassName := WorkloadPriorityClassName(obj)
 
