@@ -51,12 +51,16 @@ type celDeviceRequest struct {
 	selectors       []resourcev1.DeviceSelector
 }
 
+func isAdminAccessRequest(req *resourcev1.ExactDeviceRequest) bool {
+	return req.AdminAccess != nil && *req.AdminAccess
+}
+
 // countDevicesPerClass returns a resources.Requests representing the
 // total number of devices requested for each DeviceClass inside the provided
 // ResourceClaimSpec. Returns field errors for unsupported request features
-// (FirstAvailable, AdminAccess, AllocationMode All).
-func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.MapRequests, field.ErrorList) {
-	out := resources.MapRequests{}
+// (FirstAvailable, AllocationMode All). AdminAccess requests are skipped (zero quota).
+func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, field.ErrorList) {
+	out := resources.CreateEmpty()
 	if claimSpec == nil {
 		return out, nil
 	}
@@ -87,9 +91,8 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Ma
 		}
 
 		switch {
-		case req.Exactly.AdminAccess != nil && *req.Exactly.AdminAccess:
-			allErrs = append(allErrs, field.Invalid(devicesRequestsPath.Index(i).Child("exactly", "adminAccess"), nil, "AdminAccess is not supported"))
-			return nil, allErrs
+		case isAdminAccessRequest(req.Exactly):
+			continue
 		case req.Exactly.AllocationMode == resourcev1.DeviceAllocationModeAll:
 			allErrs = append(
 				allErrs,
@@ -119,7 +122,7 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Ma
 		// apiserver accepts up to MaxInt64), so accumulate with a saturating add
 		// (matching the scheduler's Amount arithmetic) rather than letting the
 		// sum wrap to a negative count.
-		out[dc] = utilmath.SaturatingAdd(out[dc], q)
+		out.Set(dc, utilmath.SaturatingAdd(out.GetValue(dc), q))
 	}
 	return out, nil
 }
@@ -209,7 +212,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 				return nil, allErrs
 			}
 
-			for dc, qty := range deviceCounts {
+			for dc, qty := range deviceCounts.Iter() {
 				logical, found := mapper.Lookup(dc)
 				if !found {
 					allErrs = append(allErrs, field.NotFound(
@@ -518,4 +521,20 @@ func validateCELSelectorsAgainstDevices(
 	}
 
 	return allErrs
+}
+
+// MergeDRAResources merges src into dst, summing resource quantities for
+// PodSets that appear in both maps. Returns the (possibly newly allocated) dst.
+func MergeDRAResources(dst, src map[kueue.PodSetReference]corev1.ResourceList) map[kueue.PodSetReference]corev1.ResourceList {
+	for podSetName, resources := range src {
+		if existing, ok := dst[podSetName]; ok {
+			dst[podSetName] = utilresource.MergeResourceListKeepSum(existing, resources)
+		} else {
+			if dst == nil {
+				dst = make(map[kueue.PodSetReference]corev1.ResourceList)
+			}
+			dst[podSetName] = resources
+		}
+	}
+	return dst
 }

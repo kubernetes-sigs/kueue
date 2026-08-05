@@ -17,8 +17,10 @@ limitations under the License.
 package job
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -29,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
@@ -59,15 +60,15 @@ const (
 	StoppingAnnotation                       = "kueue.x-k8s.io/stopping"
 )
 
-func init() {
-	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
+func RegisterIntegration(m *jobframework.IntegrationManager) error {
+	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:      SetupIndexes,
 		NewJob:            NewJob,
 		NewReconciler:     NewReconciler,
 		SetupWebhook:      SetupWebhook,
 		JobType:           &batchv1.Job{},
 		MultiKueueAdapter: &multiKueueAdapter{},
-	}))
+	})
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
@@ -217,24 +218,24 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 	parallelism := ptr.Deref(j.Spec.Parallelism, 1)
 	completions := ptr.Deref(j.Spec.Completions, parallelism)
 
-	// Indexed Job: derive the succeeded count from completedIndexes, ignoring
-	// indexes >= completions. After an elastic scale-down, Status.Succeeded may
-	// still include the removed indexes (kueue#13117).
-	succeeded := j.Status.Succeeded
+	terminalCount := j.Status.Succeeded
 	if ptr.Deref(j.Spec.CompletionMode, batchv1.NonIndexedCompletion) == batchv1.IndexedCompletion {
-		succeeded = completedIndexesCount(log, j.Status.CompletedIndexes, completions)
-		log.V(3).Info("Derived completed pods from completedIndexes for Indexed Job",
+		failedIndexes := ptr.Deref(j.Status.FailedIndexes, "")
+		terminalCount = terminalIndexesCount(log, j.Status.CompletedIndexes, failedIndexes, completions)
+		log.V(3).Info("Derived terminal pods from index status for Indexed Job",
 			"completedIndexes", j.Status.CompletedIndexes,
+			"failedIndexes", failedIndexes,
 			"completions", completions,
-			"derivedSucceeded", succeeded,
-			"statusSucceeded", j.Status.Succeeded)
+			"derivedTerminal", terminalCount,
+			"statusSucceeded", j.Status.Succeeded,
+			"statusFailed", j.Status.Failed)
 	}
 
-	// A single-pod Job or one with no completed pods has nothing to reclaim; so
+	// A single-pod Job or one with no terminal pods has nothing to reclaim; so
 	// does one whose remaining work still fills every parallel slot.
 	reclaimable := int32(0)
-	if parallelism > 1 && succeeded > 0 {
-		if remaining := max(completions-succeeded, 0); remaining < parallelism {
+	if parallelism > 1 && terminalCount > 0 {
+		if remaining := max(completions-terminalCount, 0); remaining < parallelism {
 			reclaimable = parallelism - remaining
 		}
 	}
@@ -242,7 +243,7 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 	log.V(3).Info("Computed reclaimable pods for Job",
 		"parallelism", parallelism,
 		"completions", completions,
-		"succeeded", succeeded,
+		"terminalCount", terminalCount,
 		"reclaimable", reclaimable)
 
 	if reclaimable == 0 {
@@ -254,33 +255,57 @@ func (j *Job) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 	}}, nil
 }
 
-// completedIndexesCount returns the number of indexes listed in an Indexed Job's
-// status.completedIndexes that are below completions. completedIndexes uses the
-// Kubernetes format: an ascending, comma-separated list of intervals where each
-// interval is a single index ("3") or an inclusive range ("3-5"), e.g. "1,3-5,7".
-// Capping the intervals at completions gives the number of completed pods within
-// the current pod set even while status.Succeeded is briefly stale after a
-// scale-down (kueue#13117).
-func completedIndexesCount(log logr.Logger, completedIndexes string, completions int32) int32 {
-	if completedIndexes == "" || completions <= 0 {
+type indexInterval struct {
+	first int
+	last  int
+}
+
+// terminalIndexesCount returns how many of an Indexed Job's indexes will never
+// run again: completed ones, plus failed ones that exhausted backoffLimitPerIndex.
+// Kueue can reclaim their quota. Indexes >= completions are ignored because an
+// elastic scale-down removed them, even if stale status still lists them (kueue#13117).
+func terminalIndexesCount(log logr.Logger, completedIndexes, failedIndexes string, completions int32) int32 {
+	if completions <= 0 {
 		return 0
 	}
+
 	limit := int(completions)
-	count := 0
-	for interval := range strings.SplitSeq(completedIndexes, ",") {
-		first, last, ok := parseIndexRange(log, interval)
-		if !ok {
+	var intervals []indexInterval
+	for _, indexes := range []string{completedIndexes, failedIndexes} {
+		if indexes == "" {
 			continue
 		}
-		last = min(last, limit-1)
-		if first <= last {
-			count += last - first + 1
+		for interval := range strings.SplitSeq(indexes, ",") {
+			first, last, ok := parseIndexRange(log, interval)
+			if !ok {
+				continue
+			}
+			last = min(last, limit-1)
+			if first <= last {
+				intervals = append(intervals, indexInterval{first: first, last: last})
+			}
 		}
+	}
+	// Older supported Kubernetes versions don't reject overlapping completed and
+	// failed index sets, so count their union to avoid reclaiming quota twice.
+	slices.SortFunc(intervals, func(a, b indexInterval) int {
+		return cmp.Compare(a.first, b.first)
+	})
+
+	count := 0
+	lastCounted := -1
+	for _, interval := range intervals {
+		firstUncounted := max(interval.first, lastCounted+1)
+		if firstUncounted > interval.last {
+			continue
+		}
+		count += interval.last - firstUncounted + 1
+		lastCounted = interval.last
 	}
 	return int32(count)
 }
 
-// parseIndexRange parses a single completedIndexes interval ("3" or "3-5") into
+// parseIndexRange parses a single index interval ("3" or "3-5") into
 // its inclusive [first, last] bounds. It returns ok=false and logs when the
 // interval is malformed or descending; the Job controller always writes
 // well-formed, ascending indexes, so a failure here signals unexpected status
@@ -289,19 +314,19 @@ func parseIndexRange(log logr.Logger, interval string) (first, last int, ok bool
 	firstStr, lastStr, isRange := strings.Cut(interval, "-")
 	first, err := strconv.Atoi(firstStr)
 	if err != nil {
-		log.V(3).Info("Ignoring malformed completedIndexes interval", "interval", interval, "error", err)
+		log.V(3).Info("Ignoring malformed index interval", "interval", interval, "error", err)
 		return 0, 0, false
 	}
 	last = first
 	if isRange {
 		if last, err = strconv.Atoi(lastStr); err != nil {
-			log.V(3).Info("Ignoring malformed completedIndexes interval", "interval", interval, "error", err)
+			log.V(3).Info("Ignoring malformed index interval", "interval", interval, "error", err)
 			return 0, 0, false
 		}
 	}
 	// first is never negative, so only a descending range like "5-3" is invalid.
 	if last < first {
-		log.V(3).Info("Ignoring descending completedIndexes interval", "interval", interval)
+		log.V(3).Info("Ignoring descending index interval", "interval", interval)
 		return 0, 0, false
 	}
 	return first, last, true

@@ -232,6 +232,16 @@ func TestCountInWithLimitingResource(t *testing.T) {
 			wantCount:            0,
 			wantLimitingResource: corev1.ResourceCPU,
 		},
+		"count above int32 is clamped to MaxInt32": {
+			requests: MapRequests{
+				corev1.ResourceMemory: 1,
+			},
+			capacity: MapRequests{
+				corev1.ResourceMemory: math.MaxInt32 + 1,
+			},
+			wantCount:            math.MaxInt32,
+			wantLimitingResource: corev1.ResourceMemory,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -290,6 +300,17 @@ func TestGreaterKeys(t *testing.T) {
 				"r4": 1,
 			},
 			want: nil,
+		},
+		"multiple_greater_sorted": {
+			a: MapRequests{
+				"r2": 2,
+				"r1": 2,
+			},
+			b: MapRequests{
+				"r2": 1,
+				"r1": 1,
+			},
+			want: []corev1.ResourceName{"r1", "r2"},
 		},
 	}
 	for name, tc := range cases {
@@ -522,14 +543,14 @@ func TestLazyRequests(t *testing.T) {
 				t.Errorf("expected cachedCreated=%t, got cached=%v", tc.wantCachedCreated, lazy.cached)
 			}
 
-			gotResult := ToMapRequests(lazy.Get())
+			gotResult := MapRequests(ToMap(lazy.Get()))
 			wantResult := tc.wantResult
 			if diff := cmp.Diff(wantResult, gotResult); diff != "" {
 				t.Errorf("unexpected Get() result, diff (-want +got):\n%s", diff)
 			}
 
 			if base != nil {
-				if diff := cmp.Diff(ToMapRequests(originalBase), ToMapRequests(base)); diff != "" {
+				if diff := cmp.Diff(MapRequests(ToMap(originalBase)), MapRequests(ToMap(base))); diff != "" {
 					t.Errorf("base map was mutated! diff (-want +got):\n%s", diff)
 				}
 			}
@@ -583,15 +604,8 @@ func TestFloorToZero(t *testing.T) {
 				r = &SliceRequests{}
 			}
 			r.FloorToZero()
-			// SliceRequests omits zero values on conversion; compare non-zero
-			// entries and assert no negatives remain.
-			got := ToMapRequests(r)
-			want := MapRequests{}
-			for k, v := range tc.want {
-				if v != 0 {
-					want[k] = v
-				}
-			}
+			got := MapRequests(ToMap(r))
+			want := tc.want
 			if len(want) == 0 {
 				want = nil
 			}
@@ -701,6 +715,37 @@ func TestMapRequestsGetValue(t *testing.T) {
 	}
 }
 
+func TestMapRequestsSet(t *testing.T) {
+	cases := map[string]struct {
+		initial  MapRequests
+		setKey   corev1.ResourceName
+		setValue int64
+		want     MapRequests
+	}{
+		"update existing resource": {
+			initial:  MapRequests{corev1.ResourceCPU: 1000},
+			setKey:   corev1.ResourceCPU,
+			setValue: 2000,
+			want:     MapRequests{corev1.ResourceCPU: 2000},
+		},
+		"insert new resource": {
+			initial:  MapRequests{corev1.ResourceCPU: 1000},
+			setKey:   corev1.ResourceMemory,
+			setValue: 1024,
+			want:     MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 1024},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := maps.Clone(tc.initial)
+			m.Set(tc.setKey, tc.setValue)
+			if diff := cmp.Diff(tc.want, m); diff != "" {
+				t.Errorf("Set mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestMapRequestsClone(t *testing.T) {
 	t.Run("nil map clone", func(t *testing.T) {
 		var m MapRequests
@@ -729,4 +774,82 @@ func TestMapRequestsClone(t *testing.T) {
 			t.Errorf("original map was mutated after modifying clone")
 		}
 	})
+}
+
+func TestToMap(t *testing.T) {
+	cases := map[string]struct {
+		req  Requests
+		want MapRequests
+	}{
+		"nil requests": {
+			req:  nil,
+			want: nil,
+		},
+		"empty MapRequests": {
+			req:  MapRequests{},
+			want: nil,
+		},
+		"non-empty MapRequests": {
+			req:  MapRequests{corev1.ResourceCPU: 1000},
+			want: MapRequests{corev1.ResourceCPU: 1000},
+		},
+		"SliceRequests with non-zero values": {
+			req:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}),
+			want: MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048},
+		},
+		"MapRequests with zero values": {
+			req:  MapRequests{corev1.ResourceCPU: 0},
+			want: MapRequests{corev1.ResourceCPU: 0},
+		},
+		"SliceRequests with zero values": {
+			req:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 0}),
+			want: MapRequests{corev1.ResourceCPU: 0},
+		},
+		"SliceRequests with mixed zero and non-zero values": {
+			req:  NewSliceRequests(MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 0}),
+			want: MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 0},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := MapRequests(ToMap(tc.req))
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("ToMap mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestRequestsEqual(t *testing.T) {
+	m1 := MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}
+	m2 := MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048}
+	m3 := MapRequests{corev1.ResourceCPU: 1000}
+
+	s1 := NewSliceRequests(m1)
+	s2 := NewSliceRequests(m2)
+	s3 := NewSliceRequests(m3)
+
+	tests := map[string]struct {
+		a, b Requests
+		want bool
+	}{
+		"both nil":                {a: nil, b: nil, want: true},
+		"nil and empty Map":       {a: nil, b: MapRequests{}, want: false},
+		"nil and empty Slice":     {a: nil, b: NewSliceRequests(MapRequests{}), want: false},
+		"equal MapRequests":       {a: m1, b: m2, want: true},
+		"equal SliceRequests":     {a: s1, b: s2, want: true},
+		"equal Map and Slice":     {a: m1, b: s2, want: true},
+		"equal Slice and Map":     {a: s1, b: m2, want: true},
+		"different MapRequests":   {a: m1, b: m3, want: false},
+		"different SliceRequests": {a: s1, b: s3, want: false},
+		"different Map and Slice": {a: m1, b: s3, want: false},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := Equal(tc.a, tc.b); got != tc.want {
+				t.Errorf("Equal() = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }

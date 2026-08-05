@@ -17,6 +17,8 @@ limitations under the License.
 package resources
 
 import (
+	"iter"
+
 	corev1 "k8s.io/api/core/v1"
 )
 
@@ -24,14 +26,26 @@ import (
 type Requests interface {
 	Clone() Requests
 	ScaledUp(f int64) Requests
+	ScaledDown(f int64) Requests
 	Add(other Requests)
 	Sub(other Requests)
+	Divide(f int64)
+	Mul(f int64)
 	CountIn(capacity Requests) int32
 	CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName)
 	GetValue(name corev1.ResourceName) int64
+	Set(name corev1.ResourceName, val int64)
 	ForEach(fn func(name corev1.ResourceName, val int64))
+	Iter() iter.Seq2[corev1.ResourceName, int64]
 	Len() int
 	IsEmpty() bool
 	// FloorToZero replaces negative resource values with zero.
 	FloorToZero()
+	ToResourceList(formatter *ResourceFormatter) corev1.ResourceList
+	// GreaterKeys returns the keys where the receiver is greater than other,
+	// sorted alphabetically for deterministic output.
+	GreaterKeys(other Requests) []corev1.ResourceName
+	// GreaterKeysRL returns the keys where the receiver is greater than the
+	// ResourceList value, sorted alphabetically for deterministic output.
+	GreaterKeysRL(rl corev1.ResourceList) []corev1.ResourceName
 }

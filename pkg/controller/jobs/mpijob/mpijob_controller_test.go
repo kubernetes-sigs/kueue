@@ -325,6 +325,19 @@ func TestPodSets(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
+		"nil launcher replica spec is skipped": {
+			job: func() *MPIJob {
+				job := (*MPIJob)(jobTemplate.Clone().Obj())
+				job.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher] = nil
+				return job
+			}(),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)), 3).
+					PodSpec(jobTemplate.Clone().Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Spec).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -359,9 +372,10 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	baseJob := testingmpijob.MakeMPIJob("mpijob", "ns").GenericLauncherAndWorker()
 
 	testCases := map[string]struct {
-		job         *MPIJob
-		podSetsInfo []podset.PodSetInfo
-		wantChanged bool
+		job             *MPIJob
+		podSetsInfo     []podset.PodSetInfo
+		wantChanged     bool
+		wantRestoredFor kfmpi.MPIReplicaType
 	}{
 		"more podSetsInfo than replica types is a no-op": {
 			job:         (*MPIJob)(baseJob.Clone().Obj()),
@@ -381,12 +395,107 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			},
 			wantChanged: true,
 		},
+		"nil launcher replica spec restores only the worker": {
+			job: func() *MPIJob {
+				job := (*MPIJob)(baseJob.Clone().Obj())
+				job.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher] = nil
+				return job
+			}(),
+			podSetsInfo: []podset.PodSetInfo{
+				{NodeSelector: map[string]string{"restored": "true"}},
+			},
+			wantChanged:     true,
+			wantRestoredFor: kfmpi.MPIReplicaTypeWorker,
+		},
+		"nil worker replica spec restores only the launcher": {
+			job: func() *MPIJob {
+				job := (*MPIJob)(baseJob.Clone().Obj())
+				job.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker] = nil
+				return job
+			}(),
+			podSetsInfo: []podset.PodSetInfo{
+				{NodeSelector: map[string]string{"restored": "true"}},
+			},
+			wantChanged:     true,
+			wantRestoredFor: kfmpi.MPIReplicaTypeLauncher,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			if gotChanged := tc.job.RestorePodSetsInfo(t.Context(), tc.podSetsInfo); gotChanged != tc.wantChanged {
 				t.Errorf("RestorePodSetsInfo() = %v, want %v", gotChanged, tc.wantChanged)
+			}
+			if tc.wantRestoredFor != "" {
+				gotNodeSelector := tc.job.Spec.MPIReplicaSpecs[tc.wantRestoredFor].Template.Spec.NodeSelector
+				if diff := cmp.Diff(map[string]string{"restored": "true"}, gotNodeSelector); diff != "" {
+					t.Errorf("NodeSelector for %s mismatch (-want +got):\n%s", tc.wantRestoredFor, diff)
+				}
+			}
+		})
+	}
+}
+
+func TestRunWithPodSetsInfo(t *testing.T) {
+	baseJob := testingmpijob.MakeMPIJob("mpijob", "ns").GenericLauncherAndWorker()
+
+	testCases := map[string]struct {
+		job            *MPIJob
+		podSetsInfo    []podset.PodSetInfo
+		wantErr        bool
+		wantAssignedTo kfmpi.MPIReplicaType
+	}{
+		"mismatched length returns an error": {
+			job:         (*MPIJob)(baseJob.Clone().Obj()),
+			podSetsInfo: []podset.PodSetInfo{{}},
+			wantErr:     true,
+		},
+		"matching length runs the job": {
+			job: (*MPIJob)(baseJob.Clone().Obj()),
+			podSetsInfo: []podset.PodSetInfo{
+				{NodeSelector: map[string]string{"assigned": "true"}},
+				{NodeSelector: map[string]string{"assigned": "true"}},
+			},
+			wantErr: false,
+		},
+		"nil launcher replica spec only assigns the worker": {
+			job: func() *MPIJob {
+				job := (*MPIJob)(baseJob.Clone().Obj())
+				job.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher] = nil
+				return job
+			}(),
+			podSetsInfo: []podset.PodSetInfo{
+				{NodeSelector: map[string]string{"assigned": "true"}},
+			},
+			wantErr:        false,
+			wantAssignedTo: kfmpi.MPIReplicaTypeWorker,
+		},
+		"nil worker replica spec only assigns the launcher": {
+			job: func() *MPIJob {
+				job := (*MPIJob)(baseJob.Clone().Obj())
+				job.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker] = nil
+				return job
+			}(),
+			podSetsInfo: []podset.PodSetInfo{
+				{NodeSelector: map[string]string{"assigned": "true"}},
+			},
+			wantErr:        false,
+			wantAssignedTo: kfmpi.MPIReplicaTypeLauncher,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			err := tc.job.RunWithPodSetsInfo(ctx, nil, tc.podSetsInfo)
+			if gotErr := err != nil; gotErr != tc.wantErr {
+				t.Errorf("RunWithPodSetsInfo() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if tc.wantAssignedTo != "" {
+				gotNodeSelector := tc.job.Spec.MPIReplicaSpecs[tc.wantAssignedTo].Template.Spec.NodeSelector
+				if diff := cmp.Diff(map[string]string{"assigned": "true"}, gotNodeSelector); diff != "" {
+					t.Errorf("NodeSelector for %s mismatch (-want +got):\n%s", tc.wantAssignedTo, diff)
+				}
 			}
 		})
 	}

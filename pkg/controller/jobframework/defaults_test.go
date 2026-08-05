@@ -35,7 +35,8 @@ import (
 )
 
 func TestWorkloadShouldBeSuspended(t *testing.T) {
-	t.Cleanup(EnableIntegrationsForTest(t, "batch/job"))
+	integrationManager := newDefaultsIntegrationManager(t)
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).UID("parent").Queue("default").Obj()
@@ -101,7 +102,7 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			suspend, err := WorkloadShouldBeSuspended(ctx, tc.obj, client, tc.manageJobsWithoutQueueName, namespaceSelector)
+			suspend, err := integrationManager.WorkloadShouldBeSuspended(ctx, tc.obj, client, tc.manageJobsWithoutQueueName, namespaceSelector)
 			if err != nil {
 				t.Errorf("Got error: %v", err)
 			}
@@ -112,8 +113,66 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 	}
 }
 
+func TestApplyDefaultLocalQueue(t *testing.T) {
+	integrationManager := newDefaultsIntegrationManager(t)
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
+	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
+	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
+	ls := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      corev1.LabelMetadataName,
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   []string{unmanagedNamespace.Name},
+			},
+		},
+	}
+	namespaceSelector, _ := metav1.LabelSelectorAsSelector(ls)
+
+	cases := map[string]struct {
+		job            *batchv1.Job
+		wantQueueLabel string
+	}{
+		"job in managed namespace gets default queue label": {
+			job:            utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
+			wantQueueLabel: "default",
+		},
+		"job in unmanaged namespace does not get default queue label": {
+			job:            utiltestingjob.MakeJob("test-job", unmanagedNamespace.Name).Obj(),
+			wantQueueLabel: "",
+		},
+		"job in managed namespace with existing queue label is not overwritten": {
+			job:            utiltestingjob.MakeJob("test-job", managedNamespace.Name).Queue("other").Obj(),
+			wantQueueLabel: "other",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			builder := utiltesting.NewClientBuilder()
+			builder.WithObjects(managedNamespace, unmanagedNamespace)
+			cl := builder.Build()
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			defaultQueueExist := func(ns string) bool {
+				return true
+			}
+
+			if err := integrationManager.ApplyDefaultLocalQueue(ctx, cl, tc.job, defaultQueueExist, namespaceSelector); err != nil {
+				t.Fatalf("ApplyDefaultLocalQueue() returned error: %v", err)
+			}
+
+			got := tc.job.Labels[constants.QueueLabel]
+			if got != tc.wantQueueLabel {
+				t.Errorf("queue label: got %q, want %q", got, tc.wantQueueLabel)
+			}
+		})
+	}
+}
+
 func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
-	t.Cleanup(EnableIntegrationsForTest(t, "batch/job"))
+	integrationManager := newDefaultsIntegrationManager(t)
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
 	parent := utiltestingjob.MakeJob("parent", "default").UID("parent").Queue("default").Obj()
 
 	defaultWPC := &kueue.WorkloadPriorityClass{
@@ -175,11 +234,25 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 				builder = builder.WithObjects(tc.wpcObjects...)
 			}
 			k8sClient := builder.Build()
-			ApplyDefaultWorkloadPriorityClass(ctx, k8sClient, tc.job)
+			integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, k8sClient, tc.job)
 			got := tc.job.GetLabels()[constants.WorkloadPriorityClassLabel]
 			if got != tc.wantPriorityClassLabel {
 				t.Errorf("unexpected priority class label: got %q, want %q", got, tc.wantPriorityClassLabel)
 			}
 		})
 	}
+}
+
+func newDefaultsIntegrationManager(t *testing.T) *IntegrationManager {
+	t.Helper()
+	manager := NewIntegrationManager()
+	if err := manager.RegisterIntegration("batch/job", IntegrationCallbacks{
+		GVK:           batchv1.SchemeGroupVersion.WithKind("Job"),
+		NewReconciler: testNewReconciler,
+		SetupWebhook:  testSetupWebhook,
+		JobType:       &batchv1.Job{},
+	}); err != nil {
+		t.Fatalf("RegisterIntegration() error = %v", err)
+	}
+	return manager
 }

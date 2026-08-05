@@ -18,7 +18,6 @@ package flavorassigner
 
 import (
 	"fmt"
-	"maps"
 	"slices"
 
 	"github.com/go-logr/logr"
@@ -30,6 +29,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -122,11 +122,6 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 			}
 		}
 	}
-	var podSetGroupName *string
-	if podSet.TopologyRequest != nil {
-		podSetGroupName = podSet.TopologyRequest.PodSetGroupName
-	}
-
 	return &schdcache.TASPodSetRequests{
 		Count:              podCount,
 		SinglePodRequests:  singlePodRequests,
@@ -134,9 +129,17 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 		PodSetUpdates:      podSetUpdates,
 		Flavor:             *tasFlvr,
 		Implied:            isTASImplied,
-		PodSetGroupName:    podSetGroupName,
+		PodSetGroupName:    podSetGroupName(podSet),
 		PreviousAssignment: previousAssignment,
 	}, nil
+}
+
+// podSetGroupName returns ps's PodSetGroupName, or nil if ps has no TopologyRequest.
+func podSetGroupName(ps *kueue.PodSet) *string {
+	if ps.TopologyRequest == nil {
+		return nil
+	}
+	return ps.TopologyRequest.PodSetGroupName
 }
 
 func onlyTASFlavor(
@@ -162,7 +165,7 @@ func onlyTASFlavor(
 	return nil, &MultipleTASFlavorsAssignedError{Flavors: sets.List(flavors)}
 }
 
-func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor, rg *schdcache.ResourceGroup) *string {
+func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor, rg *resourcegroups.ResourceGroup) *string {
 	if isTASRequested(ps, cq) {
 		if isTASImplied(ps, cq) {
 			// If this is a TAS-only CQ, then we don't need to check the flavor because
@@ -204,8 +207,14 @@ func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kue
 
 // hasOverlapWithPodRequestedResources checks if the PodSet's resource requests overlap with the specified flavor resources.
 func hasOverlapWithPodRequestedResources(ps *kueue.PodSet, flavorResources sets.Set[corev1.ResourceName]) bool {
-	requests := resources.NewMapRequestsFromPodSpec(&ps.Template.Spec)
-	return flavorResources.HasAny(slices.Collect(maps.Keys(requests))...)
+	requests := resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+	has := false
+	requests.ForEach(func(name corev1.ResourceName, _ int64) {
+		if flavorResources.Has(name) {
+			has = true
+		}
+	})
+	return has
 }
 
 // isTASImplied returns true if TAS is requested implicitly.

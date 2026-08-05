@@ -319,9 +319,12 @@ func normalizeActiveSlices(
 		if wl == selectedWorkload || wl == latestWithQuotaReservation {
 			continue
 		}
-		log.V(2).Info("Finishing out-of-sync workload slice", "workload", workload.Key(wl))
-		if err := workloadfinish.Finish(ctx, clnt, wl, kueue.WorkloadFinishedReasonOutOfSync,
-			"The workload slice is out of sync with its parent job", clk); err != nil {
+		reason, message := kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"
+		if _, replaced := replacements[workload.Key(wl)]; replaced {
+			reason, message = kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice"
+		}
+		log.V(2).Info("Finishing workload slice", "workload", workload.Key(wl), "reason", reason)
+		if err := workloadfinish.Finish(ctx, clnt, wl, reason, message, clk); err != nil {
 			return nil, err
 		}
 	}

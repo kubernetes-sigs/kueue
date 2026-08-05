@@ -100,7 +100,7 @@ func BenchmarkTASFlavorSnapshot(b *testing.B) {
 						Request(corev1.ResourceMemory, "1Gi").
 						StatusPhase(corev1.PodRunning).
 						Obj()
-					tasCache.Update(pod, log)
+					tasCache.UpdateNonTASUsage(pod, log)
 				}
 			}
 

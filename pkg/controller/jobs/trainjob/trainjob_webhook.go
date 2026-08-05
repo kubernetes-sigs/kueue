@@ -34,6 +34,7 @@ import (
 )
 
 type TrainJobWebhook struct {
+	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
@@ -45,6 +46,7 @@ type TrainJobWebhook struct {
 func SetupTrainJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &TrainJobWebhook{
+		integrationManager:           options.IntegrationManager,
 		client:                       mgr.GetClient(),
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
@@ -72,10 +74,12 @@ func (w *TrainJobWebhook) Default(ctx context.Context, obj *kftrainerapi.TrainJo
 	log := ctrl.LoggerFrom(ctx).WithName("trainjob-webhook")
 	log.V(5).Info("Applying defaults")
 
-	jobframework.ApplyDefaultLocalQueue(trainJob.Object(), w.queues.DefaultLocalQueueExist)
-	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, trainJob.Object())
+	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, trainJob.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
+	w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, trainJob.Object())
 	jobframework.ApplyDefaultForManagedBy(trainJob, w.queues, w.cache, log)
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, trainJob.Object(), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
+	suspend, err := w.integrationManager.WorkloadShouldBeSuspended(ctx, trainJob.Object(), w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector)
 	if err != nil {
 		return err
 	}

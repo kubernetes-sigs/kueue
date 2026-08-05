@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
@@ -108,11 +109,12 @@ func controllersSetup(
 	preemptionExpectations *expectations.Store,
 	opts ...jobframework.Option,
 ) (*schdcache.Cache, *qcache.Manager, *config.Configuration) {
+	integrationManager := jobcontrollers.NewIntegrationManager()
 	cCache := schdcache.New(mgr.GetClient())
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
 	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
-	opts = append(opts, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	opts = append(opts, jobframework.WithIntegrationManager(integrationManager), jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 
 	reconciler, err := mpijob.NewReconciler(
 		ctx,
@@ -129,7 +131,7 @@ func controllersSetup(
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = mpijob.SetupMPIJobWebhook(mgr, opts...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	jobframework.EnableIntegration(mpijob.FrameworkName)
+	integrationManager.EnableIntegration(mpijob.FrameworkName)
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
 	failedCtrl, err := core.SetupControllers(

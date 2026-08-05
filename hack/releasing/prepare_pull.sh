@@ -168,7 +168,7 @@ CHANGELOG_FILE="${REPO_ROOT}/CHANGELOG/CHANGELOG-${MAJOR_MINOR}.md"
 declare -r CHANGELOG_FILE
 
 # shellcheck disable=SC2016
-CHANGELOG=$(echo "${RELEASE_ISSUE_BODY}" | sed -n '/^```markdown$/,/^```$/p' | sed '/^```markdown$/d;/^```$/d')
+CHANGELOG=$(echo "${RELEASE_ISSUE_BODY}" | sed -n '/<!-- release-changelog-start -->/,/<!-- release-changelog-end -->/p' | sed -n '/^```markdown$/,/^```$/p' | sed '/^```markdown$/d;/^```$/d')
 if [ -z "$CHANGELOG" ]; then
   echo "!!! No changelog found. Please update issue and add changelog."
 fi
@@ -302,6 +302,7 @@ function make_pr() {
   pr_text=$(cat <<EOF
 #### What type of PR is this?
 /kind cleanup
+/area release
 
 #### What this PR does / why we need it:
 $3.

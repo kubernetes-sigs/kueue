@@ -17,6 +17,8 @@ limitations under the License.
 package queue
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -31,6 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -414,6 +418,67 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 	}
 }
 
+func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	lqLookupErr := errors.New("temporary LocalQueue lookup error")
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(
+			utiltestingapi.MakeLocalQueue("higher-usage", defaultNamespace).Obj(),
+			utiltestingapi.MakeLocalQueue("lower-usage", defaultNamespace).Obj(),
+		).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if key.Name == "unavailable" {
+					return lqLookupErr
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+	afsConsumedResources := queueafs.NewAfsConsumedResources()
+	afsConsumedResources.Set("default/higher-usage", corev1.ResourceList{resourceGPU: resource.MustParse("20")}, now)
+	afsConsumedResources.Set("default/lower-usage", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+
+	cq, err := newClusterQueue(
+		ctx,
+		cl,
+		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
+		defaultOrdering,
+		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1}},
+		nil,
+		afsConsumedResources,
+	)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	// Put the unavailable LocalQueue last so the usage cache is partially
+	// populated before its lookup fails. The priorities reproduce the
+	// contradictory ordering from Kueue#12534: fair sharing puts lower-usage
+	// before higher-usage, while base ordering puts higher-usage before
+	// unavailable and unavailable before lower-usage.
+	elements := []*workload.Info{
+		workload.NewInfo(utiltestingapi.MakeWorkload("higher-usage", defaultNamespace).
+			Queue("higher-usage").Priority(3).Creation(now).UID("uid-2").Obj()),
+		workload.NewInfo(utiltestingapi.MakeWorkload("lower-usage", defaultNamespace).
+			Queue("lower-usage").Priority(1).Creation(now).UID("uid-1").Obj()),
+		workload.NewInfo(utiltestingapi.MakeWorkload("unavailable", defaultNamespace).
+			Queue("unavailable").Priority(2).Creation(now).UID("uid-3").Obj()),
+	}
+
+	cq.snapshotSort(elements)
+
+	got := make([]string, len(elements))
+	for i, wInfo := range elements {
+		got[i] = wInfo.Obj.Name
+	}
+	want := []string{"higher-usage", "unavailable", "lower-usage"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("unexpected base ordering (-want,+got):\n%s", diff)
+	}
+}
+
 func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
@@ -476,6 +541,45 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 		if !slices.Equal(got, validA) && !slices.Equal(got, validB) {
 			t.Fatalf("call %d: invalid ordering %v (expected %v or %v)", i+1, got, validA, validB)
 		}
+	}
+}
+
+func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	afsConsumedResources := queueafs.NewAfsConsumedResources()
+	afsConsumedResources.Set("default/existing", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsConsumedResources.Set("default/missing", corev1.ResourceList{resourceGPU: resource.MustParse("15")}, now)
+
+	cq, err := newClusterQueue(
+		ctx,
+		utiltesting.NewClientBuilder().
+			WithObjects(utiltestingapi.MakeLocalQueue("existing", defaultNamespace).Obj()).
+			Build(),
+		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
+		defaultOrdering,
+		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1}},
+		nil,
+		afsConsumedResources,
+	)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	// Base ordering favors the missing queue by priority, while fair sharing with
+	// the default weight favors the existing queue by usage (10 < 15).
+	for _, wl := range []*kueue.Workload{
+		utiltestingapi.MakeWorkload("existing-low-priority", defaultNamespace).
+			Queue("existing").Priority(1).Creation(now).UID("uid-1").Obj(),
+		utiltestingapi.MakeWorkload("missing-high-priority", defaultNamespace).
+			Queue("missing").Priority(2).Creation(now).UID("uid-2").Obj(),
+	} {
+		cq.PushOrUpdate(workload.NewInfo(wl))
+	}
+
+	got := cq.Snapshot()
+	if got[0].Obj.Name != "existing-low-priority" {
+		t.Errorf("workload from missing LocalQueue should use the default weight: got %q first", got[0].Obj.Name)
 	}
 }
 
@@ -670,18 +774,125 @@ func TestPendingResources(t *testing.T) {
 	}
 
 	// Sum should equal wl1 + wl2 + wl3: CPU = 2+1+3 = 6000m, Memory = 1Gi+512Mi+2Gi.
-	wantCPU := wl1.TotalRequests[0].Requests[corev1.ResourceCPU] +
-		wl2.TotalRequests[0].Requests[corev1.ResourceCPU] +
-		wl3.TotalRequests[0].Requests[corev1.ResourceCPU]
-	wantMemory := wl1.TotalRequests[0].Requests[corev1.ResourceMemory] +
-		wl2.TotalRequests[0].Requests[corev1.ResourceMemory] +
-		wl3.TotalRequests[0].Requests[corev1.ResourceMemory]
+	wantCPU := wl1.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU) +
+		wl2.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU) +
+		wl3.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU)
+	wantMemory := wl1.TotalRequests[0].Requests.GetValue(corev1.ResourceMemory) +
+		wl2.TotalRequests[0].Requests.GetValue(corev1.ResourceMemory) +
+		wl3.TotalRequests[0].Requests.GetValue(corev1.ResourceMemory)
 	if got[corev1.ResourceCPU] != wantCPU {
 		t.Errorf("CPU mismatch: want %d, got %d", wantCPU, got[corev1.ResourceCPU])
 	}
 	if got[corev1.ResourceMemory] != wantMemory {
 		t.Errorf("memory mismatch: want %d, got %d", wantMemory, got[corev1.ResourceMemory])
 	}
+}
+
+// TestPendingResourcesAfterLocalQueueResync verifies the invariant that a
+// pending workload is tracked in exactly one bucket: an AddFromLocalQueue
+// resync must not push a workload that is already tracked as inadmissible
+// into the heap, and pendingResourcesTotal must count it exactly once
+// through the follow-up transitions.
+func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+
+	tests := map[string]struct {
+		beforeResync       func(t *testing.T, cq *ClusterQueue, wInfo *workload.Info)
+		afterResync        func(cq *ClusterQueue, wInfo *workload.Info)
+		wantInHeap         bool
+		wantInInadmissible bool
+		wantInInflight     bool
+		wantPendingActive  int
+		wantCPU            func(wInfo *workload.Info) int64
+	}{
+		"the workload stays tracked as inadmissible": {
+			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
+				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+			},
+			wantInInadmissible: true,
+			wantCPU:            singleWorkloadCPU,
+		},
+		"requeuing all inadmissible workloads moves it to the heap": {
+			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
+				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+			},
+			afterResync: func(cq *ClusterQueue, _ *workload.Info) {
+				cq.namespaceSelector = labels.Everything()
+				queueInadmissibleWorkloads(ctx, cq, utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace)))
+			},
+			wantInHeap:        true,
+			wantPendingActive: 1,
+			wantCPU:           singleWorkloadCPU,
+		},
+		"deleting the workload removes it and its resources": {
+			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
+				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+			},
+			afterResync: func(cq *ClusterQueue, wInfo *workload.Info) {
+				cq.Delete(log, workloadKey(wInfo))
+			},
+			wantCPU: func(*workload.Info) int64 { return 0 },
+		},
+		"the workload stays tracked as inflight": {
+			beforeResync: func(t *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
+				cq.PushOrUpdate(wInfo)
+				if popped := cq.Pop(); popped == nil {
+					t.Fatal("expected to pop a workload")
+				}
+			},
+			wantInInflight:    true,
+			wantPendingActive: 1,
+			wantCPU:           singleWorkloadCPU,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+			ps := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Request(corev1.ResourceCPU, "1")
+			wInfo := workload.NewInfo(utiltestingapi.MakeWorkload("workload", defaultNamespace).
+				PodSets(*ps.Obj()).
+				Creation(now).Obj())
+			key := workloadKey(wInfo)
+
+			tc.beforeResync(t, cq, wInfo)
+			lq := &LocalQueue{items: map[workload.Reference]*workload.Info{
+				key: wInfo,
+			}}
+			if added := cq.AddFromLocalQueue(lq, nil, nil); added {
+				t.Error("AddFromLocalQueue() = true, want false; the workload is already tracked")
+			}
+
+			if tc.afterResync != nil {
+				tc.afterResync(cq, wInfo)
+			}
+
+			inHeap := cq.heap.GetByKey(key) != nil
+			inInadmissible := cq.inadmissibleWorkloads.hasKey(key)
+			inInflight := cq.inflight != nil && workloadKey(cq.inflight) == key
+			if inHeap != tc.wantInHeap {
+				t.Errorf("in heap = %v, want %v", inHeap, tc.wantInHeap)
+			}
+			if inInadmissible != tc.wantInInadmissible {
+				t.Errorf("in inadmissibleWorkloads = %v, want %v", inInadmissible, tc.wantInInadmissible)
+			}
+			if inInflight != tc.wantInInflight {
+				t.Errorf("in inflight = %v, want %v", inInflight, tc.wantInInflight)
+			}
+			if got := cq.pendingActive(); got != tc.wantPendingActive {
+				t.Errorf("pending active workloads = %d, want %d", got, tc.wantPendingActive)
+			}
+			if gotCPU, wantCPU := cq.pendingResources()[corev1.ResourceCPU], tc.wantCPU(wInfo); gotCPU != wantCPU {
+				t.Errorf("pending CPU = %d, want %d", gotCPU, wantCPU)
+			}
+		})
+	}
+}
+
+func singleWorkloadCPU(wInfo *workload.Info) int64 {
+	return wInfo.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU)
 }
 
 func TestPendingInLocalQueueCountsInflight(t *testing.T) {

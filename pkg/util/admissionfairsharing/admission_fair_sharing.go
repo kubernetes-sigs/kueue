@@ -17,11 +17,15 @@ limitations under the License.
 package admissionfairsharing
 
 import (
+	"context"
 	"maps"
 	"math"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -62,6 +66,21 @@ func LQWeightAsFloat64(lq *kueue.LocalQueue) float64 {
 	return 1
 }
 
+// ResolveLQWeight returns the fair-sharing weight of the referenced LocalQueue.
+// A missing LocalQueue falls back to the default weight (1.0) so that its
+// Workloads keep participating in fair-sharing comparisons.
+func ResolveLQWeight(ctx context.Context, c client.Client, lqObjKey client.ObjectKey) (float64, error) {
+	var lq kueue.LocalQueue
+	if err := c.Get(ctx, lqObjKey, &lq); err != nil {
+		if apierrors.IsNotFound(err) {
+			ctrl.LoggerFrom(ctx).V(3).Info("LocalQueue is missing, gracefully falling back to the default weight (1.0)", "localQueue", lqObjKey)
+			return 1, nil
+		}
+		return 0, err
+	}
+	return LQWeightAsFloat64(&lq), nil
+}
+
 // CalculateUsage computes fair-sharing usage from consumed resources and penalties.
 // Keys are iterated in sorted order for deterministic results.
 func CalculateUsage(consumed, penalty corev1.ResourceList, lqWeight float64, resWeights map[corev1.ResourceName]float64) float64 {
@@ -74,6 +93,10 @@ func CalculateUsage(consumed, penalty corev1.ResourceList, lqWeight float64, res
 			weight = 1
 		}
 		usage += weight * resVal.AsApproximateFloat64()
+	}
+	// Avoid dividing by a non-positive weight: 0/0 is NaN, which would sort the queue first instead of last.
+	if lqWeight <= 0 {
+		return math.Inf(1)
 	}
 	return usage / lqWeight
 }

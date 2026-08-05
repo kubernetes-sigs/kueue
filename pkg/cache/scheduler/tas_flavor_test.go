@@ -17,6 +17,8 @@ limitations under the License.
 package scheduler
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -45,17 +47,17 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 					{
 						Values: []string{"domain1"},
 						Count:  2,
-						SinglePodRequests: resources.MapRequests{
+						SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 2,
-						},
+						}),
 					},
 				})
 			},
 			wantUsage: map[utiltas.TopologyDomainID]resources.Requests{
-				"domain1": resources.MapRequests{
+				"domain1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:  4,
 					corev1.ResourcePods: 2,
-				},
+				}),
 			},
 		},
 		{
@@ -66,9 +68,9 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 					{
 						Values: []string{"domain1"},
 						Count:  1,
-						SinglePodRequests: resources.MapRequests{
+						SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 1,
-						},
+						}),
 					},
 				})
 				// Self-healing add (replaces existing usage)
@@ -76,21 +78,21 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 					{
 						Values: []string{"domain2"},
 						Count:  2,
-						SinglePodRequests: resources.MapRequests{
+						SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 3,
-						},
+						}),
 					},
 				})
 			},
 			wantUsage: map[utiltas.TopologyDomainID]resources.Requests{
-				"domain1": resources.MapRequests{
+				"domain1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:  0,
 					corev1.ResourcePods: 0,
-				},
-				"domain2": resources.MapRequests{
+				}),
+				"domain2": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:  6,
 					corev1.ResourcePods: 2,
-				},
+				}),
 			},
 		},
 		{
@@ -100,18 +102,18 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 					{
 						Values: []string{"domain1"},
 						Count:  1,
-						SinglePodRequests: resources.MapRequests{
+						SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 1,
-						},
+						}),
 					},
 				})
 				cache.removeUsage(logr, wlKey)
 			},
 			wantUsage: map[utiltas.TopologyDomainID]resources.Requests{
-				"domain1": resources.MapRequests{
+				"domain1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 					corev1.ResourceCPU:  0,
 					corev1.ResourcePods: 0,
-				},
+				}),
 			},
 		},
 		{
@@ -132,9 +134,46 @@ func TestTASFlavorCacheAddAndRemoveUsage(t *testing.T) {
 
 			tc.operations(cache)
 
-			if diff := cmp.Diff(tc.wantUsage, cache.usage, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantUsage, cache.usage, cmpopts.EquateEmpty(), cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("Unexpected usage (-want +got):\n%s", diff)
 			}
 		})
 	}
+}
+
+// TestTASFlavorCacheNodeLabelsConcurrentAccess reproduces the data race between
+// the ResourceFlavor informer handler updating the cached node labels and the
+// node event handlers reading them. It only fails under `go test -race`.
+func TestTASFlavorCacheNodeLabelsConcurrentAccess(t *testing.T) {
+	const (
+		iterations = 1000
+		readers    = 4
+	)
+	const labelKey = "cloud.provider.com/node-group"
+
+	cache := &TASFlavorCache{
+		flavor: flavorInformation{
+			NodeLabels: map[string]string{labelKey: "group-0"},
+		},
+	}
+	nodeLabels := map[string]string{labelKey: "group-0"}
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for i := range iterations {
+			cache.updateNodeLabels(map[string]string{labelKey: fmt.Sprintf("group-%d", i)})
+		}
+	})
+	matches := make([]int, readers)
+	for r := range readers {
+		wg.Go(func() {
+			for range iterations {
+				if utiltas.NodeMatchesFlavor(nodeLabels, cache.NodeLabels(), nil) {
+					matches[r]++
+				}
+			}
+		})
+	}
+	wg.Wait()
+	t.Logf("matches per reader: %v", matches)
 }

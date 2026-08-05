@@ -1069,7 +1069,9 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			ginkgo.By("Delete clusterQueue")
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
 			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusTerminating)
-			util.ExpectLQByStatusMetric(lq, metav1.ConditionTrue)
+			// The ClusterQueue is now terminating (Active=False), so its LocalQueue is
+			// no longer active either (it mirrors the ClusterQueue's Active condition).
+			util.ExpectLQByStatusMetric(lq, metav1.ConditionFalse)
 			var newCQ kueue.ClusterQueue
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &newCQ)).To(gomega.Succeed())
@@ -1081,7 +1083,66 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 
 			ginkgo.By("The clusterQueue will be deleted")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, false)
-			util.ExpectLQByStatusMetric(lq, metav1.ConditionFalse)
+		})
+
+		ginkgo.It("Should keep the status counters and Active condition accurate while terminating", func() {
+			util.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
+			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive)
+
+			ginkgo.By("Admitting a workload that consumes the whole quota")
+			admittedWl := utiltestingapi.MakeWorkload("admitted", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(resourceGPU, "5").
+				Obj()
+			util.MustCreate(ctx, k8sClient, admittedWl)
+			admittedKey := client.ObjectKeyFromObject(admittedWl)
+			podSetAssignment := utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(
+				resourceGPU,
+				kueue.ResourceFlavorReference(flavor.Name),
+			).Obj()
+			cqAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).PodSets(podSetAssignment).Obj()
+			util.SetQuotaReservation(ctx, k8sClient, admittedKey, cqAdmission)
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, admittedWl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)
+
+			ginkgo.By("Creating a second workload that stays pending (quota is exhausted)")
+			pendingWl := utiltestingapi.MakeWorkload("pending", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(resourceGPU, "5").
+				Obj()
+			util.MustCreate(ctx, k8sClient, pendingWl)
+
+			ginkgo.By("The ClusterQueue reports one admitted and one pending workload while active")
+			createdCQ := &kueue.ClusterQueue{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdCQ)).To(gomega.Succeed())
+				g.Expect(createdCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+				g.Expect(createdCQ.Status.ReservingWorkloads).To(gomega.Equal(int32(1)))
+				g.Expect(createdCQ.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
+				g.Expect(createdCQ.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.ClusterQueueActive, "Ready"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Deleting the ClusterQueue - the resource-in-use finalizer keeps it while a workload reserves quota")
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, cq)).To(gomega.Succeed())
+			util.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusTerminating)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdCQ)).To(gomega.Succeed())
+				g.Expect(createdCQ.GetFinalizers()).Should(gomega.Equal([]string{kueue.ResourceInUseFinalizerName}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Deleting the pending workload while the ClusterQueue is terminating")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, pendingWl, true)
+
+			ginkgo.By("The terminating ClusterQueue keeps its status accurate: Active=Terminating and pendingWorkloads back to 0")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdCQ)).To(gomega.Succeed())
+				g.Expect(createdCQ.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.ClusterQueueActive, kueue.ClusterQueueActiveReasonTerminating))
+				g.Expect(createdCQ.Status.PendingWorkloads).To(gomega.Equal(int32(0)))
+				g.Expect(createdCQ.Status.ReservingWorkloads).To(gomega.Equal(int32(1)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing the admitted workload lets the ClusterQueue be deleted")
+			util.FinishWorkloads(ctx, k8sClient, admittedWl)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, false)
 		})
 
 		ginkgo.It("Should delete the cluster without waiting for reserving only workloads to finish", framework.SlowSpec, func() {

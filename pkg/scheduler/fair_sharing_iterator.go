@@ -238,7 +238,7 @@ func (e *entryComparer) computeDRS(rootCohort *schdcache.CohortSnapshot, cqToEnt
 
 		wlKey := workload.Key(entry.Obj)
 		if e.requestedFRs != nil {
-			e.requestedFRs[wlKey] = usage.Quota
+			e.requestedFRs[wlKey] = usage.Quota.Assigned
 		}
 
 		// calculate DRS, with workload, for CQ.

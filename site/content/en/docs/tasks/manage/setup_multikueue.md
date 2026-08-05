@@ -84,14 +84,14 @@ For the next example, having the `worker1` cluster Kubeconfig stored in a file c
 
 Check the [worker](#multikueue-specific-kubeconfig) section for details on Kubeconfig generation.
 
-### (Optional) Enable `locationType=Path` for kubeconfig files
+### `locationType=Path` for kubeconfig files
 
 {{% alert title="Security Notice" color="warning" %}}
-`locationType=Path` path validation is an **alpha feature** (disabled by default).
+`locationType=Path` is intended for development use.
 In production, use `locationType=Secret` or `ClusterProfile` instead.
 {{% /alert %}}
 
-The `MultiKueueKubeConfigPathValidation` feature gate (alpha, disabled by default)
+The `MultiKueueKubeConfigPathValidation` feature gate (beta, enabled by default)
 restricts kubeconfig file paths to the hardcoded prefix
 `/etc/multikueue/kubeconfigs/`. When enabled, the controller will:
 
@@ -99,11 +99,14 @@ restricts kubeconfig file paths to the hardcoded prefix
 - Reject paths containing `..` segments after cleaning.
 - Resolve symlinks and reject any path that resolves outside the prefix.
 
-To enable this validation, set the feature gate:
+To disable this validation, set the feature gate:
 
+```bash
+--feature-gates=MultiKueueKubeConfigPathValidation=false
 ```
---feature-gates=MultiKueueKubeConfigPathValidation=true
-```
+
+Disabling this restores the legacy behavior of allowing any file path, which can
+expose sensitive files on the controller's filesystem to be read as a kubeconfig.
 
 To use a path-based kubeconfig, mount the file into the controller pod under
 `/etc/multikueue/kubeconfigs/` and reference it in the `MultiKueueCluster`:

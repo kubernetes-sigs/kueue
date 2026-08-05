@@ -109,16 +109,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
-- name: HierarchicalCohorts
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.11"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true
@@ -167,6 +157,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: LWSImmutableGroupSize
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: ManagedJobsNamespaceSelectorAlwaysRespected
   versionedSpecs:
   - default: false
@@ -213,20 +209,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
-- name: MultiKueueAllowInsecureKubeconfigs
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.15"
-  - default: false
-    lockToDefault: false
-    preRelease: Deprecated
-    version: "0.17"
-  - default: false
-    lockToDefault: true
-    preRelease: Deprecated
-    version: "0.19"
 - name: MultiKueueClusterProfile
   versionedSpecs:
   - default: false
@@ -251,6 +233,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: MultiKueueManagerQuotaAutomation
   versionedSpecs:
   - default: false
@@ -262,40 +248,6 @@
   - default: false
     lockToDefault: false
     preRelease: Alpha
-    version: "0.17"
-- name: MultiKueueRedoAdmissionOnEvictionInWorker
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.16"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.18"
-- name: MultiKueueWaitForWorkloadAdmitted
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.16"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.18"
-- name: ObjectRetentionPolicies
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.12"
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.13"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
     version: "0.17"
 - name: PartialAdmission
   versionedSpecs:
@@ -319,16 +271,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.6"
-- name: PropagateBatchJobLabelsToWorkload
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.15"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
 - name: QuotaCheckStrategy
   versionedSpecs:
   - default: false
@@ -521,6 +463,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: TASValidateWorkloadSliceSize
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TLSOptions
   versionedSpecs:
   - default: true
@@ -549,7 +497,7 @@
     version: "0.19"
 - name: UnadmittedWorkloadsObservability
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
@@ -588,6 +536,12 @@
     preRelease: Alpha
     version: "0.14"
 - name: WorkloadValidateResourcesAreNonNegative
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
+- name: WorkloadValidationForPodSetMetadata
   versionedSpecs:
   - default: true
     lockToDefault: false

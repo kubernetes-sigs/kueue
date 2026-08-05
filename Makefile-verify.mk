@@ -19,6 +19,8 @@ CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2
 SKILLSAW_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/skillsaw/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 SKILLSAW_IMAGE := "ghcr.io/stbenjam/skillsaw:${SKILLSAW_VERSION}"
 VERIFY_NPROCS ?= 8
+# Number of modules to lint concurrently in ci-lint (xargs -P). 0 = as many as possible.
+CI_LINT_NPROCS ?= 0
 # Output sync mode for parallel verification. Set to empty to disable.
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
 ifeq ($(shell uname),Darwin)
@@ -116,8 +118,22 @@ verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-commo
 # Giving the wrapper its own recipe body is the only way to enforce ordering
 # without recursive $(MAKE).
 
+# Lint each module in parallel; drop generated packages (client-go/, internal/mocks/)
+# from the target list — golangci-lint's path/generated exclusions only filter reported
+# issues, not the analysis work, so they must be excluded before the linter runs.
 define _ci_lint_recipe
-find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; | xargs -I {} sh -c 'cd "{}" && $(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) --timeout 15m0s --config "$(PROJECT_DIR)/.golangci.yaml"'
+@find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; \
+	| xargs -P $(CI_LINT_NPROCS) -n 1 sh -c ' \
+		cd "$$1" || exit 1; \
+		dirs=$$($(GO_CMD) list -f "{{.Dir}}" ./... \
+			| grep -vE "/(client-go|internal/mocks)(/|$$)" \
+			| sed "s|^$$(pwd)/|./|"); \
+		[ -n "$$dirs" ] || exit 0; \
+		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) \
+			--allow-parallel-runners \
+			--timeout 15m0s \
+			--config "$(PROJECT_DIR)/.golangci.yaml" \
+			$$dirs' sh
 endef
 
 define _lint_api_recipe
@@ -278,7 +294,7 @@ verify-website-links: ## Check for broken internal links on the public website.
 	$(PROJECT_DIR)/hack/testing/linkchecker/verify.sh
 
 .PHONY: verify-website-links-preview
-verify-website-links-preview: ## Check links on a PR Netlify deploy preview; skips if no fresh same-commit preview exists.
+verify-website-links-preview: ## Check links on a PR Netlify deploy preview.
 	$(PROJECT_DIR)/hack/testing/linkchecker/verify-preview.sh
 
 .PHONY: i18n-verify

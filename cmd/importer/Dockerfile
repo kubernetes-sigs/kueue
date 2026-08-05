@@ -1,5 +1,5 @@
-ARG BUILDER_IMAGE
-ARG BASE_IMAGE
+ARG BUILDER_IMAGE=public.ecr.aws/docker/library/golang:1.26
+ARG BASE_IMAGE=gcr.io/distroless/static:nonroot
 # Build the manager binary
 FROM --platform=${BUILDPLATFORM} ${BUILDER_IMAGE} AS builder
 

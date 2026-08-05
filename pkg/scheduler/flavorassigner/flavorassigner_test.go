@@ -30,6 +30,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
@@ -39,9 +40,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -251,10 +254,10 @@ func TestAssignFlavors(t *testing.T) {
 						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "default", Mode: Fit}},
 					},
 				},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}:    resources.NewAmount(1_000),
 					{Flavor: "default", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Mi),
-				}},
+				}}},
 			},
 		},
 		"single flavor, fits tainted flavor": {
@@ -291,9 +294,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "tainted", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-				}},
+				}}},
 			},
 		},
 		"single flavor, fits tainted flavor with toleration": {
@@ -322,9 +325,9 @@ func TestAssignFlavors(t *testing.T) {
 						{Flavor: "taint_and_toleration", Mode: Fit},
 					},
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "taint_and_toleration", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-				}},
+				}}},
 			},
 		},
 		"single flavor, used resources, doesn't fit": {
@@ -363,9 +366,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
-				}},
+				}}},
 			},
 		},
 		"multiple resource groups, fits": {
@@ -423,10 +426,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:      resources.NewAmount(3_000),
 					{Flavor: "b_one", Resource: corev1.ResourceMemory}: resources.NewAmount(10 * utiltesting.Mi),
-				}},
+				}}},
 			},
 		},
 		"multiple flavors, leader worker set, leader and workers request the same resources fits": {
@@ -491,9 +494,9 @@ func TestAssignFlavors(t *testing.T) {
 						},
 						Count: 1,
 					}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
-				}},
+				}}},
 			},
 		},
 		"multiple flavors, leader worker set, workers request GPU, leader does not request GPU, fits": {
@@ -570,11 +573,11 @@ func TestAssignFlavors(t *testing.T) {
 						},
 						Count: 1,
 					}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    resources.NewAmount(5_000),
 					{Flavor: "two", Resource: corev1.ResourceMemory}: resources.NewAmount(5),
 					{Flavor: "two", Resource: "example.com/gpu"}:     resources.NewAmount(4),
-				}},
+				}}},
 			},
 		},
 		"multiple flavors, leader worker set, workers request GPU, leader does not request GPU, does not fit, without group it would fit": {
@@ -659,7 +662,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 						Count: 1,
 					}},
-				Usage:       workload.Usage{Quota: resources.FlavorResourceQuantities{}},
+				Usage:       workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
 				NoFitReason: "ExceedsMaxQuota",
 			},
 		},
@@ -705,7 +708,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage:       workload.Usage{Quota: resources.FlavorResourceQuantities{}},
+				Usage:       workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
 				NoFitReason: "ExceedsMaxQuota",
 			},
 		},
@@ -762,11 +765,11 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    resources.NewAmount(3_000),
 					{Flavor: "two", Resource: corev1.ResourceMemory}: resources.NewAmount(10 * utiltesting.Mi),
 					{Flavor: "b_one", Resource: "example.com/gpu"}:   resources.NewAmount(3),
-				}},
+				}}},
 			},
 		},
 		"multiple resource groups with multiple resources, fits with different modes": {
@@ -853,11 +856,11 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: 1,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    resources.NewAmount(3_000),
 					{Flavor: "two", Resource: corev1.ResourceMemory}: resources.NewAmount(10 * utiltesting.Mi),
 					{Flavor: "b_one", Resource: "example.com/gpu"}:   resources.NewAmount(3),
-				}},
+				}}},
 			},
 		},
 		"multiple resources in a group, doesn't fit": {
@@ -905,7 +908,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage:       workload.Usage{Quota: resources.FlavorResourceQuantities{}},
+				Usage:       workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
 				NoFitReason: "ExceedsMaxQuota",
 			},
 		},
@@ -945,9 +948,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
-				}},
+				}}},
 			},
 		},
 		"multiple flavors, fits a node selector": {
@@ -1004,9 +1007,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-				}},
+				}}},
 			},
 		},
 		"multiple flavors, fits with node affinity": {
@@ -1067,10 +1070,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    resources.NewAmount(1_000),
 					{Flavor: "two", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Mi),
-				}},
+				}}},
 			},
 		},
 		"multiple flavors, node affinity fits any flavor": {
@@ -1132,9 +1135,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-				}},
+				}}},
 			},
 		},
 		"multiple flavors with different label keys, selector only uses flavor's own keys": {
@@ -1169,9 +1172,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "label-x-a", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-				}},
+				}}},
 			},
 		},
 		"labelless flavor in group with labeled flavor, workload uses labeled selector": {
@@ -1206,9 +1209,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-				}},
+				}}},
 			},
 		},
 		"multiple flavors, doesn't fit node affinity": {
@@ -1268,7 +1271,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage:       workload.Usage{Quota: resources.FlavorResourceQuantities{}},
+				Usage:       workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
 				NoFitReason: "NoMatchingFlavor",
 			},
 		},
@@ -1327,10 +1330,10 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 1,
 					},
 				},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(5_000),
-				}},
+				}}},
 			},
 		},
 		"multiple specs, fits borrowing": {
@@ -1396,10 +1399,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Borrowing: 1,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}:    resources.NewAmount(10_000),
 					{Flavor: "default", Resource: corev1.ResourceMemory}: resources.NewAmount(5 * utiltesting.Gi),
-				}},
+				}}},
 			},
 		},
 		"not enough space to borrow": {
@@ -1442,7 +1445,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage:       workload.Usage{Quota: resources.FlavorResourceQuantities{}},
+				Usage:       workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
 				NoFitReason: "ExceedsMaxQuota",
 			},
 		},
@@ -1499,9 +1502,9 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: 1,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
-				}},
+				}}},
 			},
 		},
 		"past min, but can preempt in ClusterQueue": {
@@ -1540,9 +1543,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
-				}},
+				}}},
 			},
 		},
 		"past min, but can preempt in cohort and ClusterQueue": {
@@ -1597,9 +1600,9 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: 1,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
-				}},
+				}}},
 			},
 		},
 		"can only preempt flavors that match affinity": {
@@ -1653,9 +1656,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
-				}},
+				}}},
 			},
 		},
 		"each podset requires preemption on a different flavor": {
@@ -1746,10 +1749,10 @@ func TestAssignFlavors(t *testing.T) {
 						Count: 10,
 					},
 				},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:     resources.NewAmount(2_000),
 					{Flavor: "tainted", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-				}},
+				}}},
 			},
 		},
 		"resource not listed in clusterQueue": {
@@ -1773,7 +1776,7 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus("resource example.com/gpu unavailable in ClusterQueue"),
 					Count:  1,
 				}},
-				Usage:       workload.Usage{Quota: resources.FlavorResourceQuantities{}},
+				Usage:       workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
 				NoFitReason: "NoMatchingFlavor",
 			},
 		},
@@ -1805,9 +1808,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-				}},
+				}}},
 			},
 			wantRepMode: Fit,
 		},
@@ -1841,10 +1844,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 					{Flavor: "default", Resource: "example.com/gpu"}:  resources.NewAmount(0),
-				}},
+				}}},
 			},
 			wantRepMode: Fit,
 		},
@@ -1879,10 +1882,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourcePods}: resources.NewAmount(3),
 					{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(3_000),
-				}},
+				}}},
 			},
 			wantRepMode: Fit,
 		},
@@ -1918,7 +1921,7 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
-				Usage:       workload.Usage{Quota: resources.FlavorResourceQuantities{}},
+				Usage:       workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
 				NoFitReason: "ExceedsMaxQuota",
 			},
 		},
@@ -1958,10 +1961,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 3,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourcePods}: resources.NewAmount(3),
 					{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(3_000),
-				}},
+				}}},
 			},
 			wantRepMode: Fit,
 		},
@@ -1998,10 +2001,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 5,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "default", Resource: corev1.ResourcePods}: resources.NewAmount(5),
 					{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(5_000),
-				}},
+				}}},
 			},
 			wantRepMode: Fit,
 			featureGates: map[featuregate.Feature]bool{
@@ -2051,10 +2054,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: "cpu"}:  resources.NewAmount(9_000),
 					{Flavor: "one", Resource: "pods"}: resources.NewAmount(1),
-				}},
+				}}},
 			},
 		},
 		"preempt before try next flavor; using WhenCanBorrow=MayStopSearch,WhenCanPreempt=MayStopSearch": {
@@ -2101,10 +2104,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: "cpu"}:  resources.NewAmount(9_000),
 					{Flavor: "one", Resource: "pods"}: resources.NewAmount(1),
-				}},
+				}}},
 			},
 		},
 		"preempt try next flavor": {
@@ -2150,10 +2153,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: "cpu"}:  resources.NewAmount(9_000),
 					{Flavor: "two", Resource: "pods"}: resources.NewAmount(1),
-				}},
+				}}},
 			},
 		},
 		"borrow try next flavor, found the first flavor": {
@@ -2210,10 +2213,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:  resources.NewAmount(9_000),
 					{Flavor: "one", Resource: corev1.ResourcePods}: resources.NewAmount(1),
-				}},
+				}}},
 			},
 		},
 		"borrow try next flavor, found the second flavor": {
@@ -2265,10 +2268,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:  resources.NewAmount(9_000),
 					{Flavor: "two", Resource: corev1.ResourcePods}: resources.NewAmount(1),
-				}},
+				}}},
 			},
 		},
 		"borrow before try next flavor": {
@@ -2318,10 +2321,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: "cpu"}:  resources.NewAmount(9_000),
 					{Flavor: "one", Resource: "pods"}: resources.NewAmount(1),
-				}},
+				}}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=MayStopSearch": {
@@ -2386,9 +2389,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
-				}},
+				}}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=MayStopSearch,WhenCanPreempt=MayStopSearch": {
@@ -2453,9 +2456,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
-				}},
+				}}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one, no borrowingLimit; WhenCanBorrow=MayStopSearch": {
@@ -2520,9 +2523,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
-				}},
+				}}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one, no borrowingLimit; WhenCanBorrow=MayStopSearch,WhenCanPreempt=MayStopSearch": {
@@ -2587,9 +2590,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
-				}},
+				}}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=TryNextFlavor": {
@@ -2642,9 +2645,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
-				}},
+				}}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one; WhenCanBorrow=TryNextFlavor,WhenCanPreempt=MayStopSearch": {
@@ -2697,9 +2700,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
-				}},
+				}}},
 			},
 		},
 		"when borrowing while preemption is needed, but borrowingLimit exceeds the quota available in the cohort": {
@@ -2733,7 +2736,7 @@ func TestAssignFlavors(t *testing.T) {
 			},
 			wantRepMode: NoFit,
 			wantAssignment: Assignment{
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
 				PodSets: []PodSetAssignment{
 					{
 						Name:   kueue.DefaultPodSetName,
@@ -2806,10 +2809,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:  resources.NewAmount(9_000),
 					{Flavor: "two", Resource: corev1.ResourcePods}: resources.NewAmount(1),
-				}},
+				}}},
 			},
 		},
 		"lend try next flavor, found the first flavor": {
@@ -2867,10 +2870,10 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: 1,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:  resources.NewAmount(9_000),
 					{Flavor: "one", Resource: corev1.ResourcePods}: resources.NewAmount(1),
-				}},
+				}}},
 			},
 		},
 		"cannot preempt in cohort (oracle returns None) for the first flavor, tries the second flavor (which fits)": {
@@ -2935,9 +2938,9 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: 1,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
-				}},
+				}}},
 			},
 		},
 		"cannot preempt in cohort (oracle returns None) for the first flavor, tries the second flavor (which fits); using deprecated WhenCanBorrow=MayStopSearch,WhenCanPreempt=MayStopSearch": {
@@ -3002,9 +3005,9 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: 1,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
-				}},
+				}}},
 			},
 		},
 		"quota exhausted, but can preempt in cohort and ClusterQueue": {
@@ -3060,10 +3063,10 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: 1,
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}:  resources.NewAmount(9_000),
 					{Flavor: "one", Resource: corev1.ResourcePods}: resources.NewAmount(1),
-				}},
+				}}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Any": {
@@ -3121,9 +3124,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
-				}},
+				}}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Any; using deprecated WhenCanBorrow=MayStopSearch,WhenCanPreempt=MayStopSearch": {
@@ -3181,9 +3184,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
-				}},
+				}}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Never": {
@@ -3240,9 +3243,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
-				}},
+				}}},
 			},
 		},
 		"when borrowing while preemption is needed for flavor one, fair sharing enabled, reclaimWithinCohort=Never; using deprecated WhenCanBorrow=MayStopSearch,WhenCanPreempt=MayStopSearch": {
@@ -3299,9 +3302,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(12_000),
-				}},
+				}}},
 			},
 		},
 		"workload slice preemption fits in the original workload resource flavor": {
@@ -3328,10 +3331,10 @@ func TestAssignFlavors(t *testing.T) {
 				TotalRequests: []workload.PodSetResources{
 					{
 						Name: "main",
-						Requests: resources.MapRequests{
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
-						},
+						}),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU:    "two",
 							corev1.ResourceMemory: "two",
@@ -3364,10 +3367,10 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}:    resources.NewAmount(1_000),
 					{Flavor: "two", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
-				}},
+				}}},
 			},
 		},
 		"workload slice preemption does not fit in the original workload resource flavor": {
@@ -3394,10 +3397,10 @@ func TestAssignFlavors(t *testing.T) {
 				TotalRequests: []workload.PodSetResources{
 					{
 						Name: "main",
-						Requests: resources.MapRequests{
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
-						},
+						}),
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU:    "one",
 							corev1.ResourceMemory: "one",
@@ -3417,6 +3420,7 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus(
 						"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (1) > maximum capacity (500m)",
 						"could not assign two flavor since the original workload is assigned: one",
+						"could not assign two flavor since the original workload is assigned: one",
 					),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
 						{
@@ -3433,7 +3437,7 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					},
 				}},
-				Usage:       workload.Usage{Quota: resources.FlavorResourceQuantities{}},
+				Usage:       workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
 				NoFitReason: "ExceedsMaxQuota",
 			},
 		},
@@ -3483,10 +3487,10 @@ func TestAssignFlavors(t *testing.T) {
 						},
 					},
 				},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "tas-a", Resource: corev1.ResourceCPU}:    resources.NewAmount(1_000),
 					{Flavor: "tas-b", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Mi),
-				}},
+				}}},
 			},
 		},
 		"multi-podset, one fits and another fails, fitting podset attempts skipped in resolveNoFitReason": {
@@ -3568,9 +3572,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 				},
 				Usage: workload.Usage{
-					Quota: resources.FlavorResourceQuantities{
+					Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 						{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(1000),
-					},
+					}},
 				},
 			},
 		},
@@ -3624,7 +3628,7 @@ func TestAssignFlavors(t *testing.T) {
 					t.Fatalf("Failed to create CQ snapshot")
 				}
 				if tc.clusterQueueUsage != nil {
-					clusterQueue.AddUsage(workload.Usage{Quota: tc.clusterQueueUsage})
+					clusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.clusterQueueUsage}})
 				}
 
 				if tc.secondaryClusterQueue != nil {
@@ -3632,7 +3636,7 @@ func TestAssignFlavors(t *testing.T) {
 					if secondaryClusterQueue == nil {
 						t.Fatalf("Failed to create secondary CQ snapshot")
 					}
-					secondaryClusterQueue.AddUsage(workload.Usage{Quota: tc.secondaryClusterQueueUsage})
+					secondaryClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.secondaryClusterQueueUsage}})
 				}
 
 				flvAssigner := New(
@@ -3833,10 +3837,10 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			otherClusterQueue := snapshot.ClusterQueue("other-clusterqueue")
-			otherClusterQueue.AddUsage(workload.Usage{Quota: tc.otherClusterQueueUsage})
+			otherClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.otherClusterQueueUsage}})
 
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
-			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
+			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
 			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
 			assignment := flvAssigner.Assign(ctx, nil)
@@ -3901,9 +3905,9 @@ func TestDeletedFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "flavor", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
-				}},
+				}}},
 			},
 		},
 		"flavor not found": {
@@ -3935,7 +3939,7 @@ func TestDeletedFlavors(t *testing.T) {
 						},
 					},
 				}},
-				Usage:       workload.Usage{Quota: resources.FlavorResourceQuantities{}},
+				Usage:       workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
 				NoFitReason: "NoMatchingFlavor",
 			},
 		},
@@ -4170,10 +4174,10 @@ func TestHierarchical(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			otherClusterQueue := snapshot.ClusterQueue("other-clusterqueue")
-			otherClusterQueue.AddUsage(workload.Usage{Quota: tc.otherClusterQueueUsage})
+			otherClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.otherClusterQueueUsage}})
 
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
-			testClusterQueue.AddUsage(workload.Usage{Quota: tc.testClusterQueueUsage})
+			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
 			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
 			assignment := flvAssigner.Assign(ctx, nil)
@@ -4937,7 +4941,7 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got := tt.assignment.ComputeTASNetUsage(testr.New(t), tt.cq, tt.wl, tt.prevAdmission)
 
-			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty(), cmp.Transformer("requestsToMap", resources.ToMapRequests)); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty(), cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("Unexpected TAS usage (-want,+got):\n%s", diff)
 			}
 		})
@@ -5614,14 +5618,14 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			}
 			cqSnapshot := snapshot.ClusterQueue(kueue.ClusterQueueReference(testCQ.Name))
 			if len(tc.cqUsage) > 0 {
-				cqSnapshot.AddUsage(workload.Usage{Quota: tc.cqUsage})
+				cqSnapshot.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.cqUsage}})
 			}
 			for siblingName, usage := range tc.siblingCQUsage {
 				siblingSnapshot := snapshot.ClusterQueue(siblingName)
 				if siblingSnapshot == nil {
 					t.Fatalf("Sibling ClusterQueue %s not found in snapshot", siblingName)
 				}
-				siblingSnapshot.AddUsage(workload.Usage{Quota: usage})
+				siblingSnapshot.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: usage}})
 			}
 
 			assigner := New(
@@ -5646,5 +5650,331 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestAssignFlavors_LeaderWorkerSetTASFlavor exercises the full flavor-assignment pipeline
+// (not just WorkloadsTopologyRequests in isolation) for PodSet groups where one member -
+// e.g. an LWS leader - requests none of the group's managed resources. Such a PodSet must
+// still end up with the group's resolved TAS flavor so it can be placed.
+func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+
+	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"tas-a":   utiltestingapi.MakeResourceFlavor("tas-a").TopologyName("tas-topo-a").Obj(),
+		"tas-b":   utiltestingapi.MakeResourceFlavor("tas-b").TopologyName("tas-topo-b").Obj(),
+		"non-tas": utiltestingapi.MakeResourceFlavor("non-tas").Obj(),
+	}
+	topologies := []*kueue.Topology{
+		utiltestingapi.MakeTopology("tas-topo-a").Levels(corev1.LabelHostname).Obj(),
+		utiltestingapi.MakeTopology("tas-topo-b").Levels(corev1.LabelHostname).Obj(),
+	}
+
+	cases := map[string]struct {
+		wlPods            []kueue.PodSet
+		clusterQueue      kueue.ClusterQueue
+		wantPodSetErrors  map[kueue.PodSetReference]error
+		wantPodSetFlavors map[kueue.PodSetReference]ResourceAssignment
+	}{
+		"leader without a managed request infers the group's TAS flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu-a", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-b").
+						Resource(corev1.ResourceMemory, "8Gi").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+		"leader without a group is rejected (ClusterQueue-wide fallback is not supported)": {
+			// Current behavior: a no-request PodSet without PodSetGroup does not inherit
+			// a TAS flavor from ClusterQueue-wide state.
+			// Potential future support: allow a ClusterQueue-wide fallback if requested.
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu-a", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{
+				"leader": ErrNoTASFlavorAssigned,
+			},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader": {},
+				"worker": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+		"peers in the same group resolving to different TAS flavors are rejected": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker-a", 1).
+					Request("example.com/gpu-a", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker-b", 1).
+					Request("example.com/gpu-b", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-b").
+						Resource("example.com/gpu-b", "4").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{
+				"leader": &MultipleTASFlavorsAssignedError{Flavors: []kueue.ResourceFlavorReference{"tas-a", "tas-b"}},
+			},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader":   {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}, "example.com/gpu-b": {Name: "tas-b", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker-a": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker-b": {"example.com/gpu-b": {Name: "tas-b", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+		"multiple groups: leaders infer flavors from their own groups": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader1", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker1", 1).
+					Request("example.com/gpu-a", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("leader2", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group2").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker2", 1).
+					Request("example.com/gpu-b", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group2").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-b").
+						Resource("example.com/gpu-b", "4").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				// Verify both leaders inferred their flavors from their groups
+				"leader1": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker1": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+				"leader2": {"example.com/gpu-b": {Name: "tas-b", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker2": {"example.com/gpu-b": {Name: "tas-b", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+		"leader in group where peer resolves to non-TAS flavor is rejected": {
+			// Exercises the topology-group TAS fallback path in resolvePodSetFlavors:
+			// tasFlavorsOnly returns empty because the group's resolved flavor is non-TAS.
+			// With no TAS flavors available in cq.TASFlavors, the leader ends up with empty
+			// Flavors and podSetTopologyRequest returns ErrNoTASCacheInformation (checked
+			// before onlyTASFlavor).
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu-a", "1").
+					PodSetGroup("group1").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("non-tas").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{
+				"leader": ErrNoTASCacheInformation,
+			},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader": {},
+				"worker": {"example.com/gpu-a": {Name: "non-tas", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			wlInfo := workload.NewInfo(&kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: tc.wlPods}})
+
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
+				t.Fatalf("Failed to add CQ to cache: %v", err)
+			}
+			for _, rf := range resourceFlavors {
+				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			for _, topology := range topologies {
+				cache.AddOrUpdateTopology(log, topology)
+			}
+			nodes := []corev1.Node{
+				*testingnode.MakeNode("tas-node-a").
+					Label(corev1.LabelHostname, "tas-node-a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourcePods: resource.MustParse("32"),
+						"example.com/gpu-a": resource.MustParse("4"),
+						"example.com/gpu-b": resource.MustParse("4"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("tas-node-b").
+					Label(corev1.LabelHostname, "tas-node-b").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourcePods: resource.MustParse("32"),
+						"example.com/gpu-a": resource.MustParse("4"),
+						"example.com/gpu-b": resource.MustParse("4"),
+					}).
+					Ready().
+					Obj(),
+			}
+			for i := range nodes {
+				cache.TASCache().SyncNode(&nodes[i])
+			}
+			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(tc.clusterQueue.Spec.CohortName).Obj()); err != nil {
+				t.Fatalf("Failed to create a cohort: %v", err)
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			cq := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.clusterQueue.Name))
+			if cq == nil {
+				t.Fatalf("Failed to create CQ snapshot")
+			}
+
+			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			assignment := flvAssigner.Assign(ctx, nil)
+
+			gotErrors := map[kueue.PodSetReference]error{}
+			gotFlavors := map[kueue.PodSetReference]ResourceAssignment{}
+			for _, ps := range assignment.PodSets {
+				if ps.Status.err != nil {
+					gotErrors[ps.Name] = ps.Status.err
+				}
+				gotFlavors[ps.Name] = ps.Flavors
+			}
+			if diff := cmp.Diff(tc.wantPodSetErrors, gotErrors, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("podSet errors mismatch (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantPodSetFlavors, gotFlavors, cmpopts.IgnoreUnexported(FlavorAssignment{}), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("podSet flavors mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWorkloadsTopologyRequests_RequiredTopologyRejectedForElasticWorkloadSlices(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+
+	assignment := Assignment{
+		PodSets: []PodSetAssignment{
+			{Name: "leader", Flavors: ResourceAssignment{}, Count: 1, Status: *NewStatus()},
+			{Name: "worker", Flavors: ResourceAssignment{"example.com/gpu": {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 1, Status: *NewStatus()},
+		},
+	}
+	wl := workload.NewInfo(&kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				"kueue.x-k8s.io/elastic-job": "true",
+			},
+		},
+		Spec: kueue.WorkloadSpec{
+			PodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+			},
+		},
+	})
+	cq := schdcache.ClusterQueueSnapshot{
+		TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+			"tas": {},
+		},
+		ResourceGroups: []resourcegroups.ResourceGroup{
+			{
+				CoveredResources: sets.New(corev1.ResourceName("example.com/gpu")),
+				Flavors:          []kueue.ResourceFlavorReference{"tas"},
+			},
+		},
+	}
+
+	_ = assignment.WorkloadsTopologyRequests(testr.New(t), wl, &cq)
+
+	if !errors.Is(assignment.PodSets[0].Status.err, ErrElasticRequiredTopologyNotSupported) {
+		t.Fatalf("expected leader podSet error to be %v, got %v", ErrElasticRequiredTopologyNotSupported, assignment.PodSets[0].Status.err)
+	}
+}
+
+func TestTasFlavorsOnly(t *testing.T) {
+	tasFlavors := map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": {}}
+	in := ResourceAssignment{
+		"example.com/gpu":  {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+		corev1.ResourceCPU: {Name: "quota", Mode: Fit, TriedFlavorIdx: -1},
+	}
+	want := ResourceAssignment{
+		"example.com/gpu": {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+	}
+	got := tasFlavorsOnly(in, tasFlavors)
+	if diff := cmp.Diff(want, got, cmpopts.IgnoreUnexported(FlavorAssignment{})); diff != "" {
+		t.Errorf("tasFlavorsOnly() mismatch (-want,+got):\n%s", diff)
 	}
 }

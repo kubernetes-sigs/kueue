@@ -147,10 +147,11 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			cCache,
 			controllersCfg,
 			core.SetupControllersOpts{
-				PreemptionExpectations: preemptionExpectations,
-				DRAMapper:              draMapper,
-				DRABackedResources:     draBackedResources,
-				ResourceFormatter:      resourceFormatter,
+				PreemptionExpectations:    preemptionExpectations,
+				DRAMapper:                 draMapper,
+				DRABackedResources:        draBackedResources,
+				ResourceFormatter:         resourceFormatter,
+				ResourceSliceAPIAvailable: true,
 			},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)

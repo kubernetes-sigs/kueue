@@ -17,8 +17,10 @@ limitations under the License.
 package resources
 
 import (
+	"iter"
 	"maps"
 	"math"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -64,7 +66,7 @@ func (r MapRequests) ScaledUp(f int64) Requests {
 	return ret
 }
 
-func (r MapRequests) ScaledDown(f int64) MapRequests {
+func (r MapRequests) ScaledDown(f int64) Requests {
 	ret := maps.Clone(r)
 	ret.Divide(f)
 	return ret
@@ -90,6 +92,10 @@ func (r MapRequests) Mul(f int64) {
 
 func (r MapRequests) GetValue(name corev1.ResourceName) int64 {
 	return r[name]
+}
+
+func (r MapRequests) Set(name corev1.ResourceName, val int64) {
+	r[name] = val
 }
 
 func (r MapRequests) Len() int {
@@ -123,6 +129,9 @@ func (r MapRequests) Sub(other Requests) {
 }
 
 func (r MapRequests) ToResourceList(formatter *ResourceFormatter) corev1.ResourceList {
+	if len(r) == 0 {
+		return nil
+	}
 	ret := make(corev1.ResourceList, len(r))
 	for k, v := range r {
 		ret[k] = formatter.ResourceQuantity(k, v)
@@ -139,26 +148,29 @@ func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 	return q.Value()
 }
 
-// GreaterKeys returns keys where the receiver is greater than other.
-func (r MapRequests) GreaterKeys(other MapRequests) []corev1.ResourceName {
-	if len(r) == 0 || len(other) == 0 {
+// GreaterKeys returns keys where the receiver is greater than other,
+// sorted alphabetically for deterministic output.
+func (r MapRequests) GreaterKeys(other Requests) []corev1.ResourceName {
+	if len(r) == 0 || isEmpty(other) {
 		return nil
 	}
+	otherMap := ToMap(other)
 	var result []corev1.ResourceName
 	for name, value := range r {
-		if otherValue, found := other[name]; found && value > otherValue {
+		if otherValue, found := otherMap[name]; found && value > otherValue {
 			result = append(result, name)
 		}
 	}
 	if len(result) == 0 {
 		return nil
 	}
+	slices.Sort(result)
 	return result
 }
 
 // GreaterKeysRL compares against a ResourceList and returns larger keys.
 func (r MapRequests) GreaterKeysRL(rl corev1.ResourceList) []corev1.ResourceName {
-	return r.GreaterKeys(NewMapRequests(rl))
+	return r.GreaterKeys(NewRequestsFromResourceList(rl))
 }
 
 func (r MapRequests) CountIn(capacity Requests) int32 {
@@ -200,7 +212,9 @@ func CountInWithLimitingResource(requests Requests, capacity Requests) (int32, c
 			// than or equal to 1", permanently wedging the workload. A
 			// negative "fits N times" is meaningless; treat it as 0 so the
 			// scheduler skips the over-subscribed domain instead.
-			count = max(int32(cap/rValue), 0)
+			// Clamp the upper bound before converting to int32 to avoid
+			// overflowing large capacity-to-request ratios.
+			count = int32(max(0, min(cap/rValue, math.MaxInt32)))
 		}
 		// Tie-break between CPU and memory counts to ensure deterministic results.
 		if result == nil || count < *result || (count == *result && rName < limitingResource) {
@@ -209,4 +223,14 @@ func CountInWithLimitingResource(requests Requests, capacity Requests) (int32, c
 		}
 	})
 	return ptr.Deref(result, 0), limitingResource
+}
+
+func (r MapRequests) Iter() iter.Seq2[corev1.ResourceName, int64] {
+	return func(yield func(corev1.ResourceName, int64) bool) {
+		for k, v := range r {
+			if !yield(k, v) {
+				return
+			}
+		}
+	}
 }
