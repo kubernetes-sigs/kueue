@@ -919,7 +919,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	s.admissionRoutineWrapper.Run(func() {
 		replacedNodeName := ""
 		if len(e.Obj.Status.UnhealthyNodes) > 0 {
-			replacedNodeName = e.Obj.Status.UnhealthyNodes[0].Name
+			replacedNodeName = newWorkload.Status.UnhealthyNodes[0].Name
 		}
 		patchOptions := []workloadpatching.PatchStatusOption{workloadpatching.WithRetryOnConflict()}
 		if !features.Enabled(features.TASReplaceMultipleFailedNodes) {
