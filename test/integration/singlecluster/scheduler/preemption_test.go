@@ -1414,8 +1414,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Cohort(kueue.CohortReference(cohort.Name)).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("alpha").
-						Resource(corev1.ResourceCPU, "10").
-						Resource(corev1.ResourceMemory, "0").Obj(),
+						Resource(corev1.ResourceCPU, "10").Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -1427,8 +1426,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Cohort(kueue.CohortReference(cohort.Name)).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("alpha").
-						Resource(corev1.ResourceCPU, "0").
-						Resource(corev1.ResourceMemory, "10").Obj(),
+						Resource(corev1.ResourceCPU, "0").Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -1468,12 +1466,11 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.MustCreate(ctx, k8sClient, wlB)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA, wlB)
 
-			ginkgo.By("Creating a low priority preemptor requesting CPU and Memory")
+			ginkgo.By("Creating a low priority preemptor requesting CPU")
 			preemptor := utiltestingapi.MakeWorkload("preemptor", ns.Name).
 				Queue(kueue.LocalQueueName(lq1.Name)).
 				Priority(lowPriority).
 				Request(corev1.ResourceCPU, "10").
-				Request(corev1.ResourceMemory, "10").
 				Obj()
 			util.MustCreate(ctx, k8sClient, preemptor)
 
