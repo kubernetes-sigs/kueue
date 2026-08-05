@@ -244,10 +244,6 @@ type Info struct {
 	// NominationMapping is the mapping of PodSets resources and their flavors
 	// based on the nomination phase.
 	NominationMapping PodSetResourcesToFlavors
-
-	// IsSticky indicates whether the workload is sticky (i.e. is the head of the ClusterQueue
-	// currently pending preemption). Populated by the queue manager when popping the workload.
-	IsSticky bool
 }
 
 type PodSetResources struct {
@@ -1268,6 +1264,12 @@ func HasActiveQuotaReservation(w *kueue.Workload) bool {
 func IsOnHold(w *kueue.Workload) bool {
 	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadOnHold
+}
+
+// IsPendingPreemption returns true if the workload is waiting for preemption to complete.
+func IsPendingPreemption(w *kueue.Workload) bool {
+	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
+	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 }
 
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).

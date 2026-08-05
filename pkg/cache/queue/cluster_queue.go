@@ -86,11 +86,10 @@ var (
 )
 
 // stickyWorkload is the workload at the ClusterQueue head which is
-// currently preempting workloads. It ensures that a preempting workload
-// stays at the head of its queue (for BestEffortFIFO) and is prioritized
-// first across the cohort (for both BestEffortFIFO and StrictFIFO). This
-// prevents other workloads from stealing the quota being freed by its evicting targets.
-// A workload is considered sticky until it is admitted, unschedulable, or deleted.
+// currently preempting workloads. It is only enabled for
+// BestEffortFIFO policy, and prevents skipped over ineligible
+// workloads from going back to the head of the queue.  A workload is
+// considered sticky until it is admitted, unschedulable, or deleted.
 // See Kueue#6929 and Kueue#7101 for motivation.
 //
 // The workloadName field is accessed concurrently and drives both the CQ heap
@@ -650,10 +649,10 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
 	// When preemptions are in-progress, keep re-attempting the same workload at
-	// the head for all types of queues (see documentation of stickyWorkload).
+	// the head for BestEffortFIFO queues (see documentation of stickyWorkload).
 	// The sticky workload is set under the lock so heap operations, which also
 	// hold the lock, never observe it changing mid-sort. See Kueue#12740.
-	if reason == RequeueReasonPendingPreemption || reason == RequeueReasonPendingMigration {
+	if (reason == RequeueReasonPendingPreemption || reason == RequeueReasonPendingMigration) && c.queueingStrategy == kueue.BestEffortFIFO {
 		if logV := log.V(5); logV.Enabled() {
 			logV.Info("Setting sticky workload", "clusterQueue", wInfo.ClusterQueue, "workload", key)
 		}
@@ -821,9 +820,6 @@ func (c *ClusterQueue) Pop() *workload.Info {
 		return nil
 	}
 	wl := c.heap.Pop()
-	if wl != nil {
-		wl.IsSticky = c.sw.matches(workload.Key(wl.Obj))
-	}
 	c.subtractPendingResources(wl)
 	c.inflight = wl
 	c.inflight.LastEvaluatedGeneration = c.inflight.Obj.Generation

@@ -1020,7 +1020,7 @@ func (co *classicalIterator) pop() *entry {
 
 func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering workload.Ordering) *classicalIterator {
 	slices.SortFunc(entries, func(a, b entry) int {
-		// 1. First process workloads which already have quota reserved. Such workload
+		// First process workloads which already have quota reserved. Such workload
 		// may be considered if this is their second pass.
 		aHasQuota := workload.HasQuotaReservation(a.Obj)
 		bHasQuota := workload.HasQuotaReservation(b.Obj)
@@ -1031,22 +1031,24 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 			return 1
 		}
 
-		// 2. Then process workloads pending preemption (marked sticky by the queue).
-		if a.IsSticky != b.IsSticky {
-			if a.IsSticky {
+		// 1. Then process workloads pending preemption.
+		aPendingPreempt := workload.IsPendingPreemption(a.Obj)
+		bPendingPreempt := workload.IsPendingPreemption(b.Obj)
+		if aPendingPreempt != bPendingPreempt {
+			if aPendingPreempt {
 				return -1
 			}
 			return 1
 		}
 
-		// 3. Request under nominal quota.
+		// 2. Request under nominal quota.
 		aBorrows := a.assignment.Borrows()
 		bBorrows := b.assignment.Borrows()
 		if aBorrows != bBorrows {
 			return cmp.Compare(aBorrows, bBorrows)
 		}
 
-		// 4. Higher priority first if not disabled.
+		// 3. Higher priority first if not disabled.
 		if features.Enabled(features.PrioritySortingWithinCohort) {
 			p1 := priority.EffectivePriority(log, a.Obj)
 			p2 := priority.EffectivePriority(log, b.Obj)
@@ -1055,7 +1057,7 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 			}
 		}
 
-		// 5. FIFO.
+		// 4. FIFO.
 		aComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(a.Obj)
 		bComparisonTimestamp := workloadOrdering.GetQueueOrderTimestamp(b.Obj)
 		if aComparisonTimestamp.Before(bComparisonTimestamp) {
