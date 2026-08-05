@@ -15,9 +15,8 @@
   - [Implementation](#implementation)
   - [Test Plan](#test-plan)
     - [Unit tests](#unit-tests)
-    - [Integration tests](#integration-tests)
+    - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
-    - [Alpha](#alpha)
     - [Beta](#beta)
     - [Stable](#stable)
 - [Implementation History](#implementation-history)
@@ -30,7 +29,7 @@
 ## Summary
 
 LocalQueue defaulting (KEP-2936) activates implicitly whenever a LocalQueue
-named `default` exists in a namespace. `managedJobsNamespaceSelector` (KEP-3589)
+named `default` exists in a managed namespace. `managedJobsNamespaceSelector` (KEP-3589)
 gives administrators per-namespace control over whether Kueue manages jobs, but
 there is no equivalent control for defaulting. These are orthogonal concerns.
 An administrator may want Kueue to manage explicitly-labeled jobs in a
@@ -47,7 +46,8 @@ Kueue provides two namespace-level behaviors today:
    controlled by `managedJobsNamespaceSelector`.
 2. **LocalQueue defaulting**: whether unlabeled workloads are implicitly
    assigned to a `default` LocalQueue. This has no per-namespace control and
-   activates purely based on whether a LocalQueue named `default` exists.
+   activates purely based on whether a LocalQueue named `default` exists in a
+   managed namespace.
 
 These concerns are independent. Multi-tenant clusters may need defaulting
 enabled for some namespaces (e.g., data science teams submitting ad-hoc
@@ -56,8 +56,8 @@ compliance, chargeback, or auditability). Platforms built on Kueue may
 pre-provision LocalQueues including a `default` queue across namespaces but
 want centralized control over which namespaces actually get implicit defaulting.
 
-Today, the only way to prevent defaulting in a namespace is to ensure no
-LocalQueue named `default` exists there. But an administrator may intentionally
+Today, the only way to prevent defaulting in a managed namespace is to ensure
+no LocalQueue named `default` exists there. But an administrator may intentionally
 create a LocalQueue named `default` for users to explicitly target with
 `kueue.x-k8s.io/queue-name: default`, without wanting unlabeled workloads to be
 automatically routed to it. There is no way to decouple the existence of the
@@ -111,7 +111,7 @@ some need defaulting for ease of use (e.g., data science teams submitting
 ad-hoc workloads), while others require explicit queue assignment for
 auditability, cost attribution, or compliance. Today there is no way to enforce
 "defaulting must not happen in namespace X". If someone creates a LocalQueue
-named `default`, defaulting silently activates.
+named `default` in a managed namespace, defaulting silently activates.
 
 #### Story 2
 
@@ -161,11 +161,9 @@ type Configuration struct {
 Configuration example:
 
 ```yaml
-featureGates:
-  LocalQueueDefaultingPerNamespace: true
 localQueueDefaultingNamespaceSelector:
   matchLabels:
-    kueue.x-k8s.io/local-queue-defaulting: "true"
+    local-queue-defaulting: "true"
 ```
 
 ### Implementation
@@ -176,10 +174,18 @@ same pattern as `managedJobsNamespaceSelector`. It is passed to
 label. The check is gated behind the `LocalQueueDefaultingPerNamespace` feature
 gate.
 
-When the feature gate is enabled, a workload without a queue-name label will
-only have the `default` label injected if the namespace matches both
-`managedJobsNamespaceSelector` and `localQueueDefaultingNamespaceSelector`.
-When the feature gate is disabled, the selector has no effect.
+The defaulting label is injected only when all of the following conditions are
+met, evaluated in this order:
+
+1. A LocalQueue named `default` exists in the namespace.
+2. The workload has no queue-name label and its owner is not managed by Kueue.
+3. The namespace matches `managedJobsNamespaceSelector`. Unmanaged namespaces
+   are rejected here and never reach the next check.
+4. The namespace matches `localQueueDefaultingNamespaceSelector` (only when
+   the feature gate is enabled).
+
+When the feature gate is disabled, step 4 is skipped and the selector has no
+effect.
 
 When the selector is nil, all managed namespaces participate in defaulting,
 preserving current behavior.
@@ -204,34 +210,40 @@ Unit tests for `ApplyDefaultLocalQueue` covering:
 
 Unit tests for configuration validation will be added.
 
-#### Integration tests
+#### e2e tests
 
-Integration tests verifying that workloads in namespaces not matching the
-selector do not get the default queue label injected.
+E2e tests with `localQueueDefaultingNamespaceSelector` configured covering:
+- Workload in a managed namespace with the defaulting label gets the default
+  queue label injected
+- Workload in a managed namespace without the defaulting label does not get
+  the default queue label injected
+- Workload in an unmanaged namespace does not get the default queue label
+  injected
+- Workload with the feature gate disabled and selector configured gets the
+  default queue label injected, verifying backward compatibility
 
 ### Graduation Criteria
 
-#### Alpha
-
-- Feature gate `LocalQueueDefaultingPerNamespace` off by default.
-- `LocalQueueDefaultingNamespaceSelector` field added to Configuration API.
-- `ApplyDefaultLocalQueue` checks the selector when the gate is enabled.
-- Unit and integration tests covering core scenarios.
-
 #### Beta
 
-- Feature gate on by default.
-- E2e tests covering key scenarios.
-- Address feedback from alpha users.
+Alpha was skipped as the feature is well-scoped and low-risk. When the
+selector is nil (default), behavior is unchanged for existing users.
+
+- Feature gate `LocalQueueDefaultingPerNamespace` on by default.
+- `LocalQueueDefaultingNamespaceSelector` field added to Configuration API.
+- `ApplyDefaultLocalQueue` checks the selector when the gate is enabled.
+- Unit, validation, and e2e tests covering core scenarios.
 
 #### Stable
 
 - Feature gate locked to default.
+- At least one release at beta with no user-reported regressions.
+- Validation rejects selectors matching prohibited namespaces.
 - Comprehensive test coverage.
 
 ## Implementation History
 
-- 2026-07-22: KEP created.
+- 2026-08-04: Promoted to Beta in v0.20, skipping Alpha.
 
 ## Drawbacks
 
