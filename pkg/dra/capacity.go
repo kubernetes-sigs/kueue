@@ -115,7 +115,7 @@ func determineCapacityForPodSet(
 			claimPath := field.NewPath("spec", "podSets").Index(psIdx).Child("template", "spec", "resourceClaims").Index(j)
 			reqPath := claimPath.Child("devices", "requests").Index(reqIdx)
 
-			classSelectors, requestSelectors, errs := prepareDeviceSelectors(ctx, cl, req.Exactly.DeviceClassName, req.Exactly.Selectors, classCache, claimPath, reqIdx)
+			classSelectors, requestSelectors, errs := prepareCounterCharge(ctx, cl, req.Exactly.DeviceClassName, req.Exactly.Selectors, classCache, claimPath, reqIdx)
 			if len(errs) > 0 {
 				return nil, errs
 			}

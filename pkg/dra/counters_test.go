@@ -500,7 +500,7 @@ func TestPrepareDeviceSelectors_DeviceClassErrorUsesRequestPath(t *testing.T) {
 	cl := utiltesting.NewClientBuilder().Build()
 	claimPath := field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0)
 
-	_, _, errs := prepareDeviceSelectors(
+	_, _, errs := prepareCounterCharge(
 		ctx,
 		cl,
 		"missing-device-class",
