@@ -1369,7 +1369,7 @@ const DefaultUnhealthyNodesEvictionThreshold = 1
 // UnlimitedUnhealthyNodesEvictionThreshold is returned when the annotation is
 // set to "0", meaning the Workload is never evicted due to node failures: its
 // failed nodes are always replaced in place. It is large enough that the
-// `len(UnhealthyNodes) >= threshold` eviction checks can never be satisfied.
+// `len(UnhealthyNodes) > threshold` eviction check can never be satisfied.
 const UnlimitedUnhealthyNodesEvictionThreshold = math.MaxInt
 
 // UnhealthyNodesEvictionThreshold returns the maximum number of the Workload's
@@ -1395,12 +1395,6 @@ func UnhealthyNodesEvictionThreshold(w *kueue.Workload) int {
 		}
 	}
 	return DefaultUnhealthyNodesEvictionThreshold
-}
-
-// IsWithinUnhealthyNodesEvictionThreshold indicates whether the Workload can
-// continue replacing unhealthy nodes without scheduler fail-fast eviction.
-func IsWithinUnhealthyNodesEvictionThreshold(w *kueue.Workload) bool {
-	return w == nil || len(w.Status.UnhealthyNodes) < UnhealthyNodesEvictionThreshold(w)
 }
 
 // IsAdmittedByTAS checks if a workload is admitted by TAS.

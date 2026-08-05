@@ -493,11 +493,13 @@ func (r *nodeReconciler) checkPodsOnNode(
 // and the workload remains admitted; the scheduler will keep attempting head replacement.
 func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Logger, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workloadevict.IsEvicted(wl) {
-		if features.Enabled(features.TASReplaceMultipleFailedNodes) && workload.IsWithinUnhealthyNodesEvictionThreshold(wl) {
-			log.V(3).Info("Skipping eviction; replacing failed nodes in place (within eviction threshold)",
-				"unhealthyNodes", workload.UnhealthyNodeNames(wl), "newUnhealthyNode", nodeName,
-				"evictionThreshold", workload.UnhealthyNodesEvictionThreshold(wl))
-			return false, nil
+		if features.Enabled(features.TASReplaceMultipleFailedNodes) {
+			threshold := workload.UnhealthyNodesEvictionThreshold(wl)
+			if len(wl.Status.UnhealthyNodes) < threshold {
+				log.V(3).Info("Skipping eviction; replacing failed nodes in place (within eviction threshold)",
+					"unhealthyNodes", workload.UnhealthyNodeNames(wl), "newUnhealthyNode", nodeName, "evictionThreshold", threshold)
+				return false, nil
+			}
 		}
 		unhealthyNodeNames := workload.UnhealthyNodeNames(wl)
 		log = log.WithValues("unhealthyNodes", unhealthyNodeNames)

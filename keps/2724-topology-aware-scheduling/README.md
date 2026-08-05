@@ -1507,8 +1507,8 @@ default `1`):
 - The node-failure controller evicts only once the Workload already has `N` unhealthy nodes and
   a further distinct node fails; below that it appends the new node to `Status.UnhealthyNodes`
   and the workload stays admitted.
-- The scheduler fail-fast eviction is suppressed while the number of unhealthy nodes is below
-  `N` (overriding `TASFailedNodeReplacementFailFast`); at or above `N` it is allowed to evict.
+- The scheduler fail-fast eviction is suppressed while the number of unhealthy nodes is at or
+  below `N` (overriding `TASFailedNodeReplacementFailFast`); above `N` it is allowed to evict.
 - Replacement is processed **head-of-queue, one node per scheduling cycle**. The planner
   replaces `UnhealthyNodes[0]` and ignores the remaining queued unhealthy nodes during the
   stale-assignment check, so a tail entry whose node is already missing from the snapshot does
@@ -1517,11 +1517,11 @@ default `1`):
   because a deleted tail node generates no further node events, so the tail must be carried
   forward explicitly rather than re-discovered).
 
-The default threshold of `1` reproduces the original single-node-replacement behavior: the
-Workload tolerates one unhealthy node while a replacement is in flight, and is evicted on the
-second distinct failure. So enabling the gate alone changes nothing until a Workload opts into a
-higher threshold; with a higher threshold the Workload stays admitted, head replacement is
-retried until a fit is found, and the `UnhealthyNodes` list drains as nodes are replaced.
+The default threshold of `1` lets the Workload tolerate one unhealthy node while a replacement
+is in flight and evicts it on the second distinct failure. While the gate is enabled, scheduler
+fail-fast eviction is also suppressed for that first unhealthy node, so replacement is retried
+until a fit is found. With a higher threshold the same behavior extends to additional unhealthy
+nodes, and the `UnhealthyNodes` list drains as nodes are replaced.
 
 This makes the eviction-vs-incremental tradeoff — which is genuinely workload-dependent
 (best-effort/elastic workloads prefer "keep replacing"; strict gang workloads may prefer "evict
