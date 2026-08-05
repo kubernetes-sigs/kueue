@@ -33,268 +33,298 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
 
-// The workloads of one job are written one after another, so a class edited in
-// between could otherwise give each of them a different value, and later
-// reconciles would not repair that because they compare the class name only.
-func TestUpdateWorkloadPriorityResolvesTheClassOnce(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
-	highClass := utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj()
-	first := utiltestingapi.MakeWorkload("first", "ns").
-		WorkloadPriorityClassRef("low").Priority(10).Obj()
-	second := utiltestingapi.MakeWorkload("second", "ns").
-		WorkloadPriorityClassRef("low").Priority(10).Obj()
-
-	// Every read of the class reports a different value, which stands in for an
-	// administrator editing it while the workloads are being written.
-	reads := 0
-	cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
-		WithObjects(job, highClass, first, second).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if err := c.Get(ctx, key, obj, opts...); err != nil {
-					return err
-				}
-				if class, ok := obj.(*kueue.WorkloadPriorityClass); ok && class.Name == "high" {
-					reads++
-					class.Value = int32(100 * reads)
-				}
-				return nil
-			},
-		}).
-		Build()
-
-	live := make([]*kueue.Workload, 0, 2)
-	for _, name := range []string{"first", "second"} {
-		wl := &kueue.Workload{}
-		if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: name}, wl); err != nil {
-			t.Fatalf("getting workload %s: %v", name, err)
-		}
-		live = append(live, wl)
-	}
-
-	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, live...); err != nil {
-		t.Fatalf("UpdateWorkloadPriority: %v", err)
-	}
-
-	if reads != 1 {
-		t.Errorf("WorkloadPriorityClass reads = %d, want 1 (resolved once for the set)", reads)
-	}
-
-	// Re-read the persisted objects so a regression that forgets to write one of
-	// the updates cannot pass by inspecting only the in-memory copies.
-	got := make([]int32, 0, len(live))
-	for _, name := range []string{"first", "second"} {
-		persisted := &kueue.Workload{}
-		if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: name}, persisted); err != nil {
-			t.Fatalf("re-getting workload %s: %v", name, err)
-		}
-		if persisted.Spec.Priority == nil {
-			t.Fatalf("workload %s has no priority", name)
-		}
-		if persisted.Spec.PriorityClassRef == nil || persisted.Spec.PriorityClassRef.Name != "high" {
-			t.Errorf("%s priorityClassRef = %v, want high", name, persisted.Spec.PriorityClassRef)
-		}
-		got = append(got, *persisted.Spec.Priority)
-	}
-	if got[0] != got[1] {
-		t.Errorf("workloads of one job settled on different priorities: %v", got)
-	}
-	if got[0] != 100 {
-		t.Errorf("priority = %d, want the value read before the class changed (100)", got[0])
-	}
-	if live[0].Spec.PriorityClassRef == live[1].Spec.PriorityClassRef {
-		t.Error("both workloads point at one priorityClassRef, so editing either would move both")
-	}
+// priorityStats is counted through the interceptors, for the cases that care how
+// often the class was read or a workload written.
+type priorityStats struct {
+	classReads     int
+	workloadWrites int
 }
 
-// A quota-reserved workload with no priorityClassRef must be left untouched on the
-// ordinary (non-slice) path too: the API server refuses to add a ref once quota is
-// reserved, so attempting the update would wedge the reconcile. The guard lives in
-// the shared helper, which the ordinary Job and LeaderWorkerSet paths reach
-// directly through UpdateWorkloadPriority.
-func TestUpdateWorkloadPriorityLeavesReservedNoRefWorkload(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+func TestUpdateWorkloadPriority(t *testing.T) {
+	// One invocation of the helper, with the change to the cluster that only
+	// means something between two of them.
+	type step struct {
+		before  func(t *testing.T, ctx context.Context, cl client.Client)
+		wantErr bool
+	}
+	// A nil field is not asserted.
+	type wantWorkload struct {
+		refName  *string
+		priority *int32
+	}
 
-	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
-	highClass := utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj()
-	reserved := utiltestingapi.MakeWorkload("reserved", "ns").
-		Condition(metav1.Condition{
-			Type:               kueue.WorkloadQuotaReserved,
-			Status:             metav1.ConditionTrue,
-			Reason:             "AdmittedByTest",
-			Message:            "reserved",
-			LastTransitionTime: metav1.Now(),
-		}).Obj()
-
-	// The fake client does not run the Workload CEL rules, so if the guard is lost
-	// this update would succeed here and set the ref, which the assertions catch.
-	updates := 0
-	cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
-		WithObjects(job, highClass, reserved).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-				if _, ok := obj.(*kueue.Workload); ok {
-					updates++
-				}
-				return c.Update(ctx, obj, opts...)
+	cases := map[string]struct {
+		class        *kueue.WorkloadPriorityClass
+		workloads    []*kueue.Workload
+		interceptors func(s *priorityStats) interceptor.Funcs
+		steps        []step
+		want         map[string]wantWorkload
+		// Nil where the count is not part of what the case pins.
+		wantClassReads     *int
+		wantWorkloadWrites *int
+		wantDistinctRefs   bool
+	}{
+		// The workloads of one job are written one after another, so a class edited
+		// in between could otherwise give each of them a different value, and later
+		// reconciles would not repair that because they compare the class name only.
+		"resolves the class once for the whole set": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("first", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+				utiltestingapi.MakeWorkload("second", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
 			},
-		}).
-		Build()
-
-	wl := &kueue.Workload{}
-	if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "reserved"}, wl); err != nil {
-		t.Fatalf("getting workload: %v", err)
-	}
-
-	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, wl); err != nil {
-		t.Fatalf("UpdateWorkloadPriority: %v", err)
-	}
-
-	if updates != 0 {
-		t.Errorf("workload was updated %d times, want 0: a priorityClassRef cannot be added after quota reservation", updates)
-	}
-	persisted := &kueue.Workload{}
-	if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "reserved"}, persisted); err != nil {
-		t.Fatalf("re-getting workload: %v", err)
-	}
-	if persisted.Spec.PriorityClassRef != nil {
-		t.Errorf("priorityClassRef = %v, want nil (left unchanged)", persisted.Spec.PriorityClassRef)
-	}
-}
-
-// After a partial write, a later reconcile must still converge every workload of
-// the object on the current value, including one that already carries the right
-// class name but a stale value. A name-only comparison skips such a workload and
-// leaves it pinned to the old value.
-func TestUpdateWorkloadPriorityConvergesAfterPartialWrite(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
-	highClass := utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj()
-	// first already carries the class name but the value from before it changed.
-	first := utiltestingapi.MakeWorkload("first", "ns").
-		WorkloadPriorityClassRef("high").Priority(100).Obj()
-	// second still points at the old class, which forces the resolution.
-	second := utiltestingapi.MakeWorkload("second", "ns").
-		WorkloadPriorityClassRef("low").Priority(10).Obj()
-
-	reads := 0
-	cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
-		WithObjects(job, highClass, first, second).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if err := c.Get(ctx, key, obj, opts...); err != nil {
-					return err
+			// Every read reports a different value, standing in for an administrator
+			// editing the class while the workloads are being written.
+			interceptors: func(s *priorityStats) interceptor.Funcs {
+				return interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if err := c.Get(ctx, key, obj, opts...); err != nil {
+							return err
+						}
+						if class, ok := obj.(*kueue.WorkloadPriorityClass); ok && class.Name == "high" {
+							s.classReads++
+							class.Value = int32(100 * s.classReads)
+						}
+						return nil
+					},
 				}
-				if class, ok := obj.(*kueue.WorkloadPriorityClass); ok && class.Name == "high" {
-					reads++
-				}
-				return nil
 			},
-		}).
-		Build()
-
-	live := make([]*kueue.Workload, 0, 2)
-	for _, name := range []string{"first", "second"} {
-		wl := &kueue.Workload{}
-		if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: name}, wl); err != nil {
-			t.Fatalf("getting workload %s: %v", name, err)
-		}
-		live = append(live, wl)
-	}
-
-	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, live...); err != nil {
-		t.Fatalf("UpdateWorkloadPriority: %v", err)
-	}
-
-	if reads != 1 {
-		t.Errorf("WorkloadPriorityClass reads = %d, want 1 (resolved once for the set)", reads)
-	}
-	for _, name := range []string{"first", "second"} {
-		persisted := &kueue.Workload{}
-		if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: name}, persisted); err != nil {
-			t.Fatalf("re-getting workload %s: %v", name, err)
-		}
-		if persisted.Spec.Priority == nil || *persisted.Spec.Priority != 200 {
-			t.Errorf("%s priority = %v, want 200", name, persisted.Spec.Priority)
-		}
-		if persisted.Spec.PriorityClassRef == nil || persisted.Spec.PriorityClassRef.Name != "high" {
-			t.Errorf("%s priorityClassRef = %v, want high", name, persisted.Spec.PriorityClassRef)
-		}
-	}
-}
-
-// The split state that breaks name-only convergence is reachable from a real
-// partial write: the first slice persists at the old value, the second fails, the
-// class value then changes, and the retry must still bring both to the new value.
-func TestUpdateWorkloadPriorityConvergesAfterConflictRetry(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
-	highClass := utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj()
-	first := utiltestingapi.MakeWorkload("first", "ns").
-		WorkloadPriorityClassRef("low").Priority(10).Obj()
-	second := utiltestingapi.MakeWorkload("second", "ns").
-		WorkloadPriorityClassRef("low").Priority(10).Obj()
-
-	failSecondOnce := true
-	cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
-		WithObjects(job, highClass, first, second).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-				if wl, ok := obj.(*kueue.Workload); ok && wl.Name == "second" && failSecondOnce {
-					failSecondOnce = false
-					return errors.New("simulated conflict")
-				}
-				return c.Update(ctx, obj, opts...)
+			steps: []step{{}},
+			want: map[string]wantWorkload{
+				"first":  {refName: new("high"), priority: new(int32(100))},
+				"second": {refName: new("high"), priority: new(int32(100))},
 			},
-		}).
-		Build()
+			wantClassReads:   new(1),
+			wantDistinctRefs: true,
+		},
 
-	readLive := func() []*kueue.Workload {
-		out := make([]*kueue.Workload, 0, 2)
-		for _, name := range []string{"first", "second"} {
-			wl := &kueue.Workload{}
-			if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: name}, wl); err != nil {
-				t.Fatalf("getting workload %s: %v", name, err)
+		// A quota-reserved workload with no priorityClassRef must be left untouched
+		// on the ordinary (non-slice) path too: the API server refuses to add a ref
+		// once quota is reserved, so attempting it would wedge the reconcile. The
+		// fake client does not run those CEL rules, so losing the guard shows up
+		// here as a write that should not have happened.
+		"leaves a quota-reserved workload with no priority class alone": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "reserved",
+						LastTransitionTime: metav1.Now(),
+					}).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"reserved": {refName: new("")},
+			},
+			wantWorkloadWrites: new(0),
+		},
+
+		// A workload that already carries the right class name but a stale value is
+		// only repaired if the comparison looks past the name.
+		"converges a workload that already names the class but holds a stale value": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("first", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("second", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: countingClassReads,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"first":  {refName: new("high"), priority: new(int32(200))},
+				"second": {refName: new("high"), priority: new(int32(200))},
+			},
+			wantClassReads: new(1),
+		},
+
+		// The split state is reachable from a real partial write: the first workload
+		// persists at the old value, the second fails, the class value then changes,
+		// and the retry must still bring both to the new value.
+		"converges after a conflict when the class value changes before the retry": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("first", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+				utiltestingapi.MakeWorkload("second", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: func(s *priorityStats) interceptor.Funcs {
+				failSecondOnce := true
+				return interceptor.Funcs{
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						if wl, ok := obj.(*kueue.Workload); ok && wl.Name == "second" && failSecondOnce {
+							failSecondOnce = false
+							return errors.New("simulated conflict")
+						}
+						return c.Update(ctx, obj, opts...)
+					},
+				}
+			},
+			steps: []step{
+				{wantErr: true},
+				{before: raiseClassTo(200)},
+			},
+			want: map[string]wantWorkload{
+				"first":  {refName: new("high"), priority: new(int32(200))},
+				"second": {refName: new("high"), priority: new(int32(200))},
+			},
+		},
+
+		// Same-name workloads are repaired before the name-changing ones, so a failed
+		// write leaves a name mismatch behind. That mismatch is the only thing that
+		// makes a later call resolve the class again, so writing the two groups the
+		// other way round strands the stale one for good.
+		"keeps a retry marker when a write fails": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("stale", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("transitioning", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			// Fails whichever workload is written second, so the case does not depend
+			// on the order it exists to pin.
+			interceptors: func(s *priorityStats) interceptor.Funcs {
+				return interceptor.Funcs{
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						if _, ok := obj.(*kueue.Workload); ok {
+							s.workloadWrites++
+							if s.workloadWrites == 2 {
+								return errors.New("simulated conflict")
+							}
+						}
+						return c.Update(ctx, obj, opts...)
+					},
+				}
+			},
+			steps: []step{{wantErr: true}, {}},
+			want: map[string]wantWorkload{
+				"stale":         {priority: new(int32(200))},
+				"transitioning": {priority: new(int32(200))},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+
+			objs := []client.Object{job, tc.class}
+			names := make([]string, 0, len(tc.workloads))
+			for _, wl := range tc.workloads {
+				objs = append(objs, wl)
+				names = append(names, wl.Name)
 			}
-			out = append(out, wl)
+
+			s := &priorityStats{}
+			builder := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).WithObjects(objs...)
+			if tc.interceptors != nil {
+				builder = builder.WithInterceptorFuncs(tc.interceptors(s))
+			}
+			cl := builder.Build()
+
+			// Read afresh before every invocation, the way a reconcile would, so a
+			// regression that only updates the in-memory copies cannot pass.
+			readLive := func() []*kueue.Workload {
+				out := make([]*kueue.Workload, 0, len(names))
+				for _, n := range names {
+					wl := &kueue.Workload{}
+					if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: n}, wl); err != nil {
+						t.Fatalf("getting workload %s: %v", n, err)
+					}
+					out = append(out, wl)
+				}
+				return out
+			}
+
+			var live []*kueue.Workload
+			for i, st := range tc.steps {
+				if st.before != nil {
+					st.before(t, ctx, cl)
+				}
+				live = readLive()
+				err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, live...)
+				switch {
+				case st.wantErr && err == nil:
+					t.Fatalf("invocation %d: want an error, got none", i)
+				case !st.wantErr && err != nil:
+					t.Fatalf("invocation %d: %v", i, err)
+				}
+			}
+
+			for n, want := range tc.want {
+				persisted := &kueue.Workload{}
+				if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: n}, persisted); err != nil {
+					t.Fatalf("re-getting workload %s: %v", n, err)
+				}
+				if want.refName != nil {
+					got := ""
+					if persisted.Spec.PriorityClassRef != nil {
+						got = persisted.Spec.PriorityClassRef.Name
+					}
+					if got != *want.refName {
+						t.Errorf("%s priorityClassRef name = %q, want %q", n, got, *want.refName)
+					}
+				}
+				if want.priority != nil {
+					if persisted.Spec.Priority == nil || *persisted.Spec.Priority != *want.priority {
+						t.Errorf("%s priority = %v, want %d", n, persisted.Spec.Priority, *want.priority)
+					}
+				}
+			}
+
+			if tc.wantClassReads != nil && s.classReads != *tc.wantClassReads {
+				t.Errorf("class reads = %d, want %d", s.classReads, *tc.wantClassReads)
+			}
+			if tc.wantWorkloadWrites != nil && s.workloadWrites != *tc.wantWorkloadWrites {
+				t.Errorf("workload writes = %d, want %d", s.workloadWrites, *tc.wantWorkloadWrites)
+			}
+			if tc.wantDistinctRefs && live[0].Spec.PriorityClassRef == live[1].Spec.PriorityClassRef {
+				t.Error("both workloads point at one priorityClassRef, so editing either would move both")
+			}
+		})
+	}
+}
+
+// countingClassReads counts how often the priority class is read, for the cases
+// asserting that it is resolved once for the whole set.
+func countingClassReads(s *priorityStats) interceptor.Funcs {
+	return interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if err := c.Get(ctx, key, obj, opts...); err != nil {
+				return err
+			}
+			if class, ok := obj.(*kueue.WorkloadPriorityClass); ok && class.Name == "high" {
+				s.classReads++
+			}
+			return nil
+		},
+	}
+}
+
+// countingWrites counts workload writes, for the cases asserting that a workload
+// was left alone.
+func countingWrites(s *priorityStats) interceptor.Funcs {
+	return interceptor.Funcs{
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if _, ok := obj.(*kueue.Workload); ok {
+				s.workloadWrites++
+			}
+			return c.Update(ctx, obj, opts...)
+		},
+	}
+}
+
+// raiseClassTo changes the class value between two invocations.
+func raiseClassTo(value int32) func(t *testing.T, ctx context.Context, cl client.Client) {
+	return func(t *testing.T, ctx context.Context, cl client.Client) {
+		class := &kueue.WorkloadPriorityClass{}
+		if err := cl.Get(ctx, types.NamespacedName{Name: "high"}, class); err != nil {
+			t.Fatalf("getting class: %v", err)
 		}
-		return out
-	}
-
-	// First invocation: first persists as high/100, second's update fails.
-	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, readLive()...); err == nil {
-		t.Fatal("expected the simulated conflict to surface on the first invocation")
-	}
-
-	// The class value is raised between the partial write and the retry.
-	hc := &kueue.WorkloadPriorityClass{}
-	if err := cl.Get(ctx, types.NamespacedName{Name: "high"}, hc); err != nil {
-		t.Fatalf("getting class: %v", err)
-	}
-	hc.Value = 200
-	if err := cl.Update(ctx, hc); err != nil {
-		t.Fatalf("updating class: %v", err)
-	}
-
-	// Retry from freshly-read state: both must converge to high/200.
-	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, readLive()...); err != nil {
-		t.Fatalf("retry: %v", err)
-	}
-
-	for _, name := range []string{"first", "second"} {
-		persisted := &kueue.Workload{}
-		if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: name}, persisted); err != nil {
-			t.Fatalf("re-getting workload %s: %v", name, err)
-		}
-		if persisted.Spec.Priority == nil || *persisted.Spec.Priority != 200 {
-			t.Errorf("%s priority = %v, want 200 after retry", name, persisted.Spec.Priority)
-		}
-		if persisted.Spec.PriorityClassRef == nil || persisted.Spec.PriorityClassRef.Name != "high" {
-			t.Errorf("%s priorityClassRef = %v, want high", name, persisted.Spec.PriorityClassRef)
+		class.Value = value
+		if err := cl.Update(ctx, class); err != nil {
+			t.Fatalf("updating class: %v", err)
 		}
 	}
 }

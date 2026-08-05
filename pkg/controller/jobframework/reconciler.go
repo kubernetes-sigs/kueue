@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/validate/content"
@@ -1184,66 +1185,27 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 // stale value. The workloads are written one by one rather than atomically, and
 // a class edited once every workload already names it is not re-resolved here.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
-	log := ctrl.LoggerFrom(ctx)
-	jobPriorityClassName := WorkloadPriorityClassName(obj)
+	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
 
-	// First pass: split the workloads this helper may manage into those that
-	// already carry the desired class name (whose value may still be stale) and
-	// those whose class name still has to transition. Resolving only when at least
-	// one workload needs a transition keeps steady-state reconciles from
-	// re-resolving and overwriting the otherwise-mutable priority value.
-	var alreadyNamed, changing []*kueue.Workload
-	for _, wl := range wls {
-		if wl == nil {
-			continue
-		}
-		// A workload that reserved quota without a priorityClassRef keeps it: the
-		// API server refuses to add one once quota is reserved (Workload CEL), so
-		// retrying would only fail the reconcile for good. The skip is unconditional
-		// so that, even under an empty label, a name-changing sibling in the same
-		// batch cannot drag this workload into a nil -> ref update; only the log is
-		// gated on a non-empty label, to avoid noise on ordinary no-class reserved
-		// workloads. Centralizing the guard here, rather than in the workload-slice
-		// caller alone, covers the ordinary Job and LeaderWorkerSet paths, which
-		// reach this helper directly.
-		if workload.HasQuotaReservation(wl) && workload.HasNoPriority(wl) {
-			if jobPriorityClassName != "" {
-				log.V(2).Info("Leaving a workload that reserved quota with no priority class alone, since one can no longer be added",
-					"workload", klog.KObj(wl))
-			}
-			continue
-		}
-		// Only workloads without a priority yet, or already backed by a
-		// WorkloadPriorityClass, follow the label; Pod PriorityClass-backed
-		// workloads are left unchanged.
-		if !workload.HasNoPriority(wl) && !workload.IsWorkloadPriorityClass(wl) {
-			continue
-		}
-		if workloadpatching.PriorityClassName(wl) == jobPriorityClassName {
-			alreadyNamed = append(alreadyNamed, wl)
-		} else {
-			changing = append(changing, wl)
-		}
-	}
-
-	// No eligible workload needs a class transition, so there is nothing to resolve
-	// and nothing to update.
-	if len(changing) == 0 {
+	// Resolving only when at least one workload needs a transition keeps
+	// steady-state reconciles from re-resolving and overwriting the
+	// otherwise-mutable priority value.
+	if len(needsClassChange) == 0 {
 		return nil
 	}
 
-	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, changing[0].Spec.PodSets, customPriorityClassFunc)
+	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, needsClassChange[0].Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return fmt.Errorf("prepare workload priority: %w", err)
 	}
 
-	// Second pass: apply the resolved ref/value to every eligible workload whose
-	// full priority state differs. Same-name workloads with a stale value are
-	// repaired before the name-changing ones, so a name mismatch survives as the
-	// retry marker if a write in this batch fails.
-	targets := make([]*kueue.Workload, 0, len(alreadyNamed)+len(changing))
-	targets = append(targets, alreadyNamed...)
-	targets = append(targets, changing...)
+	// Apply the resolved ref/value to every eligible workload whose full priority
+	// state differs. Same-name workloads with a stale value are repaired before the
+	// name-changing ones, so a name mismatch survives as the retry marker if a
+	// write in this batch fails.
+	targets := make([]*kueue.Workload, 0, len(sameClassName)+len(needsClassChange))
+	targets = append(targets, sameClassName...)
+	targets = append(targets, needsClassChange...)
 	for _, wl := range targets {
 		if priorityStateEqual(wl, priorityClassRef, priority) {
 			continue
@@ -1263,6 +1225,42 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 	return nil
 }
 
+// classifyWorkloadsForPriorityUpdate splits the workloads this helper may manage
+// into those that already carry the object's class name, whose value may still be
+// stale, and those whose class name has to transition. The rest are left out: a
+// Pod PriorityClass-backed workload does not follow the label at all, and one that
+// reserved quota without a priorityClassRef can no longer be given one.
+func classifyWorkloadsForPriorityUpdate(log logr.Logger, jobPriorityClassName string, wls []*kueue.Workload) (sameClassName, needsClassChange []*kueue.Workload) {
+	for _, wl := range wls {
+		if wl == nil {
+			continue
+		}
+		// The API server refuses to add a priorityClassRef once quota is reserved
+		// (Workload CEL), so retrying would only fail the reconcile for good. The
+		// skip is unconditional, so that even under an empty label a name-changing
+		// sibling in the same batch cannot drag this workload into a nil -> ref
+		// update; only the log is gated on a non-empty label, to keep ordinary
+		// no-class reserved workloads quiet. Keeping the guard here covers the
+		// ordinary Job and LeaderWorkerSet paths, which reach the helper directly.
+		if workload.HasQuotaReservation(wl) && workload.HasNoPriority(wl) {
+			if jobPriorityClassName != "" {
+				log.V(2).Info("Leaving a workload that reserved quota with no priority class alone, since one can no longer be added",
+					"workload", klog.KObj(wl))
+			}
+			continue
+		}
+		if !workload.HasNoPriority(wl) && !workload.IsWorkloadPriorityClass(wl) {
+			continue
+		}
+		if workloadpatching.PriorityClassName(wl) == jobPriorityClassName {
+			sameClassName = append(sameClassName, wl)
+		} else {
+			needsClassChange = append(needsClassChange, wl)
+		}
+	}
+	return sameClassName, needsClassChange
+}
+
 // priorityStateEqual reports whether the workload's priority already matches the
 // resolved ref and value. It compares the full ref (group, kind, name) and the
 // numeric value, so a same-name workload whose value drifted is not mistaken for
@@ -1271,16 +1269,7 @@ func priorityStateEqual(wl *kueue.Workload, ref *kueue.PriorityClassRef, priorit
 	if wl.Spec.Priority == nil || *wl.Spec.Priority != priority {
 		return false
 	}
-	switch {
-	case wl.Spec.PriorityClassRef == nil && ref == nil:
-		return true
-	case wl.Spec.PriorityClassRef == nil || ref == nil:
-		return false
-	default:
-		return wl.Spec.PriorityClassRef.Group == ref.Group &&
-			wl.Spec.PriorityClassRef.Kind == ref.Kind &&
-			wl.Spec.PriorityClassRef.Name == ref.Name
-	}
+	return apiequality.Semantic.DeepEqual(wl.Spec.PriorityClassRef, ref)
 }
 
 func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob) (match *kueue.Workload, toDelete []*kueue.Workload, err error) {
