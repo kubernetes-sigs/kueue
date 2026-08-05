@@ -338,75 +338,117 @@ func TestGroupSlicesByPool(t *testing.T) {
 	}
 }
 
-func TestMatchDevicesWithSelectors_CELErrorPropagation(t *testing.T) {
+func TestSelectorErrorPaths(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-
-	pools := map[string]*poolInfo{
-		"pool1": {
-			name:               "pool1",
-			generation:         1,
-			resourceSliceCount: 1,
-			slices: []resourcev1.ResourceSlice{
-				{
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "gpu.example.com",
-						Pool:   resourcev1.ResourcePool{Name: "pool1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{
-								Name: "gpu-0",
-								Attributes: map[resourcev1.QualifiedName]resourcev1.DeviceAttribute{
-									"gpu.example.com/type": {},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	cache := dracel.NewCache(1, dracel.Features{})
-	result := cache.GetOrCompile("device.driver == 'gpu.example.com'")
-	if result.Error != nil {
-		t.Fatalf("CEL compilation failed: %v", result.Error)
-	}
-
-	reqPath := field.NewPath("test")
-	matched, errs := matchDevicesWithSelectors(ctx, pools, "gpu.example.com",
-		[]dracel.CompilationResult{result}, nil, nil, reqPath)
-
-	if len(errs) == 0 {
-		t.Fatalf("Expected CEL evaluation error to be propagated, got %d matched devices", len(matched))
-	}
-	if !strings.Contains(errs[0].Detail, "unsupported attribute value") {
-		t.Errorf("Expected error containing 'unsupported attribute value', got: %s", errs[0].Detail)
-	}
-}
-
-func TestProcessCounterCharge_DeviceClassErrorUsesRequestPath(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-	cl := utiltesting.NewClientBuilder().Build()
+	cl := utiltesting.NewClientBuilder().WithObjects(&resourcev1.DeviceClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "valid-device-class"},
+	}).Build()
 	claimPath := field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0)
 	reqPath := claimPath.Child("devices", "requests").Index(1)
 
-	_, errs := processCounterCharge(
-		ctx,
-		cl,
-		&deviceClassCounterConfig{},
-		"gpu.memory",
-		"missing-device-class",
-		nil,
-		1,
-		make(map[string]*resourcev1.DeviceClass),
-		claimPath,
-		1,
-		reqPath,
-	)
-
-	if len(errs) != 1 {
-		t.Fatalf("expected one error, got %d: %v", len(errs), errs)
+	cache := dracel.NewCache(1, dracel.Features{})
+	validSelector := cache.GetOrCompile("device.driver == 'gpu.example.com'")
+	if validSelector.Error != nil {
+		t.Fatalf("CEL compilation failed: %v", validSelector.Error)
 	}
-	if errs[0].Field != reqPath.String() {
-		t.Errorf("field path = %q, want %q", errs[0].Field, reqPath.String())
+
+	newPools := func() map[string]*poolInfo {
+		return map[string]*poolInfo{
+			"pool1": {
+				name:               "pool1",
+				generation:         1,
+				resourceSliceCount: 1,
+				slices: []resourcev1.ResourceSlice{{
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "gpu.example.com",
+						Pool:   resourcev1.ResourcePool{Name: "pool1", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{{
+							Name: "gpu-0",
+							Attributes: map[resourcev1.QualifiedName]resourcev1.DeviceAttribute{
+								"gpu.example.com/type": {},
+							},
+						}},
+					},
+				}},
+			},
+		}
+	}
+
+	tests := []struct {
+		name       string
+		run        func() field.ErrorList
+		wantField  string
+		wantDetail string
+	}{
+		{
+			name: "DeviceClass lookup error",
+			run: func() field.ErrorList {
+				_, errs := processCounterCharge(
+					ctx,
+					cl,
+					&deviceClassCounterConfig{},
+					"gpu.memory",
+					"missing-device-class",
+					nil,
+					1,
+					make(map[string]*resourcev1.DeviceClass),
+					claimPath,
+					1,
+				)
+				return errs
+			},
+			wantField: reqPath.String(),
+		},
+		{
+			name: "request selector compilation error",
+			run: func() field.ErrorList {
+				_, errs := processCounterCharge(
+					ctx,
+					cl,
+					&deviceClassCounterConfig{},
+					"gpu.memory",
+					"valid-device-class",
+					[]resourcev1.DeviceSelector{{CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver =="}}},
+					1,
+					make(map[string]*resourcev1.DeviceClass),
+					claimPath,
+					1,
+				)
+				return errs
+			},
+			wantField: reqPath.Child("exactly", "selectors").Index(0).Child("cel", "expression").String(),
+		},
+		{
+			name: "request selector evaluation error",
+			run: func() field.ErrorList {
+				_, errs := matchDevicesWithSelectors(
+					ctx,
+					newPools(),
+					"gpu.example.com",
+					[]dracel.CompilationResult{validSelector},
+					nil,
+					nil,
+					reqPath,
+				)
+				return errs
+			},
+			wantField:  reqPath.String(),
+			wantDetail: "unsupported attribute value",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			errs := tc.run()
+			if len(errs) != 1 {
+				t.Fatalf("expected one error, got %d: %v", len(errs), errs)
+			}
+			if errs[0].Field != tc.wantField {
+				t.Errorf("field path = %q, want %q", errs[0].Field, tc.wantField)
+			}
+			if tc.wantDetail != "" && !strings.Contains(errs[0].Detail, tc.wantDetail) {
+				t.Errorf("error detail = %q, want it to contain %q", errs[0].Detail, tc.wantDetail)
+			}
+		})
 	}
 }
