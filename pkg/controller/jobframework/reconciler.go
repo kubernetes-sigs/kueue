@@ -1203,14 +1203,18 @@ func updateWorkloadPriorities(ctx context.Context, c client.Client, r events.Eve
 		}
 		// A workload that reserved quota without a priorityClassRef keeps it: the
 		// API server refuses to add one once quota is reserved (Workload CEL), so
-		// retrying would only fail the reconcile for good. Centralizing the guard
-		// here, rather than in the workload-slice caller alone, covers the ordinary
-		// Job and LeaderWorkerSet paths, which reach this helper directly. Gating on
-		// a non-empty label keeps ordinary no-class reserved workloads from logging
-		// on every reconcile.
-		if jobPriorityClassName != "" && workload.HasQuotaReservation(wl) && workload.HasNoPriority(wl) {
-			log.V(2).Info("Leaving a workload that reserved quota with no priority class alone, since one can no longer be added",
-				"workload", klog.KObj(wl))
+		// retrying would only fail the reconcile for good. The skip is unconditional
+		// so that, even under an empty label, a name-changing sibling in the same
+		// batch cannot drag this workload into a nil -> ref update; only the log is
+		// gated on a non-empty label, to avoid noise on ordinary no-class reserved
+		// workloads. Centralizing the guard here, rather than in the workload-slice
+		// caller alone, covers the ordinary Job and LeaderWorkerSet paths, which
+		// reach this helper directly.
+		if workload.HasQuotaReservation(wl) && workload.HasNoPriority(wl) {
+			if jobPriorityClassName != "" {
+				log.V(2).Info("Leaving a workload that reserved quota with no priority class alone, since one can no longer be added",
+					"workload", klog.KObj(wl))
+			}
 			continue
 		}
 		// Only workloads without a priority yet, or already backed by a
