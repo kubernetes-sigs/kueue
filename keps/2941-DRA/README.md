@@ -443,9 +443,9 @@ Feature gates controlling DRA support in Kueue:
   for `firstAvailable` (prioritized alternative) requests via the component-wise-max envelope.
   Requires `KueueDRAIntegration`; the manager fails validation at startup if this gate is enabled
   while `KueueDRAIntegration` is off. The upstream `DRAPrioritizedList` gate has been Beta and on by
-  default since Kubernetes 1.34 and GA since 1.36, and it locks to enabled in 1.37, so the
-  requirement on a cluster is that the gate has not been turned off rather than that an admin turns
-  it on. Counter-backed and capacity-backed alternatives are rejected.
+  default since Kubernetes 1.34 and GA since 1.36, and upstream plans to lock it to enabled in 1.37,
+  so the requirement on a cluster is that the gate has not been turned off rather than that an admin
+  turns it on. Counter-backed and capacity-backed alternatives are rejected.
 - `KueueDRARejectWorkloadsWhenDRADisabled` (Beta, default on since v0.18): rejects workloads
   that use DRA resources (ResourceClaimTemplates or ResourceClaims) when `KueueDRAIntegration`
   is disabled. Without this gate, DRA workloads submitted while `KueueDRAIntegration` is off
@@ -1782,15 +1782,25 @@ effective PodSet count by the existing workload-request calculation. With
 envelope independently and multiplies the same per-Pod envelope by its own count; nothing is shared
 between the slices of one Job.
 
-Device-count sums use saturating `int64` arithmetic (`utilmath.SaturatingAdd`, as in
-`countDevicesPerClass`), so no envelope or per-request sum wraps negative. Charges that map to the
-same logical resource are then combined as `resource.Quantity` before being converted back to
-`int64`. That conversion must clamp an out-of-range quantity rather than call `Value()` directly,
-using the `SafeValue` helper added for the counter and capacity paths; the prioritized-list path
-must not introduce a new unclamped conversion. This overflow window is a pre-existing property of
-the shared count path (several DeviceClasses mapping to one logical resource near `MaxInt64`); the
-component-wise maximum keeps the envelope itself bounded, and tests cover multiple `firstAvailable`
-requests, `Exactly` plus `firstAvailable` on one resource, and PodSet scaling near `MaxInt64`.
+Saturating arithmetic stops a sum from wrapping, but a saturated sum no longer stands for the value
+it replaced, so it cannot carry the bound: clamping to `MaxInt64` reports less than the total it
+came from. The merge into `resources.Requests` is weaker still, since `MapRequests.Add` uses plain
+`+` and can wrap negative where a DRA logical resource shares a key with an ordinary Pod resource. A
+charge that cannot be represented exactly as `int64` therefore makes the workload inadmissible
+rather than being clamped and admitted, at each step that can produce one: the per-Pod sum across
+requests, the merge with ordinary resources, and the PodSet-count multiplication. Nor is a saturated
+aggregate divided to recover a smaller request: `PodSetResources` scaling divides by the old count
+and multiplies by the new, so partial admission, `ReclaimablePods`, and workload-slice replacement
+recompute from the per-Pod envelope instead.
+
+Converting a combined `resource.Quantity` back to `int64` follows the unit convention in
+`resources.ResourceValue`, milli-units for `cpu` and absolute units otherwise. That helper calls
+`Value()` for everything but `cpu`, so following it is not on its own enough: a quantity that does
+not fit has to be reported rather than silently truncated, which is what makes the rejection above
+possible. Nothing currently stops an administrator from naming a logical resource `cpu`, where an
+unconditional `SafeValue` would read `8` as 8 milliCPU. The component-wise maximum keeps the
+envelope itself bounded, and tests cover multiple `firstAvailable` requests, `Exactly` plus
+`firstAvailable` on one resource, and PodSet scaling at the representable boundary.
 
 The maximum is taken after DeviceClass-to-logical-resource mapping. Two DeviceClasses may
 intentionally map to one logical resource (for example an H100 and an A100 class both mapping to a
@@ -1810,10 +1820,12 @@ later used to create the generated `ResourceClaim`. A `ResourceClaimTemplate` sp
 place, but deleting and recreating one under the same name can change the spec between charging
 (while the workload is `Pending`) and claim generation, so the running claim could differ from the
 charged envelope. This gap is shared by all Kueue DRA charging, including the existing `Exactly`
-path, rather than introduced here, and warrants a separate prerequisite issue on binding the charge
-to the generated claim's spec. Second, the bound covers the logical resources the target
-`ClusterQueue` manages; `quotaCheckStrategy: IgnoreUndeclared` deliberately omits undeclared
-dimensions from enforcement, so an alternative that resolves to an omitted resource is not charged.
+path, rather than introduced here. It is a known limitation tracked in
+[#13842](https://github.com/kubernetes-sigs/kueue/issues/13842), and the bound above is stated for a
+fixed `ResourceClaimSpec` rather than made conditional on that issue landing first. Second, the
+bound covers the logical resources the target `ClusterQueue` manages; `quotaCheckStrategy:
+IgnoreUndeclared` deliberately omits undeclared dimensions from enforcement, so an alternative that
+resolves to an omitted resource is not charged.
 
 #### Scope
 
@@ -1863,15 +1875,16 @@ Two properties must be distinguished:
   requeue in the first place; once quota is reserved, kube-scheduler owns dynamic feasibility and
   retries the Pending Pod on ResourceClaim, DeviceClass, ResourceSlice, and node events. A workload
   still waiting on quota is requeued on the next ClusterQueue event, and an admitted one whose Pod
-  never becomes schedulable holds its reservation until `WaitForPodsReady` evicts it. Extending the
-  controller to count-only mappings, or reaching feasibility through the scheduler library, is a
-  graduation criterion rather than something the current controller covers.
+  never becomes schedulable holds its reservation until `WaitForPodsReady`, where it is configured,
+  evicts it. Extending the controller to count-only mappings, or reaching feasibility through the
+  scheduler library, is a graduation criterion rather than something the current controller covers.
 
-The quota and feasibility paths MUST consume the same static-support classification, from one
-helper, so a claim is never accepted by one and rejected by the other. Splitting the two invites
-the failures that are hardest to notice: a shape the quota path charges and the feasibility path
-refuses forever, a shape the feasibility path admits and the quota path never charges, or a new API
-field that only one of them learns to reject. A feasibility result of "infeasible" must not be
+The quota path MUST consume the static-support classification from a single helper, and any
+admission-time feasibility path MUST consume that same helper once one exists, so a claim is never
+accepted by one and rejected by the other. Splitting the two invites the failures that are hardest
+to notice: a shape the quota path charges and the feasibility path refuses forever, a shape the
+feasibility path admits and the quota path never charges, or a new API field that only one of them
+learns to reject. A feasibility result of "infeasible" must not be
 surfaced as "unsupported", and a failed object read or slice listing is neither.
 
 #### Relationship with Kubernetes ResourceQuota
@@ -1902,11 +1915,17 @@ to the same workload; this design does not let a user use `firstAvailable` to by
   and asserts the admitted usage on the worker matches the worker's own template rather than the
   manager's. A manager and a worker can therefore select different alternatives, or map the same
   DeviceClass differently, and arrive at different envelopes. Deciding which side is authoritative,
-  and covering a template or mapping mismatch, is Beta work.
-- Observability: the envelope appears in
-  `Workload.status.admission.podSetAssignments[].resourceUsage`; a debug log records each
-  alternative's charge vector and the resulting envelope, and a rejection names the alternative,
-  DeviceClass, or source that is unsupported. A metric or event is evaluated before Beta.
+  and covering a template or mapping mismatch, is Beta work. Until then the MultiKueue admission
+  check rejects a local workload whose claim templates carry `firstAvailable` before any remote
+  Workload or Job is created, so the existing rejected-check path deactivates the workload and
+  releases its reservation instead of dispatching an envelope the worker would not reproduce. A
+  template that cannot be read yet stays retryable rather than becoming a rejection.
+- Observability: the enforced portion of the envelope appears in
+  `Workload.status.admission.podSetAssignments[].resourceUsage`; under `IgnoreUndeclared` an omitted
+  logical resource appears in neither that usage nor ClusterQueue quota, borrowing, or preemption;
+  a debug log records each alternative's charge vector and the resulting envelope, and a rejection
+  names the alternative, DeviceClass, or source that is unsupported. A metric or event is evaluated
+  before Beta.
 
 #### Tradeoffs
 
@@ -2043,10 +2062,20 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
 - Prioritized list quota: `firstAvailable` envelope charge with two DeviceClasses mapped to one
   logical resource (max, not sum), disjoint alternatives (both reserved), multiple top-level
   `firstAvailable` requests summed, mixed `Exactly` and `firstAvailable`, PodSet count greater
-  than one, and saturation as summed counts approach `MaxInt64`
+  than one, and a total at the representable boundary rejected rather than saturated
 - Prioritized list rejection: unmapped alternative, `All` and unknown allocation modes, a
   counter-backed or capacity-backed alternative, and the feature gate disabled all marked
   inadmissible
+- Prioritized list representability: a per-Pod sum, a merge with an ordinary resource sharing the
+  same key, and a PodSet multiplication that cannot be represented as `int64` each mark the workload
+  inadmissible rather than clamping, and a scaled request is recomputed from the per-Pod envelope
+  rather than divided out of an aggregate
+- Prioritized list with a logical resource named `cpu`: the charge round-trips through the
+  milli-unit convention rather than being read as absolute units
+- Prioritized list under MultiKueue: the admission check rejects before any remote Workload or Job
+  exists, and a transient template read error is retried instead of rejected
+- Prioritized list under `quotaCheckStrategy: IgnoreUndeclared`: an alternative resolving to an
+  undeclared logical resource is left out of enforcement and out of reported usage
 
 #### E2E Test
 
@@ -2160,8 +2189,8 @@ the realized allocation.
 - gate default remains off, or a documented rationale to enable it by default
 - quota and feasibility paths agree on the supported-versus-rejected predicate, with tests
 - no known quota under-accounting at the aggregation boundaries: the per-Pod sum across requests,
-  the PodSet-count multiplication, and the `resource.Quantity` to `int64` conversion where several
-  DeviceClasses map to one logical resource
+  the merge with an ordinary resource sharing the same key, the PodSet-count multiplication, and the
+  `resource.Quantity` to `int64` conversion where several DeviceClasses map to one logical resource
 - upgrade and downgrade behavior verified
 - E2E stability for the count-based case
 - decision on whether source-backed alternatives are a Beta prerequisite
