@@ -234,8 +234,8 @@ func (j *RayJob) PodsScheduled(ctx context.Context, c client.Client) (bool, erro
 	return raycluster.PodsScheduledForRayCluster(ctx, c, j.Namespace, j.Status.RayClusterName, podSets)
 }
 
-func (j *RayJob) GetCustomAnnotations(ctx context.Context, c client.Client, podSets []kueue.PodSet) (map[string]string, error) {
-	return raycluster.GetWorkloadslicingRayClusterCustomAnnotations(ctx, c, j.Object(), podSets, j.Status.RayClusterName)
+func (j *RayJob) GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error) {
+	return raycluster.GetWorkloadslicingRayClusterCustomAnnotations(ctx, c, j.Object(), j.Status.RayClusterName)
 }
 
 func (j *RayJob) GetWorkloadNameExtraPart() string {
