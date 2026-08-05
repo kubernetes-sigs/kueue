@@ -516,6 +516,14 @@ const (
 	// pods per group without accounting for quota. Recreate the LeaderWorkerSet to change
 	// the size, or disable this gate to accept the previous behavior.
 	LWSImmutableGroupSize featuregate.Feature = "LWSImmutableGroupSize"
+
+	// owner: @varunsyal
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Remembers, for a bounded number of scheduling cycles, the flavors whose TAS placement
+	// failed for a Workload, so that subsequent cycles skip them and try the remaining flavors
+	// of the ClusterQueue instead of repeatedly re-picking the first quota-fitting flavor.
+	TASSkipRecentlyFailedFlavors featuregate.Feature = "TASSkipRecentlyFailedFlavors"
 )
 
 func init() {
@@ -535,6 +543,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	UnadmittedWorkloadsExplicitStatus:        {UnadmittedWorkloadsObservability},
 	TASHandleOverlappingFlavors:              {TopologyAwareScheduling},
 	TASProfileMixed:                          {TopologyAwareScheduling},
+	TASSkipRecentlyFailedFlavors:             {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesWithTAS:      {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
 	KueueDRAIntegrationExtendedResource:      {KueueDRAIntegration},
 	KueueDRAIntegrationPartitionableDevices:  {KueueDRAIntegration},
@@ -811,6 +820,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	LWSImmutableGroupSize: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASSkipRecentlyFailedFlavors: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
