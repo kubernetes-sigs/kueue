@@ -1179,18 +1179,24 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 	return updateWorkloadPriorities(ctx, c, r, obj, customPriorityClassFunc, wl)
 }
 
-// updateWorkloadPriorities updates each workload whose priority still follows the
-// object's label. The class is looked up once for the whole set, so workloads that
-// belong to one object cannot end up on different values when the class is edited
-// while they are being written.
+// updateWorkloadPriorities reconciles the priority of each workload that still
+// follows the object's priority-class label. The desired class is resolved once
+// for the whole set, so workloads that belong to one object cannot end up on
+// different values when the class is edited while they are being written; the
+// resolved value is then applied to every eligible workload whose full priority
+// state has drifted, so a partial write followed by a class-value change still
+// converges on retry instead of leaving same-name workloads pinned to a stale
+// value.
 func updateWorkloadPriorities(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	jobPriorityClassName := WorkloadPriorityClassName(obj)
-	var (
-		priorityClassRef *kueue.PriorityClassRef
-		priority         int32
-		resolved         bool
-	)
+
+	// First pass: split the workloads this helper may manage into those that
+	// already carry the desired class name (whose value may still be stale) and
+	// those whose class name still has to transition. Resolving only when at least
+	// one workload needs a transition keeps steady-state reconciles from
+	// re-resolving and overwriting the otherwise-mutable priority value.
+	var alreadyNamed, changing []*kueue.Workload
 	for _, wl := range wls {
 		if wl == nil {
 			continue
@@ -1207,34 +1213,74 @@ func updateWorkloadPriorities(ctx context.Context, c client.Client, r events.Eve
 				"workload", klog.KObj(wl))
 			continue
 		}
-
-		wlPriorityClassName := workloadpatching.PriorityClassName(wl)
-
-		// This handles both: changing priority (old -> new) AND adding priority (none -> new)
-		if (workload.HasNoPriority(wl) || workload.IsWorkloadPriorityClass(wl)) && jobPriorityClassName != wlPriorityClassName {
-			if !resolved {
-				var err error
-				// Resolved from the first workload that needs it.
-				priorityClassRef, priority, err = ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
-				if err != nil {
-					return fmt.Errorf("prepare workload priority: %w", err)
-				}
-				resolved = true
-			}
-			wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
-			wl.Spec.Priority = new(priority)
-			if err := c.Update(ctx, wl); err != nil {
-				return fmt.Errorf("updating existing workload: %w", err)
-			}
-			r.Eventf(obj,
-				nil,
-				corev1.EventTypeNormal, ReasonUpdatedWorkload,
-				"UpdatedWorkload",
-				"Updated workload priority class: %v", klog.KObj(wl),
-			)
+		// Only workloads without a priority yet, or already backed by a
+		// WorkloadPriorityClass, follow the label; Pod PriorityClass-backed
+		// workloads are left unchanged.
+		if !workload.HasNoPriority(wl) && !workload.IsWorkloadPriorityClass(wl) {
+			continue
+		}
+		if workloadpatching.PriorityClassName(wl) == jobPriorityClassName {
+			alreadyNamed = append(alreadyNamed, wl)
+		} else {
+			changing = append(changing, wl)
 		}
 	}
+
+	// No eligible workload needs a class transition, so there is nothing to resolve
+	// and nothing to update.
+	if len(changing) == 0 {
+		return nil
+	}
+
+	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, changing[0].Spec.PodSets, customPriorityClassFunc)
+	if err != nil {
+		return fmt.Errorf("prepare workload priority: %w", err)
+	}
+
+	// Second pass: apply the resolved ref/value to every eligible workload whose
+	// full priority state differs. Same-name workloads with a stale value are
+	// repaired before the name-changing ones, so a name mismatch survives as the
+	// retry marker if a write in this batch fails.
+	targets := make([]*kueue.Workload, 0, len(alreadyNamed)+len(changing))
+	targets = append(targets, alreadyNamed...)
+	targets = append(targets, changing...)
+	for _, wl := range targets {
+		if priorityStateEqual(wl, priorityClassRef, priority) {
+			continue
+		}
+		wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
+		wl.Spec.Priority = new(priority)
+		if err := c.Update(ctx, wl); err != nil {
+			return fmt.Errorf("updating existing workload: %w", err)
+		}
+		r.Eventf(obj,
+			nil,
+			corev1.EventTypeNormal, ReasonUpdatedWorkload,
+			"UpdatedWorkload",
+			"Updated workload priority class: %v", klog.KObj(wl),
+		)
+	}
 	return nil
+}
+
+// priorityStateEqual reports whether the workload's priority already matches the
+// resolved ref and value. It compares the full ref (group, kind, name) and the
+// numeric value, so a same-name workload whose value drifted is not mistaken for
+// up to date.
+func priorityStateEqual(wl *kueue.Workload, ref *kueue.PriorityClassRef, priority int32) bool {
+	if wl.Spec.Priority == nil || *wl.Spec.Priority != priority {
+		return false
+	}
+	switch {
+	case wl.Spec.PriorityClassRef == nil && ref == nil:
+		return true
+	case wl.Spec.PriorityClassRef == nil || ref == nil:
+		return false
+	default:
+		return wl.Spec.PriorityClassRef.Group == ref.Group &&
+			wl.Spec.PriorityClassRef.Kind == ref.Kind &&
+			wl.Spec.PriorityClassRef.Name == ref.Name
+	}
 }
 
 func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob) (match *kueue.Workload, toDelete []*kueue.Workload, err error) {
