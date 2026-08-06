@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -332,6 +333,16 @@ func raiseClassTo(value int32) func(t *testing.T, ctx context.Context, cl client
 	}
 }
 
+// errString renders an error for comparison. cmpopts.EquateErrors does not
+// work on these: it matches through errors.Is, and StatusError has no Is
+// method, so two of them are equal only when they are the same value.
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 // TestExtractPriorityReportsMissingWorkloadPriorityClass pins which lookup
 // failure is reported. Only the class the label named can be reported by name;
 // a failure anywhere else leaves the answer unknown, so saying the class does
@@ -347,8 +358,7 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 		objects      []client.Object
 		interceptors interceptor.Funcs
 		wantEvents   []utiltesting.EventRecord
-		// nil expects no error.
-		wantErr func(error) bool
+		wantErr      error
 	}{
 		"an explicitly referenced class that does not exist": {
 			job: testingjob.MakeJob("job", "ns").WorkloadPriorityClass("missing").Obj(),
@@ -358,7 +368,10 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 				Reason:    ReasonWorkloadPriorityClassNotFound,
 				Message:   `WorkloadPriorityClass "missing" not found`,
 			}},
-			wantErr: apierrors.IsNotFound,
+			wantErr: apierrors.NewNotFound(
+				kueue.SchemeGroupVersion.WithResource("workloadpriorityclasses").GroupResource(),
+				"missing",
+			),
 		},
 		"an explicitly referenced class that exists": {
 			job: testingjob.MakeJob("job", "ns").WorkloadPriorityClass("present").Obj(),
@@ -373,7 +386,7 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 		"a pod template naming a PriorityClass that does not exist": {
 			job:     testingjob.MakeJob("job", "ns").Obj(),
 			podSets: []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).PriorityClass("missing-pc").Obj()},
-			wantErr: apierrors.IsNotFound,
+			wantErr: apierrors.NewNotFound(schedulingv1.Resource("priorityclasses"), "missing-pc"),
 		},
 		"a lookup that failed for another reason": {
 			job: testingjob.MakeJob("job", "ns").WorkloadPriorityClass("denied").Obj(),
@@ -385,7 +398,7 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 					return c.Get(ctx, key, obj, opts...)
 				},
 			},
-			wantErr: apierrors.IsForbidden,
+			wantErr: forbidden,
 		},
 	}
 	for name, tc := range cases {
@@ -401,14 +414,10 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 
 			// The event does not stand in for the error: the reconcile still fails.
-			_, _, err := ExtractPriority(t.Context(), cl, recorder, tc.job, podSets, nil)
+			_, _, err := extractPriority(t.Context(), cl, recorder, tc.job, podSets, nil)
 
-			if tc.wantErr == nil {
-				if err != nil {
-					t.Fatalf("ExtractPriority() = %v, want no error", err)
-				}
-			} else if !tc.wantErr(err) {
-				t.Fatalf("ExtractPriority() = %v, which is not the error this case expects", err)
+			if diff := cmp.Diff(errString(tc.wantErr), errString(err)); diff != "" {
+				t.Fatalf("extractPriority() error (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 				t.Errorf("recorded events (-want +got):\n%s", diff)

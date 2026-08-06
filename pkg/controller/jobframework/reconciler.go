@@ -1207,7 +1207,7 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 		return nil
 	}
 
-	priorityClassRef, priority, err := ExtractPriority(ctx, c, r, obj, needsClassChange[0].Spec.PodSets, customPriorityClassFunc)
+	priorityClassRef, priority, err := extractPriority(ctx, c, r, obj, needsClassChange[0].Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return fmt.Errorf("prepare workload priority: %w", err)
 	}
@@ -1647,7 +1647,7 @@ func getCustomPriorityClassFuncFromJob(job GenericJob) func() string {
 }
 
 func PrepareWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	priorityClassRef, priority, err := ExtractPriority(ctx, c, r, obj, wl.Spec.PodSets, customPriorityClassFunc)
+	priorityClassRef, priority, err := extractPriority(ctx, c, r, obj, wl.Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return err
 	}
@@ -1680,7 +1680,7 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
-func ExtractPriority(
+func extractPriority(
 	ctx context.Context,
 	c client.Client,
 	r events.EventRecorder,

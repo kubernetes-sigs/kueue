@@ -3146,7 +3146,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		// Same warning when the label is changed to a class that does not exist,
-		// which reaches ExtractPriority through two more error wraps.
+		// which reaches extractPriority through two more error wraps.
 		"a warning names the WorkloadPriorityClass the label was changed to": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
