@@ -557,6 +557,46 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 		})
 	})
 
+	ginkgo.When("a workload starts referencing a WorkloadPriorityClass after that class was last reconciled", func() {
+		var source, target *kueue.WorkloadPriorityClass
+
+		ginkgo.BeforeEach(func() {
+			source = utiltestingapi.MakeWorkloadPriorityClass("reference-source").PriorityValue(100).Obj()
+			util.MustCreate(ctx, k8sClient, source)
+			target = utiltestingapi.MakeWorkloadPriorityClass("reference-target").PriorityValue(200).Obj()
+			util.MustCreate(ctx, k8sClient, target)
+		})
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, source)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, target)).To(gomega.Succeed())
+		})
+		ginkgo.It("should take the value of the class it moved to", func() {
+			wl = utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClassRef("reference-source").
+				Priority(100).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			// Nothing referenced the target while it was being reconciled, so
+			// the reference is what has to bring it back for another pass. The
+			// value is left behind on purpose: it is what a lookup that read
+			// the class before its last change would have written.
+			ginkgo.By("moving the reference and leaving the value alone", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedQueueWorkload)).To(gomega.Succeed())
+					updatedQueueWorkload.Spec.PriorityClassRef = kueue.NewWorkloadPriorityClassRef("reference-target")
+					g.Expect(k8sClient.Update(ctx, &updatedQueueWorkload)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &finalQueueWorkload)).To(gomega.Succeed())
+				g.Expect(finalQueueWorkload.Spec.Priority).To(gomega.Equal(new(int32(200))))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("the workload has a maximum execution time set", func() {
 		ginkgo.It("should deactivate the workload when the time expires", framework.SlowSpec, func() {
 			// due time rounding in conditions, the workload will stay admitted
