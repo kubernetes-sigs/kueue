@@ -188,3 +188,11 @@ cross-cluster preemption without implementing complex two-phase commit protocols
 between the manager and workers. The manager would have to blindly guess which
 worker might be able to fit the topology, leading to high latency and scheduling
 churn.
+
+**Aggregated TAS Capacity**: Management cluster calculates `ToplogyAssignment`s
+based on aggregated capacity advertised by each worker cluster organized by
+resource and topological domain instead of watching all Nodes and Pods across
+all worker clusters.
+*Drawback*: Requires a new API resource definition, more likely to provide
+outdated information at less-than-extraordinary scale and load, overlaps less
+with how utilization is calculated in single-cluster scenarios.

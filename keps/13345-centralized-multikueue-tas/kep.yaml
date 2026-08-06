@@ -2,6 +2,7 @@ title: Support centralized scheduling and quota management in MultiKueue
 kep-number: 13345
 authors:
   - "@mukund-wayve"
+  - "@nojnhuh"
 status: provisional
 creation-date: 2026-07-22
 reviewers:
