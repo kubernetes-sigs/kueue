@@ -63,6 +63,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -1246,19 +1247,18 @@ func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventR
 func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
 	priorityClassRef *kueue.PriorityClassRef, priority int32, sameClassName, needsClassChange []*kueue.Workload) error {
 	// One workload that will not take the write does not speak for the rest, so
-	// the others are still attempted. A failed one keeps its own state, which is
-	// what the next reconcile sees.
+	// the others are still attempted. Bounded and cancellable, the way each
+	// component's own write was before they were batched.
 	apply := func(wls []*kueue.Workload) error {
-		var errs []error
-		for _, wl := range wls {
+		return parallelize.Until(ctx, len(wls), func(i int) error {
+			wl := wls[i]
 			if priorityStateEqual(wl, priorityClassRef, priority) {
-				continue
+				return nil
 			}
 			wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
 			wl.Spec.Priority = new(priority)
 			if err := c.Update(ctx, wl); err != nil {
-				errs = append(errs, fmt.Errorf("updating existing workload: %w", err))
-				continue
+				return fmt.Errorf("updating existing workload %s: %w", klog.KObj(wl), err)
 			}
 			r.Eventf(obj,
 				nil,
@@ -1266,8 +1266,8 @@ func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventR
 				"UpdatedWorkload",
 				"Updated workload priority class: %v", klog.KObj(wl),
 			)
-		}
-		return errors.Join(errs...)
+			return nil
+		})
 	}
 	// Same-name workloads with a stale value go first, so a name mismatch
 	// survives as the retry marker if any of them fails.

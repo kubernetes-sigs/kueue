@@ -19,6 +19,8 @@ package jobframework
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -339,7 +341,14 @@ func TestApplyWorkloadPriorityLeavesUnlabelledWorkloadsAlone(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	job := testingjob.MakeJob("job", "ns").Obj()
 	wl := utiltestingapi.MakeWorkload("wl", "ns").Priority(1000).Obj()
-	cl := utiltesting.NewClientBuilder().WithObjects(wl).Build()
+	var writes int
+	cl := utiltesting.NewClientBuilder().WithObjects(wl).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				writes++
+				return c.Update(ctx, obj, opts...)
+			},
+		}).Build()
 
 	if err := ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, 0, wl); err != nil {
 		t.Fatalf("ApplyWorkloadPriority() = %v", err)
@@ -354,6 +363,9 @@ func TestApplyWorkloadPriorityLeavesUnlabelledWorkloadsAlone(t *testing.T) {
 	}
 	if got.Spec.PriorityClassRef != nil {
 		t.Errorf("workload gained a priority class reference: %v", got.Spec.PriorityClassRef)
+	}
+	if writes != 0 {
+		t.Errorf("wrote the workload %d times, want none", writes)
 	}
 }
 
@@ -416,5 +428,39 @@ func TestApplyWorkloadPriorityRepairsAStaleValue(t *testing.T) {
 	}
 	if diff := cmp.Diff(new(int32(200)), got.Spec.Priority); diff != "" {
 		t.Errorf("priority (-want +got):\n%s", diff)
+	}
+}
+
+// TestApplyWorkloadPriorityStopsWhenCancelled pins that the batch does not
+// carry on issuing writes after the reconcile is over. Each component used to
+// write from its own worker, which checked for cancellation before starting.
+func TestApplyWorkloadPriorityStopsWhenCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+
+	wls := make([]*kueue.Workload, 0, 20)
+	objs := make([]client.Object, 0, 20)
+	for i := range 20 {
+		wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", i), "ns").
+			WorkloadPriorityClassRef("high").Priority(100).Obj()
+		wls = append(wls, wl)
+		objs = append(objs, wl)
+	}
+
+	var writes atomic.Int32
+	cl := utiltesting.NewClientBuilder().WithObjects(objs...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				writes.Add(1)
+				return c.Update(ctx, obj, opts...)
+			},
+		}).Build()
+
+	cancel()
+	_ = ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job,
+		kueue.NewWorkloadPriorityClassRef("high"), 200, wls...)
+
+	if got := writes.Load(); got != 0 {
+		t.Errorf("wrote %d workloads after cancellation, want none", got)
 	}
 }
