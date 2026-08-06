@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	toolscache "k8s.io/client-go/tools/cache"
 	"kueueviz/middleware"
@@ -458,6 +460,43 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			tc.run(t)
+		})
+	}
+}
+
+func TestAuthMiddlewareAuthorization(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := map[string]struct {
+		authorizer middleware.Authorizer
+		wantCode   int
+	}{
+		"denied caller is rejected before upgrade": {
+			authorizer: stubAuthorizer{allowed: false},
+			wantCode:   http.StatusForbidden,
+		},
+		"authorization backend error surfaces as 503": {
+			authorizer: stubAuthorizer{allowed: false, err: errors.New("sar failed")},
+			wantCode:   http.StatusServiceUnavailable,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			authMW := middleware.RequireAuthorization(tc.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+				return []authorizationv1.ResourceAttributes{middleware.ResourceAccess("list", WorkloadsGVR(), "", "")}
+			})
+			router := gin.New()
+			router.GET("/ws/test", authMW, func(c *gin.Context) {
+				c.Status(http.StatusOK)
+			})
+
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ws/test", nil))
+
+			if w.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d; body=%s", w.Code, tc.wantCode, w.Body.String())
+			}
 		})
 	}
 }

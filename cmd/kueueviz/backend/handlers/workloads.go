@@ -25,6 +25,7 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"kueueviz/middleware"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -41,9 +42,10 @@ type workloadResult struct {
 func (h *Handlers) WorkloadsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		namespace := c.Query("namespace")
+		user, groups := middleware.IdentityFromContext(c)
 
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-			workloads, err := h.fetchWorkloads(ctx, namespace)
+			workloads, err := h.fetchWorkloads(ctx, namespace, user, groups)
 			result := map[string]any{
 				"workloads": workloads,
 			}
@@ -63,12 +65,18 @@ func (h *Handlers) WorkloadDetailsWebSocketHandler() gin.HandlerFunc {
 	}
 }
 
-func (h *Handlers) fetchWorkloads(ctx context.Context, namespace string) (any, error) {
+func (h *Handlers) fetchWorkloads(ctx context.Context, namespace, user string, groups []string) (any, error) {
 	wl := &kueueapi.WorkloadList{}
 	err := h.client.List(ctx, wl, ctrlclient.InNamespace(namespace))
 
 	if err != nil {
 		return nil, fmt.Errorf("error fetching workloads: %v", err)
+	}
+
+	if namespace == "" {
+		wl.Items = filterAllowedItems(ctx, h, user, groups, WorkloadsGVR(), wl.Items, func(w kueueapi.Workload) string {
+			return w.GetNamespace()
+		})
 	}
 
 	return wl, nil
