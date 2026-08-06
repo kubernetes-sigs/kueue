@@ -98,9 +98,9 @@ func (e *Store) Satisfied(log logr.Logger, key types.NamespacedName) bool {
 // expectations.
 type CreationStore struct {
 	sync.Mutex
-	name    string
-	ttl     time.Duration
-	store   map[types.NamespacedName]time.Time
+	name  string
+	ttl   time.Duration
+	store map[types.NamespacedName]time.Time
 }
 
 // NewCreationStore creates a CreationStore with the given name and TTL.

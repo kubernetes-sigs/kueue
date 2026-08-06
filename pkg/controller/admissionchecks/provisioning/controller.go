@@ -84,12 +84,12 @@ func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, er
 }
 
 type Controller struct {
-	client                  client.Client
-	record                  events.EventRecorder
-	helper                  *provisioningConfigHelper
-	clock                   clock.Clock
-	roleTracker             *roletracker.RoleTracker
-	creationExpectations    *expectations.CreationStore
+	client               client.Client
+	record               events.EventRecorder
+	helper               *provisioningConfigHelper
+	clock                clock.Clock
+	roleTracker          *roletracker.RoleTracker
+	creationExpectations *expectations.CreationStore
 }
 
 type workloadInfo struct {
