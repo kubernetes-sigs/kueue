@@ -53,24 +53,26 @@ var (
 )
 
 type PodWebhook struct {
-	integrationManager           *jobframework.IntegrationManager
-	client                       client.Client
-	queues                       *qcache.Manager
-	manageJobsWithoutQueueName   bool
-	managedJobsNamespaceSelector labels.Selector
-	namespaceSelector            *metav1.LabelSelector
-	podSelector                  *metav1.LabelSelector
+	integrationManager                    *jobframework.IntegrationManager
+	client                                client.Client
+	queues                                *qcache.Manager
+	manageJobsWithoutQueueName            bool
+	managedJobsNamespaceSelector          labels.Selector
+	localQueueDefaultingNamespaceSelector labels.Selector
+	namespaceSelector                     *metav1.LabelSelector
+	podSelector                           *metav1.LabelSelector
 }
 
 // SetupWebhook configures the webhook for pods.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &PodWebhook{
-		integrationManager:           options.IntegrationManager,
-		client:                       mgr.GetClient(),
-		queues:                       options.Queues,
-		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
-		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		integrationManager:                    options.IntegrationManager,
+		client:                                mgr.GetClient(),
+		queues:                                options.Queues,
+		manageJobsWithoutQueueName:            options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector:          options.ManagedJobsNamespaceSelector,
+		localQueueDefaultingNamespaceSelector: options.LocalQueueDefaultingNamespaceSelector,
 	}
 	obj := &corev1.Pod{}
 	if options.NoopWebhook {
@@ -153,10 +155,16 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 		// Local queue defaulting
 		if jobframework.QueueNameForObject(pod.Object()) == "" &&
 			w.queues.DefaultLocalQueueExist(pod.pod.GetNamespace()) {
-			if pod.pod.Labels == nil {
-				pod.pod.Labels = make(map[string]string)
+			defaultingAllowed := true
+			if features.Enabled(features.LocalQueueDefaultingPerNamespace) && w.localQueueDefaultingNamespaceSelector != nil {
+				defaultingAllowed = w.localQueueDefaultingNamespaceSelector.Matches(labels.Set(ns.GetLabels()))
 			}
-			pod.pod.Labels[ctrlconstants.QueueLabel] = string(ctrlconstants.DefaultLocalQueueName)
+			if defaultingAllowed {
+				if pod.pod.Labels == nil {
+					pod.pod.Labels = make(map[string]string)
+				}
+				pod.pod.Labels[ctrlconstants.QueueLabel] = string(ctrlconstants.DefaultLocalQueueName)
+			}
 		}
 
 		w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, pod.Object())

@@ -172,8 +172,8 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 	integrationManager := newDefaultsIntegrationManager(t)
 	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
-	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Label("lq-defaulting", "true").Obj()
-	defaultingNamespace := utiltesting.MakeNamespaceWrapper("defaulting-ns").Label(corev1.LabelMetadataName, "defaulting-ns").Label("lq-defaulting", "true").Obj()
+	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Label("local-queue-defaulting", "true").Obj()
+	defaultingNamespace := utiltesting.MakeNamespaceWrapper("defaulting-ns").Label(corev1.LabelMetadataName, "defaulting-ns").Label("local-queue-defaulting", "true").Obj()
 	noDefaultingNamespace := utiltesting.MakeNamespaceWrapper("no-defaulting-ns").Label(corev1.LabelMetadataName, "no-defaulting-ns").Obj()
 	ls := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -186,7 +186,7 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 	}
 	namespaceSelector, _ := metav1.LabelSelectorAsSelector(ls)
 	lqdLS := &metav1.LabelSelector{
-		MatchLabels: map[string]string{"lq-defaulting": "true"},
+		MatchLabels: map[string]string{"local-queue-defaulting": "true"},
 	}
 	lqdSelector, _ := metav1.LabelSelectorAsSelector(lqdLS)
 
@@ -227,6 +227,7 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 			wantQueueLabel:                        "",
 		},
 		"feature gate disabled ignores defaulting selector": {
+			featureGates:                          map[featuregate.Feature]bool{features.LocalQueueDefaultingPerNamespace: false},
 			localQueueDefaultingNamespaceSelector: lqdSelector,
 			job:                                   utiltestingjob.MakeJob("test-job", noDefaultingNamespace.Name).Obj(),
 			wantQueueLabel:                        "default",

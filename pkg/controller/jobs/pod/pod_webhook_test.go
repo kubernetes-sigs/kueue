@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
@@ -61,6 +62,7 @@ import (
 
 func TestDefault(t *testing.T) {
 	defaultNamespace := utiltesting.MakeNamespaceWrapper("test-ns").Label(corev1.LabelMetadataName, "test-ns").Obj()
+	defaultingNamespace := utiltesting.MakeNamespaceWrapper("defaulting-ns").Label(corev1.LabelMetadataName, "defaulting-ns").Label("local-queue-defaulting", "true").Obj()
 	defaultNamespaceSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
@@ -85,17 +87,18 @@ func TestDefault(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		featureGates                 map[featuregate.Feature]bool
-		initObjects                  []client.Object
-		pod                          *corev1.Pod
-		defaultLqExist               bool
-		manageJobsWithoutQueueName   bool
-		managedJobsNamespaceSelector labels.Selector
-		namespaceSelector            *metav1.LabelSelector
-		podSelector                  *metav1.LabelSelector
-		enableIntegrations           []string
-		want                         *corev1.Pod
-		wantErr                      error
+		featureGates                          map[featuregate.Feature]bool
+		initObjects                           []client.Object
+		pod                                   *corev1.Pod
+		defaultLqExist                        bool
+		manageJobsWithoutQueueName            bool
+		managedJobsNamespaceSelector          labels.Selector
+		localQueueDefaultingNamespaceSelector labels.Selector
+		namespaceSelector                     *metav1.LabelSelector
+		podSelector                           *metav1.LabelSelector
+		enableIntegrations                    []string
+		want                                  *corev1.Pod
+		wantErr                               error
 	}{
 		"pod with suspend by parent annotation should skip finalizer": {
 			featureGates: map[featuregate.Feature]bool{
@@ -450,6 +453,70 @@ func TestDefault(t *testing.T) {
 				KueueFinalizer().
 				Obj(),
 		},
+		"pod in managed namespace without defaulting label should not get default queue label": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          false,
+				features.LocalQueueDefaultingPerNamespace: true,
+			},
+			initObjects:    []client.Object{defaultNamespace},
+			defaultLqExist: true,
+			podSelector:    &metav1.LabelSelector{},
+			localQueueDefaultingNamespaceSelector: func() labels.Selector {
+				req, _ := labels.NewRequirement("local-queue-defaulting", selection.In, []string{"true"})
+				return labels.NewSelector().Add(*req)
+			}(),
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Obj(),
+		},
+		"pod in managed namespace with defaulting label gets default queue label": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          false,
+				features.LocalQueueDefaultingPerNamespace: true,
+			},
+			initObjects:    []client.Object{defaultingNamespace},
+			defaultLqExist: true,
+			podSelector:    &metav1.LabelSelector{},
+			localQueueDefaultingNamespaceSelector: func() labels.Selector {
+				req, _ := labels.NewRequirement("local-queue-defaulting", selection.In, []string{"true"})
+				return labels.NewSelector().Add(*req)
+			}(),
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultingNamespace.Name).
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultingNamespace.Name).
+				Queue("default").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
+		"pod with feature gate disabled ignores defaulting selector": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:          false,
+				features.LocalQueueDefaultingPerNamespace: false,
+			},
+			initObjects:    []client.Object{defaultNamespace},
+			defaultLqExist: true,
+			podSelector:    &metav1.LabelSelector{},
+			localQueueDefaultingNamespaceSelector: func() labels.Selector {
+				req, _ := labels.NewRequirement("local-queue-defaulting", selection.In, []string{"true"})
+				return labels.NewSelector().Add(*req)
+			}(),
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Obj(),
+			want: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("default").
+				ManagedByKueueLabel().
+				KueueSchedulingGate().
+				RoleHash("a9f06f3a").
+				KueueFinalizer().
+				Obj(),
+		},
 		"default queue isn't created, pod has no queue label": {
 			featureGates:      map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			initObjects:       []client.Object{defaultNamespace},
@@ -669,20 +736,21 @@ func TestDefault(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			if tc.defaultLqExist {
-				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", defaultNamespace.Name).
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("default", tc.pod.Namespace).
 					ClusterQueue("cluster-queue").Obj()); err != nil {
 					t.Fatalf("failed to create default local queue: %s", err)
 				}
 			}
 
 			w := &PodWebhook{
-				integrationManager:           integrationManager,
-				client:                       cli,
-				queues:                       queueManager,
-				manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
-				managedJobsNamespaceSelector: tc.managedJobsNamespaceSelector,
-				namespaceSelector:            tc.namespaceSelector,
-				podSelector:                  tc.podSelector,
+				integrationManager:                    integrationManager,
+				client:                                cli,
+				queues:                                queueManager,
+				manageJobsWithoutQueueName:            tc.manageJobsWithoutQueueName,
+				managedJobsNamespaceSelector:          tc.managedJobsNamespaceSelector,
+				localQueueDefaultingNamespaceSelector: tc.localQueueDefaultingNamespaceSelector,
+				namespaceSelector:                     tc.namespaceSelector,
+				podSelector:                           tc.podSelector,
 			}
 
 			gotErr := w.Default(ctx, tc.pod)
