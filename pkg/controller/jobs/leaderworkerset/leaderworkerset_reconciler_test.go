@@ -790,15 +790,17 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		// The masking case the worker boundary exists for. The surplus Workload
-		// is deleted in its own branch and fails there, which is the error
-		// errgroup keeps, while the remaining component finds the missing class
-		// and has its error dropped. Reporting from the caller would say nothing.
+		// The masking case the worker boundary exists for, ordered so the other
+		// branch fails first. The surplus Workload is deleted in its own branch
+		// and fails there; the remaining component then finds the missing class
+		// and has its own error dropped by parallelize.Until. Reporting from the
+		// caller would say nothing, and either error may be the one Wait returns,
+		// so the event is what this pins.
 		//
-		// Ordered by the two waits rather than by timing: the delete holds until
-		// the class lookup has started, and the lookup holds until the errgroup
-		// context is cancelled, which only happens once the delete has failed and
-		// its error is already the one being kept.
+		// The class lookup holds until the delete has already failed, which is
+		// the order that used to lose the event: a derived errgroup context would
+		// have been cancelled by then, and parallelize.Until would have returned
+		// without ever running this component.
 		"should report a missing workload priority class that another component's error hides": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
@@ -842,34 +844,39 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			interceptors: func() interceptor.Funcs {
-				lookupStarted := make(chan struct{})
+				deleteFailed := make(chan struct{})
 				var once sync.Once
 				surplus := GetWorkloadName(testLWS, testLWS, "1")
 				// Returned on timeout, so an ordering that stops holding fails as itself.
 				errNotOrdered := errors.New("the other branch never arrived")
+				// A sibling failure must not cancel this branch.
+				errSiblingCancelled := errors.New("the context was cancelled by the other branch")
 				return interceptor.Funcs{
 					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
 						// workload.Delete clears the finalizer before deleting, so
 						// failing here leaves the object as it was.
 						if wl, ok := obj.(*kueue.Workload); ok && wl.Name == surplus {
-							select {
-							case <-lookupStarted:
-							case <-time.After(30 * time.Second):
-								return errNotOrdered
-							}
+							once.Do(func() { close(deleteFailed) })
 							return errComponentConflict
 						}
 						return c.Update(ctx, obj, opts...)
 					},
 					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 						if _, ok := obj.(*kueue.WorkloadPriorityClass); ok {
-							once.Do(func() { close(lookupStarted) })
 							select {
-							case <-ctx.Done():
+							case <-deleteFailed:
 							case <-time.After(30 * time.Second):
 								return errNotOrdered
 							}
-							return c.Get(context.WithoutCancel(ctx), key, obj, opts...)
+							// The delete has failed, so a derived errgroup context
+							// would be cancelled by now. parallelize.Until checks for
+							// cancellation before each item, so components that had
+							// not started yet would be skipped and never report.
+							select {
+							case <-ctx.Done():
+								return errSiblingCancelled
+							case <-time.After(time.Second):
+							}
 						}
 						return c.Get(ctx, key, obj, opts...)
 					},
@@ -915,9 +922,9 @@ func TestReconciler(t *testing.T) {
 					Queue("lws-queue").
 					Obj(),
 			},
-			// The conflict is what reconciliation returns; the warning is still
-			// recorded, which is the whole point.
-			wantErr: errComponentConflict,
+			// Either branch's error may be the one Wait returns; the warning is
+			// recorded regardless, which is the whole point.
+			wantErr: cmpopts.AnyError,
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
