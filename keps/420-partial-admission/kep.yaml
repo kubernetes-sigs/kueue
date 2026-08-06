@@ -11,7 +11,7 @@ reviewers:
 approvers:
   - "@alculquicondor"
   - "@ahg-g"
-  - "@mimiwo"
+  - "@mimowo"
 
 see-also:
   - "/keps/77-dynamically-sized-jobs"
