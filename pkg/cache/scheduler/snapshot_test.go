@@ -1081,8 +1081,8 @@ func TestSnapshot(t *testing.T) {
 					// A leaf's usage is nil until first updated; skip those.
 					domainUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
 					for domainID, leaf := range flavorSnapshot.leaves {
-						if leaf.tasUsage != nil {
-							domainUsage[domainID] = leaf.tasUsage
+						if leafCapacity := flavorSnapshot.leafCapacityOf(leaf); leafCapacity.tasUsage != nil {
+							domainUsage[domainID] = leafCapacity.tasUsage
 						}
 					}
 					gotTASUsage[flavor] = domainUsage

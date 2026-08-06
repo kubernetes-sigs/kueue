@@ -42,17 +42,46 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+type testDomainSpec struct {
+	domain domain
+	state  domainState
+}
+
+func addDomainsWithState(s *TASFlavorSnapshot, specs []testDomainSpec) []*domain {
+	result := make([]*domain, len(specs))
+	for i, spec := range specs {
+		d := spec.domain
+		d.idx = len(s.domainStates)
+		s.domainStates = append(s.domainStates, spec.state)
+		result[i] = &d
+	}
+	return result
+}
+
+func newFreeCapacityTestSnapshot(states map[tas.TopologyDomainID]leafCapacity) *TASFlavorSnapshot {
+	leaves := make(leafDomainByID, len(states))
+	leafCapacities := make([]leafCapacity, 0, len(states))
+	for id, state := range states {
+		leaves[id] = &leafDomain{domain: domain{id: id}, leafIdx: len(leafCapacities)}
+		leafCapacities = append(leafCapacities, state)
+	}
+	return &TASFlavorSnapshot{
+		topologyTree:   &topologyTree{leaves: leaves},
+		leafCapacities: leafCapacities,
+	}
+}
+
 func TestFreeCapacityPerDomain(t *testing.T) {
 	cases := map[string]struct {
-		// leaves is a function, so that the requests are built with the
+		// snapshot is a function, so that the requests are built with the
 		// VectorizedResourceRequests feature gate already set.
-		leaves   func() leafDomainByID
+		snapshot func() *TASFlavorSnapshot
 		expected string
 	}{
 		"domains with free capacity and TAS usage": {
-			leaves: func() leafDomainByID {
-				return leafDomainByID{
-					"domain2": &leafDomain{
+			snapshot: func() *TASFlavorSnapshot {
+				return newFreeCapacityTestSnapshot(map[tas.TopologyDomainID]leafCapacity{
+					"domain2": {
 						freeCapacity: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    1000,
 							corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 2 GiB
@@ -62,7 +91,7 @@ func TestFreeCapacityPerDomain(t *testing.T) {
 							corev1.ResourceCPU:    500,
 						}),
 					},
-					"domain1": &leafDomain{
+					"domain1": {
 						freeCapacity: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceMemory: 4 * 1024 * 1024 * 1024, // 4 GiB
 							corev1.ResourceCPU:    2000,
@@ -74,32 +103,34 @@ func TestFreeCapacityPerDomain(t *testing.T) {
 							corev1.ResourceMemory: 2 * 1024 * 1024 * 1024, // 1 GiB
 						}),
 					},
-				}
+				})
 			},
 			expected: `{"domain1":{"freeCapacity":{"cpu":"2","memory":"4Gi","nvidia.com/gpu":"1"},"tasUsage":{"cpu":"500m","memory":"2Gi","nvidia.com/gpu":"1"}},"domain2":{"freeCapacity":{"cpu":"1","memory":"2Gi"},"tasUsage":{"cpu":"500m","memory":"1Gi"}}}`,
 		},
 		"domain with free capacity, but without TAS usage": {
-			leaves: func() leafDomainByID {
-				return leafDomainByID{
-					"domain1": &leafDomain{
+			snapshot: func() *TASFlavorSnapshot {
+				return newFreeCapacityTestSnapshot(map[tas.TopologyDomainID]leafCapacity{
+					"domain1": {
 						freeCapacity: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 1000,
 						}),
 						// tasUsage is left nil, as there is no TAS workload
 						// admitted in the domain.
 					},
-				}
+				})
 			},
 			expected: `{"domain1":{"freeCapacity":{"cpu":"1"},"tasUsage":{}}}`,
 		},
 		"domain without free capacity and without TAS usage": {
-			leaves: func() leafDomainByID {
-				return leafDomainByID{"domain1": &leafDomain{}}
+			snapshot: func() *TASFlavorSnapshot {
+				return newFreeCapacityTestSnapshot(map[tas.TopologyDomainID]leafCapacity{"domain1": {}})
 			},
 			expected: `{"domain1":{"freeCapacity":{},"tasUsage":{}}}`,
 		},
 		"snapshot without domains": {
-			leaves:   func() leafDomainByID { return leafDomainByID{} },
+			snapshot: func() *TASFlavorSnapshot {
+				return newFreeCapacityTestSnapshot(nil)
+			},
 			expected: `{}`,
 		},
 	}
@@ -109,7 +140,7 @@ func TestFreeCapacityPerDomain(t *testing.T) {
 			t.Run(fmt.Sprintf("%s, VectorizedResourceRequests=%t", name, enableVectorizedRequests), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.VectorizedResourceRequests, enableVectorizedRequests)
 
-				snapshot := &TASFlavorSnapshot{leaves: tc.leaves()}
+				snapshot := tc.snapshot()
 				var wantErr error
 
 				got, gotErr := snapshot.SerializeFreeCapacityPerDomain()
@@ -125,13 +156,14 @@ func TestFreeCapacityPerDomain(t *testing.T) {
 }
 
 func TestMergeTopologyAssignments(t *testing.T) {
-	nodes := []corev1.Node{
-		*node.MakeNode("x").Label("level-1", "a").Label("level-2", "b").Obj(),
-		*node.MakeNode("y").Label("level-1", "a").Label("level-2", "c").Obj(),
-		*node.MakeNode("z").Label("level-1", "d").Label("level-2", "e").Obj(),
-		*node.MakeNode("w").Label("level-1", "d").Label("level-2", "f").Obj(),
+	nodes := []*corev1.Node{
+		node.MakeNode("x").Label("level-1", "a").Label("level-2", "b").Obj(),
+		node.MakeNode("y").Label("level-1", "a").Label("level-2", "c").Obj(),
+		node.MakeNode("z").Label("level-1", "d").Label("level-2", "e").Obj(),
+		node.MakeNode("w").Label("level-1", "d").Label("level-2", "f").Obj(),
 	}
 	levels := []string{"level-1", "level-2"}
+	tree := newTopologyTree(levels, nodes, 0)
 
 	cases := map[string]struct {
 		a    *tas.TopologyAssignment
@@ -399,11 +431,7 @@ func TestMergeTopologyAssignments(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
-			for i := range nodes {
-				s.addNode(&nodes[i])
-			}
-			s.initialize()
+			s := newTASFlavorSnapshot(log, "dummy", tree, nil)
 
 			got := s.mergeTopologyAssignments(tc.a, tc.b)
 			if diff := cmp.Diff(tc.want, *got); diff != "" {
@@ -474,7 +502,7 @@ func TestHasLevel(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree(levels, nil, 0), nil)
 			got := s.HasLevel(tc.podSetTopologyRequest)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
@@ -492,87 +520,254 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 	levels := []string{"block"}
 
 	testCases := map[string]struct {
-		domains                              []*domain
+		domains                              []testDomainSpec
 		unconstrained                        bool
 		enableTASPreferredSchedulingAffinity bool
 		wantOrder                            []string
 	}{
 		"affinityScore descending: higher affinity score comes first": {
 			enableTASPreferredSchedulingAffinity: true,
-			domains: []*domain{
-				{id: "low-affinity", affinityScore: 10, leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"a"}},
-				{id: "high-affinity", affinityScore: 100, leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"b"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "low-affinity", levelValues: []string{"a"}},
+					state: domainState{
+						affinityScore:        10,
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   10,
+					},
+				},
+				{
+					domain: domain{id: "high-affinity", levelValues: []string{"b"}},
+					state: domainState{
+						affinityScore:        100,
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   10,
+					},
+				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"high-affinity", "low-affinity"},
 		},
 		"affinityScore ignored when feature gate is disabled": {
 			enableTASPreferredSchedulingAffinity: false,
-			domains: []*domain{
-				{id: "low-affinity", affinityScore: 10, leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"a"}},
-				{id: "high-affinity", affinityScore: 100, leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"b"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "low-affinity", levelValues: []string{"a"}},
+					state: domainState{
+						affinityScore:        10,
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   10,
+					},
+				},
+				{
+					domain: domain{id: "high-affinity", levelValues: []string{"b"}},
+					state: domainState{
+						affinityScore:        100,
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   10,
+					},
+				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"low-affinity", "high-affinity"},
 		},
 		"leaderCount descending: domains that can host leader come first": {
-			domains: []*domain{
-				{id: "no-leader", leaderCount: 0, sliceCountWithLeader: 10, podCountWithLeader: 10, levelValues: []string{"a"}},
-				{id: "has-leader", leaderCount: 1, sliceCountWithLeader: 1, podCountWithLeader: 1, levelValues: []string{"b"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "no-leader", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount:          0,
+						sliceCountWithLeader: 10,
+						podCountWithLeader:   10,
+					},
+				},
+				{
+					domain: domain{id: "has-leader", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 1,
+						podCountWithLeader:   1,
+					},
+				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"has-leader", "no-leader"},
 		},
 		"leader capability prioritized over preferred affinity": {
 			enableTASPreferredSchedulingAffinity: true,
-			domains: []*domain{
-				{id: "preferred-no-leader", affinityScore: 100, leaderCount: 0, sliceCountWithLeader: 0, podCountWithLeader: 0, levelValues: []string{"a"}},
-				{id: "non-preferred-has-leader", affinityScore: 10, leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"b"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "preferred-no-leader", levelValues: []string{"a"}},
+					state: domainState{
+						affinityScore:        100,
+						leaderCount:          0,
+						sliceCountWithLeader: 0,
+						podCountWithLeader:   0,
+					},
+				},
+				{
+					domain: domain{id: "non-preferred-has-leader", levelValues: []string{"b"}},
+					state: domainState{
+						affinityScore:        10,
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   10,
+					},
+				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"non-preferred-has-leader", "preferred-no-leader"},
 		},
 		"BestFit: sliceCountWithLeader descending": {
-			domains: []*domain{
-				{id: "a", leaderCount: 1, sliceCountWithLeader: 3, podCountWithLeader: 1, levelValues: []string{"a"}},
-				{id: "b", leaderCount: 1, sliceCountWithLeader: 1, podCountWithLeader: 1, levelValues: []string{"b"}},
-				{id: "c", leaderCount: 1, sliceCountWithLeader: 2, podCountWithLeader: 1, levelValues: []string{"c"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "a", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 3,
+						podCountWithLeader:   1,
+					},
+				},
+				{
+					domain: domain{id: "b", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 1,
+						podCountWithLeader:   1,
+					},
+				},
+				{
+					domain: domain{id: "c", levelValues: []string{"c"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 2,
+						podCountWithLeader:   1,
+					},
+				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "c", "b"},
 		},
 		"LeastFreeCapacity: sliceCountWithLeader ascending": {
-			domains: []*domain{
-				{id: "a", leaderCount: 1, sliceCountWithLeader: 3, podCountWithLeader: 1, levelValues: []string{"a"}},
-				{id: "b", leaderCount: 1, sliceCountWithLeader: 1, podCountWithLeader: 1, levelValues: []string{"b"}},
-				{id: "c", leaderCount: 1, sliceCountWithLeader: 2, podCountWithLeader: 1, levelValues: []string{"c"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "a", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 3,
+						podCountWithLeader:   1,
+					},
+				},
+				{
+					domain: domain{id: "b", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 1,
+						podCountWithLeader:   1,
+					},
+				},
+				{
+					domain: domain{id: "c", levelValues: []string{"c"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 2,
+						podCountWithLeader:   1,
+					},
+				},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"b", "c", "a"},
 		},
 		"BestFit: podCountWithLeader ascending as tiebreaker": {
-			domains: []*domain{
-				{id: "large", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 100, levelValues: []string{"a"}},
-				{id: "small", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"b"}},
-				{id: "medium", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 50, levelValues: []string{"c"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "large", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   100,
+					},
+				},
+				{
+					domain: domain{id: "small", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   10,
+					},
+				},
+				{
+					domain: domain{id: "medium", levelValues: []string{"c"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   50,
+					},
+				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
 		"LeastFreeCapacity: podCountWithLeader ascending as tiebreaker": {
-			domains: []*domain{
-				{id: "large", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 100, levelValues: []string{"a"}},
-				{id: "small", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"b"}},
-				{id: "medium", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 50, levelValues: []string{"c"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "large", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   100,
+					},
+				},
+				{
+					domain: domain{id: "small", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   10,
+					},
+				},
+				{
+					domain: domain{id: "medium", levelValues: []string{"c"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   50,
+					},
+				},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
 		"levelValues ascending as final tiebreaker": {
-			domains: []*domain{
-				{id: "c", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"c"}},
-				{id: "a", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"a"}},
-				{id: "b", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"b"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "c", levelValues: []string{"c"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   10,
+					},
+				},
+				{
+					domain: domain{id: "a", levelValues: []string{"a"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   10,
+					},
+				},
+				{
+					domain: domain{id: "b", levelValues: []string{"b"}},
+					state: domainState{
+						leaderCount:          1,
+						sliceCountWithLeader: 5,
+						podCountWithLeader:   10,
+					},
+				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "b", "c"},
@@ -583,9 +778,9 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "test", levels, nil)
+			s := newTASFlavorSnapshot(log, "test", newTopologyTree(levels, nil, 0), nil)
 
-			sorted := s.sortedDomainsWithLeader(tc.domains, tc.unconstrained)
+			sorted := s.sortedDomainsWithLeader(addDomainsWithState(s, tc.domains), tc.unconstrained)
 
 			gotOrder := make([]string, len(sorted))
 			for i, d := range sorted {
@@ -608,70 +803,188 @@ func TestSortedDomains(t *testing.T) {
 	levels := []string{"block"}
 
 	testCases := map[string]struct {
-		domains                              []*domain
+		domains                              []testDomainSpec
 		unconstrained                        bool
 		enableTASPreferredSchedulingAffinity bool
 		wantOrder                            []string
 	}{
 		"affinityScore descending: higher affinity score comes first": {
 			enableTASPreferredSchedulingAffinity: true,
-			domains: []*domain{
-				{id: "low-affinity", affinityScore: 10, sliceCount: 5, podCount: 10, levelValues: []string{"a"}},
-				{id: "high-affinity", affinityScore: 100, sliceCount: 5, podCount: 10, levelValues: []string{"b"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "low-affinity", levelValues: []string{"a"}},
+					state: domainState{
+						affinityScore: 10,
+						sliceCount:    5,
+						podCount:      10,
+					},
+				},
+				{
+					domain: domain{id: "high-affinity", levelValues: []string{"b"}},
+					state: domainState{
+						affinityScore: 100,
+						sliceCount:    5,
+						podCount:      10,
+					},
+				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"high-affinity", "low-affinity"},
 		},
 		"affinityScore ignored when feature gate is disabled": {
 			enableTASPreferredSchedulingAffinity: false,
-			domains: []*domain{
-				{id: "low-affinity", affinityScore: 10, sliceCount: 5, podCount: 10, levelValues: []string{"a"}},
-				{id: "high-affinity", affinityScore: 100, sliceCount: 5, podCount: 10, levelValues: []string{"b"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "low-affinity", levelValues: []string{"a"}},
+					state: domainState{
+						affinityScore: 10,
+						sliceCount:    5,
+						podCount:      10,
+					},
+				},
+				{
+					domain: domain{id: "high-affinity", levelValues: []string{"b"}},
+					state: domainState{
+						affinityScore: 100,
+						sliceCount:    5,
+						podCount:      10,
+					},
+				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"low-affinity", "high-affinity"},
 		},
 		"BestFit: sliceCount descending": {
-			domains: []*domain{
-				{id: "a", sliceCount: 3, podCount: 1, levelValues: []string{"a"}},
-				{id: "b", sliceCount: 1, podCount: 1, levelValues: []string{"b"}},
-				{id: "c", sliceCount: 2, podCount: 1, levelValues: []string{"c"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "a", levelValues: []string{"a"}},
+					state: domainState{
+						sliceCount: 3,
+						podCount:   1,
+					},
+				},
+				{
+					domain: domain{id: "b", levelValues: []string{"b"}},
+					state: domainState{
+						sliceCount: 1,
+						podCount:   1,
+					},
+				},
+				{
+					domain: domain{id: "c", levelValues: []string{"c"}},
+					state: domainState{
+						sliceCount: 2,
+						podCount:   1,
+					},
+				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "c", "b"},
 		},
 		"LeastFreeCapacity: sliceCount ascending": {
-			domains: []*domain{
-				{id: "a", sliceCount: 3, podCount: 1, levelValues: []string{"a"}},
-				{id: "b", sliceCount: 1, podCount: 1, levelValues: []string{"b"}},
-				{id: "c", sliceCount: 2, podCount: 1, levelValues: []string{"c"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "a", levelValues: []string{"a"}},
+					state: domainState{
+						sliceCount: 3,
+						podCount:   1,
+					},
+				},
+				{
+					domain: domain{id: "b", levelValues: []string{"b"}},
+					state: domainState{
+						sliceCount: 1,
+						podCount:   1,
+					},
+				},
+				{
+					domain: domain{id: "c", levelValues: []string{"c"}},
+					state: domainState{
+						sliceCount: 2,
+						podCount:   1,
+					},
+				},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"b", "c", "a"},
 		},
 		"BestFit: state ascending as tiebreaker": {
-			domains: []*domain{
-				{id: "large", sliceCount: 5, podCount: 100, levelValues: []string{"a"}},
-				{id: "small", sliceCount: 5, podCount: 10, levelValues: []string{"b"}},
-				{id: "medium", sliceCount: 5, podCount: 50, levelValues: []string{"c"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "large", levelValues: []string{"a"}},
+					state: domainState{
+						sliceCount: 5,
+						podCount:   100,
+					},
+				},
+				{
+					domain: domain{id: "small", levelValues: []string{"b"}},
+					state: domainState{
+						sliceCount: 5,
+						podCount:   10,
+					},
+				},
+				{
+					domain: domain{id: "medium", levelValues: []string{"c"}},
+					state: domainState{
+						sliceCount: 5,
+						podCount:   50,
+					},
+				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
 		"LeastFreeCapacity: state ascending as tiebreaker": {
-			domains: []*domain{
-				{id: "large", sliceCount: 5, podCount: 100, levelValues: []string{"a"}},
-				{id: "small", sliceCount: 5, podCount: 10, levelValues: []string{"b"}},
-				{id: "medium", sliceCount: 5, podCount: 50, levelValues: []string{"c"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "large", levelValues: []string{"a"}},
+					state: domainState{
+						sliceCount: 5,
+						podCount:   100,
+					},
+				},
+				{
+					domain: domain{id: "small", levelValues: []string{"b"}},
+					state: domainState{
+						sliceCount: 5,
+						podCount:   10,
+					},
+				},
+				{
+					domain: domain{id: "medium", levelValues: []string{"c"}},
+					state: domainState{
+						sliceCount: 5,
+						podCount:   50,
+					},
+				},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
 		"levelValues ascending as final tiebreaker": {
-			domains: []*domain{
-				{id: "c", sliceCount: 5, podCount: 10, levelValues: []string{"c"}},
-				{id: "a", sliceCount: 5, podCount: 10, levelValues: []string{"a"}},
-				{id: "b", sliceCount: 5, podCount: 10, levelValues: []string{"b"}},
+			domains: []testDomainSpec{
+				{
+					domain: domain{id: "c", levelValues: []string{"c"}},
+					state: domainState{
+						sliceCount: 5,
+						podCount:   10,
+					},
+				},
+				{
+					domain: domain{id: "a", levelValues: []string{"a"}},
+					state: domainState{
+						sliceCount: 5,
+						podCount:   10,
+					},
+				},
+				{
+					domain: domain{id: "b", levelValues: []string{"b"}},
+					state: domainState{
+						sliceCount: 5,
+						podCount:   10,
+					},
+				},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "b", "c"},
@@ -682,9 +995,9 @@ func TestSortedDomains(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "test", levels, nil)
+			s := newTASFlavorSnapshot(log, "test", newTopologyTree(levels, nil, 0), nil)
 
-			sorted := s.sortedDomains(tc.domains, tc.unconstrained)
+			sorted := s.sortedDomains(addDomainsWithState(s, tc.domains), tc.unconstrained)
 
 			gotOrder := make([]string, len(sorted))
 			for i, d := range sorted {
@@ -746,7 +1059,7 @@ func TestCompareDomainLevelValues(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			s := newTASFlavorSnapshot(log, "test", tc.levels, nil)
+			s := newTASFlavorSnapshot(log, "test", newTopologyTree(tc.levels, nil, 0), nil)
 			got := s.compareDomainLevelValues(tc.a, tc.b)
 			if (got < 0 && tc.want >= 0) || (got > 0 && tc.want <= 0) || (got == 0 && tc.want != 0) {
 				t.Errorf("compareDomainLevelValues() = %d, want sign matching %d", got, tc.want)
@@ -1058,7 +1371,6 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASCachingRemainingResources, enableCaching)
 
 			_, log := utiltesting.ContextWithLog(t)
-			snapshot := newTASFlavorSnapshot(log, "tas-topology", []string{"hostname"}, nil)
 			nodeObj := node.MakeNode("node-a").
 				Label("hostname", "node-a").
 				StatusAllocatable(corev1.ResourceList{
@@ -1067,7 +1379,8 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 				}).
 				Ready().
 				Obj()
-			domainID := snapshot.addNode(nodeObj)
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", newTopologyTree([]string{"hostname"}, []*corev1.Node{nodeObj}, 0), nil)
+			domainID := snapshot.nodeToDomain[nodeObj.Name]
 
 			leaf := snapshot.leaves[domainID]
 			g.Expect(leaf).ToNot(gomega.BeNil())
@@ -1106,12 +1419,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 func newTestSnapshot(t *testing.T, levels []string, nodes ...*corev1.Node) *TASFlavorSnapshot {
 	t.Helper()
 	_, log := utiltesting.ContextWithLog(t)
-	s := newTASFlavorSnapshot(log, "dummy", levels, nil)
-	for _, n := range nodes {
-		s.addNode(n)
-	}
-	s.initialize()
-	return s
+	return newTASFlavorSnapshot(log, "dummy", newTopologyTree(levels, nodes, 0), nil)
 }
 
 func TestInitializeDomainIDCollision(t *testing.T) {
@@ -1250,20 +1558,22 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 	// node. Their identifiers must not end up in the error entry, which is not
 	// gated by the verbosity level.
 	newSnapshot := func(log logr.Logger) *TASFlavorSnapshot {
-		snapshot := newTASFlavorSnapshot(log, "tas-topology", []string{corev1.LabelHostname}, nil)
+		nodes := make([]*corev1.Node, 0, 2)
 		for _, name := range []string{"node-a", "node-b"} {
-			snapshot.addNode(node.MakeNode(name).
+			nodes = append(nodes, node.MakeNode(name).
 				Label(corev1.LabelHostname, name).
 				StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")}).
 				Ready().
 				Obj())
 		}
-		return snapshot
+		return newTASFlavorSnapshot(log, "tas-topology", newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), nil)
 	}
 	// A single domain with room for one pod cannot accommodate the ten requested
 	// ones, which violates the assumptions of the algorithm.
 	callWithViolatedAssumptions := func(snapshot *TASFlavorSnapshot) []*domain {
-		return snapshot.updateCountsToMinimumGeneric([]*domain{{id: "rack-1", podCount: 1}}, 10, 0, 1, false, false)
+		dom := &domain{id: "rack-1", idx: 0}
+		snapshot.domainStateOf(dom).podCount = 1
+		return snapshot.updateCountsToMinimumGeneric([]*domain{dom}, 10, 0, 1, false, false)
 	}
 	wantErrorFields := map[string]any{
 		"error":                "code assumptions violated",

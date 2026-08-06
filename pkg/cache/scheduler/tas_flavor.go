@@ -89,6 +89,19 @@ type TASFlavorCache struct {
 	// nonTasUsageCache maintains the usage coming from non-TAS pods,
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
+
+	// nodesCache provides the nodes matching the flavor, and the generation
+	// used to decide whether the cached topology tree can still be reused.
+	nodesCache *nodesCache
+
+	// treeLock guards tree. It is separate from the embedded RWMutex because
+	// snapshot() holds only the read lock, but must store the tree it built.
+	treeLock sync.Mutex
+
+	// tree caches the static topology structure derived from the node set at
+	// tree.generation. It is shared read-only by the snapshots of the flavor
+	// and reused across scheduling cycles until the node set changes.
+	tree *topologyTree
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
@@ -100,6 +113,7 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 		usage:            make(map[utiltas.TopologyDomainID]resources.Requests),
 		wlUsage:          make(map[workload.Reference][]workload.TopologyDomainRequests),
 		nonTasUsageCache: t.nonTasUsageCache,
+		nodesCache:       t.nodesCache,
 	}
 }
 
@@ -116,27 +130,25 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 }
 
 func (c *TASFlavorCache) snapshot(
-	log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+	log logr.Logger, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
 ) *TASFlavorSnapshot {
 	c.RLock()
 	defer c.RUnlock()
 
+	tree, treeReused := c.cachedOrBuiltTree()
+
 	infoKV := []any{
 		"nodeLabels", c.flavor.NodeLabels,
 		"levels", c.topology.Levels,
-		"nodeCount", len(nodes),
+		"nodeCount", len(tree.nodes),
+		"treeReused", treeReused,
 	}
 	if features.Enabled(features.TASHandleOverlappingFlavors) {
 		infoKV = append(infoKV, "crossFlavorAggregation", aggregatedDomainUsages != nil)
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations)
-	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
-	for _, node := range nodes {
-		nodeToDomain[node.Name] = snapshot.addNode(node)
-	}
-	snapshot.initialize()
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, tree, c.flavor.Tolerations)
 
 	tasDomainUsages := c.usage
 	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
@@ -144,11 +156,43 @@ func (c *TASFlavorCache) snapshot(
 	}
 	snapshot.addTASUsageForHeldDomains(tasDomainUsages)
 	c.nonTasUsageCache.forEachNodeUsage(func(nodeName string, usage resources.Requests) {
-		if domainID, ok := nodeToDomain[nodeName]; ok {
+		if domainID, ok := tree.nodeToDomain[nodeName]; ok {
 			snapshot.addNonTASUsage(domainID, usage)
 		}
 	})
 	return snapshot
+}
+
+// cachedOrBuiltTree returns the cached topology tree when its nodesCache
+// generation is current. Otherwise, it builds a candidate and returns the
+// newest tree retained in the cache, which may have been stored by a concurrent
+// caller. The returned tree must not be mutated.
+func (c *TASFlavorCache) cachedOrBuiltTree() (*topologyTree, bool) {
+	if tree := c.cachedTree(); tree != nil && tree.generation == c.nodesCache.currentGeneration() {
+		return tree, true
+	}
+	// snapshot already holds c.RLock. Do not use c.NodeLabels here: a recursive
+	// RLock can deadlock if a writer is waiting between the two acquisitions.
+	nodes, generation := c.nodesCache.find(c.flavor.NodeLabels, c.topology.Levels)
+	tree := newTopologyTree(c.topology.Levels, nodes, generation)
+	return c.storeTree(tree), false
+}
+
+func (c *TASFlavorCache) cachedTree() *topologyTree {
+	c.treeLock.Lock()
+	defer c.treeLock.Unlock()
+	return c.tree
+}
+
+func (c *TASFlavorCache) storeTree(tree *topologyTree) *topologyTree {
+	c.treeLock.Lock()
+	defer c.treeLock.Unlock()
+	// Concurrent snapshot callers may race to store a rebuilt tree; keep the
+	// newest one so the cache cannot regress to an older generation.
+	if c.tree == nil || tree.generation > c.tree.generation {
+		c.tree = tree
+	}
+	return c.tree
 }
 
 func (c *TASFlavorCache) addUsage(log logr.Logger, key workload.Reference, topologyRequests []workload.TopologyDomainRequests) {

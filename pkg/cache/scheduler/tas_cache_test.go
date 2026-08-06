@@ -8385,11 +8385,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 					aggregatedDomainUsage = tc.aggregatedDomainUsages
 				}
-				snapshot := tasFlavorCache.snapshot(
-					log,
-					tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
-					aggregatedDomainUsage,
-				)
+				snapshot := tasFlavorCache.snapshot(log, aggregatedDomainUsage)
 				flavorTASRequests := make([]TASPodSetRequests, 0, len(tc.podSets))
 				wantResult := make(TASAssignmentsResult)
 				for _, ps := range tc.podSets {
@@ -8895,11 +8891,8 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 				aggregatedDomainUsages = tc.aggregatedDomainUsages
 			}
-			snapshot := tasFlavorCache.snapshot(
-				log,
-				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
-				aggregatedDomainUsages,
-			)
+			snapshot := tasFlavorCache.snapshot(log, aggregatedDomainUsages)
+
 			result := snapshot.FindTopologyAssignmentsForFlavor(log, flavorTASRequests, WithWorkload(wl))
 
 			psResult, ok := result[podSetName]
