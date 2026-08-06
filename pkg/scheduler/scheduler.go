@@ -76,12 +76,62 @@ var (
 	realClock = clock.RealClock{}
 )
 
+type schedulerRoutineWrapper struct {
+	routine.Wrapper
+}
+
+func (w *schedulerRoutineWrapper) newRoutineRunner() routineRunner {
+	if features.Enabled(features.SchedulerParallelizedAPICalls) {
+		return &asyncRunner{
+			routineWrapper: w,
+			waitGroup:      &sync.WaitGroup{},
+		}
+	}
+	return &syncRunner{}
+}
+
+type routineRunner interface {
+	submitRoutine(func())
+	waitForRoutinesToFinish()
+}
+
+var _ routineRunner = (*syncRunner)(nil)
+
+type syncRunner struct{}
+
+func (s *syncRunner) submitRoutine(f func()) {
+	f()
+}
+
+func (s *syncRunner) waitForRoutinesToFinish() {
+	// All ran synchroniously. Nothing to await.
+}
+
+var _ routineRunner = (*asyncRunner)(nil)
+
+type asyncRunner struct {
+	routineWrapper *schedulerRoutineWrapper
+	waitGroup      *sync.WaitGroup
+}
+
+func (g *asyncRunner) submitRoutine(f func()) {
+	g.waitGroup.Add(1)
+	g.routineWrapper.Run(func() {
+		defer g.waitGroup.Done()
+		f()
+	})
+}
+
+func (g *asyncRunner) waitForRoutinesToFinish() {
+	g.waitGroup.Wait()
+}
+
 type Scheduler struct {
 	queues                  *qcache.Manager
 	cache                   *schdcache.Cache
 	client                  client.Client
 	recorder                events.EventRecorder
-	schedulerRoutineWrapper routine.Wrapper
+	schedulerRoutineWrapper schedulerRoutineWrapper
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
 	fairSharing             *config.FairSharing
@@ -207,7 +257,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 			options.preemptionExpectations,
 			options.customLabels,
 		),
-		schedulerRoutineWrapper: routine.DefaultWrapper,
+		schedulerRoutineWrapper: schedulerRoutineWrapper{routine.DefaultWrapper},
 		workloadOrdering:        wo,
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
@@ -234,7 +284,7 @@ func (s *Scheduler) NeedLeaderElection() bool {
 }
 
 func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
-	s.schedulerRoutineWrapper = wrapper
+	s.schedulerRoutineWrapper = schedulerRoutineWrapper{wrapper}
 }
 
 // markSkipped marks the entry as skipped for this cycle. The flavor
@@ -339,12 +389,10 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
 	log.V(2).Info("Nomination done", "entries", len(entries), "inadmissibleEntries", len(inadmissibleEntries), "duration", s.clock.Since(phaseStartTime))
 
-	// 4. Establish a scheduler wait group.
-	// Trigger inadissible heads requeuing to run in parallel.
-	// The wait group ensures processing is finished before the next cycle is allowed to begin.
-	schedulerWg := &sync.WaitGroup{}
+	// 4. Requeue inadmissible heads.
+	requeueRunner := s.schedulerRoutineWrapper.newRoutineRunner()
 	for _, e := range inadmissibleEntries {
-		s.runWithWaitGroup(schedulerWg, func() {
+		requeueRunner.submitRoutine(func() {
 			logAdmissionAttemptIfVerbose(log, &e)
 			s.requeueAndUpdate(ctx, e)
 		})
@@ -361,17 +409,14 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	preemptedWorkloads := make(preemption.PreemptedWorkloads)
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
 
-	// Process entries. Establish a wait group to ensure
-	// parallelized API calls finish before proceeeding to the next step.
-	entryProcessingWg := &sync.WaitGroup{}
+	processEntryRunner := s.schedulerRoutineWrapper.newRoutineRunner()
 	for iterator.hasNext() {
-		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions, entryProcessingWg)
+		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions, processEntryRunner)
 	}
 
 	// 6. Requeue the heads that were not scheduled.
-	// Wait for initial entry processing to finish before requeuing.
 	result := metrics.AdmissionResultInadmissible
-	entryProcessingWg.Wait()
+	processEntryRunner.waitForRoutinesToFinish()
 	for _, e := range entries {
 		logAdmissionAttemptIfVerbose(log, &e)
 		// When the workload is evicted by scheduler we skip requeueAndUpdate.
@@ -379,7 +424,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		if e.status != assumed && e.status != evicted {
 			// Parallelize requeuing. Use the established wait group
 			// to ensure all requeues finish before the next cycle is allowed to start.
-			s.runWithWaitGroup(schedulerWg, func() {
+			requeueRunner.submitRoutine(func() {
 				s.requeueAndUpdate(ctx, e)
 			})
 		} else {
@@ -387,25 +432,20 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		}
 	}
 
-	// Wait for all API calls to finish to accurately report cycle metrics.
-	log.V(2).Info("Workload processing done (1/2): all heads processed; waiting for all API calls to finish before next cycle", "duration", s.clock.Since(phaseStartTime))
-	schedulerWg.Wait()
+	if features.Enabled(features.SchedulerParallelizedAPICalls) {
+		log.V(2).Info("Workload processing done (1/2): all heads processed; waiting for all API calls to finish before next cycle", "duration", s.clock.Since(phaseStartTime))
+		requeueRunner.waitForRoutinesToFinish()
+		log.V(2).Info("Workload processing done (2/2): all API calls finished", "duration", s.clock.Since(phaseStartTime))
+	} else {
+		log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
+	}
 
-	log.V(2).Info("Workload processing done (2/2): all API calls finished", "duration", s.clock.Since(phaseStartTime))
 	s.reportSkippedPreemptions(skippedPreemptions)
 	metrics.AdmissionAttempt(result, s.clock.Since(startTime), s.roleTracker)
 	if result != metrics.AdmissionResultSuccess {
 		return wait.SlowDown
 	}
 	return wait.KeepGoing
-}
-
-func (s *Scheduler) runWithWaitGroup(wg *sync.WaitGroup, f func()) {
-	wg.Add(1)
-	s.schedulerRoutineWrapper.Run(func() {
-		defer wg.Done()
-		f()
-	})
 }
 
 // processEntry runs the admission pipeline for a single entry: TAS replacement,
@@ -418,7 +458,7 @@ func (s *Scheduler) processEntry(
 	snapshot *schdcache.Snapshot,
 	preemptedWorkloads preemption.PreemptedWorkloads,
 	skippedPreemptions map[kueue.ClusterQueueReference]int,
-	wg *sync.WaitGroup,
+	processingGroup routineRunner,
 ) {
 	cq := snapshot.ClusterQueue(e.ClusterQueue)
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)))
@@ -446,7 +486,7 @@ func (s *Scheduler) processEntry(
 	mode := e.assignment.RepresentativeMode()
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
-		s.runWithWaitGroup(wg, func() {
+		processingGroup.submitRoutine(func() {
 			s.handleFailedTASReplacement(ctx, log, e)
 		})
 		return
@@ -515,7 +555,7 @@ func (s *Scheduler) processEntry(
 
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
 		if lessFavorableSibling := s.findAdmittedLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil {
-			s.runWithWaitGroup(wg, func() {
+			processingGroup.submitRoutine(func() {
 				if !s.isMigrationAllowed(cq, e, log) {
 					e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
 					return
