@@ -105,12 +105,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
-	// Finalizing pods and reconciling the Workload touch different objects, so
-	// one failing is no reason to abandon the other. A derived context would
-	// cancel it, and its own lookups would then fail as cancelled rather than
-	// for the reason they were about to find. The reconcile context still
-	// carries shutdown and any deadline.
-	var eg errgroup.Group
+	eg, ctx := errgroup.WithContext(ctx)
 
 	eg.Go(func() error {
 		return r.finalizePods(ctx, sts, podList.Items)

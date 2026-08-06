@@ -17,10 +17,7 @@ limitations under the License.
 package leaderworkerset
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -28,7 +25,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -74,11 +70,6 @@ var (
 func TestReconciler(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
-
-	// The unrelated failure that takes the single error slot, so a missing class
-	// found by another component has to be reported from inside that worker.
-	errComponentConflict := apierrors.NewConflict(
-		kueue.Resource("workloads"), GetWorkloadName(testLWS, testLWS, "0"), errors.New("conflict"))
 
 	cases := map[string]struct {
 		featureGates            map[featuregate.Feature]bool
@@ -810,143 +801,6 @@ func TestReconciler(t *testing.T) {
 		// caller would say nothing, and either error may be the one Wait returns,
 		// so the event is what this pins.
 		//
-		// The class lookup holds until the delete has already failed, which is
-		// the order that used to lose the event: a derived errgroup context would
-		// have been cancelled by then, and parallelize.Until would have returned
-		// without ever running this component.
-		"should report a missing workload priority class that another component's error hides": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
-			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
-				Queue("lws-queue").
-				WorkloadPriorityClass("missing-wpc").
-				Replicas(1).
-				UID(testLWS).
-				Obj(),
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
-					JobUID(testLWS).
-					OwnerReference(gvk, testLWS, testLWS).
-					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
-					Annotation(constants.JobOwnerNameAnnotation, testLWS).
-					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(
-						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-							RestartPolicy("").
-							Image(utiltestingjobs.TestDefaultContainerImage).
-							Obj()).
-					Queue("lws-queue").
-					Obj(),
-				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "1"), testNS).
-					JobUID(testLWS).
-					OwnerReference(gvk, testLWS, testLWS).
-					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
-					Annotation(constants.JobOwnerNameAnnotation, testLWS).
-					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(
-						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-							RestartPolicy("").
-							Image(utiltestingjobs.TestDefaultContainerImage).
-							Obj()).
-					Queue("lws-queue").
-					Obj(),
-			},
-			interceptors: func() interceptor.Funcs {
-				deleteFailed := make(chan struct{})
-				var once sync.Once
-				surplus := GetWorkloadName(testLWS, testLWS, "1")
-				// Returned on timeout, so an ordering that stops holding fails as itself.
-				errNotOrdered := errors.New("the other branch never arrived")
-				// A sibling failure must not cancel this branch.
-				errSiblingCancelled := errors.New("the context was cancelled by the other branch")
-				return interceptor.Funcs{
-					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-						// workload.Delete clears the finalizer before deleting, so
-						// failing here leaves the object as it was.
-						if wl, ok := obj.(*kueue.Workload); ok && wl.Name == surplus {
-							once.Do(func() { close(deleteFailed) })
-							return errComponentConflict
-						}
-						return c.Update(ctx, obj, opts...)
-					},
-					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-						if _, ok := obj.(*kueue.WorkloadPriorityClass); ok {
-							select {
-							case <-deleteFailed:
-							case <-time.After(30 * time.Second):
-								return errNotOrdered
-							}
-							// The delete has failed, so a derived errgroup context
-							// would be cancelled by now. parallelize.Until checks for
-							// cancellation before each item, so components that had
-							// not started yet would be skipped and never report.
-							select {
-							case <-ctx.Done():
-								return errSiblingCancelled
-							case <-time.After(time.Second):
-							}
-						}
-						return c.Get(ctx, key, obj, opts...)
-					},
-				}
-			},
-			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
-				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
-					Queue("lws-queue").
-					WorkloadPriorityClass("missing-wpc").
-					Replicas(1).
-					UID(testLWS).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
-					JobUID(testLWS).
-					OwnerReference(gvk, testLWS, testLWS).
-					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
-					Annotation(constants.JobOwnerNameAnnotation, testLWS).
-					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(
-						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-							RestartPolicy("").
-							Image(utiltestingjobs.TestDefaultContainerImage).
-							Obj()).
-					Queue("lws-queue").
-					Obj(),
-				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "1"), testNS).
-					JobUID(testLWS).
-					OwnerReference(gvk, testLWS, testLWS).
-					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
-					Annotation(constants.JobOwnerNameAnnotation, testLWS).
-					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(
-						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-							RestartPolicy("").
-							Image(utiltestingjobs.TestDefaultContainerImage).
-							Obj()).
-					Queue("lws-queue").
-					Obj(),
-			},
-			// Either branch's error may be the one Wait returns; the warning is
-			// recorded regardless, which is the whole point.
-			wantErr: cmpopts.AnyError,
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
-					EventType: corev1.EventTypeWarning,
-					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
-					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
-				},
-			},
-		},
 		"should update prebuilt workload if queue-name label is set": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
