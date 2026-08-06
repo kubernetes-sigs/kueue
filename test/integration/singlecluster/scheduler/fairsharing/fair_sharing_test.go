@@ -404,6 +404,75 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.ExpectEvictedWorkloadsTotalMetric(cqB.Name, kueue.WorkloadEvictedByPreemption, "", "", 0)
 		})
 
+		ginkgo.It("Should prevent other workloads from stealing quota when preemptor is waiting for multiple evictions", func() {
+			cohort := createCohort(utiltestingapi.MakeCohort(kueue.CohortReference("thrash-cohort-" + ns.Name)).Obj())
+
+			cq1 := createQueue(utiltestingapi.MakeClusterQueue("cq-1-" + ns.Name).
+				Cohort(kueue.CohortReference(cohort.Name)).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10").
+						Resource(corev1.ResourceMemory, "0").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj())
+
+			cq2 := createQueue(utiltestingapi.MakeClusterQueue("cq-2-" + ns.Name).
+				Cohort(kueue.CohortReference(cohort.Name)).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").
+						Resource(corev1.ResourceMemory, "10").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj())
+
+			createWorkloadWithCPUAndMemory := func(queue string, cpu, memory string, priority int32) *kueue.Workload {
+				wl := utiltestingapi.MakeWorkloadWithGeneratedName("wl-", ns.Name).
+					Priority(priority).
+					Queue(kueue.LocalQueueName(queue)).
+					Request(corev1.ResourceCPU, cpu).
+					Request(corev1.ResourceMemory, memory).Obj()
+				wls = append(wls, wl)
+				util.MustCreate(ctx, k8sClient, wl)
+				return wl
+			}
+
+			ginkgo.By("Creating wlA in cq-2")
+			wlA := createWorkloadWithCPUAndMemory(cq2.Name, "1", "0", 100)
+
+			ginkgo.By("Creating wlB in cq-2")
+			wlB := createWorkloadWithCPUAndMemory(cq2.Name, "1", "0", 100)
+
+			ginkgo.By("Waiting for wlA and wlB to be admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA, wlB)
+
+			ginkgo.By("Creating preemptor-wl in cq-1")
+			preemptorWl := createWorkloadWithCPUAndMemory(cq1.Name, "10", "10", 0)
+
+			ginkgo.By("Waiting for wlA and wlB to be preempted/evicted")
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlA, wlB)
+
+			ginkgo.By("Finishing eviction for wlA")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+
+			ginkgo.By("Ensuring wlA is not re-admitted in the interim")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlA), wlA)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(wlA)).To(gomega.BeFalse())
+			}, util.ConsistentDuration, util.LongInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing eviction for wlB")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlB)
+
+			ginkgo.By("Waiting for preemptorWl to be re-admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptorWl)
+		})
+
 		ginkgo.It("should have NaN weighted share metric", func() {
 			ginkgo.By("Creating a workload in cqA")
 			wlA1 := createWorkloadWithPriority(cqA.Name, "4", 100)
