@@ -4515,11 +4515,11 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 
 		ginkgo.By("the third pod stays gated, since the capacity it would take is being released", func() {
 			mintGatedPod("pod-2")
-			// Longer than the usual consistency window, which is shorter than
-			// the second or so the ungater takes to reach a newly created pod.
+			// The usual window is shorter than the second or so the ungater
+			// takes to reach a newly created pod.
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(2))
-			}, 2*time.Second, util.Interval).Should(gomega.Succeed())
+			}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
 		})
 
 		// The same pod goes through once the slice is live again, which is what
