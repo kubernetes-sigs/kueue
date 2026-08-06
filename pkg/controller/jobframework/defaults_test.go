@@ -17,15 +17,19 @@ limitations under the License.
 package jobframework
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -112,7 +116,81 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 	}
 }
 
+// TestApplyDefaultLocalQueue covers the function this branch released, which
+// has no namespace filtering of its own.
 func TestApplyDefaultLocalQueue(t *testing.T) {
+	cases := map[string]struct {
+		job               *batchv1.Job
+		defaultQueueExist bool
+		wantQueueLabel    string
+	}{
+		"a job with no queue gets the default one": {
+			job:               utiltestingjob.MakeJob("test-job", "ns").Obj(),
+			defaultQueueExist: true,
+			wantQueueLabel:    "default",
+		},
+		"an existing queue is not overwritten": {
+			job:               utiltestingjob.MakeJob("test-job", "ns").Queue("other").Obj(),
+			defaultQueueExist: true,
+			wantQueueLabel:    "other",
+		},
+		"no default queue in the namespace": {
+			job:            utiltestingjob.MakeJob("test-job", "ns").Obj(),
+			wantQueueLabel: "",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ApplyDefaultLocalQueue(tc.job, func(string) bool { return tc.defaultQueueExist })
+
+			if got := tc.job.Labels[constants.QueueLabel]; got != tc.wantQueueLabel {
+				t.Errorf("queue label: got %q, want %q", got, tc.wantQueueLabel)
+			}
+		})
+	}
+}
+
+// The namespace is read only when the label is about to be set. A job that is
+// not a candidate must not need it, or a namespace the webhook cannot read
+// would start failing admission.
+func TestApplyDefaultLocalQueueWithManagedJobsNamespaceSelectorSkipsNamespaceRead(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cl := utiltesting.NewClientBuilder().
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*corev1.Namespace); ok {
+					return errors.New("the namespace was read")
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).Build()
+
+	cases := map[string]struct {
+		job               *batchv1.Job
+		defaultQueueExist bool
+	}{
+		"no default queue in the namespace": {
+			job: utiltestingjob.MakeJob("test-job", "ns").Obj(),
+		},
+		"the job already names a queue": {
+			job:               utiltestingjob.MakeJob("test-job", "ns").Queue("other").Obj(),
+			defaultQueueExist: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(ctx, cl, tc.job,
+				func(string) bool { return tc.defaultQueueExist }, labels.Everything())
+			if err != nil {
+				t.Errorf("ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector() = %v, want no error", err)
+			}
+		})
+	}
+}
+
+func TestApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(t *testing.T) {
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	ls := &metav1.LabelSelector{
@@ -155,8 +233,8 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 				return true
 			}
 
-			if err := ApplyDefaultLocalQueue(ctx, cl, tc.job, defaultQueueExist, namespaceSelector); err != nil {
-				t.Fatalf("ApplyDefaultLocalQueue() returned error: %v", err)
+			if err := ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(ctx, cl, tc.job, defaultQueueExist, namespaceSelector); err != nil {
+				t.Fatalf("ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector() returned error: %v", err)
 			}
 
 			got := tc.job.Labels[constants.QueueLabel]
