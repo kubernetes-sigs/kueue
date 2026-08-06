@@ -80,7 +80,7 @@ func GetCounterResourcesForWorkload(
 				claimPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
 				reqPath := claimPath.Child("devices", "requests").Index(reqIdx)
 
-				classSelectors, requestSelectors, errs := prepareCounterCharge(ctx, cl, req.Exactly.DeviceClassName, req.Exactly.Selectors, classCache, claimPath, reqIdx)
+				classSelectors, requestSelectors, errs := prepareDeviceSelectors(ctx, cl, req.Exactly.DeviceClassName, req.Exactly.Selectors, classCache, claimPath, reqIdx)
 				if len(errs) > 0 {
 					allErrs = append(allErrs, errs...)
 					return nil, allErrs
@@ -113,7 +113,7 @@ func GetCounterResourcesForWorkload(
 	return perPodSet, nil
 }
 
-func prepareCounterCharge(
+func prepareDeviceSelectors(
 	ctx context.Context,
 	cl client.Client,
 	deviceClassName string,
