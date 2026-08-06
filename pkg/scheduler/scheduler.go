@@ -343,7 +343,6 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// Trigger inadissible heads requeuing to run in parallel.
 	// The wait group ensures processing is finished before the next cycle is allowed to begin.
 	schedulerWg := &sync.WaitGroup{}
-	defer schedulerWg.Wait()
 	for _, e := range inadmissibleEntries {
 		s.runWithWaitGroup(schedulerWg, func() {
 			logAdmissionAttemptIfVerbose(log, &e)
@@ -388,7 +387,11 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		}
 	}
 
-	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
+	// Wait for all API calls to finish to accurately report cycle metrics.
+	log.V(2).Info("Workload processing done (1/2): all heads processed; waiting for all API calls to finish before next cycle", "duration", s.clock.Since(phaseStartTime))
+	schedulerWg.Wait()
+
+	log.V(2).Info("Workload processing done (2/2): all API calls finished", "duration", s.clock.Since(phaseStartTime))
 	s.reportSkippedPreemptions(skippedPreemptions)
 	metrics.AdmissionAttempt(result, s.clock.Since(startTime), s.roleTracker)
 	if result != metrics.AdmissionResultSuccess {
