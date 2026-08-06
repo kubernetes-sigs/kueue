@@ -4065,6 +4065,13 @@ func TestLastAssignmentOutdated(t *testing.T) {
 // each cohort get 4 units of CPU in a different flavor.
 func TestHierarchical(t *testing.T) {
 	type rfMap = map[corev1.ResourceName]kueue.ResourceFlavorReference
+	defaultTestClusterQueueFlavors := func() []kueue.FlavorQuotas {
+		return []kueue.FlavorQuotas{
+			*utiltestingapi.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "0").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("two").Resource(corev1.ResourceCPU, "0").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "0").Obj(),
+		}
+	}
 	cases := map[string]struct {
 		workloadRequests        *utiltestingapi.PodSetWrapper
 		testClusterQueueFlavors []kueue.FlavorQuotas
@@ -4076,7 +4083,8 @@ func TestHierarchical(t *testing.T) {
 		wantAssigment           rfMap
 	}{
 		"Select the top flavor": {
-			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			workloadRequests:        utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			testClusterQueueFlavors: defaultTestClusterQueueFlavors(),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
 			},
@@ -4087,14 +4095,15 @@ func TestHierarchical(t *testing.T) {
 			wantAssigment: rfMap{corev1.ResourceCPU: "three"},
 		},
 		"Select the first flavor which fits": {
-			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			workloadRequests:        utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			testClusterQueueFlavors: defaultTestClusterQueueFlavors(),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
 			},
 			wantMode:      Fit,
 			wantAssigment: rfMap{corev1.ResourceCPU: "two"},
 		},
-		"Select deeper flavor that fits when shallower flavor has no preemption candidates": {
+		"Select deeper-borrowing flavor that fits when shallower-borrowing flavor has no preemption candidates": {
 			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
 			testClusterQueueFlavors: []kueue.FlavorQuotas{
 				*utiltestingapi.MakeFlavorQuotas("one").
@@ -4129,14 +4138,6 @@ func TestHierarchical(t *testing.T) {
 				"two":   utiltestingapi.MakeResourceFlavor("two").Obj(),
 				"three": utiltestingapi.MakeResourceFlavor("three").Obj(),
 			}
-			testClusterQueueFlavors := tc.testClusterQueueFlavors
-			if testClusterQueueFlavors == nil {
-				testClusterQueueFlavors = []kueue.FlavorQuotas{
-					*utiltestingapi.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "0").Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").Resource(corev1.ResourceCPU, "0").Obj(),
-					*utiltestingapi.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "0").Obj(),
-				}
-			}
 			cohorts := []*kueue.Cohort{
 				utiltestingapi.MakeCohort("three").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("three").
@@ -4159,7 +4160,7 @@ func TestHierarchical(t *testing.T) {
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 				}).
-				ResourceGroup(testClusterQueueFlavors...).
+				ResourceGroup(tc.testClusterQueueFlavors...).
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanPreempt: kueue.TryNextFlavor,
 				}).Obj()
@@ -4285,7 +4286,7 @@ func TestIsPreferred(t *testing.T) {
 			},
 			wantPreferred: false,
 		},
-		"explicit PreemptionOverBorrowing prefers fit over shallower no-candidate flavor": {
+		"explicit PreemptionOverBorrowing prefers fit over shallower-borrowing no-candidate flavor": {
 			a: granularMode{preemptionMode: fit, borrowingLevel: 2},
 			b: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
 			config: kueue.FlavorFungibility{
