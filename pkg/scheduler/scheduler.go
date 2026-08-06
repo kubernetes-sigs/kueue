@@ -339,40 +339,53 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
 	log.V(2).Info("Nomination done", "entries", len(entries), "inadmissibleEntries", len(inadmissibleEntries), "duration", s.clock.Since(phaseStartTime))
 
-	// 4. Create iterator which returns ordered entries.
-	iterator := makeIterator(ctx, entries, s.workloadOrdering, fairsharing.Enabled(s.fairSharing))
+	// 4. Establish a scheduler wait group.
+	// Trigger inadissible heads requeuing to run in parallel.
+	// The wait group ensures processing is finished before the next cycle is allowed to begin.
+	schedulerWg := &sync.WaitGroup{}
+	defer schedulerWg.Wait()
+	for _, e := range inadmissibleEntries {
+		s.runWithWaitGroup(schedulerWg, func() {
+			logAdmissionAttemptIfVerbose(log, &e)
+			s.requeueAndUpdate(ctx, e)
+		})
+	}
 
-	// 5. Admit entries, ensuring that no more than one workload gets
+	// 5. Create iterator which returns ordered entries.
+	// Admit entries, ensuring that no more than one workload gets
 	// admitted by a cohort (if borrowing).
 	// This is because there can be other workloads deeper in a clusterQueue whose
 	// head got admitted that should be scheduled in the cohort before the heads
 	// of other clusterQueues.
+	iterator := makeIterator(ctx, entries, s.workloadOrdering, fairsharing.Enabled(s.fairSharing))
 	phaseStartTime = s.clock.Now()
 	preemptedWorkloads := make(preemption.PreemptedWorkloads)
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
 
-	wg := &sync.WaitGroup{}
+	// Process entries. Establish a wait group to ensure
+	// parallelized API calls finish before proceeeding to the next step.
+	entryProcessingWg := &sync.WaitGroup{}
 	for iterator.hasNext() {
-		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions, wg)
+		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions, entryProcessingWg)
 	}
-	// Wait untill all processing is done and all entries are updated.
-	wg.Wait()
 
 	// 6. Requeue the heads that were not scheduled.
+	// Wait for initial entry processing to finish before requeuing.
 	result := metrics.AdmissionResultInadmissible
+	entryProcessingWg.Wait()
 	for _, e := range entries {
 		logAdmissionAttemptIfVerbose(log, &e)
 		// When the workload is evicted by scheduler we skip requeueAndUpdate.
 		// The eviction process will be finalized by the workload controller.
 		if e.status != assumed && e.status != evicted {
-			s.requeueAndUpdate(ctx, e)
+			// Parallelize requeuing. Use the established wait group
+			// to ensure all requeues finish before the next cycle is allowed to start.
+			s.runWithWaitGroup(schedulerWg, func() {
+				s.requeueAndUpdate(ctx, e)
+			})
 		} else {
 			result = metrics.AdmissionResultSuccess
 		}
-	}
-	for _, e := range inadmissibleEntries {
-		logAdmissionAttemptIfVerbose(log, &e)
-		s.requeueAndUpdate(ctx, e)
 	}
 
 	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
@@ -1105,21 +1118,19 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		}
 		wl := e.Obj.DeepCopy()
 		condReason := workload.UnadmittedWorkloadReasonWithFallback(e.quotaReservedReason, "Pending")
-		s.schedulerRoutineWrapper.Run(func() {
-			if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
-				updated := workload.UnsetQuotaReservationWithCondition(wl, condReason, e.inadmissibleMsg, s.clock.Now())
-				if workload.PropagateResourceRequests(wl, &e.Info, s.resourceFormatter) {
-					updated = true
-				}
-				if e.status == preemptionGated {
-					updated = workload.SetBlockedOnPreemptionGatesCondition(wl, s.clock.Now(), kueue.PreemptionGated, e.inadmissibleMsg)
-				}
-				return updated, nil
-			}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
-				log.Error(err, "Could not update Workload status")
+		if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
+			updated := workload.UnsetQuotaReservationWithCondition(wl, condReason, e.inadmissibleMsg, s.clock.Now())
+			if workload.PropagateResourceRequests(wl, &e.Info, s.resourceFormatter) {
+				updated = true
 			}
-			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, condReason, condReason, api.TruncateEventMessage(e.inadmissibleMsg))
-		})
+			if e.status == preemptionGated {
+				updated = workload.SetBlockedOnPreemptionGatesCondition(wl, s.clock.Now(), kueue.PreemptionGated, e.inadmissibleMsg)
+			}
+			return updated, nil
+		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
+			log.Error(err, "Could not update Workload status")
+		}
+		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, condReason, condReason, api.TruncateEventMessage(e.inadmissibleMsg))
 	}
 }
 
