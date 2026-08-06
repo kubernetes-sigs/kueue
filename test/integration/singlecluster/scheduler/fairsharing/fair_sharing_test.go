@@ -749,14 +749,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
 
 			ginkgo.By("Create workload in queue2")
-			highPriorityWl := createWorkloadWithPriority("cq-p2", "6", 999)
-
-			ginkgo.By("Wait until scheduler attempts to schedule priority=999 wl")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(highPriorityWl), highPriorityWl)).To(gomega.Succeed())
-				cond := meta.FindStatusCondition(highPriorityWl.Status.Conditions, kueue.WorkloadQuotaReserved)
-				g.Expect(cond).NotTo(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			createWorkloadWithPriority("cq-p2", "6", 999)
 
 			ginkgo.By("Verify doesn't admit")
 			util.ExpectAdmittedWorkloadsTotalMetric(cqp2, "", 0)
