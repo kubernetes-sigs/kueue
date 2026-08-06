@@ -187,33 +187,32 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 		oldReplicas := ptr.Deref(oldStatefulSet.Spec.Replicas, 1)
 		newReplicas := ptr.Deref(newStatefulSet.Spec.Replicas, 1)
 
-		// Allow only scale down to zero and scale up from zero.
-		// TODO(#3279): Support custom resizes later
-		if newReplicas != 0 && oldReplicas != 0 {
-			allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-				newStatefulSet.Spec.Replicas,
-				oldStatefulSet.Spec.Replicas,
-				replicasPath,
-			)...)
-		}
+		if newReplicas != oldReplicas {
+			wlName, err := findWorkloadName(ctx, wh.client, oldSTSObj)
+			if err != nil {
+				return nil, err
+			}
+			var wl kueue.Workload
+			err = wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTSObj.GetNamespace(), Name: wlName}, &wl)
+			if client.IgnoreNotFound(err) != nil {
+				return nil, err
+			}
+			wlExists := err == nil
 
-		if oldReplicas == 0 && newReplicas > 0 {
-			if newStatefulSet.Status.Replicas > 0 {
-				// Block if pods are still terminating
-				allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
-			} else {
-				// Block if workload is still being deleted (exists without OnHold).
-				// If the workload is on hold, it is intentionally kept alive during
-				// scale-to-zero and will be re-admitted on scale-up.
-				wlName, err := findWorkloadName(ctx, wh.client, oldSTSObj)
-				if err != nil {
-					return nil, err
+			if newReplicas != 0 && oldReplicas != 0 {
+				if wlExists && workload.HasQuotaReservation(&wl) && newReplicas > oldReplicas {
+					allErrs = append(allErrs, field.Forbidden(replicasPath, "scale-out is not supported for admitted workloads"))
 				}
-				var wl kueue.Workload
-				err = wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTSObj.GetNamespace(), Name: wlName}, &wl)
-				if client.IgnoreNotFound(err) != nil {
-					return nil, err
-				} else if err == nil && !workload.IsOnHold(&wl) {
+			}
+
+			if oldReplicas == 0 && newReplicas > 0 {
+				if newStatefulSet.Status.Replicas > 0 {
+					// Block if pods are still terminating
+					allErrs = append(allErrs, field.Forbidden(replicasPath, "scaling down is still in progress"))
+				} else if wlExists && !workload.IsOnHold(&wl) {
+					// Block if workload is still being deleted (exists without OnHold).
+					// If the workload is on hold, it is intentionally kept alive during
+					// scale-to-zero and will be re-admitted on scale-up.
 					allErrs = append(allErrs, field.Forbidden(replicasPath, "workload from previous scale-down is still being deleted"))
 				}
 			}
