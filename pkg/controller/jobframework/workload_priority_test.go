@@ -24,6 +24,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -326,5 +327,31 @@ func raiseClassTo(value int32) func(t *testing.T, ctx context.Context, cl client
 		if err := cl.Update(ctx, class); err != nil {
 			t.Fatalf("updating class: %v", err)
 		}
+	}
+}
+
+// TestApplyWorkloadPriorityLeavesUnlabelledWorkloadsAlone pins the boundary of
+// the stale-value repair. With no class named, every workload without a
+// reference classifies as naming the same (empty) class, and rewriting those
+// would take back a value that nothing here owns.
+func TestApplyWorkloadPriorityLeavesUnlabelledWorkloadsAlone(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	job := testingjob.MakeJob("job", "ns").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Priority(1000).Obj()
+	cl := utiltesting.NewClientBuilder().WithObjects(wl).Build()
+
+	if err := ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, 0, wl); err != nil {
+		t.Fatalf("ApplyWorkloadPriority() = %v", err)
+	}
+
+	var got kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &got); err != nil {
+		t.Fatalf("reading the workload back: %v", err)
+	}
+	if got.Spec.Priority == nil || *got.Spec.Priority != 1000 {
+		t.Errorf("workload priority = %d, want it left at 1000", ptr.Deref(got.Spec.Priority, 0))
+	}
+	if got.Spec.PriorityClassRef != nil {
+		t.Errorf("workload gained a priority class reference: %v", got.Spec.PriorityClassRef)
 	}
 }

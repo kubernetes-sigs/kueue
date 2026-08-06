@@ -1220,16 +1220,17 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 // of workloads. Two lookups of one class in the same reconcile can return
 // different values, which would leave the sets holding different priorities.
 //
-// The same rule about when to write applies: nothing is touched unless at least
-// one workload needs a class transition, so a steady-state reconcile does not
-// overwrite a value that is otherwise mutable.
+// A caller that already resolved had a reason to, so a workload naming the class
+// with a value left behind by an earlier reconcile is repaired here rather than
+// waiting for a name to change. Everything else is left alone.
 func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
 	priorityClassRef *kueue.PriorityClassRef, priority int32, wls ...*kueue.Workload) error {
-	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
-	// Unlike the lazy path, a caller that already resolved had a reason to, so a
-	// workload that names the class with a value left behind by an earlier
-	// reconcile is repaired here rather than waiting for a name to change.
-	if len(sameClassName) == 0 && len(needsClassChange) == 0 {
+	className := WorkloadPriorityClassName(obj)
+	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), className, wls)
+	// The repair needs a class to name. Under an empty label every workload
+	// without a reference reads as naming the same one, and rewriting those
+	// would take back a value nothing here owns.
+	if len(needsClassChange) == 0 && (className == "" || len(sameClassName) == 0) {
 		return nil
 	}
 	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, sameClassName, needsClassChange)
