@@ -334,6 +334,15 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	snapshot, err := s.cache.Snapshot(ctx, snapshotOpts...)
 	if err != nil {
 		log.Error(err, "failed to build snapshot for scheduling")
+		// The heads were popped from the queues and nothing else puts them back.
+		// The failure is transient, so requeue them for the next cycle rather
+		// than parking them as inadmissible.
+		for i := range heads {
+			if s.queues.QueueSecondPassIfNeeded(ctx, heads[i].Obj, heads[i].SecondPassIteration) {
+				continue
+			}
+			s.queues.RequeueWorkload(ctx, &heads[i].Info, qcache.RequeueReasonFailedAfterNomination, "")
+		}
 		return wait.SlowDown
 	}
 	logSnapshotIfVerbose(log, snapshot)
