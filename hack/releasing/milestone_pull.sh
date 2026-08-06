@@ -19,7 +19,7 @@ set -o nounset
 set -o pipefail
 
 # Resolved without `git rev-parse` so the file stays sourceable from the test harness.
-MILESTONE_PULL_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+KUBERNETES_SIGS_KUEUE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 declare -r MILESTONE_PULL_ROOT
 
 # shellcheck source=hack/utils.sh
