@@ -53,27 +53,40 @@ func (m *IntegrationManager) ApplyDefaultLocalQueue(
 	defaultQueueExist func(string) bool,
 	managedJobsNamespaceSelector labels.Selector,
 ) error {
-	if !defaultQueueExist(jobObj.GetNamespace()) {
+	if !m.defaultLocalQueueApplies(jobObj, defaultQueueExist) {
 		return nil
 	}
-	if QueueNameForObject(jobObj) == "" {
-		// Do not default the queue-name for a job whose owner is already managed by Kueue
-		if m.IsOwnerManagedByKueueForObject(jobObj) {
-			return nil
-		}
-		if managed, err := namespaceMatchesSelector(ctx, k8sClient, jobObj.GetNamespace(), managedJobsNamespaceSelector); err != nil {
-			return err
-		} else if !managed {
-			return nil
-		}
-		labels := jobObj.GetLabels()
-		if labels == nil {
-			labels = make(map[string]string, 1)
-		}
-		labels[constants.QueueLabel] = string(constants.DefaultLocalQueueName)
-		jobObj.SetLabels(labels)
+	// Reached only when the label is about to be set, so an object that is not a
+	// candidate costs no Namespace read.
+	managed, err := namespaceMatchesSelector(ctx, k8sClient, jobObj.GetNamespace(), managedJobsNamespaceSelector)
+	if err != nil {
+		return err
 	}
+	if !managed {
+		return nil
+	}
+	setDefaultLocalQueue(jobObj)
 	return nil
+}
+
+func (m *IntegrationManager) defaultLocalQueueApplies(jobObj client.Object, defaultQueueExist func(string) bool) bool {
+	if !defaultQueueExist(jobObj.GetNamespace()) {
+		return false
+	}
+	if QueueNameForObject(jobObj) != "" {
+		return false
+	}
+	// Do not default the queue-name for a job whose owner is already managed by Kueue
+	return !m.IsOwnerManagedByKueueForObject(jobObj)
+}
+
+func setDefaultLocalQueue(jobObj client.Object) {
+	jobLabels := jobObj.GetLabels()
+	if jobLabels == nil {
+		jobLabels = make(map[string]string, 1)
+	}
+	jobLabels[constants.QueueLabel] = string(constants.DefaultLocalQueueName)
+	jobObj.SetLabels(jobLabels)
 }
 
 func (m *IntegrationManager) ApplyDefaultWorkloadPriorityClass(ctx context.Context, c client.Client, jobObj client.Object) {
