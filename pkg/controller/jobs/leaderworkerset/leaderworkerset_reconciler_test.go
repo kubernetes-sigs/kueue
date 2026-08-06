@@ -2350,6 +2350,9 @@ func TestReconcilerResolvesPriorityClassOnceForMixedSets(t *testing.T) {
 		t.Fatalf("ended with %d workloads, want 2", len(got.Items))
 	}
 	for _, wl := range got.Items {
+		if wl.Spec.PriorityClassRef == nil || wl.Spec.PriorityClassRef.Name != "new-wpc" {
+			t.Errorf("%s: priorityClassRef = %v, want new-wpc", wl.Name, wl.Spec.PriorityClassRef)
+		}
 		if wl.Spec.Priority == nil || *wl.Spec.Priority != 5000 {
 			t.Errorf("%s: priority = %v, want 5000", wl.Name, wl.Spec.Priority)
 		}
