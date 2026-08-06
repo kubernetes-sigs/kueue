@@ -2255,8 +2255,9 @@ the realized allocation.
 - feature gate enabled by default
 - quota and feasibility paths agree on the supported-versus-rejected predicate, with tests
 - no known quota under-accounting at the aggregation boundaries: the per-Pod sum across requests,
-  the merge with an ordinary resource sharing the same key, the PodSet-count multiplication, and the
-  `resource.Quantity` to `int64` conversion where several DeviceClasses map to one logical resource
+  the merge with an ordinary resource sharing the same key, the PodSet-count multiplication, the
+  sum across PodSets, and the `resource.Quantity` to `int64` conversion where several DeviceClasses
+  map to one logical resource
 - upgrade and downgrade behavior verified
 - E2E stability for the count-based case
 - re-evaluate source-backed alternatives, charging each through its source path and taking the
