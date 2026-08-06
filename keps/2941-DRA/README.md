@@ -1841,6 +1841,30 @@ the Kubernetes API version Kueue is compiled against. A classifier written over 
 see a field that was added in a later Kubernetes minor release, so bumping the API dependency will
 require reviewing any new fields that affect the charge.
 
+The subrequest fields Kueue can see today, and how the classifier treats each one:
+
+| Field | Treatment |
+| --- | --- |
+| `deviceClassName` | maps to the logical resource; an unmapped class is rejected |
+| `allocationMode` | only an effective `ExactCount` is charged |
+| `count` | the charge itself |
+| `selectors` | compiled, and otherwise not part of the charge |
+| `tolerations` | feasibility only, and not part of the charge |
+
+The API specifies the defaults, so the classifier reads effective values: an omitted
+`allocationMode` is `ExactCount`, and an omitted `count` under that mode is one. The same type
+states that clients must refuse to handle requests with unknown modes, which is what the rejection
+above does. Claim-level `constraints` and `config` do not change the device count, and `pkg/dra`
+does not read them.
+
+Kubernetes 1.37 adds `capacity` and `derivedAttributes` to `DeviceSubRequest`. Kueue is compiled
+against 1.36, where the type ends at `tolerations`, so a 1.36 build talking to a 1.37 apiserver
+decodes a subrequest without either field and cannot reject an alternative that uses them. The
+envelope still charges the declared count, which is what a count-based mapping produces in any
+case, but deciding whether that is the right charge for a capacity request is what the
+capacity-backed rejection exists to do. Raising the dependency to 1.37 and classifying both fields
+is a prerequisite for this gate leaving Alpha.
+
 The bound rests on two further assumptions. First, the `ResourceClaimSpec` Kueue charges is the one
 later used to create the generated `ResourceClaim`. A `ResourceClaimTemplate` spec is immutable in
 place, but deleting and recreating one under the same name can change the spec between charging
