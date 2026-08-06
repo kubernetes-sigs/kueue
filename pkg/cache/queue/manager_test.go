@@ -31,6 +31,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -2572,5 +2573,61 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 				t.Error("LastAssignment was carried by reference; it must be cloned so the two Infos do not alias")
 			}
 		})
+	}
+}
+
+func TestManager_ResourceCaches(t *testing.T) {
+	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil)
+
+	lr := &corev1.LimitRange{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "lr",
+			Namespace: "ns",
+		},
+		Spec: corev1.LimitRangeSpec{
+			Limits: []corev1.LimitRangeItem{
+				{
+					Type: corev1.LimitTypeContainer,
+				},
+			},
+		},
+	}
+
+	rc := &nodev1.RuntimeClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "rc",
+		},
+		Handler: "runc",
+	}
+
+	// Test LimitRange cache via Manager
+	manager.LimitRangeCache().Add(lr)
+	lrs := manager.LimitRangeCache().GetForNamespace("ns")
+	if len(lrs) != 1 || lrs[0].Name != "lr" {
+		t.Errorf("Expected 1 LimitRange 'lr', got %v", lrs)
+	}
+
+	manager.LimitRangeCache().Delete(lr)
+	lrs = manager.LimitRangeCache().GetForNamespace("ns")
+	if len(lrs) != 0 {
+		t.Errorf("Expected 0 LimitRanges after delete, got %v", lrs)
+	}
+
+	// Test RuntimeClass cache via Manager
+	manager.RuntimeClassCache().Add(rc)
+	gotRc := manager.RuntimeClassCache().Get("rc")
+	if gotRc == nil || gotRc.Name != "rc" {
+		t.Errorf("Expected RuntimeClass 'rc', got %v", gotRc)
+	}
+
+	allRcs := manager.RuntimeClassCache().GetAll()
+	if len(allRcs) != 1 || allRcs["rc"].Name != "rc" {
+		t.Errorf("Expected 1 RuntimeClass in GetAll, got %v", allRcs)
+	}
+
+	manager.RuntimeClassCache().Delete(rc)
+	gotRc = manager.RuntimeClassCache().Get("rc")
+	if gotRc != nil {
+		t.Errorf("Expected nil RuntimeClass after delete, got %v", gotRc)
 	}
 }

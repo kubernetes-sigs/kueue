@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -39,13 +38,17 @@ func defaultResourceQuantity(name corev1.ResourceName, value int64) resource.Qua
 }
 
 func TestAdjustResources(t *testing.T) {
+	const runtimeClassNotFoundErr = `in podSet d: runtimeclasses.node.k8s.io "runtime-d" not found`
+
 	cases := map[string]struct {
 		runtimeClasses []nodev1.RuntimeClass
 		limitranges    []corev1.LimitRange
 		wl             *kueue.Workload
 		wantWl         *kueue.Workload
+		wantErr        string
 	}{
 		"Handle runtimeClass with podOverHead": {
+			wantErr: runtimeClassNotFoundErr,
 			runtimeClasses: []nodev1.RuntimeClass{
 				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
 					PodOverhead(corev1.ResourceList{
@@ -117,6 +120,7 @@ func TestAdjustResources(t *testing.T) {
 				Obj(),
 		},
 		"Handle runtimeClass without podOverHead": {
+			wantErr: runtimeClassNotFoundErr,
 			runtimeClasses: []nodev1.RuntimeClass{
 				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
 					RuntimeClass,
@@ -361,8 +365,11 @@ func TestAdjustResources(t *testing.T) {
 				Obj(),
 			wantWl: utiltestingapi.MakeWorkload("foo", "").
 				PodSets(
-					*utiltestingapi.MakePodSet("a", 1).
-						Obj(),
+					*func() *utiltestingapi.PodSetWrapper {
+						ps := utiltestingapi.MakePodSet("a", 1)
+						ps.Template.Spec.Containers[0].Resources.Limits = corev1.ResourceList{}
+						return ps
+					}().Obj(),
 					*utiltestingapi.MakePodSet("b", 1).
 						Limit(corev1.ResourceCPU, "6").
 						Request(corev1.ResourceCPU, "1").
@@ -556,13 +563,19 @@ func TestAdjustResources(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			cl := utiltesting.NewClientBuilder().WithLists(
-				&nodev1.RuntimeClassList{Items: tc.runtimeClasses},
-				&corev1.LimitRangeList{Items: tc.limitranges},
-			).WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
-				Build()
+			rcMap := make(map[string]*nodev1.RuntimeClass, len(tc.runtimeClasses))
+			for i := range tc.runtimeClasses {
+				rcMap[tc.runtimeClasses[i].Name] = &tc.runtimeClasses[i]
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			AdjustResources(ctx, cl, tc.wl)
+			err := AdjustResources(ctx, tc.wl, tc.limitranges, rcMap)
+			var gotErr string
+			if err != nil {
+				gotErr = err.Error()
+			}
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
 			if diff := cmp.Diff(tc.wl, tc.wantWl); diff != "" {
 				t.Errorf("Unexpected resources after adjusting (-want,+got): %s", diff)
 			}
