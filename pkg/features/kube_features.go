@@ -515,8 +515,8 @@ const (
 	// to prevent quota stealing and thrashing during desynchronized evictions.
 	// Requires UnadmittedWorkloadsObservability to be enabled to take effect.
 	PrioritizeWorkloadsPendingPreemption featuregate.Feature = "PrioritizeWorkloadsPendingPreemption"
-	
-  // owner: @ivnovakov
+
+	// owner: @ivnovakov
 	//
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/13279#discussion_r3655384989
 	// Keeps spec.leaderWorkerTemplate.size immutable while a LeaderWorkerSet is managed by
@@ -844,8 +844,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	PrioritizeWorkloadsPendingPreemption: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
-	
-  LWSImmutableGroupSize: {
+	},
+
+	LWSImmutableGroupSize: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
