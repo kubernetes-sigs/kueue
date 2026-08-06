@@ -86,7 +86,14 @@ func (wh *Webhook) Default(ctx context.Context, stsObj *appsv1.StatefulSet) erro
 		return err
 	}
 	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object())
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, ss.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	suspend, err := jobframework.WorkloadShouldBeSuspended(
+		ctx,
+		ss.Object(),
+		wh.client,
+		wh.manageJobsWithoutQueueName,
+		wh.managedJobsNamespaceSelector,
+		jobframework.WithDeletingObjectTolerance(true),
+	)
 	if err != nil {
 		return err
 	}
@@ -171,7 +178,14 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldStatefulSet.Object(), newStatefulSet.Object())...)
 	}
 
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newStatefulSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	suspend, err := jobframework.WorkloadShouldBeSuspended(
+		ctx,
+		newStatefulSet.Object(),
+		wh.client,
+		wh.manageJobsWithoutQueueName,
+		wh.managedJobsNamespaceSelector,
+		jobframework.WithDeletingObjectTolerance(true),
+	)
 	if err != nil {
 		return nil, err
 	}
