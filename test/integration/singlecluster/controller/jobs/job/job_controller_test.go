@@ -4441,6 +4441,93 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 	})
 
+	ginkgo.It("Should stop ungating once the slice holding the reservation is evicted", framework.SlowSpec, func() {
+		// Eviction is two writes: the condition is set first and the
+		// reservation released after, and the reconciler only releases it once
+		// the job is no longer active. In between the slice still reports the
+		// capacity it is giving up, and the ungater used to keep letting pods
+		// through against it.
+		testJob := testingjob.MakeJob("evicting-slice", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Parallelism(3).
+			Completions(3).
+			Obj()
+		util.MustCreate(ctx, k8sClient, testJob)
+
+		var (
+			slice  *kueue.Workload
+			podSet kueue.PodSetReference
+		)
+		ginkgo.By("admitting the slice at three pods", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+				slice = &workloads.Items[0]
+				g.Expect(workload.IsAdmitted(slice)).Should(gomega.BeTrue())
+				g.Expect(slice.Spec.PodSets[0].Count).Should(gomega.BeEquivalentTo(int32(3)))
+				podSet = slice.Spec.PodSets[0].Name
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		mintGatedPod := func(name string) {
+			pod := testingpod.MakePod(name, ns.Name).
+				Annotation(kueue.WorkloadAnnotation, slice.Name).
+				Annotation(kueue.WorkloadSliceNameAnnotation, slice.Name).
+				Label(pkgconstants.PodSetLabel, string(podSet)).
+				Gate(kueue.ElasticJobSchedulingGate).
+				Obj()
+			util.MustCreate(ctx, k8sClient, pod)
+		}
+
+		ginkgo.By("ungating two pods, which leaves room under the granted three", func() {
+			mintGatedPod("pod-0")
+			mintGatedPod("pod-1")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(2))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// The reservation is cleared by the job reconciler only once the job is
+		// no longer active, so an active job is what holds the window open.
+		ginkgo.By("reporting the job as active", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
+				testJob.Status.Active = 1
+				g.Expect(k8sClient.Status().Update(ctx, testJob)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("evicting the slice while it still holds its reservation", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(slice), slice)).Should(gomega.Succeed())
+				apimeta.SetStatusCondition(&slice.Status.Conditions, metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPreemption,
+					Message: "preempted",
+				})
+				g.Expect(k8sClient.Status().Update(ctx, slice)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(slice), slice)).Should(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(slice)).Should(gomega.BeTrue())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the third pod stays gated, since the capacity it would take is being released", func() {
+			mintGatedPod("pod-2")
+			// Held for the full timeout rather than the usual consistency
+			// window: without the fix the ungater takes about a second to
+			// reach this pod, which is longer than that window.
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(2))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should support job scale-down and scale-up", framework.SlowSpec, func() {
 		testJob := testingjob.MakeJob("job1", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
