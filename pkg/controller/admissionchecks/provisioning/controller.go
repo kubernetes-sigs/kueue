@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -52,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -82,11 +84,12 @@ func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, er
 }
 
 type Controller struct {
-	client      client.Client
-	record      events.EventRecorder
-	helper      *provisioningConfigHelper
-	clock       clock.Clock
-	roleTracker *roletracker.RoleTracker
+	client                  client.Client
+	record                  events.EventRecorder
+	helper                  *provisioningConfigHelper
+	clock                   clock.Clock
+	roleTracker             *roletracker.RoleTracker
+	creationExpectations    *expectations.CreationStore
 }
 
 type workloadInfo struct {
@@ -110,11 +113,12 @@ func NewController(client client.Client, record events.EventRecorder, roleTracke
 		return nil, err
 	}
 	return &Controller{
-		client:      client,
-		record:      record,
-		helper:      helper,
-		clock:       realClock,
-		roleTracker: roleTracker,
+		client:               client,
+		record:               record,
+		helper:               helper,
+		clock:                realClock,
+		roleTracker:          roleTracker,
+		creationExpectations: expectations.NewCreationStore("provisioningRequests", 10*time.Second),
 	}, nil
 }
 
@@ -124,12 +128,17 @@ func NewController(client client.Client, record events.EventRecorder, roleTracke
 func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	wl := &kueue.Workload{}
 
+	log := ctrl.LoggerFrom(ctx)
+
+	// Reset expired creation expectations so that a missed watch event
+	// cannot block provisioning request creation indefinitely.
+	c.creationExpectations.ResetExpired(log)
+
 	err := c.client.Get(ctx, req.NamespacedName, wl)
 	if err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
 
 	isFinished := workloadfinish.IsFinished(wl)
@@ -289,7 +298,15 @@ func (c *Controller) syncOwnedProvisionRequest(
 			shouldCreatePr = true
 		}
 		requestName := ProvisioningRequestName(wl.Name, checkName, attempt)
+		prKey := types.NamespacedName{Name: requestName, Namespace: wl.Namespace}
 		if shouldCreatePr {
+			// If a creation expectation is still outstanding for this
+			// ProvisioningRequest, skip creating it again. The expectation
+			// is cleared when the object appears in the informer cache.
+			if !c.creationExpectations.Satisfied(log, prKey) {
+				log.V(3).Info("Skipping ProvisioningRequest creation due to outstanding creation expectation", "requestName", requestName)
+				continue
+			}
 			log.V(3).Info("Creating ProvisioningRequest", "requestName", requestName, "attempt", attempt)
 			req = &autoscaling.ProvisioningRequest{
 				ObjectMeta: metav1.ObjectMeta{
@@ -342,8 +359,17 @@ func (c *Controller) syncOwnedProvisionRequest(
 
 			if err := c.client.Create(ctx, req); err != nil {
 				msg := fmt.Sprintf("Error creating ProvisioningRequest %q: %v", requestName, err)
+				if apierrors.IsAlreadyExists(err) {
+					// The object already exists on the API server. Set a creation
+					// expectation so we don't immediately retry the create before
+					// the informer cache catches up. The expectation is cleared
+					// when the object appears in a watch event.
+					c.creationExpectations.ExpectCreation(log, prKey)
+					return c.handleError(ctx, wl, ac, req, msg, err)
+				}
 				return c.handleError(ctx, wl, ac, req, msg, err)
 			}
+			c.creationExpectations.ExpectCreation(log, prKey)
 			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created", "Created ProvisioningRequest: %q", req.Name)
 			activeOrLastPRForChecks[checkName] = req
 		}
@@ -855,12 +881,16 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 		client:            c.client,
 		acHandlerOverride: ach.reconcileWorkloadsUsing,
 	}
+	prEventHandler := &provisioningRequestEventHandler{
+		creationExpectations: c.creationExpectations,
+	}
 	err := ctrl.NewControllerManagedBy(mgr).
 		Named("provisioning_workload").
 		For(&kueue.Workload{}).
 		Owns(&autoscaling.ProvisioningRequest{}).
 		Watches(&kueue.AdmissionCheck{}, ach).
 		Watches(&kueue.ProvisioningRequestConfig{}, prch).
+		Watches(&autoscaling.ProvisioningRequest{}, prEventHandler).
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "provisioning-workload"),
 		}).
@@ -885,6 +915,46 @@ func (c *Controller) SetupWithManager(mgr ctrl.Manager) error {
 			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "provisioning-admissioncheck"),
 		}).
 		Complete(acReconciler)
+}
+
+// provisioningRequestEventHandler clears creation expectations when a
+// ProvisioningRequest is observed via a watch event (create/update/delete).
+// This prevents the expectation from blocking re-creation if the cache
+// eventually catches up.
+type provisioningRequestEventHandler struct {
+	creationExpectations *expectations.CreationStore
+}
+
+var _ handler.EventHandler = (*provisioningRequestEventHandler)(nil)
+
+func (h *provisioningRequestEventHandler) Create(ctx context.Context, e event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	pr, ok := e.Object.(*autoscaling.ProvisioningRequest)
+	if !ok {
+		return
+	}
+	key := types.NamespacedName{Name: pr.Name, Namespace: pr.Namespace}
+	h.creationExpectations.CreationObserved(ctrl.LoggerFrom(ctx), key)
+}
+
+func (h *provisioningRequestEventHandler) Update(ctx context.Context, e event.UpdateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	pr, ok := e.ObjectNew.(*autoscaling.ProvisioningRequest)
+	if !ok {
+		return
+	}
+	key := types.NamespacedName{Name: pr.Name, Namespace: pr.Namespace}
+	h.creationExpectations.CreationObserved(ctrl.LoggerFrom(ctx), key)
+}
+
+func (h *provisioningRequestEventHandler) Delete(ctx context.Context, e event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	pr, ok := e.Object.(*autoscaling.ProvisioningRequest)
+	if !ok {
+		return
+	}
+	key := types.NamespacedName{Name: pr.Name, Namespace: pr.Namespace}
+	h.creationExpectations.CreationObserved(ctrl.LoggerFrom(ctx), key)
+}
+
+func (h *provisioningRequestEventHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
 func limitObjectName(fullName string) string {
