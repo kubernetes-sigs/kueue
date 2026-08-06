@@ -1223,6 +1223,9 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 // A caller that already resolved had a reason to, so a workload naming the class
 // with a value left behind by an earlier reconcile is repaired here rather than
 // waiting for a name to change. Everything else is left alone.
+//
+// Every workload passed has to belong to obj, and the reference and value have
+// to be what obj resolved to in this reconcile: neither is checked here.
 func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
 	priorityClassRef *kueue.PriorityClassRef, priority int32, wls ...*kueue.Workload) error {
 	className := WorkloadPriorityClassName(obj)

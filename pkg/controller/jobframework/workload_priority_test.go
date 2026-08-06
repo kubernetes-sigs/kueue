@@ -392,3 +392,29 @@ func TestApplyWorkloadPriorityAttemptsEverySibling(t *testing.T) {
 		t.Errorf("the sibling was not attempted (-want +got):\n%s", diff)
 	}
 }
+
+// TestApplyWorkloadPriorityRepairsAStaleValue is the other half of the
+// unlabelled case: with a class named, a workload already on it whose value was
+// left behind takes the supplied one.
+func TestApplyWorkloadPriorityRepairsAStaleValue(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj()
+	cl := utiltesting.NewClientBuilder().WithObjects(wl).Build()
+
+	ref := kueue.NewWorkloadPriorityClassRef("high")
+	if err := ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, ref, 200, wl); err != nil {
+		t.Fatalf("ApplyWorkloadPriority() = %v", err)
+	}
+
+	var got kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &got); err != nil {
+		t.Fatalf("reading the workload back: %v", err)
+	}
+	if diff := cmp.Diff(ref, got.Spec.PriorityClassRef); diff != "" {
+		t.Errorf("priority class reference (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(new(int32(200)), got.Spec.Priority); diff != "" {
+		t.Errorf("priority (-want +got):\n%s", diff)
+	}
+}

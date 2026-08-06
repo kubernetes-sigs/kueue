@@ -2421,9 +2421,13 @@ func TestReconcilerRepairsStaleValueUnderTheSameClass(t *testing.T) {
 	if err := kClient.List(ctx, &got, client.InNamespace(testNS)); err != nil {
 		t.Fatalf("Listing workloads: %v", err)
 	}
+	want := kueue.NewWorkloadPriorityClassRef("high")
 	for _, wl := range got.Items {
-		if wl.Spec.Priority == nil || *wl.Spec.Priority != 200 {
-			t.Errorf("%s: priority = %v, want 200", wl.Name, wl.Spec.Priority)
+		if diff := cmp.Diff(want, wl.Spec.PriorityClassRef); diff != "" {
+			t.Errorf("%s: priority class reference (-want +got):\n%s", wl.Name, diff)
+		}
+		if diff := cmp.Diff(new(int32(200)), wl.Spec.Priority); diff != "" {
+			t.Errorf("%s: priority (-want +got):\n%s", wl.Name, diff)
 		}
 	}
 }
