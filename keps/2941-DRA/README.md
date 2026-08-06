@@ -1850,6 +1850,7 @@ The subrequest fields Kueue can see today, and how the classifier treats each on
 | `count` | the charge itself |
 | `selectors` | compiled, and otherwise not part of the charge |
 | `tolerations` | feasibility only, and not part of the charge |
+| `capacity` | rejected, for the same reason a capacity-backed mapping is: the count path does not charge a consumable-capacity request |
 
 The API specifies the defaults, so the classifier reads effective values: an omitted
 `allocationMode` is `ExactCount`, and an omitted `count` under that mode is one. The same type
@@ -1857,13 +1858,11 @@ states that clients must refuse to handle requests with unknown modes, which is 
 above does. Claim-level `constraints` and `config` do not change the device count, and `pkg/dra`
 does not read them.
 
-Kubernetes 1.37 adds `capacity` and `derivedAttributes` to `DeviceSubRequest`. Kueue is compiled
-against 1.36, where the type ends at `tolerations`, so a 1.36 build talking to a 1.37 apiserver
-decodes a subrequest without either field and cannot reject an alternative that uses them. The
-envelope still charges the declared count, which is what a count-based mapping produces in any
-case, but deciding whether that is the right charge for a capacity request is what the
-capacity-backed rejection exists to do. Raising the dependency to 1.37 and classifying both fields
-is a prerequisite for this gate leaving Alpha.
+Kubernetes 1.37 adds `derivedAttributes` to `DeviceSubRequest`. Kueue is compiled against 1.36,
+where the type ends at `capacity`, so a 1.36 build talking to a 1.37 apiserver decodes a subrequest
+without that field and cannot reject an alternative that uses it. The envelope still charges the
+declared count, which is what a count-based mapping produces in any case. Raising the dependency to
+1.37 and classifying the field is a prerequisite for this gate leaving Alpha.
 
 The bound rests on two further assumptions. First, the `ResourceClaimSpec` Kueue charges is the one
 later used to create the generated `ResourceClaim`. A `ResourceClaimTemplate` spec is immutable in
@@ -1883,8 +1882,8 @@ Supported: `ResourceClaimTemplate` references; `ExactCount` subrequests; count-b
 `deviceClassMappings` (no `sources`); request-selector CEL compilation.
 
 Rejected: direct `ResourceClaim` references; `All` and unknown allocation modes; unmapped
-DeviceClasses; and any alternative whose DeviceClass mapping configures a counter or capacity
-`source`. Source-backed alternatives are excluded because the counter and consumable-capacity
+DeviceClasses; any alternative that sets `capacity` on the subrequest; and any alternative whose
+DeviceClass mapping configures a counter or capacity `source`. Source-backed alternatives are excluded because the counter and consumable-capacity
 accounting paths process only `Exactly` requests today; they can be added later by charging each
 alternative through its source path and taking the component-wise maximum of the resulting vectors.
 
@@ -1946,7 +1945,7 @@ surfaced as "unsupported", and a failed object read or slice listing is neither.
 #### Relationship with Kubernetes ResourceQuota
 
 This is a Kueue-specific quota policy and does not change Kubernetes `ResourceQuota`. Core
-`ResourceQuota` (KEP-4816) takes, within each top-level `FirstAvailable`, the largest device count
+`ResourceQuota` (KEP-4816) takes, within each top-level `firstAvailable`, the largest device count
 among the alternatives that name a given DeviceClass, and adds those per-class maxima across
 top-level requests; it does not sum the alternatives of one request. Kueue applies the same
 per-request maximum, but after mapping DeviceClasses into logical resources, so a mapping that
@@ -2253,14 +2252,15 @@ the realized allocation.
 
 ##### KueueDRAIntegrationPrioritizedList
 
-- gate default remains off, or a documented rationale to enable it by default
+- feature gate enabled by default
 - quota and feasibility paths agree on the supported-versus-rejected predicate, with tests
 - no known quota under-accounting at the aggregation boundaries: the per-Pod sum across requests,
   the merge with an ordinary resource sharing the same key, the PodSet-count multiplication, and the
   `resource.Quantity` to `int64` conversion where several DeviceClasses map to one logical resource
 - upgrade and downgrade behavior verified
 - E2E stability for the count-based case
-- decision on whether source-backed alternatives are a Beta prerequisite
+- re-evaluate source-backed alternatives, charging each through its source path and taking the
+  component-wise maximum of the resulting vectors
 
 #### GA
 
