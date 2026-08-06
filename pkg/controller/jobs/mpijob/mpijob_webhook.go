@@ -93,7 +93,7 @@ func (w *MpiJobWebhook) Default(ctx context.Context, obj *v2beta1.MPIJob) error 
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.V(5).Info("Applying defaults")
 
-	if err := jobframework.ApplyDefaultLocalQueue(ctx, w.client, mpiJob.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
+	if err := jobframework.ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(ctx, w.client, mpiJob.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
 	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, mpiJob.Object())

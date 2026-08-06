@@ -81,7 +81,7 @@ func (w *SparkApplicationWebhook) Default(ctx context.Context, obj *sparkv1beta2
 	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
 	log.V(5).Info("Applying defaults")
 
-	if err := jobframework.ApplyDefaultLocalQueue(ctx, w.client, job.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
+	if err := jobframework.ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(ctx, w.client, job.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
 	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())

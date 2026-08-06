@@ -72,7 +72,7 @@ func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 	log := ctrl.LoggerFrom(ctx).WithName("deployment-webhook")
 	log.V(5).Info("Propagating queue-name")
 
-	if err := jobframework.ApplyDefaultLocalQueue(ctx, wh.client, deployment.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
+	if err := jobframework.ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(ctx, wh.client, deployment.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
 	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, deployment.Object())
