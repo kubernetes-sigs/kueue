@@ -17,6 +17,7 @@ limitations under the License.
 package pod
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -195,6 +196,17 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
+		},
+		"pod with ownerReference to a missing parent while not terminating (cache lag, should error)": {
+			initObjects:       []client.Object{defaultNamespace},
+			podSelector:       &metav1.LabelSelector{},
+			namespaceSelector: defaultNamespaceSelector,
+			pod: testingpod.MakePod("test-pod", defaultNamespace.Name).
+				Queue("test-queue").
+				OwnerReference("deleted-parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			enableIntegrations: []string{"batch/job"},
+			wantErr:            jobframework.ErrWorkloadOwnerNotFound,
 		},
 		"pod with owner managed by kueue (RayCluster)": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
@@ -673,8 +685,12 @@ func TestDefault(t *testing.T) {
 				podSelector:                  tc.podSelector,
 			}
 
-			if err := w.Default(ctx, tc.pod); err != nil {
-				t.Errorf("failed to set defaults for v1/pod: %s", err)
+			gotErr := w.Default(ctx, tc.pod)
+			if !errors.Is(gotErr, tc.wantErr) {
+				t.Errorf("Default() error = %v, wantErr %v", gotErr, tc.wantErr)
+			}
+			if gotErr != nil {
+				return
 			}
 
 			if diff := cmp.Diff(tc.want, tc.pod); len(diff) != 0 {

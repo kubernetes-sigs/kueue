@@ -78,7 +78,14 @@ func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 		return err
 	}
 	wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, deployment.Object())
-	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(ctx, deployment.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
+		ctx,
+		deployment.Object(),
+		wh.client,
+		wh.manageJobsWithoutQueueName,
+		wh.managedJobsNamespaceSelector,
+		jobframework.WithDeletingObjectTolerance(true),
+	)
 	if err != nil {
 		return err
 	}

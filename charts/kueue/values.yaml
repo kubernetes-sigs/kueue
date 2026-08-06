@@ -281,6 +281,8 @@ kueueViz:
       ingressClassName:
       # -- KueueViz dashboard backend ingress host
       host: "backend.kueueviz.local"
+      # -- If true, enable KueueViz dashboard backend ingress tls. Defaults to true if tlsSecretName is set.
+      tlsEnabled: ~
       # -- KueueViz dashboard backend ingress tls secret name
       tlsSecretName: "kueueviz-backend-tls"
     auth:
@@ -346,6 +348,8 @@ kueueViz:
       ingressClassName:
       # -- KueueViz dashboard frontend ingress host
       host: "frontend.kueueviz.local"
+      # -- If true, enable KueueViz dashboard frontend ingress tls. Defaults to true if tlsSecretName is set.
+      tlsEnabled: ~
       # -- KueueViz dashboard frontend ingress tls secret name
       tlsSecretName: "kueueviz-frontend-tls"
     image:
