@@ -24,7 +24,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
@@ -234,23 +233,19 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 
 	toCreate, toUpdate, toDelete := r.filterWorkloads(lws, wlList.Items)
 
-	// One lookup for the whole reconcile, made on demand. The delete branch never
-	// asks for it, so a class that cannot be resolved does not stop surplus
-	// Workloads from being cleaned up. Every component is built from the same
-	// PodSets, so one of them answers for the lookup's fallback, and
-	// constructWorkload only reads the scheme.
-	willResolve := len(toCreate) > 0
-	resolvePriority := sync.OnceValues(func() (*resolvedPriority, error) {
-		probe, err := r.constructWorkload(lws, toCreate[0].name, toCreate[0].index)
-		if err != nil {
-			return nil, err
-		}
-		classRef, priority, err := jobframework.ExtractPriority(ctx, r.client, lws, probe.Spec.PodSets, nil)
-		if err != nil {
-			return nil, fmt.Errorf("prepare workload priority: %w", err)
-		}
-		return &resolvedPriority{classRef: classRef, priority: priority}, nil
-	})
+	// One lookup for the whole reconcile, taken before the branches so every
+	// component gets the same answer. Only the create path forces it: an update
+	// with no class transition resolves nothing, and the helper below is what
+	// decides that. Every component is built from the same PodSets, so one of
+	// them answers for the lookup's fallback, and constructWorkload only reads
+	// the scheme.
+	var (
+		resolved   *resolvedPriority
+		resolveErr error
+	)
+	if len(toCreate) > 0 {
+		resolved, resolveErr = r.resolvePriority(ctx, lws, toCreate[0])
+	}
 
 	// The branches hold disjoint sets of Workloads, so one failing is no reason to
 	// abandon the others, and parallelize.Until checks for cancellation before
@@ -261,11 +256,10 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 	var eg errgroup.Group
 
 	eg.Go(func() error {
+		if resolveErr != nil {
+			return resolveErr
+		}
 		return parallelize.Until(ctx, len(toCreate), func(i int) error {
-			resolved, err := resolvePriority()
-			if err != nil {
-				return err
-			}
 			return r.createWorkload(ctx, lws, toCreate[i].name, toCreate[i].index, resolved)
 		})
 	})
@@ -286,7 +280,12 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 				targets = append(targets, toUpdate[i])
 			}
 		}
-		return errors.Join(updateErr, r.applyPriority(ctx, lws, willResolve, resolvePriority, targets))
+		if resolveErr != nil {
+			// resolved is nil here for a different reason than "nothing forced a
+			// lookup", so applyPriority must not read the class again.
+			return errors.Join(updateErr, resolveErr)
+		}
+		return errors.Join(updateErr, r.applyPriority(ctx, lws, resolved, targets))
 	})
 
 	eg.Go(func() error {
@@ -298,20 +297,31 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 	return eg.Wait()
 }
 
-// applyPriority gives wls this reconcile's priority. When nothing else needed
-// the class, the helper is left to decide whether to look it up at all, which
-// keeps a steady-state reconcile from reading it.
+// resolvePriority reads the priority class once for this reconcile, using a
+// component that is about to be created to stand in for the PodSets the
+// lookup falls back to.
+func (r *Reconciler) resolvePriority(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, probeFor workloadToCreate) (*resolvedPriority, error) {
+	probe, err := r.constructWorkload(lws, probeFor.name, probeFor.index)
+	if err != nil {
+		return nil, err
+	}
+	classRef, priority, err := jobframework.ExtractPriority(ctx, r.client, lws, probe.Spec.PodSets, nil)
+	if err != nil {
+		return nil, fmt.Errorf("prepare workload priority: %w", err)
+	}
+	return &resolvedPriority{classRef: classRef, priority: priority}, nil
+}
+
+// applyPriority gives wls this reconcile's priority. Without one, the helper
+// decides for itself whether the class needs reading at all, which keeps a
+// steady-state reconcile from doing so.
 func (r *Reconciler) applyPriority(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet,
-	willResolve bool, resolve func() (*resolvedPriority, error), wls []*kueue.Workload) error {
+	resolved *resolvedPriority, wls []*kueue.Workload) error {
 	if len(wls) == 0 {
 		return nil
 	}
-	if !willResolve {
+	if resolved == nil {
 		return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wls...)
-	}
-	resolved, err := resolve()
-	if err != nil {
-		return err
 	}
 	return jobframework.ApplyWorkloadPriority(ctx, r.client, r.record, lws, resolved.classRef, resolved.priority, wls...)
 }
