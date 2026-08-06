@@ -360,22 +360,20 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 	// 6. Requeue the heads that were not scheduled.
 	result := metrics.AdmissionResultInadmissible
-	entriesToRequeue := []entry{}
 	for _, e := range entries {
 		logAdmissionAttemptIfVerbose(log, &e)
 		// When the workload is evicted by scheduler we skip requeueAndUpdate.
 		// The eviction process will be finalized by the workload controller.
 		if e.status != assumed && e.status != evicted {
-			entriesToRequeue = append(entriesToRequeue, e)
+			s.requeueAndUpdate(ctx, e)
 		} else {
 			result = metrics.AdmissionResultSuccess
 		}
 	}
 	for _, e := range inadmissibleEntries {
 		logAdmissionAttemptIfVerbose(log, &e)
-		entriesToRequeue = append(entriesToRequeue, e)
+		s.requeueAndUpdate(ctx, e)
 	}
-	s.requeueAndUpdateAsync(ctx, entriesToRequeue...)
 
 	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
 	s.reportSkippedPreemptions(skippedPreemptions)
@@ -1082,13 +1080,6 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 		entries: entries,
 	}
 }
-func (s *Scheduler) requeueAndUpdateAsync(ctx context.Context, entries ...entry) {
-	for _, e := range entries {
-		s.schedulerRoutineWrapper.Run(func() {
-			s.requeueAndUpdate(ctx, e)
-		})
-	}
-}
 
 func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	log := ctrl.LoggerFrom(ctx)
@@ -1114,19 +1105,21 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		}
 		wl := e.Obj.DeepCopy()
 		condReason := workload.UnadmittedWorkloadReasonWithFallback(e.quotaReservedReason, "Pending")
-		if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
-			updated := workload.UnsetQuotaReservationWithCondition(wl, condReason, e.inadmissibleMsg, s.clock.Now())
-			if workload.PropagateResourceRequests(wl, &e.Info, s.resourceFormatter) {
-				updated = true
+		s.schedulerRoutineWrapper.Run(func() {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
+				updated := workload.UnsetQuotaReservationWithCondition(wl, condReason, e.inadmissibleMsg, s.clock.Now())
+				if workload.PropagateResourceRequests(wl, &e.Info, s.resourceFormatter) {
+					updated = true
+				}
+				if e.status == preemptionGated {
+					updated = workload.SetBlockedOnPreemptionGatesCondition(wl, s.clock.Now(), kueue.PreemptionGated, e.inadmissibleMsg)
+				}
+				return updated, nil
+			}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
+				log.Error(err, "Could not update Workload status")
 			}
-			if e.status == preemptionGated {
-				updated = workload.SetBlockedOnPreemptionGatesCondition(wl, s.clock.Now(), kueue.PreemptionGated, e.inadmissibleMsg)
-			}
-			return updated, nil
-		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
-			log.Error(err, "Could not update Workload status")
-		}
-		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, condReason, condReason, api.TruncateEventMessage(e.inadmissibleMsg))
+			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, condReason, condReason, api.TruncateEventMessage(e.inadmissibleMsg))
+		})
 	}
 }
 
