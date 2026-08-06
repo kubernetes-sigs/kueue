@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -57,7 +58,10 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 	cases := map[string]struct {
 		obj                        client.Object
 		manageJobsWithoutQueueName bool
+		tolerateDeleting           bool
 		wantSuspend                bool
+		wantErr                    error
+		skipAncestorGateOff        bool
 	}{
 		"job with queue name ": {
 			obj:                        utiltestingjob.MakeJob("test-job", managedNamespace.Name).Queue("default").Obj(),
@@ -86,6 +90,50 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 			manageJobsWithoutQueueName: true,
 			wantSuspend:                false,
 		},
+		"job with ownerReference to a deleted known parent while terminating (GC teardown)": {
+			obj: utiltestingjob.MakeJob("test-job", managedNamespace.Name).
+				OwnerReference("nonexistent-parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				DeletionTimestamp(time.Now()).
+				Finalizers("batch.kubernetes.io/job-tracking").
+				Obj(),
+			manageJobsWithoutQueueName: true,
+			tolerateDeleting:           true,
+			// With WithDeletingObjectTolerance (webhook call sites), the suspend check is
+			// skipped entirely for an object that is being deleted, so the missing parent
+			// is never looked up and no suspend is defaulted.
+			wantSuspend: false,
+		},
+		"job with ownerReference to a deleted known parent while terminating, without tolerance": {
+			obj: utiltestingjob.MakeJob("test-job", managedNamespace.Name).
+				OwnerReference("nonexistent-parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				DeletionTimestamp(time.Now()).
+				Finalizers("batch.kubernetes.io/job-tracking").
+				Obj(),
+			manageJobsWithoutQueueName: true,
+			// Without WithDeletingObjectTolerance (reconciler predicates), a missing owner
+			// fails hard even for a terminating object and even with the gate enabled.
+			wantErr: ErrWorkloadOwnerNotFound,
+		},
+		"job with ownerReference to a deleted known parent while terminating, gate disabled": {
+			obj: utiltestingjob.MakeJob("test-job", managedNamespace.Name).
+				OwnerReference("nonexistent-parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				DeletionTimestamp(time.Now()).
+				Finalizers("batch.kubernetes.io/job-tracking").
+				Obj(),
+			manageJobsWithoutQueueName: true,
+			tolerateDeleting:           true,
+			skipAncestorGateOff:        true,
+			// With SkipAncestorCheckForDeletedWorkloads disabled, the previous behavior is
+			// restored: a missing owner fails hard even for a terminating object.
+			wantErr: ErrWorkloadOwnerNotFound,
+		},
+		"job with ownerReference to a missing parent while not terminating (cache lag)": {
+			obj: utiltestingjob.MakeJob("test-job", managedNamespace.Name).
+				OwnerReference("nonexistent-parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			manageJobsWithoutQueueName: true,
+			wantErr:                    ErrWorkloadOwnerNotFound,
+		},
 		"job without queue name with manageJobs with feature disabled": {
 			obj:                        utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			manageJobsWithoutQueueName: true,
@@ -105,11 +153,16 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			suspend, err := WorkloadShouldBeSuspended(ctx, tc.obj, client, tc.manageJobsWithoutQueueName, namespaceSelector)
-			if err != nil {
-				t.Errorf("Got error: %v", err)
+			features.SetFeatureGateDuringTest(t, features.SkipAncestorCheckForDeletedWorkloads, !tc.skipAncestorGateOff)
+			var opts []WorkloadShouldBeSuspendedOption
+			if tc.tolerateDeleting {
+				opts = append(opts, WithDeletingObjectTolerance(true))
 			}
-			if suspend != tc.wantSuspend {
+			suspend, err := WorkloadShouldBeSuspended(ctx, tc.obj, client, tc.manageJobsWithoutQueueName, namespaceSelector, opts...)
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("Unexpected error: got %v, want %v", err, tc.wantErr)
+			}
+			if tc.wantErr == nil && suspend != tc.wantSuspend {
 				t.Errorf("Unexpected result: got %v wanted %v", suspend, tc.wantSuspend)
 			}
 		})

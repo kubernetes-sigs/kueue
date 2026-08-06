@@ -36,7 +36,7 @@ import (
 
 func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient client.Client,
 	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) error {
-	suspend, err := WorkloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector)
+	suspend, err := WorkloadShouldBeSuspended(ctx, job.Object(), k8sClient, manageJobsWithoutQueueName, managedJobsNamespaceSelector, WithDeletingObjectTolerance(true))
 	if err != nil {
 		return err
 	}
@@ -146,4 +146,12 @@ func ApplyDefaultForManagedBy(job GenericJob, queues *qcache.Manager, cache *sch
 			}
 		}
 	}
+}
+
+// skipCheckForDeletedObject reports whether suspend/ancestry processing should be skipped
+// for an object that is already being deleted (e.g. during GC teardown, where owners may
+// legitimately be gone already). Gated by SkipAncestorCheckForDeletedWorkloads so affected
+// environments can restore the previous behavior of failing the admission request.
+func skipCheckForDeletedObject(obj client.Object) bool {
+	return features.Enabled(features.SkipAncestorCheckForDeletedWorkloads) && obj.GetDeletionTimestamp() != nil
 }
