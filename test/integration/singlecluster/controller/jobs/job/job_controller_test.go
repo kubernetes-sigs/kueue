@@ -468,7 +468,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 	})
 
 	ginkgo.When("The referenced WorkloadPriorityClass does not exist", func() {
-		ginkgo.It("Should report it on the Job and not create a Workload", func() {
+		ginkgo.It("Should report a warning and create no Workload when the label names a class that does not exist", func() {
 			job := testingjob.MakeJob(jobName, ns.Name).
 				Queue("main").
 				WorkloadPriorityClass("missing-wpc").
@@ -509,7 +509,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			})
 		})
 
-		ginkgo.It("Should report it when the label is pointed at a class that does not exist", func() {
+		ginkgo.It("Should report a warning when the label is changed to a class that does not exist", func() {
 			wpc := utiltestingapi.MakeWorkloadPriorityClass("present-wpc").PriorityValue(1000).Obj()
 			util.MustCreate(ctx, k8sClient, wpc)
 			ginkgo.DeferCleanup(func() {
@@ -523,21 +523,17 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			util.MustCreate(ctx, k8sClient, job)
 
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
-			// Polled as (found, err) rather than inverting an inner assertion, so a
-			// failed Event list is a test failure instead of looking like absence.
-			expectNoWarning := func() {
-				ginkgo.GinkgoHelper()
+
+			ginkgo.By("checking the workload carries that priority and nothing is reported", func() {
+				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, wpc.Name, wpc.Value, wlLookupKey)
+				// Polled as (found, err) rather than inverting an inner assertion, so a
+				// failed Event list is a test failure instead of looking like absence.
 				gomega.Consistently(func() (bool, error) {
 					return utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *eventsv1.Event) bool {
 						return e.Regarding.Namespace == ns.Name && e.Regarding.Name == job.Name &&
 							e.Reason == jobframework.ReasonWorkloadPriorityClassNotFound
 					})
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.BeFalse())
-			}
-
-			ginkgo.By("checking the workload carries that priority and nothing is reported", func() {
-				util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, wpc.Name, wpc.Value, wlLookupKey)
-				expectNoWarning()
 			})
 
 			// The class name may change on a Workload that already has one, so this
