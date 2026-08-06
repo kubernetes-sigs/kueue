@@ -152,10 +152,10 @@ func (r *WorkloadPriorityClassReconciler) Generic(e event.TypedGenericEvent[*kue
 func workloadPriorityClassRefChanged() predicate.TypedPredicate[*kueue.Workload] {
 	return predicate.TypedFuncs[*kueue.Workload]{
 		CreateFunc: func(e event.TypedCreateEvent[*kueue.Workload]) bool {
-			return workload.IsWorkloadPriorityClass(e.Object)
+			return ownsPriority(e.Object)
 		},
 		UpdateFunc: func(e event.TypedUpdateEvent[*kueue.Workload]) bool {
-			if !workload.IsWorkloadPriorityClass(e.ObjectNew) {
+			if !ownsPriority(e.ObjectNew) {
 				return false
 			}
 			// Compared as a whole reference, and against the reference rather
@@ -168,6 +168,14 @@ func workloadPriorityClassRefChanged() predicate.TypedPredicate[*kueue.Workload]
 		DeleteFunc:  func(event.TypedDeleteEvent[*kueue.Workload]) bool { return false },
 		GenericFunc: func(event.TypedGenericEvent[*kueue.Workload]) bool { return false },
 	}
+}
+
+// ownsPriority reports whether this cluster decides the Workload's priority.
+// A Workload MultiKueue created here carries the manager's resolution, and a
+// class of the same name on this cluster is not the one it was resolved from.
+func ownsPriority(wl *kueue.Workload) bool {
+	_, isMultiKueueRemote := wl.Labels[kueue.MultiKueueOriginLabel]
+	return !isMultiKueueRemote && workload.IsWorkloadPriorityClass(wl)
 }
 
 // WorkloadPriorityClassReferenceReconciler keeps one Workload's priority in step
@@ -200,7 +208,9 @@ func (r *WorkloadPriorityClassReferenceReconciler) Reconcile(ctx context.Context
 	if err := r.client.Get(ctx, req.NamespacedName, &wl); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if !workload.IsWorkloadPriorityClass(&wl) {
+	// Checked again here, not only in the predicate: the label can arrive
+	// after the request was queued.
+	if !ownsPriority(&wl) {
 		return ctrl.Result{}, nil
 	}
 

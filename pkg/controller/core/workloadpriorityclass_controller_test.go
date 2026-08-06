@@ -306,6 +306,14 @@ func TestWorkloadPriorityClassRefChangedPredicate(t *testing.T) {
 			newWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
 			want:      true,
 		},
+		// MultiKueue copies the manager's resolution onto the remote Workload,
+		// and a class of the same name here is not the one it came from.
+		"created by MultiKueue on this cluster": {
+			eventType: "create",
+			newWL: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			want: false,
+		},
 		"created referencing a Pod PriorityClass": {
 			eventType: "create",
 			newWL:     utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").Obj(),
@@ -348,6 +356,13 @@ func TestWorkloadPriorityClassRefChangedPredicate(t *testing.T) {
 			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
 			newWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
 			want:      false,
+		},
+		"reference added on a Workload MultiKueue created here": {
+			eventType: "update",
+			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			newWL: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			want: false,
 		},
 		"moved to a Pod PriorityClass": {
 			eventType: "update",
@@ -410,6 +425,12 @@ func TestWorkloadPriorityClassReferenceReconcile(t *testing.T) {
 		// The class sweeps what references it when it is created.
 		"a class that does not exist yet": {
 			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+			wantPriority: new(int32(100)),
+		},
+		"a Workload MultiKueue created here": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).
+				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
 			wantPriority: new(int32(100)),
 		},
 		"a reference to a Pod PriorityClass": {
