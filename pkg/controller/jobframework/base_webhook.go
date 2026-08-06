@@ -70,7 +70,7 @@ func (w *BaseWebhook[T]) Default(ctx context.Context, obj T) error {
 	job := w.FromObject(obj)
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Applying defaults")
-	if err := ApplyDefaultLocalQueue(ctx, w.Client, job.Object(), w.Queues.DefaultLocalQueueExist, w.ManagedJobsNamespaceSelector); err != nil {
+	if err := ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(ctx, w.Client, job.Object(), w.Queues.DefaultLocalQueueExist, w.ManagedJobsNamespaceSelector); err != nil {
 		return err
 	}
 	ApplyDefaultWorkloadPriorityClass(ctx, w.Client, job.Object())

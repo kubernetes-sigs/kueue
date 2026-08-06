@@ -46,28 +46,56 @@ func ApplyDefaultForSuspend(ctx context.Context, job GenericJob, k8sClient clien
 	return nil
 }
 
-func ApplyDefaultLocalQueue(ctx context.Context, k8sClient client.Client, jobObj client.Object, defaultQueueExist func(string) bool, managedJobsNamespaceSelector labels.Selector) error {
-	if !defaultQueueExist(jobObj.GetNamespace()) {
+// ApplyDefaultLocalQueue applies the default LocalQueue without consulting
+// managedJobsNamespaceSelector. It keeps the signature this branch released, so
+// it is here for callers outside the repository. Kueue's own webhooks call
+// ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector instead.
+func ApplyDefaultLocalQueue(jobObj client.Object, defaultQueueExist func(string) bool) {
+	if !defaultLocalQueueApplies(jobObj, defaultQueueExist) {
+		return
+	}
+	setDefaultLocalQueue(jobObj)
+}
+
+// ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector applies the default
+// LocalQueue only when the object's namespace matches
+// managedJobsNamespaceSelector.
+func ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(ctx context.Context, k8sClient client.Client,
+	jobObj client.Object, defaultQueueExist func(string) bool, managedJobsNamespaceSelector labels.Selector) error {
+	if !defaultLocalQueueApplies(jobObj, defaultQueueExist) {
 		return nil
 	}
-	if QueueNameForObject(jobObj) == "" {
-		// Do not default the queue-name for a job whose owner is already managed by Kueue
-		if IsOwnerManagedByKueueForObject(jobObj) {
-			return nil
-		}
-		if managed, err := namespaceMatchesSelector(ctx, k8sClient, jobObj.GetNamespace(), managedJobsNamespaceSelector); err != nil {
-			return err
-		} else if !managed {
-			return nil
-		}
-		labels := jobObj.GetLabels()
-		if labels == nil {
-			labels = make(map[string]string, 1)
-		}
-		labels[constants.QueueLabel] = string(constants.DefaultLocalQueueName)
-		jobObj.SetLabels(labels)
+	// Reached only when the label is about to be set, so an excluded namespace
+	// costs no Namespace read.
+	managed, err := namespaceMatchesSelector(ctx, k8sClient, jobObj.GetNamespace(), managedJobsNamespaceSelector)
+	if err != nil {
+		return err
 	}
+	if !managed {
+		return nil
+	}
+	setDefaultLocalQueue(jobObj)
 	return nil
+}
+
+func defaultLocalQueueApplies(jobObj client.Object, defaultQueueExist func(string) bool) bool {
+	if !defaultQueueExist(jobObj.GetNamespace()) {
+		return false
+	}
+	if QueueNameForObject(jobObj) != "" {
+		return false
+	}
+	// Do not default the queue-name for a job whose owner is already managed by Kueue
+	return !IsOwnerManagedByKueueForObject(jobObj)
+}
+
+func setDefaultLocalQueue(jobObj client.Object) {
+	jobLabels := jobObj.GetLabels()
+	if jobLabels == nil {
+		jobLabels = make(map[string]string, 1)
+	}
+	jobLabels[constants.QueueLabel] = string(constants.DefaultLocalQueueName)
+	jobObj.SetLabels(jobLabels)
 }
 
 func ApplyDefaultWorkloadPriorityClass(ctx context.Context, c client.Client, jobObj client.Object) {
