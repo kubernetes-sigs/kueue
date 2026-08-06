@@ -31,6 +31,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -2575,6 +2576,7 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 	}
 }
 
+<<<<<<< HEAD
 // TestHeadsRespectLocalQueueWeightForPreexistingWorkloads guards the cached-weight
 // seeding order (Kueue#13476): LocalQueues (with their weights) are registered before
 // the ClusterQueue that adopts their pre-existing workloads, matching how the scheduler
@@ -2840,11 +2842,66 @@ func TestUpdateLocalQueueWeightZeroReheapifies(t *testing.T) {
 	lqA.Spec.FairSharing.Weight = new(resource.MustParse("0"))
 	if err := manager.UpdateLocalQueue(log, lqA); err != nil {
 		t.Fatalf("Failed updating LocalQueue lq-a: %v", err)
-	}
 
 	got := popNamesFromCQ(manager.hm.ClusterQueue("cq"))
 	want := []workload.Reference{"default/wl-b", "default/wl-a"}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("zero weight did not disadvantage the LocalQueue (-want,+got):\n%s", diff)
+	}
+}
+
+func TestManager_ResourceCaches(t *testing.T) {
+	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil)
+
+	lr := &corev1.LimitRange{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "lr",
+			Namespace: "ns",
+		},
+		Spec: corev1.LimitRangeSpec{
+			Limits: []corev1.LimitRangeItem{
+				{
+					Type: corev1.LimitTypeContainer,
+				},
+			},
+		},
+	}
+
+	rc := &nodev1.RuntimeClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "rc",
+		},
+		Handler: "runc",
+	}
+
+	// Test LimitRange cache via Manager
+	manager.LimitRangeCache().Add(lr)
+	lrs := manager.LimitRangeCache().GetForNamespace("ns")
+	if len(lrs) != 1 || lrs[0].Name != "lr" {
+		t.Errorf("Expected 1 LimitRange 'lr', got %v", lrs)
+	}
+
+	manager.LimitRangeCache().Delete(lr)
+	lrs = manager.LimitRangeCache().GetForNamespace("ns")
+	if len(lrs) != 0 {
+		t.Errorf("Expected 0 LimitRanges after delete, got %v", lrs)
+	}
+
+	// Test RuntimeClass cache via Manager
+	manager.RuntimeClassCache().Add(rc)
+	gotRc := manager.RuntimeClassCache().Get("rc")
+	if gotRc == nil || gotRc.Name != "rc" {
+		t.Errorf("Expected RuntimeClass 'rc', got %v", gotRc)
+	}
+
+	allRcs := manager.RuntimeClassCache().GetAll()
+	if len(allRcs) != 1 || allRcs["rc"].Name != "rc" {
+		t.Errorf("Expected 1 RuntimeClass in GetAll, got %v", allRcs)
+	}
+
+	manager.RuntimeClassCache().Delete(rc)
+	gotRc = manager.RuntimeClassCache().Get("rc")
+	if gotRc != nil {
+		t.Errorf("Expected nil RuntimeClass after delete, got %v", gotRc)
 	}
 }
