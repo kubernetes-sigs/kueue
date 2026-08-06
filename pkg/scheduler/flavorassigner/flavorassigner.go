@@ -491,6 +491,15 @@ func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) b
 		return true
 	}
 
+	// A flavor without preemption candidates cannot be admitted in this
+	// scheduling attempt. Rank it below viable modes before applying the
+	// configured fungibility preference, while retaining noFit as the worst mode.
+	aHasNoCandidates := a.preemptionMode == noPreemptionCandidates
+	bHasNoCandidates := b.preemptionMode == noPreemptionCandidates
+	if aHasNoCandidates != bHasNoCandidates {
+		return !aHasNoCandidates
+	}
+
 	borrowingOverPreemption := func() bool {
 		if a.preemptionMode != b.preemptionMode {
 			return a.preemptionMode > b.preemptionMode
