@@ -56,9 +56,14 @@ readCh:
 // ExpectEventAppeared asserts that an event matching Reason/Type/Note has been emitted.
 func ExpectEventAppeared(ctx context.Context, k8sClient client.Client, event eventsv1.Event) {
 	ginkgo.GinkgoHelper()
+	observedEvents := &eventsv1.EventList{}
 	gomega.Eventually(func(g gomega.Gomega) {
-		ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, event)
+		observedEvents.Items = nil
+		err := k8sClient.List(ctx, observedEvents)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
-		g.Expect(ok).Should(gomega.BeTrue())
+		if err != nil {
+			return
+		}
+		g.Expect(observedEvents.Items).To(utiltesting.HaveEvent(event))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
