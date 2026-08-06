@@ -21,6 +21,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -353,5 +354,41 @@ func TestApplyWorkloadPriorityLeavesUnlabelledWorkloadsAlone(t *testing.T) {
 	}
 	if got.Spec.PriorityClassRef != nil {
 		t.Errorf("workload gained a priority class reference: %v", got.Spec.PriorityClassRef)
+	}
+}
+
+// TestApplyWorkloadPriorityAttemptsEverySibling pins the failure boundary. One
+// workload that will not take the write used to end the batch, leaving the rest
+// waiting on it for as long as it kept failing.
+func TestApplyWorkloadPriorityAttemptsEverySibling(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+	first := utiltestingapi.MakeWorkload("first", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj()
+	second := utiltestingapi.MakeWorkload("second", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj()
+
+	errRefused := errors.New("the write was refused")
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(first, second).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if obj.GetName() == "first" {
+					return errRefused
+				}
+				return c.Update(ctx, obj, opts...)
+			},
+		}).Build()
+
+	err := ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job,
+		kueue.NewWorkloadPriorityClassRef("high"), 200, first, second)
+	if !errors.Is(err, errRefused) {
+		t.Fatalf("ApplyWorkloadPriority() = %v, want the refused write reported", err)
+	}
+
+	var got kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKey{Namespace: "ns", Name: "second"}, &got); err != nil {
+		t.Fatalf("reading the sibling back: %v", err)
+	}
+	if diff := cmp.Diff(new(int32(200)), got.Spec.Priority); diff != "" {
+		t.Errorf("the sibling was not attempted (-want +got):\n%s", diff)
 	}
 }

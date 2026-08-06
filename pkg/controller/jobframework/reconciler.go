@@ -1242,26 +1242,36 @@ func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventR
 // retry marker if a write in this batch fails.
 func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
 	priorityClassRef *kueue.PriorityClassRef, priority int32, sameClassName, needsClassChange []*kueue.Workload) error {
-	targets := make([]*kueue.Workload, 0, len(sameClassName)+len(needsClassChange))
-	targets = append(targets, sameClassName...)
-	targets = append(targets, needsClassChange...)
-	for _, wl := range targets {
-		if priorityStateEqual(wl, priorityClassRef, priority) {
-			continue
+	// One workload that will not take the write does not speak for the rest, so
+	// the others are still attempted. A failed one keeps its own state, which is
+	// what the next reconcile sees.
+	apply := func(wls []*kueue.Workload) error {
+		var errs []error
+		for _, wl := range wls {
+			if priorityStateEqual(wl, priorityClassRef, priority) {
+				continue
+			}
+			wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
+			wl.Spec.Priority = new(priority)
+			if err := c.Update(ctx, wl); err != nil {
+				errs = append(errs, fmt.Errorf("updating existing workload: %w", err))
+				continue
+			}
+			r.Eventf(obj,
+				nil,
+				corev1.EventTypeNormal, ReasonUpdatedWorkload,
+				"UpdatedWorkload",
+				"Updated workload priority class: %v", klog.KObj(wl),
+			)
 		}
-		wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
-		wl.Spec.Priority = new(priority)
-		if err := c.Update(ctx, wl); err != nil {
-			return fmt.Errorf("updating existing workload: %w", err)
-		}
-		r.Eventf(obj,
-			nil,
-			corev1.EventTypeNormal, ReasonUpdatedWorkload,
-			"UpdatedWorkload",
-			"Updated workload priority class: %v", klog.KObj(wl),
-		)
+		return errors.Join(errs...)
 	}
-	return nil
+	// Same-name workloads with a stale value go first, so a name mismatch
+	// survives as the retry marker if any of them fails.
+	if err := apply(sameClassName); err != nil {
+		return err
+	}
+	return apply(needsClassChange)
 }
 
 // classifyWorkloadsForPriorityUpdate splits the workloads this helper may manage

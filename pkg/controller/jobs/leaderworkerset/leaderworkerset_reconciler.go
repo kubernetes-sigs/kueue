@@ -233,12 +233,25 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 
 	toCreate, toUpdate, toDelete := r.filterWorkloads(lws, wlList.Items)
 
-	// One lookup for the whole reconcile, taken before the branches so every
-	// component gets the same answer. Only the create path forces it: an update
-	// with no class transition resolves nothing, and the helper below is what
-	// decides that. Every component is built from the same PodSets, so one of
-	// them answers for the lookup's fallback, and constructWorkload only reads
-	// the scheme.
+	// The branches hold disjoint sets of Workloads, so one failing is no reason to
+	// abandon the others, and parallelize.Until checks for cancellation before
+	// each item. A derived context would let a create that could not resolve the
+	// class stop a surplus Workload from ever being deleted. The reconcile
+	// context still carries shutdown and any deadline. #13921 is where this
+	// change belongs; this copy goes on rebase once that lands.
+	var eg errgroup.Group
+
+	// Cleanup owes the lookup nothing, so it starts before it.
+	eg.Go(func() error {
+		return parallelize.Until(ctx, len(toDelete), func(i int) error {
+			return r.deleteWorkload(ctx, toDelete[i])
+		})
+	})
+
+	// One lookup for the whole reconcile, taken before the create and update
+	// branches so every component gets the same answer. Only the create path
+	// forces it: an update with no class transition resolves nothing, and the
+	// helper below is what decides that.
 	var (
 		resolved   *resolvedPriority
 		resolveErr error
@@ -246,14 +259,6 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 	if len(toCreate) > 0 {
 		resolved, resolveErr = r.resolvePriority(ctx, lws, toCreate[0])
 	}
-
-	// The branches hold disjoint sets of Workloads, so one failing is no reason to
-	// abandon the others, and parallelize.Until checks for cancellation before
-	// each item. A derived context would let a create that could not resolve the
-	// class stop a surplus Workload from ever being deleted. The reconcile
-	// context still carries shutdown and any deadline. #13775 makes the same
-	// change for the same reason; whichever lands second drops it.
-	var eg errgroup.Group
 
 	eg.Go(func() error {
 		if resolveErr != nil {
@@ -288,12 +293,6 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 		return errors.Join(updateErr, r.applyPriority(ctx, lws, resolved, targets))
 	})
 
-	eg.Go(func() error {
-		return parallelize.Until(ctx, len(toDelete), func(i int) error {
-			return r.deleteWorkload(ctx, toDelete[i])
-		})
-	})
-
 	return eg.Wait()
 }
 
@@ -301,11 +300,17 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 // component that is about to be created to stand in for the PodSets the
 // lookup falls back to.
 func (r *Reconciler) resolvePriority(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, probeFor workloadToCreate) (*resolvedPriority, error) {
-	probe, err := r.constructWorkload(lws, probeFor.name, probeFor.index)
-	if err != nil {
-		return nil, err
+	// The lookup returns from the label branch before it reads any PodSets, so
+	// only a set without a class needs a Workload built to ask with.
+	var podSets []kueue.PodSet
+	if jobframework.WorkloadPriorityClassName(lws) == "" {
+		probe, err := r.constructWorkload(lws, probeFor.name, probeFor.index)
+		if err != nil {
+			return nil, err
+		}
+		podSets = probe.Spec.PodSets
 	}
-	classRef, priority, err := jobframework.ExtractPriority(ctx, r.client, lws, probe.Spec.PodSets, nil)
+	classRef, priority, err := jobframework.ExtractPriority(ctx, r.client, lws, podSets, nil)
 	if err != nil {
 		return nil, fmt.Errorf("prepare workload priority: %w", err)
 	}
