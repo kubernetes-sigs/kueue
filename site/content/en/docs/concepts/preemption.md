@@ -180,6 +180,16 @@ The values you can put in the `preemptionStrategies` list are:
   As a result, the strategy chooses to first preempt workloads with the lowest priority and
   newest start time within the target ClusterQueue.
 
+Kueue only supports the following `preemptionStrategies` lists:
+
+- `[LessThanOrEqualToFinalShare]`
+- `[LessThanInitialShare]`
+- `[LessThanOrEqualToFinalShare, LessThanInitialShare]`
+
+Any other combination or ordering, such as
+`[LessThanInitialShare, LessThanOrEqualToFinalShare]`, fails configuration
+validation and Kueue does not start.
+
 ### Algorithm overview
 
 The initial step of the algorithm is to identify the [Workloads that are candidate for preemption](#candidates),

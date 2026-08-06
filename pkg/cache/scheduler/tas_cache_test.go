@@ -6625,6 +6625,172 @@ func TestFindTopologyAssignments(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
+		"elastic workload scale up with leader: places delta workers, preserves leader assignment": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					count:           1,
+					podSetGroupName: new("elastic-group"),
+					previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x2"}},
+						},
+					}),
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x2"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					count:           4,
+					podSetGroupName: new("elastic-group"),
+					previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"x1"}},
+						},
+					}),
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"x1"}},
+							{Count: 2, Values: []string{"x3"}},
+						},
+					},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+		},
+		"elastic workload scale up with leader: stale leader assignment falls back to fresh placement": {
+			// Force fresh placement to differ from the workers' previous assignment:
+			// after placing the leader, x1 can hold only one worker instead of two.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("3"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					count:           1,
+					podSetGroupName: new("elastic-group"),
+					previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"deleted-node"}},
+						},
+					}),
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					count:           4,
+					podSetGroupName: new("elastic-group"),
+					previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"x1"}},
+						},
+					}),
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+							{Count: 3, Values: []string{"x2"}},
+						},
+					},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+		},
 		"multi-layer topology: block required; rack slices of 4; host slices of 2; TASMultiLayerTopology": {
 			// 4-level topology: block → rack → hostname
 			//              b1

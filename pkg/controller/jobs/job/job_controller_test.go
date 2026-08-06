@@ -52,6 +52,7 @@ import (
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestPodsReady(t *testing.T) {
@@ -599,7 +600,8 @@ func TestReconciler(t *testing.T) {
 	)
 	clusterQueueNameWith100Chars := strings.Repeat("cq", 50)
 
-	t.Cleanup(jobframework.EnableIntegrationsForTest(t, FrameworkName))
+	integrationManager := newTestIntegrationManager(t)
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, FrameworkName))
 	baseJobWrapper := utiltestingjob.MakeJob("job", "ns").
 		Suspend(true).
 		Queue(localQueueName).
@@ -3114,6 +3116,401 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		// An elastic Job whose pod set counts have not changed takes the workload
+		// slice path, which returns the existing slice as compatible before the
+		// priority is reconciled.
+		// The negative half of the slice path, pinned here rather than only in
+		// envtest: a reconcile against a fake client is synchronous, so the failed
+		// lookup is observed rather than inferred from the absence of a change.
+		"the workload slice is left alone when the class does not exist": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass("missing-wpc").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass("missing-wpc").
+				UID("test-uid").
+				Obj(),
+			// missing-wpc is deliberately absent.
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantErr: cmpopts.AnyError,
+		},
+		"the workload slice is updated when priority class has changed for suspended job": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(highWPCWrapper.Value).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated workload priority class: ns/job",
+				},
+			},
+		},
+		// EnsureWorkloadSlices writes the new counts itself before reporting the
+		// slice compatible, so the priority update is a second write to the same
+		// object in one reconcile.
+		"the workload slice takes both a count and a priority class change": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(highWPCWrapper.Value).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated workload priority class: ns/job",
+				},
+			},
+		},
+		// A scale-up waiting for quota keeps the admitted slice alongside its
+		// pending replacement, and normalizeActiveSlices returns only the
+		// replacement. Both are live, so both have to follow the label.
+		"the workload slice and its retained admitted slice both follow the label": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("admitted", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("replacement", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("admitted", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(highWPCWrapper.Value).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("replacement", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(highWPCWrapper.Value).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/admitted").
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			// Compared in order, and the reconciler visits the returned slice
+			// before the retained admitted one.
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated workload priority class: ns/replacement",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated workload priority class: ns/admitted",
+				},
+			},
+		},
+		// Scaling up an admitted slice returns no slice at all, because a new one
+		// is about to be created. The admitted slice is still live and still has to
+		// follow the label.
+		"the admitted slice follows the label when a scale-up replaces it": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("admitted", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("admitted", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(highWPCWrapper.Value).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("job-job-2e122", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(highWPCWrapper.Value).
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					Annotations(map[string]string{
+						constants.ElasticJobAnnotation:              "true",
+						kueue.WorkloadSliceNameAnnotation:           "admitted",
+						workloadslicing.WorkloadSliceReplacementFor: "ns/admitted",
+					}).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated workload priority class: ns/admitted",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/job-job-2e122",
+				},
+			},
+		},
+		// Deterministic counterpart to the integration spec: the fake client has no
+		// such class, so the lookup cannot race with anything creating it.
+		// The API server refuses to add a priorityClassRef once quota is reserved,
+		// so the slice keeps none. The fake client does not enforce that rule, which
+		// is what makes this case fail if the reconciler stops skipping the slice.
+		"a workload slice that reserved quota with no priority class is left alone": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(), highWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+		},
 		"shouldn't update workload when priority class no changes": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
@@ -4482,8 +4879,18 @@ func TestReconciler(t *testing.T) {
 					}
 				}
 				recorder := &utiltesting.EventRecorder{}
-				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder,
-					append(tc.reconcilerOptions, jobframework.WithCache(schdcache.New(kClient)), jobframework.WithClock(testingclock.NewFakeClock(now)))...)
+				reconciler, err := NewReconciler(
+					ctx,
+					kClient,
+					indexer,
+					recorder,
+					append(
+						tc.reconcilerOptions,
+						jobframework.WithIntegrationManager(integrationManager),
+						jobframework.WithCache(schdcache.New(kClient)),
+						jobframework.WithClock(testingclock.NewFakeClock(now)),
+					)...,
+				)
 				if err != nil {
 					t.Errorf("Error creating the reconciler: %v", err)
 				}
@@ -4577,24 +4984,28 @@ func TestTerminalIndexesCount(t *testing.T) {
 		completions      int32
 		want             int32
 	}{
-		"empty":                         {completedIndexes: "", completions: 10, want: 0},
-		"zero completions":              {completedIndexes: "0-9", completions: 0, want: 0},
-		"single completed index":        {completedIndexes: "0", completions: 10, want: 1},
-		"single failed index":           {failedIndexes: "1", completions: 10, want: 1},
-		"single range":                  {completedIndexes: "0-4", completions: 10, want: 5},
-		"mixed intervals":               {completedIndexes: "0-4,7,9-11", completions: 10, want: 7},
-		"completed and failed indexes":  {completedIndexes: "0-2,7", failedIndexes: "3-5,8", completions: 10, want: 8},
-		"overlapping terminal indexes":  {completedIndexes: "0-4", failedIndexes: "3-7", completions: 10, want: 8},
-		"contained failed indexes":      {completedIndexes: "0-9", failedIndexes: "2-3", completions: 10, want: 10},
-		"surviving low indexes":         {completedIndexes: "0-8", completions: 10, want: 9},
-		"all completed within range":    {completedIndexes: "0-14", completions: 10, want: 10},
-		"range straddling the cap":      {completedIndexes: "5-19", completions: 10, want: 5},
-		"all removed (above the cap)":   {completedIndexes: "10-19", completions: 10, want: 0},
-		"range capped tighter":          {completedIndexes: "0-4", completions: 3, want: 3},
-		"discrete indexes":              {completedIndexes: "3,5,7", completions: 10, want: 3},
-		"discrete indexes partly above": {completedIndexes: "3,5,12", completions: 10, want: 2},
-		"malformed interval skipped":    {completedIndexes: "abc,0-2", completions: 10, want: 3},
-		"malformed range end skipped":   {completedIndexes: "0-x,4", completions: 10, want: 1},
+		"empty":                               {completedIndexes: "", completions: 10, want: 0},
+		"zero completions":                    {completedIndexes: "0-9", completions: 0, want: 0},
+		"single completed index":              {completedIndexes: "0", completions: 10, want: 1},
+		"single failed index":                 {failedIndexes: "1", completions: 10, want: 1},
+		"single range":                        {completedIndexes: "0-4", completions: 10, want: 5},
+		"mixed intervals":                     {completedIndexes: "0-4,7,9-11", completions: 10, want: 7},
+		"completed and failed indexes":        {completedIndexes: "0-2,7", failedIndexes: "3-5,8", completions: 10, want: 8},
+		"overlapping terminal indexes":        {completedIndexes: "0-4", failedIndexes: "3-7", completions: 10, want: 8},
+		"contained failed indexes":            {completedIndexes: "0-9", failedIndexes: "2-3", completions: 10, want: 10},
+		"surviving low indexes":               {completedIndexes: "0-8", completions: 10, want: 9},
+		"all completed within range":          {completedIndexes: "0-14", completions: 10, want: 10},
+		"range straddling the cap":            {completedIndexes: "5-19", completions: 10, want: 5},
+		"all removed (above the cap)":         {completedIndexes: "10-19", completions: 10, want: 0},
+		"failed range straddling the cap":     {failedIndexes: "5-19", completions: 10, want: 5},
+		"all failed removed (above the cap)":  {failedIndexes: "10-19", completions: 10, want: 0},
+		"stale failed index after scale-down": {failedIndexes: "4", completions: 3, want: 0},
+		"cap applied to completed and failed": {completedIndexes: "0-1", failedIndexes: "2-19", completions: 5, want: 5},
+		"range capped tighter":                {completedIndexes: "0-4", completions: 3, want: 3},
+		"discrete indexes":                    {completedIndexes: "3,5,7", completions: 10, want: 3},
+		"discrete indexes partly above":       {completedIndexes: "3,5,12", completions: 10, want: 2},
+		"malformed interval skipped":          {completedIndexes: "abc,0-2", completions: 10, want: 3},
+		"malformed range end skipped":         {completedIndexes: "0-x,4", completions: 10, want: 1},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
