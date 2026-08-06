@@ -385,7 +385,9 @@ documented here:
    over the alternatives after DeviceClass-to-logical-resource mapping, which is a per-resource
    upper bound on any single realized allocation (see [Prioritized List Quota](#prioritized-list-quota)).
    Counter-backed and capacity-backed alternatives are rejected until their accounting paths can
-   produce per-alternative charge vectors.
+   produce per-alternative charge vectors, as are alternatives using allocation mode `All` or a
+   mode Kueue does not recognise. The worst-case `All` charge in item 3 applies to a whole-claim
+   `All` request, not to an alternative.
 2. AdminAccess requests are skipped in quota counting. This feature can only be enabled in
    admin namespaces (gated by the `resource.kubernetes.io/admin-access` label), and provides
    shared read-only access to already-allocated devices. Charging quota would double-count the
@@ -1809,12 +1811,24 @@ fit in an `int64`.
 There is currently no way to report any of this. `totalRequestsFromPodSets` returns
 `[]PodSetResources` and no error, and `NewInfo` and `Info.Update` do not return errors either. The
 implementation will need to add an error path, so that the workload can be marked inadmissible
-instead of saturating.
+instead of saturating. Until that exists, the Alpha bound holds for charges the shared path can
+represent, which is the condition the existing `Exactly` charges already depend on.
 
 The maximum is taken after DeviceClass-to-logical-resource mapping. Two DeviceClasses may
 intentionally map to one logical resource (for example an H100 and an A100 class both mapping to a
 `gpu` resource); taking the maximum per DeviceClass and then summing the mapped classes would
 overcharge in that case.
+
+The envelope is a bound in resource space, and it does not record which ResourceFlavor an
+alternative would have used. When two alternatives map to different logical resources, Kueue
+assigns a flavor to each one, and `podset.FromAssignment` copies the node labels of every assigned
+flavor into the same PodSet. `podSetAssignments[].flavors` is a map, so when two of those flavors
+set the same label key, the value that survives depends on map iteration order. This is not
+specific to prioritized lists, since any PodSet assigned two such flavors behaves the same way, but
+a prioritized list makes it easy to reach: the alternatives are mutually exclusive, and a user is
+likely to expect a fallback rather than the labels of both branches. For Alpha, the logical
+resources used by prioritized-list alternatives are expected to use flavors whose node labels do
+not conflict. DRA flavors normally carry none.
 
 #### Safety argument
 
@@ -1858,6 +1872,12 @@ envelope depends only on the declared counts; it can, however, let an unschedula
 the envelope reservation. `WaitForPodsReady`, when enabled, eventually releases that reservation.
 It is a liveness and utilization safety net, not a premise of the quota upper bound; admission-time
 feasibility may reduce such cases in the future.
+
+The compiler that check uses is shared with the `Exactly` path, and Kueue builds its cache with an
+empty `dracel.Features`. The apiserver compiles the same selectors with the consumable capacity and
+list attribute features available, so a selector it accepted can fail to compile in Kueue. That is
+not introduced here, but a classifier that compiles every alternative will hit it more often, so
+the two environments should be aligned before this scope is implemented.
 
 #### Coordination with feasibility
 
@@ -1981,7 +2001,8 @@ is more valuable than CPU time for fair sharing purposes.
 
 ### MultiKueue Integration
 
-DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism. ResourceClaimTemplates must be deployed on worker clusters by users; they are not automatically synced. Count-based `firstAvailable` requests are excluded while `KueueDRAIntegrationPrioritizedList` is Alpha; they remain rejected (fail-closed) rather than dispatched, so a manager and worker cannot charge different envelopes for the same workload.
+DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism. ResourceClaimTemplates must be deployed on worker clusters by users; they are not automatically synced. Count-based `firstAvailable` requests are excluded while `KueueDRAIntegrationPrioritizedList` is Alpha; they remain rejected (fail-closed) rather than dispatched, so a manager and worker cannot charge different envelopes for the same workload for a fixed template identity. The check looks the template up by name, so it
+carries the limitation described in the prioritized-list section.
 
 ### Test Plan
 
@@ -2088,6 +2109,9 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
   per-Pod value times the count is admitted in the first place
 - Prioritized list with a logical resource named `cpu`: the charge round-trips through the
   milli-unit convention rather than being read as absolute units
+- Prioritized list flavors: disjoint alternatives whose logical resources resolve to flavors
+  without node labels, and to flavors whose node labels do not share a key, produce the PodSet
+  node selector the alternatives imply
 - Prioritized list under MultiKueue: the admission check rejects before any remote Workload or Job
   exists, and a transient template read error is retried instead of rejected
 - Prioritized list under `quotaCheckStrategy: IgnoreUndeclared`: an alternative resolving to an
@@ -2154,6 +2178,9 @@ the realized allocation.
   modes, and unmapped DeviceClasses
 - a shared static-support classifier that the quota path consumes, with table-driven tests freezing
   the supported-versus-rejected contract (agreement with the feasibility path is a Beta criterion)
+- an envelope that cannot be represented exactly makes the workload permanently inadmissible
+  instead of being saturated. The same check at the shared aggregation boundaries, which every DRA
+  charge already passes through, is a Beta criterion
 - integration and e2e tests
 
 #### Beta
