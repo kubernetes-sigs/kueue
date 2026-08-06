@@ -502,22 +502,36 @@ files:
       - type: INSERT_TEXT
         key: .spec
         value: |
-          {{- if .Values.kueueViz.backend.ingress.tlsSecretName }}
+          {{- $tlsEnabled := .Values.kueueViz.backend.ingress.tlsEnabled }}
+          {{- $tlsEnabledUnset := and (empty $tlsEnabled) (ne $tlsEnabled false) }}
+          {{- $tlsSecretName := .Values.kueueViz.backend.ingress.tlsSecretName }}
+          {{- $tlsSecretNameSet := empty $tlsSecretName | not }}
+          {{- $hasTls := or $tlsEnabled (and $tlsEnabledUnset $tlsSecretNameSet) }}
+          {{- if $hasTls }}
           tls:
             - hosts:
                 - '{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
-              secretName: '{{ .Values.kueueViz.backend.ingress.tlsSecretName }}'
+              {{- with $tlsSecretName }}
+              secretName: '{{ . }}'
+              {{- end }}
           {{- end }}
         indentation: 2
         onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("backend")'
       - type: INSERT_TEXT
         key: .spec
         value: |
-          {{- if .Values.kueueViz.frontend.ingress.tlsSecretName }}
+          {{- $tlsEnabled := .Values.kueueViz.frontend.ingress.tlsEnabled }}
+          {{- $tlsEnabledUnset := and (empty $tlsEnabled) (ne $tlsEnabled false) }}
+          {{- $tlsSecretName := .Values.kueueViz.frontend.ingress.tlsSecretName }}
+          {{- $tlsSecretNameSet := empty $tlsSecretName | not }}
+          {{- $hasTls := or $tlsEnabled (and $tlsEnabledUnset $tlsSecretNameSet) }}
+          {{- if $hasTls }}
           tls:
             - hosts:
                 - '{{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}'
-              secretName: '{{ .Values.kueueViz.frontend.ingress.tlsSecretName }}'
+              {{- with $tlsSecretName }}
+              secretName: '{{ . }}'
+              {{- end }}
           {{- end }}
         indentation: 2
         onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'
