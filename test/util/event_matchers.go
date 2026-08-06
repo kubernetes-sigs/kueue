@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package testing
+package util
 
 import (
 	"fmt"
@@ -25,8 +25,7 @@ import (
 	eventsv1 "k8s.io/api/events/v1"
 )
 
-// HaveEvent matches a slice containing an Event with the expected Reason, Type, and Note.
-func HaveEvent(expectedEvent eventsv1.Event) types.GomegaMatcher {
+func haveEvent(expectedEvent eventsv1.Event) types.GomegaMatcher {
 	return &eventMatcher{expectedEvent: expectedEvent}
 }
 
@@ -40,7 +39,7 @@ func (matcher *eventMatcher) Match(actual any) (bool, error) {
 		return false, fmt.Errorf("event matcher expects a []eventsv1.Event. Got:\n%s", format.Object(actual, 1))
 	}
 	for i := range events {
-		if eventMatches(events[i], matcher.expectedEvent) {
+		if events[i].Reason == matcher.expectedEvent.Reason && events[i].Type == matcher.expectedEvent.Type && events[i].Note == matcher.expectedEvent.Note {
 			return true, nil
 		}
 	}
@@ -65,8 +64,4 @@ func (matcher *eventMatcher) buildErrorMessage(actual any, negated bool) string 
 	}
 	fmt.Fprintf(&b, "to contain an Event matching Reason %q, Type %q, and Note %q", matcher.expectedEvent.Reason, matcher.expectedEvent.Type, matcher.expectedEvent.Note)
 	return b.String()
-}
-
-func eventMatches(actualEvent, expectedEvent eventsv1.Event) bool {
-	return actualEvent.Reason == expectedEvent.Reason && actualEvent.Type == expectedEvent.Type && actualEvent.Note == expectedEvent.Note
 }
