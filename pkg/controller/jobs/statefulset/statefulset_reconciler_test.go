@@ -17,7 +17,11 @@ limitations under the License.
 package statefulset
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,11 +29,13 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -892,5 +898,82 @@ func TestReconciler_ClearOnHoldSetsReason(t *testing.T) {
 				t.Errorf("Unexpected QuotaReserved condition status/reason: got %s/%s, want False/%s", cond.Status, cond.Reason, wantReason)
 			}
 		})
+	}
+}
+
+// TestReconcileDoesNotCancelTheWorkloadBranch pins that a failure while
+// finalizing pods leaves the Workload branch's context alone. The two branches
+// touch different objects, and under a derived context the second one's lookups
+// fail as cancelled rather than for whatever they were about to find.
+func TestReconcileDoesNotCancelTheWorkloadBranch(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	sts := statefulsettesting.MakeStatefulSet("sts", "ns").
+		UID("sts-uid").
+		Queue("lq").
+		WorkloadPriorityClass("wpc").
+		CurrentRevision("1").
+		UpdateRevision("2").
+		Obj()
+	pod := testingjobspod.MakePod("pod1", "ns").
+		GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+		Label(appsv1.ControllerRevisionHashLabelKey, "1").
+		Queue("lq").
+		Gate(podconstants.SchedulingGateName).
+		KueueFinalizer().
+		Obj()
+	wpc := utiltestingapi.MakeWorkloadPriorityClass("wpc").PriorityValue(100).Obj()
+
+	var (
+		finalizeFailed = make(chan struct{})
+		once           sync.Once
+		cancelledHere  atomic.Bool
+		errNotOrdered  = errors.New("the finalizing branch never failed")
+		errPodConflict = apierrors.NewConflict(corev1.Resource("pods"), "pod1", errors.New("conflict"))
+	)
+
+	clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if _, isPod := obj.(*corev1.Pod); isPod {
+				once.Do(func() { close(finalizeFailed) })
+				return errPodConflict
+			}
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+		// The class lookup stands in for the whole Workload branch: it waits
+		// for the other branch to fail, so a cancellation would have landed by
+		// the time it looks.
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, isClass := obj.(*kueue.WorkloadPriorityClass); isClass {
+				select {
+				case <-finalizeFailed:
+				case <-time.After(30 * time.Second):
+					return errNotOrdered
+				}
+				select {
+				case <-ctx.Done():
+					cancelledHere.Store(true)
+				case <-time.After(time.Second):
+				}
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
+		t.Fatalf("Indexing the pod group name: %v", err)
+	}
+	kClient := clientBuilder.WithObjects(sts, pod, wpc).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sts)}); err == nil {
+		t.Fatal("Reconcile returned no error, want the finalization failure")
+	}
+	if cancelledHere.Load() {
+		t.Error("the Workload branch ran under a context the finalization failure had cancelled")
 	}
 }

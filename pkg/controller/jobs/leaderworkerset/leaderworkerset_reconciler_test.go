@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2283,5 +2285,84 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Unexpected events (-want/+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestReconcileWorkloadsDoesNotCancelTheOtherBranches pins that a failing
+// branch leaves the others' context alone. The three hold disjoint sets of
+// Workloads, and parallelize.Until checks for cancellation before each item,
+// so under a derived context a delete that failed first could stop the create
+// and update branches before they ran at all.
+func TestReconcileWorkloadsDoesNotCancelTheOtherBranches(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+		UID(testLWS).
+		Replicas(1).
+		Queue("lq").
+		WorkloadPriorityClass("wpc").
+		Obj()
+	// Not among the names replicas=1 asks for, so the delete branch takes it.
+	surplus := utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "7"), testNS).
+		JobUID(testLWS).
+		OwnerReference(gvk, testLWS, testLWS).
+		Obj()
+	wpc := utiltestingapi.MakeWorkloadPriorityClass("wpc").PriorityValue(100).Obj()
+
+	var (
+		createReached = make(chan struct{})
+		deleteFailed  = make(chan struct{})
+		reachedOnce   sync.Once
+		failedOnce    sync.Once
+		cancelledHere atomic.Bool
+		errNotOrdered = errors.New("the delete branch never failed")
+		errDeleting   = errors.New("deleting the surplus workload")
+	)
+
+	clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
+		// The class lookup stands in for the create branch: it announces that
+		// the branch is inside a work item, then waits for the delete to fail,
+		// so a cancellation would have landed by the time it looks.
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, isClass := obj.(*kueue.WorkloadPriorityClass); isClass {
+				reachedOnce.Do(func() { close(createReached) })
+				select {
+				case <-deleteFailed:
+				case <-time.After(30 * time.Second):
+					return errNotOrdered
+				}
+				select {
+				case <-ctx.Done():
+					cancelledHere.Store(true)
+				case <-time.After(time.Second):
+				}
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			if _, isWorkload := obj.(*kueue.Workload); isWorkload {
+				select {
+				case <-createReached:
+				case <-time.After(30 * time.Second):
+					return errNotOrdered
+				}
+				failedOnce.Do(func() { close(deleteFailed) })
+				return errDeleting
+			}
+			return c.Delete(ctx, obj, opts...)
+		},
+	})
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(lws, surplus, wpc).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}); err == nil {
+		t.Fatal("Reconcile returned no error, want the delete failure")
+	}
+	if cancelledHere.Load() {
+		t.Error("the create branch ran under a context the delete failure had cancelled")
 	}
 }
