@@ -744,11 +744,15 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, &wl) {
 				lqRef := metrics.LQRefFromWorkload(&wl)
 				lqKey := qutil.KeyFromWorkload(&wl)
+
 				metrics.LocalQueueAdmittedWorkload(
 					lqRef,
 					priorityClassName,
 					queuedWaitTime,
-					r.customLabels.LQGet(lqKey),
+					r.customLabels.GetFor(map[config.SourceKind]string{
+						config.SourceKindLocalQueue: string(lqKey),
+						config.SourceKindWorkload:   string(workload.Key(&wl)),
+					}),
 					r.roleTracker,
 				)
 				metrics.ReportLocalQueueAdmissionChecksWaitTime(

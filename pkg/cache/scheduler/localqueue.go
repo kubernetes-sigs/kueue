@@ -81,7 +81,6 @@ func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {
 		Name:      name,
 		Namespace: namespace,
 	}
-	metrics.ReportLocalQueueAdmittedActiveWorkloads(lqRef, q.admittedWorkloads, q.customMetricLabelValues(), tracker)
 	metrics.ReportLocalQueueReservingActiveWorkloads(lqRef, q.reservingWorkloads, q.customMetricLabelValues(), tracker)
 }
 
