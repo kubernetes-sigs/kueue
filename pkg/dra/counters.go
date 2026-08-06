@@ -81,9 +81,9 @@ func GetCounterResourcesForWorkload(
 
 				log.V(4).Info("Processing counter charge", "podSet", ps.Name, "deviceClass", deviceClass, "quotaResource", quotaResource, "count", req.Exactly.Count)
 
-				reqPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j).Child("devices", "requests").Index(reqIdx)
+				claimPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
 
-				charges, errs := processCounterCharge(ctx, cl, counterConfig, quotaResource, req.Exactly.DeviceClassName, req.Exactly.Selectors, req.Exactly.Count, classCache, reqPath)
+				charges, errs := processCounterCharge(ctx, cl, counterConfig, quotaResource, req.Exactly.DeviceClassName, req.Exactly.Selectors, req.Exactly.Count, classCache, claimPath, reqIdx)
 				if len(errs) > 0 {
 					allErrs = append(allErrs, errs...)
 					return nil, allErrs
@@ -115,9 +115,11 @@ func processCounterCharge(
 	selectors []resourcev1.DeviceSelector,
 	count int64,
 	classCache map[string]*resourcev1.DeviceClass,
-	reqPath *field.Path,
+	claimPath *field.Path,
+	reqIdx int,
 ) (corev1.ResourceList, field.ErrorList) {
 	log := ctrl.LoggerFrom(ctx)
+	reqPath := claimPath.Child("devices", "requests").Index(reqIdx)
 
 	selectorSelectors, compErrs := compileCELSelectors(
 		[]resourcev1.DeviceSelector{counterConfig.deviceSelector},
@@ -127,7 +129,7 @@ func processCounterCharge(
 		return nil, compErrs
 	}
 
-	classSelectors, classErr := resolveAndCompileDeviceClass(ctx, cl, deviceClassName, classCache, reqPath, 0)
+	classSelectors, classErr := resolveAndCompileDeviceClass(ctx, cl, deviceClassName, classCache, claimPath, reqIdx)
 	if classErr != nil {
 		return nil, field.ErrorList{classErr}
 	}
