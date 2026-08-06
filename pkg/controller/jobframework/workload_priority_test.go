@@ -419,6 +419,14 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 			if diff := cmp.Diff(errString(tc.wantErr), errString(err)); diff != "" {
 				t.Fatalf("extractPriority() error (-want +got):\n%s", diff)
 			}
+			// The message alone would survive the error being rebuilt from its
+			// own text, which is what callers reading the API status would lose.
+			if tc.wantErr != nil {
+				var status apierrors.APIStatus
+				if !errors.As(err, &status) {
+					t.Errorf("extractPriority() = %v, which no longer carries an API status", err)
+				}
+			}
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 				t.Errorf("recorded events (-want +got):\n%s", diff)
 			}

@@ -4986,8 +4986,8 @@ func TestReconciler(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 
 				ctx, _ := utiltesting.ContextWithLog(t)
-				funcs := interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}
-				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(funcs)
+				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(
+					interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 				indexer := utiltesting.AsIndexer(clientBuilder)
 				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)
