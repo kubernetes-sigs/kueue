@@ -20,10 +20,10 @@ set -o pipefail
 
 # Resolved without `git rev-parse` so the file stays sourceable from the test harness.
 KUBERNETES_SIGS_KUEUE_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-declare -r MILESTONE_PULL_ROOT
+declare -r KUBERNETES_SIGS_KUEUE_PATH
 
 # shellcheck source=hack/utils.sh
-source "${MILESTONE_PULL_ROOT}/hack/utils.sh"
+source "${KUBERNETES_SIGS_KUEUE_PATH}/hack/utils.sh"
 
 MILESTONE_RESULT="not run"
 PR_RESULT="not run"
@@ -217,7 +217,7 @@ function submit_mapping_pr() {
       exit 2
     fi
   else
-    KUBERNETES_REPOS_PATH="$(resolve_path "${MILESTONE_PULL_ROOT}/../../kubernetes")"
+    KUBERNETES_REPOS_PATH="$(resolve_path "${KUBERNETES_SIGS_KUEUE_PATH}/../../kubernetes")"
   fi
 
   if [[ -n "${KUBERNETES_TEST_INFRA_PATH:-}" ]]; then
@@ -404,7 +404,7 @@ function main() {
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE=${KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE:-upstream}
-  KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG=${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG:-$(get_repo_org "$(git -C "${MILESTONE_PULL_ROOT}" remote get-url "$KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE")")}
-  KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME=${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME:-$(get_repo_name "$(git -C "${MILESTONE_PULL_ROOT}" remote get-url "$KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE")")}
+  KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG=${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG:-$(get_repo_org "$(git -C "${KUBERNETES_SIGS_KUEUE_PATH}" remote get-url "$KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE")")}
+  KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME=${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME:-$(get_repo_name "$(git -C "${KUBERNETES_SIGS_KUEUE_PATH}" remote get-url "$KUBERNETES_SIGS_KUEUE_UPSTREAM_REMOTE")")}
   main "$@"
 fi
