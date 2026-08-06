@@ -18,11 +18,13 @@ package leaderworkerset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
@@ -232,55 +234,59 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 
 	toCreate, toUpdate, toDelete := r.filterWorkloads(lws, wlList.Items)
 
-	// Set once the class has been resolved, so the update path below can reuse
-	// this reconcile's answer instead of asking again. It resolves lazily on its
-	// own, so leaving this nil keeps a steady-state reconcile from looking the
-	// class up at all.
-	var resolved *resolvedPriority
-	if len(toCreate) > 0 {
-		// One Workload is built here so the lookup has PodSets to fall back on.
-		// The rest are built inside the fan-out as before, which keeps the peak
-		// bounded by the worker count rather than by the number of components.
-		// constructWorkload only reads the scheme, so building this one twice
-		// costs no API calls.
-		first, err := r.constructWorkload(lws, toCreate[0].name, toCreate[0].index)
+	// One lookup for the whole reconcile, made on demand. The delete branch never
+	// asks for it, so a class that cannot be resolved does not stop surplus
+	// Workloads from being cleaned up. Every component is built from the same
+	// PodSets, so one of them answers for the lookup's fallback, and
+	// constructWorkload only reads the scheme.
+	willResolve := len(toCreate) > 0
+	resolvePriority := sync.OnceValues(func() (*resolvedPriority, error) {
+		probe, err := r.constructWorkload(lws, toCreate[0].name, toCreate[0].index)
 		if err != nil {
-			log.Error(err, "Failed to construct Workload", "workload", toCreate[0].name)
-			return err
+			return nil, err
 		}
-		// Every component carries the same label, so one lookup answers for all
-		// of them. Resolving per component lets concurrent lookups of the same
-		// class observe different values.
-		priorityClassRef, priority, err := jobframework.ExtractPriority(ctx, r.client, lws, first.Spec.PodSets, nil)
+		classRef, priority, err := jobframework.ExtractPriority(ctx, r.client, lws, probe.Spec.PodSets, nil)
 		if err != nil {
-			log.Error(err, "Failed to prepare Workload priority")
-			return fmt.Errorf("prepare workload priority: %w", err)
+			return nil, fmt.Errorf("prepare workload priority: %w", err)
 		}
-		resolved = &resolvedPriority{classRef: priorityClassRef, priority: priority}
-	}
+		return &resolvedPriority{classRef: classRef, priority: priority}, nil
+	})
 
-	eg, ctx := errgroup.WithContext(ctx)
+	// The branches hold disjoint sets of Workloads, so one failing is no reason to
+	// abandon the others, and parallelize.Until checks for cancellation before
+	// each item. A derived context would let a create that could not resolve the
+	// class stop a surplus Workload from ever being deleted. The reconcile
+	// context still carries shutdown and any deadline. #13775 makes the same
+	// change for the same reason; whichever lands second drops it.
+	var eg errgroup.Group
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toCreate), func(i int) error {
+			resolved, err := resolvePriority()
+			if err != nil {
+				return err
+			}
 			return r.createWorkload(ctx, lws, toCreate[i].name, toCreate[i].index, resolved)
 		})
 	})
 
 	eg.Go(func() error {
-		if err := parallelize.Until(ctx, len(toUpdate), func(i int) error {
-			return r.updateWorkload(ctx, lws, toUpdate[i])
-		}); err != nil {
+		updated := make([]bool, len(toUpdate))
+		updateErr := parallelize.Until(ctx, len(toUpdate), func(i int) error {
+			err := r.updateWorkload(ctx, lws, toUpdate[i])
+			updated[i] = err == nil
 			return err
+		})
+		// Priority goes to the components whose other updates landed. One failing
+		// queue-name write used to hold back only its own component, and moving
+		// the priority out of the loop should not widen that.
+		targets := make([]*kueue.Workload, 0, len(toUpdate))
+		for i, ok := range updated {
+			if ok {
+				targets = append(targets, toUpdate[i])
+			}
 		}
-		// Priority is applied to the whole set at once rather than from inside
-		// the loop above. Resolving per component lets concurrent lookups of the
-		// same class observe different values, which would then order the
-		// components of one LeaderWorkerSet against each other.
-		if resolved != nil {
-			return jobframework.ApplyWorkloadPriority(ctx, r.client, r.record, lws, resolved.classRef, resolved.priority, toUpdate...)
-		}
-		return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, toUpdate...)
+		return errors.Join(updateErr, r.applyPriority(ctx, lws, willResolve, resolvePriority, targets))
 	})
 
 	eg.Go(func() error {
@@ -290,6 +296,24 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 	})
 
 	return eg.Wait()
+}
+
+// applyPriority gives wls this reconcile's priority. When nothing else needed
+// the class, the helper is left to decide whether to look it up at all, which
+// keeps a steady-state reconcile from reading it.
+func (r *Reconciler) applyPriority(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet,
+	willResolve bool, resolve func() (*resolvedPriority, error), wls []*kueue.Workload) error {
+	if len(wls) == 0 {
+		return nil
+	}
+	if !willResolve {
+		return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wls...)
+	}
+	resolved, err := resolve()
+	if err != nil {
+		return err
+	}
+	return jobframework.ApplyWorkloadPriority(ctx, r.client, r.record, lws, resolved.classRef, resolved.priority, wls...)
 }
 
 // filterWorkloads compares the desired state of a LeaderWorkerSet with existing workloads,

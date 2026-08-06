@@ -1226,7 +1226,10 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
 	priorityClassRef *kueue.PriorityClassRef, priority int32, wls ...*kueue.Workload) error {
 	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
-	if len(needsClassChange) == 0 {
+	// Unlike the lazy path, a caller that already resolved had a reason to, so a
+	// workload that names the class with a value left behind by an earlier
+	// reconcile is repaired here rather than waiting for a name to change.
+	if len(sameClassName) == 0 && len(needsClassChange) == 0 {
 		return nil
 	}
 	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, sameClassName, needsClassChange)

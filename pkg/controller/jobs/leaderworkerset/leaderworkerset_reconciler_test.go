@@ -18,6 +18,7 @@ package leaderworkerset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -27,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -2356,5 +2358,155 @@ func TestReconcilerResolvesPriorityClassOnceForMixedSets(t *testing.T) {
 		if wl.Spec.Priority == nil || *wl.Spec.Priority != 5000 {
 			t.Errorf("%s: priority = %v, want 5000", wl.Name, wl.Spec.Priority)
 		}
+	}
+}
+
+func lwsComponent(index, className string, priority int32) *kueue.Workload {
+	return utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, index), testNS).
+		JobUID(testLWS).
+		OwnerReference(gvk, testLWS, testLWS).
+		Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+		Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+		Annotation(constants.JobOwnerNameAnnotation, testLWS).
+		Annotation(constants.ComponentWorkloadIndexAnnotation, index).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			RestartPolicy("").
+			Image(utiltestingjobs.TestDefaultContainerImage).
+			Obj()).
+		WorkloadPriorityClassRef(className).
+		Priority(priority).
+		Obj()
+}
+
+// TestReconcilerRepairsStaleValueUnderTheSameClass covers the set that already
+// names the class but was left on an older value. A reconcile that had to
+// resolve the class for something else carries the answer to it too.
+func TestReconcilerRepairsStaleValueUnderTheSameClass(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
+
+	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+		WorkloadPriorityClass("high").Replicas(2).UID(testLWS).Obj()
+
+	var classReads atomic.Int32
+	clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*kueue.WorkloadPriorityClass); ok {
+					classReads.Add(1)
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		})
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(lws,
+		utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+		// Already names the class, but on the value an earlier reconcile saw.
+		lwsComponent("0", "high", 100)).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, request); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if got := classReads.Load(); got != 1 {
+		t.Errorf("WorkloadPriorityClass reads = %d, want 1", got)
+	}
+	var got kueue.WorkloadList
+	if err := kClient.List(ctx, &got, client.InNamespace(testNS)); err != nil {
+		t.Fatalf("Listing workloads: %v", err)
+	}
+	for _, wl := range got.Items {
+		if wl.Spec.Priority == nil || *wl.Spec.Priority != 200 {
+			t.Errorf("%s: priority = %v, want 200", wl.Name, wl.Spec.Priority)
+		}
+	}
+}
+
+// TestReconcilerDeletesSurplusWhenTheClassIsMissing pins that the branches stay
+// independent. Resolving the class for the components being created must not
+// stop a surplus Workload from being cleaned up.
+func TestReconcilerDeletesSurplusWhenTheClassIsMissing(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
+
+	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+		WorkloadPriorityClass("missing-wpc").Replicas(2).UID(testLWS).Obj()
+	surplus := lwsComponent("5", "missing-wpc", 100)
+
+	clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme)
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(lws, lwsComponent("0", "missing-wpc", 100), surplus).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, request); err == nil {
+		t.Fatal("Reconcile returned no error, want the missing class")
+	}
+
+	var got kueue.Workload
+	err = kClient.Get(ctx, client.ObjectKeyFromObject(surplus), &got)
+	if !apierrors.IsNotFound(err) {
+		t.Errorf("the surplus Workload is still there (err = %v), want it deleted", err)
+	}
+}
+
+// TestReconcilerKeepsPriorityPerComponentOnUpdateFailure pins the failure
+// boundary. Moving priority out of the per-component loop must not let one
+// component's queue-name write hold back everyone else's priority.
+func TestReconcilerKeepsPriorityPerComponentOnUpdateFailure(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
+
+	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+		Queue("lws-queue").
+		WorkloadPriorityClass("new-wpc").
+		Replicas(2).
+		UID(testLWS).
+		Obj()
+	// Neither carries the queue name yet, so both go through the queue write
+	// first, and only one of them fails there.
+	blocked := lwsComponent("0", "old-wpc", 1000)
+	healthy := lwsComponent("1", "old-wpc", 1000)
+
+	clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if wl, ok := obj.(*kueue.Workload); ok && wl.Name == blocked.Name {
+					return apierrors.NewConflict(kueue.Resource("workloads"), wl.Name, errors.New("conflict"))
+				}
+				return c.Update(ctx, obj, opts...)
+			},
+		})
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(lws,
+		utiltestingapi.MakeWorkloadPriorityClass("old-wpc").PriorityValue(1000).Obj(),
+		utiltestingapi.MakeWorkloadPriorityClass("new-wpc").PriorityValue(5000).Obj(),
+		blocked, healthy).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, request); err == nil {
+		t.Fatal("Reconcile returned no error, want the conflict")
+	}
+
+	var got kueue.Workload
+	if err := kClient.Get(ctx, client.ObjectKeyFromObject(healthy), &got); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Spec.Priority == nil || *got.Spec.Priority != 5000 {
+		t.Errorf("%s: priority = %v, want 5000; one component's failure held back the rest",
+			got.Name, got.Spec.Priority)
 	}
 }
