@@ -2276,3 +2276,82 @@ func TestReconcilerResolvesPriorityClassOnceOnCreate(t *testing.T) {
 		}
 	}
 }
+
+// TestReconcilerResolvesPriorityClassOnceForMixedSets covers a reconcile that
+// both creates and updates components. Resolving once per path still lets the
+// two see different values of one class.
+func TestReconcilerResolvesPriorityClassOnceForMixedSets(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.TopologyAwareScheduling: false,
+	})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
+
+	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+		WorkloadPriorityClass("new-wpc").
+		Replicas(2).
+		UID(testLWS).
+		Obj()
+
+	// One component already has a Workload on the old class, the other does not
+	// exist yet, so this reconcile updates one and creates one.
+	existing := utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+		JobUID(testLWS).
+		OwnerReference(gvk, testLWS, testLWS).
+		Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+		Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+		Annotation(constants.JobOwnerNameAnnotation, testLWS).
+		Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(
+			*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				RestartPolicy("").
+				Image(utiltestingjobs.TestDefaultContainerImage).
+				Obj()).
+		WorkloadPriorityClassRef("old-wpc").
+		Priority(1000).
+		Obj()
+
+	var classReads atomic.Int32
+	clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*kueue.WorkloadPriorityClass); ok {
+					classReads.Add(1)
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		})
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(
+		lws,
+		utiltestingapi.MakeWorkloadPriorityClass("old-wpc").PriorityValue(1000).Obj(),
+		utiltestingapi.MakeWorkloadPriorityClass("new-wpc").PriorityValue(5000).Obj(),
+		existing,
+	).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, request); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if got := classReads.Load(); got != 1 {
+		t.Errorf("WorkloadPriorityClass reads = %d, want 1", got)
+	}
+
+	var got kueue.WorkloadList
+	if err := kClient.List(ctx, &got, client.InNamespace(testNS)); err != nil {
+		t.Fatalf("Listing workloads: %v", err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("ended with %d workloads, want 2", len(got.Items))
+	}
+	for _, wl := range got.Items {
+		if wl.Spec.Priority == nil || *wl.Spec.Priority != 5000 {
+			t.Errorf("%s: priority = %v, want 5000", wl.Name, wl.Spec.Priority)
+		}
+	}
+}

@@ -1212,10 +1212,32 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 		return fmt.Errorf("prepare workload priority: %w", err)
 	}
 
-	// Apply the resolved ref/value to every eligible workload whose full priority
-	// state differs. Same-name workloads with a stale value are repaired before the
-	// name-changing ones, so a name mismatch survives as the retry marker if a
-	// write in this batch fails.
+	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, sameClassName, needsClassChange)
+}
+
+// ApplyWorkloadPriority is UpdateWorkloadPriority with the resolution supplied by
+// the caller, for a reconcile that has already resolved the class for another set
+// of workloads. Two lookups of one class in the same reconcile can return
+// different values, which would leave the sets holding different priorities.
+//
+// The same rule about when to write applies: nothing is touched unless at least
+// one workload needs a class transition, so a steady-state reconcile does not
+// overwrite a value that is otherwise mutable.
+func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
+	priorityClassRef *kueue.PriorityClassRef, priority int32, wls ...*kueue.Workload) error {
+	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
+	if len(needsClassChange) == 0 {
+		return nil
+	}
+	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, sameClassName, needsClassChange)
+}
+
+// applyResolvedPriority writes the resolved ref/value to every eligible workload
+// whose full priority state differs. Same-name workloads with a stale value are
+// repaired before the name-changing ones, so a name mismatch survives as the
+// retry marker if a write in this batch fails.
+func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
+	priorityClassRef *kueue.PriorityClassRef, priority int32, sameClassName, needsClassChange []*kueue.Workload) error {
 	targets := make([]*kueue.Workload, 0, len(sameClassName)+len(needsClassChange))
 	targets = append(targets, sameClassName...)
 	targets = append(targets, needsClassChange...)

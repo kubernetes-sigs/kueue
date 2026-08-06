@@ -77,6 +77,14 @@ type workloadToCreate struct {
 	index int
 }
 
+// resolvedPriority is what one lookup of the object's WorkloadPriorityClass
+// returned, so a reconcile that touches more than one set of Workloads gives
+// them all the same answer.
+type resolvedPriority struct {
+	classRef *kueue.PriorityClassRef
+	priority int32
+}
+
 type Reconciler struct {
 	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
@@ -236,6 +244,11 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 		}
 		newWorkloads = append(newWorkloads, wl)
 	}
+	// Set once the class has been resolved, so the update path below can reuse
+	// this reconcile's answer instead of asking again. It resolves lazily on its
+	// own, so leaving this nil keeps a steady-state reconcile from looking the
+	// class up at all.
+	var resolved *resolvedPriority
 	if len(newWorkloads) > 0 {
 		// Every component carries the same label, so one lookup answers for all
 		// of them. Resolving per component lets concurrent lookups of the same
@@ -245,6 +258,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 			log.Error(err, "Failed to prepare Workload priority")
 			return fmt.Errorf("prepare workload priority: %w", err)
 		}
+		resolved = &resolvedPriority{classRef: priorityClassRef, priority: priority}
 		for _, wl := range newWorkloads {
 			wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
 			wl.Spec.Priority = new(priority)
@@ -269,6 +283,9 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 		// the loop above. Resolving per component lets concurrent lookups of the
 		// same class observe different values, which would then order the
 		// components of one LeaderWorkerSet against each other.
+		if resolved != nil {
+			return jobframework.ApplyWorkloadPriority(ctx, r.client, r.record, lws, resolved.classRef, resolved.priority, toUpdate...)
+		}
 		return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, toUpdate...)
 	})
 
