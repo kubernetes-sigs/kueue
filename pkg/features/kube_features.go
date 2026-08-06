@@ -512,7 +512,7 @@ const (
 	//
 	// Enables parallelized API calls during scheduler requeue and evaluation.
 	SchedulerParallelizedAPICalls featuregate.Feature = "SchedulerParallelizedAPICalls"
-  
+
 	// owner: @ivnovakov
 	//
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/13279#discussion_r3655384989
@@ -840,10 +840,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	SchedulerParallelizedAPICalls: {
-		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
-  },
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
 
-  LWSImmutableGroupSize: {
+	LWSImmutableGroupSize: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
