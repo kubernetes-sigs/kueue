@@ -495,7 +495,7 @@ func TestSelectorErrorPaths(t *testing.T) {
 		{
 			name: "DeviceClass lookup error",
 			run: func() field.ErrorList {
-				_, _, errs := prepareCounterCharge(ctx, cl, "missing-device-class", nil, make(map[string]*resourcev1.DeviceClass), claimPath, 1)
+				_, _, errs := prepareDeviceSelectors(ctx, cl, "missing-device-class", nil, make(map[string]*resourcev1.DeviceClass), claimPath, 1)
 				return errs
 			},
 			wantField: reqPath.String(),
@@ -503,7 +503,7 @@ func TestSelectorErrorPaths(t *testing.T) {
 		{
 			name: "request selector compilation error",
 			run: func() field.ErrorList {
-				_, _, errs := prepareCounterCharge(
+				_, _, errs := prepareDeviceSelectors(
 					ctx,
 					cl,
 					"valid-device-class",
