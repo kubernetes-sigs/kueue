@@ -17,7 +17,6 @@ limitations under the License.
 package job
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -642,7 +641,6 @@ func TestReconciler(t *testing.T) {
 		wantWorkloads     []kueue.Workload
 		wantEvents        []utiltesting.EventRecord
 		wantErr           error
-		interceptGet      func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
 	}{
 		"job is not found with FinishOrphanedWorkloads disabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
@@ -3789,7 +3787,6 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		// The ancestor walk returns more than NotFound. Narrowing this call site to
 		"non-standalone job is not suspended if its parent workload is admitted": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
@@ -4990,9 +4987,6 @@ func TestReconciler(t *testing.T) {
 
 				ctx, _ := utiltesting.ContextWithLog(t)
 				funcs := interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}
-				if tc.interceptGet != nil {
-					funcs.Get = tc.interceptGet
-				}
 				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(funcs)
 				indexer := utiltesting.AsIndexer(clientBuilder)
 				if err := SetupIndexes(ctx, indexer); err != nil {
