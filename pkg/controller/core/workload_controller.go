@@ -131,7 +131,9 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	workload.AdjustResources(ctx, r.client, wl)
+	if err := workload.AdjustResources(ctx, wl, r.queues.LimitRangeCache().GetForNamespace(wl.Namespace), r.queues.RuntimeClassCache().GetAll()); err != nil {
+		return true, ctrl.Result{}, err
+	}
 	if workload.HasResourceClaim(wl) {
 		log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
@@ -1277,7 +1279,9 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 
 	ctx := ctrl.LoggerInto(context.Background(), log)
 	wlCopy := e.Object.DeepCopy()
-	workload.AdjustResources(ctx, r.client, wlCopy)
+	if err := workload.AdjustResources(ctx, wlCopy, r.queues.LimitRangeCache().GetForNamespace(wlCopy.Namespace), r.queues.RuntimeClassCache().GetAll()); err != nil {
+		log.Error(err, "Failed to adjust workload resources in Create handler")
+	}
 
 	if dra.NeedsDRAReconcile(e.Object, r.draBackedResources) {
 		log.V(2).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
@@ -1366,7 +1370,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 	wlCopy := e.ObjectNew.DeepCopy()
 	wlKey := workload.Key(e.ObjectNew)
 	// We do not handle old workload here as it will be deleted or replaced by new one anyway.
-	workload.AdjustResources(ctrl.LoggerInto(ctx, log), r.client, wlCopy)
+	if err := workload.AdjustResources(ctrl.LoggerInto(ctx, log), wlCopy, r.queues.LimitRangeCache().GetForNamespace(wlCopy.Namespace), r.queues.RuntimeClassCache().GetAll()); err != nil {
+		log.Error(err, "Failed to adjust workload resources in Update handler")
+	}
 
 	onHold := workload.IsOnHold(wlCopy)
 
@@ -1670,6 +1676,12 @@ func (h *resourceUpdatesHandler) Create(ctx context.Context, e event.CreateEvent
 	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.Object.GetObjectKind())
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Create event")
+	if lr, ok := e.Object.(*corev1.LimitRange); ok {
+		h.r.queues.LimitRangeCache().Add(lr)
+	}
+	if rc, ok := e.Object.(*nodev1.RuntimeClass); ok {
+		h.r.queues.RuntimeClassCache().Add(rc)
+	}
 	h.handle(ctx, e.Object, q)
 }
 
@@ -1677,6 +1689,12 @@ func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent
 	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.ObjectNew.GetObjectKind())
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Update event")
+	if lr, ok := e.ObjectNew.(*corev1.LimitRange); ok {
+		h.r.queues.LimitRangeCache().Update(e.ObjectOld.(*corev1.LimitRange), lr)
+	}
+	if rc, ok := e.ObjectNew.(*nodev1.RuntimeClass); ok {
+		h.r.queues.RuntimeClassCache().Update(e.ObjectOld.(*nodev1.RuntimeClass), rc)
+	}
 	h.handle(ctx, e.ObjectNew, q)
 	if oldLr, isLr := e.ObjectOld.(*corev1.LimitRange); isLr {
 		if newLr, isNewLr := e.ObjectNew.(*corev1.LimitRange); isNewLr {
@@ -1689,6 +1707,12 @@ func (h *resourceUpdatesHandler) Delete(ctx context.Context, e event.DeleteEvent
 	log := ctrl.LoggerFrom(ctx).WithValues("kind", e.Object.GetObjectKind())
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Delete event")
+	if lr, ok := e.Object.(*corev1.LimitRange); ok {
+		h.r.queues.LimitRangeCache().Delete(lr)
+	}
+	if rc, ok := e.Object.(*nodev1.RuntimeClass); ok {
+		h.r.queues.RuntimeClassCache().Delete(rc)
+	}
 	h.handle(ctx, e.Object, q)
 	if lr, isLr := e.Object.(*corev1.LimitRange); isLr {
 		h.notifyForLimitRangeConstraintsChange(ctx, lr, nil)
@@ -1794,8 +1818,10 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 	for _, w := range lst.Items {
 		wlCopy := w.DeepCopy()
 		log := log.WithValues("workload", klog.KObj(wlCopy))
-		log.V(5).Info("Queue reconcile for")
-		workload.AdjustResources(ctrl.LoggerInto(ctx, log), h.r.client, wlCopy)
+		if err := workload.AdjustResources(ctrl.LoggerInto(ctx, log), wlCopy, h.r.queues.LimitRangeCache().GetForNamespace(wlCopy.Namespace), h.r.queues.RuntimeClassCache().GetAll()); err != nil {
+			log.Error(err, "Failed to adjust workload resources")
+			continue
+		}
 
 		if dra.NeedsDRAReconcile(wlCopy, h.r.draBackedResources) {
 			req := reconcile.Request{
@@ -2020,7 +2046,10 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 			log.V(3).Info("Requeuing workload due to DeviceClass change", "workload", klog.KObj(w), "resource", name)
 			if !dra.NeedsDRAReconcile(w, h.r.draBackedResources) && workload.IsAdmissible(w) {
 				wlCopy := w.DeepCopy()
-				workload.AdjustResources(ctx, h.r.client, wlCopy)
+				if err := workload.AdjustResources(ctx, wlCopy, h.r.queues.LimitRangeCache().GetForNamespace(wlCopy.Namespace), h.r.queues.RuntimeClassCache().GetAll()); err != nil {
+					log.Error(err, "Failed to adjust workload resources after DeviceClass change", "workload", klog.KObj(w))
+					continue
+				}
 				if err := h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 					log.Error(err, "Failed to re-add workload to queue after DeviceClass change")
 				}
