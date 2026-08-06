@@ -2053,8 +2053,6 @@ func TestGetNoFitReason(t *testing.T) {
 	}
 }
 
-type operations func(context.Context, logr.Logger, *ClusterQueue)
-
 func TestClusterQueuePendingTrackers(t *testing.T) {
 	cqLabel := config.ControllerMetricsCustomLabel{
 		Name:           "cq-team",
@@ -2088,7 +2086,7 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 
 	cases := map[string]struct {
 		labels           *[]config.ControllerMetricsCustomLabel
-		ops              operations
+		ops              func(context.Context, logr.Logger, *ClusterQueue)
 		wantPending      map[[6]string]int
 		wantInadmissible map[[6]string]int
 	}{

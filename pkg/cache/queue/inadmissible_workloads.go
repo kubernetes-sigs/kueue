@@ -178,7 +178,6 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
 			continue
 		}
-		// TODO: FIX
 		if c.moveInadmissibleToHeap(key, wInfo) {
 			moved++
 		}
