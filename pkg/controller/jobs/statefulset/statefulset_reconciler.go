@@ -117,11 +117,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	})
 
 	eg.Go(func() error {
-		err := r.reconcileWorkload(ctx, sts)
-		// Inside the closure: eg.Wait returns whichever error arrives first, so
-		// a failure from finalizePods would otherwise hide this one.
-		jobframework.RecordWorkloadPriorityClassNotFoundEvent(r.record, sts, err)
-		return err
+		return r.reconcileWorkload(ctx, sts)
 	})
 
 	return ctrl.Result{}, eg.Wait()
@@ -326,7 +322,7 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, sts *appsv1.Sta
 		return err
 	}
 
-	if err := jobframework.PrepareWorkloadPriority(ctx, r.client, sts, createdWorkload, nil); err != nil {
+	if err := jobframework.PrepareWorkloadPriority(ctx, r.client, r.record, sts, createdWorkload, nil); err != nil {
 		return err
 	}
 

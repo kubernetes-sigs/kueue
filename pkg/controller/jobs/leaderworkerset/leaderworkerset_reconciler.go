@@ -23,7 +23,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync/atomic"
 
 	"github.com/go-logr/logr"
 	"golang.org/x/sync/errgroup"
@@ -232,27 +231,15 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 	// The reconcile context still carries shutdown and any deadline.
 	var eg errgroup.Group
 
-	// Reported from the worker rather than from the caller: errgroup keeps only
-	// the first error and parallelize.Until only one per branch, so a conflict
-	// elsewhere would otherwise hide a missing class entirely. Once per
-	// reconcile, since every component names the same class.
-	var reported atomic.Bool
-	report := func(err error) error {
-		if jobframework.IsWorkloadPriorityClassNotFound(err) && reported.CompareAndSwap(false, true) {
-			jobframework.RecordWorkloadPriorityClassNotFoundEvent(r.record, lws, err)
-		}
-		return err
-	}
-
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toCreate), func(i int) error {
-			return report(r.createWorkload(ctx, lws, toCreate[i].name, toCreate[i].index))
+			return r.createWorkload(ctx, lws, toCreate[i].name, toCreate[i].index)
 		})
 	})
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
-			return report(r.updateWorkload(ctx, lws, toUpdate[i]))
+			return r.updateWorkload(ctx, lws, toUpdate[i])
 		})
 	})
 
@@ -328,7 +315,7 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 		return err
 	}
 
-	err = jobframework.PrepareWorkloadPriority(ctx, r.client, lws, createdWorkload, nil)
+	err = jobframework.PrepareWorkloadPriority(ctx, r.client, r.record, lws, createdWorkload, nil)
 	if err != nil {
 		log.Error(err, "Failed to prepare Workload priority")
 		return err

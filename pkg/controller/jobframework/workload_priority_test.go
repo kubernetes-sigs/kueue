@@ -21,7 +21,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -326,5 +329,90 @@ func raiseClassTo(value int32) func(t *testing.T, ctx context.Context, cl client
 		if err := cl.Update(ctx, class); err != nil {
 			t.Fatalf("updating class: %v", err)
 		}
+	}
+}
+
+// TestExtractPriorityReportsMissingWorkloadPriorityClass pins which lookup
+// failure is reported. Only the class the label named can be reported by name;
+// a failure anywhere else leaves the answer unknown, so saying the class does
+// not exist would be a guess.
+func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
+	forbidden := apierrors.NewForbidden(
+		kueue.SchemeGroupVersion.WithResource("workloadpriorityclasses").GroupResource(),
+		"denied", errors.New("not allowed"))
+
+	cases := map[string]struct {
+		job          *batchv1.Job
+		podSets      []kueue.PodSet
+		objects      []client.Object
+		interceptors interceptor.Funcs
+		wantEvents   []utiltesting.EventRecord
+		// nil expects no error.
+		wantErr func(error) bool
+	}{
+		"an explicitly referenced class that does not exist": {
+			job: testingjob.MakeJob("job", "ns").WorkloadPriorityClass("missing").Obj(),
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Namespace: "ns", Name: "job"},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonWorkloadPriorityClassNotFound,
+				Message:   `WorkloadPriorityClass "missing" not found`,
+			}},
+			wantErr: apierrors.IsNotFound,
+		},
+		"an explicitly referenced class that exists": {
+			job: testingjob.MakeJob("job", "ns").WorkloadPriorityClass("present").Obj(),
+			objects: []client.Object{
+				utiltestingapi.MakeWorkloadPriorityClass("present").PriorityValue(10).Obj(),
+			},
+		},
+		"no class referenced at all": {
+			job: testingjob.MakeJob("job", "ns").Obj(),
+		},
+		// scheduling.k8s.io is a different resource and keeps its own handling.
+		"a pod template naming a PriorityClass that does not exist": {
+			job:     testingjob.MakeJob("job", "ns").Obj(),
+			podSets: []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).PriorityClass("missing-pc").Obj()},
+			wantErr: apierrors.IsNotFound,
+		},
+		"a lookup that failed for another reason": {
+			job: testingjob.MakeJob("job", "ns").WorkloadPriorityClass("denied").Obj(),
+			interceptors: interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, isClass := obj.(*kueue.WorkloadPriorityClass); isClass {
+						return forbidden
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
+			wantErr: apierrors.IsForbidden,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(tc.objects...).
+				WithInterceptorFuncs(tc.interceptors).
+				Build()
+			podSets := tc.podSets
+			if podSets == nil {
+				podSets = []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).Obj()}
+			}
+			recorder := &utiltesting.EventRecorder{}
+
+			// The event does not stand in for the error: the reconcile still fails.
+			_, _, err := ExtractPriority(t.Context(), cl, recorder, tc.job, podSets, nil)
+
+			if tc.wantErr == nil {
+				if err != nil {
+					t.Fatalf("ExtractPriority() = %v, want no error", err)
+				}
+			} else if !tc.wantErr(err) {
+				t.Fatalf("ExtractPriority() = %v, which is not the error this case expects", err)
+			}
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("recorded events (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

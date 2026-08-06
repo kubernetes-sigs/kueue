@@ -661,9 +661,10 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		// Two replicas, so a warning recorded per component Workload rather than
-		// once per reconcile would show up here as two events.
-		"should report a missing workload priority class once for the whole set": {
+		// Two replicas, and each component resolves the class for itself, so the
+		// warning arrives once per component. The fix for #13820 collapses those
+		// into a single resolution, and the event follows it.
+		"should report a missing workload priority class when creating the workloads": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 			},
@@ -688,11 +689,17 @@ func TestReconciler(t *testing.T) {
 					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
 					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
 				},
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeWarning,
+					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
+					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+				},
 			},
 		},
 		// The other path into the boundary: the label is changed on a set that
 		// already has Workloads, so this goes through updateWorkload rather than
-		// createWorkload. Still one event, and neither Workload is rewritten.
+		// createWorkload. Neither Workload is rewritten.
 		"should report a missing workload priority class when the label is changed": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
@@ -782,6 +789,12 @@ func TestReconciler(t *testing.T) {
 			},
 			wantErr: cmpopts.AnyError,
 			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeWarning,
+					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
+					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+				},
 				{
 					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
 					EventType: corev1.EventTypeWarning,
