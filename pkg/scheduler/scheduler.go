@@ -479,9 +479,9 @@ func (s *Scheduler) processEntry(
 				e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
 				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 				e.requeueReason = qcache.RequeueReasonPendingPreemption
+				cq.AddUsage(usage)
+				return
 			}
-
-			usage, fits = s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
 		}
 
 		if preemptedWorkloads.HasAny(e.preemptionTargets) {
