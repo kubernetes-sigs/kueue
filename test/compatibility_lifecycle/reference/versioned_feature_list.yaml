@@ -371,6 +371,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: RecomputePreemptionTargetsUponOverlap
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: RejectUpdatesToCQWithInvalidOnFlavors
   versionedSpecs:
   - default: false

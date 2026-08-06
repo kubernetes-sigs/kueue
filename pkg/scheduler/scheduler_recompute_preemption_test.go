@@ -121,8 +121,8 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			// - wl-rest-admitted (cq-rest): uses 2995 CPU (borrowed from root-cohort)
 			//
 			// Pending:
-			// - wl-h (cq-hero): requests 2990 CPU (fits within its nominal 3000 CPU, so cq-hero is not borrowing)
-			// - wl-t (cq-tiny): requests 10 CPU (already borrowing, needs to borrow even more)
+			// - wl-hero (cq-hero): requests 2990 CPU (fits within its nominal 3000 CPU, so cq-hero is not borrowing)
+			// - wl-tiny-pending (cq-tiny): requests 10 CPU (already borrowing, needs to borrow even more)
 			//
 			// Since cq-rest is borrowing a lot of quota, both cq-hero and cq-tiny initially choose
 			// the same candidate for preemption (wl-rest-admitted from cq-rest).
