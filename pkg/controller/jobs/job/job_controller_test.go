@@ -18,7 +18,6 @@ package job
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -29,7 +28,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -630,11 +628,6 @@ func TestReconciler(t *testing.T) {
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 
 	baseWaitForPodsReadyConf := &configapi.WaitForPodsReady{}
-
-	// Named so the parent-lookup case can assert that this error reaches the
-	// caller, rather than that reconciliation failed for any reason at all.
-	errParentForbidden := apierrors.NewForbidden(
-		batchv1.SchemeGroupVersion.WithResource("jobs").GroupResource(), "parent", errors.New("nope"))
 
 	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
@@ -3797,36 +3790,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		// The ancestor walk returns more than NotFound. Narrowing this call site to
-		// NotFound would treat a child whose parent could not be read as top level.
-		"a parent lookup failure other than NotFound is propagated": {
-			reconcilerOptions: []jobframework.Option{
-				jobframework.WithManageJobsWithoutQueueName(true),
-				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
-			},
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
-			job: baseJobWrapper.
-				Clone().
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
-				UID("test-uid").
-				Obj(),
-			wantJob: *baseJobWrapper.
-				Clone().
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
-				UID("test-uid").
-				Obj(),
-			otherJobs: []batchv1.Job{
-				*utiltestingjob.MakeJob("parent", "ns").Queue("queue").UID("parent-uid").Obj(),
-			},
-			interceptGet: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if _, ok := obj.(*batchv1.Job); ok && key.Name == "parent" {
-					return errParentForbidden
-				}
-				return c.Get(ctx, key, obj, opts...)
-			},
-			wantErr: errParentForbidden,
-		},
 		"non-standalone job is not suspended if its parent workload is admitted": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),

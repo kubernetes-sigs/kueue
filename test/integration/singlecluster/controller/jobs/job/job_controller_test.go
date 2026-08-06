@@ -479,6 +479,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				gomega.Eventually(func(g gomega.Gomega) {
 					ok, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *eventsv1.Event) bool {
 						return e.Regarding.Namespace == ns.Name && e.Regarding.Name == job.Name &&
+							e.Regarding.Kind == "Job" && e.Regarding.UID == job.UID &&
 							e.Type == corev1.EventTypeWarning &&
 							e.Reason == jobframework.ReasonWorkloadPriorityClassNotFound &&
 							e.Note == `WorkloadPriorityClass "missing-wpc" not found`
@@ -553,6 +554,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				gomega.Eventually(func(g gomega.Gomega) {
 					ok, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *eventsv1.Event) bool {
 						return e.Regarding.Namespace == ns.Name && e.Regarding.Name == job.Name &&
+							e.Regarding.Kind == "Job" && e.Regarding.UID == job.UID &&
 							e.Type == corev1.EventTypeWarning &&
 							e.Reason == jobframework.ReasonWorkloadPriorityClassNotFound &&
 							e.Note == `WorkloadPriorityClass "missing-wpc" not found`
