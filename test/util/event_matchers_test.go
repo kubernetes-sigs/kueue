@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package testing
+package util
 
 import (
 	"strings"
@@ -75,7 +75,7 @@ func TestHaveEvent(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			matcher := HaveEvent(tc.expectedEvent)
+			matcher := haveEvent(tc.expectedEvent)
 			got, gotErr := matcher.Match(tc.actual)
 
 			var gotErrStr string
