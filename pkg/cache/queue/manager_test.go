@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -2196,6 +2197,9 @@ func TestQueueSecondPassRefreshesMultipleNodeReplacementWorkload(t *testing.T) {
 					utiltestingapi.MakePodSetAssignment("one").
 						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(utiltas.TopologyDomainAssignment{Count: 1, Values: []string{"x3"}}).
+							Obj()).
 						Obj(),
 				).
 				Obj(),
@@ -2205,10 +2209,17 @@ func TestQueueSecondPassRefreshesMultipleNodeReplacementWorkload(t *testing.T) {
 			Name:  "prov-check",
 			State: kueue.CheckStateReady,
 		}).
+		AdmittedAt(true, now).
 		UnhealthyNodes("x3").
 		Obj()
 	latestWl := queuedWl.DeepCopy()
 	latestWl.Status.UnhealthyNodes = append(latestWl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: "x1"})
+	if !workload.HasTopologyAssignmentWithUnhealthyNode(queuedWl) {
+		t.Fatal("queued workload should have a topology assignment containing an unhealthy node")
+	}
+	if !workload.NeedsSecondPass(latestWl) {
+		t.Fatal("latest workload should need a second scheduling pass")
+	}
 
 	ctx, _ := utiltesting.ContextWithLog(t)
 	fakeClock := testingclock.NewFakeClock(now)
