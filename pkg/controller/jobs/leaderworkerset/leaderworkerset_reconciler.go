@@ -224,18 +224,52 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 
 	toCreate, toUpdate, toDelete := r.filterWorkloads(lws, wlList.Items)
 
+	// Building the new Workloads before the fan-out lets the class be resolved
+	// once for the whole set, the same way the update path does below.
+	// constructWorkload only reads the scheme, so this costs no API calls.
+	newWorkloads := make([]*kueue.Workload, 0, len(toCreate))
+	for _, c := range toCreate {
+		wl, err := r.constructWorkload(lws, c.name, c.index)
+		if err != nil {
+			log.Error(err, "Failed to construct Workload", "workload", c.name)
+			return err
+		}
+		newWorkloads = append(newWorkloads, wl)
+	}
+	if len(newWorkloads) > 0 {
+		// Every component carries the same label, so one lookup answers for all
+		// of them. Resolving per component lets concurrent lookups of the same
+		// class observe different values.
+		priorityClassRef, priority, err := jobframework.ExtractPriority(ctx, r.client, lws, newWorkloads[0].Spec.PodSets, nil)
+		if err != nil {
+			log.Error(err, "Failed to prepare Workload priority")
+			return fmt.Errorf("prepare workload priority: %w", err)
+		}
+		for _, wl := range newWorkloads {
+			wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
+			wl.Spec.Priority = new(priority)
+		}
+	}
+
 	eg, ctx := errgroup.WithContext(ctx)
 
 	eg.Go(func() error {
-		return parallelize.Until(ctx, len(toCreate), func(i int) error {
-			return r.createWorkload(ctx, lws, toCreate[i].name, toCreate[i].index)
+		return parallelize.Until(ctx, len(newWorkloads), func(i int) error {
+			return r.createWorkload(ctx, lws, newWorkloads[i])
 		})
 	})
 
 	eg.Go(func() error {
-		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
+		if err := parallelize.Until(ctx, len(toUpdate), func(i int) error {
 			return r.updateWorkload(ctx, lws, toUpdate[i])
-		})
+		}); err != nil {
+			return err
+		}
+		// Priority is applied to the whole set at once rather than from inside
+		// the loop above. Resolving per component lets concurrent lookups of the
+		// same class observe different values, which would then order the
+		// components of one LeaderWorkerSet against each other.
+		return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, toUpdate...)
 	})
 
 	eg.Go(func() error {
@@ -297,26 +331,11 @@ func isRollingUpdateWithSurge(lws *leaderworkersetv1.LeaderWorkerSet) bool {
 	return maxSurge > 0 && lws.Status.UpdatedReplicas < ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
 }
 
-func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int) error {
-	log := ctrl.LoggerFrom(ctx).WithValues(
-		"workload", klog.ObjectRef{Name: workloadName, Namespace: lws.Namespace},
-		"index", index,
-	)
+func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, createdWorkload *kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(createdWorkload))
 	log.V(3).Info("Create LeaderWorkerSet Workload")
 
-	createdWorkload, err := r.constructWorkload(lws, workloadName, index)
-	if err != nil {
-		log.Error(err, "Failed to construct Workload")
-		return err
-	}
-
-	err = jobframework.PrepareWorkloadPriority(ctx, r.client, lws, createdWorkload, nil)
-	if err != nil {
-		log.Error(err, "Failed to prepare Workload priority")
-		return err
-	}
-
-	err = r.client.Create(ctx, createdWorkload)
+	err := r.client.Create(ctx, createdWorkload)
 	if err != nil {
 		log.Error(err, "Failed to create Workload")
 		return err
@@ -444,12 +463,6 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 			log.Error(err, "Failed to update AdmissionGatedBy")
 			return err
 		}
-	}
-
-	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)
-	if err != nil {
-		log.Error(err, "Failed to update workload priority")
-		return err
 	}
 
 	return nil
