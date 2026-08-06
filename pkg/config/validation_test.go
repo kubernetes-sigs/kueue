@@ -236,6 +236,37 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: nil,
 		},
+		"nil localQueueDefaultingNamespaceSelector": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+			},
+			wantErr: nil,
+		},
+		"valid localQueueDefaultingNamespaceSelector": {
+			cfg: &configapi.Configuration{
+				LocalQueueDefaultingNamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{"local-queue-defaulting": "true"},
+				},
+				Integrations: defaultIntegrations,
+			},
+			wantErr: nil,
+		},
+		"prohibited namespace in MatchLabels localQueueDefaultingNamespaceSelector": {
+			cfg: &configapi.Configuration{
+				LocalQueueDefaultingNamespaceSelector: &metav1.LabelSelector{
+					MatchLabels: map[string]string{
+						corev1.LabelMetadataName: "kube-system",
+					},
+				},
+				Integrations: defaultIntegrations,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "localQueueDefaultingNamespaceSelector",
+				},
+			},
+		},
 		"no supported waitForPodsReady.requeuingStrategy.timestamp": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,

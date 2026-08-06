@@ -149,9 +149,9 @@
     version: "0.18"
 - name: LocalQueueDefaultingPerNamespace
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.20"
 - name: LocalQueueMetrics
   versionedSpecs:
