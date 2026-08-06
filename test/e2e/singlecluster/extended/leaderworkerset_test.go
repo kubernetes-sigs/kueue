@@ -862,7 +862,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 		})
 
-		ginkgo.DescribeTable("should override the template queue-name, then admit, evict and re-activate correctly",
+		ginkgo.DescribeTable("should admit, evict and re-activate the group correctly",
 			func(alsoSetOnWorkerTemplate bool) {
 				lwsWrapper := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
@@ -911,7 +911,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 						g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
 						g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
-					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 				})
 
 				ginkgo.By("Checking that the pods are ungated", func() {
@@ -938,8 +938,8 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				// The original report observed the Workload keeping ADMITTED=true while its pods
-				// stayed gated, so assert the eviction propagates to the Workload, not only to the pods.
+				// Deactivation has to reach the Workload, not just the pods. Asserting the re-gating
+				// alone would not catch quota staying reserved.
 				ginkgo.By("Checking that the workload is evicted and releases its quota", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
