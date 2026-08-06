@@ -563,24 +563,50 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 		ginkgo.BeforeEach(func() {
 			source = utiltestingapi.MakeWorkloadPriorityClass("reference-source").PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, source)
-			target = utiltestingapi.MakeWorkloadPriorityClass("reference-target").PriorityValue(200).Obj()
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, source, true)
+			})
+
+			target = utiltestingapi.MakeWorkloadPriorityClass("reference-target").PriorityValue(100).Obj()
 			util.MustCreate(ctx, k8sClient, target)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, target, true)
+			})
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Delete(ctx, source)).To(gomega.Succeed())
-			gomega.Expect(k8sClient.Delete(ctx, target)).To(gomega.Succeed())
 		})
+
 		ginkgo.It("should take the value of the class it moved to", func() {
+			settled := utiltestingapi.MakeWorkload("settled", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClassRef("reference-target").
+				Priority(0).
+				Obj()
+			util.MustCreate(ctx, k8sClient, settled)
+
 			wl = utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
 				WorkloadPriorityClassRef("reference-source").
 				Priority(100).
 				Obj()
 			util.MustCreate(ctx, k8sClient, wl)
 
-			// Nothing referenced the target while it was being reconciled, so
-			// the reference is what has to bring it back for another pass. The
-			// value is left behind on purpose: it is what a lookup that read
+			// Raising the class is the only repair that no Workload event can
+			// account for, so seeing it land says the class controller has
+			// worked through everything queued for this class. Anything that
+			// reaches wl after this point came from the reference it moved to.
+			ginkgo.By("raising the target class and waiting for the class controller to carry it", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(target), target)).To(gomega.Succeed())
+					target.Value = 200
+					g.Expect(k8sClient.Update(ctx, target)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(settled), &updatedQueueWorkload)).To(gomega.Succeed())
+					g.Expect(updatedQueueWorkload.Spec.Priority).To(gomega.Equal(new(int32(200))))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			// The value is left behind on purpose: it is what a lookup that read
 			// the class before its last change would have written.
 			ginkgo.By("moving the reference and leaving the value alone", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -592,6 +618,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &finalQueueWorkload)).To(gomega.Succeed())
+				g.Expect(finalQueueWorkload.Spec.PriorityClassRef).To(gomega.Equal(kueue.NewWorkloadPriorityClassRef("reference-target")))
 				g.Expect(finalQueueWorkload.Spec.Priority).To(gomega.Equal(new(int32(200))))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

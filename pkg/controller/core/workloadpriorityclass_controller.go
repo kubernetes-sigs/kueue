@@ -22,8 +22,6 @@ import (
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -68,7 +66,7 @@ func (r *WorkloadPriorityClassReconciler) logger() logr.Logger {
 }
 
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloadpriorityclasses,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;update
 
 func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var wpc kueue.WorkloadPriorityClass
@@ -151,38 +149,6 @@ func (r *WorkloadPriorityClassReconciler) Generic(e event.TypedGenericEvent[*kue
 	return false
 }
 
-// workloadPriorityClassRequest returns the class the Workload references, when
-// that reference is to a WorkloadPriorityClass. The name is the same key
-// Reconcile lists by, so a request made here finds the Workload that produced it.
-func workloadPriorityClassRequest(wl *kueue.Workload) (reconcile.Request, bool) {
-	if !workload.IsWorkloadPriorityClass(wl) {
-		return reconcile.Request{}, false
-	}
-	return reconcile.Request{
-		NamespacedName: types.NamespacedName{Name: wl.Spec.PriorityClassRef.Name},
-	}, true
-}
-
-// enqueueReferencedWorkloadPriorityClass enqueues the class a Workload now
-// points at. Written as an event handler rather than a map function because
-// that one enqueues the old object as well, and the class a Workload left has
-// nothing to repair.
-func enqueueReferencedWorkloadPriorityClass() handler.TypedEventHandler[*kueue.Workload, reconcile.Request] {
-	enqueue := func(wl *kueue.Workload, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-		if req, isClass := workloadPriorityClassRequest(wl); isClass {
-			q.Add(req)
-		}
-	}
-	return handler.TypedFuncs[*kueue.Workload, reconcile.Request]{
-		CreateFunc: func(_ context.Context, e event.TypedCreateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			enqueue(e.Object, q)
-		},
-		UpdateFunc: func(_ context.Context, e event.TypedUpdateEvent[*kueue.Workload], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			enqueue(e.ObjectNew, q)
-		},
-	}
-}
-
 func workloadPriorityClassRefChanged() predicate.TypedPredicate[*kueue.Workload] {
 	return predicate.TypedFuncs[*kueue.Workload]{
 		CreateFunc: func(e event.TypedCreateEvent[*kueue.Workload]) bool {
@@ -204,6 +170,81 @@ func workloadPriorityClassRefChanged() predicate.TypedPredicate[*kueue.Workload]
 	}
 }
 
+// WorkloadPriorityClassReferenceReconciler keeps one Workload's priority in step
+// with the class it references. It is keyed on the Workload rather than the
+// class, so a Workload arriving at a class does not cost a pass over every other
+// Workload already using it.
+type WorkloadPriorityClassReferenceReconciler struct {
+	logName     string
+	client      client.Client
+	roleTracker *roletracker.RoleTracker
+}
+
+var _ reconcile.Reconciler = (*WorkloadPriorityClassReferenceReconciler)(nil)
+
+func NewWorkloadPriorityClassReferenceReconciler(
+	client client.Client,
+	roleTracker *roletracker.RoleTracker,
+) *WorkloadPriorityClassReferenceReconciler {
+	return &WorkloadPriorityClassReferenceReconciler{
+		logName:     "workloadpriorityclassreference-reconciler",
+		client:      client,
+		roleTracker: roleTracker,
+	}
+}
+
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;update
+
+func (r *WorkloadPriorityClassReferenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var wl kueue.Workload
+	if err := r.client.Get(ctx, req.NamespacedName, &wl); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if !workload.IsWorkloadPriorityClass(&wl) {
+		return ctrl.Result{}, nil
+	}
+
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&wl))
+	log.V(2).Info("Reconcile Workload priority class reference")
+
+	var wpc kueue.WorkloadPriorityClass
+	if err := r.client.Get(ctx, client.ObjectKey{Name: wl.Spec.PriorityClassRef.Name}, &wpc); err != nil {
+		// A class that does not exist yet sweeps the workloads referencing it
+		// when it is created.
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if wl.Spec.Priority != nil && *wl.Spec.Priority == wpc.Value {
+		log.V(3).Info("Workload priority already up to date")
+		return ctrl.Result{}, nil
+	}
+
+	wl.Spec.Priority = new(wpc.Value)
+	if err := r.client.Update(ctx, &wl); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	log.V(2).Info("Updated workload priority", "newPriority", wpc.Value)
+	return ctrl.Result{}, nil
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *WorkloadPriorityClassReferenceReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
+	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
+		Named("workloadpriorityclassreference_controller").
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&kueue.Workload{},
+			&handler.TypedEnqueueRequestForObject[*kueue.Workload]{},
+			workloadPriorityClassRefChanged(),
+		)).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      new(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "workloadpriorityclassreference-reconciler"),
+		}).
+		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *WorkloadPriorityClassReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
 	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
@@ -213,16 +254,6 @@ func (r *WorkloadPriorityClassReconciler) SetupWithManager(mgr ctrl.Manager, cfg
 			&kueue.WorkloadPriorityClass{},
 			&handler.TypedEnqueueRequestForObject[*kueue.WorkloadPriorityClass]{},
 			r,
-		)).
-		// A class update reconciled before a Workload starts referencing that
-		// class finds nothing to update and is consumed. The Workload arrives
-		// with whatever value its own lookup returned, so the reference is what
-		// brings the class back for another pass.
-		WatchesRawSource(source.TypedKind(
-			mgr.GetCache(),
-			&kueue.Workload{},
-			enqueueReferencedWorkloadPriorityClass(),
-			workloadPriorityClassRefChanged(),
 		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),

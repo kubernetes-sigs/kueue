@@ -24,7 +24,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -390,59 +389,82 @@ func TestWorkloadPriorityClassRefChangedPredicate(t *testing.T) {
 	}
 }
 
-func TestEnqueueReferencedWorkloadPriorityClass(t *testing.T) {
+func TestWorkloadPriorityClassReferenceReconcile(t *testing.T) {
 	cases := map[string]struct {
-		eventType string
-		oldWL     *kueue.Workload
-		newWL     *kueue.Workload
-		want      []reconcile.Request
+		workload     *kueue.Workload
+		class        *kueue.WorkloadPriorityClass
+		wantPriority *int32
+		wantUpdates  int
 	}{
-		"created referencing a class": {
-			eventType: "create",
-			newWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
-			want:      []reconcile.Request{{NamespacedName: types.NamespacedName{Name: "high"}}},
+		"a value left behind by an earlier reconcile": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			wantPriority: new(int32(200)),
+			wantUpdates:  1,
 		},
-		"created referencing a Pod PriorityClass": {
-			eventType: "create",
-			newWL:     utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").Obj(),
+		"a value already in step with the class": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(200).Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			wantPriority: new(int32(200)),
 		},
-		// The class being left has nothing to repair, and a map function would
-		// enqueue it too.
-		"moved between classes": {
-			eventType: "update",
-			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("low").Obj(),
-			newWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
-			want:      []reconcile.Request{{NamespacedName: types.NamespacedName{Name: "high"}}},
+		// The class sweeps what references it when it is created.
+		"a class that does not exist yet": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+			wantPriority: new(int32(100)),
 		},
-		"moved to a Pod PriorityClass": {
-			eventType: "update",
-			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
-			newWL:     utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").Obj(),
+		"a reference to a Pod PriorityClass": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").Priority(100).Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			wantPriority: new(int32(100)),
+		},
+		"no reference at all": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").Priority(100).Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			wantPriority: new(int32(100)),
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			h := enqueueReferencedWorkloadPriorityClass()
-			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
-			defer q.ShutDown()
+			ctx, _ := utiltesting.ContextWithLog(t)
+			var updates, workloadLists int
+			objs := []client.Object{tc.workload}
+			if tc.class != nil {
+				objs = append(objs, tc.class)
+			}
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(objs...).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						updates++
+						return c.Update(ctx, obj, opts...)
+					},
+					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+						if _, isWorkloads := list.(*kueue.WorkloadList); isWorkloads {
+							workloadLists++
+						}
+						return c.List(ctx, list, opts...)
+					},
+				}).Build()
 
-			switch tc.eventType {
-			case "create":
-				h.Create(t.Context(), event.TypedCreateEvent[*kueue.Workload]{Object: tc.newWL}, q)
-			case "update":
-				h.Update(t.Context(), event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: tc.oldWL, ObjectNew: tc.newWL}, q)
-			default:
-				t.Fatalf("unknown event type %q", tc.eventType)
+			r := NewWorkloadPriorityClassReferenceReconciler(cl, nil)
+			if _, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.workload)}); err != nil {
+				t.Fatalf("Reconcile() = %v", err)
 			}
 
-			var got []reconcile.Request
-			for q.Len() > 0 {
-				req, _ := q.Get()
-				got = append(got, req)
-				q.Done(req)
+			var got kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.workload), &got); err != nil {
+				t.Fatalf("reading the workload back: %v", err)
 			}
-			if diff := cmp.Diff(tc.want, got); diff != "" {
-				t.Errorf("enqueued requests (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantPriority, got.Spec.Priority); diff != "" {
+				t.Errorf("workload priority (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantUpdates, updates); diff != "" {
+				t.Errorf("workload updates (-want +got):\n%s", diff)
+			}
+			// The whole point of keying on the Workload: one arriving at a
+			// class must not cost a pass over every other Workload using it.
+			if workloadLists != 0 {
+				t.Errorf("listed workloads %d times, want none", workloadLists)
 			}
 		})
 	}
@@ -453,7 +475,7 @@ func TestEnqueueReferencedWorkloadPriorityClass(t *testing.T) {
 // the class yet, and the Workload then arrives carrying the value its own
 // lookup returned before the change.
 func TestWorkloadPriorityClassValueSurvivesLateReference(t *testing.T) {
-	ctx := t.Context()
+	ctx, _ := utiltesting.ContextWithLog(t)
 	high := utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj()
 	wl := utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("low").Priority(100).Obj()
 
@@ -461,10 +483,9 @@ func TestWorkloadPriorityClassValueSurvivesLateReference(t *testing.T) {
 		WithObjects(high, wl).
 		WithIndex(&kueue.Workload{}, indexer.WorkloadPriorityClassKey, indexer.IndexWorkloadPriorityClass).
 		Build()
-	r := NewWorkloadPriorityClassReconciler(cl, nil)
 
-	classReq := reconcile.Request{NamespacedName: types.NamespacedName{Name: "high"}}
-	if _, err := r.Reconcile(ctx, classReq); err != nil {
+	classReconciler := NewWorkloadPriorityClassReconciler(cl, nil)
+	if _, err := classReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "high"}}); err != nil {
 		t.Fatalf("reconciling the class before it is referenced: %v", err)
 	}
 
@@ -478,25 +499,19 @@ func TestWorkloadPriorityClassValueSurvivesLateReference(t *testing.T) {
 	if !workloadPriorityClassRefChanged().Update(event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: oldWL, ObjectNew: newWL}) {
 		t.Fatal("the reference change was filtered out, so nothing reaches the queue")
 	}
-	q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
-	defer q.ShutDown()
-	enqueueReferencedWorkloadPriorityClass().Update(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: oldWL, ObjectNew: newWL}, q)
-	for q.Len() > 0 {
-		req, _ := q.Get()
-		if _, err := r.Reconcile(ctx, req); err != nil {
-			t.Fatalf("reconciling %v: %v", req, err)
-		}
-		q.Done(req)
+	refReconciler := NewWorkloadPriorityClassReferenceReconciler(cl, nil)
+	if _, err := refReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}); err != nil {
+		t.Fatalf("reconciling the workload: %v", err)
 	}
 
 	var got kueue.Workload
 	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &got); err != nil {
 		t.Fatalf("reading the workload back: %v", err)
 	}
-	if got.Spec.Priority == nil {
-		t.Fatal("workload priority is unset, want 200")
+	if diff := cmp.Diff(new(int32(200)), got.Spec.Priority); diff != "" {
+		t.Errorf("workload priority (-want +got):\n%s", diff)
 	}
-	if *got.Spec.Priority != 200 {
-		t.Errorf("workload priority = %d, want 200", *got.Spec.Priority)
+	if diff := cmp.Diff(kueue.NewWorkloadPriorityClassRef("high"), got.Spec.PriorityClassRef); diff != "" {
+		t.Errorf("workload priority class reference (-want +got):\n%s", diff)
 	}
 }
