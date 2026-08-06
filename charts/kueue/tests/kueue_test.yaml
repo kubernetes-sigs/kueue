@@ -68,17 +68,7 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].volumeMounts[0].readOnly
           value: true
-  - it: should not render the tls if not set for backend ingress
-    template: kueueviz/backend-ingress.yaml
-    set:
-      enableKueueViz: true
-      kueueViz:
-        backend:
-          ingress:
-            tlsSecretName: ""
-    asserts:
-      - notExists:
-          path: spec.tls[0]
+
   - it: Should Render Ingress for Backend Component
     template: kueueviz/backend-ingress.yaml
     set:
@@ -119,17 +109,88 @@ tests:
     asserts:
       - notExists:
           path: metadata.annotations
-  - it: should not render the tls if not set for frontend ingress
-    template: kueueviz/frontend-ingress.yaml
+
+  - it: should enable tls for backend ingress with the default secret name
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - exists:
+          path: spec.tls[0]
+      - equal:
+          path: spec.tls[0].secretName
+          value: kueueviz-backend-tls
+  - it: should enable tls for backend ingress with an explicit secret name
+    template: kueueviz/backend-ingress.yaml
     set:
       enableKueueViz: true
       kueueViz:
-        frontend:
+        backend:
           ingress:
+            host: kueueviz.example.com
+            tlsSecretName: my-secret
+    asserts:
+      - equal:
+          path: spec.tls[0].hosts[0]
+          value: kueueviz.example.com
+      - equal:
+          path: spec.tls[0].secretName
+          value: my-secret
+  - it: should enable tls for backend ingress with an empty secret name
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: kueueviz.example.com
+            tlsSecretName: ""
+            tlsEnabled: true
+    asserts:
+      - equal:
+          path: spec.tls[0].hosts[0]
+          value: kueueviz.example.com
+      - notExists:
+          path: spec.tls[0].secretName
+  - it: should disable tls for backend ingress with the default secret name
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: kueueviz.example.com
+            tlsEnabled: false
+    asserts:
+      - notExists:
+          path: spec.tls
+  - it: should disable tls for backend ingress with an explicit secret name
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: kueueviz.example.com
+            tlsEnabled: false
+            tlsSecretName: not-used
+    asserts:
+      - notExists:
+          path: spec.tls
+  - it: should disable tls for backend ingress with an empty secret name
+    template: kueueviz/backend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: kueueviz.example.com
             tlsSecretName: ""
     asserts:
       - notExists:
-          path: spec.tls[0]
+          path: spec.tls
+
+
   - it: Should Render Ingress for Frontend Component
     template: kueueviz/frontend-ingress.yaml
     set:
@@ -171,6 +232,91 @@ tests:
     asserts:
       - notExists:
           path: metadata.annotations
+
+
+  - it: should enable tls for frontend ingress with the default secret name
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - exists:
+          path: spec.tls[0]
+      - equal:
+          path: spec.tls[0].secretName
+          value: kueueviz-frontend-tls
+  - it: should enable tls for frontend ingress with an explicit secret name
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          ingress:
+            host: kueueviz.example.com
+            tlsSecretName: my-secret
+    asserts:
+      - equal:
+          path: spec.tls[0].hosts[0]
+          value: kueueviz.example.com
+      - equal:
+          path: spec.tls[0].secretName
+          value: my-secret
+  - it: should enable tls for frontend ingress with an empty secret name
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          ingress:
+            host: kueueviz.example.com
+            tlsSecretName: ""
+            tlsEnabled: true
+    asserts:
+      - equal:
+          path: spec.tls[0].hosts[0]
+          value: kueueviz.example.com
+      - notExists:
+          path: spec.tls[0].secretName
+  - it: should disable tls for frontend ingress with the default secret name
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          ingress:
+            host: kueueviz.example.com
+            tlsEnabled: false
+    asserts:
+      - notExists:
+          path: spec.tls
+  - it: should disable tls for frontend ingress with an explicit secret name
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          ingress:
+            host: kueueviz.example.com
+            tlsEnabled: false
+            tlsSecretName: not-used
+    asserts:
+      - notExists:
+          path: spec.tls
+  - it: should disable tls for frontend ingress with an empty secret name
+    template: kueueviz/frontend-ingress.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        frontend:
+          ingress:
+            host: kueueviz.example.com
+            tlsSecretName: ""
+    asserts:
+      - notExists:
+          path: spec.tls
+
+
+
+
   - it: should set the imagePullSecrets for backend deployment
     template: kueueviz/backend-deployment.yaml
     set:
@@ -255,7 +401,8 @@ tests:
     asserts:
       - notExists:
           path: spec.template.spec.containers[0].env[0]
-  - it: should render frontend configmap with wss when backend tls is set
+
+  - it: should enable tls in frontend configmap with the default secret name
     template: kueueviz/frontend-configmap.yaml
     set:
       enableKueueViz: true
@@ -263,14 +410,75 @@ tests:
         backend:
           ingress:
             host: "backend.kueueviz.local"
-            tlsSecretName: "kueueviz-backend-tls"
     asserts:
       - isKind:
           of: ConfigMap
       - matchRegex:
           path: data["env.js"]
           pattern: "wss://backend.kueueviz.local"
-  - it: should render frontend configmap with ws when backend tls is empty
+  - it: should enable tls in frontend configmap with an explicit secret name
+    template: kueueviz/frontend-configmap.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: "backend.kueueviz.local"
+            tlsSecretName: my-secret
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["env.js"]
+          pattern: "wss://backend.kueueviz.local"
+  - it: should enable tls in frontend configmap with with an empty secret name
+    template: kueueviz/frontend-configmap.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: "backend.kueueviz.local"
+            tlsEnabled: true
+            tlsSecretName: ""
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["env.js"]
+          pattern: "wss://backend.kueueviz.local"
+  - it: should disable tls in frontend configmap with the default secret
+    template: kueueviz/frontend-configmap.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: "backend.kueueviz.local"
+            tlsEnabled: false
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["env.js"]
+          pattern: "ws://backend.kueueviz.local"
+  - it: should disable tls in frontend configmap with an explicit secret
+    template: kueueviz/frontend-configmap.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: "backend.kueueviz.local"
+            tlsEnabled: false
+            tlsSecretName: not-used
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - matchRegex:
+          path: data["env.js"]
+          pattern: "ws://backend.kueueviz.local"
+  - it: should disable tls in frontend configmap with ws with an empty secret name
     template: kueueviz/frontend-configmap.yaml
     set:
       enableKueueViz: true
@@ -280,9 +488,12 @@ tests:
             host: "backend.kueueviz.local"
             tlsSecretName: ""
     asserts:
+      - isKind:
+          of: ConfigMap
       - matchRegex:
           path: data["env.js"]
           pattern: "ws://backend.kueueviz.local"
+
   - it: should render frontend configmap with custom backend host
     template: kueueviz/frontend-configmap.yaml
     set:

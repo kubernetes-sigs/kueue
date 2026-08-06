@@ -125,7 +125,12 @@ func (c *TASFlavorCache) updateNodeLabels(nodeLabels map[string]string) {
 	c.flavor.NodeLabels = nodeLabels
 }
 
+// NodeLabels returns the node labels of the flavor. The returned map is safe to
+// read without holding the lock, because updateNodeLabels always replaces the
+// whole map with a copy owned by the cache, and never mutates it in place.
 func (c *TASFlavorCache) NodeLabels() map[string]string {
+	c.RLock()
+	defer c.RUnlock()
 	return c.flavor.NodeLabels
 }
 

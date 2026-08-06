@@ -78,6 +78,7 @@ type workloadToCreate struct {
 }
 
 type Reconciler struct {
+	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
 	logName                      string
 	record                       events.EventRecorder
@@ -95,6 +96,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
+		integrationManager:           options.IntegrationManager,
 		client:                       client,
 		logName:                      "leaderworkerset-reconciler",
 		record:                       eventRecorder,
@@ -444,7 +446,7 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 		}
 	}
 
-	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, wl, nil)
+	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)
 	if err != nil {
 		log.Error(err, "Failed to update workload priority")
 		return err
@@ -585,7 +587,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	ctx := ctrl.LoggerInto(context.Background(), log)
 
 	// Handle only leaderworkerset managed by kueue.
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, lws, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
+	suspend, err := r.integrationManager.WorkloadShouldBeSuspended(ctx, lws, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
 	if err != nil {
 		log.Error(err, "Failed to determine if the LeaderWorkerSet should be managed by Kueue")
 	}

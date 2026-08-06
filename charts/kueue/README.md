@@ -112,7 +112,9 @@ The following table lists the configurable parameters of the kueue chart and the
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | certManager.issuerRef | object | `{}` | Override the default self-signed cert-manager issuer reference. When set, the chart skips creating its own Issuer and uses this reference for webhook, metrics, and visibility certificates. The referenced issuer must provide the CA data required by Kueue's cert-manager integration. |
+| controllerManager.dnsPolicy | string | `""` | ControllerManager pod's dnsPolicy. Set to ClusterFirstWithHostNet when hostNetwork is enabled. |
 | controllerManager.featureGates | list | `[]` | ControllerManager's feature gates |
+| controllerManager.hostNetwork | bool | `false` | Run the ControllerManager pod on the host network. Needed where the API server reaches the webhook/visibility endpoints via node IPs rather than pod IPs. |
 | controllerManager.imagePullSecrets | list | `[]` | ControllerManager's imagePullSecrets |
 | controllerManager.livenessProbe.failureThreshold | int | `3` | ControllerManager's livenessProbe failureThreshold |
 | controllerManager.livenessProbe.initialDelaySeconds | int | `15` | ControllerManager's livenessProbe initialDelaySeconds |
@@ -137,6 +139,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.readinessProbe.successThreshold | int | `1` | ControllerManager's readinessProbe successThreshold |
 | controllerManager.readinessProbe.timeoutSeconds | int | `1` | ControllerManager's readinessProbe timeoutSeconds |
 | controllerManager.replicas | int | `1` | ControllerManager's replicas count |
+| controllerManager.strategy | object | `{}` | ControllerManager Deployment's update strategy. When hostNetwork is enabled the manager's ports bind to the node, so the default RollingUpdate surge cannot schedule a second pod onto an already-occupied node; set maxSurge: 0 to roll in place. |
 | controllerManager.tolerations | list | `[]` | ControllerManager's tolerations |
 | controllerManager.topologySpreadConstraints | list | `[]` | ControllerManager's topologySpreadConstraints |
 | enableCertManager | bool | `false` | Enable x509 automated certificate management using cert-manager (cert-manager.io) |
@@ -161,6 +164,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.backend.ingress.enabled | bool | `true` | Enable KueueViz dashboard backend ingress |
 | kueueViz.backend.ingress.host | string | `"backend.kueueviz.local"` | KueueViz dashboard backend ingress host |
 | kueueViz.backend.ingress.ingressClassName | string | `nil` | KueueViz dashboard backend ingress class name |
+| kueueViz.backend.ingress.tlsEnabled | string | `nil` | If true, enable KueueViz dashboard backend ingress tls. Defaults to true if tlsSecretName is set. |
 | kueueViz.backend.ingress.tlsSecretName | string | `"kueueviz-backend-tls"` | KueueViz dashboard backend ingress tls secret name |
 | kueueViz.backend.nodeSelector | object | `{}` | KueueViz backend nodeSelector |
 | kueueViz.backend.podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | KueueViz backend pod securityContext |
@@ -177,6 +181,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.frontend.ingress.enabled | bool | `true` | Enable KueueViz dashboard frontend ingress |
 | kueueViz.frontend.ingress.host | string | `"frontend.kueueviz.local"` | KueueViz dashboard frontend ingress host |
 | kueueViz.frontend.ingress.ingressClassName | string | `nil` | KueueViz dashboard frontend ingress class name |
+| kueueViz.frontend.ingress.tlsEnabled | string | `nil` | If true, enable KueueViz dashboard frontend ingress tls. Defaults to true if tlsSecretName is set. |
 | kueueViz.frontend.ingress.tlsSecretName | string | `"kueueviz-frontend-tls"` | KueueViz dashboard frontend ingress tls secret name |
 | kueueViz.frontend.nodeSelector | object | `{}` | KueueViz frontend nodeSelector |
 | kueueViz.frontend.podSecurityContext | object | `{"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}}` | KueueViz frontend pod securityContext |

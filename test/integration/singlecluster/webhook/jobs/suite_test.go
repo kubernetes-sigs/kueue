@@ -30,6 +30,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -54,6 +55,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		DepCRDPaths: []string{
 			util.MpiOperatorCrds,
 			util.JobsetCrds,
+			util.LeaderWorkerSetCrds,
 			util.RayOperatorCrds,
 			util.TrainingOperatorCrds,
 			util.AppWrapperCrds,
@@ -71,14 +73,15 @@ var _ = ginkgo.AfterSuite(func() {
 
 func managerSetup(setup func(ctrl.Manager, ...jobframework.Option) error, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
+		integrationManager := jobcontrollers.NewIntegrationManager()
 		cCache := schdcache.New(mgr.GetClient())
 		preemptExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptExpectations)}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
-		opts = append(opts, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+		opts = append(opts, jobframework.WithIntegrationManager(integrationManager), jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 
 		err := setup(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		jobframework.EnableIntegration(job.FrameworkName)
+		integrationManager.EnableIntegration(job.FrameworkName)
 	}
 }

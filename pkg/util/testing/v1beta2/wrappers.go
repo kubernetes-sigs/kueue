@@ -33,6 +33,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/csv"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -316,6 +317,11 @@ func (w *WorkloadWrapper) Annotation(k, v string) *WorkloadWrapper {
 	}
 	w.ObjectMeta.Annotations[k] = v
 	return w
+}
+
+// Group marks the Workload as created by the pod-group framework.
+func (w *WorkloadWrapper) Group() *WorkloadWrapper {
+	return w.Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue)
 }
 
 func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *WorkloadWrapper {

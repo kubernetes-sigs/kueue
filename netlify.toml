@@ -12,7 +12,7 @@
   HUGO_BASEURL = "https://kueue.sigs.k8s.io/"
 
 [context.deploy-preview]
-  command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"
+  command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public && cp custom-headers/deploy-preview public/_headers"
   # Runs from "site"; "." includes docs, and "../netlify.toml" includes config changes.
   ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF . ../netlify.toml"
 
