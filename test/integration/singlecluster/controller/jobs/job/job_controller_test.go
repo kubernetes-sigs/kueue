@@ -4515,11 +4515,23 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 
 		ginkgo.By("the third pod stays gated, since the capacity it would take is being released", func() {
 			mintGatedPod("pod-2")
-			// Held for the full timeout rather than the usual consistency
-			// window: without the fix the ungater takes about a second to
-			// reach this pod, which is longer than that window.
+			// Longer than the usual consistency window, which is shorter than
+			// the second or so the ungater takes to reach a newly created pod.
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(2))
+			}, 2*time.Second, util.Interval).Should(gomega.Succeed())
+		})
+
+		// The same pod goes through once the slice is live again, which is what
+		// separates the assertion above from a reconcile that never happened.
+		ginkgo.By("ungating it after the eviction is undone", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(slice), slice)).Should(gomega.Succeed())
+				apimeta.RemoveStatusCondition(&slice.Status.Conditions, kueue.WorkloadEvicted)
+				g.Expect(k8sClient.Status().Update(ctx, slice)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(sets.List(ungatedPodNames(g, ns.Name))).Should(gomega.HaveLen(3))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
