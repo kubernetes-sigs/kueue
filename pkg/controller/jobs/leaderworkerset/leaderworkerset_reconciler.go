@@ -366,9 +366,6 @@ func isRollingUpdateWithSurge(lws *leaderworkersetv1.LeaderWorkerSet) bool {
 	return maxSurge > 0 && lws.Status.UpdatedReplicas < ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
 }
 
-// createWorkload builds and creates one component Workload. resolved carries
-// this reconcile's single lookup of the priority class, and is never nil here
-// because it is set whenever there is anything to create.
 func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int, resolved *resolvedPriority) error {
 	log := ctrl.LoggerFrom(ctx).WithValues(
 		"workload", klog.ObjectRef{Name: workloadName, Namespace: lws.Namespace},
