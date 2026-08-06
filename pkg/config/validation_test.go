@@ -2090,6 +2090,23 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
+		"PrioritizeWorkloadsPendingPreemption requires UnadmittedWorkloadsObservability": {
+			featureGateMap: map[string]bool{
+				string(features.PrioritizeWorkloadsPendingPreemption): true,
+				string(features.UnadmittedWorkloadsObservability):     false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.PrioritizeWorkloadsPendingPreemption: false,
+				features.UnadmittedWorkloadsObservability:     true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "PrioritizeWorkloadsPendingPreemption requires UnadmittedWorkloadsObservability to be enabled",
+				},
+			},
+		},
 		"TASHandleOverlappingFlavors requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):          false,

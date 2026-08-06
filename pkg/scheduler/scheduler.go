@@ -1031,14 +1031,16 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 			return 1
 		}
 
-		// 1. Then process workloads pending preemption.
-		aPendingPreempt := workload.IsPendingPreemption(a.Obj)
-		bPendingPreempt := workload.IsPendingPreemption(b.Obj)
-		if aPendingPreempt != bPendingPreempt {
-			if aPendingPreempt {
-				return -1
+		// 1. Process workloads pending preemption if the feature is enabled.
+		if features.Enabled(features.PrioritizeWorkloadsPendingPreemption) {
+			aPendingPreempt := workload.IsPendingPreemption(a.Obj)
+			bPendingPreempt := workload.IsPendingPreemption(b.Obj)
+			if aPendingPreempt != bPendingPreempt {
+				if aPendingPreempt {
+					return -1
+				}
+				return 1
 			}
-			return 1
 		}
 
 		// 2. Request under nominal quota.

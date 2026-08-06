@@ -405,6 +405,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 
 		ginkgo.It("Should prevent other workloads from stealing quota when preemptor is waiting for multiple evictions", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PrioritizeWorkloadsPendingPreemption, true)
+
 			cohort := createCohort(utiltestingapi.MakeCohort(kueue.CohortReference("thrash-cohort-" + ns.Name)).Obj())
 
 			cq1 := createQueue(utiltestingapi.MakeClusterQueue("cq-1-" + ns.Name).

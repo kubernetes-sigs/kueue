@@ -680,6 +680,7 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASMultiLayerTopology, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASRespectNodeAffinityPreferred, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.UnadmittedWorkloadsExplicitStatus, features.UnadmittedWorkloadsObservability)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.PrioritizeWorkloadsPendingPreemption, features.UnadmittedWorkloadsObservability)...)
 
 	allErrs = append(allErrs, validateFeatureGateDependency(features.ElasticJobsViaWorkloadSlicesWithTAS, features.ElasticJobsViaWorkloadSlices, features.TopologyAwareScheduling)...)
 

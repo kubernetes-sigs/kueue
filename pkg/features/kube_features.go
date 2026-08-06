@@ -520,6 +520,14 @@ const (
 	// WorkloadValidationForPodSetMetadata enables validation of labels and annotations
 	// in PodSet template metadata during Workload creation and update.
 	WorkloadValidationForPodSetMetadata featuregate.Feature = "WorkloadValidationForPodSetMetadata"
+
+	// owner: @nilsachy
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13662
+	//
+	// PrioritizeWorkloadsPendingPreemption enables prioritization of workloads pending preemption
+	// to prevent quota stealing and thrashing during desynchronized evictions.
+	// Requires UnadmittedWorkloadsObservability to be enabled to take effect.
+	PrioritizeWorkloadsPendingPreemption featuregate.Feature = "PrioritizeWorkloadsPendingPreemption"
 )
 
 func init() {
@@ -800,6 +808,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	WorkloadValidationForPodSetMetadata: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PrioritizeWorkloadsPendingPreemption: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
