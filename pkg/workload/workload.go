@@ -114,6 +114,10 @@ func FromQuotaReservedOrAdmittedToPending(prevStatus, newStatus string) bool {
 type AssignmentClusterQueueState struct {
 	LastTriedFlavorIdx     []map[corev1.ResourceName]int
 	ClusterQueueGeneration int64
+	// SchedulingCycle is the scheduling cycle that computed this assignment. It lets the
+	// assignment from the immediately preceding cycle be treated as current even when the
+	// ClusterQueue generation has moved on.
+	SchedulingCycle int64
 }
 
 type dra struct {
@@ -172,6 +176,7 @@ func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
 	c := AssignmentClusterQueueState{
 		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
 		ClusterQueueGeneration: s.ClusterQueueGeneration,
+		SchedulingCycle:        s.SchedulingCycle,
 	}
 	for ps, flavorIdx := range s.LastTriedFlavorIdx {
 		c.LastTriedFlavorIdx[ps] = maps.Clone(flavorIdx)

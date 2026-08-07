@@ -612,6 +612,10 @@ type FlavorAssigner struct {
 	replaceWorkloadSlice *workload.Info
 	quotaCheckStrategy   configapi.QuotaCheckStrategy
 	resourceFormatter    *resources.ResourceFormatter
+
+	// schedulingCycle is the cycle this assignment is being computed in. It is recorded
+	// on the assignment so that a later cycle can tell how old the assignment is.
+	schedulingCycle int64
 }
 
 func New(
@@ -623,6 +627,7 @@ func New(
 	preemptWorkloadSlice *workload.Info,
 	quotaCheckStrategy configapi.QuotaCheckStrategy,
 	resourceFormatter *resources.ResourceFormatter,
+	schedulingCycle int64,
 ) *FlavorAssigner {
 	return &FlavorAssigner{
 		wl:                   wl,
@@ -633,11 +638,8 @@ func New(
 		replaceWorkloadSlice: preemptWorkloadSlice,
 		quotaCheckStrategy:   quotaCheckStrategy,
 		resourceFormatter:    resourceFormatter,
+		schedulingCycle:      schedulingCycle,
 	}
-}
-
-func lastAssignmentOutdated(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) bool {
-	return cq.AllocatableResourceGeneration > wl.LastAssignment.ClusterQueueGeneration
 }
 
 // Assign assigns a flavor to each of the resources requested in each pod set.
@@ -647,16 +649,6 @@ func lastAssignmentOutdated(wl *workload.Info, cq *schdcache.ClusterQueueSnapsho
 func (a *FlavorAssigner) Assign(ctx context.Context, counts []int32) Assignment {
 	log := log.FromContext(ctx)
 
-	if a.wl.LastAssignment != nil && lastAssignmentOutdated(a.wl, a.cq) {
-		if logV := log.V(6); logV.Enabled() {
-			keysValues := []any{
-				"cq.AllocatableResourceGeneration", a.cq.AllocatableResourceGeneration,
-				"wl.LastAssignment.ClusterQueueGeneration", a.wl.LastAssignment.ClusterQueueGeneration,
-			}
-			logV.Info("Clearing Workload's last assignment because it was outdated", keysValues...)
-		}
-		a.wl.LastAssignment = nil
-	}
 	return a.assignFlavors(ctx, log, counts)
 }
 
@@ -692,6 +684,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		LastState: workload.AssignmentClusterQueueState{
 			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
 			ClusterQueueGeneration: a.cq.AllocatableResourceGeneration,
+			SchedulingCycle:        a.schedulingCycle,
 		},
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}

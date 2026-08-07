@@ -1037,6 +1037,20 @@ func (c *ClusterQueue) Info(key workload.Reference) *workload.Info {
 	return c.heap.GetByKey(key)
 }
 
+// trackedInfo returns the workload.Info currently tracked for the key, looking in the heap
+// and then in inadmissibleWorkloads. A Workload that failed to be admitted is held in the
+// latter, which Info deliberately does not consult. The inflight Workload is not covered,
+// since it is being scheduled and the scheduler holds its own copy.
+// Users of this method should not modify the returned object.
+func (c *ClusterQueue) trackedInfo(key workload.Reference) *workload.Info {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	if wInfo := c.heap.GetByKey(key); wInfo != nil {
+		return wInfo
+	}
+	return c.inadmissibleWorkloads.get(key)
+}
+
 // totalElements returns all pending workloads (heap + inadmissible + inflight).
 // The returned order is non-deterministic; callers should sort if needed.
 func (c *ClusterQueue) totalElements() []*workload.Info {

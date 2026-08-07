@@ -259,6 +259,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: PreserveFlavorScanProgress
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: PriorityBoost
   versionedSpecs:
   - default: false

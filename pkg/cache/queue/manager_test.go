@@ -2413,3 +2413,125 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 		t.Errorf("expected tracked unadmitted workloads to be empty, got %v", manager.unadmittedWorkloads.statuses)
 	}
 }
+
+// TestAddOrUpdateWorkloadCarriesLastAssignment covers the flavor scan progress surviving a
+// Workload update. Updating a Workload rebuilds its Info, and rebuilding it used to drop
+// LastAssignment, so a cluster where Workloads are updated frequently sent the scan back to
+// the first flavor no matter what an earlier cycle had recorded.
+//
+// Both places a pending Workload can be tracked are covered. A Workload with flavors still
+// to try is pushed back onto the heap, while one whose scan has been exhausted is held in
+// inadmissibleWorkloads, which ClusterQueue.Info deliberately does not consult.
+func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
+	// pendingFlavors has a flavor left to try, so requeueing puts the Workload back on the
+	// heap. exhaustedScan has none, so requeueing holds it as inadmissible.
+	pendingFlavors := func() *workload.AssignmentClusterQueueState {
+		return &workload.AssignmentClusterQueueState{
+			LastTriedFlavorIdx:     []map[corev1.ResourceName]int{{corev1.ResourceCPU: 1}},
+			ClusterQueueGeneration: 3,
+			SchedulingCycle:        7,
+		}
+	}
+	exhaustedScan := func() *workload.AssignmentClusterQueueState {
+		return &workload.AssignmentClusterQueueState{
+			LastTriedFlavorIdx:     []map[corev1.ResourceName]int{{corev1.ResourceCPU: -1}},
+			ClusterQueueGeneration: 3,
+			SchedulingCycle:        7,
+		}
+	}
+
+	cases := map[string]struct {
+		preserveProgress bool
+		// inadmissible pops the Workload and requeues it, as a cycle that failed to admit
+		// it would, which moves it into inadmissibleWorkloads.
+		inadmissible bool
+		recorded     *workload.AssignmentClusterQueueState
+		wantCarried  bool
+	}{
+		"tracked in the heap": {
+			preserveProgress: true,
+			recorded:         pendingFlavors(),
+			wantCarried:      true,
+		},
+		"tracked in inadmissibleWorkloads": {
+			preserveProgress: true,
+			inadmissible:     true,
+			recorded:         exhaustedScan(),
+			wantCarried:      true,
+		},
+		"without the gate the progress is dropped": {
+			preserveProgress: false,
+			recorded:         pendingFlavors(),
+			wantCarried:      false,
+		},
+		"without the gate the progress is dropped for an inadmissible workload": {
+			preserveProgress: false,
+			inadmissible:     true,
+			recorded:         exhaustedScan(),
+			wantCarried:      false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PreserveFlavorScanProgress, tc.preserveProgress)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil,
+				WithPreemptionExpectations(preemptexpectations.New()))
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Adding ClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq", "").ClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Adding LocalQueue: %v", err)
+			}
+
+			wl := utiltestingapi.MakeWorkload("wl", "").Queue("lq").Obj()
+			if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+				t.Fatalf("Adding Workload: %v", err)
+			}
+
+			// Stand in for a scheduling cycle that recorded flavor scan progress on the
+			// Workload and then could not admit it.
+			cqImpl := manager.hm.ClusterQueue("cq")
+			key := workload.Key(wl)
+			tracked := cqImpl.trackedInfo(key)
+			if tracked == nil {
+				t.Fatal("Workload is not tracked by the ClusterQueue after being added")
+			}
+			tracked.LastAssignment = tc.recorded
+			if tc.inadmissible {
+				if popped := cqImpl.Pop(); popped == nil {
+					t.Fatal("Popping the Workload returned nothing")
+				}
+				if !cqImpl.requeueIfNotPresent(log, tracked, false, RequeueReasonNoFit, "") {
+					t.Fatal("Requeueing the Workload failed")
+				}
+				if cqImpl.inadmissibleWorkloads.get(key) == nil {
+					t.Fatal("Workload is not held in inadmissibleWorkloads")
+				}
+			}
+
+			updated := wl.DeepCopy()
+			updated.Labels = map[string]string{"updated": "true"}
+			if err := manager.AddOrUpdateWorkload(log, updated); err != nil {
+				t.Fatalf("Updating Workload: %v", err)
+			}
+
+			got := cqImpl.trackedInfo(key)
+			if got == nil {
+				t.Fatal("Workload is not tracked by the ClusterQueue after the update")
+			}
+			var want *workload.AssignmentClusterQueueState
+			if tc.wantCarried {
+				want = tc.recorded
+			}
+			if diff := cmp.Diff(want, got.LastAssignment); diff != "" {
+				t.Errorf("LastAssignment after the update (-want,+got):\n%s", diff)
+			}
+			if tc.wantCarried && got.LastAssignment == tc.recorded {
+				t.Error("LastAssignment was carried by reference; it must be cloned so the two Infos do not alias")
+			}
+		})
+	}
+}

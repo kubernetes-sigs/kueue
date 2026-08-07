@@ -8163,6 +8163,64 @@ func TestRequeueAndUpdate(t *testing.T) {
 	}
 }
 
+// TestEntryMarkSkipped covers whether a Workload skipped because of contention keeps the
+// flavor scan progress it recorded this cycle.
+//
+// Both markSkipped call sites skip on contention rather than on the flavor itself: capacity
+// consumed by a Workload processed earlier in the cycle, or preemption targets already
+// claimed by another entry. features.PreserveFlavorScanProgress decides whether the next
+// cycle resumes the scan or restarts it from the first flavor.
+func TestEntryMarkSkipped(t *testing.T) {
+	cases := map[string]struct {
+		preserveProgress      bool
+		wantLastAssignmentNil bool
+	}{
+		"without the gate the assignment is discarded so every flavor is retried": {
+			preserveProgress:      false,
+			wantLastAssignmentNil: true,
+		},
+		"with the gate the assignment is kept so the scan resumes": {
+			preserveProgress:      true,
+			wantLastAssignmentNil: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PreserveFlavorScanProgress, tc.preserveProgress)
+
+			e := entry{
+				Info: workload.Info{
+					LastAssignment: &workload.AssignmentClusterQueueState{
+						LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+							{corev1.ResourceCPU: 0},
+						},
+					},
+				},
+			}
+
+			e.markSkipped("Workload no longer fits after processing another workload")
+
+			if e.status != skipped {
+				t.Errorf("status = %v, want %v", e.status, skipped)
+			}
+			if want := "Workload no longer fits after processing another workload"; e.inadmissibleMsg != want {
+				t.Errorf("inadmissibleMsg = %q, want %q", e.inadmissibleMsg, want)
+			}
+			if got := e.LastAssignment == nil; got != tc.wantLastAssignmentNil {
+				t.Errorf("LastAssignment == nil is %v, want %v", got, tc.wantLastAssignmentNil)
+			}
+			if !tc.wantLastAssignmentNil {
+				// The retained progress must still name the flavor that was tried, since
+				// that is what NextFlavorToTryForPodSetResource reads.
+				if got := e.LastAssignment.LastTriedFlavorIdx[0][corev1.ResourceCPU]; got != 0 {
+					t.Errorf("retained LastTriedFlavorIdx = %d, want 0", got)
+				}
+			}
+		})
+	}
+}
+
 func TestEntryMarkPreemptionOutcome(t *testing.T) {
 	assignmentState := &workload.AssignmentClusterQueueState{}
 
@@ -8884,5 +8942,105 @@ func (r *workloadUpdateWatcherRecorder) NotifyWorkloadUpdate(oldWl, newWl *kueue
 	}
 	if newWl != nil {
 		r.newWl = newWl.DeepCopy()
+	}
+}
+
+func TestLastAssignmentOutdated(t *testing.T) {
+	type args struct {
+		currentSchedulingCycle int64
+		last                   *workload.AssignmentClusterQueueState
+		currentCQGeneration    int64
+	}
+	tests := []struct {
+		name string
+		// preserveProgress enables features.PreserveFlavorScanProgress.
+		preserveProgress bool
+		args             args
+		want             bool
+	}{
+		{
+			name: "Cluster queue allocatableResourceIncreasedGen increased",
+			args: args{
+				currentSchedulingCycle: 5,
+				last: &workload.AssignmentClusterQueueState{
+					ClusterQueueGeneration: 0,
+					SchedulingCycle:        1,
+				},
+				currentCQGeneration: 1,
+			},
+			want: true,
+		},
+		{
+			name: "AllocatableResourceGeneration not increased",
+			args: args{
+				currentSchedulingCycle: 5,
+				last: &workload.AssignmentClusterQueueState{
+					ClusterQueueGeneration: 0,
+					SchedulingCycle:        1,
+				},
+				currentCQGeneration: 0,
+			},
+			want: false,
+		},
+		{
+			name:             "assignment from the immediately preceding cycle survives a generation bump",
+			preserveProgress: true,
+			args: args{
+				currentSchedulingCycle: 5,
+				last: &workload.AssignmentClusterQueueState{
+					ClusterQueueGeneration: 0,
+					SchedulingCycle:        4,
+				},
+				currentCQGeneration: 1,
+			},
+			want: false,
+		},
+		{
+			name:             "assignment from the current cycle survives a generation bump",
+			preserveProgress: true,
+			args: args{
+				currentSchedulingCycle: 5,
+				last: &workload.AssignmentClusterQueueState{
+					ClusterQueueGeneration: 0,
+					SchedulingCycle:        5,
+				},
+				currentCQGeneration: 1,
+			},
+			want: false,
+		},
+		{
+			name:             "assignment older than one cycle falls back to the generation check",
+			preserveProgress: true,
+			args: args{
+				currentSchedulingCycle: 5,
+				last: &workload.AssignmentClusterQueueState{
+					ClusterQueueGeneration: 0,
+					SchedulingCycle:        3,
+				},
+				currentCQGeneration: 1,
+			},
+			want: true,
+		},
+		{
+			name:             "without the gate the preceding cycle gets no special treatment",
+			preserveProgress: false,
+			args: args{
+				currentSchedulingCycle: 5,
+				last: &workload.AssignmentClusterQueueState{
+					ClusterQueueGeneration: 0,
+					SchedulingCycle:        4,
+				},
+				currentCQGeneration: 1,
+			},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PreserveFlavorScanProgress, tt.preserveProgress)
+			if got := lastAssignmentOutdated(tt.args.last, tt.args.currentCQGeneration, tt.args.currentSchedulingCycle); got != tt.want {
+				t.Errorf("LastAssignmentOutdated() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
