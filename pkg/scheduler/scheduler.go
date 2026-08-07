@@ -410,8 +410,10 @@ func (s *Scheduler) processEntry(
 	// The assignment was computed during nomination, but it may need to be refreshed.
 	// For example, TAS nominations for workloads from different CQs are computed
 	// independently, making them likely to choose conflicting topology domains.
+	// We may also recompute in case of overlapping preemption targets with another workload.
 	// Recompute when needed so CQs considered later in the cycle don't repeatedly
 	// lose to earlier CQs and starve for prolonged periods.
+	oldMode := e.assignment.RepresentativeMode()
 	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
 	mode := e.assignment.RepresentativeMode()
 
@@ -446,8 +448,8 @@ func (s *Scheduler) processEntry(
 	// If the workload only fits because of other preemptions in this cycle,
 	// we must wait for those preemptions to complete.
 	if features.Enabled(features.RecomputePreemptionTargetsUponOverlap) &&
-		e.assignment.RepresentativeMode() == flavorassigner.Fit &&
-		cq.Fits(usage) != schdcache.FitsCheckOk {
+		oldMode == flavorassigner.Preempt &&
+		e.assignment.RepresentativeMode() == flavorassigner.Fit {
 		e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
