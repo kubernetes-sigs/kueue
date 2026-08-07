@@ -970,10 +970,22 @@ func TestReconcileDoesNotCancelTheWorkloadBranch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Creating the reconciler: %v", err)
 	}
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sts)}); err == nil {
-		t.Fatal("Reconcile returned no error, want the finalization failure")
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sts)})
+	if errors.Is(err, errNotOrdered) {
+		t.Fatalf("Reconcile() error = %v, so the branches never interleaved and the ordering below was not exercised", err)
+	}
+	if !errors.Is(err, errPodConflict) {
+		t.Fatalf("Reconcile() error = %v, want %v", err, errPodConflict)
 	}
 	if cancelledHere.Load() {
 		t.Error("the Workload branch ran under a context the finalization failure had cancelled")
+	}
+	// An uncancelled context is only half of it: the branch also has to have finished its work.
+	created := &kueue.Workload{}
+	if err := kClient.Get(ctx, client.ObjectKey{Name: GetWorkloadName("sts-uid", "sts"), Namespace: "ns"}, created); err != nil {
+		t.Fatalf("Getting the Workload the branch was to make: %v", err)
+	}
+	if created.Spec.Priority == nil || *created.Spec.Priority != 100 {
+		t.Errorf("created Workload priority = %v, want the class value 100", created.Spec.Priority)
 	}
 }
