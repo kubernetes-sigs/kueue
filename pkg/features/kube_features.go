@@ -534,6 +534,15 @@ const (
 	// begun, and suspend defaulting only ever adds suspend, so no path exists to
 	// unsuspend an object or bypass quota via create-then-delete.
 	SkipAncestorCheckForDeletedWorkloads featuregate.Feature = "SkipAncestorCheckForDeletedWorkloads"
+
+	// owner: @ivnovakov
+	//
+	// Runs update validation in the RayCluster, RayJob, RayService and SparkApplication
+	// webhooks regardless of whether the updated object still looks managed by Kueue.
+	// When disabled, those webhooks only validate an update if manageJobsWithoutQueueName
+	// is set or the new object still carries a queue-name label, which lets a running job
+	// bypass the queue-name immutability check by dropping that label.
+	ValidateRayAndSparkJobUpdates featuregate.Feature = "ValidateRayAndSparkJobUpdates"
 )
 
 func init() {
@@ -834,6 +843,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	SkipAncestorCheckForDeletedWorkloads: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ValidateRayAndSparkJobUpdates: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
 	},
 }
 

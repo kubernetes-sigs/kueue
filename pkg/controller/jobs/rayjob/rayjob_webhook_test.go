@@ -632,10 +632,11 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testcases := map[string]struct {
-		oldJob    *rayv1.RayJob
-		newJob    *rayv1.RayJob
-		manageAll bool
-		wantErr   error
+		oldJob       *rayv1.RayJob
+		newJob       *rayv1.RayJob
+		manageAll    bool
+		featureGates map[featuregate.Feature]bool
+		wantErr      error
 	}{
 		"invalid unmanaged": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
@@ -671,6 +672,20 @@ func TestValidateUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("spec", "shutdownAfterJobFinishes"), false, "a kueue managed job should delete the cluster after finishing"),
 			}.ToAggregate(),
 		},
+		"queue name unchanged while unsuspended": {
+			oldJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				ShutdownAfterJobFinishes(true).
+				Obj(),
+			newJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				ShutdownAfterJobFinishes(true).
+				Label("dummy-label", "dummy-value").
+				Obj(),
+			wantErr: nil,
+		},
 		"invalid managed - queue name should not change while unsuspended": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				Queue("queue").
@@ -699,6 +714,33 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"invalid managed - queue name should not be removed while unsuspended": {
+			oldJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				ShutdownAfterJobFinishes(true).
+				Obj(),
+			newJob: testingrayutil.MakeJob("job", "ns").
+				Suspend(false).
+				ShutdownAfterJobFinishes(true).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
+		"queue name can be removed while unsuspended when ValidateRayAndSparkJobUpdates is disabled": {
+			oldJob: testingrayutil.MakeJob("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				ShutdownAfterJobFinishes(true).
+				Obj(),
+			newJob: testingrayutil.MakeJob("job", "ns").
+				Suspend(false).
+				ShutdownAfterJobFinishes(true).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
+			wantErr:      nil,
+		},
 		"priorityClassName is immutable": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				Queue("queue").
@@ -713,10 +755,16 @@ func TestValidateUpdate(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cli := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cli)
+			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
 			wh := &RayJobWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
+				queues:                     queueManager,
+				cache:                      cqCache,
 			}
-			ctx, _ := utiltesting.ContextWithLog(t)
 			_, result := wh.ValidateUpdate(ctx, tc.oldJob, tc.newJob)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
 				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
