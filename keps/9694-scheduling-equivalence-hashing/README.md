@@ -29,9 +29,8 @@
   - [Equivalence Class Construction](#equivalence-class-construction)
   - [Recording and Bulk Movement](#recording-and-bulk-movement)
   - [Observability](#observability)
-  - [Specification Changes by Version](#specification-changes-by-version)
-    - [v0.15.6 and v0.16.3](#v0156-and-v0163)
-    - [v0.17.0](#v0170)
+  - [Notable Changes by Version](#notable-changes-by-version)
+    - [v0.15.6, v0.15.7, v0.16.3, v0.16.4, and v0.17.0](#v0156-v0157-v0163-v0164-and-v0170)
     - [v0.18.0](#v0180)
     - [v0.19.0](#v0190)
     - [v0.20.0](#v0200)
@@ -394,24 +393,26 @@ pending Workload count, when estimating whether the scheduler can reach the end
 of a queue before the next inadmissible retry. One representative failure can
 move an entire class without evaluating its remaining Workloads.
 
-### Specification Changes by Version
+### Notable Changes by Version
 
-#### v0.15.6 and v0.16.3
+#### v0.15.6, v0.15.7, v0.16.3, v0.16.4, and v0.17.0
 
-Scheduling Equivalence Hashing was introduced in these patch releases. In
+Scheduling Equivalence Hashing was introduced in v0.15.6 and v0.16.3. In
 BestEffortFIFO ClusterQueues, a NoFit result recorded the failed equivalence
 class and bulk-moved matching Workloads to the inadmissible pool.
 
-#### v0.17.0
-
-Failed-class recording used the broader inadmissibility signal, including the
-preemption path with no candidates. The priority input in the scheduling shape
-changed from the raw Workload priority to the effective priority, including
-priority adjustments when that behavior is enabled.
+PreemptionNoCandidates began participating in class-wide handling in v0.15.7,
+v0.16.4, and v0.17.0. At that point, failed-class recording was driven by the
+broader non-immediate requeue signal rather than explicit outcomes. In v0.17.0,
+the priority input in the scheduling shape changed from the raw Workload
+priority to the effective priority, including priority adjustments when that
+behavior is enabled.
 
 #### v0.18.0
 
-Failed-class recording was restricted to NoFit and PreemptionNoCandidates.
+Failed-class recording changed from the broad non-immediate requeue signal to
+an explicit allowlist containing NoFit and PreemptionNoCandidates. This retained
+class-wide handling for those two outcomes while excluding other requeue paths.
 
 Allowed Resource Flavor restrictions and effective resource requests were added
 to the scheduling shape.
@@ -422,14 +423,14 @@ Failed-class records began retaining the representative's high-level reason so
 bypassed Workloads could expose it without replacing an existing detailed
 diagnosis.
 
-Pod-level resource requests were added to the Pod placement shape when the
-Pod-level resources field is set.
+The equivalence identifier was corrected to include Pod-level resource requests
+when the Pod-level resources field is set.
 
 #### v0.20.0
 
-The `kueue_pending_scheduling_hashes` gauge was added to report unique active
-and inadmissible equivalence classes per ClusterQueue when the feature is
-enabled.
+Observability was extended with the `kueue_pending_scheduling_hashes` gauge,
+which reports unique active and inadmissible equivalence classes per
+ClusterQueue when the feature is enabled.
 
 ### Test Plan
 
@@ -513,22 +514,8 @@ Graduation to stable requires:
 
 ## Implementation History
 
-- 2026-03-06: Initial NoFit-based bulk movement was merged for development
-  toward v0.17.0.
-- 2026-03-09: The initial behavior was backported for the v0.15.6 and v0.16.3
-  patch releases.
-- 2026-03-17: Effective Workload priority replaced raw priority in the
-  scheduling shape for v0.17.0.
-- 2026-03-19: PreemptionNoCandidates support and broader failed-class recording
-  were added for v0.15.7, v0.16.4, and v0.17.0.
-- 2026-05-04: Concurrent Admission flavor restrictions were added to the
-  scheduling shape for v0.18.0.
-- 2026-05-13: Explicit safe requeue reasons were introduced for v0.18.0.
-- 2026-05-22: Effective resource requests were added to the scheduling shape
-  for v0.18.0.
-- 2026-07-02: Pod-level resource requests were added to the Pod placement shape
-  for v0.19.0.
-- 2026-07-07: Bypass reason propagation was added for v0.19.0 observability.
-- 2026-07-08: A dedicated internal identifier type was introduced for v0.19.0.
-- 2026-08-07: The `kueue_pending_scheduling_hashes` metric was added for v0.20.0.
-- 2026-08-07: The retrospective KEP was written.
+- 2026-03-06: Initial implementation was merged for development toward v0.17.0.
+- 2026-03-09: The initial behavior was backported to the v0.15 and v0.16 patch
+  releases.
+- 2026-08-07: The retrospective KEP was written after the feature progressed
+  through Beta.
