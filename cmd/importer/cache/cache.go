@@ -24,10 +24,12 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/importer/mapping"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -47,6 +49,10 @@ type ImportCache struct {
 	ResourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	PriorityClasses map[string]*schedulingv1.PriorityClass
 	AddLabels       map[string]string
+
+	// Derived from ClusterQueues and ResourceFlavors at Load time; read-only after that.
+	FlavorValidation  map[string]error
+	FlavorsByResource map[string]map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
 func Load(ctx context.Context, c client.Client, namespaces []string, mappingRules mapping.Rules, addLabels map[string]string) (*ImportCache, error) {
@@ -84,10 +90,67 @@ func Load(ctx context.Context, c client.Client, namespaces []string, mappingRule
 		return nil, fmt.Errorf("loading priority classes: %w", err)
 	}
 	ret.PriorityClasses = utilslices.ToRefMap(pcList.Items, func(pc *schedulingv1.PriorityClass) string { return pc.Name })
+
+	ret.FlavorValidation = make(map[string]error, len(cqList.Items))
+	ret.FlavorsByResource = make(map[string]map[corev1.ResourceName]kueue.ResourceFlavorReference, len(cqList.Items))
+	for i := range cqList.Items {
+		cq := &cqList.Items[i]
+		rgs := resourceGroupsFrom(cq)
+		ret.FlavorsByResource[cq.Name] = flavorsByResourceFrom(rgs)
+		ret.FlavorValidation[cq.Name] = validateFlavors(cq.Name, rgs, ret.ResourceFlavors)
+	}
+
 	return &ret, nil
 }
 
-func (ic *ImportCache) LocalQueue(p *corev1.Pod) (*kueue.LocalQueue, bool, error) {
+// resourceGroupsFrom converts cq's API resource groups to the ResourceGroup
+// representation used by pkg/util/resourcegroups.
+func resourceGroupsFrom(cq *kueue.ClusterQueue) []resourcegroups.ResourceGroup {
+	rgs := make([]resourcegroups.ResourceGroup, 0, len(cq.Spec.ResourceGroups))
+	for _, rg := range cq.Spec.ResourceGroups {
+		if len(rg.Flavors) == 0 {
+			continue
+		}
+		flavors := make([]kueue.ResourceFlavorReference, len(rg.Flavors))
+		for i, f := range rg.Flavors {
+			flavors[i] = f.Name
+		}
+		rgs = append(rgs, resourcegroups.ResourceGroup{
+			CoveredResources: sets.New(rg.CoveredResources...),
+			Flavors:          flavors,
+		})
+	}
+	return rgs
+}
+
+// flavorsByResourceFrom returns, for every resource covered by rgs, the first
+// flavor listed in its resource group.
+func flavorsByResourceFrom(rgs []resourcegroups.ResourceGroup) map[corev1.ResourceName]kueue.ResourceFlavorReference {
+	m := make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
+	for _, rg := range rgs {
+		for resource := range rg.CoveredResources {
+			if _, exists := m[resource]; !exists {
+				m[resource] = rg.Flavors[0]
+			}
+		}
+	}
+	return m
+}
+
+// validateFlavors checks that every ResourceFlavor referenced by rgs is known.
+func validateFlavors(cqName string, rgs []resourcegroups.ResourceGroup, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) error {
+	// Sorted for a deterministic error message; AllFlavors returns a set.
+	flavors := resourcegroups.AllFlavors(rgs).UnsortedList()
+	slices.Sort(flavors)
+	for _, flavor := range flavors {
+		if _, found := resourceFlavors[flavor]; !found {
+			return fmt.Errorf("%q flavor %q: %w", cqName, flavor, ErrCQInvalid)
+		}
+	}
+	return nil
+}
+
+func (ic *ImportCache) LocalQueueForPod(p *corev1.Pod) (*kueue.LocalQueue, bool, error) {
 	queueName, skip, found := ic.MappingRules.QueueFor(p.Spec.PriorityClassName, p.Labels)
 	if !found {
 		return nil, false, mapping.ErrNoMapping
@@ -107,17 +170,4 @@ func (ic *ImportCache) LocalQueue(p *corev1.Pod) (*kueue.LocalQueue, bool, error
 		return nil, false, fmt.Errorf("%s: %w", queueName, ErrLQNotFound)
 	}
 	return lq, false, nil
-}
-
-func (ic *ImportCache) ClusterQueue(p *corev1.Pod) (*kueue.ClusterQueue, bool, error) {
-	lq, skip, err := ic.LocalQueue(p)
-	if skip || err != nil {
-		return nil, skip, err
-	}
-	queueName := string(lq.Spec.ClusterQueue)
-	cq, found := ic.ClusterQueues[queueName]
-	if !found {
-		return nil, false, fmt.Errorf("cluster queue: %s: %w", queueName, ErrCQNotFound)
-	}
-	return cq, false, nil
 }
