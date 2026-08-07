@@ -1592,7 +1592,7 @@ func (h *resourceUpdatesHandler) Create(ctx context.Context, e event.CreateEvent
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Create event")
 	if lr, ok := e.Object.(*corev1.LimitRange); ok {
-		h.r.queues.LimitRangeCache().Add(lr)
+		h.r.queues.LimitRangeCache().AddOrUpdate(lr)
 	}
 	h.handle(ctx, e.Object, q)
 }
@@ -1602,7 +1602,9 @@ func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Update event")
 	if lr, ok := e.ObjectNew.(*corev1.LimitRange); ok {
-		h.r.queues.LimitRangeCache().Update(e.ObjectOld.(*corev1.LimitRange), lr)
+		if oldLr, ok := e.ObjectOld.(*corev1.LimitRange); ok {
+			h.r.queues.LimitRangeCache().Update(oldLr, lr)
+		}
 	}
 	h.handle(ctx, e.ObjectNew, q)
 }

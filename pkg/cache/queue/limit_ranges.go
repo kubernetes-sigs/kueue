@@ -22,8 +22,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+// LimitRanges stores LimitRange objects, indexed by their namespace and name.
 type LimitRanges struct {
 	sync.RWMutex
+	// store maps namespace -> limit range name -> LimitRange
 	store map[string]map[string]*corev1.LimitRange
 }
 
@@ -43,7 +45,9 @@ func hasContainerOrPodType(lr *corev1.LimitRange) bool {
 	return false
 }
 
-func (l *LimitRanges) Add(lr *corev1.LimitRange) {
+// AddOrUpdate inserts or updates a LimitRange in the cache, or deletes it if it does not
+// contain Container or Pod type limits.
+func (l *LimitRanges) AddOrUpdate(lr *corev1.LimitRange) {
 	l.Lock()
 	defer l.Unlock()
 	if !hasContainerOrPodType(lr) {
@@ -58,7 +62,7 @@ func (l *LimitRanges) Add(lr *corev1.LimitRange) {
 }
 
 func (l *LimitRanges) Update(oldLr, newLr *corev1.LimitRange) {
-	l.Add(newLr)
+	l.AddOrUpdate(newLr)
 }
 
 func (l *LimitRanges) Delete(lr *corev1.LimitRange) {
