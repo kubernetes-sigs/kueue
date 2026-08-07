@@ -391,12 +391,16 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 // rather than parked as inadmissible; second-pass workloads return after a backoff
 // step, as they do on the other failure paths of a cycle.
 func (s *Scheduler) requeueHeadsAfterSnapshotError(ctx context.Context, heads []qcache.Head) {
+	log := ctrl.LoggerFrom(ctx)
 	for i := range heads {
 		wl := &heads[i].Info
 		if s.queues.QueueSecondPassIfNeeded(ctx, wl.Obj, wl.SecondPassIteration) {
 			continue
 		}
-		s.queues.RequeueWorkload(ctx, wl, qcache.RequeueReasonFailedAfterNomination, "")
+		if !s.queues.RequeueWorkload(ctx, wl, qcache.RequeueReasonFailedAfterNomination, "") {
+			log.V(2).Info("Popped head was not requeued after a failed snapshot",
+				"workload", klog.KObj(wl.Obj), "clusterQueue", klog.KRef("", string(wl.ClusterQueue)))
+		}
 	}
 }
 
