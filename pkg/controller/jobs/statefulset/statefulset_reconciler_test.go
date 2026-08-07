@@ -60,6 +60,7 @@ func TestReconciler(t *testing.T) {
 		statefulSet     *appsv1.StatefulSet
 		pods            []corev1.Pod
 		workloads       []kueue.Workload
+		priorityClasses []client.Object
 		wantStatefulSet *appsv1.StatefulSet
 		wantPods        []corev1.Pod
 		wantWorkloads   []kueue.Workload
@@ -229,6 +230,39 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					OwnerReference(gvk, "sts", "sts-uid").
+					Obj(),
+			},
+		},
+		"should update WorkloadPriorityClass on an existing Workload": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(0).
+				Queue("lq").
+				WorkloadPriorityClass("high").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").
+					WorkloadPriorityClassRef("low").
+					Priority(10).
+					Obj(),
+			},
+			priorityClasses: []client.Object{
+				utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(0).
+				Queue("lq").
+				WorkloadPriorityClass("high").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").
+					WorkloadPriorityClassRef("high").
+					Priority(100).
 					Obj(),
 			},
 		},
@@ -535,7 +569,7 @@ func TestReconciler(t *testing.T) {
 				t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
 			}
 
-			objs := make([]client.Object, 0, len(tc.pods)+len(tc.workloads)+1)
+			objs := make([]client.Object, 0, len(tc.pods)+len(tc.workloads)+len(tc.priorityClasses)+1)
 			if tc.statefulSet != nil {
 				objs = append(objs, tc.statefulSet)
 			}
@@ -547,6 +581,7 @@ func TestReconciler(t *testing.T) {
 			for _, wl := range tc.workloads {
 				objs = append(objs, wl.DeepCopy())
 			}
+			objs = append(objs, tc.priorityClasses...)
 
 			kClient := clientBuilder.WithObjects(objs...).Build()
 
