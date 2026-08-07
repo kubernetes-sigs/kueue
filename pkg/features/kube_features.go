@@ -508,7 +508,7 @@ const (
 	// in PodSet template metadata during Workload creation and update.
 	WorkloadValidationForPodSetMetadata featuregate.Feature = "WorkloadValidationForPodSetMetadata"
 
-	// owner: @dpastuszka
+	// owner: @Singularity23x0
 	//
 	// Enables parallelized API calls during scheduler requeue and evaluation.
 	SchedulerParallelizedAPICalls featuregate.Feature = "SchedulerParallelizedAPICalls"
