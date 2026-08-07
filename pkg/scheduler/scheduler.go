@@ -218,14 +218,20 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 	s.admissionRoutineWrapper = wrapper
 }
 
-// markSkipped marks the entry as skipped for this cycle. The flavor
-// assignment is cleared so the next cycle retries all flavors (e.g.
-// after Fit no longer fitting, or Preempt being skipped due to an
-// overlapping earlier admission).
+// markSkipped marks the entry as skipped for this cycle.
+//
+// With features.FlavorFungibilityPreserveScanProgress the flavor assignment is kept, so the next cycle
+// resumes the flavor scan where this one left off rather than starting over. Both callers
+// skip on contention rather than on the flavor itself - capacity taken by a Workload
+// processed earlier in the cycle, or preemption targets claimed by another entry - so the
+// recorded progress is still the best information available. Without the gate the
+// assignment is cleared and the next cycle retries every flavor.
 func (e *entry) markSkipped(msg string) {
 	e.status = skipped
 	e.inadmissibleMsg = msg
-	e.LastAssignment = nil
+	if !features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
+		e.LastAssignment = nil
+	}
 }
 
 // markPreemptionGated marks the entry as gated pending preemption.
@@ -739,10 +745,40 @@ type partialAssignment struct {
 }
 
 func (s *Scheduler) getAssignments(log logr.Logger, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
-	assignment, targets := s.getInitialAssignments(log, wl, snap)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
+	// The flavor scan resumes from the progress recorded in LastAssignment, so it has to be
+	// dropped once it no longer describes the current state. Deciding that here rather than
+	// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
+	// again for each reduced pod count when partial admission is in play.
+	if wl.LastAssignment != nil && lastAssignmentOutdated(wl.LastAssignment, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
+		log.V(6).Info("Clearing Workload's last assignment because it was outdated",
+			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
+			"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration)
+		wl.LastAssignment = nil
+	}
+	assignment, targets := s.getInitialAssignments(log, wl, snap)
 	updateAssignmentForTAS(log, snap, cq, wl, &assignment, targets)
 	return assignment, targets
+}
+
+// lastAssignmentOutdated reports whether the recorded flavor assignment no longer describes
+// the current state, in which case the flavor scan has to start over.
+func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash string) bool {
+	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
+		// Checked before the cycle age, so that a Workload whose shape changed starts over
+		// even when it was assigned in the preceding cycle.
+		if !last.MatchesSchedulingShape(currentSchedulingHash) {
+			return true
+		}
+		// An assignment computed in the current or the immediately preceding cycle is not
+		// treated as outdated. The ClusterQueue generation advances on every admission or
+		// eviction in the Cohort, which on a busy cluster discards the flavor progress
+		// recorded one cycle earlier before it can be used.
+		if currentSchedulingCycle-last.SchedulingCycle <= 1 {
+			return false
+		}
+	}
+	return currentCQGeneration > last.ClusterQueueGeneration
 }
 
 // getInitialAssignments computes the initial resource flavor assignment and any required preemption targets
@@ -771,7 +807,11 @@ func (s *Scheduler) getInitialAssignments(log logr.Logger, wl *workload.Info, sn
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
-	flvAssigner := flavorassigner.New(wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice, s.quotaCheckStrategy)
+	flvAssigner := flavorassigner.New(
+		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
+		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
+		s.quotaCheckStrategy, s.schedulingCycle,
+	)
 	fullAssignment := flvAssigner.Assign(log, nil)
 
 	arm := fullAssignment.RepresentativeMode()

@@ -541,6 +541,18 @@ const (
 	// the size, or disable this gate to accept the previous behavior.
 	LWSImmutableGroupSize featuregate.Feature = "LWSImmutableGroupSize"
 
+	// owner: @varunsyal
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
+	//
+	// Keeps the flavor scan progress recorded in LastTriedFlavorIdx usable in the next
+	// scheduling cycle. Without this the progress is discarded whenever the ClusterQueue's
+	// AllocatableResourceGeneration advances, which happens on every admission or eviction
+	// in the Cohort, and whenever a Workload is skipped because another Workload processed
+	// earlier in the cycle took the capacity or the preemption targets it had been assigned.
+	// Under sustained load either can happen every cycle, leaving the scan to restart from
+	// the first flavor indefinitely.
+	FlavorFungibilityPreserveScanProgress featuregate.Feature = "FlavorFungibilityPreserveScanProgress"
+
 	// owner: @iaalm
 	//
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/10009
@@ -853,6 +865,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	LWSImmutableGroupSize: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	FlavorFungibilityPreserveScanProgress: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 
