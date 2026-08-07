@@ -19,6 +19,14 @@ export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
 export HELM="$ROOT_DIR"/bin/helm
+
+# GOTRACEBACK=system asks the Go runtime to include runtime-internal goroutines when a
+# subprocess spawned below (e.g. `go vet`/`go build` during `ginkgo run` compilation)
+# hits a fatal runtime error such as a toolchain deadlock. It is silent on success, so
+# it is safe to leave enabled for every run; it only adds diagnostic data if we hit the
+# failure mode again.
+export GOTRACEBACK="${GOTRACEBACK:-system}"
+
 export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 export KUEUE_DEPLOYMENT_NAME="kueue-controller-manager"
 export KUEUE_WEBHOOK_SERVICE_NAME="${KUEUE_WEBHOOK_SERVICE_NAME:-kueue-webhook-service}"
