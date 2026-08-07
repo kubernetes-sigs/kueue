@@ -22,10 +22,13 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/importer/cache"
 	"sigs.k8s.io/kueue/cmd/importer/mapping"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -56,11 +59,12 @@ func TestCheckNamespace(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		pods          []corev1.Pod
-		clusterQueues []kueue.ClusterQueue
-		localQueues   []kueue.LocalQueue
-		mapping       mapping.Rules
-		flavors       []kueue.ResourceFlavor
+		pods            []corev1.Pod
+		clusterQueues   []kueue.ClusterQueue
+		localQueues     []kueue.LocalQueue
+		mapping         mapping.Rules
+		flavors         []kueue.ResourceFlavor
+		priorityClasses []schedulingv1.PriorityClass
 
 		wantError error
 	}{
@@ -100,6 +104,21 @@ func TestCheckNamespace(t *testing.T) {
 				*baseClusterQueue.Obj(),
 			},
 			wantError: cache.ErrCQInvalid,
+		},
+		"pod has conflicting pre-existing queue label": {
+			pods: []corev1.Pod{
+				*basePodWrapper.Clone().
+					Label(controllerconstants.QueueLabel, "other-lq").
+					Obj(),
+			},
+			mapping: baseMapping,
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*baseClusterQueue.Obj(),
+			},
+			wantError: &queueLabelConflictError{CurrentQueue: "other-lq", ExpectedQueue: "lq1"},
 		},
 		"known ResourceFlavor assignment with uncovered request fails assignment": {
 			pods: []corev1.Pod{
@@ -168,6 +187,40 @@ func TestCheckNamespace(t *testing.T) {
 				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
 			},
 		},
+		"pod references a known priority class": {
+			pods: []corev1.Pod{
+				*basePodWrapper.Clone().PriorityClass("p-class").Obj(),
+			},
+			mapping: baseMapping,
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cq1").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf1").Resource(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
+			},
+			priorityClasses: []schedulingv1.PriorityClass{
+				{ObjectMeta: metav1.ObjectMeta{Name: "p-class"}, Value: 100},
+			},
+		},
+		"pod references an unknown priority class": {
+			pods: []corev1.Pod{
+				*basePodWrapper.Clone().PriorityClass("missing-class").Obj(),
+			},
+			mapping: baseMapping,
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cq1").ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf1").Resource(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
+			},
+			wantError: cache.ErrPCNotFound,
+		},
 	}
 
 	for name, tc := range cases {
@@ -176,9 +229,10 @@ func TestCheckNamespace(t *testing.T) {
 			cqList := kueue.ClusterQueueList{Items: tc.clusterQueues}
 			lqList := kueue.LocalQueueList{Items: tc.localQueues}
 			rfList := kueue.ResourceFlavorList{Items: tc.flavors}
+			pcList := schedulingv1.PriorityClassList{Items: tc.priorityClasses}
 
 			builder := utiltesting.NewClientBuilder()
-			builder = builder.WithLists(&podsList, &cqList, &lqList, &rfList)
+			builder = builder.WithLists(&podsList, &cqList, &lqList, &rfList, &pcList)
 
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
