@@ -32,7 +32,6 @@ import (
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -79,7 +78,6 @@ func TestReconciler(t *testing.T) {
 		workloads               []kueue.Workload
 		pods                    []corev1.Pod
 		workloadPriorityClasses []kueue.WorkloadPriorityClass
-		interceptors            func() interceptor.Funcs
 		wantLeaderWorkerSets    []leaderworkersetv1.LeaderWorkerSet
 		wantWorkloads           []kueue.Workload
 		wantPods                []corev1.Pod
@@ -794,13 +792,6 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		// The masking case the worker boundary exists for, ordered so the other
-		// branch fails first. The surplus Workload is deleted in its own branch
-		// and fails there; the remaining component then finds the missing class
-		// and has its own error dropped by parallelize.Until. Reporting from the
-		// caller would say nothing, and either error may be the one Wait returns,
-		// so the event is what this pins.
-		//
 		"should update prebuilt workload if queue-name label is set": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
@@ -2235,9 +2226,6 @@ func TestReconciler(t *testing.T) {
 				objs = append(objs, &wpc)
 			}
 
-			if tc.interceptors != nil {
-				clientBuilder = clientBuilder.WithInterceptorFuncs(tc.interceptors())
-			}
 			kClient := clientBuilder.WithObjects(objs...).Build()
 			recorder := &utiltesting.EventRecorder{}
 
