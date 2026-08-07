@@ -2209,10 +2209,22 @@ func TestReconcileWorkloadsDoesNotCancelTheOtherBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Creating the reconciler: %v", err)
 	}
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}); err == nil {
-		t.Fatal("Reconcile returned no error, want the delete failure")
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}})
+	if errors.Is(err, errNotOrdered) {
+		t.Fatalf("Reconcile() error = %v, so the branches never interleaved and the ordering below was not exercised", err)
+	}
+	if !errors.Is(err, errDeleting) {
+		t.Fatalf("Reconcile() error = %v, want %v", err, errDeleting)
 	}
 	if cancelledHere.Load() {
 		t.Error("the create branch ran under a context the delete failure had cancelled")
+	}
+	// An uncancelled context is only half of it: the branch also has to have finished its work.
+	created := &kueue.Workload{}
+	if err := kClient.Get(ctx, types.NamespacedName{Name: GetWorkloadName(testLWS, testLWS, "0"), Namespace: testNS}, created); err != nil {
+		t.Fatalf("Getting the Workload the create branch was to make: %v", err)
+	}
+	if created.Spec.Priority == nil || *created.Spec.Priority != 100 {
+		t.Errorf("created Workload priority = %v, want the class value 100", created.Spec.Priority)
 	}
 }
