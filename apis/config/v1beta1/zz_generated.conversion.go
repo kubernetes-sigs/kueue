@@ -435,6 +435,7 @@ func autoConvert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Conf
 	} else {
 		out.Resources = nil
 	}
+	// WARNING: in.Runtime requires manual conversion: does not exist in peer-type
 	out.FeatureGates = *(*map[string]bool)(unsafe.Pointer(&in.FeatureGates))
 	out.ObjectRetentionPolicies = (*ObjectRetentionPolicies)(unsafe.Pointer(in.ObjectRetentionPolicies))
 	// WARNING: in.VisibilityServer requires manual conversion: does not exist in peer-type
