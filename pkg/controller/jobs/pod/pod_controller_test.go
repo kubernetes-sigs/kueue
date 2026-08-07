@@ -27,6 +27,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -4007,6 +4008,90 @@ func TestReconciler(t *testing.T) {
 						Reason:             kueue.WorkloadFinishedReasonOwnerNotFound,
 						Message:            "The workload's owner no longer exists",
 					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"foreign workload sharing the pod group name is not finalized": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: true,
+				features.FinishOrphanedWorkloads:          true,
+			},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "victim-job", "victim-job-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "victim-job", "victim-job-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"foreign workload sharing the pod group name is finalized when the gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: false,
+				features.FinishOrphanedWorkloads:          true,
+			},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "victim-job", "victim-job-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "victim-job", "victim-job-uid").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadFinishedReasonOwnerNotFound,
+						Message:            "The workload's owner no longer exists",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"pod group workload is finalized when all pods are gone": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: true,
+				features.FinishOrphanedWorkloads:          true,
+			},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted-pod", "deleted-pod-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted-pod", "deleted-pod-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"prebuilt pod group workload without the group marker is still finalized": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationValidateGroupOwner: true,
+				features.FinishOrphanedWorkloads:          true,
+			},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted-pod", "deleted-pod-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted-pod", "deleted-pod-uid").
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
