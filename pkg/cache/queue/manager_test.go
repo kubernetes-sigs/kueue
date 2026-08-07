@@ -2601,7 +2601,7 @@ func TestManager_ResourceCaches(t *testing.T) {
 	}
 
 	// Test LimitRange cache via Manager
-	manager.LimitRangeCache().Add(lr)
+	manager.LimitRangeCache().AddOrUpdate(lr)
 	lrs := manager.LimitRangeCache().GetForNamespace("ns")
 	if len(lrs) != 1 || lrs[0].Name != "lr" {
 		t.Errorf("Expected 1 LimitRange 'lr', got %v", lrs)

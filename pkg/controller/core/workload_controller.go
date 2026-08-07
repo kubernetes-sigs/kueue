@@ -1596,7 +1596,7 @@ func (h *resourceUpdatesHandler) Create(ctx context.Context, e event.CreateEvent
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Create event")
 	if lr, ok := e.Object.(*corev1.LimitRange); ok {
-		h.r.queues.LimitRangeCache().Add(lr)
+		h.r.queues.LimitRangeCache().AddOrUpdate(lr)
 	}
 	if rc, ok := e.Object.(*nodev1.RuntimeClass); ok {
 		h.r.queues.RuntimeClassCache().Add(rc)
@@ -1609,10 +1609,14 @@ func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Update event")
 	if lr, ok := e.ObjectNew.(*corev1.LimitRange); ok {
-		h.r.queues.LimitRangeCache().Update(e.ObjectOld.(*corev1.LimitRange), lr)
+		if oldLr, ok := e.ObjectOld.(*corev1.LimitRange); ok {
+			h.r.queues.LimitRangeCache().Update(oldLr, lr)
+		}
 	}
 	if rc, ok := e.ObjectNew.(*nodev1.RuntimeClass); ok {
-		h.r.queues.RuntimeClassCache().Update(e.ObjectOld.(*nodev1.RuntimeClass), rc)
+		if oldRc, ok := e.ObjectOld.(*nodev1.RuntimeClass); ok {
+			h.r.queues.RuntimeClassCache().Update(oldRc, rc)
+		}
 	}
 	h.handle(ctx, e.ObjectNew, q)
 }
