@@ -1813,12 +1813,25 @@ var _ = ginkgo.Describe("Workload priority class reference", ginkgo.Label("contr
 	ginkgo.It("should take the value of the class it moved to", func() {
 		wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
 			WorkloadPriorityClassRef("reference-source").
-			Priority(100).
+			Priority(0).
 			Obj()
 		util.MustCreate(ctx, k8sClient, wl)
 
+		// The create request has to be spent before the reference moves. It is
+		// enqueued for every workload this cluster owns the priority of, and it
+		// re-reads the workload, so one still in the queue could be what applies
+		// the target value and the reference event would go untested.
+		ginkgo.By("waiting for the create to settle on the source value", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &got)).To(gomega.Succeed())
+				g.Expect(got.Spec.Priority).To(gomega.Equal(new(int32(100))))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		// The value is left behind on purpose: it is what a lookup that read
-		// the class before its last change would have written.
+		// the class before its last change would have written. Writing it does
+		// not touch the reference, so it does not enqueue anything itself.
 		ginkgo.By("moving the reference and leaving the value alone", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				var got kueue.Workload
