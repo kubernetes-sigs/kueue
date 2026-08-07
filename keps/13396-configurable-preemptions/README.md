@@ -405,6 +405,48 @@ const (
 	DRSAllStrategies QuotaConstraint = "DRSAllStrategies"
 )
 
+type TopologyLevelsRelation string
+
+const (
+	// Preemptor and candidate have the same topology levels
+	SameTopologyLevels TopologyLevelsRelation = "SameTopologyLevels"
+	// Preemptor has more specific topology than the candidate
+	MoreSpecificTopologyLevels TopologyLevelsRelation = "MoreSpecificTopologyLevels"
+	// Preemptor has less specific topology than the candidate
+	LessSpecificTopologyLevels TopologyLevelsRelation = "LessSpecificTopologyLevels"
+	// Candidate workload has no topology requirements
+	NoTopology TopologyLevelsRelation = "NoTopology"
+)
+
+type TopologyConstraint struct {
+	// Accepts any relation between topologies if not set.
+	// Determines if workload is considered as a candidate for
+	// preemption based on relation between preemptor and candidate
+	// topologies.
+	TopologyLevels TopologyLevelsRelation
+
+	// Defines order within topology values which will be used
+	// for candidate workloads selection.
+	// Accepts any topology values if not set.
+	TopologyOrder TopologyValuesOrder
+}
+
+type TopologyValuesOrder struct {
+
+	// The key used to lookup the topology value. One of AnnotationKey or LabelKey must be set.
+	AnnotationKey string
+	LabelKey string
+	// List of topology values in order of importance. Lower index means less importat - can be will be candidate for preemption for higher index topology values.
+	// For example order ["A", "B", "C"], means:
+	//  - "C" will be able to preempt "A" and "B", but not itself
+	//  - "B" will not be able to preempt "A".
+	//  - "A" will not be able to preempt anyone.
+	//
+	// By default lack of the annotation/label value is treated as incomparable to any of the values in the list. To change this use empty string to indicate the lack of annotation placement. For example ["", "A"] will mean that workload with value "A" will be able to preempt workloads without annotation, but not vice versa.
+	ValuesOrder []string
+}
+
+
 type PreemptionCandidateSelector struct{
 	// Required. 
 	RelationRequirement PreemptionRelationConstraint
@@ -417,10 +459,10 @@ type PreemptionCandidateSelector struct{
 	ClusterQueueSelector metav1.LabelSelector
 
 	// Accepts all if not set
-	HostNodeSelector metav1.LabelSelector
+	WorkloadSelector metav1.LabelSelector
 
 	// Accepts all if not set
-	WorkloadSelector metav1.LabelSelector
+	HostNodeSelector metav1.LabelSelector
 
 	// Matches all workload priority classes if not set.
 	PreemptingWorkloadPrioritySelector metav1.LabelSelector
@@ -476,9 +518,16 @@ The order is right now based on:
 4. Workloads admitted more recently first.
 
 ```go
+
+type OrderingDirection string
+const (
+	Ascending OrderingDirection = "Ascending"
+	Descending OrderingDirection = "Descending"
+)
+
 type Order struct {
 	OrderingField OrderingField
-	Descending bool TODO
+	Direction OrderingDirection = Ascending
 }
 
 
