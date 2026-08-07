@@ -1196,8 +1196,9 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 // values. The resolved value is applied to every eligible workload whose full
 // priority state has drifted, so a partial write followed by a class-value
 // change converges on retry instead of leaving same-name workloads pinned to a
-// stale value. The workloads are written one by one rather than atomically, and
-// a class edited once every workload already names it is not re-resolved here.
+// stale value. The writes run in two ordered phases, bounded and parallel
+// within a phase and not atomic across them, and a class edited once every
+// workload already names it is not re-resolved here.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
 	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
 
