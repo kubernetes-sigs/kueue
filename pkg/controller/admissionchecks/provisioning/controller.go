@@ -465,7 +465,10 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 }
 
 func (c *Controller) reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) bool {
-	return len(requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)) > 0
+	mergedPodSets, err := mergePodSets(wl, &prc.Spec)
+	// Preserve the existing reconciliation path for inconsistent Workloads
+	// so it can report the underlying error.
+	return err != nil || len(mergedPodSets) > 0
 }
 
 func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []kueue.PodSetReference {
@@ -473,7 +476,7 @@ func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []
 	users := make([]kueue.PodSetReference, 0, len(podSets))
 	for i := range podSets {
 		ps := &podSets[i]
-		if len(resources) == 0 || podUses(&ps.Template.Spec, resourcesSet) {
+		if ps.Count > 0 && (len(resources) == 0 || podUses(&ps.Template.Spec, resourcesSet)) {
 			users = append(users, ps.Name)
 		}
 	}
@@ -921,11 +924,16 @@ func mergePodSets(
 			return nil, errInconsistentPodSetAssignments
 		}
 
+		count := ptr.Deref(psa.Count, ps.Count)
+		if count <= 0 {
+			continue
+		}
+
 		merged := false
 		if mergePolicy != nil {
 			for i, mps := range mergedPodSets {
 				if merged = canMergePodSets(mps.PodSet, ps, mergePolicy); merged {
-					mergedPodSets[i].Count += ptr.Deref(psa.Count, ps.Count)
+					mergedPodSets[i].Count += count
 					break
 				}
 			}
@@ -936,7 +944,7 @@ func mergePodSets(
 				Name:             psName,
 				PodSet:           ps,
 				PodSetAssignment: psa,
-				Count:            ptr.Deref(psa.Count, ps.Count),
+				Count:            count,
 			})
 		}
 	}
