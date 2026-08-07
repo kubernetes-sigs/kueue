@@ -92,6 +92,57 @@ func TestUngatePod(t *testing.T) {
 	}
 }
 
+func TestFinalizePod(t *testing.T) {
+	deletionTimestamp := metav1.Now()
+	testCases := map[string]struct {
+		pod            *corev1.Pod
+		wantChanged    bool
+		wantFinalizers []string
+	}{
+		"active Pod keeps the legacy finalizer": {
+			pod: &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+				Finalizers: []string{podconstants.PodFinalizer},
+			}},
+			wantFinalizers: []string{podconstants.PodFinalizer},
+		},
+		"succeeded Pod removes the legacy finalizer": {
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Finalizers: []string{podconstants.PodFinalizer}},
+				Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+			},
+			wantChanged: true,
+		},
+		"failed Pod removes the legacy finalizer": {
+			pod: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{Finalizers: []string{podconstants.PodFinalizer}},
+				Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+			},
+			wantChanged: true,
+		},
+		"deleting Pod removes the legacy finalizer": {
+			pod: &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+				DeletionTimestamp: &deletionTimestamp,
+				Finalizers:        []string{podconstants.PodFinalizer},
+			}},
+			wantChanged: true,
+		},
+		"terminal Pod without the legacy finalizer is unchanged": {
+			pod: &corev1.Pod{Status: corev1.PodStatus{Phase: corev1.PodSucceeded}},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if changed := FinalizePod(tc.pod); changed != tc.wantChanged {
+				t.Errorf("FinalizePod() changed = %t, want %t", changed, tc.wantChanged)
+			}
+			if diff := cmp.Diff(tc.wantFinalizers, tc.pod.Finalizers, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Finalizers after FinalizePod() (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func podWithGates(revision string, gates ...string) *corev1.Pod {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{

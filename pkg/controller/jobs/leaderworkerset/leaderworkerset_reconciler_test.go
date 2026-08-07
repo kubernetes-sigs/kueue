@@ -1285,7 +1285,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"should ignore succeeded pod": {
+		"should finalize succeeded pod": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
@@ -1349,11 +1349,10 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					StatusPhase(corev1.PodSucceeded).
-					KueueFinalizer().
 					Obj(),
 			},
 		},
-		"should ignore failed pod": {
+		"should finalize failed pod": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
@@ -1427,11 +1426,10 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
 					StatusPhase(corev1.PodFailed).
-					KueueFinalizer().
 					Obj(),
 			},
 		},
-		"should ignore deleted pod": {
+		"should finalize deleted pod": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
@@ -1490,22 +1488,6 @@ func TestReconciler(t *testing.T) {
 							Image(utiltestingjobs.TestDefaultContainerImage).
 							Obj()).
 					Priority(0).
-					Obj(),
-			},
-			wantPods: []corev1.Pod{
-				*testingjobspod.MakePod("pod1", testNS).
-					OwnerReference(testSTS, stsGVK).
-					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
-					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
-					ManagedByKueueLabel().
-					GroupNameLabel(GetWorkloadName(testLWS, testLWS, "0")).
-					GroupTotalCount("1").
-					PrebuiltWorkloadLabel(GetWorkloadName(testLWS, testLWS, "0")).
-					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
-					DeletionTimestamp(now).
-					KueueFinalizer().
 					Obj(),
 			},
 		},
