@@ -270,30 +270,36 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 	})
 
 	eg.Go(func() error {
-		updated := make([]bool, len(toUpdate))
-		updateErr := parallelize.Until(ctx, len(toUpdate), func(i int) error {
-			err := r.updateWorkload(ctx, lws, toUpdate[i])
-			updated[i] = err == nil
-			return err
-		})
-		// Priority goes to the components whose other updates landed. One failing
-		// queue-name write used to hold back only its own component, and moving
-		// the priority out of the loop should not widen that.
-		targets := make([]*kueue.Workload, 0, len(toUpdate))
-		for i, ok := range updated {
-			if ok {
-				targets = append(targets, toUpdate[i])
-			}
-		}
-		if resolveErr != nil {
-			// resolved is nil here for a different reason than "nothing forced a
-			// lookup", so applyPriority must not read the class again.
-			return errors.Join(updateErr, resolveErr)
-		}
-		return errors.Join(updateErr, r.applyPriority(ctx, lws, resolved, targets))
+		return r.reconcileUpdatedWorkloads(ctx, lws, toUpdate, resolved, resolveErr)
 	})
 
 	return eg.Wait()
+}
+
+// reconcileUpdatedWorkloads brings the Workloads that already exist up to date,
+// then gives this reconcile's priority to the ones whose other updates landed.
+// One failing queue-name write used to hold back only its own component, and
+// moving the priority out of that loop should not widen it.
+func (r *Reconciler) reconcileUpdatedWorkloads(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet,
+	toUpdate []*kueue.Workload, resolved *resolvedPriority, resolveErr error) error {
+	updated := make([]bool, len(toUpdate))
+	updateErr := parallelize.Until(ctx, len(toUpdate), func(i int) error {
+		err := r.updateWorkload(ctx, lws, toUpdate[i])
+		updated[i] = err == nil
+		return err
+	})
+	if resolveErr != nil {
+		// resolved is nil here for a different reason than "nothing forced a
+		// lookup", so applyPriority must not read the class again.
+		return errors.Join(updateErr, resolveErr)
+	}
+	targets := make([]*kueue.Workload, 0, len(toUpdate))
+	for i, ok := range updated {
+		if ok {
+			targets = append(targets, toUpdate[i])
+		}
+	}
+	return errors.Join(updateErr, r.applyPriority(ctx, lws, resolved, targets))
 }
 
 // resolvePriority reads the priority class once for this reconcile, using a
