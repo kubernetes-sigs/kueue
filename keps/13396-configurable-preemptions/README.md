@@ -279,26 +279,34 @@ Each of the user stories mentioned in motivations can be fullfilled by appropria
 
 User can define a strategy with InsufficientTopology trigger that will allow preemption of workloads blocking specific topologies when scheduling of workload from connected cluster queue requires it. To avoid "flappy" preemption issues, the rules should be limited in a way that guarantes asymetry, if A can preempt B, B shouldn't be able to preempt A. This can be done in various ways, for example:
 * Only allow preemption of workloads with strictly smaller priority
-* Only allow preemption of workloads that require smaller topologies (e.g. via appropriate labels selector)
+* Only allow preemption of workloads that require smaller topologies (e.g. via podset slice size)
 * Only allow preemption of workloads that should be preemptible according to FairSharing rules.
 
-Example strategy based on priority can look like:
+Example strategy based on priority and slice size can look like this:
 ```
 spec:
   rules:
     - trigger: "InsufficientTopology"
       minTriggerRequiredDurationSeconds: 30
-
+			candidates:
+			- relativeWorkloadPriority: "LowerOrEqual"
+				relationRequirement: "AnyClusterQueue"
+				topology:
+					relation: "SameTopologyLevels"
+					relativeMaxPodsetSliceSize: "LowerOrEqual"
+			order:
+				- orderingField: "Priority"
       
 ```
 
+As it has "AnyClusterQueue" relation it can preempt workloads even if they are not related in any way to the preemptor cluster queue. In combination with relativeMaxPodsetSliceSize and relativeWorkloadPriority this should result in eviction of smaller less important workloads blocking larger topologies, even if they are within the guaranted quota. Effectively if they are re-admitted again they should be placed in smaller domains(where considered workload cannot be scheduled), thereby defragmenting the cluster.
 
 #### Story 2 (Optional)
 
 ### Notes
 
 There are many possible extensions of the proposed selectors in the rules. For now we propose to support only those that for us seemed most common and natural, but the design allows for extensibility. Examples of possible extensions are:
-- topology comparison selectors - "only preempt workloads that have less restrictive topology requirements then the preempting workload"
+- more advanced topology comparison selectors extending just max podset slice size comparison - e.g. "require same podset required levels for considered workloads"
 - resource requests/limits based selectors - "only preempt workloads that request less than X amount of resources"
 
 As the scope of the design is already broad we leave them as separate implemetation effort and not part of initial KEP proposal.
@@ -314,8 +322,6 @@ Given extensive nature of **PreemptionStrategies** defined below, the API introd
 * Deliver concrete examples demonstrating successful configurations.
 * Offer detailed scenarios illustrating invalid configurations or potential flapping issues.
 * Communicate explicitly that custom rule creation carries inherent risks and is intended for power users - the OSS Kueue community might not be able to support troubleshooting every custom scenario.
-
-
 
 
 ### Risks and Mitigations
@@ -334,6 +340,9 @@ The test suite will be also used to indetify performance optimization opportunit
 
 The documation will also clearly indicate that creation of large number of complex preemption rules may have performance implications for the overall scheduling and that it is recommended to benchmark your strategies before rolling out to production.
 
+#### Security considerations
+
+
 ## Design Details
 
 ### Proposed API PreemptionStrategy
@@ -349,7 +358,10 @@ type PreemptionStrategySpec {
 	// Rules to select preemption candidates.
 	Rules []PreemptionRule
 	// Ordering of the preemption candidates.
-	Ordering Ordering
+	// The order will be always deterministic, as UID
+	// of the workloads is used to break the ties
+	// If not set workloads will be just ordered by UID.
+	Ordering []Order
 }
 
 
@@ -423,27 +435,13 @@ type TopologyConstraint struct {
 	// Determines if workload is considered as a candidate for
 	// preemption based on relation between preemptor and candidate
 	// topologies.
-	TopologyLevels TopologyLevelsRelation
+	TopologyLevels *TopologyLevelsRelation
 
-	// Defines order within topology values which will be used
-	// for candidate workloads selection.
-	// Accepts any topology values if not set.
-	TopologyOrder TopologyValuesOrder
-}
-
-type TopologyValuesOrder struct {
-
-	// The key used to lookup the topology value. One of AnnotationKey or LabelKey must be set.
-	AnnotationKey string
-	LabelKey string
-	// List of topology values in order of importance. Lower index means less importat - can be will be candidate for preemption for higher index topology values.
-	// For example order ["A", "B", "C"], means:
-	//  - "C" will be able to preempt "A" and "B", but not itself
-	//  - "B" will not be able to preempt "A".
-	//  - "A" will not be able to preempt anyone.
-	//
-	// By default lack of the annotation/label value is treated as incomparable to any of the values in the list. To change this use empty string to indicate the lack of annotation placement. For example ["", "A"] will mean that workload with value "A" will be able to preempt workloads without annotation, but not vice versa.
-	ValuesOrder []string
+	// Considers only workloads with maximum podset slice size
+	// matching selected relative constraint. If not set,
+	// all podset slice sizes are considered as preemption candidates.
+	// If podset slice size is not set on the the workload is is treated as 1.
+	RelativeMaxPodsetSliceSize  *RelativeConstraint
 }
 
 
@@ -454,6 +452,9 @@ type PreemptionCandidateSelector struct{
 	// Accepts all if not set. 
 	// Cannot be set if RelationRequirement is SameLocalQueue or SamleClustrQueue.
 	Quota QuotaConstraint
+
+	// Accepts all if not set.
+	Topology TopologyConstraint
 
 	// Accepts all if not set.
 	ClusterQueueSelector metav1.LabelSelector
@@ -479,16 +480,16 @@ type PreemptionCandidateSelector struct{
 	// Accepts any execution times if not set
 	MinExecutionTimeSeconds *int64
 	MaxExecutionTimeSeconds *int64
-	ExecutionTimeRelation RelativeConstraint
+	ExecutionTimeRelation *RelativeConstraint
 
 	// Accepts any time from creation if not set
 	MinTimeFromCreationSeconds *int64
 	MaxTimeFromCreationSeconds *int64
-	TimeFromCreationRelation RelativeConstraint
+	TimeFromCreationRelation *RelativeConstraint
 }
 
 
-type RelativePrioirtyConstraint string
+type RelativeConstraint string
 
 const (
 	Lower RelativeConstraint = "Lower"
@@ -509,8 +510,11 @@ const (
 	IsDRSLessThanOrEqualToFinalShare OrderingField = "IsDRSLessThanOrEqualToFinalShare"
 )
 ```
+
+
 As defined by [current ordering](https://github.com/kubernetes-sigs/kueue/blob/24f6f99135979076a8d56ca7fc407990b98c66af/pkg/scheduler/preemption/common/ordering.go#L34-L41)
 The order is right now based on:
+
 0. Workloads already marked for preemption first.
 1. Workloads from other ClusterQueues in the cohort before the ones in the same ClusterQueue as the preemptor.
 2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first
@@ -528,11 +532,6 @@ const (
 type Order struct {
 	OrderingField OrderingField
 	Direction OrderingDirection = Ascending
-}
-
-
-type Ordering struct {
-	Order []Order
 }
 ```
 
