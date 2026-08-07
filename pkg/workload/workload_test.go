@@ -3317,6 +3317,7 @@ func TestUnhealthyNodesEvictionThreshold(t *testing.T) {
 		annotationValue string
 		annotationSet   bool
 		want            int
+		wantErr         bool
 	}{
 		"absent annotation defaults to 1": {
 			annotationSet: false,
@@ -3341,11 +3342,13 @@ func TestUnhealthyNodesEvictionThreshold(t *testing.T) {
 			annotationSet:   true,
 			annotationValue: "-2",
 			want:            1,
+			wantErr:         true,
 		},
 		"non-numeric falls back to default": {
 			annotationSet:   true,
 			annotationValue: "many",
 			want:            1,
+			wantErr:         true,
 		},
 	}
 	for name, tc := range cases {
@@ -3355,13 +3358,21 @@ func TestUnhealthyNodesEvictionThreshold(t *testing.T) {
 				wlWrapper = wlWrapper.Annotation(kueue.TASUnhealthyNodesEvictionThresholdAnnotation, tc.annotationValue)
 			}
 			wl := wlWrapper.Obj()
-			if got := UnhealthyNodesEvictionThreshold(wl); got != tc.want {
+			got, err := UnhealthyNodesEvictionThreshold(wl)
+			if got != tc.want {
 				t.Errorf("UnhealthyNodesEvictionThreshold() = %d, want %d", got, tc.want)
+			}
+			if gotErr := err != nil; gotErr != tc.wantErr {
+				t.Errorf("UnhealthyNodesEvictionThreshold() error = %v, wantErr %t", err, tc.wantErr)
 			}
 		})
 	}
-	if got := UnhealthyNodesEvictionThreshold(nil); got != DefaultUnhealthyNodesEvictionThreshold {
+	got, err := UnhealthyNodesEvictionThreshold(nil)
+	if got != DefaultUnhealthyNodesEvictionThreshold {
 		t.Errorf("UnhealthyNodesEvictionThreshold(nil) = %d, want %d", got, DefaultUnhealthyNodesEvictionThreshold)
+	}
+	if err != nil {
+		t.Errorf("UnhealthyNodesEvictionThreshold(nil) error = %v, want nil", err)
 	}
 }
 

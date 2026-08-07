@@ -415,12 +415,21 @@ func (s *Scheduler) processEntry(
 	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
 	mode := e.assignment.RepresentativeMode()
 
-	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) &&
-		mode != flavorassigner.Fit &&
-		(!features.Enabled(features.TASReplaceMultipleFailedNodes) ||
-			len(e.Obj.Status.UnhealthyNodes) > workload.UnhealthyNodesEvictionThreshold(e.Obj)) {
-		s.handleFailedTASReplacement(ctx, log, e)
-		return
+	if features.Enabled(features.TASFailedNodeReplacementFailFast) &&
+		workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) &&
+		mode != flavorassigner.Fit {
+		failFast := !features.Enabled(features.TASReplaceMultipleFailedNodes)
+		if !failFast {
+			threshold, err := workload.UnhealthyNodesEvictionThreshold(e.Obj)
+			if err != nil {
+				log.Error(err, "Invalid unhealthy nodes eviction threshold")
+			}
+			failFast = len(e.Obj.Status.UnhealthyNodes) > threshold
+		}
+		if failFast {
+			s.handleFailedTASReplacement(ctx, log, e)
+			return
+		}
 	}
 
 	if mode == flavorassigner.NoFit {

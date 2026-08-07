@@ -494,7 +494,10 @@ func (r *nodeReconciler) checkPodsOnNode(
 func (r *nodeReconciler) evictWorkloadIfNeeded(ctx context.Context, log logr.Logger, wl *kueue.Workload, nodeName string) (bool, error) {
 	if workload.HasUnhealthyNodes(wl) && !workload.HasUnhealthyNode(wl, nodeName) && !workloadevict.IsEvicted(wl) {
 		if features.Enabled(features.TASReplaceMultipleFailedNodes) {
-			threshold := workload.UnhealthyNodesEvictionThreshold(wl)
+			threshold, err := workload.UnhealthyNodesEvictionThreshold(wl)
+			if err != nil {
+				log.Error(err, "Invalid unhealthy nodes eviction threshold", "workload", klog.KObj(wl))
+			}
 			if len(wl.Status.UnhealthyNodes) < threshold {
 				log.V(3).Info("Skipping eviction; replacing failed nodes in place (within eviction threshold)",
 					"unhealthyNodes", workload.UnhealthyNodeNames(wl), "newUnhealthyNode", nodeName, "evictionThreshold", threshold)
