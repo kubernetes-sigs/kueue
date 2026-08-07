@@ -47,6 +47,9 @@ const (
 	// trigger the token re-validation ticker without waiting 30 seconds.
 	testTokenRevalidationInterval = 100 * time.Millisecond
 
+	// testHeartbeatInterval is a short interval used in tests to quickly
+	// trigger WebSocket heartbeat pings without waiting 30 seconds.
+	testHeartbeatInterval = 100 * time.Millisecond
 	// testPollInterval is the polling frequency used in waitUntil calls.
 	testPollInterval = 10 * time.Millisecond
 
@@ -245,7 +248,8 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					return map[string]int64{"call": fetchCalls.Add(1)}, nil
 				}
 
-				conn, closeServer := newTestWebSocketConnection(t, &Handlers{client: client}, dataFetcher, gvkA, gvkB)
+				h := New(client, nil)
+				conn, closeServer := newTestWebSocketConnection(t, h, dataFetcher, gvkA, gvkB)
 				defer closeServer()
 				defer conn.Close()
 
@@ -276,11 +280,8 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					return map[string]int64{"call": fetchCalls.Add(1)}, nil
 				}
 
-				h := &Handlers{
-					client:                    client,
-					validator:                 validator,
-					tokenRevalidationInterval: testTokenRevalidationInterval,
-				}
+				h := New(client, validator)
+				h.tokenRevalidationInterval = testTokenRevalidationInterval
 				conn, closeServer := newTestWebSocketConnectionWithToken(t, h, "test-token", dataFetcher, gvk)
 				defer closeServer()
 
@@ -336,7 +337,8 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					return map[string]string{"status": "ok"}, nil
 				}
 
-				conn, closeServer := newTestWebSocketConnection(t, &Handlers{client: client}, dataFetcher, gvkA, gvkB)
+				h := New(client, nil)
+				conn, closeServer := newTestWebSocketConnection(t, h, dataFetcher, gvkA, gvkB)
 				defer closeServer()
 
 				readMessage(t, conn)
@@ -366,7 +368,8 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					return map[string]int64{"call": fetchCalls.Add(1)}, nil
 				}
 
-				conn, closeServer := newTestWebSocketConnection(t, &Handlers{client: client}, dataFetcher, gvk)
+				h := New(client, nil)
+				conn, closeServer := newTestWebSocketConnection(t, h, dataFetcher, gvk)
 				defer closeServer()
 				defer conn.Close()
 
@@ -413,6 +416,65 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 				}
 			},
 		},
+		"sends websocket heartbeat ping": {
+			run: func(t *testing.T) {
+				gvk := schema.GroupVersionKind{
+					Group:   "group",
+					Version: "v1",
+					Kind:    "Kind",
+				}
+
+				informer := newMockInformer()
+				client := newMockClient(
+					map[schema.GroupVersionKind]*mockInformer{
+						gvk: informer,
+					},
+				)
+
+				dataFetcher := func(_ context.Context) (any, error) {
+					return map[string]string{"status": "ok"}, nil
+				}
+
+				h := New(client, nil)
+				h.heartbeatInterval = testHeartbeatInterval
+				conn, closeServer := newTestWebSocketConnection(t, h, dataFetcher, gvk)
+				defer closeServer()
+				defer conn.Close()
+
+				// Consume the initial data snapshot.
+				readMessage(t, conn)
+
+				pingReceived := make(chan struct{}, 1)
+				defaultPingHandler := conn.PingHandler()
+
+				conn.SetPingHandler(func(appData string) error {
+					select {
+					case pingReceived <- struct{}{}:
+					default:
+					}
+
+					return defaultPingHandler(appData)
+				})
+
+				readErr := make(chan error, 1)
+				go func() {
+					for {
+						if _, _, err := conn.ReadMessage(); err != nil {
+							readErr <- err
+							return
+						}
+					}
+				}()
+
+				select {
+				case <-pingReceived:
+				case err := <-readErr:
+					t.Fatalf("read websocket message: %v", err)
+				case <-time.After(testTimeout):
+					t.Fatalf("timeout waiting for WebSocket heartbeat ping")
+				}
+			},
+		},
 		"enforces websocket read limit": {
 			run: func(t *testing.T) {
 				gvk := schema.GroupVersionKind{Group: "group", Version: "v1", Kind: "Kind"}
@@ -424,7 +486,8 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					return map[string]string{"status": "ok"}, nil
 				}
 
-				conn, closeServer := newTestWebSocketConnection(t, &Handlers{client: client}, dataFetcher, gvk)
+				h := New(client, nil)
+				conn, closeServer := newTestWebSocketConnection(t, h, dataFetcher, gvk)
 				defer closeServer()
 				defer conn.Close()
 
