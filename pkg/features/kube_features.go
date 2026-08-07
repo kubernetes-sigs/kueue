@@ -607,6 +607,16 @@ const (
 	// Refuse to adopt an existing Workload by pod-group name when it was not created
 	// by the pod-group framework (missing is-group-workload annotation).
 	PodIntegrationValidateGroupOwner featuregate.Feature = "PodIntegrationValidateGroupOwner"
+
+	// owner: @ivnovakov
+	//
+	// Validates an update in the RayCluster, RayJob, RayService and SparkApplication
+	// webhooks when the object carried a queue-name label before the update, so removing
+	// that label cannot leave a job running unmanaged. Jobs that Kueue manages neither
+	// before nor after the update are never validated. When disabled, those webhooks only
+	// validate an update if manageJobsWithoutQueueName is set or the new object carries a
+	// queue-name label.
+	ValidateRayAndSparkJobUpdates featuregate.Feature = "ValidateRayAndSparkJobUpdates"
 )
 
 func init() {
@@ -926,6 +936,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	PodIntegrationValidateGroupOwner: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ValidateRayAndSparkJobUpdates: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
 	},
 }

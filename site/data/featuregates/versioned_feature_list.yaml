@@ -595,6 +595,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: ValidateRayAndSparkJobUpdates
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: VectorizedResourceRequests
   versionedSpecs:
   - default: true

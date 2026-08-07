@@ -92,6 +92,17 @@ func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 	return allErrs
 }
 
+// ShouldValidateRayOrSparkJobOnUpdate reports whether an update must be validated.
+// Jobs that Kueue does not manage are never validated on update.
+// With ValidateRayAndSparkJobUpdates enabled a job that was managed before the update is
+// also validated, so removing its queue-name label cannot leave it running unmanaged.
+func ShouldValidateRayOrSparkJobOnUpdate(oldJob, newJob GenericJob, manageJobsWithoutQueueName bool) bool {
+	if manageJobsWithoutQueueName || QueueName(newJob) != "" {
+		return true
+	}
+	return features.Enabled(features.ValidateRayAndSparkJobUpdates) && QueueName(oldJob) != ""
+}
+
 // ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
 func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(string) bool) field.ErrorList {
 	allErrs := validateUpdateForQueueName(oldJob, newJob, defaultQueueExist)
