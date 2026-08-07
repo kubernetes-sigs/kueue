@@ -19,6 +19,7 @@ package queue
 import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
@@ -52,7 +53,7 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	}
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 
-	if cq.breakDownByWorkloadLabels() {
+	if features.Enabled(features.CustomMetricLabels) {
 		// Clear zero count label sets.
 		clearZeroWorkloadCounts(m, cq.name, active, metrics.PendingStatusActive)
 		clearZeroWorkloadCounts(m, cq.name, inadmissible, metrics.PendingStatusInadmissible)

@@ -1642,3 +1642,19 @@ func ClearLocalQueueUnadmittedWorkloadLabelValues(
 	)
 	LocalQueueUnadmittedWorkloads.DeleteLabelValues(labels...)
 }
+
+func TrackWorkload(cl *CustomLabels, tracker *LabelValsTracker, w *kueue.Workload) {
+	if cl.KindConfigured(configapi.SourceKindWorkload) {
+		tracker.Incr(cl.MakeValsSet(configapi.SourceKindWorkload, w.Labels, w.Annotations))
+	} else {
+		tracker.Incr(EmptyValsSet())
+	}
+}
+
+func UntrackWorkload(cl *CustomLabels, tracker *LabelValsTracker, w *kueue.Workload) {
+	if cl.KindConfigured(configapi.SourceKindWorkload) {
+		tracker.Decr(cl.MakeValsSet(configapi.SourceKindWorkload, w.Labels, w.Annotations))
+	} else {
+		tracker.Decr(EmptyValsSet())
+	}
+}
