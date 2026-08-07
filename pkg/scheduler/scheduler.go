@@ -278,7 +278,7 @@ func (e *entry) markAssumed() {
 // recordAssignment stores a flavor assignment and its preemption
 // targets from nominate. LastAssignment aliases the stored
 // assignment's LastState so it tracks any later mutation.
-func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preemption.Target) {
+func (e *entry) recordAssignment(a flavorassigner.Assignment, targets preemption.PreemptionTargets) {
 	e.assignment = a
 	e.preemptionTargets = targets
 	e.inadmissibleMsg = e.assignment.Message()
@@ -638,7 +638,7 @@ type entry struct {
 	status               entryStatus
 	inadmissibleMsg      string
 	requeueReason        qcache.RequeueReason
-	preemptionTargets    []*preemption.Target
+	preemptionTargets    preemption.PreemptionTargets
 	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
 	quotaReservedReason  string
 	skipStatusUpdate     bool
@@ -818,7 +818,7 @@ type partialAssignment struct {
 	preemptionTargets []*preemption.Target
 }
 
-func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, preemption.PreemptionTargets) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 	// The flavor scan resumes from the progress recorded in LastAssignment, so it has to be
 	// dropped once it no longer describes the current state. Deciding that here rather than
@@ -877,10 +877,12 @@ func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentC
 //     identified during scheduling.
 //
 // If no valid assignment can be made, returns the original full assignment with no preemption targets.
-func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
+func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, preemption.PreemptionTargets) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
-	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
+	replacedSliceTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
+	var preemptionTargets preemption.PreemptionTargets
+	preemptionTargets.Insert(replacedSliceTargets...)
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
 		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
@@ -896,7 +898,8 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 	if arm == flavorassigner.Preempt {
 		faPreemptionTargets := s.preemptor.GetTargets(ctx, *wl, fullAssignment, snap)
 		if len(faPreemptionTargets) > 0 {
-			return fullAssignment, mergeWithReplacedSliceTargets(preemptionTargets, faPreemptionTargets)
+			preemptionTargets.Insert(faPreemptionTargets...)
+			return fullAssignment, preemptionTargets
 		}
 	}
 
@@ -917,35 +920,11 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 			return nil, false
 		})
 		if pa, found := reducer.Search(); found {
-			return pa.assignment, mergeWithReplacedSliceTargets(preemptionTargets, pa.preemptionTargets)
+			preemptionTargets.Insert(pa.preemptionTargets...)
+			return pa.assignment, preemptionTargets
 		}
 	}
 	return fullAssignment, nil
-}
-
-// mergeWithReplacedSliceTargets appends the targets selected by the
-// preemptor to the replaced-workload-slice targets, dropping preemptor
-// duplicates of the replaced slice. The old slice remains in the
-// snapshot as an admitted workload, so the preemptor can select it
-// again; keeping both copies would subtract the slice's usage twice in
-// fit simulations, and FindReplacedSliceTarget removes only one
-// occurrence, so the duplicate would be evicted via preemption instead
-// of replaced.
-func mergeWithReplacedSliceTargets(sliceTargets, preemptorTargets []*preemption.Target) []*preemption.Target {
-	if len(sliceTargets) == 0 {
-		return preemptorTargets
-	}
-	sliceKeys := sets.New[workload.Reference]()
-	for _, target := range sliceTargets {
-		sliceKeys.Insert(workload.Key(target.WorkloadInfo.Obj))
-	}
-	merged := slices.Clone(sliceTargets)
-	for _, target := range preemptorTargets {
-		if !sliceKeys.Has(workload.Key(target.WorkloadInfo.Obj)) {
-			merged = append(merged, target)
-		}
-	}
-	return merged
 }
 
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
