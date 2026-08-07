@@ -28,6 +28,12 @@ across all worker clusters, specifically leveraging Topology Aware Scheduling
 manager handles all admission, preemption, and fair-sharing decisions, and all
 project or team-specific quotas are managed entirely on the manager cluster.
 
+This new centralized scheduling scheme is necessarily more computationally
+expensive than MultiKueue's current mode which primarily manages global quota
+and dispatch and relies on workers to make authoritative scheduling decisions.
+Users will be able to select which mode a MultiKueue instance uses for their
+scheduling and scaling requirements.
+
 ## Motivation
 
 Currently, MultiKueue delegates final scheduling decisions to the worker
@@ -55,6 +61,7 @@ sync quotas across every worker cluster.
 - Supporting workloads that span multiple clusters (cross-cluster gangs). A
   single workload must still fit entirely within one worker cluster.
 - Supporting dynamic node provisioning (autoscaling) for TAS workloads in this iteration.
+- Fundamentally change the existing MultiKueue design.
 
 ## Proposal
 
