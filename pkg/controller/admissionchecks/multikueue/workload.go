@@ -1103,7 +1103,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager, cfg *config.Configurat
 			NeedLeaderElection: new(false),
 			LogConstructor:     roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload"),
 		}).
-		Complete(core.WithLeadingManagerObserver(mgr, w, cfg))
+		Complete(core.WithLeadingManagerAndObserver(mgr, w, cfg))
 }
 
 func findPodSetAssignment(assignments []kueue.PodSetAssignment, name kueue.PodSetReference) *kueue.PodSetAssignment {
