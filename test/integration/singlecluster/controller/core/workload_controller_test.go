@@ -1504,18 +1504,19 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 				restartManager()
 			})
 
-			ginkgo.By("waiting for workload controller to be active after restart", func() {
-				// Probe that controllers are reconciling after restart
-				// by creating a workload and waiting for it to be reflected
-				// in the LocalQueue status.
-				probeWl := utiltestingapi.MakeWorkload("probe-wl", ns.Name).Queue("q").
+			ginkgo.By("waiting for workload controller to reconcile after restart", func() {
+				// Probe that the workload controller is reconciling after restart
+				// by creating a workload and waiting for a status update.
+				probeWl := utiltestingapi.MakeWorkload("probe-wl", ns.Name).Queue("missing-queue").
 					Request(corev1.ResourceCPU, "1").Obj()
 				gomega.Expect(k8sClient.Create(ctx, probeWl)).To(gomega.Succeed())
-				gomega.Eventually(func(g gomega.Gomega) {
-					var lq kueue.LocalQueue
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &lq)).To(gomega.Succeed())
-					g.Expect(lq.Status.PendingWorkloads).To(gomega.Equal(int32(1)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				util.ExpectWorkloadToHaveConditions(ctx, k8sClient, client.ObjectKeyFromObject(probeWl),
+					metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadInadmissible,
+					},
+				)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, probeWl, true)
 			})
 
