@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -152,14 +153,15 @@ func TestImportNamespace(t *testing.T) {
 	}}
 
 	cases := map[string]struct {
-		pods          []corev1.Pod
-		clusterQueue  kueue.ClusterQueue
-		localQueue    kueue.LocalQueue
-		addLabels     map[string]string
-		flavors       []kueue.ResourceFlavor
-		wantPods      []corev1.Pod
-		wantWorkloads []kueue.Workload
-		wantError     error
+		pods            []corev1.Pod
+		clusterQueue    kueue.ClusterQueue
+		localQueue      kueue.LocalQueue
+		addLabels       map[string]string
+		flavors         []kueue.ResourceFlavor
+		priorityClasses []schedulingv1.PriorityClass
+		wantPods        []corev1.Pod
+		wantWorkloads   []kueue.Workload
+		wantError       error
 	}{
 		"create one": {
 			pods: []corev1.Pod{
@@ -183,6 +185,33 @@ func TestImportNamespace(t *testing.T) {
 		"create one, add labels": {
 			pods: []corev1.Pod{
 				*basePodWrapper.DeepCopy(),
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *baseClusterQueue.Obj(),
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("f1").Obj(),
+			},
+			addLabels: map[string]string{
+				"new.lbl": "val",
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.Clone().
+					Label(controllerconstants.QueueLabel, "lq1").
+					ManagedByKueueLabel().
+					Label("new.lbl", "val").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWlWrapper.Clone().
+					Label("new.lbl", "val").
+					Obj(),
+			},
+		},
+		"pod already carries matching queue label but is missing managed-by and add-labels": {
+			pods: []corev1.Pod{
+				*basePodWrapper.Clone().
+					Label(controllerconstants.QueueLabel, "lq1").
+					Obj(),
 			},
 			localQueue:   *baseLocalQueue.Obj(),
 			clusterQueue: *baseClusterQueue.Obj(),
@@ -234,6 +263,25 @@ func TestImportNamespace(t *testing.T) {
 					MaximumExecutionTimeSeconds(3600).
 					Obj(),
 			},
+		},
+		"pod has conflicting pre-existing queue label": {
+			pods: []corev1.Pod{
+				*basePodWrapper.Clone().
+					Label(controllerconstants.QueueLabel, "other-lq").
+					Obj(),
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *baseClusterQueue.Obj(),
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("f1").Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.Clone().
+					Label(controllerconstants.QueueLabel, "other-lq").
+					Obj(),
+			},
+			wantError:     &queueLabelConflictError{CurrentQueue: "other-lq", ExpectedQueue: "lq1"},
+			wantWorkloads: []kueue.Workload{},
 		},
 		"missing cluster queue": {
 			pods: []corev1.Pod{
@@ -300,9 +348,55 @@ func TestImportNamespace(t *testing.T) {
 			flavors: []kueue.ResourceFlavor{
 				*utiltestingapi.MakeResourceFlavor("f1").Obj(),
 			},
-			wantError: &resourceNotCoveredError{Resource: corev1.ResourceCPU, ClusterQueue: "cq1"},
+			wantError: cache.ErrCQInvalid,
 			wantPods: []corev1.Pod{
 				*basePodWrapper.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{},
+		},
+		"imports a pod referencing a known priority class": {
+			pods: []corev1.Pod{
+				*basePodWrapper.Clone().PriorityClass("p-class").Obj(),
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *baseClusterQueue.Obj(),
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("f1").Obj(),
+			},
+			priorityClasses: []schedulingv1.PriorityClass{
+				{ObjectMeta: metav1.ObjectMeta{Name: "p-class"}, Value: 100},
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.Clone().PriorityClass("p-class").
+					Label(controllerconstants.QueueLabel, "lq1").
+					ManagedByKueueLabel().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWlWrapper.Clone().
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Image("img").
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						PriorityClass("p-class").
+						Obj()).
+					PodPriorityClassRef("p-class").
+					Priority(100).
+					Obj(),
+			},
+		},
+		"returns an error without mutating pod or creating workload when priority class is unknown": {
+			pods: []corev1.Pod{
+				*basePodWrapper.Clone().PriorityClass("missing-class").Obj(),
+			},
+			localQueue:   *baseLocalQueue.Obj(),
+			clusterQueue: *baseClusterQueue.Obj(),
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("f1").Obj(),
+			},
+			wantError: cache.ErrPCNotFound,
+			wantPods: []corev1.Pod{
+				*basePodWrapper.Clone().PriorityClass("missing-class").Obj(),
 			},
 			wantWorkloads: []kueue.Workload{},
 		},
@@ -314,10 +408,11 @@ func TestImportNamespace(t *testing.T) {
 			cqList := kueue.ClusterQueueList{Items: []kueue.ClusterQueue{tc.clusterQueue}}
 			lqList := kueue.LocalQueueList{Items: []kueue.LocalQueue{tc.localQueue}}
 			rfList := kueue.ResourceFlavorList{Items: tc.flavors}
+			pcList := schedulingv1.PriorityClassList{Items: tc.priorityClasses}
 
 			builder := utiltesting.NewClientBuilder().
 				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).WithStatusSubresource(&kueue.Workload{}).
-				WithLists(&podsList, &cqList, &lqList, &rfList)
+				WithLists(&podsList, &cqList, &lqList, &rfList, &pcList)
 
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -352,71 +447,11 @@ func TestImportNamespace(t *testing.T) {
 	}
 }
 
-func TestResourceFlavorForResource(t *testing.T) {
-	cases := map[string]struct {
-		clusterQueue *kueue.ClusterQueue
-		resource     corev1.ResourceName
-		wantFlavor   kueue.ResourceFlavorReference
-	}{
-		"returns the flavor from the matching resource group": {
-			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("cpu-flavor").
-						Resource(corev1.ResourceCPU, "10", "0").
-						Resource(corev1.ResourceMemory, "10Gi", "0").
-						Obj(),
-				).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("gpu-flavor").
-						Resource(corev1.ResourceName("nvidia.com/gpu"), "10", "0").
-						Obj(),
-				).Obj(),
-			resource:   corev1.ResourceName("nvidia.com/gpu"),
-			wantFlavor: "gpu-flavor",
-		},
-		"returns the first flavor from the matching resource group": {
-			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("on-demand").
-						Resource(corev1.ResourceName("nvidia.com/gpu"), "10", "0").
-						Obj(),
-					*utiltestingapi.MakeFlavorQuotas("spot").
-						Resource(corev1.ResourceName("nvidia.com/gpu"), "10", "0").
-						Obj(),
-				).Obj(),
-			resource:   corev1.ResourceName("nvidia.com/gpu"),
-			wantFlavor: "on-demand",
-		},
-		"returns an empty string when the resource is not covered by any resource group": {
-			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("cpu-flavor").
-						Resource(corev1.ResourceCPU, "10", "0").
-						Obj(),
-				).Obj(),
-			resource:   corev1.ResourceName("nvidia.com/gpu"),
-			wantFlavor: "",
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			gotFlavor := resourceFlavorForResource(tc.clusterQueue, tc.resource)
-
-			if gotFlavor != tc.wantFlavor {
-				t.Fatalf("Unexpected flavor, got %q want %q", gotFlavor, tc.wantFlavor)
-			}
-		})
-	}
-}
-
 func TestFlavorAssignmentsForRequests(t *testing.T) {
-	cq := utiltestingapi.MakeClusterQueue("cq").
-		ResourceGroup(
-			*utiltestingapi.MakeFlavorQuotas("cpu-flavor").
-				Resource(corev1.ResourceCPU, "10", "0").
-				Obj(),
-		).Obj()
+	const cqName = "cq"
+	flavorsByResource := map[corev1.ResourceName]kueue.ResourceFlavorReference{
+		corev1.ResourceCPU: "cpu-flavor",
+	}
 
 	cases := map[string]struct {
 		requests  resources.Requests
@@ -457,7 +492,7 @@ func TestFlavorAssignmentsForRequests(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, gotErr := flavorAssignmentsForRequests(cq, tc.requests)
+			got, gotErr := flavorAssignmentsForRequests(flavorsByResource, cqName, tc.requests)
 
 			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Fatalf("Unexpected error (-want/+got)\n%s", diff)
