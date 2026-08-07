@@ -555,12 +555,12 @@ func (s *Scheduler) processEntry(
 
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
 		if lessFavorableSibling := s.findAdmittedLessFavorableSibling(&e.Info, snapshot); lessFavorableSibling != nil {
+			if !s.isMigrationAllowed(cq, e, log) {
+				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+				return
+			}
+			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 			processingGroup.submitRoutine(func() {
-				if !s.isMigrationAllowed(cq, e, log) {
-					e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
-					return
-				}
-				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 				s.issueMigration(ctx, log, e, lessFavorableSibling)
 			})
 			return
