@@ -37,6 +37,11 @@ import (
 func TestScheduleForFairSharing(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
+	cfg, cases := fairSharingTestConfigAndCases(now, fakeClock)
+	runScheduleTestCases(t, cfg, cases)
+}
+
+func fairSharingTestConfigAndCases(now time.Time, fakeClock *testingclock.FakeClock) (scheduleTestConfig, map[string]scheduleTestCase) {
 	ignoreEventMessageCmpOpts := cmp.Options{cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")}
 
 	resourceFlavors := []*kueue.ResourceFlavor{
@@ -3584,10 +3589,5 @@ func TestScheduleForFairSharing(t *testing.T) {
 			},
 		},
 	}
-	runScheduleTestCases(t, scheduleTestConfig{
-		queues:          queues,
-		clusterQueues:   clusterQueues,
-		resourceFlavors: resourceFlavors,
-		fakeClock:       fakeClock,
-	}, cases)
+	return scheduleTestConfig{queues: queues, clusterQueues: clusterQueues, resourceFlavors: resourceFlavors, fakeClock: fakeClock}, cases
 }
