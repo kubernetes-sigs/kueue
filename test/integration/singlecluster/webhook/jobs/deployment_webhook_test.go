@@ -21,6 +21,7 @@ import (
 	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -197,6 +198,72 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 						)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
+		})
+	})
+
+	// Regression test for GC teardown deadlock (mirrors the StatefulSet and
+	// LeaderWorkerSet specs): when foreground and background deletion are mixed
+	// in the same ownership chain, a child Deployment can get stuck in
+	// Terminating because the webhook denied the GC's PATCH to remove the
+	// foregroundDeletion finalizer (parent was already gone).
+	ginkgo.When("a child Deployment is terminating with its parent already deleted", func() {
+		ginkgo.It("Should allow removing foregroundDeletion finalizer", func() {
+			deployGVK := appsv1.SchemeGroupVersion.WithKind("Deployment")
+
+			// Create the parent Deployment (no finalizers, so it is deleted immediately).
+			parentDeployment := testingdeployment.MakeDeployment("parent-deployment", ns.Name).Queue("user-queue").Obj()
+			util.MustCreate(ctx, k8sClient, parentDeployment)
+
+			// Re-read to get the real UID assigned by the API server.
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentDeployment), parentDeployment)).To(gomega.Succeed())
+
+			// Create the child Deployment with an ownerReference to the parent and
+			// the foregroundDeletion finalizer (as the GC would add during teardown).
+			childDeployment := testingdeployment.MakeDeployment("child-deployment", ns.Name).Obj()
+			childDeployment.Finalizers = []string{metav1.FinalizerDeleteDependents}
+			isController := true
+			childDeployment.OwnerReferences = []metav1.OwnerReference{
+				{
+					APIVersion: deployGVK.GroupVersion().String(),
+					Kind:       deployGVK.Kind,
+					Name:       parentDeployment.Name,
+					UID:        parentDeployment.UID,
+					Controller: &isController,
+				},
+			}
+			util.MustCreate(ctx, k8sClient, childDeployment)
+
+			// Delete the parent Deployment with background propagation: it has no
+			// finalizers so it disappears from the API server immediately,
+			// simulating the "background delete while foreground chain is active"
+			// scenario described in the bug report.
+			background := metav1.DeletePropagationBackground
+			gomega.Expect(k8sClient.Delete(ctx, parentDeployment, &client.DeleteOptions{
+				PropagationPolicy: &background,
+			})).To(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentDeployment), &appsv1.Deployment{})).
+					Should(gomega.MatchError(gomega.ContainSubstring("not found")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			// Delete the child Deployment so it enters Terminating state.
+			// The foregroundDeletion finalizer prevents it from being fully removed.
+			gomega.Expect(k8sClient.Delete(ctx, childDeployment)).To(gomega.Succeed())
+
+			var terminatingChild appsv1.Deployment
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(childDeployment), &terminatingChild)).To(gomega.Succeed())
+				g.Expect(terminatingChild.DeletionTimestamp).NotTo(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			// Simulate what the GC does: PATCH the child Deployment to remove the
+			// foregroundDeletion finalizer.  Without the tolerance for deleting
+			// objects this PATCH is denied by the mutating webhook with
+			// "workload owner not found".
+			patch := client.MergeFrom(terminatingChild.DeepCopy())
+			terminatingChild.Finalizers = nil
+			gomega.Expect(k8sClient.Patch(ctx, &terminatingChild, patch)).To(gomega.Succeed())
 		})
 	})
 })

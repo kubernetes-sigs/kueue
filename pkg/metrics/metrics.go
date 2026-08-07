@@ -98,6 +98,10 @@ var (
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="status label (varies by metric)",replica_role="one of `leader`, `follower`, or `standalone`"
 	PendingWorkloads *prometheus.GaugeVec
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="one of `active` or `inadmissible`",replica_role="one of `leader`, `follower`, or `standalone`"
+	PendingSchedulingHashes *prometheus.GaugeVec
+
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",status="status label (varies by metric)",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueuePendingWorkloads *prometheus.GaugeVec
@@ -428,6 +432,18 @@ The label 'result' can have the following values:
 	)
 	trackGaugeVec(PendingWorkloads, gaugeCleanupScopeClusterQueue)
 
+	PendingSchedulingHashes = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "pending_scheduling_hashes",
+			Help: `The number of unique pending scheduling equivalence hashes, per 'cluster_queue' and 'status'. Reported only when SchedulingEquivalenceHashing is enabled.
+'status' can have the following values:
+- "active" means that the workloads are in the admission queue.
+- "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change`,
+		}, append([]string{"cluster_queue", "status", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+	trackGaugeVec(PendingSchedulingHashes, gaugeCleanupScopeClusterQueue)
+
 	LocalQueuePendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -561,7 +577,7 @@ The label 'underlying_cause' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admitted_workloads_total",
 			Help:      "The total number of admitted workloads per 'local_queue'",
-		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, localQueueMetricsLabels...),
+		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, cl.LabelNames(configapi.SourceKindLocalQueue, configapi.SourceKindWorkload)...),
 	)
 
 	AdmissionWaitTime = prometheus.NewHistogramVec(
@@ -597,7 +613,7 @@ The label 'underlying_cause' can have the following values:
 			Name:      "local_queue_admission_wait_time_seconds",
 			Help:      "The time between a workload was created or requeued until admission, per 'local_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, localQueueMetricsLabels...),
+		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, cl.LabelNames(configapi.SourceKindLocalQueue, configapi.SourceKindWorkload)...),
 	)
 
 	AdmissionChecksWaitTime = prometheus.NewHistogramVec(
@@ -791,7 +807,7 @@ The label 'reason' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admitted_active_workloads",
 			Help:      "The number of admitted Workloads that are active, per 'localQueue'",
-		}, append([]string{"name", "namespace", "replica_role"}, localQueueMetricsLabels...),
+		}, append([]string{"name", "namespace", "replica_role"}, cl.LabelNames(configapi.SourceKindLocalQueue, configapi.SourceKindWorkload)...),
 	)
 	trackGaugeVec(LocalQueueAdmittedActiveWorkloads, gaugeCleanupScopeLocalQueueCache)
 
@@ -1130,6 +1146,17 @@ func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, pendingStatus st
 	PendingWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
+func ReportPendingSchedulingHashes(cqName kueue.ClusterQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	if !features.Enabled(features.SchedulingEquivalenceHashing) {
+		return
+	}
+	role := roletracker.GetRole(tracker)
+	activeLabels := append([]string{string(cqName), PendingStatusActive, role}, customLabelValues...)
+	inadmissibleLabels := append([]string{string(cqName), PendingStatusInadmissible, role}, customLabelValues...)
+	PendingSchedulingHashes.WithLabelValues(activeLabels...).Set(float64(active))
+	PendingSchedulingHashes.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
+}
+
 // ReportWorkloadEvictionLatency records latency from eviction (WorkloadEvicted True) until the workload returns to Pending (quota released).
 func ReportWorkloadEvictionLatency(cqName kueue.ClusterQueueReference, reason string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cqName), reason, roletracker.GetRole(tracker)}, customLabelValues...)
@@ -1412,9 +1439,9 @@ func ReportReservingActiveWorkloads(cqName kueue.ClusterQueueReference, count in
 	ReservingActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
-func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, incr int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)}, customLabelValues...)
-	LocalQueueAdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
+	LocalQueueAdmittedActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
 }
 
 func ReportLocalQueueReservingActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1506,6 +1533,7 @@ func Register() {
 		MultiKueueWorkloadsAdmittedTotal,
 		AdmissionCyclePreemptionSkips,
 		PendingWorkloads,
+		PendingSchedulingHashes,
 		FinishedWorkloads,
 		QuotaReservedWorkloadsTotal,
 		FinishedWorkloadsTotal,

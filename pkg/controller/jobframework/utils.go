@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -109,11 +110,36 @@ func RecordWorkloadCreationLatency(ctx context.Context, job client.Object, jobKi
 	metrics.RecordWorkloadCreationLatency(jobKind, latency, customLabelValues, tracker)
 }
 
+type workloadShouldBeSuspendedOptions struct {
+	deletingObjectTolerance bool
+}
+
+// WorkloadShouldBeSuspendedOption configures WorkloadShouldBeSuspended.
+type WorkloadShouldBeSuspendedOption func(*workloadShouldBeSuspendedOptions)
+
+// WithDeletingObjectTolerance makes WorkloadShouldBeSuspended skip the suspend and
+// ancestry checks for an object that is already being deleted; its ancestry may
+// legitimately be gone already (e.g. during GC teardown). Webhook call sites opt in,
+// while reconciler predicates keep the strict behavior.
+func WithDeletingObjectTolerance(tolerate bool) WorkloadShouldBeSuspendedOption {
+	return func(o *workloadShouldBeSuspendedOptions) {
+		o.deletingObjectTolerance = tolerate
+	}
+}
+
 // WorkloadShouldBeSuspended determines whether jobObj should be default suspended on creation
-func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
-	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) (bool, error) {
+func (m *IntegrationManager) WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
+	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector, opts ...WorkloadShouldBeSuspendedOption) (bool, error) {
+	var options workloadShouldBeSuspendedOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+	if options.deletingObjectTolerance && skipCheckForDeletedObject(jobObj) {
+		ctrl.LoggerFrom(ctx).V(3).Info("Skipping suspend check for an object that is being deleted", "object", klog.KObj(jobObj))
+		return false, nil
+	}
 	// Do not default suspend a job whose ancestor is already managed by Kueue
-	ancestorJob, err := FindAncestorJobManagedByKueue(ctx, k8sClient, jobObj, manageJobsWithoutQueueName)
+	ancestorJob, err := m.FindAncestorJobManagedByKueue(ctx, k8sClient, jobObj, manageJobsWithoutQueueName)
 	if err != nil || ancestorJob != nil {
 		return false, err
 	}

@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/version"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/component-base/featuregate"
-	featuregatetesting "k8s.io/component-base/featuregate/testing"
 )
 
 const (
@@ -251,18 +250,6 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/5298
 	// Enabled skip adding finalizers for serving workloads.
 	SkipFinalizersForPodsSuspendedByParent featuregate.Feature = "SkipFinalizersForPodsSuspendedByParent"
-
-	// owner: @IrvingMg
-	//
-	// issue: https://github.com/kubernetes-sigs/kueue/issues/8585
-	// Enable waiting for WorkloadAdmitted before cleaning up non-selected worker workloads.
-	MultiKueueWaitForWorkloadAdmitted featuregate.Feature = "MultiKueueWaitForWorkloadAdmitted"
-
-	// owner: @mszadkow
-	//
-	// issue: https://github.com/kubernetes-sigs/kueue/issues/8302
-	// Redo admission on eviction in worker cluster.
-	MultiKueueRedoAdmissionOnEvictionInWorker featuregate.Feature = "MultiKueueRedoAdmissionOnEvictionInWorker"
 
 	// owner: @kannon92
 	//
@@ -520,10 +507,63 @@ const (
 	// WorkloadValidationForPodSetMetadata enables validation of labels and annotations
 	// in PodSet template metadata during Workload creation and update.
 	WorkloadValidationForPodSetMetadata featuregate.Feature = "WorkloadValidationForPodSetMetadata"
+
+	// owner: @ivnovakov
+	//
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/13279#discussion_r3655384989
+	// Keeps spec.leaderWorkerTemplate.size immutable while a LeaderWorkerSet is managed by
+	// Kueue. Workload updates never recompute PodSets, so growing size would ungate extra
+	// pods per group without accounting for quota. Recreate the LeaderWorkerSet to change
+	// the size, or disable this gate to accept the previous behavior.
+	LWSImmutableGroupSize featuregate.Feature = "LWSImmutableGroupSize"
+
+	// owner: @vladikkuzn
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/pull/13014
+	// Refuse to adopt an existing Workload by pod-group name when it was not created
+	// by the pod-group framework (missing is-group-workload annotation).
+	PodIntegrationValidateGroupOwner featuregate.Feature = "PodIntegrationValidateGroupOwner"
+
+	// owner: @iaalm
+	//
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/10009
+	// Tolerates a missing owner while walking the ownership chain of an object that is
+	// already being deleted (GC teardown with mixed foreground/background deletion), so
+	// Kueue webhooks do not block finalizer removal. Disable to restore the previous
+	// behavior of failing the admission request when an owner cannot be found.
+	//
+	// Note: the tolerance cannot apply at creation time — the API server never creates
+	// an object with a deletionTimestamp itself (one could technically be injected by a
+	// mutating webhook, which is deliberately not covered) — so the strict missing-owner
+	// handling on CREATE (which
+	// protects against acting on a stale informer view of a just-created owner) is
+	// unchanged. The earliest the tolerance can apply is an update after deletion has
+	// begun, and suspend defaulting only ever adds suspend, so no path exists to
+	// unsuspend an object or bypass quota via create-then-delete.
+	SkipAncestorCheckForDeletedWorkloads featuregate.Feature = "SkipAncestorCheckForDeletedWorkloads"
 )
 
 func init() {
 	runtime.Must(utilfeature.DefaultMutableFeatureGate.AddVersioned(defaultVersionedFeatureGates))
+	runtime.Must(utilfeature.DefaultMutableFeatureGate.AddDependencies(defaultFeatureGateDependencies))
+}
+
+var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
+	TASFailedNodeReplacement:                 {TopologyAwareScheduling},
+	TASFailedNodeReplacementFailFast:         {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeOnPodTermination:           {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeDueToNotReadyOverFixedTime: {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASBalancedPlacement:                     {TopologyAwareScheduling},
+	TASReplaceNodeOnNodeTaints:               {TopologyAwareScheduling},
+	TASMultiLayerTopology:                    {TopologyAwareScheduling},
+	TASRespectNodeAffinityPreferred:          {TopologyAwareScheduling},
+	UnadmittedWorkloadsExplicitStatus:        {UnadmittedWorkloadsObservability},
+	TASHandleOverlappingFlavors:              {TopologyAwareScheduling},
+	TASProfileMixed:                          {TopologyAwareScheduling},
+	ElasticJobsViaWorkloadSlicesWithTAS:      {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
+	KueueDRAIntegrationExtendedResource:      {KueueDRAIntegration},
+	KueueDRAIntegrationPartitionableDevices:  {KueueDRAIntegration},
+	KueueDRAIntegrationConsumableCapacity:    {KueueDRAIntegration},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -655,14 +695,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	SkipFinalizersForPodsSuspendedByParent: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
-		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
-	},
-	MultiKueueWaitForWorkloadAdmitted: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
-		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
-	},
-	MultiKueueRedoAdmissionOnEvictionInWorker: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
@@ -801,16 +833,76 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	WorkloadValidationForPodSetMetadata: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
+
+	LWSImmutableGroupSize: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PodIntegrationValidateGroupOwner: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	SkipAncestorCheckForDeletedWorkloads: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
 }
 
 func SetFeatureGateDuringTest(tb testing.TB, f featuregate.Feature, value bool) {
-	featuregatetesting.SetFeatureGateDuringTest(tb, utilfeature.DefaultFeatureGate, f, value)
+	SetFeatureGatesDuringTest(tb, map[featuregate.Feature]bool{f: value})
 }
 
 func SetFeatureGatesDuringTest(tb testing.TB, featureGates map[featuregate.Feature]bool) {
-	for fg, enable := range featureGates {
-		featuregatetesting.SetFeatureGateDuringTest(tb, utilfeature.DefaultFeatureGate, fg, enable)
+	originalValues := make(map[string]bool)
+	for k := range utilfeature.DefaultMutableFeatureGate.GetAll() {
+		originalValues[string(k)] = utilfeature.DefaultFeatureGate.Enabled(k)
 	}
+
+	stringMap := make(map[string]bool)
+	var enableWithDependencies func(fg featuregate.Feature)
+	enableWithDependencies = func(fg featuregate.Feature) {
+		stringMap[string(fg)] = true
+		for _, dep := range defaultFeatureGateDependencies[fg] {
+			enableWithDependencies(dep)
+		}
+	}
+
+	var disableWithDependents func(fg featuregate.Feature)
+	disableWithDependents = func(fg featuregate.Feature) {
+		stringMap[string(fg)] = false
+		for dependent, parents := range defaultFeatureGateDependencies {
+			for _, parent := range parents {
+				if parent == fg {
+					disableWithDependents(dependent)
+				}
+			}
+		}
+	}
+
+	// Populate stringMap deterministically
+	for fg, enable := range featureGates {
+		if !enable {
+			disableWithDependents(fg)
+		}
+	}
+	for fg, enable := range featureGates {
+		if enable {
+			enableWithDependencies(fg)
+		}
+	}
+	// Re-apply explicit caller choices so caller intent is never silently overwritten
+	for fg, enable := range featureGates {
+		stringMap[string(fg)] = enable
+	}
+
+	if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(stringMap); err != nil {
+		tb.Fatalf("Failed to set feature gates: %v", err)
+	}
+
+	tb.Cleanup(func() {
+		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(originalValues); err != nil {
+			tb.Errorf("error restoring features: %v", err)
+		}
+	})
 }
 
 // Enabled is helper for `utilfeature.DefaultFeatureGate.Enabled()`

@@ -170,6 +170,10 @@ type ClusterQueue struct {
 	// Cleared when queueInadmissibleWorkloads runs.
 	hashToBulkMoveReason map[workload.EquivalenceHash]QuotaReservedReason
 
+	// schedulingHashes tracks the scheduling equivalence hashes of pending
+	// workloads for the pending_scheduling_hashes metric.
+	schedulingHashes *schedulingHashCounts
+
 	finishedWorkloads sets.Set[workload.Reference]
 
 	// popCycle identifies the last call to Pop. It's incremented when calling Pop.
@@ -210,12 +214,16 @@ type ClusterQueue struct {
 	pendingResourcesTotal map[corev1.ResourceName]int64
 }
 
-func (c *ClusterQueue) recordInadmissible(key workload.Reference, wInfo *workload.Info) {
-	if oldInfo := c.inadmissibleWorkloads.get(key); oldInfo != nil {
+func (c *ClusterQueue) recordInadmissible(key workload.Reference, oldInfo, newInfo *workload.Info) {
+	if oldInfo == nil {
+		oldInfo = c.inadmissibleWorkloads.get(key)
+	}
+	if oldInfo != nil {
 		metrics.UntrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, oldInfo.Obj)
 	}
-	c.inadmissibleWorkloads.insert(key, wInfo)
-	metrics.TrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, wInfo.Obj)
+	c.inadmissibleWorkloads.insert(key, newInfo)
+	c.schedulingHashes.updateInadmissible(oldInfo, newInfo)
+	metrics.TrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, newInfo.Obj)
 }
 
 func (c *ClusterQueue) forgetInadmissible(key workload.Reference, wInfo *workload.Info) {
@@ -326,6 +334,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, cl *metrics.
 		inadmissibleWorkloads:        make(inadmissibleWorkloads),
 		inadmissibleWorkloadsTracker: metrics.NewLabelValsTracker(),
 		hashToBulkMoveReason:         make(map[workload.EquivalenceHash]QuotaReservedReason),
+		schedulingHashes:             newSchedulingHashCounts(),
 		finishedWorkloads:            sets.New[workload.Reference](),
 		queueInadmissibleCycle:       -1,
 		compareFunc:                  compareFunc,
@@ -445,7 +454,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) &&
 			workload.HasClosedPreemptionGate(oldInfo.Obj) == workload.HasClosedPreemptionGate(wInfo.Obj) &&
 			!draRequestsChanged(oldInfo, wInfo) {
-			c.recordInadmissible(key, wInfo)
+			c.recordInadmissible(key, oldInfo, wInfo)
 			return
 		}
 		// Workload is leaving inadmissible; account for its resources before moving.
@@ -540,11 +549,20 @@ func (c *ClusterQueue) subtractPendingResources(wInfo *workload.Info) {
 }
 
 func (c *ClusterQueue) insertInadmissible(key workload.Reference, wInfo *workload.Info) {
-	c.recordInadmissible(key, wInfo)
+	c.recordInadmissible(key, nil, wInfo)
+	c.schedulingHashes.addInadmissible(wInfo)
 	c.addPendingResources(wInfo)
 }
 
+func (c *ClusterQueue) updateInadmissible(key workload.Reference, oldInfo, newInfo *workload.Info) {
+	// This is the in-place path for updates that cannot change admissibility,
+	// so retain the existing pendingResourcesTotal contribution.
+	c.inadmissibleWorkloads.insert(key, newInfo)
+	c.schedulingHashes.updateInadmissible(oldInfo, newInfo)
+}
+
 func (c *ClusterQueue) removeFromInadmissible(key workload.Reference, wInfo *workload.Info) {
+	c.schedulingHashes.removeInadmissible(wInfo)
 	c.subtractPendingResources(wInfo)
 	c.forgetInadmissible(key, wInfo)
 }
@@ -566,6 +584,7 @@ func (c *ClusterQueue) pushToHeapIfNotTracked(wInfo *workload.Info) bool {
 	if !c.heap.PushIfNotPresent(wInfo) {
 		return false
 	}
+	c.schedulingHashes.addActive(wInfo)
 	metrics.TrackWorkload(c.customLabels, c.pendingWorkloadsTracker, wInfo.Obj)
 	c.addPendingResources(wInfo)
 	return true
@@ -575,11 +594,13 @@ func (c *ClusterQueue) pushToHeapIfNotTracked(wInfo *workload.Info) bool {
 // The old copy's resources are subtracted before the new copy's are added,
 // because the requests may have changed.
 func (c *ClusterQueue) pushOrUpdateHeap(wInfo *workload.Info) {
-	if old := c.heap.GetByKey(workload.Key(wInfo.Obj)); old != nil {
+	old := c.heap.GetByKey(workload.Key(wInfo.Obj))
+	if old != nil {
 		metrics.UntrackWorkload(c.customLabels, c.pendingWorkloadsTracker, old.Obj)
 		c.subtractPendingResources(old)
 	}
 	c.heap.PushOrUpdate(wInfo)
+	c.schedulingHashes.updateActive(old, wInfo)
 	metrics.TrackWorkload(c.customLabels, c.pendingWorkloadsTracker, wInfo.Obj)
 	c.addPendingResources(wInfo)
 }
@@ -588,6 +609,7 @@ func (c *ClusterQueue) pushOrUpdateHeap(wInfo *workload.Info) {
 // resources, if the heap holds it.
 func (c *ClusterQueue) removeFromHeap(key workload.Reference) {
 	if old := c.heap.GetByKey(key); old != nil {
+		c.schedulingHashes.removeActive(old)
 		c.subtractPendingResources(old)
 		c.heap.Delete(key)
 		metrics.UntrackWorkload(c.customLabels, c.pendingWorkloadsTracker, old.Obj)
@@ -606,6 +628,7 @@ func (c *ClusterQueue) moveInadmissibleToHeap(key workload.Reference, wInfo *wor
 	}
 	metrics.TrackWorkload(c.customLabels, c.pendingWorkloadsTracker, wInfo.Obj)
 	c.inadmissibleWorkloads.delete(key)
+	c.schedulingHashes.moveToActive(wInfo)
 	metrics.UntrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, wInfo.Obj)
 	return true
 }
@@ -617,6 +640,7 @@ func (c *ClusterQueue) moveHeapToInadmissible(key workload.Reference, wInfo *wor
 	c.heap.Delete(key)
 	metrics.UntrackWorkload(c.customLabels, c.pendingWorkloadsTracker, wInfo.Obj)
 	c.inadmissibleWorkloads.insert(key, wInfo)
+	c.schedulingHashes.moveToInadmissible(wInfo)
 	metrics.TrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, wInfo.Obj)
 }
 
@@ -738,6 +762,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
 		c.inflight = nil
+		c.schedulingHashes.clearInflight()
 	}
 }
 
@@ -863,9 +888,11 @@ func (c *ClusterQueue) Pop() *workload.Info {
 	c.popCycle++
 	if c.heap.Len() == 0 {
 		c.inflight = nil
+		c.schedulingHashes.clearInflight()
 		return nil
 	}
 	wl := c.popPending()
+	c.schedulingHashes.moveActiveToInflight(wl)
 	c.subtractPendingResources(wl)
 	c.inflight = wl
 	c.inflight.LastEvaluatedGeneration = c.inflight.Obj.Generation

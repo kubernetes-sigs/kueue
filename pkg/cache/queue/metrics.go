@@ -47,7 +47,8 @@ func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {
 
 func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	active, inadmissible := cq.PendingBreakdown()
-	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cq.name) {
+	cqActive := m.statusChecker == nil || m.statusChecker.ClusterQueueActive(cq.name)
+	if !cqActive {
 		inadmissible = metrics.MergedTracker(inadmissible, active)
 		active = metrics.NewLabelValsTracker()
 	}
