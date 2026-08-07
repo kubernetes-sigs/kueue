@@ -297,6 +297,7 @@ func TestDefault(t *testing.T) {
 			}
 
 			webhook := &TrainJobWebhook{
+				client:                     kClient,
 				manageJobsWithoutQueueName: tc.manageJobsWithoutQueueName,
 				queues:                     queueManager,
 				cache:                      cqCache,

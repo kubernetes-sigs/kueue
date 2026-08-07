@@ -111,6 +111,7 @@ func TestValidateDefault(t *testing.T) {
 			}
 
 			wh := &RayClusterWebhook{
+				client:                     cli,
 				manageJobsWithoutQueueName: tc.manageAll,
 				queues:                     queueManager,
 				cache:                      cqCache,
