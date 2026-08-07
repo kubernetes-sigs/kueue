@@ -69,21 +69,21 @@ func TestLimitRanges(t *testing.T) {
 	lrs := newLimitRanges()
 
 	// Add container LimitRange
-	lrs.Add(lrContainer)
+	lrs.AddOrUpdate(lrContainer)
 	got := lrs.GetForNamespace("ns1")
 	if len(got) != 1 || got[0].Name != "lr-container" {
 		t.Errorf("Expected 1 LimitRange 'lr-container', got %v", got)
 	}
 
 	// Add pod LimitRange
-	lrs.Add(lrPod)
+	lrs.AddOrUpdate(lrPod)
 	got = lrs.GetForNamespace("ns1")
 	if len(got) != 2 {
 		t.Errorf("Expected 2 LimitRanges, got %v", got)
 	}
 
 	// Add non-container/pod LimitRange should not be stored
-	lrs.Add(lrOther)
+	lrs.AddOrUpdate(lrOther)
 	got = lrs.GetForNamespace("ns1")
 	if len(got) != 2 {
 		t.Errorf("Expected 2 LimitRanges, got %v", got)
