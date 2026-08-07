@@ -135,6 +135,7 @@ The table below summarizes the scheduling and admission behaviors for different 
 ### Workload API
 
 ```go
+// +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
 type PodSet struct {
   // .......
 
