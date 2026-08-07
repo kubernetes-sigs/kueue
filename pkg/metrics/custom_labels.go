@@ -19,6 +19,7 @@ package metrics
 import (
 	"iter"
 	"slices"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
@@ -303,6 +304,7 @@ func (cl *CustomLabels) CohortDelete(key kueue.CohortReference) {
 }
 
 type LabelValsTracker struct {
+	sync.RWMutex
 	counts map[labelValsSet]int
 	total  int
 }
@@ -330,6 +332,8 @@ func Copy(t *LabelValsTracker) *LabelValsTracker {
 
 func (c *LabelValsTracker) PopZeroCounts() iter.Seq[*labelValsSet] {
 	return func(yield func(*labelValsSet) bool) {
+		c.Lock()
+		defer c.Unlock()
 		for lv, count := range c.counts {
 			if count == 0 {
 				delete(c.counts, lv)
@@ -350,6 +354,8 @@ func (c *LabelValsTracker) Decr(ls labelValsSet) {
 }
 
 func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
+	c.Lock()
+	defer c.Unlock()
 	oldCount := c.counts[ls]
 	newCount := max(0, oldCount+incr)
 	c.counts[ls] = newCount
@@ -358,6 +364,8 @@ func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
 
 func (c *LabelValsTracker) Iter() iter.Seq2[labelValsSet, int] {
 	return func(yield func(labelValsSet, int) bool) {
+		c.RLock()
+		defer c.RUnlock()
 		for ls, count := range c.counts {
 			if !yield(ls, count) {
 				return
@@ -367,13 +375,21 @@ func (c *LabelValsTracker) Iter() iter.Seq2[labelValsSet, int] {
 }
 
 func (c *LabelValsTracker) Total() int {
+	c.RLock()
+	defer c.RUnlock()
 	return c.total
 }
 
 func (c *LabelValsTracker) merge(other *LabelValsTracker) *LabelValsTracker {
+	c.Lock()
+	defer c.Unlock()
+
 	if other == nil {
 		return c
 	}
+	other.RLock()
+	defer other.RUnlock()
+
 	for k, v := range other.counts {
 		c.counts[k] += v
 	}
