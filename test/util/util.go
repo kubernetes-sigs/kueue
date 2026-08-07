@@ -51,6 +51,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -273,6 +274,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := deleteWorkloadsInNamespace(ctx, c, ns, 2); err != nil {
 		return err
 	}
+	if err := DeleteAllEventsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
 	err := c.DeleteAllOf(ctx, &corev1.LimitRange{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
@@ -337,6 +341,10 @@ func DeleteAllSparkApplicationsInNamespace(ctx context.Context, c client.Client,
 
 func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllPodsInNamespace(ctx, c, ns, 2)
+}
+
+func DeleteAllEventsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &eventsv1.Event{})
 }
 
 func deleteAllObjectsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace, obj client.Object) error {
