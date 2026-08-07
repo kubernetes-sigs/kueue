@@ -184,9 +184,10 @@ func (r *rfReconciler) Update(event event.TypedUpdateEvent[*kueue.ResourceFlavor
 	case ptr.Equal(event.ObjectOld.Spec.TopologyName, event.ObjectNew.Spec.TopologyName):
 		if event.ObjectNew.Spec.TopologyName != nil &&
 			(!equality.Semantic.DeepEqual(event.ObjectOld.Spec.Tolerations, event.ObjectNew.Spec.Tolerations) ||
-				!equality.Semantic.DeepEqual(event.ObjectOld.Spec.NodeTaints, event.ObjectNew.Spec.NodeTaints)) {
+				!equality.Semantic.DeepEqual(event.ObjectOld.Spec.NodeTaints, event.ObjectNew.Spec.NodeTaints) ||
+				!equality.Semantic.DeepEqual(event.ObjectOld.Spec.NodeLabels, event.ObjectNew.Spec.NodeLabels)) {
 			log := r.logger().WithValues("flavor", event.ObjectNew.Name)
-			log.V(2).Info("TAS ResourceFlavor tolerations or nodeTaints updated")
+			log.V(2).Info("TAS ResourceFlavor tolerations, nodeTaints or nodeLabels updated")
 			r.cache.AddOrUpdateResourceFlavor(log, event.ObjectNew)
 			return true
 		}

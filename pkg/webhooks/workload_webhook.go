@@ -155,6 +155,12 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
+	// validate metadata labels and annotations
+	if features.Enabled(features.WorkloadValidationForPodSetMetadata) {
+		allErrs = append(allErrs, metav1validation.ValidateLabels(ps.Template.Labels, path.Child("template", "metadata", "labels"))...)
+		allErrs = append(allErrs, apivalidation.ValidateAnnotations(ps.Template.Annotations, path.Child("template", "metadata", "annotations"))...)
+	}
+
 	// validate initContainers
 	icPath := path.Child("template", "spec", "initContainers")
 	for ci := range ps.Template.Spec.InitContainers {
@@ -170,6 +176,10 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 		resPath := path.Child("template", "spec", "resources")
 		allErrs = append(allErrs, validateResourceList(ps.Template.Spec.Resources.Requests, resPath.Child("requests"))...)
 		allErrs = append(allErrs, validateResourceList(ps.Template.Spec.Resources.Limits, resPath.Child("limits"))...)
+	}
+
+	if features.Enabled(features.TASValidateWorkloadSliceSize) {
+		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
 	}
 
 	return allErrs
@@ -466,5 +476,38 @@ func validateClusterNameUpdate(newObj, oldObj *kueue.Workload, statusPath *field
 		}
 	}
 
+	return allErrs
+}
+
+// validateTASSliceSize enforces basic topology-slice invariants:
+// - legacy fields must appear together (required-topology <-> slice-size)
+// - slice sizes must be strictly positive (legacy and multi-layer constraints)
+// Kept in the Workload webhook as defense-in-depth for direct Workload writes,
+// including cases where CRDs or producer-side validators are older or bypassed.
+func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) field.ErrorList {
+	if tr == nil {
+		return nil
+	}
+
+	var allErrs field.ErrorList
+	if tr.PodSetSliceRequiredTopology != nil {
+		switch {
+		case tr.PodSetSliceSize == nil:
+			allErrs = append(allErrs, field.Required(path.Child("podSetSliceSize"), "must be set when podSetSliceRequiredTopology is specified"))
+		case *tr.PodSetSliceSize <= 0:
+			allErrs = append(allErrs, field.Invalid(path.Child("podSetSliceSize"), *tr.PodSetSliceSize, "must be greater than 0"))
+		}
+	}
+
+	if tr.PodSetSliceRequiredTopology == nil && tr.PodSetSliceSize != nil {
+		allErrs = append(allErrs, field.Forbidden(path.Child("podSetSliceSize"), "may not be set when podSetSliceRequiredTopology is not specified"))
+	}
+
+	for i := range tr.PodsetSliceRequiredTopologyConstraints {
+		if tr.PodsetSliceRequiredTopologyConstraints[i].Size <= 0 {
+			allErrs = append(allErrs,
+				field.Invalid(path.Child("podsetSliceRequiredTopologyConstraints").Index(i).Child("size"), tr.PodsetSliceRequiredTopologyConstraints[i].Size, "must be greater than 0"))
+		}
+	}
 	return allErrs
 }

@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,8 +41,8 @@ var (
 	FrameworkName = "kubeflow.org/mpijob"
 )
 
-func init() {
-	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
+func RegisterIntegration(m *jobframework.IntegrationManager) error {
+	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:      SetupIndexes,
 		NewJob:            NewJob,
 		NewReconciler:     NewReconciler,
@@ -51,7 +50,7 @@ func init() {
 		JobType:           &kfmpi.MPIJob{},
 		AddToScheme:       kfmpi.AddToScheme,
 		MultiKueueAdapter: &multiKueueAdapter{},
-	}))
+	})
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
@@ -230,10 +229,10 @@ func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 
 func orderedReplicaTypes(jobSpec *kfmpi.MPIJobSpec) []kfmpi.MPIReplicaType {
 	var result []kfmpi.MPIReplicaType
-	if _, ok := jobSpec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher]; ok {
+	if spec, ok := jobSpec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher]; ok && spec != nil {
 		result = append(result, kfmpi.MPIReplicaTypeLauncher)
 	}
-	if _, ok := jobSpec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker]; ok {
+	if spec, ok := jobSpec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker]; ok && spec != nil {
 		result = append(result, kfmpi.MPIReplicaTypeWorker)
 	}
 	return result

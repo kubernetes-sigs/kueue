@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -41,6 +40,10 @@ const (
 	// defaultLeaderWorkerSetReplicas mirrors the LeaderWorkerSet API default for
 	// spec.replicas (+kubebuilder:default=1), and is used when the field is unset.
 	defaultLeaderWorkerSetReplicas = 1
+	// defaultLeaderWorkerSetSize mirrors the LeaderWorkerSet API default for
+	// spec.leaderWorkerTemplate.size (+kubebuilder:default=1), and is used when the
+	// field is unset.
+	defaultLeaderWorkerSetSize = 1
 	// maxLeaderWorkerSetReplicas is a sanity upper bound on spec.replicas that guards
 	// against unbounded per-replica Workload creation from an unreasonably large value.
 	maxLeaderWorkerSetReplicas = 1_000_000
@@ -48,8 +51,8 @@ const (
 
 var errInvalidLeaderWorkerSetReplicas = errors.New("invalid LeaderWorkerSet replicas")
 
-func init() {
-	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
+func RegisterIntegration(m *jobframework.IntegrationManager) error {
+	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:                    SetupIndexes,
 		NewReconciler:                   NewReconciler,
 		SetupWebhook:                    SetupWebhook,
@@ -58,7 +61,7 @@ func init() {
 		ImplicitlyEnabledFrameworkNames: []string{"pod"},
 		GVK:                             gvk,
 		MultiKueueAdapter:               &multiKueueAdapter{},
-	}))
+	})
 }
 
 type LeaderWorkerSet leaderworkersetv1.LeaderWorkerSet

@@ -208,9 +208,33 @@
   stage: Deprecated
   from: "0.17"
   to: "0.19"
-- name: PropagateBatchJobLabelsToWorkload
-  versionedSpecs:
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.17"
+- feature: PropagateBatchJobLabelsToWorkload
+  default: true
+  stage: Beta
+  from: "0.15"
+  to: "0.16"
+- feature: PropagateBatchJobLabelsToWorkload
+  default: true
+  stage: GA
+  from: "0.17"
+  to: "0.20"
+- feature: MultiKueueWaitForWorkloadAdmitted
+  default: true
+  stage: Beta
+  from: "0.16"
+  to: "0.17"
+- feature: MultiKueueWaitForWorkloadAdmitted
+  default: true
+  stage: GA
+  from: "0.18"
+  to: "0.20"
+- feature: MultiKueueRedoAdmissionOnEvictionInWorker
+  default: true
+  stage: Beta
+  from: "0.16"
+  to: "0.17"
+- feature: MultiKueueRedoAdmissionOnEvictionInWorker
+  default: true
+  stage: GA
+  from: "0.18"
+  to: "0.20"

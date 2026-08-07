@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
@@ -173,10 +174,33 @@ func (r *ResourceFlavorReconciler) Update(e event.TypedUpdateEvent[*kueue.Resour
 		return true
 	}
 
-	if cqNames := r.cache.AddOrUpdateResourceFlavor(log, e.ObjectNew.DeepCopy()); len(cqNames) > 0 {
+	cqNames := r.cache.AddOrUpdateResourceFlavor(log, e.ObjectNew.DeepCopy())
+	// AddOrUpdateResourceFlavor only reports ClusterQueues that transitioned
+	// from pending to active. Editing the spec fields the flavor assigner
+	// consults (nodeTaints, tolerations, nodeLabels) keeps the ClusterQueues
+	// active but changes which workloads the flavor can admit, so the workloads
+	// left inadmissible by the previous spec would otherwise never be retried.
+	// Retry the inadmissible workloads in the ClusterQueues that use this flavor.
+	if flavorSchedulingFieldsChanged(e.ObjectOld, e.ObjectNew) {
+		log.V(3).Info("ResourceFlavor scheduling-relevant fields changed",
+			"oldNodeTaints", e.ObjectOld.Spec.NodeTaints, "newNodeTaints", e.ObjectNew.Spec.NodeTaints,
+			"oldTolerations", e.ObjectOld.Spec.Tolerations, "newTolerations", e.ObjectNew.Spec.Tolerations,
+			"oldNodeLabels", e.ObjectOld.Spec.NodeLabels, "newNodeLabels", e.ObjectNew.Spec.NodeLabels)
+		cqNames.Insert(r.cache.ClusterQueuesUsingFlavor(kueue.ResourceFlavorReference(e.ObjectNew.Name))...)
+	}
+	if len(cqNames) > 0 {
 		qcache.NotifyRetryInadmissible(r.qManager, cqNames)
 	}
 	return false
+}
+
+// flavorSchedulingFieldsChanged reports whether any of the ResourceFlavor spec
+// fields the flavor assigner consults when matching workloads to the flavor
+// (nodeTaints, tolerations, nodeLabels) changed.
+func flavorSchedulingFieldsChanged(oldRF, newRF *kueue.ResourceFlavor) bool {
+	return !equality.Semantic.DeepEqual(oldRF.Spec.NodeTaints, newRF.Spec.NodeTaints) ||
+		!equality.Semantic.DeepEqual(oldRF.Spec.Tolerations, newRF.Spec.Tolerations) ||
+		!equality.Semantic.DeepEqual(oldRF.Spec.NodeLabels, newRF.Spec.NodeLabels)
 }
 
 func (r *ResourceFlavorReconciler) Generic(e event.TypedGenericEvent[*kueue.ResourceFlavor]) bool {

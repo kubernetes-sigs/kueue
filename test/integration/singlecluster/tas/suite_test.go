@@ -19,6 +19,7 @@ package tas
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -51,8 +52,6 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
-	// Cleanup after https://github.com/kubernetes-sigs/kueue/issues/8653
-	qManager *qcache.Manager
 )
 
 func TestAPIs(t *testing.T) {
@@ -100,7 +99,6 @@ func managerSetupWithConfig(
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 		}
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
-		qManager = queues
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,
@@ -111,7 +109,7 @@ func managerSetupWithConfig(
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
-		failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil)
+		failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, controllersCfg, nil, tas.WithRequeueBatchInterval(time.Second))
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
 
 		err = pod.SetupWebhook(mgr, jobframework.WithQueues(queues))

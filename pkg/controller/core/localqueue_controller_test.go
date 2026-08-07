@@ -56,6 +56,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 	clock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	cases := map[string]struct {
 		clusterQueue             *kueue.ClusterQueue
+		deleteClusterQueue       bool
 		localQueue               *kueue.LocalQueue
 		wantLocalQueue           *kueue.LocalQueue
 		wantError                error
@@ -130,6 +131,37 @@ func TestLocalQueueReconcile(t *testing.T) {
 					kueue.LocalQueueActive,
 					metav1.ConditionFalse,
 					clusterQueueIsInactiveReason,
+					clusterQueueIsInactiveMsg,
+					1,
+				).
+				Obj(),
+			wantError: nil,
+		},
+		"cluster queue deleted while its scheduler cache entry is still present": {
+			clusterQueue: utiltestingapi.MakeClusterQueue("test-cluster-queue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf").Resource(corev1.ResourceCPU, "10").Obj()).
+				Active(metav1.ConditionTrue).
+				Obj(),
+			deleteClusterQueue: true,
+			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				Generation(1).
+				Obj(),
+			runningWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("test-queue").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("test-cluster-queue", "rf", now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				Generation(1).
+				Condition(
+					kueue.LocalQueueActive,
+					metav1.ConditionFalse,
+					"ClusterQueueDoesNotExist",
 					clusterQueueIsInactiveMsg,
 					1,
 				).
@@ -371,7 +403,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					&kueue.LocalQueueFairSharingStatus{
 						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("6827m"),
+								corev1.ResourceCPU: resource.MustParse("6828427124n"),
 							},
 						},
 					}).
@@ -417,7 +449,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					&kueue.LocalQueueFairSharingStatus{
 						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								corev1.ResourceCPU: resource.MustParse("7980m"),
+								corev1.ResourceCPU: resource.MustParse("7980769063n"),
 							},
 						},
 					}).
@@ -457,7 +489,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 					&kueue.LocalQueueFairSharingStatus{
 						AdmissionFairSharingStatus: &kueue.LocalQueueAdmissionFairSharingStatus{
 							ConsumedResources: map[corev1.ResourceName]resource.Quantity{
-								resourceGPU: resource.MustParse("6827m"),
+								resourceGPU: resource.MustParse("6828427124n"),
 							},
 						},
 					}).
@@ -894,6 +926,11 @@ func TestLocalQueueReconcile(t *testing.T) {
 				t.Fatalf("Unexpected error: %v", err)
 			}
 			_ = qManager.AddLocalQueue(ctxWithLogger, tc.localQueue)
+			if tc.deleteClusterQueue {
+				if err := cl.Delete(ctxWithLogger, tc.clusterQueue); err != nil {
+					t.Fatalf("Unexpected error: %v", err)
+				}
+			}
 			if tc.initialConsumedResources.Resources != nil {
 				lqKey := utilqueue.Key(tc.localQueue)
 				qManager.AfsConsumedResources.Update(lqKey, func(queueafs.ConsumedResourcesEntry, bool) queueafs.ConsumedResourcesEntry {

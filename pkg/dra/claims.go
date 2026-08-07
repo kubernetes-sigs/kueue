@@ -212,7 +212,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 				return nil, allErrs
 			}
 
-			for dc, qty := range resources.ToMapRequests(deviceCounts) {
+			for dc, qty := range deviceCounts.Iter() {
 				logical, found := mapper.Lookup(dc)
 				if !found {
 					allErrs = append(allErrs, field.NotFound(
@@ -521,4 +521,20 @@ func validateCELSelectorsAgainstDevices(
 	}
 
 	return allErrs
+}
+
+// MergeDRAResources merges src into dst, summing resource quantities for
+// PodSets that appear in both maps. Returns the (possibly newly allocated) dst.
+func MergeDRAResources(dst, src map[kueue.PodSetReference]corev1.ResourceList) map[kueue.PodSetReference]corev1.ResourceList {
+	for podSetName, resources := range src {
+		if existing, ok := dst[podSetName]; ok {
+			dst[podSetName] = utilresource.MergeResourceListKeepSum(existing, resources)
+		} else {
+			if dst == nil {
+				dst = make(map[kueue.PodSetReference]corev1.ResourceList)
+			}
+			dst[podSetName] = resources
+		}
+	}
+	return dst
 }

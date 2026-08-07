@@ -335,7 +335,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		afsEntryPenalties = m.AfsEntryPenalties
 		afsConsumedResources = m.AfsConsumedResources
 	}
-	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig, afsEntryPenalties, afsConsumedResources)
+	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.customLabels, m.workloadOrdering, m.admissionFairSharingConfig, afsEntryPenalties, afsConsumedResources)
 	if err != nil {
 		return err
 	}
@@ -975,10 +975,12 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(w)
 	if workload.NeedsSecondPass(w) {
+		if !m.secondPassQueue.prequeueIfAbsent(w) {
+			return false
+		}
 		iteration++
 		delay := m.secondPassQueue.nextDelay(iteration)
 		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", wlKey, "delay", delay)
-		m.secondPassQueue.prequeue(w)
 		m.clock.AfterFunc(delay, func() {
 			m.queueSecondPass(ctx, w, iteration)
 		})

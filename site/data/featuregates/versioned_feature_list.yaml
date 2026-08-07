@@ -157,6 +157,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: LWSImmutableGroupSize
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: ManagedJobsNamespaceSelectorAlwaysRespected
   versionedSpecs:
   - default: false
@@ -227,6 +233,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: MultiKueueManagerQuotaAutomation
   versionedSpecs:
   - default: false
@@ -239,26 +249,6 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
-- name: MultiKueueRedoAdmissionOnEvictionInWorker
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.16"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.18"
-- name: MultiKueueWaitForWorkloadAdmitted
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.16"
-  - default: true
-    lockToDefault: true
-    preRelease: GA
-    version: "0.18"
 - name: PartialAdmission
   versionedSpecs:
   - default: false
@@ -281,12 +271,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.6"
-- name: PropagateBatchJobLabelsToWorkload
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.15"
 - name: QuotaCheckStrategy
   versionedSpecs:
   - default: false
@@ -349,6 +333,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: SkipAncestorCheckForDeletedWorkloads
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: SkipFinalizersForPodsSuspendedByParent
   versionedSpecs:
   - default: true
@@ -479,6 +469,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: TASValidateWorkloadSliceSize
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TLSOptions
   versionedSpecs:
   - default: true
@@ -507,7 +503,7 @@
     version: "0.19"
 - name: UnadmittedWorkloadsObservability
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
@@ -539,6 +535,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: WorkloadRequestUseMergePatch
   versionedSpecs:
   - default: false
@@ -546,6 +546,12 @@
     preRelease: Alpha
     version: "0.14"
 - name: WorkloadValidateResourcesAreNonNegative
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
+- name: WorkloadValidationForPodSetMetadata
   versionedSpecs:
   - default: true
     lockToDefault: false

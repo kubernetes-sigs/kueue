@@ -296,7 +296,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -403,7 +403,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -435,7 +435,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
@@ -542,7 +542,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
 				)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
