@@ -116,8 +116,8 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 	cases := map[string]scheduleTestCase{
 		"with fair sharing: hierarchical nominal-first prefers non-borrowing leaf CQ": {
 			// Admitted state:
-			// - w-noisy-admitted (cq-noisy): uses 3000 CPU (borrowed from cq-hero)
-			// - w-tiny-admitted (cq-tiny): uses 60 CPU (borrows 10 from root-cohort)
+			// - wl-noisy-admitted (cq-noisy): uses 3000 CPU (borrowed from cq-hero)
+			// - wl-tiny-admitted (cq-tiny): uses 60 CPU (borrows 10 from root-cohort)
 			// - wl-rest-admitted (cq-rest): uses 2995 CPU (borrowed from root-cohort)
 			//
 			// Pending:
