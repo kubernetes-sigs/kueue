@@ -844,7 +844,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	PrioritizeWorkloadsPendingPreemption: {
-		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	LWSImmutableGroupSize: {
