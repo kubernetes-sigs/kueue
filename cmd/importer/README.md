@@ -30,9 +30,9 @@ The importer will perform following checks:
 - The target LocalQueue exists.
 - The LocalQueues involved in the import are using an existing ClusterQueue.
 - The ClusterQueues involved have ResourceGroups that reference existing ResourceFlavors.
-- For each Pod, the dry-run validates that every non-zero requested resource is covered by the target ClusterQueue ResourceGroups.
-- For each Pod, the dry-run validates that Workload construction succeeds (using the same construction path used by import) before any Pod mutation.
-- If a Pod specifies a PriorityClass, the dry-run validates that the PriorityClass exists.
+- For each Pod, the check validates that every non-zero requested resource is covered by the target ClusterQueue ResourceGroups.
+- For each Pod, the check validates that Workload construction succeeds (using the same construction path used by import) before any Pod mutation.
+- If a Pod specifies a PriorityClass, the check validates that the PriorityClass exists.
 
 There are two ways the mapping from a pod to a LocalQueue can be specified:
 
