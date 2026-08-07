@@ -1264,7 +1264,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager, cfg *config.Conf
 			Watches(&inventoryv1alpha1.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, builder.WithPredicates(systemNamespacePredicate))
 	}
 
-	return controllerBuilder.Complete(core.WithLeadingManagerObserver(mgr, c, cfg))
+	return controllerBuilder.Complete(core.WithLeadingManagerAndObserver(mgr, c, cfg))
 }
 
 func (c *clustersReconciler) Generic(e event.GenericEvent) bool {

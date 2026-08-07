@@ -44,7 +44,25 @@ func (r *leaderAwareReconcilerObserver) Reconcile(ctx context.Context, req recon
 	case <-r.elected:
 		return r.delegate.Reconcile(ctx, req)
 	default:
-		return r.delegate.Observe(ctx, req)
+		observeResult, err := r.delegate.Observe(ctx, req)
+		if err != nil {
+			return observeResult, err
+		}
+		// Always schedule another pass after at most requeueDuration
+		// so no events are missed during leadership failover
+		if observeResult.RequeueAfter > 0 && observeResult.RequeueAfter < r.requeueDuration {
+			return observeResult, nil
+		}
+		// Otherwise, schedule the default failover safety pass (requeueDuration).
+		return ctrl.Result{RequeueAfter: r.requeueDuration}, nil
+	}
+}
+
+func WithLeadingManagerAndObserver(mgr ctrl.Manager, reconciler ReconcilerWithFollowerObserver, cfg *config.Configuration) reconcile.Reconciler {
+	return &leaderAwareReconcilerObserver{
+		elected:         mgr.Elected(),
+		delegate:        reconciler,
+		requeueDuration: cfg.LeaderElection.LeaseDuration.Duration,
 	}
 }
 
@@ -77,13 +95,6 @@ func WithLeadingManager(mgr ctrl.Manager, reconciler reconcile.Reconciler, obj c
 	}
 }
 
-func WithLeadingManagerObserver(mgr ctrl.Manager, reconciler ReconcilerWithFollowerObserver, cfg *config.Configuration) reconcile.Reconciler {
-	return &leaderAwareReconcilerObserver{
-		elected:         mgr.Elected(),
-		delegate:        reconciler,
-		requeueDuration: cfg.LeaderElection.LeaseDuration.Duration,
-	}
-}
 
 type leaderAwareReconciler struct {
 	elected         <-chan struct{}
