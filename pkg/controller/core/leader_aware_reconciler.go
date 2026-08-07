@@ -50,6 +50,7 @@ func (r *leaderAwareReconcilerObserver) Reconcile(ctx context.Context, req recon
 		}
 		// Always schedule another pass after at most requeueDuration
 		// so no events are missed during leadership failover
+		//nolint:staticcheck // Requeue is deprecated in controller-runtime but still used for immediate retries
 		if observeResult.Requeue || (observeResult.RequeueAfter > 0 && observeResult.RequeueAfter < r.requeueDuration) {
 			return observeResult, nil
 		}

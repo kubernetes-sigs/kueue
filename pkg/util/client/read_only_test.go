@@ -17,7 +17,6 @@ limitations under the License.
 package client
 
 import (
-	"context"
 	"testing"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -28,7 +27,7 @@ import (
 )
 
 func TestReadOnlyClient(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	existingJob := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: "default",
