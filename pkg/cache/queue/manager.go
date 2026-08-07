@@ -738,12 +738,20 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
+// Either way the workload is no longer inflight in the ClusterQueue it was popped from.
 // The quotaReservedReason parameter represents the WorkloadQuotaReserved condition reason
 // computed by the scheduler during this cycle. It must be passed explicitly because info.Obj
 // has not yet been patched with the updated condition when RequeueWorkload is called.
 func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
 	m.Lock()
 	defer m.Unlock()
+
+	// This call decides where the workload goes, so the claim taken by Pop does
+	// not survive it. Releasing it up front also covers the returns below that
+	// never reach the ClusterQueue: a claim left behind makes PushOrUpdate a
+	// no-op, keeping the workload out of the queues even once it could be added
+	// again. Read before info.Update, which resets info.ClusterQueue.
+	m.forgetInflight(info.ClusterQueue, workload.Key(info.Obj))
 
 	var w kueue.Workload
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
@@ -781,6 +789,17 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		m.Broadcast()
 	}
 	return added
+}
+
+// forgetInflight releases the claim that Pop took on a workload in the given
+// ClusterQueue. Must be called with the lock held.
+func (m *Manager) forgetInflight(cqName kueue.ClusterQueueReference, key workload.Reference) {
+	cq := m.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return
+	}
+	cq.ForgetInflight(key)
+	reportCQPendingWorkloads(m, cq)
 }
 
 // Delete the workload from queue or cluster queue.
