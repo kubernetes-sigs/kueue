@@ -691,7 +691,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload has overlapping preemption targets with another workload",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 10 more needed, skipping flavor on-demand as it is not found in the nomination mapping for resource cpu",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -742,11 +742,10 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 				"default/wl-admitted-on-demand": *utiltestingapi.MakeAdmission("cq-1").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()).Obj(),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
-				"cq-1": {"default/wl-pending-high-prio-1"},
 				"cq-2": {"default/wl-pending-high-prio-2"},
 			},
-			wantSkippedPreemptions: map[string]int{
-				"cq-1": 1,
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-1": {"default/wl-pending-high-prio-1"},
 			},
 		},
 	}
