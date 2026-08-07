@@ -508,6 +508,21 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 	}
 	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
+	if utilstatefulset.ShouldFinalizePod(pod) {
+		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
+			removed := utilstatefulset.FinalizePod(pod)
+			if removed {
+				log.V(3).Info("Finalizing LeaderWorkerSet Pod")
+			}
+			return removed, nil
+		})
+		if client.IgnoreNotFound(err) != nil {
+			log.Error(err, "Failed to finalize Pod")
+			return err
+		}
+		return nil
+	}
+
 	if lws == nil || utilstatefulset.ShouldUngatePod(sts, pod) {
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			if utilstatefulset.UngatePod(sts, pod, lws == nil) {
@@ -521,7 +536,7 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 			log.Error(err, "Failed to ungate Pod")
 			return err
 		}
-	} else if !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil {
+	} else {
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			updated := r.setDefault(lws, pod)
 			if updated {
