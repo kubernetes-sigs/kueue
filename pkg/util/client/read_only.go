@@ -38,6 +38,10 @@ func NewReadOnlyClient(c client.Client) client.Client {
 
 // Mutating Methods on client.Client
 
+func (r *readOnlyClient) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+	return ErrWriteForbidden("Apply")
+}
+
 func (r *readOnlyClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
 	return ErrWriteForbidden("Create")
 }
