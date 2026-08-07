@@ -14,20 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package scheduler
+package preemption
 
 import (
 	"slices"
 	"testing"
 
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func TestMergeWithReplacedSliceTargets(t *testing.T) {
-	targetFor := func(name string) *preemption.Target {
-		return &preemption.Target{
+func TestPreemptionTargetsInsert(t *testing.T) {
+	targetFor := func(name string) *Target {
+		return &Target{
 			WorkloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload(name, "ns").Obj()),
 		}
 	}
@@ -38,32 +37,37 @@ func TestMergeWithReplacedSliceTargets(t *testing.T) {
 	other := targetFor("other")
 
 	cases := map[string]struct {
-		sliceTargets     []*preemption.Target
-		preemptorTargets []*preemption.Target
-		want             []*preemption.Target
+		inserts [][]*Target
+		want    PreemptionTargets
 	}{
-		"no slice targets": {
-			preemptorTargets: []*preemption.Target{other},
-			want:             []*preemption.Target{other},
+		"nothing inserted": {},
+		"only preemptor targets": {
+			inserts: [][]*Target{nil, {other}},
+			want:    PreemptionTargets{other},
 		},
 		"no overlap": {
-			sliceTargets:     []*preemption.Target{oldSlice},
-			preemptorTargets: []*preemption.Target{other},
-			want:             []*preemption.Target{oldSlice, other},
+			inserts: [][]*Target{{oldSlice}, {other}},
+			want:    PreemptionTargets{oldSlice, other},
 		},
 		"preemptor selected the replaced slice again": {
-			sliceTargets:     []*preemption.Target{oldSlice},
-			preemptorTargets: []*preemption.Target{oldSliceFromPreemptor, other},
-			want:             []*preemption.Target{oldSlice, other},
+			inserts: [][]*Target{{oldSlice}, {oldSliceFromPreemptor, other}},
+			want:    PreemptionTargets{oldSlice, other},
+		},
+		"duplicates within a single insert": {
+			inserts: [][]*Target{{oldSlice, oldSliceFromPreemptor}},
+			want:    PreemptionTargets{oldSlice},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := mergeWithReplacedSliceTargets(tc.sliceTargets, tc.preemptorTargets)
-			// Compare by identity: the slice-target instance must win over
-			// the preemptor's duplicate.
+			var got PreemptionTargets
+			for _, targets := range tc.inserts {
+				got.Insert(targets...)
+			}
+			// Compare by identity: the target inserted first must win over
+			// any later duplicate.
 			if !slices.Equal(tc.want, got) {
-				t.Errorf("unexpected merged targets: want %v, got %v", tc.want, got)
+				t.Errorf("unexpected targets: want %v, got %v", tc.want, got)
 			}
 		})
 	}
