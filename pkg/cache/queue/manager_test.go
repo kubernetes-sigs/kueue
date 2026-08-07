@@ -2576,7 +2576,6 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 	}
 }
 
-<<<<<<< HEAD
 // TestHeadsRespectLocalQueueWeightForPreexistingWorkloads guards the cached-weight
 // seeding order (Kueue#13476): LocalQueues (with their weights) are registered before
 // the ClusterQueue that adopts their pre-existing workloads, matching how the scheduler
@@ -2842,6 +2841,7 @@ func TestUpdateLocalQueueWeightZeroReheapifies(t *testing.T) {
 	lqA.Spec.FairSharing.Weight = new(resource.MustParse("0"))
 	if err := manager.UpdateLocalQueue(log, lqA); err != nil {
 		t.Fatalf("Failed updating LocalQueue lq-a: %v", err)
+	}
 
 	got := popNamesFromCQ(manager.hm.ClusterQueue("cq"))
 	want := []workload.Reference{"default/wl-b", "default/wl-a"}
@@ -2875,7 +2875,7 @@ func TestManager_ResourceCaches(t *testing.T) {
 	}
 
 	// Test LimitRange cache via Manager
-	manager.LimitRangeCache().Add(lr)
+	manager.LimitRangeCache().AddOrUpdate(lr)
 	lrs := manager.LimitRangeCache().GetForNamespace("ns")
 	if len(lrs) != 1 || lrs[0].Name != "lr" {
 		t.Errorf("Expected 1 LimitRange 'lr', got %v", lrs)
