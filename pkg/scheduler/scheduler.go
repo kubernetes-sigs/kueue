@@ -705,15 +705,16 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputePreemptionTargetsUponOverlap)
 
 	var revertRemoval func()
-	if needsOverlapRecompute {
+	switch {
+	case needsOverlapRecompute:
 		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
 		// To get the projected cluster state after other preemptions complete,
 		// we simulate the removal of their victims.
 		victimsOfOtherPreemptions := slices.Collect(maps.Values(preemptedWorkloads))
 		revertRemoval = snapshot.SimulateWorkloadRemoval(victimsOfOtherPreemptions)
-	} else if needsTASRecompute {
+	case needsTASRecompute:
 		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
-	} else {
+	default:
 		// Short-circuit, nothing to recompute.
 		return usage, schdcache.FitsCheckOk == fitsCheck
 	}
