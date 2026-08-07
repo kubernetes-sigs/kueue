@@ -54,7 +54,7 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	}
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 
-	if features.Enabled(features.CustomMetricLabels) {
+	if features.Enabled(features.CustomMetricLabels) && m.customLabels.KindConfigured(config.SourceKindWorkload) {
 		// Clear zero count label sets.
 		clearZeroWorkloadCounts(m, cq.name, active, metrics.PendingStatusActive)
 		clearZeroWorkloadCounts(m, cq.name, inadmissible, metrics.PendingStatusInadmissible)
