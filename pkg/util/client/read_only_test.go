@@ -154,4 +154,11 @@ func TestReadOnlyClient(t *testing.T) {
 			t.Error("expected SubResource().Apply to fail in follower mode")
 		}
 	})
+
+	t.Run("Apply fails", func(t *testing.T) {
+		err := readOnlyCl.Apply(ctx, nil)
+		if err == nil {
+			t.Error("expected Apply to fail in follower mode")
+		}
+	})
 }

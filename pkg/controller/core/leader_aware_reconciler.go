@@ -50,7 +50,7 @@ func (r *leaderAwareReconcilerObserver) Reconcile(ctx context.Context, req recon
 		}
 		// Always schedule another pass after at most requeueDuration
 		// so no events are missed during leadership failover
-		if observeResult.RequeueAfter > 0 && observeResult.RequeueAfter < r.requeueDuration {
+		if observeResult.Requeue || (observeResult.RequeueAfter > 0 && observeResult.RequeueAfter < r.requeueDuration) {
 			return observeResult, nil
 		}
 		// Otherwise, schedule the default failover safety pass (requeueDuration).
@@ -59,6 +59,9 @@ func (r *leaderAwareReconcilerObserver) Reconcile(ctx context.Context, req recon
 }
 
 func WithLeadingManagerAndObserver(mgr ctrl.Manager, reconciler ReconcilerWithFollowerObserver, cfg *config.Configuration) reconcile.Reconciler {
+	if cfg == nil || cfg.LeaderElection == nil || !ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
+		return reconciler
+	}
 	return &leaderAwareReconcilerObserver{
 		elected:         mgr.Elected(),
 		delegate:        reconciler,
@@ -94,7 +97,6 @@ func WithLeadingManager(mgr ctrl.Manager, reconciler reconcile.Reconciler, obj c
 		requeueDuration: cfg.LeaderElection.LeaseDuration.Duration,
 	}
 }
-
 
 type leaderAwareReconciler struct {
 	elected         <-chan struct{}
