@@ -704,35 +704,35 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
 	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputePreemptionTargetsUponOverlap)
 
-	if needsTASRecompute || needsOverlapRecompute {
-		var revertUsage func()
-		if needsOverlapRecompute {
-			log.V(2).Info("Re-computing the assignment as preemption targets overlap")
-			// To get the projected cluster state after other preemptions complete,
-			// we simulate the removal of their victims.
-			victimsOfOtherPreemptions := slices.Collect(maps.Values(preemptedWorkloads))
-			revertUsage = snapshot.SimulateWorkloadRemoval(victimsOfOtherPreemptions)
-		} else {
-			log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
-		}
-		// Clear the last assignment so that we can start from the first flavor again and
-		// reach all flavors from the nomination.
-		e.LastAssignment = nil
-		e.NominationMapping = e.readResourceToFlavorMapping()
-		newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
-		e.recordAssignment(newAssignment, newTargets)
-		if revertUsage != nil {
-			revertUsage()
-			if e.assignment.RepresentativeMode() == flavorassigner.Fit {
-				e.assignment.SetRepresentativeMode(flavorassigner.FitPendingPreemptions)
-			}
-		}
-		usage = e.assignmentUsage(log)
-		fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
-		log.V(2).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
-		// clear the assignment flavors as they are only used within a single scheduling cycle
-		e.NominationMapping = nil
+	var revertRemoval func()
+	if needsOverlapRecompute {
+		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
+		// To get the projected cluster state after other preemptions complete,
+		// we simulate the removal of their victims.
+		victimsOfOtherPreemptions := slices.Collect(maps.Values(preemptedWorkloads))
+		revertRemoval = snapshot.SimulateWorkloadRemoval(victimsOfOtherPreemptions)
+	} else if needsTASRecompute {
+		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
+	} else {
+		// Short-circuit, nothing to recompute.
+		return usage, schdcache.FitsCheckOk == fitsCheck
 	}
+
+	e.LastAssignment = nil
+	e.NominationMapping = e.readResourceToFlavorMapping()
+	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
+	e.recordAssignment(newAssignment, newTargets)
+	if revertRemoval != nil {
+		revertRemoval()
+		if e.assignment.RepresentativeMode() == flavorassigner.Fit {
+			e.assignment.SetRepresentativeMode(flavorassigner.FitPendingPreemptions)
+		}
+	}
+	usage = e.assignmentUsage(log)
+	fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
+	log.V(2).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
+	e.NominationMapping = nil
+
 	return usage, schdcache.FitsCheckOk == fitsCheck
 }
 
@@ -742,7 +742,7 @@ func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usag
 	for _, target := range newTargets {
 		workloads = append(workloads, target.WorkloadInfo)
 	}
-	revertUsage := snapshot.SimulateWorkloadRemoval(workloads)
+	revertUsage := snapshot.SimulateWorkloadUsageRemoval(workloads)
 	defer revertUsage()
 	return cq.Fits(*usage)
 }
@@ -900,7 +900,7 @@ func updateAssignmentForTAS(
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
+			revertUsage := snapshot.SimulateWorkloadUsageRemoval(targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
 				tasRequests,
