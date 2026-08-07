@@ -377,6 +377,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 				return requeue, c.handleError(ctx, wl, ac, req, msg, err)
 			}
 			c.creationExpectations.ExpectCreation(log, prKey)
+			requeue = true
 			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created", "Created ProvisioningRequest: %q", req.Name)
 			activeOrLastPRForChecks[checkName] = req
 		}
