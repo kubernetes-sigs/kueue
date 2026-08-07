@@ -258,8 +258,15 @@ cached information and recompute that Workload's class membership.
 
 #### Identifier collision
 
-The internal identifier is a shortened deterministic digest. Although an
-accidental collision is unlikely, it could group distinct scheduling shapes.
+The internal identifier is the first 16 hexadecimal characters, or 64 bits, of
+a SHA-256 digest. Assuming digest prefixes are uniformly distributed, the
+birthday-bound probability of at least one accidental collision among `n`
+distinct scheduling shapes in one ClusterQueue is approximately
+`n(n-1)/(2 * 2^64)`. The relevant count is the number of distinct shapes, not
+the number of pending Workloads. At 50,000 distinct shapes, the probability is
+about 6.8e-11, or 1 in 15 billion. Even at 1 million distinct shapes, it is about
+2.7e-8, or 1 in 37 million. These estimates cover accidental collisions rather
+than a deliberate search for colliding inputs.
 
 A collision cannot cause an incorrect admission because the optimization never
 grants quota or reuses an assignment. It can, however, cause repeated delay or
@@ -515,7 +522,25 @@ Graduation to stable requires:
 ## Implementation History
 
 - 2026-03-06: Initial implementation was merged for development toward v0.17.0.
+  - [#9698: Initial implementation](https://github.com/kubernetes-sigs/kueue/pull/9698)
 - 2026-03-09: The initial behavior was backported to the v0.15 and v0.16 patch
   releases.
-- 2026-08-07: The retrospective KEP was written after the feature progressed
-  through Beta.
+  - [#9769: v0.16 backport](https://github.com/kubernetes-sigs/kueue/pull/9769)
+  - [#9771: v0.15 backport](https://github.com/kubernetes-sigs/kueue/pull/9771)
+- 2026-03-17 through 2026-03-19: Scheduler integration and queue handling were
+  hardened.
+  - [#9120: Effective priority](https://github.com/kubernetes-sigs/kueue/pull/9120)
+  - [#10001: Queue integration fix](https://github.com/kubernetes-sigs/kueue/pull/10001)
+- 2026-05-04 through 2026-05-22: Beta hardening, graduation, and follow-up
+  coverage were completed.
+  - [#10910: Concurrent Admission](https://github.com/kubernetes-sigs/kueue/pull/10910)
+  - [#11097: Beta graduation](https://github.com/kubernetes-sigs/kueue/pull/11097)
+  - [#11399: Effective requests](https://github.com/kubernetes-sigs/kueue/pull/11399)
+- 2026-07-02 through 2026-07-08: Correctness, diagnostics, and internal
+  improvement.
+  - [#12334: Pod-level resources](https://github.com/kubernetes-sigs/kueue/pull/12334)
+  - [#12821: Bypass observability](https://github.com/kubernetes-sigs/kueue/pull/12821)
+  - [#12871: Strongly typed identifiers](https://github.com/kubernetes-sigs/kueue/pull/12871)
+- 2026-08-07: Metrics and the KEP were added.
+  - [#12520: Pending scheduling hashes metric](https://github.com/kubernetes-sigs/kueue/pull/12520)
+  - [#13973: KEP](https://github.com/kubernetes-sigs/kueue/pull/13973)
