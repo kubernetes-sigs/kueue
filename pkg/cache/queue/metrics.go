@@ -66,6 +66,16 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusInadmissible, inadmissible.Total(), cqCustomLabels, m.roleTracker)
 	}
 
+	if features.Enabled(features.SchedulingEquivalenceHashing) {
+		var activeHashes, inadmissibleHashes int
+		if !cqActive {
+			activeHashes, inadmissibleHashes = cq.pendingSchedulingHashesForInactiveClusterQueue()
+		} else {
+			activeHashes, inadmissibleHashes = cq.PendingSchedulingHashes()
+		}
+		metrics.ReportPendingSchedulingHashes(cq.name, activeHashes, inadmissibleHashes, cqCustomLabels, m.roleTracker)
+	}
+
 	if m.resourceMetricsEnabled {
 		// pendingResourcesTotal carries 0 entries for configured resources (seeded by
 		// Update), so iterating it once covers both the zero-series and actual pending.
