@@ -828,7 +828,6 @@ func (c *ClusterQueue) pendingActive() *metrics.LabelValsTracker {
 // to change to potentially become admissible.
 func (c *ClusterQueue) pendingInadmissible() *metrics.LabelValsTracker {
 	return metrics.Copy(c.inadmissibleWorkloadsTracker)
-
 }
 
 // PendingInLocalQueue returns the number of active and inadmissible pending workloads in LocalQueue.
