@@ -31,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -54,39 +53,33 @@ const (
 // As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
 // `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
 // rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
-func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
+func handlePodOverhead(wl *kueue.Workload, runtimeClasses map[string]*nodev1.RuntimeClass) []error {
 	var errs []error
 	for i := range wl.Spec.PodSets {
 		podSpec := &wl.Spec.PodSets[i].Template.Spec
 		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
-			var runtimeClass nodev1.RuntimeClass
-			if err := cl.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
-				errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
+			rc, ok := runtimeClasses[*podSpec.RuntimeClassName]
+			if !ok || rc == nil {
+				errs = append(errs, fmt.Errorf("in podSet %s: runtimeclasses.node.k8s.io %q not found", wl.Spec.PodSets[i].Name, *podSpec.RuntimeClassName))
 				continue
 			}
-			if runtimeClass.Overhead != nil {
-				podSpec.Overhead = runtimeClass.Overhead.PodFixed
+			if rc.Overhead != nil {
+				podSpec.Overhead = rc.Overhead.PodFixed
 			}
 		}
 	}
 	return errs
 }
 
-func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
-	// get the list of limit ranges
-	var limitRanges corev1.LimitRangeList
-	if err := cl.List(ctx, &limitRanges, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
-		return err
+func handlePodLimitRange(wl *kueue.Workload, limitRanges []corev1.LimitRange) {
+	if len(limitRanges) == 0 {
+		return
 	}
-
-	if len(limitRanges.Items) == 0 {
-		return nil
-	}
-	summary := limitrange.Summarize(limitRanges.Items...)
+	summary := limitrange.Summarize(limitRanges...)
 	podLimits, foundPodLimits := summary[corev1.LimitTypePod]
 	containerLimits, foundContainerLimits := summary[corev1.LimitTypeContainer]
 	if !foundPodLimits && !foundContainerLimits {
-		return nil
+		return
 	}
 
 	for pi := range wl.Spec.PodSets {
@@ -110,7 +103,6 @@ func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Worklo
 			pod.Resources.Requests = resource.MergeResourceListKeepFirst(pod.Resources.Requests, podLimits.DefaultRequest)
 		}
 	}
-	return nil
 }
 
 func handleLimitsToRequests(wl *kueue.Workload) {
@@ -141,15 +133,16 @@ func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 // - PodOverhead
 // - LimitRanges
 // - Limits
-func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) {
+func AdjustResources(ctx context.Context, wl *kueue.Workload, limitRanges []corev1.LimitRange, runtimeClasses map[string]*nodev1.RuntimeClass) error {
 	log := ctrl.LoggerFrom(ctx)
-	for _, err := range handlePodOverhead(ctx, cl, wl) {
+	var errs []error
+	for _, err := range handlePodOverhead(wl, runtimeClasses) {
 		log.Error(err, "Failures adjusting requests for pod overhead")
+		errs = append(errs, err)
 	}
-	if err := handlePodLimitRange(ctx, cl, wl); err != nil {
-		log.Error(err, "Failed adjusting requests for LimitRanges")
-	}
+	handlePodLimitRange(wl, limitRanges)
 	handleLimitsToRequests(wl)
+	return errors.Join(errs...)
 }
 
 // ValidateResources validates that requested resources are less or equal
