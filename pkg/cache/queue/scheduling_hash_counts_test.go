@@ -163,7 +163,7 @@ func TestPendingSchedulingHashes(t *testing.T) {
 
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := time.Now()
-	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
 
 	cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-a", "hash-a", "1"))
 	cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-b", "hash-b", "1"))
@@ -192,7 +192,7 @@ func TestPendingSchedulingHashesFeatureGateDisabled(t *testing.T) {
 
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := time.Now()
-	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
 	// With the gate disabled, NewInfo computes SchedulingHashUnknown, so the
 	// hash is never recorded and the counts stay empty without any explicit
 	// gate check in the read path.
@@ -302,7 +302,7 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+			cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
 			tc.mutate(t, cq)
 
 			if diff := cmp.Diff(tc.wantActiveCounts, cq.schedulingHashes.active, cmpopts.EquateEmpty()); diff != "" {
@@ -328,7 +328,7 @@ func TestReportCQPendingSchedulingHashesInactiveClusterQueue(t *testing.T) {
 
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := time.Now()
-	cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
 	cq.name = "stopped-cq"
 
 	cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-shared", "shared-hash", "1"))
@@ -407,7 +407,7 @@ func TestSchedulingHashCountsInadmissibleTransitions(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+			cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
 			storedInfo := makeSchedulingHashInfo(now, "workload", "stored-hash", "1")
 			resyncInfo := makeSchedulingHashInfo(now, "workload", "resync-hash", "2")
 			cq.insertInadmissible(workloadKey(storedInfo), storedInfo)

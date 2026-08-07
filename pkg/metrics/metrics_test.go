@@ -460,7 +460,8 @@ func TestMetricsWithDifferentRoles(t *testing.T) {
 func TestClearClusterQueueMetricsOnLabelChangeOnlyClearsScopedGaugeMetrics(t *testing.T) {
 	const cqName = "cq-label-change"
 
-	ReportPendingWorkloads(cqName, 3, 1, nil, nil)
+	ReportPendingWorkloads(cqName, PendingStatusActive, 3, nil, nil)
+	ReportPendingWorkloads(cqName, PendingStatusInadmissible, 1, nil, nil)
 	ReportClusterQueueWeightedShare(cqName, "cohort", 7, nil, nil)
 	ReportReplacedWorkloadSlices(cqName, nil, nil)
 
@@ -484,7 +485,8 @@ func TestClearCacheMetricsOnlyClearsCacheScopedGauges(t *testing.T) {
 	ReportAdmittedActiveWorkloads(cqName, 3, nil, nil)
 	ReportReservingActiveWorkloads(cqName, 1, nil, nil)
 	ReportClusterQueueQuotas("cohort", cqName, "flavor", "cpu", 10, 5, 3, nil, nil)
-	ReportPendingWorkloads(cqName, 4, 2, nil, nil)
+	ReportPendingWorkloads(cqName, PendingStatusActive, 4, nil, nil)
+	ReportPendingWorkloads(cqName, PendingStatusInadmissible, 2, nil, nil)
 
 	expectFilteredMetricsCount(t, ClusterQueueByStatus, 3, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, AdmittedActiveWorkloads, 1, "cluster_queue", cqName)

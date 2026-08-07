@@ -46,9 +46,16 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
 	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
+)
+
+const (
+	maxCustomLabels               = 20
+	maxTrackedCustomLabelValues   = 16
+	maxTrackedWlCustomLabelValues = 12
 )
 
 var (
@@ -75,14 +82,12 @@ var (
 	visibilityServerBindPortPath          = field.NewPath("visibilityServer", "bindPort")
 	customLabelsPath                      = field.NewPath("metrics", "customLabels")
 	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
-	maxCustomLabels                       = 20
-	maxTrackedCustomLabelValues           = 16
-	maxTrackedWlCustomLabelValues         = 12
-	maxCustomLabelsPerSourceKind          = map[configapi.SourceKind]int{
-		configapi.SourceKindWorkload:     2,
-		configapi.SourceKindLocalQueue:   6,
-		configapi.SourceKindClusterQueue: 6,
-		configapi.SourceKindCohort:       6,
+	// Values in this map should never exceed metrics.MaxCustomLabelsForSourceKind.
+	maxCustomLabelsPerSourceKind = map[configapi.SourceKind]int{
+		configapi.SourceKindWorkload:     min(2, metrics.MaxCustomLabelsForSourceKind),
+		configapi.SourceKindLocalQueue:   metrics.MaxCustomLabelsForSourceKind,
+		configapi.SourceKindClusterQueue: metrics.MaxCustomLabelsForSourceKind,
+		configapi.SourceKindCohort:       metrics.MaxCustomLabelsForSourceKind,
 	}
 )
 

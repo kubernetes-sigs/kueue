@@ -428,7 +428,7 @@ The label 'result' can have the following values:
 'status' can have the following values:
 - "active" means that the workloads are in the admission queue.
 - "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change`,
-		}, append([]string{"cluster_queue", "status", "replica_role"}, clusterQueueMetricsLabels...),
+		}, append([]string{"cluster_queue", "status", "replica_role"}, cl.LabelNames(configapi.SourceKindClusterQueue, configapi.SourceKindWorkload)...),
 	)
 	trackGaugeVec(PendingWorkloads, gaugeCleanupScopeClusterQueue)
 
@@ -1140,12 +1140,10 @@ func ReportLocalQueueAdmittedUntilReadyWaitTime(lq LocalQueueReference, priority
 	LocalQueueAdmittedUntilReadyWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
 }
 
-func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, pendingStatus string, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	role := roletracker.GetRole(tracker)
-	activeLabels := append([]string{string(cqName), PendingStatusActive, role}, customLabelValues...)
-	inadmissibleLabels := append([]string{string(cqName), PendingStatusInadmissible, role}, customLabelValues...)
-	PendingWorkloads.WithLabelValues(activeLabels...).Set(float64(active))
-	PendingWorkloads.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
+	labels := append([]string{string(cqName), pendingStatus, role}, customLabelValues...)
+	PendingWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
 func ReportPendingSchedulingHashes(cqName kueue.ClusterQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1207,6 +1205,12 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 		Name:      wl.Spec.QueueName,
 		Namespace: wl.Namespace,
 	}
+}
+
+func ClearPendingWorkloads(cqName kueue.ClusterQueueReference, pendingStatus string, customLabelVals []string, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
+	labels := append([]string{string(cqName), pendingStatus, role}, customLabelVals...)
+	PendingWorkloads.DeleteLabelValues(labels...)
 }
 
 func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
@@ -1665,4 +1669,20 @@ func ClearLocalQueueUnadmittedWorkloadLabelValues(
 		customLabelValues...,
 	)
 	LocalQueueUnadmittedWorkloads.DeleteLabelValues(labels...)
+}
+
+func TrackWorkload(cl *CustomLabels, tracker *LabelValsTracker, w *kueue.Workload) {
+	if cl.KindConfigured(configapi.SourceKindWorkload) {
+		tracker.Incr(cl.MakeValsSet(configapi.SourceKindWorkload, w.Labels, w.Annotations))
+	} else {
+		tracker.Incr(EmptyValsSet())
+	}
+}
+
+func UntrackWorkload(cl *CustomLabels, tracker *LabelValsTracker, w *kueue.Workload) {
+	if cl.KindConfigured(configapi.SourceKindWorkload) {
+		tracker.Decr(cl.MakeValsSet(configapi.SourceKindWorkload, w.Labels, w.Annotations))
+	} else {
+		tracker.Decr(EmptyValsSet())
+	}
 }

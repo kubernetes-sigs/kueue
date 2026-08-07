@@ -36,7 +36,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
@@ -148,6 +148,9 @@ type ClusterQueue struct {
 	heap              heap.Heap[workload.Info, workload.Reference]
 	namespaceSelector labels.Selector
 	active            bool
+	customLabels      *metrics.CustomLabels
+
+	pendingWorkloadsTracker *metrics.LabelValsTracker
 
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	//
@@ -156,10 +159,11 @@ type ClusterQueue struct {
 	// pendingResourcesTotal exactly once while in heap or inadmissibleWorkloads.
 	// All transitions between these places must go through the helpers next to
 	// addPendingResources (pushToHeapIfNotTracked, pushOrUpdateHeap,
-	// removeFromHeap, insertInadmissible, updateInadmissible,
-	// removeFromInadmissible, moveInadmissibleToHeap, moveHeapToInadmissible)
-	// so the accounting cannot drift.
-	inadmissibleWorkloads inadmissibleWorkloads
+	// removeFromHeap, insertInadmissible, removeFromInadmissible,
+	// moveInadmissibleToHeap, moveHeapToInadmissible) so the accounting
+	// cannot drift.
+	inadmissibleWorkloads        inadmissibleWorkloads
+	inadmissibleWorkloadsTracker *metrics.LabelValsTracker
 
 	// hashToBulkMoveReason tracks scheduling equivalence classes and the reason
 	// why workloads with that hash were bulk-moved to inadmissibleWorkloads.
@@ -210,6 +214,26 @@ type ClusterQueue struct {
 	pendingResourcesTotal map[corev1.ResourceName]int64
 }
 
+func (c *ClusterQueue) updateInadmissible(key workload.Reference, oldInfo, newInfo *workload.Info) {
+	if oldInfo == nil {
+		oldInfo = c.inadmissibleWorkloads.get(key)
+	}
+	if oldInfo != nil {
+		metrics.UntrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, oldInfo.Obj)
+	}
+	c.inadmissibleWorkloads.insert(key, newInfo)
+	c.schedulingHashes.updateInadmissible(oldInfo, newInfo)
+	metrics.TrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, newInfo.Obj)
+}
+
+func (c *ClusterQueue) popPending() *workload.Info {
+	wInfo := c.heap.Pop()
+	if wInfo != nil {
+		metrics.UntrackWorkload(c.customLabels, c.pendingWorkloadsTracker, wInfo.Obj)
+	}
+	return wInfo
+}
+
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
 	return c.name
 }
@@ -255,8 +279,9 @@ func newClusterQueue(
 	ctx context.Context,
 	client client.Client,
 	cq *kueue.ClusterQueue,
+	cl *metrics.CustomLabels,
 	wo workload.Ordering,
-	afsConfig *config.AdmissionFairSharing,
+	afsConfig *configapi.AdmissionFairSharing,
 	afsEntryPenalties *queueafs.AfsEntryPenalties,
 	afsConsumedResources *queueafs.AfsConsumedResources,
 ) (*ClusterQueue, error) {
@@ -264,6 +289,7 @@ func newClusterQueue(
 	cqImpl := newClusterQueueImpl(
 		ctx,
 		client,
+		cl,
 		wo,
 		realClock,
 		withFSResWeights(fsResWeights),
@@ -278,7 +304,7 @@ func newClusterQueue(
 	return cqImpl, nil
 }
 
-func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.Ordering, clock clock.Clock, opts ...clusterQueueOption) *ClusterQueue {
+func newClusterQueueImpl(ctx context.Context, client client.Client, cl *metrics.CustomLabels, wo workload.Ordering, clock clock.Clock, opts ...clusterQueueOption) *ClusterQueue {
 	options := &clusterQueueOptions{}
 	for _, opt := range opts {
 		opt(options)
@@ -297,20 +323,23 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 		options.afsEntryPenalties, options.afsConsumedResources,
 	)
 	return &ClusterQueue{
-		heap:                      *heap.New(workloadKey, lessFunc),
-		inadmissibleWorkloads:     make(inadmissibleWorkloads),
-		hashToBulkMoveReason:      make(map[workload.EquivalenceHash]QuotaReservedReason),
-		schedulingHashes:          newSchedulingHashCounts(),
-		finishedWorkloads:         sets.New[workload.Reference](),
-		queueInadmissibleCycle:    -1,
-		compareFunc:               compareFunc,
-		snapshotSort:              snapshotSort,
-		rwm:                       sync.RWMutex{},
-		clock:                     clock,
-		afsEntryPenalties:         options.afsEntryPenalties,
-		localQueuesInClusterQueue: make(map[utilqueue.LocalQueueReference]bool),
-		sw:                        &sw,
-		pendingResourcesTotal:     make(map[corev1.ResourceName]int64),
+		customLabels:                 cl,
+		heap:                         *heap.New(workloadKey, lessFunc),
+		pendingWorkloadsTracker:      metrics.NewLabelValsTracker(),
+		inadmissibleWorkloads:        make(inadmissibleWorkloads),
+		inadmissibleWorkloadsTracker: metrics.NewLabelValsTracker(),
+		hashToBulkMoveReason:         make(map[workload.EquivalenceHash]QuotaReservedReason),
+		schedulingHashes:             newSchedulingHashCounts(),
+		finishedWorkloads:            sets.New[workload.Reference](),
+		queueInadmissibleCycle:       -1,
+		compareFunc:                  compareFunc,
+		snapshotSort:                 snapshotSort,
+		rwm:                          sync.RWMutex{},
+		clock:                        clock,
+		afsEntryPenalties:            options.afsEntryPenalties,
+		localQueuesInClusterQueue:    make(map[utilqueue.LocalQueueReference]bool),
+		sw:                           &sw,
+		pendingResourcesTotal:        make(map[corev1.ResourceName]int64),
 	}
 }
 
@@ -517,20 +546,15 @@ func (c *ClusterQueue) subtractPendingResources(wInfo *workload.Info) {
 func (c *ClusterQueue) insertInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.inadmissibleWorkloads.insert(key, wInfo)
 	c.schedulingHashes.addInadmissible(wInfo)
+	metrics.TrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, wInfo.Obj)
 	c.addPendingResources(wInfo)
-}
-
-func (c *ClusterQueue) updateInadmissible(key workload.Reference, oldInfo, newInfo *workload.Info) {
-	// This is the in-place path for updates that cannot change admissibility,
-	// so retain the existing pendingResourcesTotal contribution.
-	c.inadmissibleWorkloads.insert(key, newInfo)
-	c.schedulingHashes.updateInadmissible(oldInfo, newInfo)
 }
 
 func (c *ClusterQueue) removeFromInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.schedulingHashes.removeInadmissible(wInfo)
 	c.subtractPendingResources(wInfo)
 	c.inadmissibleWorkloads.delete(key)
+	metrics.UntrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, wInfo.Obj)
 }
 
 // pushToHeapIfNotTracked pushes wInfo onto the heap and accounts for its
@@ -551,6 +575,7 @@ func (c *ClusterQueue) pushToHeapIfNotTracked(wInfo *workload.Info) bool {
 		return false
 	}
 	c.schedulingHashes.addActive(wInfo)
+	metrics.TrackWorkload(c.customLabels, c.pendingWorkloadsTracker, wInfo.Obj)
 	c.addPendingResources(wInfo)
 	return true
 }
@@ -561,10 +586,12 @@ func (c *ClusterQueue) pushToHeapIfNotTracked(wInfo *workload.Info) bool {
 func (c *ClusterQueue) pushOrUpdateHeap(wInfo *workload.Info) {
 	old := c.heap.GetByKey(workload.Key(wInfo.Obj))
 	if old != nil {
+		metrics.UntrackWorkload(c.customLabels, c.pendingWorkloadsTracker, old.Obj)
 		c.subtractPendingResources(old)
 	}
 	c.heap.PushOrUpdate(wInfo)
 	c.schedulingHashes.updateActive(old, wInfo)
+	metrics.TrackWorkload(c.customLabels, c.pendingWorkloadsTracker, wInfo.Obj)
 	c.addPendingResources(wInfo)
 }
 
@@ -575,6 +602,7 @@ func (c *ClusterQueue) removeFromHeap(key workload.Reference) {
 		c.schedulingHashes.removeActive(old)
 		c.subtractPendingResources(old)
 		c.heap.Delete(key)
+		metrics.UntrackWorkload(c.customLabels, c.pendingWorkloadsTracker, old.Obj)
 	}
 }
 
@@ -588,8 +616,11 @@ func (c *ClusterQueue) moveInadmissibleToHeap(key workload.Reference, wInfo *wor
 	if !c.heap.PushIfNotPresent(wInfo) {
 		return false
 	}
-	c.inadmissibleWorkloads.delete(key)
 	c.schedulingHashes.moveToActive(wInfo)
+	metrics.TrackWorkload(c.customLabels, c.pendingWorkloadsTracker, wInfo.Obj)
+
+	c.inadmissibleWorkloads.delete(key)
+	metrics.UntrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, wInfo.Obj)
 	return true
 }
 
@@ -598,8 +629,10 @@ func (c *ClusterQueue) moveInadmissibleToHeap(key workload.Reference, wInfo *wor
 // pendingResourcesTotal is unchanged.
 func (c *ClusterQueue) moveHeapToInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.heap.Delete(key)
+	metrics.UntrackWorkload(c.customLabels, c.pendingWorkloadsTracker, wInfo.Obj)
 	c.inadmissibleWorkloads.insert(key, wInfo)
 	c.schedulingHashes.moveToInadmissible(wInfo)
+	metrics.TrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, wInfo.Obj)
 }
 
 // Delete removes the workload from ClusterQueue.
@@ -618,6 +651,7 @@ func (c *ClusterQueue) delete(log logr.Logger, key workload.Reference) {
 	if old := c.inadmissibleWorkloads.get(key); old != nil {
 		c.removeFromInadmissible(key, old)
 	}
+
 	c.removeFromHeap(key)
 	c.forgetInflightByKey(key)
 	if c.sw.matches(key) {
@@ -762,12 +796,18 @@ func (c *ClusterQueue) pendingResources() map[corev1.ResourceName]int64 {
 
 // PendingTotal returns the total number of pending workloads.
 func (c *ClusterQueue) PendingTotal() int {
-	active, inadmissible := c.Pending()
-	return active + inadmissible
+	active, inadmissible := c.PendingBreakdown()
+	return active.Total() + inadmissible.Total()
 }
 
 // Pending returns the number of active and inadmissible pending workloads.
 func (c *ClusterQueue) Pending() (int, int) {
+	active, inadmissible := c.PendingBreakdown()
+	return active.Total(), inadmissible.Total()
+}
+
+// Pending returns the number of active and inadmissible pending workloads.
+func (c *ClusterQueue) PendingBreakdown() (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.pendingActive(), c.pendingInadmissible()
@@ -775,10 +815,10 @@ func (c *ClusterQueue) Pending() (int, int) {
 
 // pendingActive returns the number of active pending workloads,
 // workloads that are in the admission queue.
-func (c *ClusterQueue) pendingActive() int {
-	result := c.heap.Len()
+func (c *ClusterQueue) pendingActive() *metrics.LabelValsTracker {
+	result := metrics.Copy(c.pendingWorkloadsTracker)
 	if c.inflight != nil {
-		result++
+		metrics.TrackWorkload(c.customLabels, result, c.inflight.Obj)
 	}
 	return result
 }
@@ -786,8 +826,8 @@ func (c *ClusterQueue) pendingActive() int {
 // pendingInadmissible returns the number of inadmissible pending workloads,
 // workloads that were already tried and are waiting for cluster conditions
 // to change to potentially become admissible.
-func (c *ClusterQueue) pendingInadmissible() int {
-	return c.inadmissibleWorkloads.len()
+func (c *ClusterQueue) pendingInadmissible() *metrics.LabelValsTracker {
+	return metrics.Copy(c.inadmissibleWorkloadsTracker)
 }
 
 // PendingInLocalQueue returns the number of active and inadmissible pending workloads in LocalQueue.
@@ -841,7 +881,7 @@ func (c *ClusterQueue) Pop() *workload.Info {
 		c.schedulingHashes.clearInflight()
 		return nil
 	}
-	wl := c.heap.Pop()
+	wl := c.popPending()
 	c.schedulingHashes.moveActiveToInflight(wl)
 	c.subtractPendingResources(wl)
 	c.inflight = wl

@@ -47,6 +47,7 @@ var (
 	k8sClient client.Client
 	ctx       context.Context
 	fwk       *framework.Framework
+	qManager  *qcache.Manager
 )
 
 func TestAPIs(t *testing.T) {
@@ -139,6 +140,7 @@ func managerAndControllerSetup(
 
 		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOpts...)
+		qManager = queues
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, core.SetupControllersOpts{
 			RoleTracker:            opts.roleTracker,
