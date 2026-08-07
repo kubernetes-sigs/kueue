@@ -214,7 +214,7 @@ type ClusterQueue struct {
 	pendingResourcesTotal map[corev1.ResourceName]int64
 }
 
-func (c *ClusterQueue) recordInadmissible(key workload.Reference, oldInfo, newInfo *workload.Info) {
+func (c *ClusterQueue) updateInadmissible(key workload.Reference, oldInfo, newInfo *workload.Info) {
 	if oldInfo == nil {
 		oldInfo = c.inadmissibleWorkloads.get(key)
 	}
@@ -224,11 +224,6 @@ func (c *ClusterQueue) recordInadmissible(key workload.Reference, oldInfo, newIn
 	c.inadmissibleWorkloads.insert(key, newInfo)
 	c.schedulingHashes.updateInadmissible(oldInfo, newInfo)
 	metrics.TrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, newInfo.Obj)
-}
-
-func (c *ClusterQueue) forgetInadmissible(key workload.Reference, wInfo *workload.Info) {
-	c.inadmissibleWorkloads.delete(key)
-	metrics.UntrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, wInfo.Obj)
 }
 
 func (c *ClusterQueue) popPending() *workload.Info {
@@ -454,7 +449,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) &&
 			workload.HasClosedPreemptionGate(oldInfo.Obj) == workload.HasClosedPreemptionGate(wInfo.Obj) &&
 			!draRequestsChanged(oldInfo, wInfo) {
-			c.recordInadmissible(key, oldInfo, wInfo)
+			c.updateInadmissible(key, oldInfo, wInfo)
 			return
 		}
 		// Workload is leaving inadmissible; account for its resources before moving.
@@ -549,22 +544,17 @@ func (c *ClusterQueue) subtractPendingResources(wInfo *workload.Info) {
 }
 
 func (c *ClusterQueue) insertInadmissible(key workload.Reference, wInfo *workload.Info) {
-	c.recordInadmissible(key, nil, wInfo)
+	c.inadmissibleWorkloads.insert(key, wInfo)
 	c.schedulingHashes.addInadmissible(wInfo)
+	metrics.TrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, wInfo.Obj)
 	c.addPendingResources(wInfo)
-}
-
-func (c *ClusterQueue) updateInadmissible(key workload.Reference, oldInfo, newInfo *workload.Info) {
-	// This is the in-place path for updates that cannot change admissibility,
-	// so retain the existing pendingResourcesTotal contribution.
-	c.inadmissibleWorkloads.insert(key, newInfo)
-	c.schedulingHashes.updateInadmissible(oldInfo, newInfo)
 }
 
 func (c *ClusterQueue) removeFromInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.schedulingHashes.removeInadmissible(wInfo)
 	c.subtractPendingResources(wInfo)
-	c.forgetInadmissible(key, wInfo)
+	c.inadmissibleWorkloads.delete(key)
+	metrics.UntrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, wInfo.Obj)
 }
 
 // pushToHeapIfNotTracked pushes wInfo onto the heap and accounts for its
@@ -626,9 +616,10 @@ func (c *ClusterQueue) moveInadmissibleToHeap(key workload.Reference, wInfo *wor
 	if !c.heap.PushIfNotPresent(wInfo) {
 		return false
 	}
-	metrics.TrackWorkload(c.customLabels, c.pendingWorkloadsTracker, wInfo.Obj)
-	c.inadmissibleWorkloads.delete(key)
 	c.schedulingHashes.moveToActive(wInfo)
+	metrics.TrackWorkload(c.customLabels, c.pendingWorkloadsTracker, wInfo.Obj)
+
+	c.inadmissibleWorkloads.delete(key)
 	metrics.UntrackWorkload(c.customLabels, c.inadmissibleWorkloadsTracker, wInfo.Obj)
 	return true
 }
