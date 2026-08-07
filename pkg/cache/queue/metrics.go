@@ -18,6 +18,7 @@ package queue
 
 import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
@@ -45,12 +46,22 @@ func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {
 
 func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	active, inadmissible := cq.Pending()
-	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cq.name) {
+	cqActive := m.statusChecker == nil || m.statusChecker.ClusterQueueActive(cq.name)
+	if !cqActive {
 		inadmissible += active
 		active = 0
 	}
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 	metrics.ReportPendingWorkloads(cq.name, active, inadmissible, cqCustomLabels, m.roleTracker)
+	if features.Enabled(features.SchedulingEquivalenceHashing) {
+		var activeHashes, inadmissibleHashes int
+		if !cqActive {
+			activeHashes, inadmissibleHashes = cq.pendingSchedulingHashesForInactiveClusterQueue()
+		} else {
+			activeHashes, inadmissibleHashes = cq.PendingSchedulingHashes()
+		}
+		metrics.ReportPendingSchedulingHashes(cq.name, activeHashes, inadmissibleHashes, cqCustomLabels, m.roleTracker)
+	}
 
 	if m.resourceMetricsEnabled {
 		// pendingResourcesTotal carries 0 entries for configured resources (seeded by
