@@ -22,6 +22,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 )
@@ -142,11 +144,129 @@ func TestNodesCacheFind(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			gotNodes := nc.find(tc.nodeLabels, tc.levels)
+			gotNodes, _ := nc.find(tc.nodeLabels, tc.levels)
 			if diff := cmp.Diff(tc.wantNodes, gotNodes, cmpopts.SortSlices(func(a, b *corev1.Node) bool {
 				return a.Name < b.Name
 			})); diff != "" {
 				t.Errorf("Unexpected nodes (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestNodesCacheGeneration(t *testing.T) {
+	baseNode := func() *node.NodeWrapper {
+		return node.MakeNode("gen-test").
+			Label("cloud.provider.com/zone", "us-east-1a").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("16Gi"),
+			}).
+			Ready()
+	}
+
+	testCases := map[string]struct {
+		prime     []*corev1.Node
+		op        func(nc *nodesCache)
+		wantDelta int64
+	}{
+		"sync of a new ready node bumps": {
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().Obj())
+			},
+			wantDelta: 1,
+		},
+		"re-sync of an identical node does not bump": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().Obj())
+			},
+			wantDelta: 0,
+		},
+		"heartbeat-only update does not bump": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().
+					ResourceVersion("2").
+					ConditionHeartbeat(corev1.NodeReady, metav1.Now()).
+					Obj())
+			},
+			wantDelta: 0,
+		},
+		"equivalent allocatable expressed in different units does not bump": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4000m"),
+					corev1.ResourceMemory: resource.MustParse("16Gi"),
+				}).Obj())
+			},
+			wantDelta: 0,
+		},
+		"label change bumps": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().Label("cloud.provider.com/zone", "us-east-1b").Obj())
+			},
+			wantDelta: 1,
+		},
+		"allocatable change bumps": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("8"),
+					corev1.ResourceMemory: resource.MustParse("16Gi"),
+				}).Obj())
+			},
+			wantDelta: 1,
+		},
+		"taint change bumps": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().Taints(corev1.Taint{
+					Key:    "example.com/gpu",
+					Effect: corev1.TaintEffectNoSchedule,
+				}).Obj())
+			},
+			wantDelta: 1,
+		},
+		"transition to unschedulable removes the node and bumps": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().Unschedulable().Obj())
+			},
+			wantDelta: 1,
+		},
+		"sync of an absent not-ready node does not bump": {
+			op: func(nc *nodesCache) {
+				nc.sync(node.MakeNode("gen-test").Obj())
+			},
+			wantDelta: 0,
+		},
+		"delete of an existing node bumps": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.delete("gen-test")
+			},
+			wantDelta: 1,
+		},
+		"delete of an absent node does not bump": {
+			op: func(nc *nodesCache) {
+				nc.delete("other")
+			},
+			wantDelta: 0,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			nc := newNodesCache()
+			for _, n := range tc.prime {
+				nc.sync(n)
+			}
+			before := nc.currentGeneration()
+			tc.op(nc)
+			if delta := nc.currentGeneration() - before; delta != tc.wantDelta {
+				t.Errorf("unexpected generation delta: got %d, want %d", delta, tc.wantDelta)
 			}
 		})
 	}
