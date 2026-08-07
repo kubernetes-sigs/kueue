@@ -727,8 +727,9 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	// arrive constantly, which would otherwise send the scan back to the first flavor every
 	// time. The progress still expires on its own, since it keeps the scheduling cycle it
 	// was recorded in and lastAssignmentOutdated discards it once it is older than that.
-	if features.Enabled(features.PreserveFlavorScanProgress) && cq != nil {
-		if tracked := cq.trackedInfo(wlKey); tracked != nil && tracked.LastAssignment != nil {
+	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) && cq != nil {
+		if tracked := cq.trackedInfo(wlKey); tracked != nil && tracked.LastAssignment != nil &&
+			tracked.LastAssignment.MatchesSchedulingShape(wInfo.SchedulingHash) {
 			wInfo.LastAssignment = tracked.LastAssignment.Clone()
 		}
 	}

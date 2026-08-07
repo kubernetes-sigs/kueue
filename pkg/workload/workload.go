@@ -118,6 +118,11 @@ type AssignmentClusterQueueState struct {
 	// assignment from the immediately preceding cycle be treated as current even when the
 	// ClusterQueue generation has moved on.
 	SchedulingCycle int64
+	// SchedulingHash is the scheduling equivalence hash of the Workload this assignment was
+	// computed for. LastTriedFlavorIdx is indexed by PodSet and holds flavor indices chosen
+	// for a particular set of requests, so it only carries meaning while the Workload keeps
+	// the shape it had then.
+	SchedulingHash EquivalenceHash
 }
 
 type dra struct {
@@ -177,11 +182,27 @@ func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
 		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
 		ClusterQueueGeneration: s.ClusterQueueGeneration,
 		SchedulingCycle:        s.SchedulingCycle,
+		SchedulingHash:         s.SchedulingHash,
 	}
 	for ps, flavorIdx := range s.LastTriedFlavorIdx {
 		c.LastTriedFlavorIdx[ps] = maps.Clone(flavorIdx)
 	}
 	return &c
+}
+
+// MatchesSchedulingShape reports whether this assignment was computed for the scheduling
+// shape the Workload has now. A change to the PodSets or their requests makes the recorded
+// flavor indices describe a search that no longer applies: resuming from them could skip a
+// flavor the changed Workload would now fit.
+//
+// An unknown hash on either side means SchedulingEquivalenceHashing is disabled and there is
+// nothing to compare, so the shape is taken to be unchanged. That keeps the two features
+// independent, and NextFlavorToTryForPodSetResource still bounds-checks the PodSet index.
+func (s *AssignmentClusterQueueState) MatchesSchedulingShape(current EquivalenceHash) bool {
+	if s.SchedulingHash == SchedulingHashUnknown || current == SchedulingHashUnknown {
+		return true
+	}
+	return s.SchedulingHash == current
 }
 
 // PendingFlavors returns whether there are pending flavors to try

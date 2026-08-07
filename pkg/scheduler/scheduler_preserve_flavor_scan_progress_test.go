@@ -193,7 +193,7 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.PreserveFlavorScanProgress: tc.gateEnabled,
+				features.FlavorFungibilityPreserveScanProgress: tc.gateEnabled,
 			})
 
 			ctx, log := utiltesting.ContextWithLog(t)

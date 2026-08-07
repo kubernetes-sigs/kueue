@@ -527,7 +527,7 @@ const (
 	// earlier in the cycle took the capacity or the preemption targets it had been assigned.
 	// Under sustained load either can happen every cycle, leaving the scan to restart from
 	// the first flavor indefinitely.
-	PreserveFlavorScanProgress featuregate.Feature = "PreserveFlavorScanProgress"
+	FlavorFungibilityPreserveScanProgress featuregate.Feature = "FlavorFungibilityPreserveScanProgress"
 
 	// owner: @iaalm
 	//
@@ -569,7 +569,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	KueueDRAIntegrationExtendedResource:      {KueueDRAIntegration},
 	KueueDRAIntegrationPartitionableDevices:  {KueueDRAIntegration},
 	KueueDRAIntegrationConsumableCapacity:    {KueueDRAIntegration},
-	PreserveFlavorScanProgress:               {FlavorFungibility},
+	FlavorFungibilityPreserveScanProgress:    {FlavorFungibility},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -845,7 +845,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
-	PreserveFlavorScanProgress: {
+	FlavorFungibilityPreserveScanProgress: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 

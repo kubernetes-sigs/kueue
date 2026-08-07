@@ -37,7 +37,7 @@ import (
 // ClusterQueue where every Workload runs at the same priority.
 const equalPriority = 100
 
-// These specs cover the PreserveFlavorScanProgress gate end to end: a Workload whose TAS
+// These specs cover the FlavorFungibilityPreserveScanProgress gate end to end: a Workload whose TAS
 // placement fails on the flavor selected by quota must still reach another flavor of the
 // ResourceGroup and be admitted there.
 var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progress", ginkgo.Ordered, func() {
@@ -158,7 +158,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progre
 	// TestScheduleForPreserveFlavorScanProgress instead, which drives cycles directly and
 	// covers both gate states under churn as well as the no-churn outcome.
 	ginkgo.It("should admit the workload on the second flavor when the first flavor's topology cannot fit it", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PreserveFlavorScanProgress, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FlavorFungibilityPreserveScanProgress, true)
 
 		var blocker, pending *kueue.Workload
 

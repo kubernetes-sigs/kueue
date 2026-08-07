@@ -1037,10 +1037,15 @@ func (c *ClusterQueue) Info(key workload.Reference) *workload.Info {
 	return c.heap.GetByKey(key)
 }
 
-// trackedInfo returns the workload.Info currently tracked for the key, looking in the heap
-// and then in inadmissibleWorkloads. A Workload that failed to be admitted is held in the
-// latter, which Info deliberately does not consult. The inflight Workload is not covered,
-// since it is being scheduled and the scheduler holds its own copy.
+// trackedInfo returns the workload.Info currently tracked for the key, wherever it is held:
+// the heap, inadmissibleWorkloads once the Workload has been tried and could not be admitted,
+// or inflight while the scheduler is processing it. Info covers only the heap.
+//
+// An update to the inflight Workload reaches the LocalQueue but not the heap, since
+// PushOrUpdate deliberately drops it in favour of the newer copy the scheduler requeues at
+// the end of the cycle. The inflight lookup is still worth doing, because the LocalQueue copy
+// is what AddFromLocalQueue replays if the ClusterQueue is reactivated.
+//
 // Users of this method should not modify the returned object.
 func (c *ClusterQueue) trackedInfo(key workload.Reference) *workload.Info {
 	c.rwm.RLock()
@@ -1048,7 +1053,13 @@ func (c *ClusterQueue) trackedInfo(key workload.Reference) *workload.Info {
 	if wInfo := c.heap.GetByKey(key); wInfo != nil {
 		return wInfo
 	}
-	return c.inadmissibleWorkloads.get(key)
+	if wInfo := c.inadmissibleWorkloads.get(key); wInfo != nil {
+		return wInfo
+	}
+	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
+		return c.inflight
+	}
+	return nil
 }
 
 // totalElements returns all pending workloads (heap + inadmissible + inflight).

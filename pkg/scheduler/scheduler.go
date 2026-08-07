@@ -238,7 +238,7 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 
 // markSkipped marks the entry as skipped for this cycle.
 //
-// With features.PreserveFlavorScanProgress the flavor assignment is kept, so the next cycle
+// With features.FlavorFungibilityPreserveScanProgress the flavor assignment is kept, so the next cycle
 // resumes the flavor scan where this one left off rather than starting over. Both callers
 // skip on contention rather than on the flavor itself - capacity taken by a Workload
 // processed earlier in the cycle, or preemption targets claimed by another entry - so the
@@ -247,7 +247,7 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 func (e *entry) markSkipped(msg string) {
 	e.status = skipped
 	e.inadmissibleMsg = msg
-	if !features.Enabled(features.PreserveFlavorScanProgress) {
+	if !features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
 		e.LastAssignment = nil
 	}
 }
@@ -771,7 +771,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	// dropped once it no longer describes the current state. Deciding that here rather than
 	// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
 	// again for each reduced pod count when partial admission is in play.
-	if wl.LastAssignment != nil && lastAssignmentOutdated(wl.LastAssignment, cq.AllocatableResourceGeneration, s.schedulingCycle) {
+	if wl.LastAssignment != nil && lastAssignmentOutdated(wl.LastAssignment, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
 		log.FromContext(ctx).V(6).Info("Clearing Workload's last assignment because it was outdated",
 			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
 			"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration)
@@ -783,14 +783,21 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 }
 
 // lastAssignmentOutdated reports whether the recorded flavor assignment no longer describes
-// the current state of the ClusterQueue, in which case the flavor scan has to start over.
-func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentCQGeneration, currentSchedulingCycle int64) bool {
-	if features.Enabled(features.PreserveFlavorScanProgress) && currentSchedulingCycle-last.SchedulingCycle <= 1 {
+// the current state, in which case the flavor scan has to start over.
+func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash workload.EquivalenceHash) bool {
+	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
+		// Checked before the cycle age, so that a Workload whose shape changed starts over
+		// even when it was assigned in the preceding cycle.
+		if !last.MatchesSchedulingShape(currentSchedulingHash) {
+			return true
+		}
 		// An assignment computed in the current or the immediately preceding cycle is not
 		// treated as outdated. The ClusterQueue generation advances on every admission or
 		// eviction in the Cohort, which on a busy cluster discards the flavor progress
 		// recorded one cycle earlier before it can be used.
-		return false
+		if currentSchedulingCycle-last.SchedulingCycle <= 1 {
+			return false
+		}
 	}
 	return currentCQGeneration > last.ClusterQueueGeneration
 }

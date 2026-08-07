@@ -685,6 +685,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 			LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, 0, len(requests)),
 			ClusterQueueGeneration: a.cq.AllocatableResourceGeneration,
 			SchedulingCycle:        a.schedulingCycle,
+			SchedulingHash:         a.wl.SchedulingHash,
 		},
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}

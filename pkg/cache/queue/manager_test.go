@@ -2445,8 +2445,14 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 		// inadmissible pops the Workload and requeues it, as a cycle that failed to admit
 		// it would, which moves it into inadmissibleWorkloads.
 		inadmissible bool
-		recorded     *workload.AssignmentClusterQueueState
-		wantCarried  bool
+		// inflight pops the Workload and leaves it there, as it is while the scheduler
+		// processes it.
+		inflight bool
+		// changeShape alters the Workload's requests in the update, so its scheduling
+		// equivalence hash no longer matches the one the assignment was recorded for.
+		changeShape bool
+		recorded    *workload.AssignmentClusterQueueState
+		wantCarried bool
 	}{
 		"tracked in the heap": {
 			preserveProgress: true,
@@ -2470,11 +2476,31 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 			recorded:         exhaustedScan(),
 			wantCarried:      false,
 		},
+		"tracked as inflight": {
+			preserveProgress: true,
+			inflight:         true,
+			recorded:         pendingFlavors(),
+			wantCarried:      true,
+		},
+		"without the gate the progress is dropped for an inflight workload": {
+			preserveProgress: false,
+			inflight:         true,
+			recorded:         pendingFlavors(),
+			wantCarried:      false,
+		},
+		// The recorded flavor indices were chosen for the old requests, so resuming from
+		// them could skip a flavor the changed Workload now fits.
+		"a changed scheduling shape is not carried": {
+			preserveProgress: true,
+			changeShape:      true,
+			recorded:         pendingFlavors(),
+			wantCarried:      false,
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.PreserveFlavorScanProgress, tc.preserveProgress)
+			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityPreserveScanProgress, tc.preserveProgress)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil,
@@ -2499,11 +2525,14 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 			if tracked == nil {
 				t.Fatal("Workload is not tracked by the ClusterQueue after being added")
 			}
+			tc.recorded.SchedulingHash = tracked.SchedulingHash
 			tracked.LastAssignment = tc.recorded
-			if tc.inadmissible {
+			if tc.inadmissible || tc.inflight {
 				if popped := cqImpl.Pop(); popped == nil {
 					t.Fatal("Popping the Workload returned nothing")
 				}
+			}
+			if tc.inadmissible {
 				if !cqImpl.requeueIfNotPresent(log, tracked, false, RequeueReasonNoFit, "") {
 					t.Fatal("Requeueing the Workload failed")
 				}
@@ -2514,13 +2543,23 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 
 			updated := wl.DeepCopy()
 			updated.Labels = map[string]string{"updated": "true"}
+			if tc.changeShape {
+				updated.Spec.PodSets[0].Count = wl.Spec.PodSets[0].Count + 3
+			}
 			if err := manager.AddOrUpdateWorkload(log, updated); err != nil {
 				t.Fatalf("Updating Workload: %v", err)
 			}
 
-			got := cqImpl.trackedInfo(key)
+			// PushOrUpdate drops an update to the inflight Workload, so the rebuilt Info
+			// reaches the LocalQueue only. That copy is what AddFromLocalQueue would replay.
+			var got *workload.Info
+			if tc.inflight {
+				got = manager.localQueues[queue.KeyFromWorkload(updated)].items[key]
+			} else {
+				got = cqImpl.trackedInfo(key)
+			}
 			if got == nil {
-				t.Fatal("Workload is not tracked by the ClusterQueue after the update")
+				t.Fatal("Workload is not tracked after the update")
 			}
 			var want *workload.AssignmentClusterQueueState
 			if tc.wantCarried {

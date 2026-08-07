@@ -8168,7 +8168,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 //
 // Both markSkipped call sites skip on contention rather than on the flavor itself: capacity
 // consumed by a Workload processed earlier in the cycle, or preemption targets already
-// claimed by another entry. features.PreserveFlavorScanProgress decides whether the next
+// claimed by another entry. features.FlavorFungibilityPreserveScanProgress decides whether the next
 // cycle resumes the scan or restarts it from the first flavor.
 func TestEntryMarkSkipped(t *testing.T) {
 	cases := map[string]struct {
@@ -8187,7 +8187,7 @@ func TestEntryMarkSkipped(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.PreserveFlavorScanProgress, tc.preserveProgress)
+			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityPreserveScanProgress, tc.preserveProgress)
 
 			e := entry{
 				Info: workload.Info{
@@ -8950,10 +8950,11 @@ func TestLastAssignmentOutdated(t *testing.T) {
 		currentSchedulingCycle int64
 		last                   *workload.AssignmentClusterQueueState
 		currentCQGeneration    int64
+		currentSchedulingHash  workload.EquivalenceHash
 	}
 	tests := []struct {
 		name string
-		// preserveProgress enables features.PreserveFlavorScanProgress.
+		// preserveProgress enables features.FlavorFungibilityPreserveScanProgress.
 		preserveProgress bool
 		args             args
 		want             bool
@@ -9022,6 +9023,66 @@ func TestLastAssignmentOutdated(t *testing.T) {
 			want: true,
 		},
 		{
+			name:             "a changed scheduling shape starts the scan over even in the preceding cycle",
+			preserveProgress: true,
+			args: args{
+				currentSchedulingCycle: 5,
+				last: &workload.AssignmentClusterQueueState{
+					ClusterQueueGeneration: 0,
+					SchedulingCycle:        4,
+					SchedulingHash:         "shape-a",
+				},
+				currentCQGeneration:   0,
+				currentSchedulingHash: "shape-b",
+			},
+			want: true,
+		},
+		{
+			name:             "an unchanged scheduling shape keeps the preceding cycle's assignment",
+			preserveProgress: true,
+			args: args{
+				currentSchedulingCycle: 5,
+				last: &workload.AssignmentClusterQueueState{
+					ClusterQueueGeneration: 0,
+					SchedulingCycle:        4,
+					SchedulingHash:         "shape-a",
+				},
+				currentCQGeneration:   1,
+				currentSchedulingHash: "shape-a",
+			},
+			want: false,
+		},
+		{
+			name:             "an unknown hash is not treated as a shape change",
+			preserveProgress: true,
+			args: args{
+				currentSchedulingCycle: 5,
+				last: &workload.AssignmentClusterQueueState{
+					ClusterQueueGeneration: 0,
+					SchedulingCycle:        4,
+					SchedulingHash:         workload.SchedulingHashUnknown,
+				},
+				currentCQGeneration:   1,
+				currentSchedulingHash: "shape-b",
+			},
+			want: false,
+		},
+		{
+			name:             "without the gate a changed scheduling shape is ignored",
+			preserveProgress: false,
+			args: args{
+				currentSchedulingCycle: 5,
+				last: &workload.AssignmentClusterQueueState{
+					ClusterQueueGeneration: 0,
+					SchedulingCycle:        4,
+					SchedulingHash:         "shape-a",
+				},
+				currentCQGeneration:   0,
+				currentSchedulingHash: "shape-b",
+			},
+			want: false,
+		},
+		{
 			name:             "without the gate the preceding cycle gets no special treatment",
 			preserveProgress: false,
 			args: args{
@@ -9037,8 +9098,8 @@ func TestLastAssignmentOutdated(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.PreserveFlavorScanProgress, tt.preserveProgress)
-			if got := lastAssignmentOutdated(tt.args.last, tt.args.currentCQGeneration, tt.args.currentSchedulingCycle); got != tt.want {
+			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityPreserveScanProgress, tt.preserveProgress)
+			if got := lastAssignmentOutdated(tt.args.last, tt.args.currentCQGeneration, tt.args.currentSchedulingCycle, tt.args.currentSchedulingHash); got != tt.want {
 				t.Errorf("LastAssignmentOutdated() = %v, want %v", got, tt.want)
 			}
 		})
