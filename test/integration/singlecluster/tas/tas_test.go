@@ -7524,6 +7524,107 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 		})
 	})
+
+	ginkgo.When("Workload has positive-count PodSet with zero-valued resource requests", func() {
+		var (
+			topology     *kueue.Topology
+			tasFlavor    *kueue.ResourceFlavor
+			clusterQueue *kueue.ClusterQueue
+			localQueue   *kueue.LocalQueue
+			nodes        []corev1.Node
+		)
+
+		ginkgo.BeforeEach(func() {
+			topology = utiltestingapi.MakeDefaultThreeLevelTopology("zero-req-topology")
+			util.MustCreate(ctx, k8sClient, topology)
+
+			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor-zero").
+				NodeLabel("node-group", "tas-zero").
+				TopologyName(topology.Name).
+				Obj()
+			util.MustCreate(ctx, k8sClient, tasFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-zero").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+					Resource(corev1.ResourceCPU, "5").
+					Resource(corev1.ResourceMemory, "5Gi").
+					Obj()).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("local-queue-zero", ns.Name).
+				ClusterQueue(clusterQueue.Name).
+				Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+
+			nodes = []corev1.Node{
+				*testingnode.MakeNode("z1").
+					Label("node-group", "tas-zero").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r1").
+					Label(corev1.LabelHostname, "z1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("z2").
+					Label("node-group", "tas-zero").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r1").
+					Label(corev1.LabelHostname, "z2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			}
+			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			for i := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+			}
+		})
+
+		ginkgo.It("should admit workload and assign topology assignment", func() {
+			var wl *kueue.Workload
+
+			ginkgo.By("creating a workload with zero-valued resource requests", func() {
+				wl = utiltestingapi.MakeWorkload("wl-zero-requests", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet("worker", 2).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "0").
+						Request(corev1.ResourceMemory, "0").
+						Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("verifying workload admission and topology assignment", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updated kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updated)).To(gomega.Succeed())
+					g.Expect(updated.Status.Admission).NotTo(gomega.BeNil())
+					g.Expect(updated.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+					g.Expect(assignedPodCount(updated.Status.Admission.PodSetAssignments[0].TopologyAssignment)).To(gomega.Equal(int32(2)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
 })
 
 // Tests the "Retain" resource transformation strategy: regular CPU requests are
