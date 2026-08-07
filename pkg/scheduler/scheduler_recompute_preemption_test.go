@@ -758,3 +758,22 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		fakeClock:       fakeClock,
 	}, cases)
 }
+
+func TestScheduleForFairSharingWithRecomputePreemptionTargetsUponOverlap(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(now)
+	cfg, cases := fairSharingTestConfigAndCases(now, fakeClock)
+
+	for name, tc := range cases {
+		if name == "multiple preemptions skip overlapping preemption targets" {
+			// This test case is designed to test the opposite behavior, so we exclude it.
+			continue
+		}
+		if tc.featureGates == nil {
+			tc.featureGates = make(map[featuregate.Feature]bool)
+		}
+		tc.featureGates[features.RecomputePreemptionTargetsUponOverlap] = true
+		cases[name] = tc
+	}
+	runScheduleTestCases(t, cfg, cases)
+}
