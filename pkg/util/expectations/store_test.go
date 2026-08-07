@@ -26,6 +26,75 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
+type keyUIDs struct {
+	key  types.NamespacedName
+	uids []types.UID
+}
+
+func TestExpectations(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	initial := []keyUIDs{
+		{
+			key:  types.NamespacedName{Name: "g1"},
+			uids: []types.UID{"a", "b", "c"},
+		},
+		{
+			key:  types.NamespacedName{Name: "g2"},
+			uids: []types.UID{"x", "y", "z"},
+		},
+		{
+			key:  types.NamespacedName{Name: "g3"},
+			uids: []types.UID{"a", "b", "c", "x", "y", "z"},
+		},
+	}
+	expectations := NewStore("test")
+	err := parallelize.Until(ctx, len(initial), func(i int) error {
+		e := initial[i]
+		expectations.ExpectUIDs(log, e.key, e.uids)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Inserting initial UIDs: %v", err)
+	}
+
+	observe := []keyUIDs{
+		{
+			key:  types.NamespacedName{Name: "g1"},
+			uids: []types.UID{"a", "b", "c"},
+		},
+		{
+			key:  types.NamespacedName{Name: "g2"},
+			uids: []types.UID{"x", "y", "z", "x", "y", "z"},
+		},
+		{
+			key:  types.NamespacedName{Name: "g3"},
+			uids: []types.UID{"a", "b", "c", "x", "y"},
+		},
+	}
+	err = parallelize.Until(ctx, len(observe), func(i int) error {
+		e := observe[i]
+		return parallelize.Until(ctx, len(e.uids), func(j int) error {
+			expectations.ObservedUID(log, e.key, e.uids[j])
+			return nil
+		})
+	})
+	if err != nil {
+		t.Fatalf("Observing UIDs: %v", err)
+	}
+
+	wantSatisfied := map[types.NamespacedName]bool{
+		{Name: "g1"}: true,
+		{Name: "g2"}: true,
+		{Name: "g3"}: false,
+	}
+	for key, want := range wantSatisfied {
+		got := expectations.Satisfied(log, key)
+		if got != want {
+			t.Errorf("Got key %s satisfied: %t, want %t", key, got, want)
+		}
+	}
+}
+
 func TestCreationStore(t *testing.T) {
 	log := utiltesting.NewLogger(t)
 	cs := NewCreationStore("test", 0) // no expiry
@@ -93,15 +162,18 @@ func TestCreationStoreResetExpired(t *testing.T) {
 		t.Errorf("Expected key to NOT be satisfied after ExpectCreation")
 	}
 
-	// Before TTL expires, still not satisfied.
-	time.Sleep(10 * time.Millisecond)
+	// Before TTL expires, ResetExpired must retain the expectation.
+	removed := cs.ResetExpired(log)
+	if removed != 0 {
+		t.Errorf("Expected 0 expired entries before TTL expiry, got %d", removed)
+	}
 	if cs.Satisfied(log, key) {
 		t.Errorf("Expected key to NOT be satisfied before TTL expiry")
 	}
 
 	// Wait for TTL to expire, then reset.
 	time.Sleep(100 * time.Millisecond)
-	removed := cs.ResetExpired(log)
+	removed = cs.ResetExpired(log)
 	if removed != 1 {
 		t.Errorf("Expected 1 expired entry to be removed, got %d", removed)
 	}

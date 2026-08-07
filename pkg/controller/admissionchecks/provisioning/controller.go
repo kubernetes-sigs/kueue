@@ -195,11 +195,16 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	err = c.syncOwnedProvisionRequest(ctx, wl, &wlInfo, checkConfig, activeOrLastPRForChecks)
+	requeue, err := c.syncOwnedProvisionRequest(ctx, wl, &wlInfo, checkConfig, activeOrLastPRForChecks)
 	if err != nil {
 		// this can also delete unneeded checks
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed")
 		return reconcile.Result{}, err
+	}
+	if requeue {
+		// A creation expectation is outstanding; requeue after the TTL so the
+		// controller wakes up even if the watch event is missed.
+		return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
 	}
 
 	return reconcile.Result{}, nil
@@ -261,8 +266,9 @@ func (c *Controller) syncOwnedProvisionRequest(
 	wlInfo *workloadInfo,
 	checkConfig map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig,
 	activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest,
-) error {
+) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
+	requeue := false
 	for checkName, prc := range checkConfig {
 		if prc == nil {
 			// the check is not active
@@ -305,6 +311,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			// is cleared when the object appears in the informer cache.
 			if !c.creationExpectations.Satisfied(log, prKey) {
 				log.V(3).Info("Skipping ProvisioningRequest creation due to outstanding creation expectation", "requestName", requestName)
+				requeue = true
 				continue
 			}
 			log.V(3).Info("Creating ProvisioningRequest", "requestName", requestName, "attempt", attempt)
@@ -325,7 +332,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 
 			mergedPodSets, err := mergePodSets(wl, &prc.Spec)
 			if err != nil {
-				return err
+				return requeue, err
 			}
 
 			for _, mergedPodSet := range mergedPodSets {
@@ -334,14 +341,14 @@ func (c *Controller) syncOwnedProvisionRequest(
 				pt := &corev1.PodTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: wl.Namespace, Name: ptName}}
 				err := c.client.Get(ctx, client.ObjectKeyFromObject(pt), pt)
 				if client.IgnoreNotFound(err) != nil {
-					return err
+					return requeue, err
 				}
 				if err != nil {
 					// it's a not found, so create it
 					_, err := c.createPodTemplate(ctx, wl, ptName, mergedPodSet.PodSet, mergedPodSet.PodSetAssignment)
 					if err != nil {
 						msg := fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err)
-						return c.handleError(ctx, wl, ac, pt, msg, err)
+						return requeue, c.handleError(ctx, wl, ac, pt, msg, err)
 					}
 				}
 
@@ -354,7 +361,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			}
 
 			if err := ctrl.SetControllerReference(wl, req, c.client.Scheme()); err != nil {
-				return err
+				return requeue, err
 			}
 
 			if err := c.client.Create(ctx, req); err != nil {
@@ -365,19 +372,19 @@ func (c *Controller) syncOwnedProvisionRequest(
 					// the informer cache catches up. The expectation is cleared
 					// when the object appears in a watch event.
 					c.creationExpectations.ExpectCreation(log, prKey)
-					return c.handleError(ctx, wl, ac, req, msg, err)
+					return requeue, c.handleError(ctx, wl, ac, req, msg, err)
 				}
-				return c.handleError(ctx, wl, ac, req, msg, err)
+				return requeue, c.handleError(ctx, wl, ac, req, msg, err)
 			}
 			c.creationExpectations.ExpectCreation(log, prKey)
 			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "ProvisioningRequestCreated", "Created", "Created ProvisioningRequest: %q", req.Name)
 			activeOrLastPRForChecks[checkName] = req
 		}
 		if err := c.syncProvisionRequestsPodTemplates(ctx, wl, req); err != nil {
-			return err
+			return requeue, err
 		}
 	}
-	return nil
+	return requeue, nil
 }
 
 func (c *Controller) handleError(ctx context.Context, wl *kueue.Workload, ac *kueue.AdmissionCheckState, obj client.Object, msg string, err error) error {
