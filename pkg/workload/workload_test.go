@@ -763,8 +763,9 @@ func TestNewInfo(t *testing.T) {
 				Obj(),
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
 				{
-					Input:      "example.com/gpumem",
-					Strategy:   ptr.To(config.Retain),
+					Input: "example.com/gpumem",
+					// Strategy left unset: nil defaults to Retain in production,
+					// so this covers the path an operator gets without asking.
 					MultiplyBy: corev1.ResourceCPU,
 					Outputs: corev1.ResourceList{
 						"example.com/gpumem-quota": resource.MustParse("1"),
