@@ -1832,13 +1832,22 @@ likely to expect a fallback rather than the labels of both branches. Labels that
 are the worse case, not the safe one: they accumulate, so a Pod ends up selecting a node that
 satisfies every branch at once, while the request asks for any one of them.
 
-For Alpha a prioritized-list request is admitted only when the logical resources its alternatives
-resolve to all take one ResourceFlavor and that flavor sets no node labels. Anything else is
-permanently inadmissible: a request whose resources would take different flavors has no single
-selector to render, and one flavor carrying labels cannot say which alternative they belong to.
-DRA flavors normally carry none, so this is a restriction on the shape of the queue rather than on
-the request. Binding an alternative to a flavor, and with it the per-flavor attribution of the
-charge, is left to a later stage.
+Which alternatives belong to one request is known only while the claim is being read.
+`GetResourceRequestsForResourceClaimTemplates` returns one `corev1.ResourceList` per PodSet, so by
+the time flavors are assigned there is nothing left to say that two logical resources were
+alternatives rather than both needed. A rule phrased over the flavors those resources take
+therefore has no place to run.
+
+For Alpha the rule is phrased where the grouping still exists: every alternative of one
+`firstAvailable` request has to map to the same logical resource, and a request whose alternatives
+map to more than one is permanently inadmissible. The envelope then covers a single resource, which
+takes a single flavor, whose labels are the ones every alternative would have wanted. Nothing has to
+be said about those labels, and nothing downstream has to know the request was a prioritized list.
+
+This keeps the case the feature is for, several DeviceClasses that an administrator already maps to
+one logical resource, and leaves out fallback between different resources. That one needs an
+alternative bound to a flavor, which is where the per-flavor attribution of the charge belongs too,
+and both are for a later stage.
 
 #### Safety argument
 
@@ -2142,9 +2151,10 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
   per-Pod value times the count is admitted in the first place
 - Prioritized list with a logical resource named `cpu`: the charge round-trips through the
   milli-unit convention rather than being read as absolute units
-- Prioritized list flavors: alternatives whose logical resources all resolve to one label-less
-  flavor are admitted; resources taking different flavors, or a flavor carrying node labels, are
-  rejected rather than rendered into a selector that means every branch at once
+- Prioritized list flavors: alternatives mapping to one logical resource are admitted and render
+  the selector that resource's flavor implies; alternatives mapping to more than one are rejected
+  while the claim is read, rather than reaching flavor assignment as a set of resources nothing can
+  tell apart from ones that are all needed
 - Prioritized list under MultiKueue: the admission check rejects before any remote Workload or Job
   exists, and a transient template read error is retried instead of rejected
 - Prioritized list under `quotaCheckStrategy: IgnoreUndeclared`: an alternative resolving to an
@@ -2267,8 +2277,8 @@ the realized allocation.
 
 - feature gate enabled by default
 - quota and feasibility paths agree on the supported-versus-rejected predicate, with tests
-- alternatives bound to a ResourceFlavor, so a prioritized list is no longer confined to queues
-  exposing one label-less flavor for the resources it reaches
+- alternatives bound to a ResourceFlavor, so a request can fall back between logical resources
+  rather than being confined to alternatives an administrator already mapped to one
 - upgrade and downgrade behavior verified
 - E2E stability for the count-based case
 - re-evaluate source-backed alternatives, charging each through its source path and taking the
