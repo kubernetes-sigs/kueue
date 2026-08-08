@@ -2432,6 +2432,59 @@ func TestReconcilerRepairsStaleValueUnderTheSameClass(t *testing.T) {
 	}
 }
 
+// TestReconcilerConvergesAfterAFailedSameClassRepair follows the two reconciles
+// a partial write takes to settle. The first resolves because a component is
+// missing and repairs the one that is stale; when that write fails the set is
+// left split, with no name for the second reconcile to notice.
+func TestReconcilerConvergesAfterAFailedSameClassRepair(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
+
+	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+		WorkloadPriorityClass("high").Replicas(2).UID(testLWS).Obj()
+	stale := lwsComponent("0", "high", 100)
+
+	failStaleOnce := true
+	clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if wl, ok := obj.(*kueue.Workload); ok && wl.Name == stale.Name && failStaleOnce {
+					failStaleOnce = false
+					return apierrors.NewConflict(kueue.Resource("workloads"), wl.Name, errors.New("conflict"))
+				}
+				return c.Update(ctx, obj, opts...)
+			},
+		})
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(lws,
+		utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(), stale).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, request); err == nil {
+		t.Fatal("Reconcile() returned no error, want the conflict on the stale component")
+	}
+	if _, err := reconciler.Reconcile(ctx, request); err != nil {
+		t.Fatalf("second Reconcile(): %v", err)
+	}
+
+	var got kueue.WorkloadList
+	if err := kClient.List(ctx, &got, client.InNamespace(testNS)); err != nil {
+		t.Fatalf("Listing workloads: %v", err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("got %d workloads, want 2", len(got.Items))
+	}
+	for _, wl := range got.Items {
+		if wl.Spec.Priority == nil || *wl.Spec.Priority != 200 {
+			t.Errorf("%s: priority = %d, want 200; the set stayed split", wl.Name, ptr.Deref(wl.Spec.Priority, 0))
+		}
+	}
+}
+
 // TestReconcilerDeletesSurplusWhenTheClassIsMissing pins that the branches stay
 // independent. Resolving the class for the components being created must not
 // stop a surplus Workload from being cleaned up.
