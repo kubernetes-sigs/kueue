@@ -78,9 +78,6 @@ type workloadToCreate struct {
 	index int
 }
 
-// resolvedPriority is what one lookup of the object's WorkloadPriorityClass
-// returned, so a reconcile that touches more than one set of Workloads gives
-// them all the same answer.
 type resolvedPriority struct {
 	classRef *kueue.PriorityClassRef
 	priority int32

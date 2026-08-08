@@ -1217,10 +1217,12 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, sameClassName, needsClassChange)
 }
 
-// ApplyWorkloadPriority is UpdateWorkloadPriority with the resolution supplied by
-// the caller, for a reconcile that has already resolved the class for another set
-// of workloads. Two lookups of one class in the same reconcile can return
-// different values, which would leave the sets holding different priorities.
+// ApplyWorkloadPriority is the resolved-input variant of UpdateWorkloadPriority.
+// It has the same update semantics, but rather than resolving the class itself it
+// takes the reference and value the caller supplies, so a reconcile that already
+// resolved for another set of workloads reuses that exact result. Two lookups of
+// one class in the same reconcile can return different values, which would leave
+// the sets holding different priorities.
 //
 // A caller that already resolved had a reason to, so a workload naming the class
 // with a value left behind by an earlier reconcile is repaired here rather than
@@ -1241,10 +1243,11 @@ func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventR
 	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, sameClassName, needsClassChange)
 }
 
-// applyResolvedPriority writes the resolved ref/value to every eligible workload
-// whose full priority state differs. Same-name workloads with a stale value are
-// repaired before the name-changing ones, so a name mismatch survives as the
-// retry marker if a write in this batch fails.
+// applyResolvedPriority is the write path UpdateWorkloadPriority and
+// ApplyWorkloadPriority share. It writes the resolved ref/value to every eligible
+// workload whose full priority state differs. Same-name workloads with a stale
+// value are repaired before the name-changing ones, so a name mismatch survives
+// as the retry marker if a write in this batch fails.
 func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
 	priorityClassRef *kueue.PriorityClassRef, priority int32, sameClassName, needsClassChange []*kueue.Workload) error {
 	// One workload that will not take the write does not speak for the rest, so
