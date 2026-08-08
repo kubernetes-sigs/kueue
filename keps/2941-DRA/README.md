@@ -304,7 +304,7 @@ GPU memory quota, while a team requesting a 7g.80gb profile should consume 80Gi.
 - The `ResourceClaims` and `ResourceClaimTemplates` APIs for DRA in k8s are immutable.
 - ResourceClaims are not supported in alpha - workloads must use ResourceClaimTemplates.
   Direct ResourceClaim references will result in inadmissible workloads.
-- Device class uniqueness is enforced - each device class can only map to one resource name to prevent quota ambiguity.
+- Device class uniqueness is enforced for count-based mappings - each device class can only map to one resource name to prevent quota ambiguity.
 - Configuration-based approach - device class mappings are configured through the Kueue Configuration API
 - This design does not work with Kueue's Topology Aware Scheduling feature and will be addressed in future work.
 - DRA resource preprocessing is not scoped by ResourceFlavor node constraints. Counter
@@ -575,7 +575,8 @@ complex runtime resolution logic, ensuring predictable and efficient workload ad
 **Note**: A single mapping can have multiple capacity sources that sum into one quota
 resource, which does not violate this constraint. Tracking independent capacity
 dimensions as separate quota resources (same DeviceClass, different resource names)
-requires relaxing this uniqueness constraint and is deferred to beta.
+remains deferred to beta, while count-based mappings already relax this constraint
+for distinct counter names.
 
 ### RBAC Requirements
 
@@ -1639,8 +1640,8 @@ capacity sources cannot be mixed within the same mapping. This means a unified
 quota pool across both device types (e.g., partitioned and time-sliced GPUs both
 charging `gpu.memory`) is not supported. Relaxing the resource name uniqueness
 to allow separate counter and capacity mappings to share a quota resource is to
-be evaluated for [Beta](#beta). The same DeviceClass cannot appear in two different
-mappings due to the DeviceClass uniqueness constraint across mappings.
+be evaluated for [Beta](#beta). For count-based mappings, the same DeviceClass
+cannot appear in two different mappings unless the counter names differ.
 
 **Extended resources and capacity sources are not supported together:**
 
