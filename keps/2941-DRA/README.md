@@ -1941,7 +1941,8 @@ until it holds, so the Alpha implementation waits on it.
 Supported: `ResourceClaimTemplate` references; `ExactCount` subrequests; count-based
 `deviceClassMappings` (no `sources`); request-selector CEL compilation.
 
-Rejected: direct `ResourceClaim` references; `All` and unknown allocation modes; unmapped
+Rejected: a request whose alternatives map to more than one logical resource; direct
+`ResourceClaim` references; `All` and unknown allocation modes; unmapped
 DeviceClasses; any alternative that sets `capacity` on the subrequest; and any alternative whose
 DeviceClass mapping configures a counter or capacity `source`. Source-backed alternatives are excluded because the counter and consumable-capacity
 accounting paths process only `Exactly` requests today; they can be added later by charging each
@@ -2126,9 +2127,18 @@ prioritized-list implementation does not ship while any of them is open:
 - [#13985](https://github.com/kubernetes-sigs/kueue/issues/13985) and
   [#13991](https://github.com/kubernetes-sigs/kueue/issues/13991): a negative transformation output
   and a negative `spec.overhead` each reach the merge and subtract from it.
+- [#13992](https://github.com/kubernetes-sigs/kueue/issues/13992): `Retain` writes the product back
+  under the input's own name, so a multiplier below one shrinks what the PodSet asked for. A request
+  of 1024 with `multiplyBy` on a `cpu: 500m` is retained as 512.
+- [#13998](https://github.com/kubernetes-sigs/kueue/issues/13998): a product beyond `int64` is
+  converted by wrapping rather than reported, so a positive charge can come out negative and be
+  floored away.
 
-Each wants a regression test where the charge under scrutiny is a `firstAvailable` envelope, since
-that is the shape with nothing in the pod spec to fall back on.
+Each fix regresses against the path it lives on, which is the `Exactly` charge those paths carry
+today; a fix cannot test a shape the feature it precedes has not introduced. The implementation
+repeats each scenario with a `firstAvailable` envelope, which is the shape with nothing in the pod
+spec to fall back on, and so shows the new charge crossing the repaired path rather than only that
+the path was repaired.
 
 #### Unit Tests
 
@@ -2309,8 +2319,9 @@ the realized allocation.
 - the same for an operand that is negative on a key an alternative charges. `FloorToZero` runs
   after the merge, so a negative request under that name subtracts from the envelope and leaves a
   zero that reads as nothing having been asked for
-- the prerequisites above closed, since each of them can lose or alter the envelope after it is
-  computed correctly
+- every failure mode listed under the prerequisites answered by a merged fix or an equivalent guard
+  in this implementation, each with a regression, since an issue can be closed as a duplicate or
+  left open after its fix lands and neither says whether the envelope still survives the path
 - integration and e2e tests
 
 #### Beta
