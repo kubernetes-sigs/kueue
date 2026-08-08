@@ -884,7 +884,7 @@ func TestScheduleForAFS(t *testing.T) {
 					}
 					for lqName, resources := range tc.initialUsage {
 						lqKey := utilqueue.LocalQueueReference(fmt.Sprintf("default/%s", lqName))
-						qManager.AfsConsumedResources.Set(lqKey, resources, fakeClock.Now())
+						qManager.AfsUsageLedger.Set(lqKey, resources, fakeClock.Now())
 					}
 					for _, rf := range resourceFlavors {
 						cqCache.AddOrUpdateResourceFlavor(log, rf)

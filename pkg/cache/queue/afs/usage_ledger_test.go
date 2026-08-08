@@ -35,41 +35,41 @@ func TestUpdate(t *testing.T) {
 	seeded := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")}
 	settled := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}
 
-	seedFn := func(entry ConsumedResourcesEntry, found bool) ConsumedResourcesEntry {
+	seedFn := func(entry UsageLedgerEntry, found bool) UsageLedgerEntry {
 		if !found {
-			return ConsumedResourcesEntry{Resources: seeded, LastUpdate: seedTime, StatusAccounted: true}
+			return UsageLedgerEntry{Resources: seeded, LastUpdate: seedTime, StatusAccounted: true}
 		}
 		return entry
 	}
-	writerFn := func(entry ConsumedResourcesEntry, found bool) ConsumedResourcesEntry {
-		return ConsumedResourcesEntry{Resources: settled, LastUpdate: settleTime, StatusAccounted: entry.StatusAccounted}
+	writerFn := func(entry UsageLedgerEntry, found bool) UsageLedgerEntry {
+		return UsageLedgerEntry{Resources: settled, LastUpdate: settleTime, StatusAccounted: entry.StatusAccounted}
 	}
 
 	cases := map[string]struct {
-		existing  *ConsumedResourcesEntry
-		fn        func(ConsumedResourcesEntry, bool) ConsumedResourcesEntry
-		wantEntry ConsumedResourcesEntry
+		existing  *UsageLedgerEntry
+		fn        func(UsageLedgerEntry, bool) UsageLedgerEntry
+		wantEntry UsageLedgerEntry
 	}{
 		"passes found=false and a zero entry when absent, stores the result": {
 			fn:        seedFn,
-			wantEntry: ConsumedResourcesEntry{Resources: seeded, LastUpdate: seedTime, StatusAccounted: true},
+			wantEntry: UsageLedgerEntry{Resources: seeded, LastUpdate: seedTime, StatusAccounted: true},
 		},
 		"passes the current entry when present": {
-			existing:  &ConsumedResourcesEntry{Resources: settled, LastUpdate: settleTime},
+			existing:  &UsageLedgerEntry{Resources: settled, LastUpdate: settleTime},
 			fn:        seedFn,
-			wantEntry: ConsumedResourcesEntry{Resources: settled, LastUpdate: settleTime},
+			wantEntry: UsageLedgerEntry{Resources: settled, LastUpdate: settleTime},
 		},
 		"a writer-style update preserves StatusAccounted": {
-			existing:  &ConsumedResourcesEntry{Resources: seeded, LastUpdate: seedTime, StatusAccounted: true},
+			existing:  &UsageLedgerEntry{Resources: seeded, LastUpdate: seedTime, StatusAccounted: true},
 			fn:        writerFn,
-			wantEntry: ConsumedResourcesEntry{Resources: settled, LastUpdate: settleTime, StatusAccounted: true},
+			wantEntry: UsageLedgerEntry{Resources: settled, LastUpdate: settleTime, StatusAccounted: true},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			consumed := NewAfsConsumedResources()
+			consumed := NewAfsUsageLedger()
 			if tc.existing != nil {
-				consumed.Update(lqKey, func(ConsumedResourcesEntry, bool) ConsumedResourcesEntry { return *tc.existing })
+				consumed.Update(lqKey, func(UsageLedgerEntry, bool) UsageLedgerEntry { return *tc.existing })
 			}
 
 			got := consumed.Update(lqKey, tc.fn)
