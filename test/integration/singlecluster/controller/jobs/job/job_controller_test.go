@@ -39,6 +39,7 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -2403,9 +2404,33 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				gomega.Expect(k8sClient.Delete(ctx, job)).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("checking that job has orphan finalizer", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, job)).Should(gomega.Succeed())
+					g.Expect(job.Finalizers).Should(gomega.ContainElement(metav1.FinalizerOrphanDependents))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			wl := &kueue.Workload{}
+
+			ginkgo.By("checking that the workload still exists", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+					g.Expect(wl.Finalizers).Should(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("", wl))
+			})
+
+			ginkgo.By("removing orphan finalizer", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, lookupKey, job)).Should(gomega.Succeed())
+					if controllerutil.RemoveFinalizer(job, metav1.FinalizerOrphanDependents) {
+						g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("checking that its workloads finalizer is removed", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					wl := &kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 					g.Expect(wl.Finalizers).ShouldNot(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
