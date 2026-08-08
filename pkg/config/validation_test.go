@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -919,6 +920,29 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeDuplicate,
 					Field: "resources.transformations[2].input",
+				},
+			},
+		},
+
+		"negative output in .resources.transformations": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    corev1.ResourceCPU,
+							Strategy: ptr.To(configapi.Retain),
+							Outputs: corev1.ResourceList{
+								"example.com/accelerator": resource.MustParse("-1"),
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[example.com/accelerator]",
 				},
 			},
 		},
