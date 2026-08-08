@@ -3065,7 +3065,6 @@ func TestReconciler(t *testing.T) {
 		},
 		"a warning names the WorkloadPriorityClass that does not exist": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
 
 				features.AssignQueueLabelsForPods: true,
 			},
@@ -3102,7 +3101,6 @@ func TestReconciler(t *testing.T) {
 		// documented contract and the code cannot drift apart quietly.
 		"a Pod PriorityClass-backed workload is left alone and reports nothing": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
 
 				features.AssignQueueLabelsForPods: true,
 			},
@@ -3147,7 +3145,6 @@ func TestReconciler(t *testing.T) {
 		// which reaches extractPriority through two more error wraps.
 		"a warning names the WorkloadPriorityClass the label was changed to": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
 
 				features.AssignQueueLabelsForPods: true,
 			},

@@ -654,9 +654,6 @@ func TestReconciler(t *testing.T) {
 		// warning arrives once per component. The fix for #13820 collapses those
 		// into a single resolution, and the event follows it.
 		"should report a missing workload priority class when creating the workloads": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				WorkloadPriorityClass("missing-wpc").
 				Replicas(2).
@@ -690,9 +687,6 @@ func TestReconciler(t *testing.T) {
 		// already has Workloads, so this goes through updateWorkload rather than
 		// createWorkload. Neither Workload is rewritten.
 		"should report a missing workload priority class when the label is changed": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-			},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
 				WorkloadPriorityClass("missing-wpc").
 				Replicas(2).

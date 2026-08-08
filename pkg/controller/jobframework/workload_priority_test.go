@@ -333,16 +333,6 @@ func raiseClassTo(value int32) func(t *testing.T, ctx context.Context, cl client
 	}
 }
 
-// errString renders an error for comparison. cmpopts.EquateErrors does not
-// work on these: it matches through errors.Is, and StatusError has no Is
-// method, so two of them are equal only when they are the same value.
-func errString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}
-
 // TestExtractPriorityReportsMissingWorkloadPriorityClass pins which lookup
 // failure is reported. Only the class the label named can be reported by name;
 // a failure anywhere else leaves the answer unknown, so saying the class does
@@ -416,16 +406,8 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 			// The event does not stand in for the error: the reconcile still fails.
 			_, _, err := extractPriority(t.Context(), cl, recorder, tc.job, podSets, nil)
 
-			if diff := cmp.Diff(errString(tc.wantErr), errString(err)); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, err); diff != "" {
 				t.Fatalf("extractPriority() error (-want +got):\n%s", diff)
-			}
-			// The message alone would survive the error being rebuilt from its
-			// own text, which is what callers reading the API status would lose.
-			if tc.wantErr != nil {
-				var status apierrors.APIStatus
-				if !errors.As(err, &status) {
-					t.Errorf("extractPriority() = %v, which no longer carries an API status", err)
-				}
 			}
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 				t.Errorf("recorded events (-want +got):\n%s", diff)
