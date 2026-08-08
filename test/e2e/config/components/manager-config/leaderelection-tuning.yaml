@@ -1,0 +1,4 @@
+leaderElection:
+  leaseDuration: 60s
+  renewDeadline: 40s
+  retryPeriod: 5s
