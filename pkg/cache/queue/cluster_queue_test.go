@@ -587,6 +587,83 @@ func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 	}
 }
 
+// TestHeapOrderingStableOnLocalQueueLookupError is a regression test for Kueue#13476.
+// The two workloads have fair-sharing order opposite to their priority order: wlHigh is
+// high priority in a high-usage queue, wlLow is low priority in a low-usage queue. With a
+// client that fails every LocalQueue lookup, the old comparator fell back to priority
+// ordering and popped wlHigh first. Now it reads the cached weight and stays on
+// fair-sharing ordering, popping wlLow first, consistently across repeated comparisons.
+func TestHeapOrderingStableOnLocalQueueLookupError(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	failingClient := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*kueue.LocalQueue); ok {
+				return errors.New("transient LocalQueue lookup error")
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}).Build()
+
+	// lq1 high usage (10 GPU), lq2 low usage (1 GPU); both weight 1.0.
+	afsConsumedResources := queueafs.NewAfsConsumedResources()
+	afsConsumedResources.Set("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsConsumedResources.Set("default/lq2", corev1.ResourceList{resourceGPU: resource.MustParse("1")}, now)
+
+	penaltyMap := queueafs.NewPenaltyMap()
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, failingClient,
+		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
+		nil, defaultOrdering,
+		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1.0}},
+		penaltyMap, afsConsumedResources)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	// Seed the cached weights the way the manager's LocalQueue hooks do.
+	cq.addLocalQueue("default/lq1", 1.0)
+	cq.addLocalQueue("default/lq2", 1.0)
+
+	wlHigh := utiltestingapi.MakeWorkload("wl-high", defaultNamespace).
+		Queue("lq1").Priority(highPriority).Creation(now).UID("uid-high").Obj()
+	wlLow := utiltestingapi.MakeWorkload("wl-low", defaultNamespace).
+		Queue("lq2").Priority(lowPriority).Creation(now).UID("uid-low").Obj()
+
+	cq.PushOrUpdate(workload.NewInfo(wlHigh))
+	cq.PushOrUpdate(workload.NewInfo(wlLow))
+
+	// wlLow (lower usage) must pop first despite the failing client.
+	wantOrder := []workload.Reference{workload.Key(wlLow), workload.Key(wlHigh)}
+	var gotOrder []workload.Reference
+	for {
+		head := cq.Pop()
+		if head == nil {
+			break
+		}
+		gotOrder = append(gotOrder, workload.Key(head.Obj))
+	}
+	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
+		t.Errorf("unexpected pop order with failing LocalQueue client (-want,+got):\n%s", diff)
+	}
+
+	// The comparator must stay consistent and antisymmetric across repeated calls.
+	a := workload.NewInfo(wlHigh)
+	b := workload.NewInfo(wlLow)
+	first := cq.compareFunc(a, b)
+	if first <= 0 {
+		t.Fatalf("expected wlLow (lower usage) to sort before wlHigh, got compare(high,low)=%d", first)
+	}
+	for i := range 100 {
+		if got := cq.compareFunc(a, b); got != first {
+			t.Fatalf("comparator inconsistent on call %d: got %d, want %d", i+1, got, first)
+		}
+		if got := cq.compareFunc(b, a); got != -first {
+			t.Fatalf("comparator not antisymmetric on call %d: compare(low,high)=%d, want %d", i+1, got, -first)
+		}
+	}
+}
+
 // TestSnapshotConcurrentWithRequeueNoDataRace guards against a data race on the
 // sticky workload: Snapshot sorts a copy of the pending workloads through the
 // comparator (which reads stickyWorkload.workloadName) without holding the
