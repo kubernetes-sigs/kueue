@@ -3375,7 +3375,7 @@ func TestCohortCycles(t *testing.T) {
 			t.Fatal("Expected failure when cycle")
 		}
 	})
-	t.Run("clusterqueue add and update return error when cohort has cycle", func(t *testing.T) {
+	t.Run("clusterqueue add and changed update return error when cohort has cycle", func(t *testing.T) {
 		features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
 		cache := New(utiltesting.NewFakeClient())
 		ctx, log := utiltesting.ContextWithLog(t)
@@ -3393,13 +3393,24 @@ func TestCohortCycles(t *testing.T) {
 		}
 
 		// Error when creating CQ with parent Cohort-A
-		cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Obj()
+		cq := utiltestingapi.MakeClusterQueue("cq").
+			Cohort("cohort-a").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "1").Obj()).
+			Obj()
 		if err := cache.AddClusterQueue(ctx, cq); !errors.Is(err, ErrCohortHasCycle) {
 			t.Fatalf("Expected cohort cycle error when adding cq, got %v", err)
 		}
 		cachedCQ := cache.hm.ClusterQueue("cq")
 		if cachedCQ == nil {
 			t.Fatal("Expected ClusterQueue to remain cached")
+		}
+		if got := cachedCQ.AllocatableResourceGeneration; got != 1 {
+			t.Errorf("Got allocatable resource generation %d, want 1", got)
+		}
+		fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+		if got := cachedCQ.resourceNode.SubtreeQuota[fr]; got.CmpInt64(1_000) != 0 {
+			t.Errorf("Got local subtree quota %v, want 1000m", got)
 		}
 		if diff := cmp.Diff(defaultPreemption, cachedCQ.Preemption); diff != "" {
 			t.Errorf("Unexpected default preemption (-want,+got):\n%s", diff)
@@ -3409,6 +3420,12 @@ func TestCohortCycles(t *testing.T) {
 		}
 		if diff := cmp.Diff(defaultWeight, cachedCQ.FairWeight); diff != "" {
 			t.Errorf("Unexpected default fair weight (-want,+got):\n%s", diff)
+		}
+		if err := cache.UpdateClusterQueue(log, cq); err != nil {
+			t.Fatalf("Expected unchanged update to avoid a redundant cohort cycle error, got %v", err)
+		}
+		if got := cachedCQ.AllocatableResourceGeneration; got != 1 {
+			t.Errorf("Got allocatable resource generation %d after unchanged update, want 1", got)
 		}
 
 		// Error when updating CQ with parent Cohort-B
@@ -3421,6 +3438,8 @@ func TestCohortCycles(t *testing.T) {
 		}
 		cq = utiltestingapi.MakeClusterQueue("cq").
 			Cohort("cohort-b").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "1").Obj()).
 			NamespaceSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"team": "new"}}).
 			StopPolicy(kueue.Hold).
 			Preemption(wantPreemption).
