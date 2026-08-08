@@ -1880,12 +1880,18 @@ unknown forms are rejected rather than charged.
 The other operand has to be non-negative too. A logical resource is merged with whatever the PodSet
 already requests under that name, and the total is floored to zero afterwards, so a negative
 ordinary request on that key subtracts from the envelope and leaves a clean zero where a device was
-charged. Two ways in. A resource transformation output is a factor supplied by configuration, and a negative
+charged. Three ways in. A resource transformation output is a factor supplied by configuration, and a negative
 one reaches the merge as a request; that is
 [#13985](https://github.com/kubernetes-sigs/kueue/issues/13985). And `validatePodSet` does not reach
 `spec.overhead`, which `PodRequests` adds to the charge, so a negative overhead survives even with
 `WorkloadValidateResourcesAreNonNegative` on; that is
-[#13991](https://github.com/kubernetes-sigs/kueue/issues/13991). Non-negativity
+[#13991](https://github.com/kubernetes-sigs/kueue/issues/13991). The third is the guard itself.
+`WorkloadValidateResourcesAreNonNegative` is Beta and on by default, and an administrator can turn
+it off, after which an ordinary container request carries the sign into `PodRequests` with nothing
+between it and the merge. Alpha therefore either requires that gate alongside
+`KueueDRAIntegrationPrioritizedList` or checks the operand where the merge happens. Reading the
+sign of the result instead is a different check and a weaker one: a request of `-3` merged with an
+envelope of `8` gives `5`, which is positive and three short. Non-negativity
 of both operands belongs with exact representability in what has to hold before the merge; treating
 `FloorToZero` as the guard hides the cancellation rather than preventing it.
 
@@ -1910,7 +1916,9 @@ The order decides what a transformation can see, too. `applyResourceTransformati
 pod's requests, before the logical resources are merged in, so a logical resource that exists only
 after the merge is not there to be transformed. Named as `transformations[].input` it matches
 nothing and produces no output, and named as `multiplyBy` it is absent, which leaves the input
-carried through unmultiplied rather than scaled by the device count. Outputs aimed at a logical
+carried through unmultiplied rather than scaled by the device count. The same identity fallback is
+reachable without DRA, from `excludeResourcePrefixes` covering the multiplier;
+[#14007](https://github.com/kubernetes-sigs/kueue/issues/14007) tracks that one. Outputs aimed at a logical
 resource are the other direction and do reach it through the merge. Alpha does not add a second
 pass over the merged requests; the restriction is written down so that a configuration reading as
 though it scales with the devices is not taken for one that does.
