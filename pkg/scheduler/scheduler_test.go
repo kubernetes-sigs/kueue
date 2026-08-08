@@ -119,34 +119,49 @@ type scheduleTestConfig struct {
 	unorderedWorkloads bool
 }
 
+func generateScenarios(features ...featuregate.Feature) (scenarios []map[featuregate.Feature]bool) {
+	if len(features) == 0 {
+		return
+	}
+	for _, feat := range features {
+		scenarios = expandScenariosList(feat, scenarios)
+	}
+	return
+}
+
+func expandScenariosList(feature featuregate.Feature, scenarios []map[featuregate.Feature]bool) (expanded []map[featuregate.Feature]bool) {
+	if len(scenarios) == 0 {
+		return []map[featuregate.Feature]bool{{feature: false}, {feature: true}}
+	}
+	for _, scenario := range scenarios {
+		newScenario := maps.Clone(scenario)
+		newScenario[feature] = false
+		expanded = append(expanded, newScenario)
+		newScenario[feature] = true
+		expanded = append(expanded, newScenario)
+	}
+	return
+}
+
 // runScheduleTestCases runs the shared "build client → schedule → assert" procedure for
 // the core scheduling tests, including the WorkloadRequestUseMergePatch on/off double run.
 func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string]scheduleTestCase) {
 	t.Helper()
 
-	scenarios := []map[featuregate.Feature]bool{
-		{
-			features.WorkloadRequestUseMergePatch:     false,
-			features.UnadmittedWorkloadsObservability: false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:     false,
-			features.UnadmittedWorkloadsObservability: true,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:     true,
-			features.UnadmittedWorkloadsObservability: false,
-		},
-		{
-			features.WorkloadRequestUseMergePatch:     true,
-			features.UnadmittedWorkloadsObservability: true,
-		},
-	}
+	scenarios := generateScenarios(
+		features.WorkloadRequestUseMergePatch,
+		features.UnadmittedWorkloadsObservability,
+		features.SchedulerParallelizedAPICalls,
+	)
 
 	for name, tc := range cases {
 		for _, scenario := range scenarios {
 			t.Run(
-				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t", name, scenario[features.WorkloadRequestUseMergePatch], scenario[features.UnadmittedWorkloadsObservability]),
+				fmt.Sprintf("%s WorkloadRequestUseMergePatch:%t observability:%t schedulerParallelizedAPICalls:%t",
+					name,
+					scenario[features.WorkloadRequestUseMergePatch],
+					scenario[features.UnadmittedWorkloadsObservability],
+					scenario[features.SchedulerParallelizedAPICalls]),
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
 					metrics.AdmissionCyclePreemptionSkips.Reset()

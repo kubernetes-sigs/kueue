@@ -24,6 +24,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -75,12 +76,62 @@ var (
 	realClock = clock.RealClock{}
 )
 
+type schedulerRoutineWrapper struct {
+	routine.Wrapper
+}
+
+func (w *schedulerRoutineWrapper) newRoutineRunner() routineRunner {
+	if features.Enabled(features.SchedulerParallelizedAPICalls) {
+		return &asyncRunner{
+			routineWrapper: w,
+			waitGroup:      &sync.WaitGroup{},
+		}
+	}
+	return &syncRunner{}
+}
+
+type routineRunner interface {
+	submitRoutine(func())
+	waitForRoutinesToFinish()
+}
+
+var _ routineRunner = (*syncRunner)(nil)
+
+type syncRunner struct{}
+
+func (s *syncRunner) submitRoutine(f func()) {
+	f()
+}
+
+func (s *syncRunner) waitForRoutinesToFinish() {
+	// All ran synchroniously. Nothing to await.
+}
+
+var _ routineRunner = (*asyncRunner)(nil)
+
+type asyncRunner struct {
+	routineWrapper *schedulerRoutineWrapper
+	waitGroup      *sync.WaitGroup
+}
+
+func (g *asyncRunner) submitRoutine(f func()) {
+	g.waitGroup.Add(1)
+	g.routineWrapper.Run(func() {
+		defer g.waitGroup.Done()
+		f()
+	})
+}
+
+func (g *asyncRunner) waitForRoutinesToFinish() {
+	g.waitGroup.Wait()
+}
+
 type Scheduler struct {
 	queues                  *qcache.Manager
 	cache                   *schdcache.Cache
 	client                  client.Client
 	recorder                events.EventRecorder
-	admissionRoutineWrapper routine.Wrapper
+	schedulerRoutineWrapper schedulerRoutineWrapper
 	preemptor               *preemption.Preemptor
 	workloadOrdering        workload.Ordering
 	fairSharing             *config.FairSharing
@@ -206,7 +257,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 			options.preemptionExpectations,
 			options.customLabels,
 		),
-		admissionRoutineWrapper: routine.DefaultWrapper,
+		schedulerRoutineWrapper: schedulerRoutineWrapper{routine.DefaultWrapper},
 		workloadOrdering:        wo,
 		clock:                   options.clock,
 		admissionFairSharing:    options.admissionFairSharing,
@@ -233,7 +284,7 @@ func (s *Scheduler) NeedLeaderElection() bool {
 }
 
 func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
-	s.admissionRoutineWrapper = wrapper
+	s.schedulerRoutineWrapper = schedulerRoutineWrapper{wrapper}
 }
 
 // markSkipped marks the entry as skipped for this cycle.
@@ -344,39 +395,57 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
 	log.V(2).Info("Nomination done", "entries", len(entries), "inadmissibleEntries", len(inadmissibleEntries), "duration", s.clock.Since(phaseStartTime))
 
-	// 4. Create iterator which returns ordered entries.
-	iterator := makeIterator(ctx, entries, s.workloadOrdering, fairsharing.Enabled(s.fairSharing))
+	// 4. Requeue inadmissible heads.
+	requeueRunner := s.schedulerRoutineWrapper.newRoutineRunner()
+	for _, e := range inadmissibleEntries {
+		requeueRunner.submitRoutine(func() {
+			logAdmissionAttemptIfVerbose(log, &e)
+			s.requeueAndUpdate(ctx, e)
+		})
+	}
 
-	// 5. Admit entries, ensuring that no more than one workload gets
+	// 5. Create iterator which returns ordered entries.
+	// Admit entries, ensuring that no more than one workload gets
 	// admitted by a cohort (if borrowing).
 	// This is because there can be other workloads deeper in a clusterQueue whose
 	// head got admitted that should be scheduled in the cohort before the heads
 	// of other clusterQueues.
+	iterator := makeIterator(ctx, entries, s.workloadOrdering, fairsharing.Enabled(s.fairSharing))
 	phaseStartTime = s.clock.Now()
 	preemptedWorkloads := make(preemption.PreemptedWorkloads)
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
+
+	processEntryRunner := s.schedulerRoutineWrapper.newRoutineRunner()
 	for iterator.hasNext() {
-		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions)
+		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions, processEntryRunner)
 	}
 
 	// 6. Requeue the heads that were not scheduled.
 	result := metrics.AdmissionResultInadmissible
+	processEntryRunner.waitForRoutinesToFinish()
 	for _, e := range entries {
 		logAdmissionAttemptIfVerbose(log, &e)
 		// When the workload is evicted by scheduler we skip requeueAndUpdate.
 		// The eviction process will be finalized by the workload controller.
 		if e.status != assumed && e.status != evicted {
-			s.requeueAndUpdate(ctx, e)
+			// Parallelize requeuing. Use the established wait group
+			// to ensure all requeues finish before the next cycle is allowed to start.
+			requeueRunner.submitRoutine(func() {
+				s.requeueAndUpdate(ctx, e)
+			})
 		} else {
 			result = metrics.AdmissionResultSuccess
 		}
 	}
-	for _, e := range inadmissibleEntries {
-		logAdmissionAttemptIfVerbose(log, &e)
-		s.requeueAndUpdate(ctx, e)
+
+	if features.Enabled(features.SchedulerParallelizedAPICalls) {
+		log.V(2).Info("Workload processing done (1/2): all heads processed; waiting for all API calls to finish before next cycle", "duration", s.clock.Since(phaseStartTime))
+		requeueRunner.waitForRoutinesToFinish()
+		log.V(2).Info("Workload processing done (2/2): all API calls finished", "duration", s.clock.Since(phaseStartTime))
+	} else {
+		log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
 	}
 
-	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
 	s.reportSkippedPreemptions(skippedPreemptions)
 	metrics.AdmissionAttempt(result, s.clock.Since(startTime), s.roleTracker)
 	if result != metrics.AdmissionResultSuccess {
@@ -395,6 +464,7 @@ func (s *Scheduler) processEntry(
 	snapshot *schdcache.Snapshot,
 	preemptedWorkloads preemption.PreemptedWorkloads,
 	skippedPreemptions map[kueue.ClusterQueueReference]int,
+	processingGroup routineRunner,
 ) {
 	cq := snapshot.ClusterQueue(e.ClusterQueue)
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)))
@@ -422,7 +492,9 @@ func (s *Scheduler) processEntry(
 	mode := e.assignment.RepresentativeMode()
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
-		s.handleFailedTASReplacement(ctx, log, e)
+		processingGroup.submitRoutine(func() {
+			s.handleFailedTASReplacement(ctx, log, e)
+		})
 		return
 	}
 
@@ -494,7 +566,9 @@ func (s *Scheduler) processEntry(
 				return
 			}
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
-			s.issueMigration(ctx, log, e, lessFavorableSibling)
+			processingGroup.submitRoutine(func() {
+				s.issueMigration(ctx, log, e, lessFavorableSibling)
+			})
 			return
 		}
 	}
@@ -949,7 +1023,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	}
 
 	newWorkload := e.Obj.DeepCopy()
-	s.admissionRoutineWrapper.Run(func() {
+	s.schedulerRoutineWrapper.Run(func() {
 		err := workloadpatching.PatchAdmissionStatus(ctx, s.client, newWorkload, s.clock, func(wl *kueue.Workload) (bool, error) {
 			s.prepareWorkload(log, wl, cq, admission)
 			if features.Enabled(features.TopologyAwareScheduling) && workload.HasUnhealthyNodes(e.Obj) {
