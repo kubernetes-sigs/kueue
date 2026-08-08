@@ -268,7 +268,13 @@ func validateTolerations(tolerations []corev1.Toleration, fldPath *field.Path) f
 }
 
 func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
+	// Reached on the QuotaReserved condition rather than on the field, and the
+	// two are only written together by Kueue. Anything that reaches etcd without
+	// passing here can separate them.
 	admission := obj.Status.Admission
+	if admission == nil {
+		return nil
+	}
 	var allErrs field.ErrorList
 
 	names := sets.New[kueue.PodSetReference]()

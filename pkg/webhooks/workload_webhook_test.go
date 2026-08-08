@@ -68,6 +68,23 @@ func TestValidateWorkload(t *testing.T) {
 				*utiltestingapi.MakePodSet("workers", 100).Obj(),
 			).Obj(),
 		},
+		// Kueue writes the condition and the field together, so it takes
+		// something that did not pass through here to separate them, and after
+		// that every update to the object is one more panic.
+		"quota reserved without an admission is not a panic": {
+			workload: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+					PodSets(*utiltestingapi.MakePodSet("driver", 1).Obj()).Obj()
+				wl.Status.Conditions = []metav1.Condition{{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionTrue,
+					Reason:             "AdmittedByTest",
+					Message:            "admitted",
+					LastTransitionTime: metav1.NewTime(now),
+				}}
+				return wl
+			}(),
+		},
 		"should have a valid podSet name in status assignment": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue", "@invalid").Obj(), now).
