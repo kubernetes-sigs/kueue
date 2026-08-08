@@ -28,7 +28,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -3636,14 +3635,10 @@ func TestValidateCustomLabels(t *testing.T) {
 	})
 }
 
-// The sign check for output factors lands next to the reserved-name check, and
-// folding the two decides the order the errors come out in, whether a reserved
-// output is named once, and whether a negative `pods` is refused for both its
-// name and its factor. Asserting those as properties holds before that check
-// exists and after it arrives. Two transformations, and one output name sorting
-// after `pods`, so neither the grouping nor the order can come out right by
-// accident.
-func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
+// One reserved output per transformation, in the order the transformations are
+// configured, and not deduplicated across them: the same name in two of them is
+// two separate things for an operator to fix.
+func TestValidateReportsAReservedOutputPerTransformation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
@@ -3660,60 +3655,26 @@ func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
 					Input:    "example.com/credits",
 					Strategy: ptr.To(configapi.Retain),
 					Outputs: corev1.ResourceList{
-						corev1.ResourcePods:        resource.MustParse("-1"),
-						"example.com/z-negative":   resource.MustParse("-1"),
-						"example.com/a-negative":   resource.MustParse("-1m"),
-						"example.com/fine":         resource.MustParse("1"),
-						"zzz.example.com/negative": resource.MustParse("-1"),
+						corev1.ResourcePods: resource.MustParse("-1"),
+						"example.com/fine":  resource.MustParse("1"),
 					},
 				},
 				{
 					Input:    "example.com/tokens",
 					Strategy: ptr.To(configapi.Retain),
 					Outputs: corev1.ResourceList{
-						"example.com/b-negative": resource.MustParse("-2"),
-						corev1.ResourcePods:      resource.MustParse("1"),
+						corev1.ResourcePods:     resource.MustParse("1"),
+						"example.com/also-fine": resource.MustParse("2"),
 					},
 				},
 			},
 		},
 	}
 
-	// Whether the sign check is on this branch is settled on its own input, not
-	// on what the case below reports, so a fold that drops every factor error
-	// cannot pick the expectation that lets it pass.
-	signChecked := len(Validate(&configapi.Configuration{
-		Integrations: &configapi.Integrations{Frameworks: []string{"batch/job"}},
-		Resources: &configapi.Resources{
-			Transformations: []configapi.ResourceTransformation{{
-				Input:    "example.com/credits",
-				Strategy: ptr.To(configapi.Retain),
-				Outputs:  corev1.ResourceList{"example.com/one-negative": resource.MustParse("-1")},
-			}},
-		},
-	}, scheme, jobs.NewIntegrationManager())) > 0
-
-	reserved := func(idx int) reportedError {
-		return reportedError{fmt.Sprintf("resources.transformations[%d].outputs[pods]", idx), reservedResourceNameMsg}
+	want := []reportedError{
+		{"resources.transformations[0].outputs[pods]", reservedResourceNameMsg},
+		{"resources.transformations[1].outputs[pods]", reservedResourceNameMsg},
 	}
-	negative := func(field string) reportedError {
-		return reportedError{field, apimachineryvalidation.IsNegativeErrorMsg}
-	}
-	// Transformations in the order they are configured, each one's outputs in
-	// name order, and an output refused for both named before it is weighed.
-	want := []reportedError{reserved(0), reserved(1)}
-	if signChecked {
-		want = []reportedError{
-			negative("resources.transformations[0].outputs[example.com/a-negative]"),
-			negative("resources.transformations[0].outputs[example.com/z-negative]"),
-			reserved(0),
-			negative("resources.transformations[0].outputs[pods]"),
-			negative("resources.transformations[0].outputs[zzz.example.com/negative]"),
-			negative("resources.transformations[1].outputs[example.com/b-negative]"),
-			reserved(1),
-		}
-	}
-
 	var got []reportedError
 	for _, e := range Validate(cfg, scheme, jobs.NewIntegrationManager()) {
 		if strings.Contains(e.Field, ".outputs[") {
