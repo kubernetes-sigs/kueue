@@ -451,8 +451,9 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
-// reservedResourceNameMsg matches what the Workload webhook reports for the same
-// key, so the two sides of the reservation read alike.
+// reservedResourceNameMsg is the Workload webhook's message for the same key.
+// Only the message is shared: that validator reports the reserved name and the
+// sign of a negative quantity separately, where this one stops at the name.
 const reservedResourceNameMsg = "the key is reserved for internal kueue use"
 
 func validateResourceTransformations(c *configapi.Configuration) field.ErrorList {
