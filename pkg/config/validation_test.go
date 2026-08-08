@@ -18,7 +18,9 @@ package config
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -3346,4 +3348,100 @@ func TestValidateCustomLabels(t *testing.T) {
 			t.Errorf("unexpected error details (-want,+got):\n%s", diff)
 		}
 	})
+}
+
+// The sign check for output factors lands next to the reserved-name check, and
+// folding the two is what decides the order the errors come out in and whether a
+// negative `pods` output is reported once or twice. Asserting the properties
+// rather than a fixed list holds both before that check exists and after it
+// arrives. Two transformations, because the outputs of one are sorted by name
+// while the transformations themselves keep the order they were configured in.
+func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := configapi.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &configapi.Configuration{
+		Integrations: &configapi.Integrations{Frameworks: []string{"batch/job"}},
+		Resources: &configapi.Resources{
+			Transformations: []configapi.ResourceTransformation{
+				{
+					Input:    "example.com/credits",
+					Strategy: ptr.To(configapi.Retain),
+					Outputs: corev1.ResourceList{
+						corev1.ResourcePods:      resource.MustParse("-1"),
+						"example.com/z-negative": resource.MustParse("-1"),
+						"example.com/a-negative": resource.MustParse("-1m"),
+						"example.com/fine":       resource.MustParse("1"),
+					},
+				},
+				{
+					Input:    "example.com/tokens",
+					Strategy: ptr.To(configapi.Retain),
+					Outputs: corev1.ResourceList{
+						"example.com/b-negative": resource.MustParse("-2"),
+						corev1.ResourcePods:      resource.MustParse("1"),
+					},
+				},
+			},
+		},
+	}
+
+	// resources.transformations[<idx>].outputs[<name>]
+	pattern := regexp.MustCompile(`^resources\.transformations\[(\d+)\]\.outputs\[(.+)]$`)
+	type reported struct {
+		idx    int
+		name   string
+		detail string
+	}
+	var got []reported
+	for _, e := range Validate(cfg, scheme, jobs.NewIntegrationManager()) {
+		m := pattern.FindStringSubmatch(e.Field)
+		if m == nil {
+			continue
+		}
+		idx, err := strconv.Atoi(m[1])
+		if err != nil {
+			t.Fatalf("parsing %q: %v", e.Field, err)
+		}
+		got = append(got, reported{idx: idx, name: m[2], detail: e.Detail})
+	}
+	if len(got) == 0 {
+		t.Fatal("no output was refused")
+	}
+
+	seenPods := make(map[int]int)
+	for i, r := range got {
+		if r.name == string(corev1.ResourcePods) {
+			seenPods[r.idx]++
+			// Both checks land on this field with the same type, so only the
+			// reason says which one refused it, and the reserved one has to. A
+			// factor told it is out of range invites a positive one, which is
+			// just as wrong.
+			if r.detail != reservedResourceNameMsg {
+				t.Errorf("transformation %d refused pods with %q, want %q", r.idx, r.detail, reservedResourceNameMsg)
+			}
+		}
+		if i == 0 {
+			continue
+		}
+		switch prev := got[i-1]; {
+		case r.idx < prev.idx:
+			t.Errorf("reported %v, want the transformations in the order they are configured", got)
+		case r.idx == prev.idx && r.name < prev.name:
+			t.Errorf("reported %v, want one transformation's outputs in name order", got)
+		}
+	}
+	for idx, n := range seenPods {
+		if n != 1 {
+			t.Errorf("reported %v, want the reserved name once under transformation %d, got %d", got, idx, n)
+		}
+	}
+	if len(seenPods) != 2 {
+		t.Errorf("reported %v, want the reserved name refused under both transformations", got)
+	}
 }
