@@ -1095,3 +1095,28 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 		})
 	}
 }
+
+func TestInitializeWhenLeafAndRootIDsCollide(t *testing.T) {
+	const blockLabel = "cloud.provider.com/topology-block"
+	_, log := utiltesting.ContextWithLog(t)
+
+	s := newTASFlavorSnapshot(log, "default", []string{blockLabel, corev1.LabelHostname}, nil, &defaultChecker{})
+	s.addNode(node.MakeNode("b1").
+		Label(blockLabel, "b1").
+		Label(corev1.LabelHostname, "b1").
+		Ready().
+		Obj())
+	s.initialize()
+
+	leaf := s.leaves[tas.TopologyDomainID("b1")]
+	root := s.domainsPerLevel[0][tas.DomainID([]string{"b1"})]
+	if leaf == nil || root == nil {
+		t.Fatalf("domain missing: leaf=%t root=%t", leaf != nil, root != nil)
+	}
+	if leaf.parent != root {
+		t.Errorf("leaf parent = %p, want root %p", leaf.parent, root)
+	}
+	if s.roots[root.id] != root {
+		t.Errorf("block %q was not registered as a root", root.id)
+	}
+}
