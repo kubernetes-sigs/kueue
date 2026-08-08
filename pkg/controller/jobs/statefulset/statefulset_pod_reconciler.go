@@ -29,7 +29,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -43,6 +42,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
 )
 
 type PodReconciler struct {
@@ -86,26 +86,27 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile StatefulSet Pod")
 
-	if utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil {
+	if utilstatefulset.ShouldFinalizePod(pod) {
 		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-			removed := controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
+			removed := utilstatefulset.FinalizePod(pod)
 			if removed {
 				log.V(3).Info("Finalizing statefulset pod in group", "pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
 			}
 			return removed, nil
 		}))
-	} else {
-		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-			updated, err := r.setDefault(ctx, pod)
-			if err != nil {
-				return false, err
-			}
-			if updated {
-				log.V(3).Info("Updating pod in group", "pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
-			}
-			return updated, nil
-		}))
+		return ctrl.Result{}, err
 	}
+
+	err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
+		updated, err := r.setDefault(ctx, pod)
+		if err != nil {
+			return false, err
+		}
+		if updated {
+			log.V(3).Info("Updating pod in group", "pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
+		}
+		return updated, nil
+	}))
 
 	return ctrl.Result{}, err
 }

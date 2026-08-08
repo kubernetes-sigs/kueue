@@ -27,10 +27,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -224,6 +227,91 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 			util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, client.ObjectKeyFromObject(wl))
 		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should remove all Kueue scheduling gates from a current-revision Pod without removing its finalizer", func() {
+		ginkgo.By("Creating a StatefulSet with a rollout in progress")
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Status.CurrentRevision = "revision-1"
+			createdSTS.Status.UpdateRevision = "revision-2"
+			g.Expect(k8sClient.Status().Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		workloadName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
+		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
+			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
+			GroupNameLabel(workloadName).
+			GroupTotalCount("1").
+			Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
+			Gate(constants.SchedulingGateName).
+			Gate(kueue.TopologySchedulingGate).
+			KueueFinalizer().
+			Obj()
+		pod.OwnerReferences = []metav1.OwnerReference{
+			*metav1.NewControllerRef(createdSTS, appsv1.SchemeGroupVersion.WithKind("StatefulSet")),
+		}
+		util.MustCreate(ctx, k8sClient, pod)
+
+		ginkgo.By("Verifying the Pod is ungated while its legacy finalizer remains untouched")
+		gotPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
+			g.Expect(gotPod.Spec.SchedulingGates).Should(gomega.BeEmpty())
+			g.Expect(gotPod.Finalizers).Should(gomega.ConsistOf(constants.PodFinalizer))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should remove the legacy Kueue finalizer from a deleting parent-suspended Pod", func() {
+		sts := testingstatefulset.MakeStatefulSet("legacy-finalizer-sts", ns.Name).
+			Queue("lq").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		workloadName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
+		workload := &kueue.Workload{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: workloadName}, workload)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		pod := testingjobspod.MakePod("legacy-finalizer-pod", ns.Name).
+			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
+			KueueFinalizer().
+			Obj()
+		pod.OwnerReferences = []metav1.OwnerReference{
+			*metav1.NewControllerRef(createdSTS, appsv1.SchemeGroupVersion.WithKind("StatefulSet")),
+		}
+		util.MustCreate(ctx, k8sClient, pod)
+
+		ginkgo.By("Verifying the legacy Pod was defaulted into the serving group")
+		createdPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).Should(gomega.Succeed())
+			g.Expect(createdPod.Finalizers).Should(gomega.ContainElement(constants.PodFinalizer))
+			g.Expect(createdPod.Labels[kueueconstants.ManagedByKueueLabelKey]).Should(gomega.Equal(kueueconstants.ManagedByKueueLabelValue))
+			g.Expect(utilpod.GetPodGroupName(createdPod)).Should(gomega.Equal(workloadName))
+			g.Expect(createdPod.Annotations[constants.GroupServingAnnotationKey]).Should(gomega.Equal(constants.GroupServingAnnotationValue))
+			g.Expect(jobframework.PrebuiltWorkloadNameFor(createdPod)).Should(gomega.Equal(workloadName))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Deleting the Pod and verifying finalizer cleanup allows deletion to complete")
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, createdPod, true)
 	})
 })
 

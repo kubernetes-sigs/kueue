@@ -1120,7 +1120,7 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"should finalize pods if leaderworkerset is deleted": {
+		"should ungate pods if leaderworkerset is deleted": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: nil,
 			statefulSets: []appsv1.StatefulSet{
@@ -1136,6 +1136,7 @@ func TestReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
 					Obj(),
 			},
@@ -1148,10 +1149,11 @@ func TestReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					KueueFinalizer().
 					Obj(),
 			},
 		},
-		"should finalize pods if statefulSet is deleted": {
+		"should ungate pods if statefulSet is deleted": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets:    nil,
@@ -1179,6 +1181,7 @@ func TestReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
 					Obj(),
 			},
@@ -1209,6 +1212,76 @@ func TestReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					KueueFinalizer().
+					Obj(),
+			},
+		},
+		"should ungate current revision pods during a statefulSet rollout without removing finalizers": {
+			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
+			statefulSets: []appsv1.StatefulSet{
+				*statefulset.MakeStatefulSet(testSTS, testNS).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					CurrentRevision("revision-1").
+					UpdateRevision("revision-2").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", testNS).
+					OwnerReference(testSTS, stsGVK).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Gate(podconstants.SchedulingGateName).
+					KueueFinalizer().
+					Obj(),
+			},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", testNS).
+					OwnerReference(testSTS, stsGVK).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					KueueFinalizer().
 					Obj(),
 			},
 		},
@@ -1417,7 +1490,6 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					Obj(),
 			},
-			wantPods: nil,
 		},
 		"shouldn't set default values with managed-by-kueue label": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
