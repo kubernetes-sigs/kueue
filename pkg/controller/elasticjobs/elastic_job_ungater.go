@@ -333,10 +333,14 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	return gated, nil
 }
 
-// activeSlice resolves the active (latest admitted, non-finished) workload slice
-// of the chain that anyWl belongs to, or nil if none qualifies. It looks up the
-// chain through the owning job's workload index, reusing the same slice ordering
-// as the rest of the slicing code (workloadslicing.FindLatestActiveWorkload).
+// activeSlice resolves the active (latest quota-reserved, non-finished)
+// workload slice of the chain that anyWl belongs to, or nil if none qualifies
+// for ungating. It looks up the chain through the owning job's workload index,
+// reusing the same slice ordering as the rest of the slicing code
+// (workloadslicing.FindLatestActiveWorkload), but additionally requires full
+// admission: quota reservation alone is insufficient here, since
+// AdmissionChecks may still be pending and releasing the elastic gate
+// before then would let pods schedule ahead of apacity.
 func (r *elasticJobUngater) activeSlice(ctx context.Context, anyWl *kueue.Workload) (*kueue.Workload, error) {
 	owner := metav1.GetControllerOf(anyWl)
 	if owner == nil {
@@ -345,7 +349,11 @@ func (r *elasticJobUngater) activeSlice(ctx context.Context, anyWl *kueue.Worklo
 	jobObject := &metav1.PartialObjectMetadata{
 		ObjectMeta: metav1.ObjectMeta{Namespace: anyWl.Namespace, Name: owner.Name},
 	}
-	return workloadslicing.FindLatestActiveWorkload(ctx, r.client, jobObject, schema.FromAPIVersionAndKind(owner.APIVersion, owner.Kind))
+	active, err := workloadslicing.FindLatestActiveWorkload(ctx, r.client, jobObject, schema.FromAPIVersionAndKind(owner.APIVersion, owner.Kind))
+	if err != nil || active == nil || !workload.IsAdmitted(active) {
+		return nil, err
+	}
+	return active, nil
 }
 
 // Workload predicates

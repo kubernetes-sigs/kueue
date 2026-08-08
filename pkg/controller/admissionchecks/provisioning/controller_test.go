@@ -455,9 +455,12 @@ func TestReconcile(t *testing.T) {
 		},
 		"with only zero-count PodSets": {
 			workload: allZeroCountWorkload.DeepCopy(),
-			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
-			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
-			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*baseRequest.DeepCopy(),
+			},
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
 			wantWorkloads: map[string]*kueue.Workload{
 				allZeroCountWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *allZeroCountWorkload.DeepCopy()}).
 					AdmissionChecks(kueue.AdmissionCheckState{
