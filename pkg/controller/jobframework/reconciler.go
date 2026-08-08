@@ -1195,8 +1195,9 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 // rather than per workload, so one batch cannot itself write two different
 // values. It resolves only when a workload's class name has to change, and then
 // applies the result to the rest of the set as well. The writes run in two
-// ordered phases, bounded and parallel within a phase, not atomic across them,
-// and both are attempted whatever the other does.
+// ordered phases, bounded and parallel within a phase, not atomic across them.
+// The transitions start only once the same-class repairs are through, so a
+// failed repair leaves the class names still mismatched for the retry to find.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
 	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
 
