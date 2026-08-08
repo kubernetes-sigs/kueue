@@ -756,6 +756,51 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		wantErr       error
 		wantWarnings  admission.Warnings
 	}{
+		// A workload that already exists carries its overhead into every update
+		// it takes afterwards, and its PodSets are immutable once it holds
+		// quota, so it cannot be corrected in place. Refusing it is what the
+		// container and pod-level lists beside it already do, and the two are
+		// only worth having together, but it has to be a decision rather than
+		// something a later reader relaxes for this one field.
+		"a reserved workload keeping a reserved-name overhead cannot be updated": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					corev1.ResourcePods: resource.MustParse("1"),
+				})).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(kueue.PodSetAssignment{Name: "main"}).Obj(), now).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					corev1.ResourcePods: resource.MustParse("1"),
+				})).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(kueue.PodSetAssignment{Name: "main"}).Obj(), now).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "overhead").Key(string(corev1.ResourcePods)), nil, ""),
+			}.ToAggregate(),
+		},
+		// The negative half has a gate, so an operator caught out by it has a
+		// way to keep a reserved workload moving while they fix the source.
+		"the gate lets a reserved workload keep a negative overhead": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: false},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-1"),
+				})).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(kueue.PodSetAssignment{Name: "main"}).Obj(), now).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-1"),
+				})).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(kueue.PodSetAssignment{Name: "main"}).Obj(), now).
+				Obj(),
+			wantErr: nil,
+		},
 		"reclaimable pod count can change up": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
