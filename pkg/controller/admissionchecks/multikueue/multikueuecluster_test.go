@@ -1359,6 +1359,9 @@ func TestEstablishWatch(t *testing.T) {
 		if w != nil {
 			t.Fatalf("want nil watcher, got: %v", w)
 		}
+		for start := time.Now(); !fw.IsStopped() && time.Since(start) < 5*testTimeout; {
+			time.Sleep(10 * time.Millisecond)
+		}
 		if !fw.IsStopped() {
 			t.Fatal("racing watcher was not Stop()ed; would leak")
 		}
