@@ -2016,10 +2016,12 @@ to the same workload; this design does not let a user use `firstAvailable` to by
 
 #### Tradeoffs
 
-For alternatives that map to disjoint logical resources, the envelope reserves every dimension even
-though only one alternative runs. This is conservative rather than unsafe, but it affects admission
+The envelope charges the largest alternative even when a smaller one runs. Alpha confines a request
+to alternatives over one logical resource, so this is one dimension rather than every dimension the
+request could have reached, but a fallback whose first choice is four devices and whose second is
+one still reserves four. This is conservative rather than unsafe, and it affects admission
 eligibility, cohort borrowing, preemption, Admission Fair Sharing usage, workload ordering, and
-utilization, and is called out here as an explicit policy tradeoff. Shrinking the reservation to
+utilization, so it is called out here as an explicit policy tradeoff. Shrinking the reservation to
 the realized alternative after allocation is out of scope for this design; it would need a separate
 mechanism to observe the generated ResourceClaims and update admitted usage, cache, fair-sharing,
 borrowing, and preemption state.
@@ -2148,9 +2150,10 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
 - Capacity device-count skip: device-count charge skipped when capacity sources
   are configured for the DeviceClass (prevents double-counting)
 - Prioritized list quota: `firstAvailable` envelope charge with two DeviceClasses mapped to one
-  logical resource (max, not sum), disjoint alternatives (both reserved), multiple top-level
-  `firstAvailable` requests summed, mixed `Exactly` and `firstAvailable`, PodSet count greater
-  than one, and a total that exceeds the representable range rejected rather than saturated
+  logical resource (max, not sum), alternatives asking different counts of that resource (the
+  largest, not the first), multiple top-level `firstAvailable` requests summed, mixed `Exactly` and
+  `firstAvailable`, PodSet count greater than one, and a total that exceeds the representable range
+  rejected rather than saturated
 - Prioritized list rejection: unmapped alternative, `All` and unknown allocation modes, a
   counter-backed or capacity-backed alternative, and the feature gate disabled all marked
   inadmissible
