@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -2377,6 +2378,110 @@ func lwsComponent(index, className string, priority int32) *kueue.Workload {
 		WorkloadPriorityClassRef(className).
 		Priority(priority).
 		Obj()
+}
+
+// TestReconcilerResolvesThePodPriorityClassOnce covers the branch a set without
+// the label takes. There is no class name to read, so the lookup falls back to
+// the PodSets, and a Workload has to be built to ask with. Both components are
+// created from one answer.
+func TestReconcilerResolvesThePodPriorityClassOnce(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
+
+	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Replicas(2).UID(testLWS).Obj()
+	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.PriorityClassName = "pod-high"
+
+	var classReads atomic.Int32
+	clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*schedulingv1.PriorityClass); ok {
+					classReads.Add(1)
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		})
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(lws, &schedulingv1.PriorityClass{
+		ObjectMeta: metav1.ObjectMeta{Name: "pod-high"},
+		Value:      700,
+	}).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, request); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if got := classReads.Load(); got != 1 {
+		t.Errorf("PriorityClass reads = %d, want 1", got)
+	}
+	var got kueue.WorkloadList
+	if err := kClient.List(ctx, &got, client.InNamespace(testNS)); err != nil {
+		t.Fatalf("Listing workloads: %v", err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("got %d workloads, want 2", len(got.Items))
+	}
+	want := kueue.NewPodPriorityClassRef("pod-high")
+	for _, wl := range got.Items {
+		if diff := cmp.Diff(want, wl.Spec.PriorityClassRef); diff != "" {
+			t.Errorf("%s: priority class reference (-want +got):\n%s", wl.Name, diff)
+		}
+		if diff := cmp.Diff(new(int32(700)), wl.Spec.Priority); diff != "" {
+			t.Errorf("%s: priority (-want +got):\n%s", wl.Name, diff)
+		}
+	}
+}
+
+// TestReconcilerLeavesAChosenValueWhenASiblingTransitions is the other half of
+// the same contract. A sibling that does have to move must not decide the value
+// of one that does not: whether the component is missing or merely on the wrong
+// class, the one already on the name keeps what it carries.
+func TestReconcilerLeavesAChosenValueWhenASiblingTransitions(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
+
+	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+		WorkloadPriorityClass("high").Replicas(2).UID(testLWS).Obj()
+	chosen := lwsComponent("0", "high", 500)
+	moving := lwsComponent("1", "low", 10)
+
+	clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme)
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(lws,
+		utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+		utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(10).Obj(),
+		chosen, moving).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, request); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	want := map[string]int32{chosen.Name: 500, moving.Name: 200}
+	var got kueue.WorkloadList
+	if err := kClient.List(ctx, &got, client.InNamespace(testNS)); err != nil {
+		t.Fatalf("Listing workloads: %v", err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("got %d workloads, want 2", len(got.Items))
+	}
+	for _, wl := range got.Items {
+		if diff := cmp.Diff(new(want[wl.Name]), wl.Spec.Priority); diff != "" {
+			t.Errorf("%s: priority (-want +got):\n%s", wl.Name, diff)
+		}
+	}
+	if diff := cmp.Diff(kueue.NewWorkloadPriorityClassRef("high"), got.Items[1].Spec.PriorityClassRef); diff != "" {
+		t.Errorf("%s: priority class reference (-want +got):\n%s", got.Items[1].Name, diff)
+	}
 }
 
 // TestReconcilerLeavesAValueUnderTheSameClassAlone covers the component that

@@ -1275,7 +1275,23 @@ func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventR
 	// WorkloadPriorityClassReconciler lists by, and the class value moving is what
 	// left them stale in the first place. The order only fixes which error is
 	// reported first.
-	return errors.Join(apply(sameClassName), apply(needsClassChange))
+	err := errors.Join(apply(sameClassName), apply(needsClassChange))
+	// parallelize.Until reports nothing when the context was already done, since
+	// no piece runs to send an error. A batch that never started would otherwise
+	// read back as one that was written.
+	if err == nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
+}
+
+// WorkloadsNeedingPriorityClassChange returns the subset of wls whose priority
+// class name does not match obj's and that this package may move to it. A caller
+// batching a whole set can use it to leave the ones already on the name alone,
+// whose value is theirs to keep rather than this reconciliation's to replace.
+func WorkloadsNeedingPriorityClassChange(log logr.Logger, obj client.Object, wls []*kueue.Workload) []*kueue.Workload {
+	_, needsClassChange := classifyWorkloadsForPriorityUpdate(log, WorkloadPriorityClassName(obj), wls)
+	return needsClassChange
 }
 
 // classifyWorkloadsForPriorityUpdate splits the workloads this helper may manage

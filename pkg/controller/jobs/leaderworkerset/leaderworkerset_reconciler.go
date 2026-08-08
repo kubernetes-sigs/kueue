@@ -320,18 +320,25 @@ func (r *Reconciler) resolvePriority(ctx context.Context, lws *leaderworkersetv1
 	return &resolvedPriority{classRef: classRef, priority: priority}, nil
 }
 
-// applyPriority gives wls this reconcile's priority. Without one, the helper
-// decides for itself whether the class needs reading at all, which keeps a
-// steady-state reconcile from doing so.
+// applyPriority gives this reconcile's priority to the components whose class
+// name has to change. A component already on the name keeps the value it has:
+// that value is mutable and may be someone's, and batching the set is not a
+// reason for a sibling's transition to decide it. Without a resolution, one is
+// taken here, and only when there is something to move.
 func (r *Reconciler) applyPriority(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet,
 	resolved *resolvedPriority, wls []*kueue.Workload) error {
-	if len(wls) == 0 {
+	targets := jobframework.WorkloadsNeedingPriorityClassChange(ctrl.LoggerFrom(ctx), lws, wls)
+	if len(targets) == 0 {
 		return nil
 	}
 	if resolved == nil {
-		return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wls...)
+		classRef, priority, err := jobframework.ExtractPriority(ctx, r.client, lws, targets[0].Spec.PodSets, nil)
+		if err != nil {
+			return fmt.Errorf("prepare workload priority: %w", err)
+		}
+		resolved = &resolvedPriority{classRef: classRef, priority: priority}
 	}
-	return jobframework.ApplyWorkloadPriority(ctx, r.client, r.record, lws, resolved.classRef, resolved.priority, wls...)
+	return jobframework.ApplyWorkloadPriority(ctx, r.client, r.record, lws, resolved.classRef, resolved.priority, targets...)
 }
 
 // filterWorkloads compares the desired state of a LeaderWorkerSet with existing workloads,

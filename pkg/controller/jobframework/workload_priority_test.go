@@ -580,8 +580,11 @@ func TestApplyWorkloadPriorityStopsWhenCancelled(t *testing.T) {
 		}).Build()
 
 	cancel()
-	_ = ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job,
+	err := ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job,
 		kueue.NewWorkloadPriorityClassRef("high"), 200, wls...)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("ApplyWorkloadPriority() = %v, want the cancellation reported rather than a batch that never ran", err)
+	}
 
 	if got := writes.Load(); got != 0 {
 		t.Errorf("wrote %d workloads after cancellation, want none", got)
