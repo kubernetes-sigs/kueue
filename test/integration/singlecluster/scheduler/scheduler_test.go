@@ -1914,6 +1914,53 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 3)
 		})
+
+		ginkgo.It("Should keep the last valid hierarchy after rejecting a Cohort cycle", func() {
+			root := utiltestingapi.MakeCohort("root").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			parent := utiltestingapi.MakeCohort("parent").Parent("root").Obj()
+			child := utiltestingapi.MakeCohort("child").Parent("parent").Obj()
+			util.MustCreate(ctx, k8sClient, root)
+			util.MustCreate(ctx, k8sClient, parent)
+			util.MustCreate(ctx, k8sClient, child)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, child, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, parent, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, root, true)
+			})
+
+			cq = createQueue(utiltestingapi.MakeClusterQueue("cq").
+				Cohort("parent").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+			wl = createWorkloadWithPriority(kueue.LocalQueueName(cq.Name), "1", 0)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+
+			ginkgo.By("updating the parent to a cycle")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parent), parent)).To(gomega.Succeed())
+				parent.Spec.ParentName = kueue.CohortReference(child.Name)
+				g.Expect(k8sClient.Update(ctx, parent)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("adding capacity to the valid root")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(root), root)).To(gomega.Succeed())
+				root.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("1")
+				g.Expect(k8sClient.Update(ctx, root)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying the pending workload is admitted through the last valid hierarchy")
+			expectAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "on-demand", "1").Obj()).
+				Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl, expectAdmission)
+		})
 	})
 
 	ginkgo.When("Using cohorts for sharing with LendingLimit", func() {

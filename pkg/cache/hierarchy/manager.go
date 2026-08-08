@@ -107,6 +107,20 @@ func (m *Manager[CQ, C]) UpdateCohortEdge(name, parentName kueue.CohortReference
 	}
 }
 
+func (m *Manager[CQ, C]) UpdateCohortEdgeIfNoCycle(name, parentName kueue.CohortReference, hasCycle func(C) bool) bool {
+	cohort, ok := m.cohorts[name]
+	var oldParentName kueue.CohortReference
+	if ok && cohort.HasParent() {
+		oldParentName = cohort.Parent().GetName()
+	}
+	m.UpdateCohortEdge(name, parentName)
+	if ok && hasCycle(cohort) {
+		m.UpdateCohortEdge(name, oldParentName)
+		return false
+	}
+	return true
+}
+
 func (m *Manager[CQ, C]) DeleteCohort(name kueue.CohortReference) {
 	cohort, ok := m.cohorts[name]
 	if !ok {

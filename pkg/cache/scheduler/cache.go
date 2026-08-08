@@ -639,14 +639,15 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	defer c.Unlock()
 	cohortName := kueue.CohortReference(apiCohort.Name)
 	c.hm.AddCohort(cohortName)
-	cohort := c.hm.Cohort(cohortName)
-	oldParent := cohort.Parent()
-	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
-	if err := cohort.updateCohort(apiCohort, oldParent); err != nil {
-		return err
+	ch := c.hm.Cohort(cohortName)
+	oldParent := ch.Parent()
+	if !c.hm.UpdateCohortEdgeIfNoCycle(cohortName, apiCohort.Spec.ParentName, func(c *cohort) bool { return hierarchy.HasCycle(c) }) {
+		c.updateCohortTreeAndInfoMetricsIfNoCycle(ch)
+		return ErrCohortHasCycle
 	}
+	_ = ch.updateCohort(apiCohort, oldParent)
 	c.handleParentUpdate(oldParent)
-	c.updateCohortTreeAndInfoMetricsIfNoCycle(cohort)
+	c.updateCohortTreeAndInfoMetricsIfNoCycle(ch)
 
 	return nil
 }

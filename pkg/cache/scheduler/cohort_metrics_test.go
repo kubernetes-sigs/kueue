@@ -854,7 +854,10 @@ func TestResyncGaugeMetrics_SkipsCohortInfoForCycle(t *testing.T) {
 		t.Fatal("Expected success: no cycle yet")
 	}
 	// cohort-b -> cohort-a closes the cycle; error is expected.
-	_ = cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj())
+	if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()); err == nil {
+		t.Fatal("Expected failure when cycle")
+	}
+	cache.hm.UpdateCohortEdge("cohort-b", "cohort-a")
 
 	// ResyncGaugeMetrics bulk-resets info metrics then selectively re-emits.
 	// Cycle cohorts are skipped (HasCycle=true), so they end up with no CohortInfo.
