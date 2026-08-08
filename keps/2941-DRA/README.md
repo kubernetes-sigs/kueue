@@ -1811,9 +1811,9 @@ across PodSets. A resource no envelope reaches keeps the conversion it has now, 
 on does not change what an unrelated fractional request admits to.
 
 Fitting in an `int64` is not quite the range either. `resources.Amount` keeps `math.MaxInt64` as its
-`Unlimited` sentinel, and `Info.ResourceUsage` folds the PodSets together through
-`Amount.AddInt64`, which saturates there. A charge of `MaxInt64 - 10` on one PodSet and `10` on
-another sums to exactly `MaxInt64` with no overflow and no rounding, and comes out of that fold as
+`Unlimited` sentinel, and `Info.ResourceUsage` folds the PodSets together, the half every consumer
+reads through `Amount.AddInt64`, which saturates there. A charge of `MaxInt64 - 10` on one PodSet
+and `10` on another sums to exactly `MaxInt64` with no overflow and no rounding, and comes out as
 unlimited rather than as the number it is. The finite range is `0` up to `MaxInt64` exclusive, and a
 total landing on the sentinel is refused alongside the ones past it.
 
@@ -1836,14 +1836,15 @@ kept next to the envelope alone would answer for the envelope while the `Exactly
 same resource went through unchecked. What it reports is a property of the request rather than of
 the attempt, so it is permanent; a retry rebuilds the same numbers.
 
-That much covers a PodSet. The sum across them is taken later, in `Info.ResourceUsage`, and neither
-half of it is checked: the assigned side goes through the saturating `Amount.AddInt64` and lands on
-the sentinel above, and the unassigned side is a plain `+=` that wraps, `MaxInt64 - 10` plus `20`
-coming out as `-9223372036854775799`. Carrying a running total while the PodSets are built catches
-both, in the pass that already has to check each one and before the sum reaches a representation
-that cannot tell it from unlimited. Until that exists, the Alpha bound holds for charges
-the shared path can represent, which is the condition the existing `Exactly` charges already depend
-on.
+That much covers a PodSet. The sum across them is taken later, in `Info.ResourceUsage`, and is not
+checked there either. Its assigned half is what the scheduler, the snapshot, preemption and fair
+sharing all read, and it saturates onto the sentinel above. Its unassigned half is a plain `+=`
+that wraps, `MaxInt64 - 10` plus `20` coming out as `-9223372036854775799`, though nothing reads
+that one today, so it is a hazard waiting for a reader rather than a live one. Carrying a running
+total while the PodSets are built catches the sum in the pass that already has to check each one,
+and before it reaches a representation that cannot tell it from unlimited. Until that exists, the
+Alpha bound holds for charges the shared path can represent, which is the condition the existing
+`Exactly` charges already depend on.
 
 The maximum is taken after DeviceClass-to-logical-resource mapping. Two DeviceClasses may
 intentionally map to one logical resource (for example an H100 and an A100 class both mapping to a
