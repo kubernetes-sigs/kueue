@@ -17,7 +17,9 @@ limitations under the License.
 package jobframework
 
 import (
+	"errors"
 	"testing"
+	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -35,7 +37,8 @@ import (
 )
 
 func TestWorkloadShouldBeSuspended(t *testing.T) {
-	t.Cleanup(EnableIntegrationsForTest(t, "batch/job"))
+	integrationManager := newDefaultsIntegrationManager(t)
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).UID("parent").Queue("default").Obj()
@@ -53,7 +56,10 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 	cases := map[string]struct {
 		obj                        client.Object
 		manageJobsWithoutQueueName bool
+		tolerateDeleting           bool
 		wantSuspend                bool
+		wantErr                    error
+		skipAncestorGateOff        bool
 	}{
 		"job with queue name ": {
 			obj:                        utiltestingjob.MakeJob("test-job", managedNamespace.Name).Queue("default").Obj(),
@@ -82,6 +88,50 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 			manageJobsWithoutQueueName: true,
 			wantSuspend:                false,
 		},
+		"job with ownerReference to a deleted known parent while terminating (GC teardown)": {
+			obj: utiltestingjob.MakeJob("test-job", managedNamespace.Name).
+				OwnerReference("nonexistent-parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				DeletionTimestamp(time.Now()).
+				Finalizers("batch.kubernetes.io/job-tracking").
+				Obj(),
+			manageJobsWithoutQueueName: true,
+			tolerateDeleting:           true,
+			// With WithDeletingObjectTolerance (webhook call sites), the suspend check is
+			// skipped entirely for an object that is being deleted, so the missing parent
+			// is never looked up and no suspend is defaulted.
+			wantSuspend: false,
+		},
+		"job with ownerReference to a deleted known parent while terminating, without tolerance": {
+			obj: utiltestingjob.MakeJob("test-job", managedNamespace.Name).
+				OwnerReference("nonexistent-parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				DeletionTimestamp(time.Now()).
+				Finalizers("batch.kubernetes.io/job-tracking").
+				Obj(),
+			manageJobsWithoutQueueName: true,
+			// Without WithDeletingObjectTolerance (reconciler predicates), a missing owner
+			// fails hard even for a terminating object and even with the gate enabled.
+			wantErr: ErrWorkloadOwnerNotFound,
+		},
+		"job with ownerReference to a deleted known parent while terminating, gate disabled": {
+			obj: utiltestingjob.MakeJob("test-job", managedNamespace.Name).
+				OwnerReference("nonexistent-parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				DeletionTimestamp(time.Now()).
+				Finalizers("batch.kubernetes.io/job-tracking").
+				Obj(),
+			manageJobsWithoutQueueName: true,
+			tolerateDeleting:           true,
+			skipAncestorGateOff:        true,
+			// With SkipAncestorCheckForDeletedWorkloads disabled, the previous behavior is
+			// restored: a missing owner fails hard even for a terminating object.
+			wantErr: ErrWorkloadOwnerNotFound,
+		},
+		"job with ownerReference to a missing parent while not terminating (cache lag)": {
+			obj: utiltestingjob.MakeJob("test-job", managedNamespace.Name).
+				OwnerReference("nonexistent-parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Obj(),
+			manageJobsWithoutQueueName: true,
+			wantErr:                    ErrWorkloadOwnerNotFound,
+		},
 		"job without queue name with manageJobs with feature disabled": {
 			obj:                        utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
 			manageJobsWithoutQueueName: true,
@@ -101,11 +151,16 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			suspend, err := WorkloadShouldBeSuspended(ctx, tc.obj, client, tc.manageJobsWithoutQueueName, namespaceSelector)
-			if err != nil {
-				t.Errorf("Got error: %v", err)
+			features.SetFeatureGateDuringTest(t, features.SkipAncestorCheckForDeletedWorkloads, !tc.skipAncestorGateOff)
+			var opts []WorkloadShouldBeSuspendedOption
+			if tc.tolerateDeleting {
+				opts = append(opts, WithDeletingObjectTolerance(true))
 			}
-			if suspend != tc.wantSuspend {
+			suspend, err := integrationManager.WorkloadShouldBeSuspended(ctx, tc.obj, client, tc.manageJobsWithoutQueueName, namespaceSelector, opts...)
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("Unexpected error: got %v, want %v", err, tc.wantErr)
+			}
+			if tc.wantErr == nil && suspend != tc.wantSuspend {
 				t.Errorf("Unexpected result: got %v wanted %v", suspend, tc.wantSuspend)
 			}
 		})
@@ -113,6 +168,8 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 }
 
 func TestApplyDefaultLocalQueue(t *testing.T) {
+	integrationManager := newDefaultsIntegrationManager(t)
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	ls := &metav1.LabelSelector{
@@ -155,7 +212,7 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 				return true
 			}
 
-			if err := ApplyDefaultLocalQueue(ctx, cl, tc.job, defaultQueueExist, namespaceSelector); err != nil {
+			if err := integrationManager.ApplyDefaultLocalQueue(ctx, cl, tc.job, defaultQueueExist, namespaceSelector); err != nil {
 				t.Fatalf("ApplyDefaultLocalQueue() returned error: %v", err)
 			}
 
@@ -168,7 +225,8 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 }
 
 func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
-	t.Cleanup(EnableIntegrationsForTest(t, "batch/job"))
+	integrationManager := newDefaultsIntegrationManager(t)
+	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
 	parent := utiltestingjob.MakeJob("parent", "default").UID("parent").Queue("default").Obj()
 
 	defaultWPC := &kueue.WorkloadPriorityClass{
@@ -230,11 +288,25 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 				builder = builder.WithObjects(tc.wpcObjects...)
 			}
 			k8sClient := builder.Build()
-			ApplyDefaultWorkloadPriorityClass(ctx, k8sClient, tc.job)
+			integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, k8sClient, tc.job)
 			got := tc.job.GetLabels()[constants.WorkloadPriorityClassLabel]
 			if got != tc.wantPriorityClassLabel {
 				t.Errorf("unexpected priority class label: got %q, want %q", got, tc.wantPriorityClassLabel)
 			}
 		})
 	}
+}
+
+func newDefaultsIntegrationManager(t *testing.T) *IntegrationManager {
+	t.Helper()
+	manager := NewIntegrationManager()
+	if err := manager.RegisterIntegration("batch/job", IntegrationCallbacks{
+		GVK:           batchv1.SchemeGroupVersion.WithKind("Job"),
+		NewReconciler: testNewReconciler,
+		SetupWebhook:  testSetupWebhook,
+		JobType:       &batchv1.Job{},
+	}); err != nil {
+		t.Fatalf("RegisterIntegration() error = %v", err)
+	}
+	return manager
 }

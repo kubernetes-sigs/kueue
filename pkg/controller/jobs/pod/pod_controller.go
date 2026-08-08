@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/tools/events"
@@ -93,15 +92,15 @@ var (
 	realClock                      = clock.RealClock{}
 )
 
-func init() {
-	utilruntime.Must(jobframework.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
+func RegisterIntegration(m *jobframework.IntegrationManager) error {
+	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:      SetupIndexes,
 		NewJob:            NewJob,
 		NewReconciler:     NewReconciler,
 		SetupWebhook:      SetupWebhook,
 		JobType:           &corev1.Pod{},
 		MultiKueueAdapter: &multiKueueAdapter{},
-	}))
+	})
 }
 
 // +kubebuilder:rbac:groups=scheduling.k8s.io,resources=priorityclasses,verbs=list;get;watch
@@ -116,14 +115,15 @@ func init() {
 
 type Reconciler struct {
 	*jobframework.JobReconciler
-	expectationsStore *expectations.Store
-	clock             clock.Clock
+	integrationManager *jobframework.IntegrationManager
+	expectationsStore  *expectations.Store
+	clock              clock.Clock
 }
 
 const controllerName = "v1_pod"
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock)))
+	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock), WithIntegrationManager(r.integrationManager)))
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -147,13 +147,15 @@ func NewJob() jobframework.GenericJob {
 func NewReconciler(_ context.Context, c client.Client, _ client.FieldIndexer, record events.EventRecorder, opts ...jobframework.Option) (jobframework.JobReconcilerInterface, error) {
 	options := jobframework.ProcessOptions(opts...)
 	return &Reconciler{
-		JobReconciler:     jobframework.NewReconciler(c, record, opts...),
-		expectationsStore: expectations.NewStore("finalizedPods"),
-		clock:             options.Clock,
+		JobReconciler:      jobframework.NewReconciler(c, record, opts...),
+		integrationManager: options.IntegrationManager,
+		expectationsStore:  expectations.NewStore("finalizedPods"),
+		clock:              options.Clock,
 	}, nil
 }
 
 type Pod struct {
+	integrationManager    *jobframework.IntegrationManager
 	pod                   corev1.Pod
 	key                   types.NamespacedName
 	isFound               bool
@@ -193,6 +195,12 @@ func WithExcessPodExpectations(store *expectations.Store) PodOption {
 func WithClock(clock clock.Clock) PodOption {
 	return func(pod *Pod) {
 		pod.clock = clock
+	}
+}
+
+func WithIntegrationManager(manager *jobframework.IntegrationManager) PodOption {
+	return func(pod *Pod) {
+		pod.integrationManager = manager
 	}
 }
 
@@ -603,7 +611,7 @@ func (p *Pod) Skip(ctx context.Context) bool {
 		log.V(3).Info("Skipping pod, not managed by Kueue", constants.ManagedByKueueLabelKey, v, "labelSet", ok)
 		return true
 	}
-	if jobframework.HasImplicitlyEnabledFramework(p.pod.GroupVersionKind()) &&
+	if p.integrationManager != nil && p.integrationManager.HasImplicitlyEnabledFramework(p.pod.GroupVersionKind()) &&
 		p.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation] == "" {
 		log.V(3).Info("Pod Integration was implicitly enabled but object lacks parent annotation, skipping")
 		return true

@@ -17,6 +17,7 @@ If your repo has certain guidelines for contribution, put them here ahead of the
 - [Contributor Cheat Sheet](https://k8s.dev/cheatsheet) - Common resources for existing developers
 - [AI Tool Usage Policy](https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance) - 🤖 Guidelines for using AI tools when contributing.
 - [SIG Scheduling Contributor's Guide](https://git.k8s.io/community/sig-scheduling/CONTRIBUTING.md) - Guidelines specific to SIG Scheduling.
+- [Coding Guidelines](https://kueue.sigs.k8s.io/docs/contribution_guidelines/coding_guidelines/) - Coding conventions and patterns for Kueue product and test code.
 
 ## Mentorship
 

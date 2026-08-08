@@ -8758,6 +8758,7 @@ spec:
                             Kueue finds a requested topology domain on a level defined
                             in `kueue.x-k8s.io/podset-slice-required-topology` annotation.
                           format: int32
+                          minimum: 1
                           type: integer
                         preferred:
                           description: |-
@@ -18198,6 +18199,7 @@ spec:
                             Kueue finds a requested topology domain on a level defined
                             in `kueue.x-k8s.io/podset-slice-required-topology` annotation.
                           format: int32
+                          minimum: 1
                           type: integer
                         podsetSliceRequiredTopologyConstraints:
                           description: |-

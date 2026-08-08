@@ -107,6 +107,12 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 }
 
 func managerSetup(ctx context.Context, mgr manager.Manager) {
+	setupManager(ctx, mgr)
+}
+
+func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.IntegrationManager {
+	integrationManager := jobframework.NewIntegrationManager()
+	gomega.Expect(workloadjob.RegisterIntegration(integrationManager)).To(gomega.Succeed())
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -114,6 +120,12 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	preemptionExpectations := preemptexpectations.New()
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
 	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	jobOptions := []jobframework.Option{
+		jobframework.WithIntegrationManager(integrationManager),
+		jobframework.WithCache(cCache),
+		jobframework.WithQueues(queues),
+	}
+	integrationManager.EnableIntegration(workloadjob.FrameworkName)
 
 	configuration := &config.Configuration{}
 	mgr.GetScheme().Default(configuration)
@@ -143,12 +155,12 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
-		mgr.GetEventRecorder(constants.JobControllerName))
+		mgr.GetEventRecorder(constants.JobControllerName), jobOptions...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = jobReconciler.SetupWithManager(mgr)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = workloadjob.SetupWebhook(mgr, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
+	err = workloadjob.SetupWebhook(mgr, jobOptions...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
@@ -171,6 +183,8 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	)
 	err = sched.Start(ctx)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return integrationManager
 }
 
 func managerAndMultiKueueSetup(
@@ -180,12 +194,12 @@ func managerAndMultiKueueSetup(
 	enabledIntegrations sets.Set[string],
 	dispatcherName string,
 ) {
-	managerSetup(ctx, mgr)
+	integrationManager := setupManager(ctx, mgr)
 
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	adapters, err := jobframework.GetMultiKueueAdapters(enabledIntegrations)
+	adapters, err := integrationManager.GetMultiKueueAdapters(enabledIntegrations)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,

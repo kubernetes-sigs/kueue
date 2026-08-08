@@ -17,7 +17,7 @@
 import sys
 import re
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 LOG_MARKER_START = "<!-- release-log-start -->"
 LOG_MARKER_END = "<!-- release-log-end -->"
@@ -38,7 +38,7 @@ def main():
     repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
     server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com").strip()
     
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     action_link = f"{server_url}/{repository}/actions/runs/{run_id}"
 
     issue_body = os.environ.get("ISSUE_BODY", "").strip()

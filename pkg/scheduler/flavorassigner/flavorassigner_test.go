@@ -30,6 +30,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 
@@ -39,9 +40,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -3328,7 +3331,7 @@ func TestAssignFlavors(t *testing.T) {
 				TotalRequests: []workload.PodSetResources{
 					{
 						Name: "main",
-						Requests: resources.NewRequestsFromMap(resources.MapRequests{
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
 						}),
@@ -3394,7 +3397,7 @@ func TestAssignFlavors(t *testing.T) {
 				TotalRequests: []workload.PodSetResources{
 					{
 						Name: "main",
-						Requests: resources.NewRequestsFromMap(resources.MapRequests{
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU:    2000,
 							corev1.ResourceMemory: 10 * utiltesting.Mi,
 						}),
@@ -3645,6 +3648,7 @@ func TestAssignFlavors(t *testing.T) {
 					tc.preemptWorkloadSlice,
 					configapi.QuotaCheckBlockUndeclared,
 					resources.NewResourceFormatter(),
+					0,
 				)
 				assignment := flvAssigner.Assign(ctx, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
@@ -3839,7 +3843,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 			assignment := flvAssigner.Assign(ctx, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
@@ -3987,7 +3991,7 @@ func TestDeletedFlavors(t *testing.T) {
 				cache.DeleteResourceFlavor(log, flavorMap["deleted-flavor"])
 				delete(flavorMap, "deleted-flavor")
 
-				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 
 				assignment := flvAssigner.Assign(ctx, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
@@ -4013,68 +4017,30 @@ func TestDeletedFlavors(t *testing.T) {
 	}
 }
 
-func TestLastAssignmentOutdated(t *testing.T) {
-	type args struct {
-		wl *workload.Info
-		cq *schdcache.ClusterQueueSnapshot
-	}
-	tests := []struct {
-		name string
-		args args
-		want bool
-	}{
-		{
-			name: "Cluster queue allocatableResourceIncreasedGen increased",
-			args: args{
-				wl: &workload.Info{
-					LastAssignment: &workload.AssignmentClusterQueueState{
-						ClusterQueueGeneration: 0,
-					},
-				},
-				cq: &schdcache.ClusterQueueSnapshot{
-					AllocatableResourceGeneration: 1,
-				},
-			},
-			want: true,
-		},
-		{
-			name: "AllocatableResourceGeneration not increased",
-			args: args{
-				wl: &workload.Info{
-					LastAssignment: &workload.AssignmentClusterQueueState{
-						ClusterQueueGeneration: 0,
-					},
-				},
-				cq: &schdcache.ClusterQueueSnapshot{
-					AllocatableResourceGeneration: 0,
-				},
-			},
-			want: false,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := lastAssignmentOutdated(tt.args.wl, tt.args.cq); got != tt.want {
-				t.Errorf("LastAssignmentOutdated() = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
-
 // We have 3 flavors: one, two, three and a 3-level cohort hierarchy where
 // each cohort get 4 units of CPU in a different flavor.
 func TestHierarchical(t *testing.T) {
 	type rfMap = map[corev1.ResourceName]kueue.ResourceFlavorReference
+	defaultTestClusterQueueFlavors := func() []kueue.FlavorQuotas {
+		return []kueue.FlavorQuotas{
+			*utiltestingapi.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "0").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("two").Resource(corev1.ResourceCPU, "0").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "0").Obj(),
+		}
+	}
 	cases := map[string]struct {
-		workloadRequests       *utiltestingapi.PodSetWrapper
-		testClusterQueueUsage  resources.FlavorResourceQuantities
-		otherClusterQueueUsage resources.FlavorResourceQuantities
-		flavorFungibility      *kueue.FlavorFungibility
-		wantMode               FlavorAssignmentMode
-		wantAssigment          rfMap
+		workloadRequests        *utiltestingapi.PodSetWrapper
+		testClusterQueueFlavors []kueue.FlavorQuotas
+		testClusterQueueUsage   resources.FlavorResourceQuantities
+		otherClusterQueueUsage  resources.FlavorResourceQuantities
+		flavorFungibility       *kueue.FlavorFungibility
+		simulationResult        map[resources.FlavorResource]simulationResultForFlavor
+		wantMode                FlavorAssignmentMode
+		wantAssigment           rfMap
 	}{
 		"Select the top flavor": {
-			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			workloadRequests:        utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			testClusterQueueFlavors: defaultTestClusterQueueFlavors(),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
 			},
@@ -4085,9 +4051,36 @@ func TestHierarchical(t *testing.T) {
 			wantAssigment: rfMap{corev1.ResourceCPU: "three"},
 		},
 		"Select the first flavor which fits": {
-			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			workloadRequests:        utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			testClusterQueueFlavors: defaultTestClusterQueueFlavors(),
 			testClusterQueueUsage: resources.FlavorResourceQuantities{
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
+			},
+			wantMode:      Fit,
+			wantAssigment: rfMap{corev1.ResourceCPU: "two"},
+		},
+		"Select deeper-borrowing flavor that fits when shallower-borrowing flavor has no preemption candidates": {
+			workloadRequests: utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			testClusterQueueFlavors: []kueue.FlavorQuotas{
+				*utiltestingapi.MakeFlavorQuotas("one").
+					ResourceQuotaWrapper(corev1.ResourceCPU).
+					NominalQuota("4").
+					BorrowingLimit("0").
+					Append().
+					Obj(),
+				*utiltestingapi.MakeFlavorQuotas("two").Resource(corev1.ResourceCPU, "0").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "0").Obj(),
+			},
+			testClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
+			},
+			flavorFungibility: &kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 1},
 			},
 			wantMode:      Fit,
 			wantAssigment: rfMap{corev1.ResourceCPU: "two"},
@@ -4123,11 +4116,7 @@ func TestHierarchical(t *testing.T) {
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 				}).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "0").Obj(),
-					*utiltestingapi.MakeFlavorQuotas("two").Resource(corev1.ResourceCPU, "0").Obj(),
-					*utiltestingapi.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "0").Obj(),
-				).
+				ResourceGroup(tc.testClusterQueueFlavors...).
 				FlavorFungibility(kueue.FlavorFungibility{
 					WhenCanPreempt: kueue.TryNextFlavor,
 				}).Obj()
@@ -4176,7 +4165,7 @@ func TestHierarchical(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 			assignment := flvAssigner.Assign(ctx, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
@@ -4240,6 +4229,52 @@ func TestIsPreferred(t *testing.T) {
 				WhenCanBorrow:  kueue.TryNextFlavor,
 				WhenCanPreempt: kueue.TryNextFlavor,
 				Preference:     makePref(kueue.PreemptionOverBorrowing),
+			},
+			wantPreferred: false,
+		},
+		"explicit PreemptionOverBorrowing rejects no-candidate flavor before borrowing comparison": {
+			a: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
+			b: granularMode{preemptionMode: fit, borrowingLevel: 2},
+			config: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     makePref(kueue.PreemptionOverBorrowing),
+			},
+			wantPreferred: false,
+		},
+		"explicit PreemptionOverBorrowing prefers fit over shallower-borrowing no-candidate flavor": {
+			a: granularMode{preemptionMode: fit, borrowingLevel: 2},
+			b: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
+			config: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     makePref(kueue.PreemptionOverBorrowing),
+			},
+			wantPreferred: true,
+		},
+		"no-candidate flavor remains preferable to no-fit flavor": {
+			a:             granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
+			b:             granularMode{preemptionMode: noFit, borrowingLevel: 0},
+			wantPreferred: true,
+		},
+		"no-fit flavor remains worse than no-candidate flavor": {
+			a:             granularMode{preemptionMode: noFit, borrowingLevel: 0},
+			b:             granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
+			wantPreferred: false,
+		},
+		"no-candidate flavors retain borrowing preference": {
+			a: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
+			b: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 2},
+			config: kueue.FlavorFungibility{
+				Preference: makePref(kueue.PreemptionOverBorrowing),
+			},
+			wantPreferred: true,
+		},
+		"no-candidate flavors retain borrowing preference in reverse": {
+			a: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 2},
+			b: granularMode{preemptionMode: noPreemptionCandidates, borrowingLevel: 1},
+			config: kueue.FlavorFungibility{
+				Preference: makePref(kueue.PreemptionOverBorrowing),
 			},
 			wantPreferred: false,
 		},
@@ -5143,7 +5178,7 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 			}
 			cqSnapshot := snapshot.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 
-			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter())
+			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 			gotAssignment := assigner.Assign(ctx, nil)
 
 			if gotAssignment.RepresentativeMode() != tc.wantRepMode {
@@ -5628,6 +5663,7 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 			assigner := New(
 				wlInfo, cqSnapshot, testFlavors, false, &testOracle{simulationResult: tc.simulationResult},
 				tc.replaceWl, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(),
+				0,
 			)
 			gotAssignment := assigner.Assign(ctx, nil)
 
@@ -5645,6 +5681,776 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 						}
 					}
 				}
+			}
+		})
+	}
+}
+
+// TestAssignFlavors_LeaderWorkerSetTASFlavor exercises the full flavor-assignment pipeline
+// (not just WorkloadsTopologyRequests in isolation) for PodSet groups where one member -
+// e.g. an LWS leader - requests none of the group's managed resources. Such a PodSet must
+// still end up with the group's resolved TAS flavor so it can be placed.
+func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+
+	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"tas-a":   utiltestingapi.MakeResourceFlavor("tas-a").TopologyName("tas-topo-a").Obj(),
+		"tas-b":   utiltestingapi.MakeResourceFlavor("tas-b").TopologyName("tas-topo-b").Obj(),
+		"non-tas": utiltestingapi.MakeResourceFlavor("non-tas").Obj(),
+	}
+	topologies := []*kueue.Topology{
+		utiltestingapi.MakeTopology("tas-topo-a").Levels(corev1.LabelHostname).Obj(),
+		utiltestingapi.MakeTopology("tas-topo-b").Levels(corev1.LabelHostname).Obj(),
+	}
+
+	cases := map[string]struct {
+		wlPods            []kueue.PodSet
+		clusterQueue      kueue.ClusterQueue
+		wantPodSetErrors  map[kueue.PodSetReference]error
+		wantPodSetFlavors map[kueue.PodSetReference]ResourceAssignment
+	}{
+		"leader without a managed request infers the group's TAS flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu-a", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-b").
+						Resource(corev1.ResourceMemory, "8Gi").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+		"leader without a group is rejected (ClusterQueue-wide fallback is not supported)": {
+			// Current behavior: a no-request PodSet without PodSetGroup does not inherit
+			// a TAS flavor from ClusterQueue-wide state.
+			// Potential future support: allow a ClusterQueue-wide fallback if requested.
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu-a", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{
+				"leader": ErrNoTASFlavorAssigned,
+			},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader": {},
+				"worker": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+		"peers in the same group resolving to different TAS flavors are rejected": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker-a", 1).
+					Request("example.com/gpu-a", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker-b", 1).
+					Request("example.com/gpu-b", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-b").
+						Resource("example.com/gpu-b", "4").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{
+				"leader": &MultipleTASFlavorsAssignedError{Flavors: []kueue.ResourceFlavorReference{"tas-a", "tas-b"}},
+			},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader":   {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}, "example.com/gpu-b": {Name: "tas-b", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker-a": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker-b": {"example.com/gpu-b": {Name: "tas-b", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+		"multiple groups: leaders infer flavors from their own groups": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader1", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker1", 1).
+					Request("example.com/gpu-a", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("leader2", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group2").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker2", 1).
+					Request("example.com/gpu-b", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group2").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-b").
+						Resource("example.com/gpu-b", "4").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				// Verify both leaders inferred their flavors from their groups
+				"leader1": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker1": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+				"leader2": {"example.com/gpu-b": {Name: "tas-b", Mode: Fit, TriedFlavorIdx: -1}},
+				"worker2": {"example.com/gpu-b": {Name: "tas-b", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+		"leader in group where peer resolves to non-TAS flavor is rejected": {
+			// Exercises the topology-group TAS fallback path in resolvePodSetFlavors:
+			// tasFlavorsOnly returns empty because the group's resolved flavor is non-TAS.
+			// With no TAS flavors available in cq.TASFlavors, the leader ends up with empty
+			// Flavors and podSetTopologyRequest returns ErrNoTASCacheInformation (checked
+			// before onlyTASFlavor).
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu-a", "1").
+					PodSetGroup("group1").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("non-tas").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{
+				"leader": ErrNoTASCacheInformation,
+			},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader": {},
+				"worker": {"example.com/gpu-a": {Name: "non-tas", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			wlInfo := workload.NewInfo(&kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: tc.wlPods}})
+
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
+				t.Fatalf("Failed to add CQ to cache: %v", err)
+			}
+			for _, rf := range resourceFlavors {
+				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			for _, topology := range topologies {
+				cache.AddOrUpdateTopology(log, topology)
+			}
+			nodes := []corev1.Node{
+				*testingnode.MakeNode("tas-node-a").
+					Label(corev1.LabelHostname, "tas-node-a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourcePods: resource.MustParse("32"),
+						"example.com/gpu-a": resource.MustParse("4"),
+						"example.com/gpu-b": resource.MustParse("4"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("tas-node-b").
+					Label(corev1.LabelHostname, "tas-node-b").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourcePods: resource.MustParse("32"),
+						"example.com/gpu-a": resource.MustParse("4"),
+						"example.com/gpu-b": resource.MustParse("4"),
+					}).
+					Ready().
+					Obj(),
+			}
+			for i := range nodes {
+				cache.TASCache().SyncNode(&nodes[i])
+			}
+			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(tc.clusterQueue.Spec.CohortName).Obj()); err != nil {
+				t.Fatalf("Failed to create a cohort: %v", err)
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			cq := snapshot.ClusterQueue(kueue.ClusterQueueReference(tc.clusterQueue.Name))
+			if cq == nil {
+				t.Fatalf("Failed to create CQ snapshot")
+			}
+
+			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			assignment := flvAssigner.Assign(ctx, nil)
+
+			gotErrors := map[kueue.PodSetReference]error{}
+			gotFlavors := map[kueue.PodSetReference]ResourceAssignment{}
+			for _, ps := range assignment.PodSets {
+				if ps.Status.err != nil {
+					gotErrors[ps.Name] = ps.Status.err
+				}
+				gotFlavors[ps.Name] = ps.Flavors
+			}
+			if diff := cmp.Diff(tc.wantPodSetErrors, gotErrors, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("podSet errors mismatch (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantPodSetFlavors, gotFlavors, cmpopts.IgnoreUnexported(FlavorAssignment{}), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("podSet flavors mismatch (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWorkloadsTopologyRequests_RequiredTopologyRejectedForElasticWorkloadSlices(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+
+	assignment := Assignment{
+		PodSets: []PodSetAssignment{
+			{Name: "leader", Flavors: ResourceAssignment{}, Count: 1, Status: *NewStatus()},
+			{Name: "worker", Flavors: ResourceAssignment{"example.com/gpu": {Name: "tas", Mode: Fit, TriedFlavorIdx: -1}}, Count: 1, Status: *NewStatus()},
+		},
+	}
+	wl := workload.NewInfo(&kueue.Workload{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				"kueue.x-k8s.io/elastic-job": "true",
+			},
+		},
+		Spec: kueue.WorkloadSpec{
+			PodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu", "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PodSetGroup("group1").
+					Obj(),
+			},
+		},
+	})
+	cq := schdcache.ClusterQueueSnapshot{
+		TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+			"tas": {},
+		},
+		ResourceGroups: []resourcegroups.ResourceGroup{
+			{
+				CoveredResources: sets.New(corev1.ResourceName("example.com/gpu")),
+				Flavors:          []kueue.ResourceFlavorReference{"tas"},
+			},
+		},
+	}
+
+	_ = assignment.WorkloadsTopologyRequests(testr.New(t), wl, &cq)
+
+	if !errors.Is(assignment.PodSets[0].Status.err, ErrElasticRequiredTopologyNotSupported) {
+		t.Fatalf("expected leader podSet error to be %v, got %v", ErrElasticRequiredTopologyNotSupported, assignment.PodSets[0].Status.err)
+	}
+}
+
+func TestTasFlavorsOnly(t *testing.T) {
+	tasFlavors := map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": {}}
+	in := ResourceAssignment{
+		"example.com/gpu":  {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+		corev1.ResourceCPU: {Name: "quota", Mode: Fit, TriedFlavorIdx: -1},
+	}
+	want := ResourceAssignment{
+		"example.com/gpu": {Name: "tas", Mode: Fit, TriedFlavorIdx: -1},
+	}
+	got := tasFlavorsOnly(in, tasFlavors)
+	if diff := cmp.Diff(want, got, cmpopts.IgnoreUnexported(FlavorAssignment{})); diff != "" {
+		t.Errorf("tasFlavorsOnly() mismatch (-want,+got):\n%s", diff)
+	}
+}
+
+// Two TAS flavors with one node each, addressed by hostname. Each node holds 4 CPU, so a
+// request above that cannot be placed however much quota the ClusterQueue has.
+func bookmarkTestFlavors() map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor {
+	return map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"flavor-1": utiltestingapi.MakeResourceFlavor("flavor-1").
+			NodeLabel("flavor", "one").TopologyName("topology-1").Obj(),
+		"flavor-2": utiltestingapi.MakeResourceFlavor("flavor-2").
+			NodeLabel("flavor", "two").TopologyName("topology-2").Obj(),
+	}
+}
+
+func bookmarkTestNodes() []corev1.Node {
+	return []corev1.Node{
+		*testingnode.MakeNode("node-1").
+			Label("flavor", "one").
+			Label(corev1.LabelHostname, "node-1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("32"),
+			}).
+			Ready().
+			Obj(),
+		*testingnode.MakeNode("node-2").
+			Label("flavor", "two").
+			Label(corev1.LabelHostname, "node-2").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("32"),
+			}).
+			Ready().
+			Obj(),
+	}
+}
+
+// newBookmarkSnapshot builds a snapshot with the two TAS flavors above, a ClusterQueue
+// holding nominalPerFlavor on each of them, and a sibling ClusterQueue in the same cohort
+// lending cohortSpare, so that a request beyond nominal is reachable by borrowing.
+func newBookmarkSnapshot(
+	ctx context.Context,
+	t *testing.T,
+	log logr.Logger,
+	nominalPerFlavor, cohortSpare string,
+	fungibility kueue.FlavorFungibility,
+) *schdcache.ClusterQueueSnapshot {
+	t.Helper()
+
+	clusterQueue := utiltestingapi.MakeClusterQueue("cq").
+		Cohort("cohort").
+		FlavorFungibility(fungibility).
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("flavor-1").Resource(corev1.ResourceCPU, nominalPerFlavor).Obj(),
+			*utiltestingapi.MakeFlavorQuotas("flavor-2").Resource(corev1.ResourceCPU, nominalPerFlavor).Obj(),
+		).
+		Obj()
+	sibling := utiltestingapi.MakeClusterQueue("sibling").
+		Cohort("cohort").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("flavor-1").Resource(corev1.ResourceCPU, cohortSpare).Obj(),
+			*utiltestingapi.MakeFlavorQuotas("flavor-2").Resource(corev1.ResourceCPU, cohortSpare).Obj(),
+		).
+		Obj()
+
+	cache := schdcache.New(utiltesting.NewFakeClient())
+	for _, rf := range bookmarkTestFlavors() {
+		cache.AddOrUpdateResourceFlavor(log, rf)
+	}
+	for _, topology := range []*kueue.Topology{
+		utiltestingapi.MakeTopology("topology-1").Levels(corev1.LabelHostname).Obj(),
+		utiltestingapi.MakeTopology("topology-2").Levels(corev1.LabelHostname).Obj(),
+	} {
+		cache.AddOrUpdateTopology(log, topology)
+	}
+	nodes := bookmarkTestNodes()
+	for i := range nodes {
+		cache.TASCache().SyncNode(&nodes[i])
+	}
+	if err := cache.AddClusterQueue(ctx, clusterQueue); err != nil {
+		t.Fatalf("adding ClusterQueue: %v", err)
+	}
+	if err := cache.AddClusterQueue(ctx, sibling); err != nil {
+		t.Fatalf("adding sibling ClusterQueue: %v", err)
+	}
+
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("building snapshot: %v", err)
+	}
+	cqSnapshot := snapshot.ClusterQueue(kueue.ClusterQueueReference(clusterQueue.Name))
+	if cqSnapshot == nil {
+		t.Fatalf("ClusterQueue missing from snapshot")
+	}
+	return cqSnapshot
+}
+
+// bookmarkTestWorkload is a single pod requesting cpu on a required hostname topology.
+func bookmarkTestWorkload(request string) *workload.Info {
+	return workload.NewInfo(utiltestingapi.MakeWorkload("wl", "default").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, request).
+			Obj()).
+		Obj())
+}
+
+// nodeUsageOnFlavorOne consumes cpu on node-1 without charging the ClusterQueue's quota,
+// as happens when another ClusterQueue shares the nodes through the same flavor.
+func nodeUsageOnFlavorOne(cpu string) workload.TASUsage {
+	return workload.TASUsage{
+		"flavor-1": []workload.TopologyDomainRequests{{
+			Values: []string{"node-1"},
+			SinglePodRequests: resources.NewRequestsFromResourceList(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse(cpu),
+			}),
+			Count: 1,
+		}},
+	}
+}
+
+// bookmarkTestCycle is the scheduling cycle these tests assign in. Nomination and any
+// in-cycle recomputation share it, matching the scheduler.
+const bookmarkTestCycle int64 = 7
+
+// lastTriedFlavorIdx reads the bookmark the assignment recorded for the first PodSet.
+func lastTriedFlavorIdx(a Assignment, res corev1.ResourceName) (int, bool) {
+	if len(a.LastState.LastTriedFlavorIdx) == 0 {
+		return 0, false
+	}
+	idx, ok := a.LastState.LastTriedFlavorIdx[0][res]
+	return idx, ok
+}
+
+// TestFlavorScanRecordsLastTriedFlavorIdx pins down what the cross-cycle flavor bookmark
+// holds for each shape the flavor scan can take, with TAS enabled.
+//
+// LastTriedFlavorIdx is consumed as the starting index of the next scan
+// (NextFlavorToTryForPodSetResource returns idx+1), so it only carries progress when it
+// names a specific flavor. When the scan reaches the last flavor it is set to -1, which
+// means "start over from the first flavor".
+//
+// Note the ordering the topology cases demonstrate: the bookmark is written inside
+// findFlavorForPodSets, while the TAS placement search runs after the flavor loop has
+// finished. A flavor that quota accepts is therefore recorded as tried before TAS gets to
+// reject it, which is why a quota-Fit assignment can still fail to be admitted and be
+// requeued carrying a usable bookmark.
+func TestFlavorScanRecordsLastTriedFlavorIdx(t *testing.T) {
+	cases := map[string]struct {
+		// nominalPerFlavor is the ClusterQueue's nominal quota on each flavor.
+		nominalPerFlavor string
+		// cohortSpare is the sibling ClusterQueue's nominal quota, lendable to ours.
+		cohortSpare string
+		// request is what the Workload's single pod asks for.
+		request string
+		// clusterQueueUsage pre-consumes quota so the request cannot fit outright.
+		// CPU amounts are milli-units, so 10 CPU is 10_000.
+		clusterQueueUsage resources.FlavorResourceQuantities
+		// nodeUsage pre-consumes capacity on node-1 without charging quota.
+		nodeUsage workload.TASUsage
+		// simulationResult lets a flavor report whether preemption could help.
+		simulationResult map[resources.FlavorResource]simulationResultForFlavor
+		fungibility      kueue.FlavorFungibility
+
+		wantMode           FlavorAssignmentMode
+		wantTriedFlavorIdx int
+		// wantPlan is whether nomination produced a TopologyAssignment. Only an
+		// assignment that carries a plan can later be invalidated mid-cycle, which is
+		// what the in-cycle recomputation is triggered by.
+		wantPlan bool
+	}{
+		"quota and topology both fit on the first flavor: bookmark names it": {
+			nominalPerFlavor: "10",
+			cohortSpare:      "0",
+			request:          "2",
+			fungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+			},
+			wantMode:           Fit,
+			wantTriedFlavorIdx: 0,
+			wantPlan:           true,
+		},
+		"quota fits but the pod is larger than any node: bookmark still names the first flavor": {
+			nominalPerFlavor: "10",
+			cohortSpare:      "0",
+			request:          "6",
+			fungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+			},
+			// The quota scan stopped on flavor-1 and recorded it. TAS then rejected the
+			// flavor, and because the pod cannot fit a node even with every other
+			// Workload preempted the mode ends at NoFit rather than Preempt. Either way
+			// the bookmark was already written and still points at flavor-1.
+			wantMode:           NoFit,
+			wantTriedFlavorIdx: 0,
+		},
+		"quota fits but the topology is fragmented: bookmark still names the first flavor": {
+			nominalPerFlavor: "10",
+			cohortSpare:      "0",
+			// The pod would fit node-1 on its own, so this is fragmentation rather than a
+			// pod that is structurally too large: 2 of the node's 4 CPU are already taken,
+			// leaving too little for a required-topology request of 3.
+			request:   "3",
+			nodeUsage: nodeUsageOnFlavorOne("2"),
+			fungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+			},
+			// The real-state placement search fails, but the search that simulates every
+			// other Workload preempted succeeds, so the mode settles at Preempt. This is
+			// the shape reported in #13658, and the bookmark written during the quota scan
+			// still points at flavor-1.
+			wantMode:           Preempt,
+			wantTriedFlavorIdx: 0,
+		},
+		"fits only by borrowing: bookmark says start over": {
+			nominalPerFlavor: "1",
+			cohortSpare:      "20",
+			request:          "2",
+			fungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+			},
+			// Borrowing is not optimal and WhenCanBorrow is TryNextFlavor, so the scan
+			// runs past flavor-1 and reaches the last flavor.
+			wantMode:           Fit,
+			wantTriedFlavorIdx: -1,
+			wantPlan:           true,
+		},
+		"fits only by borrowing, but WhenCanBorrow is MayStopSearch: bookmark names the first flavor": {
+			nominalPerFlavor: "1",
+			cohortSpare:      "20",
+			request:          "2",
+			fungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.MayStopSearch,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+			},
+			wantMode:           Fit,
+			wantTriedFlavorIdx: 0,
+			wantPlan:           true,
+		},
+		"needs preemption and candidates exist: bookmark names the first flavor": {
+			nominalPerFlavor: "2",
+			cohortSpare:      "0",
+			request:          "2",
+			clusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 0},
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 0},
+			},
+			fungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.MayStopSearch,
+				WhenCanPreempt: kueue.MayStopSearch,
+				Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+			},
+			wantMode:           Preempt,
+			wantTriedFlavorIdx: 0,
+		},
+		"needs preemption but no candidates: bookmark says start over whatever the policy": {
+			nominalPerFlavor: "2",
+			cohortSpare:      "0",
+			request:          "2",
+			clusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+			},
+			// Both knobs are the conservative setting, yet shouldTryNextFlavor returns
+			// true for noPreemptionCandidates before either policy is consulted, so no
+			// fungibility configuration can stop the scan here.
+			fungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.MayStopSearch,
+				WhenCanPreempt: kueue.MayStopSearch,
+				Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+			},
+			wantMode:           Preempt,
+			wantTriedFlavorIdx: -1,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+			features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			cqSnapshot := newBookmarkSnapshot(ctx, t, log, tc.nominalPerFlavor, tc.cohortSpare, tc.fungibility)
+			if tc.clusterQueueUsage != nil {
+				cqSnapshot.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.clusterQueueUsage}})
+			}
+			if tc.nodeUsage != nil {
+				cqSnapshot.AddUsage(workload.Usage{TAS: tc.nodeUsage})
+			}
+
+			wlInfo := bookmarkTestWorkload(tc.request)
+			assigner := New(wlInfo, cqSnapshot, bookmarkTestFlavors(), false,
+				&testOracle{simulationResult: tc.simulationResult}, nil,
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
+			assignment := assigner.Assign(ctx, nil)
+
+			if gotMode := assignment.RepresentativeMode(); gotMode != tc.wantMode {
+				t.Errorf("RepresentativeMode() = %s, want %s", gotMode, tc.wantMode)
+			}
+			got, ok := lastTriedFlavorIdx(assignment, corev1.ResourceCPU)
+			if !ok {
+				t.Fatalf("no bookmark recorded for cpu; mode was %s", assignment.RepresentativeMode())
+			}
+			if got != tc.wantTriedFlavorIdx {
+				t.Errorf("LastTriedFlavorIdx for cpu = %d, want %d", got, tc.wantTriedFlavorIdx)
+			}
+			if gotPlan := assignment.PodSets[0].TopologyAssignment != nil; gotPlan != tc.wantPlan {
+				t.Errorf("produced a TopologyAssignment = %t, want %t", gotPlan, tc.wantPlan)
+			}
+		})
+	}
+}
+
+// TestRecomputeRecordsLastTriedFlavorIdx covers the case where quota and topology both fit
+// at nomination and the placement is invalidated later in the same cycle, which is what
+// triggers the in-cycle recomputation.
+//
+// The recomputation replays flavor assignment with NominationMapping populated so that the
+// nominated flavor is kept, and it is the recomputed assignment that the scheduler stores.
+// Whatever bookmark that second pass records is therefore the one the next cycle inherits.
+//
+// Which bookmark that is depends on where the replayed scan stops. If quota still accepts
+// the nominated flavor the scan breaks on it and the bookmark names it. If quota has since
+// tightened, the scan carries on to the remaining flavors, which the nomination mapping
+// skips one by one, and reaches the last flavor - recording "start over" instead. Both
+// report the same newMode: Preempt, so a log line alone cannot tell them apart.
+func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
+	fungibility := kueue.FlavorFungibility{
+		WhenCanBorrow:  kueue.TryNextFlavor,
+		WhenCanPreempt: kueue.TryNextFlavor,
+		Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+	}
+
+	cases := map[string]struct {
+		// quotaUsageAtRecompute tightens quota before the assignment is replayed.
+		quotaUsageAtRecompute resources.FlavorResourceQuantities
+		// simulationResult applies to the replayed assignment.
+		simulationResult map[resources.FlavorResource]simulationResultForFlavor
+
+		wantRecomputedIdx int
+	}{
+		"quota still accepts the nominated flavor: bookmark keeps naming it": {
+			wantRecomputedIdx: 0,
+		},
+		"quota tightened as well: bookmark says start over": {
+			quotaUsageAtRecompute: resources.FlavorResourceQuantities{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+			},
+			// The replayed scan no longer breaks on flavor-1, so it walks on to flavor-2,
+			// which the nomination mapping skips, and ends on the last flavor.
+			wantRecomputedIdx: -1,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+			features.SetFeatureGateDuringTest(t, features.TASRecomputeAssignmentWithinSchedulingCycle, true)
+			features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			// Quota is generous at nomination, so both flavors are accepted on quota
+			// grounds and the pod fits an empty node.
+			cqSnapshot := newBookmarkSnapshot(ctx, t, log, "10", "0", fungibility)
+			wlInfo := bookmarkTestWorkload("3")
+			flavors := bookmarkTestFlavors()
+
+			// Nomination: quota fits, topology fits, and a placement is produced.
+			nominated := New(wlInfo, cqSnapshot, flavors, false, &testOracle{}, nil,
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle).Assign(ctx, nil)
+			if got := nominated.RepresentativeMode(); got != Fit {
+				t.Fatalf("nomination RepresentativeMode() = %s, want %s", got, Fit)
+			}
+			if nominated.PodSets[0].TopologyAssignment == nil {
+				t.Fatal("nomination produced no TopologyAssignment, so there is no placement to invalidate")
+			}
+			nominatedIdx, ok := lastTriedFlavorIdx(nominated, corev1.ResourceCPU)
+			if !ok {
+				t.Fatal("nomination recorded no bookmark for cpu")
+			}
+			if nominatedIdx != 0 {
+				t.Errorf("nomination LastTriedFlavorIdx = %d, want 0", nominatedIdx)
+			}
+
+			// Another Workload admitted later in the same cycle takes most of node-1, so
+			// the placement chosen at nomination no longer fits.
+			cqSnapshot.AddUsage(workload.Usage{TAS: nodeUsageOnFlavorOne("2")})
+			if tc.quotaUsageAtRecompute != nil {
+				cqSnapshot.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.quotaUsageAtRecompute}})
+			}
+
+			// The scheduler clears LastAssignment and pins the nominated flavors before
+			// replaying the assignment, so that the recomputation stays on the flavor
+			// quota was computed for.
+			wlInfo.LastAssignment = nil
+			mapping := workload.PodSetResourcesToFlavors{}
+			for _, psa := range nominated.PodSets {
+				perResource := workload.ResourceToFlavor{}
+				for res, fa := range psa.Flavors {
+					perResource[res] = fa.Name
+				}
+				mapping[psa.Name] = perResource
+			}
+			wlInfo.NominationMapping = mapping
+
+			recomputed := New(wlInfo, cqSnapshot, flavors, false,
+				&testOracle{simulationResult: tc.simulationResult}, nil,
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle).Assign(ctx, nil)
+
+			recomputedIdx, ok := lastTriedFlavorIdx(recomputed, corev1.ResourceCPU)
+			if !ok {
+				t.Fatalf("recomputation recorded no bookmark for cpu; mode was %s", recomputed.RepresentativeMode())
+			}
+			if recomputedIdx != tc.wantRecomputedIdx {
+				t.Errorf("recomputation LastTriedFlavorIdx = %d, want %d", recomputedIdx, tc.wantRecomputedIdx)
+			}
+			// Both shapes report the same mode, which is why a mode log line alone cannot
+			// distinguish them.
+			if got := recomputed.RepresentativeMode(); got != Preempt {
+				t.Errorf("recomputation RepresentativeMode() = %s, want %s", got, Preempt)
 			}
 		})
 	}

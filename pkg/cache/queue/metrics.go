@@ -17,7 +17,9 @@ limitations under the License.
 package queue
 
 import (
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
@@ -44,13 +46,35 @@ func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {
 }
 
 func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
-	active, inadmissible := cq.Pending()
-	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cq.name) {
-		inadmissible += active
-		active = 0
+	active, inadmissible := cq.PendingBreakdown()
+	cqActive := m.statusChecker == nil || m.statusChecker.ClusterQueueActive(cq.name)
+	if !cqActive {
+		inadmissible = metrics.MergedTracker(inadmissible, active)
+		active = metrics.NewLabelValsTracker()
 	}
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
-	metrics.ReportPendingWorkloads(cq.name, active, inadmissible, cqCustomLabels, m.roleTracker)
+
+	if features.Enabled(features.CustomMetricLabels) && m.customLabels.KindConfigured(config.SourceKindWorkload) {
+		// Clear zero count label sets.
+		clearZeroWorkloadCounts(m, cq.name, active, metrics.PendingStatusActive)
+		clearZeroWorkloadCounts(m, cq.name, inadmissible, metrics.PendingStatusInadmissible)
+		// Populate metrics for non-zero counts.
+		reportPendingWorkloadCounts(m, cq.name, active, metrics.PendingStatusActive)
+		reportPendingWorkloadCounts(m, cq.name, inadmissible, metrics.PendingStatusInadmissible)
+	} else {
+		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusActive, active.Total(), cqCustomLabels, m.roleTracker)
+		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusInadmissible, inadmissible.Total(), cqCustomLabels, m.roleTracker)
+	}
+
+	if features.Enabled(features.SchedulingEquivalenceHashing) {
+		var activeHashes, inadmissibleHashes int
+		if !cqActive {
+			activeHashes, inadmissibleHashes = cq.pendingSchedulingHashesForInactiveClusterQueue()
+		} else {
+			activeHashes, inadmissibleHashes = cq.PendingSchedulingHashes()
+		}
+		metrics.ReportPendingSchedulingHashes(cq.name, activeHashes, inadmissibleHashes, cqCustomLabels, m.roleTracker)
+	}
 
 	if m.resourceMetricsEnabled {
 		// pendingResourcesTotal carries 0 entries for configured resources (seeded by
@@ -60,6 +84,28 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 			q := m.resourceFormatter.ResourceQuantity(resourceName, v)
 			metrics.ReportClusterQueueResourcePending(string(cq.name), string(resourceName), utilresource.QuantityToFloat(&q), cqCustomLabels, m.roleTracker)
 		}
+	}
+}
+
+func clearZeroWorkloadCounts(m *Manager, cq kueue.ClusterQueueReference, tracker *metrics.LabelValsTracker, pendingStatus string) {
+	cqCustomLabels := m.customLabels.CQGet(cq)
+	for wlLabelVals := range tracker.PopZeroCounts() {
+		customLabels := m.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+			config.SourceKindClusterQueue: cqCustomLabels,
+			config.SourceKindWorkload:     wlLabelVals.OrderedList(),
+		})
+		metrics.ClearPendingWorkloads(cq, pendingStatus, customLabels, m.roleTracker)
+	}
+}
+
+func reportPendingWorkloadCounts(m *Manager, cq kueue.ClusterQueueReference, tracker *metrics.LabelValsTracker, pendingStatus string) {
+	cqCustomLabels := m.customLabels.CQGet(cq)
+	for wlLabelVals, count := range tracker.Iter() {
+		customLabels := m.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+			config.SourceKindClusterQueue: cqCustomLabels,
+			config.SourceKindWorkload:     wlLabelVals.OrderedList(),
+		})
+		metrics.ReportPendingWorkloads(cq, pendingStatus, count, customLabels, m.roleTracker)
 	}
 }
 

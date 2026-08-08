@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
@@ -37,9 +38,13 @@ func newDefaultSimulator() simulator.SchedulingSimulator {
 	return &defaultSimulator{}
 }
 
-func (s *defaultSimulator) NewFeasibilityChecker(_ context.Context, nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
+func (s *defaultSimulator) NewFeasibilityChecker(_ context.Context, _ []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
 	return &defaultChecker{}, nil
 }
+
+func (s *defaultSimulator) TrackPod(_ *corev1.Pod) {}
+
+func (s *defaultSimulator) UntrackPod(_ client.ObjectKey) {}
 
 type defaultChecker struct{}
 

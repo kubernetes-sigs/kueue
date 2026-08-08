@@ -49,11 +49,11 @@ var (
 // this function needs to be called after the certs get ready because the controllers won't work
 // until the webhooks are operating, and the webhook won't work until the
 // certs are all in place.
-func SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
-	return manager.setupControllers(ctx, mgr, log, opts...)
+func (m *IntegrationManager) SetupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
+	return m.setupControllers(ctx, mgr, log, opts...)
 }
 
-func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
+func (m *IntegrationManager) setupControllers(ctx context.Context, mgr ctrl.Manager, log logr.Logger, opts ...Option) error {
 	options := ProcessOptions(opts...)
 
 	implicitlyEnabledIntegrations := m.collectImplicitlyEnabledIntegrations(options.EnabledFrameworks)
@@ -65,7 +65,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 	}
 
 	for fwkName := range options.EnabledExternalFrameworks {
-		if err := RegisterExternalJobType(fwkName); err != nil {
+		if err := m.RegisterExternalJobType(fwkName); err != nil {
 			return err
 		}
 	}
@@ -114,7 +114,7 @@ func (m *integrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 	})
 }
 
-func (m *integrationManager) setupControllerAndWebhook(ctx context.Context, mgr ctrl.Manager, name string, fwkNamePrefix string, cb IntegrationCallbacks, options Options, opts ...Option) error {
+func (m *IntegrationManager) setupControllerAndWebhook(ctx context.Context, mgr ctrl.Manager, name string, fwkNamePrefix string, cb IntegrationCallbacks, options Options, opts ...Option) error {
 	if r, err := cb.NewReconciler(
 		ctx,
 		mgr.GetClient(),
@@ -181,11 +181,11 @@ func restMappingExists(mgr ctrl.Manager, gvk schema.GroupVersionKind) error {
 // they can easily setup indexers for the in-house custom jobs.
 //
 // Note that the second argument, "indexer" needs to be the fieldIndexer obtained from the Manager.
-func SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Option) error {
+func (m *IntegrationManager) SetupIndexes(ctx context.Context, indexer client.FieldIndexer, opts ...Option) error {
 	options := ProcessOptions(opts...)
 
-	allEnabledIntegrations := options.EnabledFrameworks.Union(manager.collectImplicitlyEnabledIntegrations(options.EnabledFrameworks))
-	return ForEachIntegration(func(name string, cb IntegrationCallbacks) error {
+	allEnabledIntegrations := options.EnabledFrameworks.Union(m.collectImplicitlyEnabledIntegrations(options.EnabledFrameworks))
+	return m.ForEachIntegration(func(name string, cb IntegrationCallbacks) error {
 		if allEnabledIntegrations.Has(name) {
 			if err := cb.SetupIndexes(ctx, indexer); err != nil {
 				return fmt.Errorf("jobFrameworkName %q: %w", name, err)

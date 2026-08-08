@@ -68,6 +68,7 @@ var (
 )
 
 type Reconciler struct {
+	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
 	record                       events.EventRecorder
 	logName                      string
@@ -394,6 +395,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
+		integrationManager:           options.IntegrationManager,
 		client:                       client,
 		record:                       eventRecorder,
 		logName:                      "statefulset-reconciler",
@@ -441,7 +443,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	}
 
 	// Handle only statefulset managed by kueue.
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, sts, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
+	suspend, err := r.integrationManager.WorkloadShouldBeSuspended(ctx, sts, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
 	if err != nil {
 		log.Error(err, "Failed to determine if the StatefulSet should be managed by Kueue")
 	}

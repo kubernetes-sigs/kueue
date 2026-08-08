@@ -809,6 +809,7 @@ func TestDefault(t *testing.T) {
 				}
 			}
 			webhook := &MpiJobWebhook{
+				client:                     cl,
 				manageJobsWithoutQueueName: false,
 				queues:                     queueManager,
 				cache:                      cqCache,

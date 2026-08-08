@@ -2090,10 +2090,11 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 	baseWorkloadNotNeedingSecondPass := baseWorkloadBuilder.Clone()
 
 	cases := map[string]struct {
-		workloads      []*kueue.Workload
-		updateWorkload *kueue.Workload
-		passTime       time.Duration
-		wantReady      sets.Set[workload.Reference]
+		workloads        []*kueue.Workload
+		updateWorkload   *kueue.Workload
+		wantUpdateQueued *bool
+		passTime         time.Duration
+		wantReady        sets.Set[workload.Reference]
 	}{
 		"single queued workload checked immediately": {
 			workloads: []*kueue.Workload{
@@ -2115,8 +2116,9 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			updateWorkload: baseWorkloadNeedingSecondPass.Clone().
 				EvictedAt(now).
 				Obj(),
-			passTime:  time.Second,
-			wantReady: nil,
+			wantUpdateQueued: new(false),
+			passTime:         time.Second,
+			wantReady:        nil,
 		},
 		"two queued workloads, one evicted before second pass": {
 			workloads: []*kueue.Workload{
@@ -2127,8 +2129,18 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				Name("first").
 				EvictedAt(now).
 				Obj(),
-			passTime:  time.Second,
-			wantReady: sets.New(workload.NewReference("default", "second")),
+			wantUpdateQueued: new(false),
+			passTime:         time.Second,
+			wantReady:        sets.New(workload.NewReference("default", "second")),
+		},
+		"one workload gets queued twice, don't queue if already in present in queue": {
+			workloads: []*kueue.Workload{
+				baseWorkloadNeedingSecondPass.Clone().Obj(),
+			},
+			updateWorkload:   baseWorkloadNeedingSecondPass.Clone().Obj(),
+			wantUpdateQueued: new(false),
+			passTime:         time.Second,
+			wantReady:        sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
 		},
 	}
 
@@ -2148,7 +2160,10 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			}
 
 			if tc.updateWorkload != nil {
-				manager.QueueSecondPassIfNeeded(ctx, tc.updateWorkload, 1)
+				got := manager.QueueSecondPassIfNeeded(ctx, tc.updateWorkload, 1)
+				if tc.wantUpdateQueued != nil && got != *tc.wantUpdateQueued {
+					t.Errorf("Unexpected return from QueueSecondPassIfNeeded for updateWorkload: want %v, got %v", *tc.wantUpdateQueued, got)
+				}
 			}
 
 			fakeClock.Step(tc.passTime)
@@ -2396,5 +2411,166 @@ func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 	}
 	if len(manager.unadmittedWorkloads.statuses) != 0 {
 		t.Errorf("expected tracked unadmitted workloads to be empty, got %v", manager.unadmittedWorkloads.statuses)
+	}
+}
+
+// TestAddOrUpdateWorkloadCarriesLastAssignment covers the flavor scan progress surviving a
+// Workload update. Updating a Workload rebuilds its Info, and rebuilding it used to drop
+// LastAssignment, so a cluster where Workloads are updated frequently sent the scan back to
+// the first flavor no matter what an earlier cycle had recorded.
+//
+// Both places a pending Workload can be tracked are covered. A Workload with flavors still
+// to try is pushed back onto the heap, while one whose scan has been exhausted is held in
+// inadmissibleWorkloads, which ClusterQueue.Info deliberately does not consult.
+func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
+	// pendingFlavors has a flavor left to try, so requeueing puts the Workload back on the
+	// heap. exhaustedScan has none, so requeueing holds it as inadmissible.
+	pendingFlavors := func() *workload.AssignmentClusterQueueState {
+		return &workload.AssignmentClusterQueueState{
+			LastTriedFlavorIdx:     []map[corev1.ResourceName]int{{corev1.ResourceCPU: 1}},
+			ClusterQueueGeneration: 3,
+			SchedulingCycle:        7,
+		}
+	}
+	exhaustedScan := func() *workload.AssignmentClusterQueueState {
+		return &workload.AssignmentClusterQueueState{
+			LastTriedFlavorIdx:     []map[corev1.ResourceName]int{{corev1.ResourceCPU: -1}},
+			ClusterQueueGeneration: 3,
+			SchedulingCycle:        7,
+		}
+	}
+
+	cases := map[string]struct {
+		preserveProgress bool
+		// inadmissible pops the Workload and requeues it, as a cycle that failed to admit
+		// it would, which moves it into inadmissibleWorkloads.
+		inadmissible bool
+		// inflight pops the Workload and leaves it there, as it is while the scheduler
+		// processes it.
+		inflight bool
+		// changeShape alters the Workload's requests in the update, so its scheduling
+		// equivalence hash no longer matches the one the assignment was recorded for.
+		changeShape bool
+		recorded    *workload.AssignmentClusterQueueState
+		wantCarried bool
+	}{
+		"tracked in the heap": {
+			preserveProgress: true,
+			recorded:         pendingFlavors(),
+			wantCarried:      true,
+		},
+		"tracked in inadmissibleWorkloads": {
+			preserveProgress: true,
+			inadmissible:     true,
+			recorded:         exhaustedScan(),
+			wantCarried:      true,
+		},
+		"without the gate the progress is dropped": {
+			preserveProgress: false,
+			recorded:         pendingFlavors(),
+			wantCarried:      false,
+		},
+		"without the gate the progress is dropped for an inadmissible workload": {
+			preserveProgress: false,
+			inadmissible:     true,
+			recorded:         exhaustedScan(),
+			wantCarried:      false,
+		},
+		"tracked as inflight": {
+			preserveProgress: true,
+			inflight:         true,
+			recorded:         pendingFlavors(),
+			wantCarried:      true,
+		},
+		"without the gate the progress is dropped for an inflight workload": {
+			preserveProgress: false,
+			inflight:         true,
+			recorded:         pendingFlavors(),
+			wantCarried:      false,
+		},
+		// The recorded flavor indices were chosen for the old requests, so resuming from
+		// them could skip a flavor the changed Workload now fits.
+		"a changed scheduling shape is not carried": {
+			preserveProgress: true,
+			changeShape:      true,
+			recorded:         pendingFlavors(),
+			wantCarried:      false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityPreserveScanProgress, tc.preserveProgress)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil,
+				WithPreemptionExpectations(preemptexpectations.New()))
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Adding ClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq", "").ClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Adding LocalQueue: %v", err)
+			}
+
+			wl := utiltestingapi.MakeWorkload("wl", "").Queue("lq").Obj()
+			if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+				t.Fatalf("Adding Workload: %v", err)
+			}
+
+			// Stand in for a scheduling cycle that recorded flavor scan progress on the
+			// Workload and then could not admit it.
+			cqImpl := manager.hm.ClusterQueue("cq")
+			key := workload.Key(wl)
+			tracked := cqImpl.trackedInfo(key)
+			if tracked == nil {
+				t.Fatal("Workload is not tracked by the ClusterQueue after being added")
+			}
+			tc.recorded.SchedulingHash = tracked.SchedulingHash
+			tracked.LastAssignment = tc.recorded
+			if tc.inadmissible || tc.inflight {
+				if popped := cqImpl.Pop(); popped == nil {
+					t.Fatal("Popping the Workload returned nothing")
+				}
+			}
+			if tc.inadmissible {
+				if !cqImpl.requeueIfNotPresent(log, tracked, false, RequeueReasonNoFit, "") {
+					t.Fatal("Requeueing the Workload failed")
+				}
+				if cqImpl.inadmissibleWorkloads.get(key) == nil {
+					t.Fatal("Workload is not held in inadmissibleWorkloads")
+				}
+			}
+
+			updated := wl.DeepCopy()
+			updated.Labels = map[string]string{"updated": "true"}
+			if tc.changeShape {
+				updated.Spec.PodSets[0].Count = wl.Spec.PodSets[0].Count + 3
+			}
+			if err := manager.AddOrUpdateWorkload(log, updated); err != nil {
+				t.Fatalf("Updating Workload: %v", err)
+			}
+
+			// PushOrUpdate drops an update to the inflight Workload, so the rebuilt Info
+			// reaches the LocalQueue only. That copy is what AddFromLocalQueue would replay.
+			var got *workload.Info
+			if tc.inflight {
+				got = manager.localQueues[queue.KeyFromWorkload(updated)].items[key]
+			} else {
+				got = cqImpl.trackedInfo(key)
+			}
+			if got == nil {
+				t.Fatal("Workload is not tracked after the update")
+			}
+			var want *workload.AssignmentClusterQueueState
+			if tc.wantCarried {
+				want = tc.recorded
+			}
+			if diff := cmp.Diff(want, got.LastAssignment); diff != "" {
+				t.Errorf("LastAssignment after the update (-want,+got):\n%s", diff)
+			}
+			if tc.wantCarried && got.LastAssignment == tc.recorded {
+				t.Error("LastAssignment was carried by reference; it must be cloned so the two Infos do not alias")
+			}
+		})
 	}
 }

@@ -335,7 +335,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		afsEntryPenalties = m.AfsEntryPenalties
 		afsConsumedResources = m.AfsConsumedResources
 	}
-	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig, afsEntryPenalties, afsConsumedResources)
+	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.customLabels, m.workloadOrdering, m.admissionFairSharingConfig, afsEntryPenalties, afsConsumedResources)
 	if err != nil {
 		return err
 	}
@@ -720,9 +720,21 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	allOptions := append(m.workloadInfoOptions, opts...)
 	wInfo := workload.NewInfo(w, allOptions...)
 	wInfo.UpdateSchedulingHash(log)
-	m.addWorkload(wInfo, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
+	// Rebuilding the Info would drop the flavor scan progress an earlier cycle recorded, so
+	// carry it over. Any update to the Workload lands here, and on a busy cluster those
+	// arrive constantly, which would otherwise send the scan back to the first flavor every
+	// time. The progress still expires on its own, since it keeps the scheduling cycle it
+	// was recorded in and lastAssignmentOutdated discards it once it is older than that.
+	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) && cq != nil {
+		if tracked := cq.trackedInfo(wlKey); tracked != nil && tracked.LastAssignment != nil &&
+			tracked.LastAssignment.MatchesSchedulingShape(wInfo.SchedulingHash) {
+			wInfo.LastAssignment = tracked.LastAssignment.Clone()
+		}
+	}
+	m.addWorkload(wInfo, q)
+
 	if cq == nil {
 		return ErrClusterQueueDoesNotExist
 	}
@@ -975,10 +987,12 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(w)
 	if workload.NeedsSecondPass(w) {
+		if !m.secondPassQueue.prequeueIfAbsent(w) {
+			return false
+		}
 		iteration++
 		delay := m.secondPassQueue.nextDelay(iteration)
 		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", wlKey, "delay", delay)
-		m.secondPassQueue.prequeue(w)
 		m.clock.AfterFunc(delay, func() {
 			m.queueSecondPass(ctx, w, iteration)
 		})

@@ -307,8 +307,9 @@ type WaitForPodsReady struct {
 	// evicted and requeued in the same cluster queue.
 	Timeout metav1.Duration `json:"timeout"`
 
-	// BlockAdmission when true, the cluster queue will block admissions for all
-	// subsequent jobs until the jobs reach the PodsReady=true condition.
+	// BlockAdmission when true, Kueue blocks admission of all workloads across
+	// all ClusterQueues until every previously-admitted workload reaches the
+	// PodsReady=true condition.
 	// Defaults to false.
 	// +optional
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
@@ -752,6 +753,13 @@ type FairSharing struct {
 	//   This strategy doesn't depend on the share usage of the workload being preempted.
 	//   As a result, the strategy chooses to preempt workloads with the lowest priority and
 	//   newest start time first.
+	//
+	// Only the following lists are supported:
+	// - ["LessThanOrEqualToFinalShare"]
+	// - ["LessThanInitialShare"]
+	// - ["LessThanOrEqualToFinalShare", "LessThanInitialShare"]
+	//
+	// Any other combination or ordering fails configuration validation.
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies"`
 }
 

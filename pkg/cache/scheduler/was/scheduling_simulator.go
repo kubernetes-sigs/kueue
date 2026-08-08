@@ -6,16 +6,23 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
+	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/scheduler-library/pkg/framework"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
 	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
@@ -23,16 +30,35 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
-type wasSimulator struct {
-	sim *schedLibSimulator.SchedulingSimulator
+type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error)
+
+// podTracker maintains per-node pod state for scheduler plugins that need
+// existing pod information.
+type podTracker struct {
+	mu sync.RWMutex
+	// podsByNode maps node names to the set of tracked pods on that node.
+	podsByNode map[string]map[types.UID]*corev1.Pod
+	// podIndex maps each tracked pod to its current node so that TrackPod can
+	// remove the old entry when a pod migrates between nodes.
+	podIndex map[types.NamespacedName]podNodeInfo
 }
 
-func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.SchedulingSimulator, error) {
-	cfg := &schedulerconfig.KubeSchedulerConfiguration{
+// podNodeInfo records which node a tracked pod is placed on.
+type podNodeInfo struct {
+	nodeName string
+	podUID   types.UID
+}
+
+type wasSimulator struct {
+	newSnapshot snapshotFactory
+	pods        podTracker
+}
+
+func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
+	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
 			{
 				SchedulerName: "default-scheduler",
-				// List of plugins available in the Kubernetes scheduler by default:
 				// https://kubernetes.io/docs/reference/scheduling/config/#scheduling-plugins
 				Plugins: &schedulerconfig.Plugins{
 					QueueSort: schedulerconfig.PluginSet{
@@ -45,11 +71,13 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 						Enabled: []schedulerconfig.Plugin{
 							{Name: tainttoleration.Name},
 							{Name: nodeaffinity.Name},
+							{Name: nodeports.Name},
 						},
 					},
 					PreFilter: schedulerconfig.PluginSet{
 						Enabled: []schedulerconfig.Plugin{
 							{Name: nodeaffinity.Name},
+							{Name: nodeports.Name},
 						},
 					},
 				},
@@ -62,34 +90,114 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 			},
 		},
 	}
+}
 
-	roClient, err := schedLibSimulator.NewReadonlyClient(restConfig)
-	if err != nil {
+func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulator.SchedulingSimulator, error) {
+	cfg := newWASSchedulerConfig()
+	informerFactory := informers.NewSharedInformerFactory(client, 0)
+
+	// Register node and pod informers with the factory; sync errors are caught by AsError() below.
+	_ = informerFactory.Core().V1().Nodes().Informer()
+	_ = informerFactory.Core().V1().Pods().Informer()
+	informerFactory.StartWithContext(ctx)
+	if err := informerFactory.WaitForCacheSyncWithContext(ctx).AsError(); err != nil {
 		return nil, err
 	}
 
-	// Use a fake client to not maintain any informer stores for the integration,
-	// as the plugins that are currently in use do not require any state.
-	// In the future, when using plugins like DRA, which rely on the informers,
-	// the InformerFactory has to be properly populated (for example by passing `nil`
-	// to `NewSchedulingSimulator`, which instantiates the default informers).
-	fakeClient := fake.NewSimpleClientset()
-	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
-
-	sim, err := schedLibSimulator.NewSchedulingSimulator(ctx, cfg, roClient, informerFactory)
-	if err != nil {
-		return nil, err
+	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error) {
+		snap := cache.NewSnapshot(pods, nodes)
+		profiles, err := framework.NewProfileMap(ctx, client, informerFactory, snap, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return schedLibSnapshot.New(snap, profiles), nil
 	}
 
-	return &wasSimulator{sim: sim}, nil
+	return &wasSimulator{
+		newSnapshot: snapshotFn,
+		pods: podTracker{
+			podsByNode: make(map[string]map[types.UID]*corev1.Pod),
+			podIndex:   make(map[types.NamespacedName]podNodeInfo),
+		},
+	}, nil
+}
+
+// NewWASSimulatorForTest creates a WAS simulator backed by a fake client,
+// suitable for unit tests that need the full production plugin pipeline.
+func NewWASSimulatorForTest(ctx context.Context) (simulator.SchedulingSimulator, error) {
+	return newWASSimulator(ctx, fake.NewSimpleClientset())
+}
+
+func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.SchedulingSimulator, error) {
+	// TODO(#13534): when DRA plugins are added, use a real client here
+	// instead of the fake so the informer factory is populated.
+	if _, err := schedLibSimulator.NewReadonlyClient(restConfig); err != nil {
+		return nil, err
+	}
+	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
 
 func (s *wasSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
-	clusterSnap, err := s.sim.NewClusterSnapshot(ctx, nil, nodes)
+	pods := s.pods.podsForNodes(nodes)
+	clusterSnap, err := s.newSnapshot(ctx, pods, nodes)
 	if err != nil {
 		return nil, err
 	}
 	return &wasChecker{snap: clusterSnap}, nil
+}
+
+func (s *wasSimulator) TrackPod(pod *corev1.Pod) {
+	s.pods.track(pod)
+}
+
+func (s *wasSimulator) UntrackPod(key types.NamespacedName) {
+	s.pods.untrack(key)
+}
+
+func (t *podTracker) podsForNodes(nodes []*corev1.Node) []*corev1.Pod {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	var pods []*corev1.Pod
+	for _, node := range nodes {
+		for _, pod := range t.podsByNode[node.Name] {
+			pods = append(pods, pod)
+		}
+	}
+	return pods
+}
+
+func (t *podTracker) track(pod *corev1.Pod) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	key := client.ObjectKeyFromObject(pod)
+	if old, found := t.podIndex[key]; found {
+		delete(t.podsByNode[old.nodeName], old.podUID)
+		if len(t.podsByNode[old.nodeName]) == 0 {
+			delete(t.podsByNode, old.nodeName)
+		}
+	}
+	node := pod.Spec.NodeName
+	if t.podsByNode[node] == nil {
+		t.podsByNode[node] = make(map[types.UID]*corev1.Pod)
+	}
+	t.podsByNode[node][pod.UID] = pod
+	t.podIndex[key] = podNodeInfo{nodeName: node, podUID: pod.UID}
+}
+
+func (t *podTracker) untrack(key types.NamespacedName) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	old, found := t.podIndex[key]
+	if !found {
+		return
+	}
+	delete(t.podsByNode[old.nodeName], old.podUID)
+	if len(t.podsByNode[old.nodeName]) == 0 {
+		delete(t.podsByNode, old.nodeName)
+	}
+	delete(t.podIndex, key)
 }
 
 type wasChecker struct {

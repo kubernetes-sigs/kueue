@@ -111,6 +111,7 @@ func TestDefault(t *testing.T) {
 				}
 			}
 			wh := &RayJobWebhook{
+				client:                     cli,
 				manageJobsWithoutQueueName: tc.manageAll,
 				queues:                     queueManager,
 				cache:                      cqCache,
