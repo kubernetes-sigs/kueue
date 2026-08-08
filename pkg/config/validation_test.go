@@ -18,9 +18,7 @@ package config
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -3661,11 +3659,11 @@ func TestValidateCustomLabels(t *testing.T) {
 }
 
 // The sign check for output factors lands next to the reserved-name check, and
-// folding the two is what decides the order the errors come out in and whether a
-// negative `pods` output is reported once or twice. Asserting the properties
-// rather than a fixed list holds both before that check exists and after it
-// arrives. Two transformations, because the outputs of one are sorted by name
-// while the transformations themselves keep the order they were configured in.
+// folding the two decides the order the errors come out in, whether a reserved
+// output is reported once, and which of the two reasons a negative `pods` is
+// given. Asserting those as properties holds before that check exists and after
+// it arrives. Two transformations, and one output name sorting after `pods`, so
+// neither the grouping nor the order can come out right by accident.
 func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
@@ -3683,13 +3681,10 @@ func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
 					Input:    "example.com/credits",
 					Strategy: ptr.To(configapi.Retain),
 					Outputs: corev1.ResourceList{
-						corev1.ResourcePods:      resource.MustParse("-1"),
-						"example.com/z-negative": resource.MustParse("-1"),
-						"example.com/a-negative": resource.MustParse("-1m"),
-						"example.com/fine":       resource.MustParse("1"),
-						// Sorts after `pods`, so an implementation that walks the
-						// ordinary outputs and appends the reserved one cannot come
-						// out in order by accident.
+						corev1.ResourcePods:        resource.MustParse("-1"),
+						"example.com/z-negative":   resource.MustParse("-1"),
+						"example.com/a-negative":   resource.MustParse("-1m"),
+						"example.com/fine":         resource.MustParse("1"),
 						"zzz.example.com/negative": resource.MustParse("-1"),
 					},
 				},
@@ -3705,57 +3700,38 @@ func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
 		},
 	}
 
-	// resources.transformations[<idx>].outputs[<name>]
-	pattern := regexp.MustCompile(`^resources\.transformations\[(\d+)\]\.outputs\[(.+)]$`)
-	type reported struct {
-		idx    int
-		name   string
-		detail string
-	}
-	var got []reported
+	var fields []string
+	reserved := map[string]int{}
 	for _, e := range Validate(cfg, scheme, jobs.NewIntegrationManager()) {
-		m := pattern.FindStringSubmatch(e.Field)
-		if m == nil {
+		if !strings.Contains(e.Field, ".outputs[") {
 			continue
 		}
-		idx, err := strconv.Atoi(m[1])
-		if err != nil {
-			t.Fatalf("parsing %q: %v", e.Field, err)
-		}
-		got = append(got, reported{idx: idx, name: m[2], detail: e.Detail})
-	}
-	if len(got) == 0 {
-		t.Fatal("no output was refused")
-	}
-
-	seenPods := make(map[int]int)
-	for i, r := range got {
-		if r.name == string(corev1.ResourcePods) {
-			seenPods[r.idx]++
-			// Both checks land on this field with the same type, so only the
-			// reason says which one refused it, and the reserved one has to. A
-			// factor told it is out of range invites a positive one, which is
-			// just as wrong.
-			if r.detail != reservedResourceNameMsg {
-				t.Errorf("transformation %d refused pods with %q, want %q", r.idx, r.detail, reservedResourceNameMsg)
+		fields = append(fields, e.Field)
+		if strings.HasSuffix(e.Field, ".outputs[pods]") {
+			reserved[e.Field]++
+			// Both checks reach this field with the same type, so only the reason
+			// says which refused it. Telling an operator to make the factor
+			// non-negative leaves the name just as wrong.
+			if e.Detail != reservedResourceNameMsg {
+				t.Errorf("%s refused with %q, want %q", e.Field, e.Detail, reservedResourceNameMsg)
 			}
 		}
-		if i == 0 {
-			continue
-		}
-		switch prev := got[i-1]; {
-		case r.idx < prev.idx:
-			t.Errorf("reported %v, want the transformations in the order they are configured", got)
-		case r.idx == prev.idx && r.name < prev.name:
-			t.Errorf("reported %v, want one transformation's outputs in name order", got)
-		}
 	}
-	for idx, n := range seenPods {
-		if n != 1 {
-			t.Errorf("reported %v, want the reserved name once under transformation %d, got %d", got, idx, n)
-		}
+	if len(fields) == 0 {
+		t.Fatal("no output was refused")
 	}
-	if len(seenPods) != 2 {
-		t.Errorf("reported %v, want the reserved name refused under both transformations", got)
+	// The index sorts before the name in the path, so one comparison covers both
+	// the transformations keeping their order and each one's outputs being named
+	// in order.
+	if !slices.IsSorted(fields) {
+		t.Errorf("reported %v, want them in path order", fields)
+	}
+	for _, want := range []string{
+		"resources.transformations[0].outputs[pods]",
+		"resources.transformations[1].outputs[pods]",
+	} {
+		if reserved[want] != 1 {
+			t.Errorf("reported %v, want %s exactly once, got %d", fields, want, reserved[want])
+		}
 	}
 }
