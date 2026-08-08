@@ -164,22 +164,32 @@ func (w *RayJobWebhook) validateTopologyRequest(ctx context.Context, rayJob *ray
 	return raycluster.ValidateTopologyRequest(ctx, w.client, job, rayJob.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)
 }
 
+// shouldValidateUpdate reports whether the update must be validated. The gate keeps the
+// old behavior, which let a running job bypass validation by dropping its queue-name
+// label, available as a mitigation.
+func (w *RayJobWebhook) shouldValidateUpdate(newJob *RayJob) bool {
+	if features.Enabled(features.ValidateRayAndSparkJobUpdates) {
+		return true
+	}
+	return w.manageJobsWithoutQueueName || jobframework.QueueName(newJob) != ""
+}
+
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *rayv1.RayJob) (admission.Warnings, error) {
 	oldJob := fromObject(oldObj)
 	newJob := fromObject(newObj)
-	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
-	if w.manageJobsWithoutQueueName || jobframework.QueueName(newJob) != "" {
-		log.Info("Validating update")
-		allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)
-		validationErrs, err := w.validateCreate(ctx, newObj)
-		if err != nil {
-			return nil, err
-		}
-		allErrors = append(allErrors, validationErrs...)
-		return nil, allErrors.ToAggregate()
+	if !w.shouldValidateUpdate(newJob) {
+		return nil, nil
 	}
-	return nil, nil
+	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
+	log.V(5).Info("Validating update")
+	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)
+	validationErrs, err := w.validateCreate(ctx, newObj)
+	if err != nil {
+		return nil, err
+	}
+	allErrors = append(allErrors, validationErrs...)
+	return nil, allErrors.ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

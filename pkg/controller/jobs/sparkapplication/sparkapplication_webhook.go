@@ -170,20 +170,30 @@ func (w *SparkApplicationWebhook) validateTopologyRequest(ctx context.Context, s
 	return nil, podSetsErr
 }
 
+// shouldValidateUpdate reports whether the update must be validated. The gate keeps the
+// old behavior, which let a running job bypass validation by dropping its queue-name
+// label, available as a mitigation.
+func (w *SparkApplicationWebhook) shouldValidateUpdate(newSparkApp *SparkApplication) bool {
+	if features.Enabled(features.ValidateRayAndSparkJobUpdates) {
+		return true
+	}
+	return w.manageJobsWithoutQueueName || jobframework.QueueName(newSparkApp) != ""
+}
+
 // ValidateUpdate implements webhook.CustomValidator so a webhook will be registered for the type
 func (w *SparkApplicationWebhook) ValidateUpdate(ctx context.Context, oldSparkApp, newSparkApp *sparkv1beta2.SparkApplication) (admission.Warnings, error) {
-	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
-	if w.manageJobsWithoutQueueName || jobframework.QueueName(fromObject(newSparkApp)) != "" {
-		log.Info("Validating update")
-		allErrors := jobframework.ValidateJobOnUpdate(fromObject(oldSparkApp), fromObject(newSparkApp), w.queues.DefaultLocalQueueExist)
-		validationErrs, err := w.validateCreate(ctx, newSparkApp)
-		if err != nil {
-			return nil, err
-		}
-		allErrors = append(allErrors, validationErrs...)
-		return nil, allErrors.ToAggregate()
+	if !w.shouldValidateUpdate(fromObject(newSparkApp)) {
+		return nil, nil
 	}
-	return nil, nil
+	log := ctrl.LoggerFrom(ctx).WithName("sparkapplication-webhook")
+	log.V(5).Info("Validating update")
+	allErrors := jobframework.ValidateJobOnUpdate(fromObject(oldSparkApp), fromObject(newSparkApp), w.queues.DefaultLocalQueueExist)
+	validationErrs, err := w.validateCreate(ctx, newSparkApp)
+	if err != nil {
+		return nil, err
+	}
+	allErrors = append(allErrors, validationErrs...)
+	return nil, allErrors.ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type
