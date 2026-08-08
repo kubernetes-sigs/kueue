@@ -1936,9 +1936,13 @@ of a charge, and a third one is. A multiplier is read out of the list transforma
 one that `excludeResourcePrefixes` has already removed is simply absent and the input is carried
 through unscaled; that is
 [#14007](https://github.com/kubernetes-sigs/kueue/issues/14007), and the output it produces still
-arrives, once, positive and exactly representable, at a fraction of what the configuration asked
-for. So the premise covers both: every contribution to a key a logical resource is charged on
-reaches the merge exactly once, and reaches it at the size it was computed to have. The envelope
+arrives, once, positive and exactly representable, at whatever a multiplier of one gives instead of
+the configured one. So the premise covers both: every contribution to a key a logical resource is
+charged on reaches the merge exactly once, and reaches it as the value its own source defines. What
+`PodRequests` aggregates for an ordinary request or overhead, the input as the PodSet asked for it
+under `Retain`, the configured input and multiplier for an output, and only the request it stands in
+for under an extended-resource replacement. A contribution arriving at whatever the code computed
+rules nothing out, since a wrong value is delivered as faithfully as a right one. The envelope
 bounds a resource, and it bounds nothing if the other charges on that resource arrive wrong or not
 at all.
 
@@ -2398,7 +2402,8 @@ the realized allocation.
 - count-based `firstAvailable` quota via the component-wise-max envelope, computed after
   DeviceClass-to-logical-resource mapping
 - rejection of counter-backed and capacity-backed alternatives, of an alternative setting
-  `capacity` on the subrequest, and of `All`, unknown allocation modes, and unmapped DeviceClasses
+  `capacity` on the subrequest, of a logical resource an `excludeResourcePrefixes` entry covers,
+  and of `All`, unknown allocation modes, and unmapped DeviceClasses
 - every alternative of one `firstAvailable` request mapping to the same logical resource, with a
   request whose alternatives map to more than one rejected while the claim is read. The envelope
   then covers one resource, which takes one flavor, so nothing downstream has to be told the
@@ -2407,10 +2412,19 @@ the realized allocation.
   selector the apiserver accepted is not refused here
 - a shared static-support classifier that the quota path consumes, with table-driven tests freezing
   the supported-versus-rejected contract (agreement with the feasibility path is a Beta criterion)
-- a charge that cannot be represented exactly makes the workload permanently inadmissible instead
-  of being saturated, at the envelope and at every shared aggregation boundary it passes through.
-  Mixing `Exactly` and `firstAvailable` can overflow a boundary neither reaches alone, so this
-  cannot wait for Beta
+- preprocessing keeping the logical-resource names a `firstAvailable` request reached, carried
+  through the queue and requeue paths with the charge, since a merged `ResourceList` alone cannot
+  say which key an envelope is on
+- the checked accounting running over the union of those names across the whole workload, so an
+  ordinary or `Exactly` contribution in a PodSet with no alternatives is checked on a key another
+  PodSet's envelope charges
+- a charge that does not land in the finite range makes the workload permanently inadmissible
+  instead of being saturated, at the envelope and at every shared aggregation boundary it passes
+  through. The range stops below `math.MaxInt64`, which `resources.Amount` keeps for unlimited, so a
+  total landing on it is refused with the ones past it. Mixing `Exactly` and `firstAvailable` can
+  overflow a boundary neither reaches alone, so this cannot wait for Beta
+- the refusal reaching the workload as a permanent condition before it enters a queue, rather than
+  as a reconcile error that retries a request whose numbers cannot change
 - the same for an operand that is negative on a key an alternative charges. `FloorToZero` runs
   after the merge, so a negative request under that name subtracts from the envelope and leaves a
   zero that reads as nothing having been asked for
