@@ -576,6 +576,14 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	return true
 }
 
+// ForgetInflight releases the claim on a popped workload, for the callers that
+// neither requeue nor delete it.
+func (c *ClusterQueue) ForgetInflight(key workload.Reference) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
+	c.workloads.ForgetInflightByKey(key)
+}
+
 // handleInadmissibleHash bulk-moves all heap workloads matching the given
 // scheduling hash to inadmissibleWorkloads. Returns the number moved.
 // Only applies to BestEffortFIFO queues; in StrictFIFO the head workload
