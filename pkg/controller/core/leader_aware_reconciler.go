@@ -28,6 +28,48 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
+type ReconcilerWithFollowerObserver interface {
+	reconcile.Reconciler
+	Observe(ctx context.Context, req reconcile.Request) (reconcile.Result, error)
+}
+
+type leaderAwareReconcilerObserver struct {
+	elected         <-chan struct{}
+	delegate        ReconcilerWithFollowerObserver
+	requeueDuration time.Duration
+}
+
+func (r *leaderAwareReconcilerObserver) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	select {
+	case <-r.elected:
+		return r.delegate.Reconcile(ctx, req)
+	default:
+		observeResult, err := r.delegate.Observe(ctx, req)
+		if err != nil {
+			return observeResult, err
+		}
+		// Always schedule another pass after at most requeueDuration
+		// so no events are missed during leadership failover
+		//nolint:staticcheck // Requeue is deprecated in controller-runtime but still used for immediate retries
+		if observeResult.Requeue || (observeResult.RequeueAfter > 0 && observeResult.RequeueAfter < r.requeueDuration) {
+			return observeResult, nil
+		}
+		// Otherwise, schedule the default failover safety pass (requeueDuration).
+		return ctrl.Result{RequeueAfter: r.requeueDuration}, nil
+	}
+}
+
+func WithLeadingManagerAndObserver(mgr ctrl.Manager, reconciler ReconcilerWithFollowerObserver, cfg *config.Configuration) reconcile.Reconciler {
+	if cfg == nil || cfg.LeaderElection == nil || !ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
+		return reconciler
+	}
+	return &leaderAwareReconcilerObserver{
+		elected:         mgr.Elected(),
+		delegate:        reconciler,
+		requeueDuration: cfg.LeaderElection.LeaseDuration.Duration,
+	}
+}
+
 // WithLeadingManager returns a decorating reconcile.Reconciler that discards reconciliation requests
 // for the controllers that are started with the controller.Options.NeedLeaderElection
 // option set to false in non-leading replicas.
