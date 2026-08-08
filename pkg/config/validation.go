@@ -455,6 +455,10 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
+// reservedResourceNameMsg matches what the Workload webhook reports for the same
+// key, so the two sides of the reservation read alike.
+const reservedResourceNameMsg = "the key is reserved for internal kueue use"
+
 func validateResourceTransformations(c *configapi.Configuration) field.ErrorList {
 	res := c.Resources
 	if res == nil {
@@ -472,6 +476,12 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 			allErrs = append(allErrs, field.Duplicate(resourceTransformationPath.Index(idx).Child("input"), transform.Input))
 		} else {
 			seenKeys.Insert(transform.Input)
+		}
+		// Same key, reached from the other side of the configuration.
+		if _, ok := transform.Outputs[corev1.ResourcePods]; ok {
+			allErrs = append(allErrs, field.Invalid(
+				resourceTransformationPath.Index(idx).Child("outputs").Key(string(corev1.ResourcePods)),
+				corev1.ResourcePods, reservedResourceNameMsg))
 		}
 	}
 	return allErrs
@@ -502,6 +512,12 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 
 		if len(string(mapping.Name)) > 253 {
 			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, "must not exceed 253 characters"))
+		}
+
+		// Flavor assignment writes this key from the PodSet count, replacing what
+		// is stored under it, so a mapped charge would be counted as one Pod.
+		if mapping.Name == corev1.ResourcePods {
+			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, reservedResourceNameMsg))
 		}
 
 		if seenResourceNames.Has(mapping.Name) {
