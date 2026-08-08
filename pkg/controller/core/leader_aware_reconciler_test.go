@@ -72,15 +72,13 @@ func TestLeaderAwareReconcilerNonLeadingDestinations(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for _, name := range []string{"first", "second"} {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if _, err := reconciler.Reconcile(t.Context(), reconcile.Request{
 				NamespacedName: types.NamespacedName{Namespace: "ns", Name: name},
 			}); err != nil {
 				t.Errorf("Reconcile(%q) returned %v", name, err)
 			}
-		}()
+		})
 	}
 	for range requests {
 		<-inGet
