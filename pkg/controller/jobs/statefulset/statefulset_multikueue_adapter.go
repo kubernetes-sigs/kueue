@@ -19,13 +19,11 @@ package statefulset
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -102,7 +100,7 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(statefulSet)
 	if prebuiltWorkload == "" {
-		return nil, fmt.Errorf("no prebuilt workload found for statefulset: %s", klog.KObj(statefulSet))
+		prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVK(statefulSet.GetName(), statefulSet.GetUID(), gvk)
 	}
 
 	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: statefulSet.Namespace}}, nil
