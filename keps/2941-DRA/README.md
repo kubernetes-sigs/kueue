@@ -1918,10 +1918,12 @@ generated `-3` under that name is charged `5`. And `validatePodSet` does not rea
 it off, after which an ordinary container request carries the sign into `PodRequests` with nothing
 between it and the merge. Requiring that gate alongside `KueueDRAIntegrationPrioritizedList` would
 leave the bound resting on something an administrator can switch off, so Alpha checks the operand
-where the merge happens instead. Reading the sign of the result rather than of the operand is a
-different check and a weaker one: a request of `-3` merged with an envelope of `8` gives `5`, which
-is positive and three short. Non-negativity
-of both operands belongs with exact representability in what has to hold before the merge; treating
+where the merge happens instead. The arithmetic is the same as the first way in, reached from the
+other side: a `-3` that came from the container rather than from a transformation still leaves an
+envelope of `8` charged `5`, and a check that read the sign of that result rather than of the
+operand would pass it. What has to be non-negative is what arrives at the merge, which is not the same as every
+value on the way there, since an allowance is negative by design and is spent before it gets that
+far. That belongs with exact representability in what has to hold before the merge; treating
 `FloorToZero` as the guard hides the cancellation rather than preventing it.
 
 Those two premises say something about the operands and nothing about them arriving. One more has
