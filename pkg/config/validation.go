@@ -473,9 +473,10 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 		} else {
 			seenKeys.Insert(transform.Input)
 		}
-		// The output is a factor the input is multiplied by, and the product is
-		// summed with everything else requested under that name. A negative one
-		// subtracts from another workload's demand for the same resource.
+		// The output is a factor the input is multiplied by, and the product joins
+		// whatever else the PodSet accumulates under that name: another
+		// transformation's output, or the DRA charge merged in afterwards. A
+		// negative one takes from those, and FloorToZero then hides the remainder.
 		for _, outputName := range slices.Sorted(maps.Keys(transform.Outputs)) {
 			if factor := transform.Outputs[outputName]; factor.Sign() < 0 {
 				allErrs = append(allErrs, field.Invalid(

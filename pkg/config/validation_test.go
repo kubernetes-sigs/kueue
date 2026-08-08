@@ -18,6 +18,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -924,6 +926,38 @@ func TestValidate(t *testing.T) {
 			},
 		},
 
+		// One negative output cannot show that the walk is ordered, and the
+		// implementation sorts so that a configuration with several reports them
+		// the same way twice running.
+		"negative outputs in .resources.transformations are reported in order": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    corev1.ResourceCPU,
+							Strategy: ptr.To(configapi.Retain),
+							Outputs: corev1.ResourceList{
+								"example.com/z-negative": resource.MustParse("-1"),
+								"example.com/a-negative": resource.MustParse("-1m"),
+								"example.com/zero":       resource.MustParse("0"),
+								"example.com/positive":   resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[example.com/a-negative]",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[example.com/z-negative]",
+				},
+			},
+		},
 		"negative output in .resources.transformations": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -3305,4 +3339,43 @@ func TestValidateCustomLabels(t *testing.T) {
 			t.Errorf("unexpected error details (-want,+got):\n%s", diff)
 		}
 	})
+}
+
+// The factor comes from an operator's configuration file rather than from an API
+// object, so the check has to survive the round trip the manager actually makes:
+// Load parses the file, and cmd/kueue/main.go hands the result to Validate.
+func TestValidateRefusesANegativeOutputReadFromAFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "controller_manager_config.yaml")
+	if err := os.WriteFile(path, []byte(`apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+resources:
+  transformations:
+  - input: example.com/credits
+    strategy: Retain
+    outputs:
+      example.com/accelerator: -1
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	scheme := runtime.NewScheme()
+	if err := clientgoscheme.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := configapi.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	_, cfg, err := Load(scheme, path)
+	if err != nil {
+		t.Fatalf("Load() = %v", err)
+	}
+
+	// Validate reports the disabled integrations too, so only this field says
+	// anything about the factor.
+	const want = "resources.transformations[0].outputs[example.com/accelerator]"
+	if !slices.ContainsFunc(Validate(&cfg, scheme, jobs.NewIntegrationManager()), func(e *field.Error) bool {
+		return e.Field == want
+	}) {
+		t.Errorf("no error on %s; the factor reached the manager", want)
+	}
 }

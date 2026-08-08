@@ -1349,6 +1349,7 @@ amount of the resource indicated by the &quot;input&quot; field.</p>
 </td>
 <td>
    <p>Outputs specifies the output resources and quantities per unit of input resource.
+Quantities must be non-negative.
 An empty Outputs combined with a <code>Replace</code> Strategy causes the Input resource to be ignored by Kueue.</p>
 </td>
 </tr>
