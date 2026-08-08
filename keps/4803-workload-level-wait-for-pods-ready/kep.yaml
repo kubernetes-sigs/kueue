@@ -1,0 +1,34 @@
+title: Workload-level WaitForPodsReady
+kep-number: 4803
+authors:
+  - "@MaysaMacedo"
+status: provisional
+creation-date: 2026-07-03
+reviewers:
+  - "@mimowo"
+  - "@kannon92"
+approvers:
+  - "@mimowo"
+  - "@tenzen-y"
+
+see-also:
+  - "/keps/349-all-or-nothing"
+
+stage: alpha
+
+latest-milestone: "v0.19"
+
+milestone:
+  alpha: "v0.19"
+  beta: "v0.20"
+  stable: "v0.21"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: WorkloadLevelWaitForPodsReady
+disable-supported: true
+
+# The following PRR answers are required at beta release
+metrics:
+  - kueue_evicted_workloads_once_total
