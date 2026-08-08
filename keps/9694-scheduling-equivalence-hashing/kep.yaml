@@ -5,10 +5,12 @@ authors:
   - "@mwielgus"
   - "@sohankunkerkar"
   - "@kshalot"
-status: provisional
+status: implemented
 creation-date: 2026-08-07
 reviewers:
   - "@mimowo"
+  - "@apullo777"
+  - "@kshalot"
 approvers:
   - "@mimowo"
 

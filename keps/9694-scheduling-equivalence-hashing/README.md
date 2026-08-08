@@ -282,14 +282,39 @@ ClusterQueue capacity, bulk movement can make them wait for the batched
 inadmissible retry. Their individual admission latency can increase even while
 total queue throughput improves.
 
-The scheduler performance runs shared during
-[v0.18 graduation](https://github.com/kubernetes-sigs/kueue/pull/11097#discussion_r3226876641)
-illustrated this tradeoff. Enabling the feature reduced total wall-clock time by
-3.9% in the 15,000-Workload run and by 1.0% in the 50,000-Workload run, while
-admission latency for the largest Workloads increased by 31% and 4.1%,
-respectively. Those Workloads consumed nearly all ClusterQueue capacity and
-waited for the one-second batched retry. These results are workload-shape
-dependent rather than performance guarantees.
+The scheduler performance runs shared during v0.18 graduation illustrated this
+tradeoff:
+
+**Baseline (15,000 Workloads)**
+
+| Metric | Hash off | Hash on | Delta |
+| --- | ---: | ---: | ---: |
+| `wallMs` | 368,568 | 354,086 | -3.9% |
+| `large` | 11,918 | 15,615 | +31% |
+| `medium` | 83,107 | 67,461 | -19% |
+| `small` | 233,131 | 217,133 | -6.9% |
+
+**Large-scale (50,000 Workloads)**
+
+| Metric | Hash off | Hash on | Delta |
+| --- | ---: | ---: | ---: |
+| `wallMs` | 1,148,840 | 1,137,344 | -1.0% |
+| `large` | 75,245 | 78,353 | +4.1% |
+| `medium` | 233,600 | 231,851 | -0.7% |
+| `small` | 684,797 | 676,737 | -1.2% |
+
+Source: Performance tables created by
+[@sohankunkerkar](https://github.com/sohankunkerkar) and shared in the
+[v0.18 graduation discussion][performance-results].
+
+Enabling the feature reduced total wall-clock time by 3.9% in the
+15,000-Workload run and by 1.0% in the 50,000-Workload run, while admission
+latency for the largest Workloads increased by 31% and 4.1%, respectively.
+Those Workloads consumed nearly all ClusterQueue capacity and waited for the
+one-second batched retry. These results are workload-shape dependent rather
+than performance guarantees.
+
+[performance-results]: https://github.com/kubernetes-sigs/kueue/pull/11097#discussion_r3226876641
 
 #### Reduced diagnostics for bypassed Workloads
 
@@ -341,6 +366,12 @@ description of every PodSet. Each PodSet description includes:
   `topologySpreadConstraints`, `overhead`, and `resourceClaims`
 - `Workload.spec.podSets[].topologyRequest`, read directly from the Workload
   spec rather than Job annotations or Workload status
+
+The scheduling-relevant fields in `template.spec` come from the shared Pod spec
+shape. The Pod group integration uses the same shape when calculating the
+`kueue.x-k8s.io/role-hash` annotation. Integrations that implicitly enable the
+Pod integration, such as StatefulSet and LeaderWorkerSet, also use it when
+validating `PodTemplateSpec` identity.
 
 PodSet name is included conservatively even though the current flavor-assignment
 path does not use it. This can split otherwise equivalent Workloads into
@@ -423,6 +454,8 @@ class-wide handling for those two outcomes while excluding other requeue paths.
 
 Allowed Resource Flavor restrictions and effective resource requests were added
 to the scheduling shape.
+
+The Beta feature gate became enabled by default.
 
 #### v0.19.0
 
