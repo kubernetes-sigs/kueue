@@ -776,12 +776,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		wantErr       error
 		wantWarnings  admission.Warnings
 	}{
-		// A workload that already exists carries its overhead into every update
-		// it takes afterwards, and its PodSets are immutable once it holds
-		// quota, so it cannot be corrected in place. Refusing it is what the
-		// container and pod-level lists beside it already do, and the two are
-		// only worth having together, but it has to be a decision rather than
-		// something a later reader relaxes for this one field.
 		// A workload that already carries one has to be able to leave. Its
 		// PodSets are immutable once it has reserved, and an update is how it
 		// writes a condition, deactivates, releases quota and drops its
@@ -807,6 +801,44 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			after: func() *kueue.Workload {
 				wl := reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")})
 				wl.Spec.Active = new(bool)
+				return wl
+			}(),
+			wantErr: nil,
+		},
+		// The gate is on here, so this is the ratchet doing the work rather than
+		// the gate not looking.
+		"a reserved workload keeps a negative overhead it is not changing": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before:       reservedWithOverhead(now, corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}),
+			after: func() *kueue.Workload {
+				wl := reservedWithOverhead(now, corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")})
+				wl.Status.Conditions = append(wl.Status.Conditions, metav1.Condition{
+					Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue,
+					Reason: "Succeeded", Message: "done", LastTransitionTime: metav1.NewTime(now),
+				})
+				return wl
+			}(),
+			wantErr: nil,
+		},
+		"removing a legacy overhead is how it gets fixed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					corev1.ResourcePods: resource.MustParse("1"),
+				})).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", nil)).Obj(),
+			wantErr: nil,
+		},
+		"a reserved workload with a legacy overhead can release its quota": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before:       reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}),
+			after: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+					PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+						corev1.ResourcePods: resource.MustParse("1"),
+					})).Obj()
+				wl.Finalizers = []string{kueue.ResourceInUseFinalizerName}
 				return wl
 			}(),
 			wantErr: nil,
