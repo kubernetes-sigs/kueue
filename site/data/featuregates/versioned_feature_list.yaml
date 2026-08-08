@@ -109,6 +109,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: FlavorFungibilityPreserveScanProgress
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: HierarchicalCohorts
   versionedSpecs:
   - default: true
