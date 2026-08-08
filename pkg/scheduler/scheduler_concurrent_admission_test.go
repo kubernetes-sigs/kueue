@@ -325,6 +325,170 @@ func TestScheduleConcurrentAdmission(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
 		},
+		// The variant reserves its usage in the cycle snapshot as soon as it fits, but a
+		// denied migration means it is not admitted and nothing later in the cycle can
+		// lift the constraint. The reservation must be released so a workload borrowing
+		// from the same cohort is not blocked by quota nobody ends up using.
+		"concurrent admission: usage reserved for a denied migration is released within the cycle": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("sibling-less-favorable", "eng-alpha").
+					UID("sibling-uid").
+					Queue("migration-queue").
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("migration-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "10").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					AllowedFlavors("spot").
+					Obj(),
+				*utiltestingapi.MakeWorkload("candidate-more-favorable", "eng-alpha").
+					UID("candidate-uid").
+					Queue("migration-queue").
+					Request(corev1.ResourceCPU, "10").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					AllowedFlavors("on-demand").
+					Obj(),
+				// Borrows the whole on-demand quota from the cohort, so it is only
+				// admissible once the denied candidate gives its reservation back.
+				*utiltestingapi.MakeWorkload("borrower", "eng-beta").
+					UID("borrower-uid").
+					Queue("borrower-queue").
+					Request(corev1.ResourceCPU, "10").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "borrower-parent-workload", "borrower-parent-uid").
+					AllowedFlavors("on-demand").
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("migration-queue", "eng-alpha").ClusterQueue("migration-cq").Obj(),
+				*utiltestingapi.MakeLocalQueue("borrower-queue", "eng-beta").ClusterQueue("borrower-cq").Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("migration-cq").
+					Cohort("migration-cohort").
+					NamespaceSelector(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"eng"},
+						}},
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("reservation").
+							Resource(corev1.ResourceCPU, "10").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "10").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "10").Obj(),
+					).
+					LastAcceptableFlavorName("reservation").
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("borrower-cq").
+					Cohort("migration-cohort").
+					NamespaceSelector(&metav1.LabelSelector{
+						MatchExpressions: []metav1.LabelSelectorRequirement{{
+							Key:      "dep",
+							Operator: metav1.LabelSelectorOpIn,
+							Values:   []string{"eng"},
+						}},
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("reservation").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "0").Obj(),
+					).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("sibling-less-favorable", "eng-alpha").
+					UID("sibling-uid").
+					Queue("migration-queue").
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("migration-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "spot", "10").
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					AllowedFlavors("spot").
+					Obj(),
+				*utiltestingapi.MakeWorkload("candidate-more-favorable", "eng-alpha").
+					UID("candidate-uid").
+					Queue("migration-queue").
+					Request(corev1.ResourceCPU, "10").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent-workload", "parent-uid").
+					AllowedFlavors("on-demand").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+						Message:            "Target flavor is below LastAcceptableFlavorName",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("10"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("borrower", "eng-beta").
+					UID("borrower-uid").
+					Queue("borrower-queue").
+					Request(corev1.ResourceCPU, "10").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "borrower-parent-workload", "borrower-parent-uid").
+					AllowedFlavors("on-demand").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue borrower-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("borrower-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "10").
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"migration-cq": {"eng-alpha/candidate-more-favorable"},
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/sibling-less-favorable": *utiltestingapi.MakeAdmission("migration-cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "spot", "10").
+						Obj()).
+					Obj(),
+				"eng-beta/borrower": *utiltestingapi.MakeAdmission("borrower-cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "10").
+						Obj()).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},
+		},
 	}
 
 	runScheduleTestCases(t, scheduleTestConfig{
