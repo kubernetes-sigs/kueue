@@ -242,7 +242,7 @@
   default: true
   stage: Beta
   from: "0.16"
-  to: "0.20"
+  to: "0.17"
 - feature: SkipFinalizersForPodsSuspendedByParent
   default: true
   stage: GA
