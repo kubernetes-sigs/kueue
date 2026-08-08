@@ -551,8 +551,10 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 
 func (c *clusterQueue) reportActiveWorkloads() {
 	clVals := c.GetCustomLabelValues()
-	for ancestor := range c.Parent().PathSelfToRoot() {
-		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedWorkloadsCount, clVals, c.roleTracker)
+	if c.HasParent() && !hierarchy.HasCycle(c.Parent()) {
+		for ancestor := range c.Parent().PathSelfToRoot() {
+			metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedWorkloadsCount, clVals, c.roleTracker)
+		}
 	}
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), clVals, c.roleTracker)
 }
@@ -606,6 +608,9 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 }
 
 func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
+	if c.HasParent() && hierarchy.HasCycle(c.Parent()) {
+		return
+	}
 	drs := dominantResourceShare(c, nil)
 	weightedShare := drs.PreciseWeightedShare()
 	if weightedShare == math.Inf(1) {
@@ -619,12 +624,19 @@ func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
 func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, op usageOp) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.ResourceUsage().Assigned
-	for fr, q := range frUsage {
-		if op == add {
-			addUsage(c, fr, q)
-		}
-		if op == subtract {
-			removeUsage(c, fr, q)
+	cohortHasCycle := c.HasParent() && hierarchy.HasCycle(c.Parent())
+	if cohortHasCycle {
+		// The Cohort tree is rebuilt after the cycle is repaired. Keep the
+		// ClusterQueue's local usage current without traversing the cyclic parents.
+		updateFlavorUsage(frUsage, c.resourceNode.Usage, op)
+	} else {
+		for fr, q := range frUsage {
+			if op == add {
+				addUsage(c, fr, q)
+			}
+			if op == subtract {
+				removeUsage(c, fr, q)
+			}
 		}
 	}
 	c.updateWorkloadTASUsage(log, wi, op)
@@ -632,7 +644,9 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
 
 		incr := op.asSignedOne()
-		c.Parent().updateAdmittedWorkloadsCount(incr)
+		if !cohortHasCycle {
+			c.Parent().updateAdmittedWorkloadsCount(incr)
+		}
 		c.admittedWorkloadsCount += incr
 
 		wlRef := workload.Key(wi.Obj)

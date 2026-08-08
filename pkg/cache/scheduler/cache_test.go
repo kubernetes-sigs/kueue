@@ -3491,6 +3491,173 @@ func TestCohortCycles(t *testing.T) {
 		}
 	})
 
+	t.Run("clusterqueue add backfills existing objects while cohort has cycle", func(t *testing.T) {
+		cases := map[string]struct {
+			repair func(*Cache) error
+		}{
+			"updating the cohort": {
+				repair: func(cache *Cache) error {
+					return cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cycle").Obj())
+				},
+			},
+			"deleting the cohort": {
+				repair: func(cache *Cache) error {
+					cache.DeleteCohort("cycle")
+					return nil
+				},
+			},
+		}
+		for name, tc := range cases {
+			t.Run(name, func(t *testing.T) {
+				now := time.Now().Truncate(time.Second)
+				lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+				reserving := utiltestingapi.MakeWorkload("reserving", "ns").
+					Queue("lq").
+					Request(corev1.ResourceCPU, "1").
+					SimpleReserveQuota("cq", "f1", now).
+					Obj()
+				admitted := utiltestingapi.MakeWorkload("admitted", "ns").
+					Queue("lq").
+					Request(corev1.ResourceCPU, "1").
+					SimpleReserveQuota("cq", "f1", now).
+					AdmittedAt(true, now).
+					Obj()
+				cache := New(utiltesting.NewFakeClient(lq, reserving, admitted), WithFairSharing(true))
+				ctx, log := utiltesting.ContextWithLog(t)
+				cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("f1").Obj())
+
+				cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
+				if err := cache.AddOrUpdateCohort(cycleCohort); !errors.Is(err, ErrCohortHasCycle) {
+					t.Fatalf("Expected cohort cycle error, got %v", err)
+				}
+				cq := utiltestingapi.MakeClusterQueue("cq").
+					Cohort("cycle").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f1").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					Obj()
+				if err := cache.AddClusterQueue(ctx, cq); !errors.Is(err, ErrCohortHasCycle) {
+					t.Fatalf("Expected cohort cycle error when adding cq, got %v", err)
+				}
+
+				snapshot, err := cache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("Creating snapshot before repair: %v", err)
+				}
+				if snapshot.ClusterQueue("cq") != nil {
+					t.Fatal("Expected ClusterQueue with a cohort cycle to be excluded from snapshot")
+				}
+
+				if err := tc.repair(cache); err != nil {
+					t.Fatalf("Repairing cohort cycle: %v", err)
+				}
+
+				wantCQUsage := &ClusterQueueUsageStats{
+					ReservedResources: []kueue.FlavorUsage{{
+						Name: "f1",
+						Resources: []kueue.ResourceUsage{{
+							Name:     corev1.ResourceCPU,
+							Total:    resource.MustParse("2"),
+							Borrowed: resource.MustParse("1"),
+						}},
+					}},
+					ReservingWorkloads: 2,
+					AdmittedResources: []kueue.FlavorUsage{{
+						Name: "f1",
+						Resources: []kueue.ResourceUsage{{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("1"),
+						}},
+					}},
+					AdmittedWorkloads: 1,
+					WeightedShare:     1000,
+				}
+				cqUsage, err := cache.Usage(cq)
+				if err != nil {
+					t.Fatalf("Getting ClusterQueue usage: %v", err)
+				}
+				if diff := cmp.Diff(wantCQUsage, cqUsage); diff != "" {
+					t.Errorf("Unexpected ClusterQueue usage (-want,+got):\n%s", diff)
+				}
+
+				wantLQUsage := &LocalQueueUsageStats{
+					ReservedResources: []kueue.LocalQueueFlavorUsage{{
+						Name: "f1",
+						Resources: []kueue.LocalQueueResourceUsage{{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("2"),
+						}},
+					}},
+					ReservingWorkloads: 2,
+					AdmittedResources: []kueue.LocalQueueFlavorUsage{{
+						Name: "f1",
+						Resources: []kueue.LocalQueueResourceUsage{{
+							Name:  corev1.ResourceCPU,
+							Total: resource.MustParse("1"),
+						}},
+					}},
+					AdmittedWorkloads: 1,
+				}
+				lqUsage, err := cache.LocalQueueUsage(lq)
+				if err != nil {
+					t.Fatalf("Getting LocalQueue usage: %v", err)
+				}
+				if diff := cmp.Diff(wantLQUsage, lqUsage); diff != "" {
+					t.Errorf("Unexpected LocalQueue usage (-want,+got):\n%s", diff)
+				}
+
+				snapshot, err = cache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("Creating snapshot after repair: %v", err)
+				}
+				cqSnapshot := snapshot.ClusterQueue("cq")
+				if cqSnapshot == nil {
+					t.Fatal("Expected repaired ClusterQueue in snapshot")
+				}
+				wantWorkloads := sets.New(workload.Key(reserving), workload.Key(admitted))
+				if diff := cmp.Diff(wantWorkloads, sets.KeySet(cqSnapshot.Workloads)); diff != "" {
+					t.Errorf("Unexpected Workloads in snapshot (-want,+got):\n%s", diff)
+				}
+				fr := resources.FlavorResource{Flavor: "f1", Resource: corev1.ResourceCPU}
+				if got := cqSnapshot.Available(fr); got.CmpInt64(0) != 0 {
+					t.Errorf("Got available quota %v, want 0", got)
+				}
+				usage := workload.Usage{Quota: workload.ResourceUsage{
+					Assigned: resources.FlavorResourceQuantities{fr: resources.NewAmount(1_000)},
+				}}
+				if got := cqSnapshot.Fits(usage); got != FitsCheckNoQuota {
+					t.Errorf("Got Fits result %v, want %v", got, FitsCheckNoQuota)
+				}
+				if got := cache.hm.Cohort("cycle").admittedWorkloadsCount; got != 1 {
+					t.Errorf("Got cohort admitted workloads count %d, want 1", got)
+				}
+				if got := cache.hm.Cohort("cycle").resourceNode.Usage[fr]; got.CmpInt64(2_000) != 0 {
+					t.Errorf("Got cohort CPU usage %v, want 2000m", got)
+				}
+
+				// Re-form the cycle after the tree has been initialized with borrowing
+				// usage, so the fair-sharing paths would recurse without their guards.
+				if err := cache.AddOrUpdateCohort(cycleCohort); !errors.Is(err, ErrCohortHasCycle) {
+					t.Fatalf("Expected cohort cycle error after repair, got %v", err)
+				}
+				cqUsage, err = cache.Usage(cq)
+				if err != nil {
+					t.Fatalf("Getting ClusterQueue usage with a cohort cycle: %v", err)
+				}
+				if cqUsage.WeightedShare != 0 {
+					t.Errorf("Got ClusterQueue weighted share %v with a cohort cycle, want 0", cqUsage.WeightedShare)
+				}
+				cohortUsage, err := cache.CohortStats(cycleCohort)
+				if err != nil {
+					t.Fatalf("Getting Cohort usage with a cycle: %v", err)
+				}
+				if cohortUsage.WeightedShare != 0 {
+					t.Errorf("Got Cohort weighted share %v with a cycle, want 0", cohortUsage.WeightedShare)
+				}
+				cache.RecordClusterQueueResourceMetrics(log, "cq")
+			})
+		}
+	})
+
 	t.Run("TAS sync resumes after repairing a cohort cycle", func(t *testing.T) {
 		features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 		cases := map[string]struct {
