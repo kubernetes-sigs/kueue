@@ -150,7 +150,7 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(
 					field.NewPath("spec", "enableInTreeAutoscaling"),
 					new(true),
-					fmt.Sprintf("a kueue-managed RayCluster can use in-tree autoscaling only as an elastic job: "+
+					fmt.Sprintf("a kueue-managed RayCluster can use autoscaling only as an elastic job: "+
 						"enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
 						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
 				),
