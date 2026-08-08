@@ -491,7 +491,7 @@ func TestWorkloadPriorityClassReferenceReconcile(t *testing.T) {
 					},
 				}).Build()
 
-			r := NewWorkloadPriorityClassReferenceReconciler(cl, nil)
+			r := NewWorkloadPriorityClassReferenceReconciler(cl, cl, nil)
 			if _, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.workload)}); err != nil {
 				t.Fatalf("Reconcile() = %v", err)
 			}
@@ -544,7 +544,7 @@ func TestWorkloadPriorityClassValueSurvivesLateReference(t *testing.T) {
 	if !workloadPriorityClassRefChanged().Update(event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: oldWL, ObjectNew: newWL}) {
 		t.Fatal("the reference change was filtered out, so nothing reaches the queue")
 	}
-	refReconciler := NewWorkloadPriorityClassReferenceReconciler(cl, nil)
+	refReconciler := NewWorkloadPriorityClassReferenceReconciler(cl, cl, nil)
 	if _, err := refReconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}); err != nil {
 		t.Fatalf("reconciling the workload: %v", err)
 	}

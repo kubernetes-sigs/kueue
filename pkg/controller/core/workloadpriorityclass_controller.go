@@ -190,8 +190,14 @@ func ownsPriority(wl *kueue.Workload) bool {
 // class, so a Workload arriving at a class does not cost a pass over every other
 // Workload already using it.
 type WorkloadPriorityClassReferenceReconciler struct {
-	logName     string
-	client      client.Client
+	logName string
+	client  client.Client
+	// The class is read straight from the API server. This reconcile is queued by
+	// a Workload event, so a cached read can be one this replica took before the
+	// class moved, and the pass that would have repaired it has already decided
+	// there was nothing to do. Reading live means any change after it is one the
+	// class controller still has an event for.
+	apiReader   client.Reader
 	roleTracker *roletracker.RoleTracker
 }
 
@@ -199,11 +205,13 @@ var _ reconcile.Reconciler = (*WorkloadPriorityClassReferenceReconciler)(nil)
 
 func NewWorkloadPriorityClassReferenceReconciler(
 	client client.Client,
+	apiReader client.Reader,
 	roleTracker *roletracker.RoleTracker,
 ) *WorkloadPriorityClassReferenceReconciler {
 	return &WorkloadPriorityClassReferenceReconciler{
 		logName:     "workloadpriorityclassreference-reconciler",
 		client:      client,
+		apiReader:   apiReader,
 		roleTracker: roleTracker,
 	}
 }
@@ -225,7 +233,7 @@ func (r *WorkloadPriorityClassReferenceReconciler) Reconcile(ctx context.Context
 	log.V(2).Info("Reconcile Workload priority class reference")
 
 	var wpc kueue.WorkloadPriorityClass
-	if err := r.client.Get(ctx, client.ObjectKey{Name: wl.Spec.PriorityClassRef.Name}, &wpc); err != nil {
+	if err := r.apiReader.Get(ctx, client.ObjectKey{Name: wl.Spec.PriorityClassRef.Name}, &wpc); err != nil {
 		// A class that does not exist yet sweeps the workloads referencing it
 		// when it is created.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
