@@ -218,8 +218,7 @@ func (j *RayJob) Finished(ctx context.Context) (message string, success, finishe
 	finished =
 		j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed ||
 			j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusComplete ||
-			(j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusValidationFailed &&
-				j.Status.RayClusterName == "")
+			j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusValidationFailed
 
 	return message, success, finished
 }
