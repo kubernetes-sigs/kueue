@@ -1,0 +1,28 @@
+title: Sticky ClusterQueue Head Policy
+kep-number: 7157
+authors:
+  - "@tenzen-y"
+  - "@gabesaba"
+status: implemented
+creation-date: 2026-08-08
+reviewers:
+  - TBD
+approvers:
+  - "@mimowo"
+
+see-also:
+  - "/keps/8691-concurrent-admission"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: stable
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done.
+latest-milestone: "v0.19"
+
+# The milestone at which the always-enabled scheduling behavior first shipped.
+milestone:
+  stable: "v0.13"
+
+# The policy is an always-enabled part of BestEffortFIFO behavior.
+disable-supported: false
