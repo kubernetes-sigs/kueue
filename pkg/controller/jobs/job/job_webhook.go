@@ -182,7 +182,7 @@ func (w *JobWebhook) validateSyncCompletionCreate(job *Job) field.ErrorList {
 					field.Invalid(
 						field.NewPath("spec", "completions"),
 						job.Spec.Completions,
-						fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation),
+						fmt.Sprintf("should be equal to parallelism when %s annotation is true", JobCompletionsEqualParallelismAnnotation),
 					),
 				)
 			}
