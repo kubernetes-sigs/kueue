@@ -1193,31 +1193,23 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 // follows the object's kueue.x-k8s.io/priority-class label. Every workload
 // passed must belong to obj, since the class is resolved once for the whole set
 // rather than per workload, so one batch cannot itself write two different
-// values. The resolved value is applied to every eligible workload whose full
-// priority state has drifted, so a partial write followed by a class-value
-// change converges on retry instead of leaving same-name workloads pinned to a
-// stale value. The writes run in two ordered phases, bounded and parallel within
-// a phase, not atomic across them, and both are attempted whatever the other
-// does. Workloads that disagree with one another are resolved again for that
-// reason alone, since a partial write can leave no name to change; a class edited
-// once they all name it, and all still agree, is not.
+// values. It resolves only when a workload's class name has to change, and then
+// applies the result to the rest of the set as well. The writes run in two
+// ordered phases, bounded and parallel within a phase, not atomic across them,
+// and both are attempted whatever the other does.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
 	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
 
 	// Resolving only when at least one workload needs a transition keeps
 	// steady-state reconciles from re-resolving and overwriting the otherwise
-	// mutable priority value. Workloads that disagree with one another are not a
-	// steady state: one was left behind by a write that did not finish, and no
-	// name is left for a later call to notice.
-	if len(needsClassChange) == 0 && !priorityStatesDiverge(sameClassName) {
+	// mutable priority value. A value left behind under a name that already
+	// matches is WorkloadPriorityClassReconciler's to repair: it lists by class
+	// name, and the value it holds is the one that says so.
+	if len(needsClassChange) == 0 {
 		return nil
 	}
 
-	probe := needsClassChange
-	if len(probe) == 0 {
-		probe = sameClassName
-	}
-	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, probe[0].Spec.PodSets, customPriorityClassFunc)
+	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, needsClassChange[0].Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return fmt.Errorf("prepare workload priority: %w", err)
 	}
@@ -1232,20 +1224,15 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 // one class in the same reconcile can return different values, which would leave
 // the sets holding different priorities.
 //
-// A caller that already resolved had a reason to, so a workload naming the class
-// with a value left behind by an earlier reconcile is repaired here rather than
-// waiting for a name to change. Everything else is left alone.
-//
 // Every workload passed has to belong to obj, and the reference and value have
 // to be what obj resolved to in this reconcile: neither is checked here.
 func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
 	priorityClassRef *kueue.PriorityClassRef, priority int32, wls ...*kueue.Workload) error {
-	className := WorkloadPriorityClassName(obj)
-	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), className, wls)
-	// The repair needs a class to name. Under an empty label every workload
-	// without a reference reads as naming the same one, and rewriting those
-	// would take back a value nothing here owns.
-	if len(needsClassChange) == 0 && (className == "" || len(sameClassName) == 0) {
+	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
+	// Same rule as UpdateWorkloadPriority, so that whether another set forced a
+	// lookup is not what decides this one is written. Holding a resolution is
+	// not a reason to have one.
+	if len(needsClassChange) == 0 {
 		return nil
 	}
 	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, sameClassName, needsClassChange)
@@ -1285,19 +1272,6 @@ func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventR
 	// a failure among them. Both groups are attempted either way: one workload the
 	// API server will not take is not a reason to leave the rest where they are.
 	return errors.Join(apply(sameClassName), apply(needsClassChange))
-}
-
-// priorityStatesDiverge reports whether these workloads disagree on the priority
-// they carry. They all name the object's class, so a disagreement is a write that
-// did not finish rather than a value someone chose.
-func priorityStatesDiverge(wls []*kueue.Workload) bool {
-	for _, wl := range wls {
-		if !apiequality.Semantic.DeepEqual(wl.Spec.PriorityClassRef, wls[0].Spec.PriorityClassRef) ||
-			!apiequality.Semantic.DeepEqual(wl.Spec.Priority, wls[0].Spec.Priority) {
-			return true
-		}
-	}
-	return false
 }
 
 // classifyWorkloadsForPriorityUpdate splits the workloads this helper may manage

@@ -2379,10 +2379,12 @@ func lwsComponent(index, className string, priority int32) *kueue.Workload {
 		Obj()
 }
 
-// TestReconcilerRepairsStaleValueUnderTheSameClass covers the set that already
-// names the class but was left on an older value. A reconcile that had to
-// resolve the class for something else carries the answer to it too.
-func TestReconcilerRepairsStaleValueUnderTheSameClass(t *testing.T) {
+// TestReconcilerLeavesAValueUnderTheSameClassAlone covers the component that
+// already names the class but carries a different value. Whether a sibling had
+// to be created must not decide that: spec.priority is mutable, the class
+// controller lists by name and holds the value that settles it, and a scale-up
+// is not the moment to take one back.
+func TestReconcilerLeavesAValueUnderTheSameClassAlone(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
 	ctx, _ := utiltesting.ContextWithLog(t)
 	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
@@ -2401,10 +2403,10 @@ func TestReconcilerRepairsStaleValueUnderTheSameClass(t *testing.T) {
 			},
 		})
 	indexer := utiltesting.AsIndexer(clientBuilder)
+	existing := lwsComponent("0", "high", 100)
 	kClient := clientBuilder.WithObjects(lws,
 		utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
-		// Already names the class, but on the value an earlier reconcile saw.
-		lwsComponent("0", "high", 100)).Build()
+		existing).Build()
 
 	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
 	if err != nil {
@@ -2421,66 +2423,20 @@ func TestReconcilerRepairsStaleValueUnderTheSameClass(t *testing.T) {
 	if err := kClient.List(ctx, &got, client.InNamespace(testNS)); err != nil {
 		t.Fatalf("Listing workloads: %v", err)
 	}
+	if len(got.Items) != 2 {
+		t.Fatalf("got %d workloads, want 2", len(got.Items))
+	}
 	want := kueue.NewWorkloadPriorityClassRef("high")
 	for _, wl := range got.Items {
 		if diff := cmp.Diff(want, wl.Spec.PriorityClassRef); diff != "" {
 			t.Errorf("%s: priority class reference (-want +got):\n%s", wl.Name, diff)
 		}
-		if diff := cmp.Diff(new(int32(200)), wl.Spec.Priority); diff != "" {
-			t.Errorf("%s: priority (-want +got):\n%s", wl.Name, diff)
+		wantValue := int32(200)
+		if wl.Name == existing.Name {
+			wantValue = 100
 		}
-	}
-}
-
-// TestReconcilerConvergesAfterAFailedSameClassRepair follows the two reconciles
-// a partial write takes to settle. The first resolves because a component is
-// missing and repairs the one that is stale; when that write fails the set is
-// left split, with no name for the second reconcile to notice.
-func TestReconcilerConvergesAfterAFailedSameClassRepair(t *testing.T) {
-	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
-	ctx, _ := utiltesting.ContextWithLog(t)
-	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
-
-	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
-		WorkloadPriorityClass("high").Replicas(2).UID(testLWS).Obj()
-	stale := lwsComponent("0", "high", 100)
-
-	failStaleOnce := true
-	clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-				if wl, ok := obj.(*kueue.Workload); ok && wl.Name == stale.Name && failStaleOnce {
-					failStaleOnce = false
-					return apierrors.NewConflict(kueue.Resource("workloads"), wl.Name, errors.New("conflict"))
-				}
-				return c.Update(ctx, obj, opts...)
-			},
-		})
-	indexer := utiltesting.AsIndexer(clientBuilder)
-	kClient := clientBuilder.WithObjects(lws,
-		utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(), stale).Build()
-
-	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
-	if err != nil {
-		t.Fatalf("Creating the reconciler: %v", err)
-	}
-	if _, err := reconciler.Reconcile(ctx, request); err == nil {
-		t.Fatal("Reconcile() returned no error, want the conflict on the stale component")
-	}
-	if _, err := reconciler.Reconcile(ctx, request); err != nil {
-		t.Fatalf("second Reconcile(): %v", err)
-	}
-
-	var got kueue.WorkloadList
-	if err := kClient.List(ctx, &got, client.InNamespace(testNS)); err != nil {
-		t.Fatalf("Listing workloads: %v", err)
-	}
-	if len(got.Items) != 2 {
-		t.Fatalf("got %d workloads, want 2", len(got.Items))
-	}
-	for _, wl := range got.Items {
-		if wl.Spec.Priority == nil || *wl.Spec.Priority != 200 {
-			t.Errorf("%s: priority = %d, want 200; the set stayed split", wl.Name, ptr.Deref(wl.Spec.Priority, 0))
+		if diff := cmp.Diff(&wantValue, wl.Spec.Priority); diff != "" {
+			t.Errorf("%s: priority (-want +got):\n%s", wl.Name, diff)
 		}
 	}
 }

@@ -25,6 +25,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -58,6 +59,9 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 	}
 
 	cases := map[string]struct {
+		// The owner's kueue.x-k8s.io/priority-class label, "high" when unset and
+		// left off entirely when empty.
+		ownerClass   *string
 		class        *kueue.WorkloadPriorityClass
 		workloads    []*kueue.Workload
 		interceptors func(s *priorityStats) interceptor.Funcs
@@ -231,41 +235,56 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			},
 		},
 
-		// Once the names match, a partial write leaves nothing for a name-driven
-		// retry to notice. The workloads disagreeing with each other is what says
-		// the write did not finish.
-		"converges after a partial write leaves no name to change": {
-			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+		// spec.priority is mutable, so two workloads under one name disagreeing is
+		// not on its own an unfinished write. WorkloadPriorityClassReconciler lists
+		// by class name and holds the value that settles it; this helper is not
+		// asked, and does not read the class to guess.
+		"leaves values under a name that already matches to the class": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(500).Obj(),
 			workloads: []*kueue.Workload{
-				utiltestingapi.MakeWorkload("stale", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
-				utiltestingapi.MakeWorkload("other", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
-				utiltestingapi.MakeWorkload("moving", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+				utiltestingapi.MakeWorkload("chosen", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("other", "ns").WorkloadPriorityClassRef("high").Priority(200).Obj(),
 			},
-			interceptors: func(*priorityStats) interceptor.Funcs {
-				failStaleOnce := true
-				return interceptor.Funcs{
-					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-						if wl, ok := obj.(*kueue.Workload); ok && wl.Name == "stale" && failStaleOnce {
-							failStaleOnce = false
-							return errors.New("simulated conflict")
-						}
-						return c.Update(ctx, obj, opts...)
-					},
-				}
-			},
-			steps: []step{{wantErr: true}, {}},
+			interceptors: countingReadsAndWrites,
+			steps:        []step{{}},
 			want: map[string]wantWorkload{
-				"stale":  {refName: new("high"), priority: new(int32(200))},
+				"chosen": {refName: new("high"), priority: new(int32(100))},
 				"other":  {refName: new("high"), priority: new(int32(200))},
-				"moving": {refName: new("high"), priority: new(int32(200))},
 			},
+			wantClassReads:     new(0),
+			wantWorkloadWrites: new(0),
+		},
+
+		// Without the label every workload with no reference reads as naming the
+		// same class, and the name that would be resolved is the empty one. Writing
+		// on the strength of that takes back a value this helper was never given,
+		// and can leave a Pod PriorityClass reference behind where there was none.
+		"leaves an owner with no priority class alone": {
+			ownerClass: new(""),
+			class:      utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(500).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("first", "ns").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("second", "ns").Priority(200).Obj(),
+			},
+			interceptors: countingReadsAndWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"first":  {refName: new(""), priority: new(int32(100))},
+				"second": {refName: new(""), priority: new(int32(200))},
+			},
+			wantClassReads:     new(0),
+			wantWorkloadWrites: new(0),
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+			jobWrapper := testingjob.MakeJob("job", "ns")
+			if className := ptr.Deref(tc.ownerClass, "high"); className != "" {
+				jobWrapper = jobWrapper.WorkloadPriorityClass(className)
+			}
+			job := jobWrapper.Obj()
 
 			objs := []client.Object{job, tc.class}
 			names := make([]string, 0, len(tc.workloads))
@@ -326,7 +345,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				}
 				if want.priority != nil {
 					if persisted.Spec.Priority == nil || *persisted.Spec.Priority != *want.priority {
-						t.Errorf("%s priority = %v, want %d", n, persisted.Spec.Priority, *want.priority)
+						t.Errorf("%s priority = %d, want %d", n, ptr.Deref(persisted.Spec.Priority, 0), *want.priority)
 					}
 				}
 			}
@@ -373,6 +392,22 @@ func countingWrites(s *priorityStats) interceptor.Funcs {
 	}
 }
 
+// countingReadsAndWrites counts both, for the cases asserting that a set was
+// neither resolved for nor written to. An empty class name resolves through a
+// PriorityClass list rather than a class read, so that shape counts too.
+func countingReadsAndWrites(s *priorityStats) interceptor.Funcs {
+	return interceptor.Funcs{
+		Get: countingClassReads(s).Get,
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, ok := list.(*schedulingv1.PriorityClassList); ok {
+				s.classReads++
+			}
+			return c.List(ctx, list, opts...)
+		},
+		Update: countingWrites(s).Update,
+	}
+}
+
 // raiseClassTo changes the class value between two invocations.
 func raiseClassTo(value int32) func(t *testing.T, ctx context.Context, cl client.Client) {
 	return func(t *testing.T, ctx context.Context, cl client.Client) {
@@ -387,10 +422,11 @@ func raiseClassTo(value int32) func(t *testing.T, ctx context.Context, cl client
 	}
 }
 
-// TestApplyWorkloadPriorityLeavesUnlabelledWorkloadsAlone pins the boundary of
-// the stale-value repair. With no class named, every workload without a
-// reference classifies as naming the same (empty) class, and rewriting those
-// would take back a value that nothing here owns.
+// TestApplyWorkloadPriorityLeavesUnlabelledWorkloadsAlone pins that holding a
+// resolution is not a reason to write one. With no class named there is no
+// transition to make, and every workload without a reference classifies as
+// naming the same (empty) class, so writing would take back a value that
+// nothing here owns.
 func TestApplyWorkloadPriorityLeavesUnlabelledWorkloadsAlone(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	job := testingjob.MakeJob("job", "ns").Obj()
@@ -429,8 +465,9 @@ func TestApplyWorkloadPriorityLeavesUnlabelledWorkloadsAlone(t *testing.T) {
 func TestApplyWorkloadPriorityAttemptsEverySibling(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+	// One of each group, so the refused write is in the one that goes first.
 	first := utiltestingapi.MakeWorkload("first", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj()
-	second := utiltestingapi.MakeWorkload("second", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj()
+	second := utiltestingapi.MakeWorkload("second", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj()
 
 	errRefused := errors.New("the write was refused")
 	cl := utiltesting.NewClientBuilder().
@@ -459,17 +496,25 @@ func TestApplyWorkloadPriorityAttemptsEverySibling(t *testing.T) {
 	}
 }
 
-// TestApplyWorkloadPriorityRepairsAStaleValue is the other half of the
-// unlabelled case: with a class named, a workload already on it whose value was
-// left behind takes the supplied one.
-func TestApplyWorkloadPriorityRepairsAStaleValue(t *testing.T) {
+// TestApplyWorkloadPriorityLeavesAValueUnderTheSameClassAlone is the other half
+// of the unlabelled case: with a class named and no transition to make, the
+// value a workload already on that class carries is not the caller's to replace
+// just because another set forced a lookup.
+func TestApplyWorkloadPriorityLeavesAValueUnderTheSameClassAlone(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
-	wl := utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj()
-	cl := utiltesting.NewClientBuilder().WithObjects(wl).Build()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(500).Obj()
+	var writes int
+	cl := utiltesting.NewClientBuilder().WithObjects(wl).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				writes++
+				return c.Update(ctx, obj, opts...)
+			},
+		}).Build()
 
 	ref := kueue.NewWorkloadPriorityClassRef("high")
-	if err := ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, ref, 200, wl); err != nil {
+	if err := ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, ref, 100, wl); err != nil {
 		t.Fatalf("ApplyWorkloadPriority() = %v", err)
 	}
 
@@ -480,8 +525,11 @@ func TestApplyWorkloadPriorityRepairsAStaleValue(t *testing.T) {
 	if diff := cmp.Diff(ref, got.Spec.PriorityClassRef); diff != "" {
 		t.Errorf("priority class reference (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(new(int32(200)), got.Spec.Priority); diff != "" {
+	if diff := cmp.Diff(new(int32(500)), got.Spec.Priority); diff != "" {
 		t.Errorf("priority (-want +got):\n%s", diff)
+	}
+	if writes != 0 {
+		t.Errorf("wrote the workload %d times, want none", writes)
 	}
 }
 
@@ -495,8 +543,9 @@ func TestApplyWorkloadPriorityStopsWhenCancelled(t *testing.T) {
 	wls := make([]*kueue.Workload, 0, 20)
 	objs := make([]client.Object, 0, 20)
 	for i := range 20 {
+		// On another class, so cancellation is the only thing stopping the write.
 		wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", i), "ns").
-			WorkloadPriorityClassRef("high").Priority(100).Obj()
+			WorkloadPriorityClassRef("low").Priority(10).Obj()
 		wls = append(wls, wl)
 		objs = append(objs, wl)
 	}
