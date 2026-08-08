@@ -473,7 +473,8 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 		} else {
 			seenKeys.Insert(transform.Input)
 		}
-		// Same key, reached from the other side of the configuration.
+		// The same key, reached from the other side of the configuration, and
+		// discarded in the same place.
 		if _, ok := transform.Outputs[corev1.ResourcePods]; ok {
 			allErrs = append(allErrs, field.Invalid(
 				resourceTransformationPath.Index(idx).Child("outputs").Key(string(corev1.ResourcePods)),
@@ -510,8 +511,8 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, "must not exceed 253 characters"))
 		}
 
-		// Flavor assignment writes this key from the PodSet count, replacing what
-		// is stored under it, so a mapped charge would be counted as one Pod.
+		// Flavor assignment replaces this key with the PodSet count, discarding
+		// whatever was stored under it.
 		if mapping.Name == corev1.ResourcePods {
 			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, reservedResourceNameMsg))
 		}
