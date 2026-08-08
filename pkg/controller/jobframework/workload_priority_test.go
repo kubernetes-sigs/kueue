@@ -175,10 +175,9 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			},
 		},
 
-		// Same-name workloads are repaired before the name-changing ones, so a failed
-		// write leaves a name mismatch behind. That mismatch is the only thing that
-		// makes a later call resolve the class again, so writing the two groups the
-		// other way round strands the stale one for good.
+		// Same-name workloads are repaired before the name-changing ones, so a failure
+		// among them leaves a name mismatch behind for the next call to find. The
+		// values disagreeing would say so too, but the order keeps the cheaper signal.
 		"keeps a retry marker when a write fails": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
 			workloads: []*kueue.Workload{
@@ -204,6 +203,61 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			want: map[string]wantWorkload{
 				"stale":         {priority: new(int32(200))},
 				"transitioning": {priority: new(int32(200))},
+			},
+		},
+
+		// One workload the API server will not take is its own problem. Handing the
+		// set to one helper should not turn it into everyone's.
+		"a same-class write that keeps failing does not hold back a transition": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("stuck", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("moving", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: func(*priorityStats) interceptor.Funcs {
+				return interceptor.Funcs{
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						if wl, ok := obj.(*kueue.Workload); ok && wl.Name == "stuck" {
+							return errors.New("simulated rejection")
+						}
+						return c.Update(ctx, obj, opts...)
+					},
+				}
+			},
+			steps: []step{{wantErr: true}},
+			want: map[string]wantWorkload{
+				"stuck":  {refName: new("high"), priority: new(int32(100))},
+				"moving": {refName: new("high"), priority: new(int32(200))},
+			},
+		},
+
+		// Once the names match, a partial write leaves nothing for a name-driven
+		// retry to notice. The workloads disagreeing with each other is what says
+		// the write did not finish.
+		"converges after a partial write leaves no name to change": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("stale", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("other", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("moving", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: func(*priorityStats) interceptor.Funcs {
+				failStaleOnce := true
+				return interceptor.Funcs{
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						if wl, ok := obj.(*kueue.Workload); ok && wl.Name == "stale" && failStaleOnce {
+							failStaleOnce = false
+							return errors.New("simulated conflict")
+						}
+						return c.Update(ctx, obj, opts...)
+					},
+				}
+			},
+			steps: []step{{wantErr: true}, {}},
+			want: map[string]wantWorkload{
+				"stale":  {refName: new("high"), priority: new(int32(200))},
+				"other":  {refName: new("high"), priority: new(int32(200))},
+				"moving": {refName: new("high"), priority: new(int32(200))},
 			},
 		},
 	}
