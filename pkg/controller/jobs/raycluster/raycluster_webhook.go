@@ -147,7 +147,9 @@ func (w *RayClusterWebhook) validateCreate(ctx context.Context, job *rayv1.RayCl
 				field.Invalid(
 					specPath.Child("enableInTreeAutoscaling"),
 					spec.EnableInTreeAutoscaling,
-					"a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+					fmt.Sprintf("a kueue-managed RayCluster can use in-tree autoscaling only as an elastic job: "+
+						"enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
+						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
 				),
 			)
 		}
