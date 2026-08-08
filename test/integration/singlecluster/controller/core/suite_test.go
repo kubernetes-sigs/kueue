@@ -92,6 +92,23 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	managerAndControllerSetup(nil, runScheduler)(ctx, mgr)
 }
 
+// managerWorkloadPriorityClassReferenceSetup starts the Workload-keyed
+// reconciler on its own. The class-keyed one is left out so a repair can only
+// have come from the reference.
+func managerWorkloadPriorityClassReferenceSetup(ctx context.Context, mgr manager.Manager) {
+	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	failedWebhook, err := webhooks.Setup(mgr, nil)
+	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+	controllersCfg := &config.Configuration{}
+	mgr.GetScheme().Default(controllersCfg)
+
+	reconciler := core.NewWorkloadPriorityClassReferenceReconciler(mgr.GetClient(), mgr.GetAPIReader(), nil)
+	gomega.Expect(reconciler.SetupWithManager(mgr, controllersCfg)).To(gomega.Succeed())
+}
+
 func managerAndControllerSetup(
 	controllersCfg *config.Configuration,
 	options ...managerSetupOption,

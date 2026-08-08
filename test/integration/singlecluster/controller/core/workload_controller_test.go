@@ -1781,3 +1781,145 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 		})
 	})
 })
+
+var _ = ginkgo.Describe("Workload priority class reference", ginkgo.Label("controller:workload", "area:core"), func() {
+	var (
+		ns             *corev1.Namespace
+		source, target *kueue.WorkloadPriorityClass
+	)
+
+	ginkgo.BeforeEach(func() {
+		// Only the reference reconciler, so nothing else can repair the value.
+		fwk.StartManager(ctx, cfg, managerWorkloadPriorityClassReferenceSetup)
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-wpc-ref-")
+
+		source = utiltestingapi.MakeWorkloadPriorityClass("reference-source").PriorityValue(100).Obj()
+		util.MustCreate(ctx, k8sClient, source)
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, source, true)
+		})
+
+		target = utiltestingapi.MakeWorkloadPriorityClass("reference-target").PriorityValue(200).Obj()
+		util.MustCreate(ctx, k8sClient, target)
+		ginkgo.DeferCleanup(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, target, true)
+		})
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.It("should take the value of the class it moved to", func() {
+		wl := utiltestingapi.MakeWorkload("wl", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+			WorkloadPriorityClassRef("reference-source").
+			Priority(0).
+			Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		// The create request has to be spent before the reference moves. It is
+		// enqueued for every workload this cluster owns the priority of, and it
+		// re-reads the workload, so one still in the queue could be what applies
+		// the target value and the reference event would go untested.
+		ginkgo.By("waiting for the create to settle on the source value", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &got)).To(gomega.Succeed())
+				g.Expect(got.Spec.Priority).To(gomega.Equal(new(int32(100))))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// The value is left behind on purpose: it is what a lookup that read
+		// the class before its last change would have written. Writing it does
+		// not touch the reference, so it does not enqueue anything itself.
+		ginkgo.By("moving the reference and leaving the value alone", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &got)).To(gomega.Succeed())
+				got.Spec.PriorityClassRef = kueue.NewWorkloadPriorityClassRef("reference-target")
+				g.Expect(k8sClient.Update(ctx, &got)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			var got kueue.Workload
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &got)).To(gomega.Succeed())
+			g.Expect(got.Spec.PriorityClassRef).To(gomega.Equal(kueue.NewWorkloadPriorityClassRef("reference-target")))
+			g.Expect(got.Spec.Priority).To(gomega.Equal(new(int32(200))))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("should leave a Workload MultiKueue created here alone", func() {
+		// Paired with one this cluster does own. Repairing that one is what says the
+		// controller has worked through the events, so the other staying put is a
+		// decision rather than a window that closed before the write landed.
+		owned := utiltestingapi.MakeWorkload("owned", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+			WorkloadPriorityClassRef("reference-source").
+			Priority(0).
+			Obj()
+		remote := utiltestingapi.MakeWorkload("remote", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+			WorkloadPriorityClassRef("reference-source").
+			Priority(0).
+			Label(kueue.MultiKueueOriginLabel, "manager").
+			Obj()
+		util.MustCreate(ctx, k8sClient, owned)
+		util.MustCreate(ctx, k8sClient, remote)
+
+		expectPriority := func(wl *kueue.Workload, want int32) func(gomega.Gomega) {
+			return func(g gomega.Gomega) {
+				var got kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &got)).To(gomega.Succeed())
+				g.Expect(got.Spec.Priority).To(gomega.Equal(new(want)))
+			}
+		}
+
+		gomega.Eventually(expectPriority(owned, 100), util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Consistently(expectPriority(remote, 0), util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+		ginkgo.By("moving both references", func() {
+			for _, wl := range []*kueue.Workload{owned, remote} {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var got kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &got)).To(gomega.Succeed())
+					got.Spec.PriorityClassRef = kueue.NewWorkloadPriorityClassRef("reference-target")
+					g.Expect(k8sClient.Update(ctx, &got)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+		})
+
+		gomega.Eventually(expectPriority(owned, 200), util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Consistently(expectPriority(remote, 0), util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("should take the class over when the Workload stops being MultiKueue's", func() {
+		// Nothing about the reference moves here. What moves is who answers for
+		// the value, and the label is the only thing that said so.
+		remote := utiltestingapi.MakeWorkload("handed-over", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+			WorkloadPriorityClassRef("reference-source").
+			Priority(0).
+			Label(kueue.MultiKueueOriginLabel, "manager").
+			Obj()
+		util.MustCreate(ctx, k8sClient, remote)
+
+		expectPriority := func(want int32) func(gomega.Gomega) {
+			return func(g gomega.Gomega) {
+				var got kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(remote), &got)).To(gomega.Succeed())
+				g.Expect(got.Spec.Priority).To(gomega.Equal(new(want)))
+			}
+		}
+		gomega.Consistently(expectPriority(0), util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+		ginkgo.By("dropping the origin label and leaving the reference where it is", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(remote), &got)).To(gomega.Succeed())
+				delete(got.Labels, kueue.MultiKueueOriginLabel)
+				g.Expect(got.Spec.PriorityClassRef).To(gomega.Equal(kueue.NewWorkloadPriorityClassRef("reference-source")))
+				g.Expect(k8sClient.Update(ctx, &got)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		gomega.Eventually(expectPriority(100), util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+})
