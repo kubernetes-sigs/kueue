@@ -104,7 +104,7 @@ func managerWorkloadPriorityClassReferenceSetup(ctx context.Context, mgr manager
 	controllersCfg := &config.Configuration{}
 	mgr.GetScheme().Default(controllersCfg)
 
-	reconciler := core.NewWorkloadPriorityClassReferenceReconciler(mgr.GetClient(), nil)
+	reconciler := core.NewWorkloadPriorityClassReferenceReconciler(mgr.GetClient(), mgr.GetAPIReader(), nil)
 	gomega.Expect(reconciler.SetupWithManager(mgr, controllersCfg)).To(gomega.Succeed())
 }
 
