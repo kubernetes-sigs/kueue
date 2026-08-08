@@ -1048,6 +1048,50 @@ func Test_RayJobFinished(t *testing.T) {
 	}
 }
 
+func Test_RayJobIsOnHold(t *testing.T) {
+	testcases := []struct {
+		name                string
+		jobDeploymentStatus rayv1.JobDeploymentStatus
+		expectedOnHold      bool
+	}{
+		{
+			name:                "jobDeploymentStatus=Running",
+			jobDeploymentStatus: rayv1.JobDeploymentStatusRunning,
+			expectedOnHold:      false,
+		},
+		{
+			name:                "jobDeploymentStatus=Complete",
+			jobDeploymentStatus: rayv1.JobDeploymentStatusComplete,
+			expectedOnHold:      false,
+		},
+		{
+			name:                "jobDeploymentStatus=Failed",
+			jobDeploymentStatus: rayv1.JobDeploymentStatusFailed,
+			expectedOnHold:      false,
+		},
+		{
+			name:                "jobDeploymentStatus=ValidationFailed",
+			jobDeploymentStatus: rayv1.JobDeploymentStatusValidationFailed,
+			expectedOnHold:      true,
+		},
+	}
+
+	for _, testcase := range testcases {
+		t.Run(testcase.name, func(t *testing.T) {
+			rayJob := testingrayutil.MakeJob("job", "ns").Obj()
+			rayJob.Status.JobDeploymentStatus = testcase.jobDeploymentStatus
+
+			onHold := ((*RayJob)(rayJob)).IsOnHold()
+
+			if onHold != testcase.expectedOnHold {
+				t.Logf("actual onHold: %v", onHold)
+				t.Logf("expected onHold: %v", testcase.expectedOnHold)
+				t.Error("unexpected result for 'onHold'")
+			}
+		})
+	}
+}
+
 func TestGetCustomAnnotations(t *testing.T) {
 	headSpec := rayv1.HeadGroupSpec{
 		Template: corev1.PodTemplateSpec{
