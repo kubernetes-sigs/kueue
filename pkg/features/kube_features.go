@@ -508,6 +508,14 @@ const (
 	// in PodSet template metadata during Workload creation and update.
 	WorkloadValidationForPodSetMetadata featuregate.Feature = "WorkloadValidationForPodSetMetadata"
 
+	// owner: @Nilsachy
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13662
+	//
+	// PrioritizeWorkloadsPendingPreemption enables prioritization of workloads pending preemption
+	// to prevent quota stealing and thrashing during desynchronized evictions.
+	// Requires UnadmittedWorkloadsObservability to be enabled to take effect.
+	PrioritizeWorkloadsPendingPreemption featuregate.Feature = "PrioritizeWorkloadsPendingPreemption"
+
 	// owner: @ivnovakov
 	//
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/13279#discussion_r3655384989
@@ -563,6 +571,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASMultiLayerTopology:                    {TopologyAwareScheduling},
 	TASRespectNodeAffinityPreferred:          {TopologyAwareScheduling},
 	UnadmittedWorkloadsExplicitStatus:        {UnadmittedWorkloadsObservability},
+	PrioritizeWorkloadsPendingPreemption:     {UnadmittedWorkloadsObservability},
 	TASHandleOverlappingFlavors:              {TopologyAwareScheduling},
 	TASProfileMixed:                          {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesWithTAS:      {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
@@ -839,6 +848,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	WorkloadValidationForPodSetMetadata: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PrioritizeWorkloadsPendingPreemption: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	LWSImmutableGroupSize: {
