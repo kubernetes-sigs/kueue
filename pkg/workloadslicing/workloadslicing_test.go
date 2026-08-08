@@ -1406,9 +1406,10 @@ func TestFindLatestActiveWorkload(t *testing.T) {
 	now := time.Now()
 	admission := utiltestingapi.MakeAdmission("cq").Obj()
 
-	live := func(name string, created time.Time) *utiltestingapi.WorkloadWrapper {
+	admitted := func(name string, created time.Time) *utiltestingapi.WorkloadWrapper {
 		return testWorkload(name, testJobObject.Name, testJobObject.UID, created).
-			ReserveQuotaAt(admission, created)
+			ReserveQuotaAt(admission, created).
+			AdmittedAt(true, created)
 	}
 
 	cases := map[string]struct {
@@ -1416,14 +1417,25 @@ func TestFindLatestActiveWorkload(t *testing.T) {
 		want      string
 	}{
 		"none": {},
-		"the only reserved one": {
-			workloads: []kueue.Workload{*live("only", now).Obj()},
+		"quota reservation alone is not active": {
+			workloads: []kueue.Workload{
+				*testWorkload("reserved", testJobObject.Name, testJobObject.UID, now).
+					ReserveQuotaAt(admission, now).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+		},
+		"the only admitted one": {
+			workloads: []kueue.Workload{*admitted("only", now).Obj()},
 			want:      "only",
 		},
-		"the newest reserved one": {
+		"the newest admitted one": {
 			workloads: []kueue.Workload{
-				*live("older", now.Add(-time.Minute)).Obj(),
-				*live("newer", now).Obj(),
+				*admitted("older", now.Add(-time.Minute)).Obj(),
+				*admitted("newer", now).Obj(),
 			},
 			want: "newer",
 		},
@@ -1432,15 +1444,15 @@ func TestFindLatestActiveWorkload(t *testing.T) {
 		// older slice is the one still holding capacity.
 		"a newer slice that is being evicted": {
 			workloads: []kueue.Workload{
-				*live("older", now.Add(-time.Minute)).Obj(),
-				*live("evicting", now).EvictedAt(now).Obj(),
+				*admitted("older", now.Add(-time.Minute)).Obj(),
+				*admitted("evicting", now).EvictedAt(now).Obj(),
 			},
 			want: "older",
 		},
 		"every slice is being evicted": {
 			workloads: []kueue.Workload{
-				*live("one", now.Add(-time.Minute)).EvictedAt(now).Obj(),
-				*live("two", now).EvictedAt(now).Obj(),
+				*admitted("one", now.Add(-time.Minute)).EvictedAt(now).Obj(),
+				*admitted("two", now).EvictedAt(now).Obj(),
 			},
 		},
 	}

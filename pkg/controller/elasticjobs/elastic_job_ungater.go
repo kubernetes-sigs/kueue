@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -157,11 +158,15 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		pod := pods[i]
 		var ungated bool
 		e := utilclient.Patch(ctx, r.client, pod, func() (bool, error) {
+			changed, err := refreshPodAdmission(pod, active)
+			if err != nil {
+				return false, err
+			}
 			ungated = utilpod.Ungate(pod, kueue.ElasticJobSchedulingGate)
 			if ungated {
 				log.V(3).Info("ungating elastic pod", "pod", klog.KObj(pod))
 			}
-			return ungated, nil
+			return changed || ungated, nil
 		})
 		if e != nil {
 			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
@@ -170,6 +175,89 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		return e
 	})
 	return reconcile.Result{}, err
+}
+
+type podAdmissionUpdate struct {
+	annotations  map[string]string
+	nodeSelector map[string]string
+}
+
+func admissionUpdateForPodSet(wl *kueue.Workload, podSetName kueue.PodSetReference) (podAdmissionUpdate, error) {
+	update := podAdmissionUpdate{
+		annotations:  make(map[string]string),
+		nodeSelector: make(map[string]string),
+	}
+	for _, check := range wl.Status.AdmissionChecks {
+		for _, psUpdate := range check.PodSetUpdates {
+			if psUpdate.Name != podSetName {
+				continue
+			}
+			for _, key := range []string{
+				autoscaling.ProvisioningRequestPodAnnotationKey,
+				autoscaling.ProvisioningClassPodAnnotationKey,
+			} {
+				if value, found := psUpdate.Annotations[key]; found {
+					if old, exists := update.annotations[key]; exists && old != value {
+						return podAdmissionUpdate{}, fmt.Errorf("conflicting %q annotation updates for PodSet %q", key, podSetName)
+					}
+					update.annotations[key] = value
+				}
+			}
+			for key, value := range psUpdate.NodeSelector {
+				if old, exists := update.nodeSelector[key]; exists && old != value {
+					return podAdmissionUpdate{}, fmt.Errorf("conflicting %q node selector updates for PodSet %q", key, podSetName)
+				}
+				update.nodeSelector[key] = value
+			}
+		}
+	}
+	return update, nil
+}
+
+func podAdmissionCompatible(pod *corev1.Pod, update podAdmissionUpdate) bool {
+	for key, value := range update.annotations {
+		if existing, found := pod.Annotations[key]; found && existing != value {
+			return false
+		}
+	}
+	for key, value := range update.nodeSelector {
+		if existing, found := pod.Spec.NodeSelector[key]; found && existing != value {
+			return false
+		}
+	}
+	return true
+}
+
+func refreshPodAdmission(pod *corev1.Pod, wl *kueue.Workload) (bool, error) {
+	update, err := admissionUpdateForPodSet(wl, kueue.PodSetReference(pod.Labels[constants.PodSetLabel]))
+	if err != nil {
+		return false, err
+	}
+	if !podAdmissionCompatible(pod, update) {
+		return false, fmt.Errorf("pod %s/%s has immutable admission metadata from a different ProvisioningRequest", pod.Namespace, pod.Name)
+	}
+	if pod.Annotations == nil {
+		pod.Annotations = make(map[string]string, len(update.annotations))
+	}
+	changed := false
+	for key, value := range update.annotations {
+		// PRQ consume/class identity is immutable after first assignment.
+		if _, exists := pod.Annotations[key]; exists {
+			continue
+		}
+		pod.Annotations[key] = value
+		changed = true
+	}
+	if pod.Spec.NodeSelector == nil && len(update.nodeSelector) != 0 {
+		pod.Spec.NodeSelector = make(map[string]string, len(update.nodeSelector))
+	}
+	for key, value := range update.nodeSelector {
+		if pod.Spec.NodeSelector[key] != value {
+			pod.Spec.NodeSelector[key] = value
+			changed = true
+		}
+	}
+	return changed, nil
 }
 
 func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload) ([]*corev1.Pod, error) {
@@ -191,6 +279,7 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	granted := workload.ExtractPodSetCountsFromWorkload(wl)
 	gatedPerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
 	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
+	admissionUpdates := make(map[kueue.PodSetReference]podAdmissionUpdate)
 	for i := range podList.Items {
 		p := &podList.Items[i]
 		if utilpod.IsTerminated(p) {
@@ -198,6 +287,20 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		}
 		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])
 		if utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
+			update, found := admissionUpdates[ps]
+			if !found {
+				var err error
+				update, err = admissionUpdateForPodSet(wl, ps)
+				if err != nil {
+					return nil, err
+				}
+				admissionUpdates[ps] = update
+			}
+			if !podAdmissionCompatible(p, update) {
+				ctrl.LoggerFrom(ctx).Info("leaving elastic pod gated because immutable admission metadata is stale; recycle the pod after its template refreshes",
+					"pod", klog.KObj(p), "podSet", ps)
+				continue
+			}
 			gatedPerPodSet[ps] = append(gatedPerPodSet[ps], p)
 		} else {
 			// Already-ungated pods consume quota too.
@@ -258,7 +361,7 @@ func (r *elasticJobUngater) Update(e event.TypedUpdateEvent[*kueue.Workload]) bo
 func shouldUngate(wl *kueue.Workload) bool {
 	return workloadslicing.IsElasticWorkload(wl) &&
 		!workload.IsFinished(wl) &&
-		(workload.IsAdmitted(wl) || workload.HasQuotaReservation(wl))
+		workload.IsAdmitted(wl)
 }
 
 func (r *elasticJobUngater) Delete(event.TypedDeleteEvent[*kueue.Workload]) bool {

@@ -122,21 +122,17 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 	}), nil
 }
 
-// FindLatestActiveWorkload returns the newest non-finished, non-evicted workload
-// slice owned by the provided job object/gvk that holds a quota reservation, or
-// nil if none qualifies. This is the chain's "active" slice: its granted PodSet
-// counts define the admitted capacity.
-//
-// Eviction is two writes: the condition is set first, and the reservation is
-// released after. A slice in between still reports a reservation while its
-// capacity is on the way out, so it is not the one to measure against.
+// FindLatestActiveWorkload returns the newest non-finished, admitted workload
+// slice owned by the provided job object/gvk, or nil if none qualifies. Quota
+// reservation alone is insufficient: AdmissionChecks may still be pending, so
+// pods must remain gated.
 func FindLatestActiveWorkload(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, error) {
 	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
 	if err != nil {
 		return nil, err
 	}
 	for i := range slices.Backward(workloads) {
-		if workload.HasQuotaReservation(&workloads[i]) && !workload.IsEvicted(&workloads[i]) {
+		if workload.IsAdmitted(&workloads[i]) && !workload.IsEvicted(&workloads[i]) {
 			return &workloads[i], nil
 		}
 	}
