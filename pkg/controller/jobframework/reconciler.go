@@ -1267,15 +1267,15 @@ func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventR
 			return nil
 		})
 	}
-	// Both groups are attempted whatever the other does: one workload the API
-	// server will not take is not a reason to leave the rest where they are. A
-	// failed transition keeps its old name, so this call finds it again. A failed
-	// same-name repair does not, and does not need to: those workloads all carry a
-	// reference to the object's class, which puts them in the index
-	// WorkloadPriorityClassReconciler lists by, and the class value moving is what
-	// left them stale in the first place. The order only fixes which error is
-	// reported first.
-	err := errors.Join(apply(sameClassName), apply(needsClassChange))
+	// Same-name repairs go first and the transitions wait on them. A repair has
+	// nothing of its own to bring a later call back, since its name already
+	// matches; the name still to change is the only thing that does, so it has to
+	// outlive a failure among them. Within a phase every workload is still
+	// attempted: parallelize.Until keeps one error, not one abandoned batch.
+	if err := apply(sameClassName); err != nil {
+		return err
+	}
+	err := apply(needsClassChange)
 	// parallelize.Until reports nothing when the context was already done, since
 	// no piece runs to send an error. A batch that never started would otherwise
 	// read back as one that was written.

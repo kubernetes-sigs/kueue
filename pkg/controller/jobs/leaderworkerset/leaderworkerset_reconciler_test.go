@@ -2479,8 +2479,12 @@ func TestReconcilerLeavesAChosenValueWhenASiblingTransitions(t *testing.T) {
 			t.Errorf("%s: priority (-want +got):\n%s", wl.Name, diff)
 		}
 	}
-	if diff := cmp.Diff(kueue.NewWorkloadPriorityClassRef("high"), got.Items[1].Spec.PriorityClassRef); diff != "" {
-		t.Errorf("%s: priority class reference (-want +got):\n%s", got.Items[1].Name, diff)
+	var gotMoving kueue.Workload
+	if err := kClient.Get(ctx, client.ObjectKeyFromObject(moving), &gotMoving); err != nil {
+		t.Fatalf("reading the moving component back: %v", err)
+	}
+	if diff := cmp.Diff(kueue.NewWorkloadPriorityClassRef("high"), gotMoving.Spec.PriorityClassRef); diff != "" {
+		t.Errorf("%s: priority class reference (-want +got):\n%s", moving.Name, diff)
 	}
 }
 

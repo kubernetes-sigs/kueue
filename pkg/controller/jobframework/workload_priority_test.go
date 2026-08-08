@@ -210,9 +210,10 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			},
 		},
 
-		// One workload the API server will not take is its own problem. Handing the
-		// set to one helper should not turn it into everyone's.
-		"a same-class write that keeps failing does not hold back a transition": {
+		// A repair under a matching name has nothing of its own to bring a later
+		// call back, so the transition waits: the name it has not changed yet is
+		// what the next call finds.
+		"a same-class write that keeps failing holds the transition back": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("stuck", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
@@ -231,7 +232,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			steps: []step{{wantErr: true}},
 			want: map[string]wantWorkload{
 				"stuck":  {refName: new("high"), priority: new(int32(100))},
-				"moving": {refName: new("high"), priority: new(int32(200))},
+				"moving": {refName: new("low"), priority: new(int32(10))},
 			},
 		},
 
@@ -485,8 +486,9 @@ func TestApplyWorkloadPriorityLeavesUnlabelledWorkloadsAlone(t *testing.T) {
 func TestApplyWorkloadPriorityAttemptsEverySibling(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
-	// One of each group, so the refused write is in the one that goes first.
-	first := utiltestingapi.MakeWorkload("first", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj()
+	// Both in the transition group, so the sibling that follows is not on the far
+	// side of the barrier the phases keep between them.
+	first := utiltestingapi.MakeWorkload("first", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj()
 	second := utiltestingapi.MakeWorkload("second", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj()
 
 	errRefused := errors.New("the write was refused")
@@ -550,6 +552,54 @@ func TestApplyWorkloadPriorityLeavesAValueUnderTheSameClassAlone(t *testing.T) {
 	}
 	if writes != 0 {
 		t.Errorf("wrote the workload %d times, want none", writes)
+	}
+}
+
+// TestUpdateWorkloadPriorityKeepsTheMarkerAcrossCalls pins what the ordering is
+// for. A repair under a name that already matches has nothing of its own to
+// bring a later call back, so the name still to change has to outlive it.
+func TestUpdateWorkloadPriorityKeepsTheMarkerAcrossCalls(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+	stale := utiltestingapi.MakeWorkload("stale", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj()
+	transitioning := utiltestingapi.MakeWorkload("transitioning", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj()
+
+	failStaleOnce := true
+	cl := utiltesting.NewClientBuilder(batchv1.AddToScheme).
+		WithObjects(job, stale, transitioning,
+			utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if wl, ok := obj.(*kueue.Workload); ok && wl.Name == "stale" && failStaleOnce {
+					failStaleOnce = false
+					return errors.New("simulated conflict")
+				}
+				return c.Update(ctx, obj, opts...)
+			},
+		}).Build()
+
+	read := func() []*kueue.Workload {
+		out := make([]*kueue.Workload, 0, 2)
+		for _, n := range []string{"stale", "transitioning"} {
+			wl := &kueue.Workload{}
+			if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: n}, wl); err != nil {
+				t.Fatalf("getting %s: %v", n, err)
+			}
+			out = append(out, wl)
+		}
+		return out
+	}
+
+	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, read()...); err == nil {
+		t.Fatal("first call returned no error, want the conflict on the stale workload")
+	}
+	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, read()...); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	for _, wl := range read() {
+		if ptr.Deref(wl.Spec.Priority, 0) != 200 {
+			t.Errorf("%s: priority = %d, want 200; the set stayed split", wl.Name, ptr.Deref(wl.Spec.Priority, 0))
+		}
 	}
 }
 
