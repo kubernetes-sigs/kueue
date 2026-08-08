@@ -198,6 +198,8 @@ type Manager struct {
 	// Once the Evicted condition is observed by scheduler the expectation
 	// can be removed - the expectation is satisfied.
 	preemptionExpectations *expectations.Store
+
+	limitRanges *LimitRanges
 }
 
 // NewManager is a factory for cache.queue.Manager. For tests,
@@ -224,6 +226,7 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		AfsConsumedResources:   queueafs.NewAfsConsumedResources(),
 		requeuer:               requeuer,
 		resourceFormatter:      resources.NewResourceFormatter(),
+		limitRanges:            newLimitRanges(),
 	}
 	for _, option := range options {
 		option(m)
@@ -533,7 +536,10 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 			continue
 		}
 
-		workload.AdjustResources(ctx, m.client, &w)
+		if err := workload.AdjustResources(ctx, m.client, &w, m.limitRanges.GetForNamespace(w.Namespace)); err != nil {
+			log.Error(err, "Failed to adjust workload resources")
+			continue
+		}
 		wInfo := workload.NewInfo(&w, m.workloadInfoOptions...)
 		wInfo.UpdateSchedulingHash(log)
 		qImpl.AddOrUpdate(wInfo)
@@ -773,7 +779,10 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 	log := ctrl.LoggerFrom(ctx)
-	workload.AdjustResources(ctx, m.client, &w)
+	if err := workload.AdjustResources(ctx, m.client, &w, m.limitRanges.GetForNamespace(w.Namespace)); err != nil {
+		log.Error(err, "Failed to adjust workload resources", "workload", klog.KObj(&w))
+		return false
+	}
 	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
 		info.Update(log, &w, workload.WithPreserveTotalRequests())
 	} else {
@@ -1127,4 +1136,8 @@ func (m *Manager) LocalQueueExists(lqRef queue.LocalQueueReference) bool {
 func (m *Manager) LocalQueueExistsWithoutLock(lqRef queue.LocalQueueReference) bool {
 	_, ok := m.localQueues[lqRef]
 	return ok
+}
+
+func (m *Manager) LimitRangeCache() *LimitRanges {
+	return m.limitRanges
 }
