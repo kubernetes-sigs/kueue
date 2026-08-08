@@ -906,7 +906,6 @@ func TestReconciler_ClearOnHoldSetsReason(t *testing.T) {
 // touch different objects, and under a derived context the second one's lookups
 // fail as cancelled rather than for whatever they were about to find.
 func TestReconcileDoesNotCancelTheWorkloadBranch(t *testing.T) {
-	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	sts := statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -952,9 +951,9 @@ func TestReconcileDoesNotCancelTheWorkloadBranch(t *testing.T) {
 					return errNotOrdered
 				}
 				// A second rather than the microseconds the cancel would take:
-				// the branch it would come from has already failed, so waiting
-				// costs nothing on a passing run and a short window would let a
-				// descheduled goroutine read as no cancellation at all.
+				// the branch it would come from has already failed, so this is
+				// an observation window, and a short one would let a descheduled
+				// goroutine read as no cancellation at all.
 				select {
 				case <-ctx.Done():
 					cancelledHere.Store(true)
