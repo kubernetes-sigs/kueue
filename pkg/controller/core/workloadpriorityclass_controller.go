@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/go-logr/logr"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -177,6 +178,12 @@ func workloadPriorityClassRefChanged() predicate.TypedPredicate[*kueue.Workload]
 	}
 }
 
+// classMovedRequeue is how long the reconcile waits before resolving again when
+// the class changed under it. Short, since the value it just wrote is known to
+// be the wrong one, and not zero, so a class being edited repeatedly does not
+// spin.
+const classMovedRequeue = time.Second
+
 // ownsPriority reports whether this cluster decides the Workload's priority.
 // A Workload MultiKueue created here carries the manager's resolution, and a
 // class of the same name on this cluster is not the one it was resolved from.
@@ -247,6 +254,20 @@ func (r *WorkloadPriorityClassReferenceReconciler) Reconcile(ctx context.Context
 	wl.Spec.Priority = new(wpc.Value)
 	if err := r.client.Update(ctx, &wl); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	// The class can move between the read above and this write, and the pass that
+	// change starts can find the workload already holding the new value and leave
+	// it alone, which leaves nothing to stop this write landing on top of a
+	// correct one. Reading the class again is what notices: a change before this
+	// read is one this sees, and a change after it is one the class controller
+	// still has an event for.
+	var after kueue.WorkloadPriorityClass
+	if err := r.apiReader.Get(ctx, client.ObjectKey{Name: wl.Spec.PriorityClassRef.Name}, &after); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if after.Value != wpc.Value {
+		log.V(2).Info("Class moved while the workload was being written", "wrote", wpc.Value, "now", after.Value)
+		return ctrl.Result{RequeueAfter: classMovedRequeue}, nil
 	}
 	log.V(2).Info("Updated workload priority", "newPriority", wpc.Value)
 	return ctrl.Result{}, nil
