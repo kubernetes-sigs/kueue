@@ -3390,22 +3390,20 @@ func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
 		},
 	}
 
-	var fields []string
+	var fields, refusedForItsFactor []string
 	reserved := map[string]int{}
 	for _, e := range Validate(cfg, scheme, jobs.NewIntegrationManager()) {
 		if !strings.Contains(e.Field, ".outputs[") {
 			continue
 		}
 		fields = append(fields, e.Field)
-		if strings.HasSuffix(e.Field, ".outputs[pods]") {
+		// Both checks reach a field with the same type, so only the reason says
+		// which of them refused it.
+		if e.Detail == reservedResourceNameMsg {
 			reserved[e.Field]++
-			// Both checks reach this field with the same type, so only the reason
-			// says which refused it. Telling an operator to make the factor
-			// non-negative leaves the name just as wrong.
-			if e.Detail != reservedResourceNameMsg {
-				t.Errorf("%s refused with %q, want %q", e.Field, e.Detail, reservedResourceNameMsg)
-			}
+			continue
 		}
+		refusedForItsFactor = append(refusedForItsFactor, e.Field)
 	}
 	if len(fields) == 0 {
 		t.Fatal("no output was refused")
@@ -3421,27 +3419,25 @@ func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
 		"resources.transformations[1].outputs[pods]",
 	} {
 		if reserved[want] != 1 {
-			t.Errorf("reported %v, want %s exactly once, got %d", fields, want, reserved[want])
+			t.Errorf("reported %v, want %s refused for its name exactly once, got %d", fields, want, reserved[want])
 		}
 	}
-	// Nothing here refuses a factor yet, so the outputs carrying a negative one
-	// go unreported. Once the check that does arrives they all have to be, and a
-	// fold that stops the walk at the reserved name rather than skipping past it
-	// would leave the one sorting after it out.
-	negative := []string{
+	if len(reserved) != 2 {
+		t.Errorf("reported %v, want the reserved name to be the only one refused for its name", fields)
+	}
+	// Nothing here refuses a factor yet, so this stays empty. Once the check
+	// that does arrives every one of these has to be listed, the reserved name
+	// carrying a negative factor among them: the name and the factor are
+	// separate things to fix, and a walk that stops at the name would leave out
+	// both the factor under it and the output sorting after it.
+	wantFactor := []string{
 		"resources.transformations[0].outputs[example.com/a-negative]",
 		"resources.transformations[0].outputs[example.com/z-negative]",
+		"resources.transformations[0].outputs[pods]",
 		"resources.transformations[0].outputs[zzz.example.com/negative]",
 		"resources.transformations[1].outputs[example.com/b-negative]",
 	}
-	reportedNegative := 0
-	for _, f := range negative {
-		if slices.Contains(fields, f) {
-			reportedNegative++
-		}
-	}
-	if reportedNegative != 0 && reportedNegative != len(negative) {
-		t.Errorf("reported %v, want every output with a negative factor or none of them, got %d of %d",
-			fields, reportedNegative, len(negative))
+	if len(refusedForItsFactor) != 0 && !slices.Equal(refusedForItsFactor, wantFactor) {
+		t.Errorf("refused for their factor: %v, want none of them or exactly %v", refusedForItsFactor, wantFactor)
 	}
 }
