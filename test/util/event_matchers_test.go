@@ -56,10 +56,20 @@ func TestHaveEvent(t *testing.T) {
 		"different reason": {
 			expectedEvent: eventsv1.Event{Reason: "DifferentReason", Type: observedEvent.Type, Note: observedEvent.Note},
 			actual:        []eventsv1.Event{observedEvent},
+			want:          false,
+			wantFailureSubstrings: []string{
+				observedEvent.Reason,
+				`Reason "DifferentReason"`,
+			},
 		},
 		"different type": {
 			expectedEvent: eventsv1.Event{Reason: observedEvent.Reason, Type: "Warning", Note: observedEvent.Note},
 			actual:        []eventsv1.Event{observedEvent},
+			want:          false,
+			wantFailureSubstrings: []string{
+				observedEvent.Type,
+				`Type "Warning"`,
+			},
 		},
 		"different note includes observed events in failure": {
 			expectedEvent: eventsv1.Event{Reason: observedEvent.Reason, Type: observedEvent.Type, Note: "expected note"},
