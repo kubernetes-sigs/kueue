@@ -994,6 +994,68 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// The webhook refuses these on the way in, and only on the way in. A
+		// workload that predates it, or was admitted while the gate was off,
+		// still reaches the accounting, where a negative overhead cancels a
+		// request the PodSet did make and the floor afterwards cannot tell that
+		// from nothing having been asked for.
+		"negativeOverheadDoesNotCancelTheRequest": {
+			workload: func() kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("legacy", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).Request("example.com/gpu", "1").Obj()).Obj()
+				wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-1"),
+				}
+				return *wl
+			}(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 1,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"podsOverheadDoesNotReachTheCount": {
+			workload: func() kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("legacy", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).Request("example.com/gpu", "1").Obj()).Obj()
+				wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
+					corev1.ResourcePods: resource.MustParse("8"),
+				}
+				return *wl
+			}(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 1,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"positiveOverheadIsStillCharged": {
+			workload: func() kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("ok", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).Request("example.com/gpu", "1").Obj()).Obj()
+				wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("2"),
+				}
+				return *wl
+			}(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 3,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		"transformMilliValues": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(
