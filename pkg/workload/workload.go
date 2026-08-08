@@ -576,16 +576,18 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 	output := make(corev1.ResourceList)
 	for inputName, inputQuantity := range input {
 		if mapping, ok := transforms[inputName]; ok {
-			// If MultiplyBy is specified, multiply the input quantity by
-			// the value of the resource specified in MultiplyBy.
+			// MultiplyBy scales the value the outputs are computed from. Retain
+			// still keeps the input as it was requested, so the multiplier only
+			// reaches the outputs and never inflates the retained charge.
+			scaledInput := inputQuantity
 			if mapping.MultiplyBy != "" {
 				if q, ok := input[mapping.MultiplyBy]; ok {
-					inputQuantity = multiplyResourceQuantities(inputQuantity, q)
+					scaledInput = multiplyResourceQuantities(inputQuantity, q)
 				}
 			}
 
 			for outputName, baseFactor := range mapping.Outputs {
-				outputQuantity := multiplyResourceQuantities(inputQuantity, baseFactor)
+				outputQuantity := multiplyResourceQuantities(scaledInput, baseFactor)
 				if accumulated, ok := output[outputName]; ok {
 					outputQuantity.Add(accumulated)
 				}

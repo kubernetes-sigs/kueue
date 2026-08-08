@@ -713,6 +713,41 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"transformRetainWithMultiplyBy": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/gpumem", "1024").
+						Request("example.com/gpu", "2").
+						Obj(),
+				).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:      "example.com/gpumem",
+					Strategy:   ptr.To(config.Retain),
+					MultiplyBy: "example.com/gpu",
+					Outputs: corev1.ResourceList{
+						"example.com/gpumem-quota": resource.MustParse("1"),
+					},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "a",
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							// Retain keeps gpumem as requested (1024), not the multiplyBy
+							// product (2048); the multiplier only scales the quota output.
+							corev1.ResourceName("example.com/gpumem"):       1024,
+							corev1.ResourceName("example.com/gpumem-quota"): 2048,
+							corev1.ResourceName("example.com/gpu"):          2,
+						}),
+						Count: 1,
+					},
+				},
+			},
+		},
 		"transformMilliValues": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(
