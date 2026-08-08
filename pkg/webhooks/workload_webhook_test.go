@@ -110,6 +110,46 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
 			}.ToAggregate(),
 		},
+		// Overhead is added to the request PodRequests computes, so a negative one
+		// takes from the charge and the reserved key is discarded there too.
+		"should reject a negative pod overhead": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-1"),
+				})).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("overhead").Key("example.com/gpu"), nil, ""),
+			}.ToAggregate(),
+		},
+		"should accept a negative pod overhead while the gate is off": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: false},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-1"),
+				})).
+				Obj(),
+		},
+		"should reject the reserved pods key in overhead whatever the gate says": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: false},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					corev1.ResourcePods: resource.MustParse("1"),
+				})).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("overhead").Key(string(corev1.ResourcePods)), nil, ""),
+			}.ToAggregate(),
+		},
+		"should accept an ordinary pod overhead": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("100m"),
+				})).
+				Obj(),
+		},
 		"should reject reserved pods resource key in limits": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
@@ -716,6 +756,117 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		wantErr       error
 		wantWarnings  admission.Warnings
 	}{
+		// A workload that already carries one has to be able to leave. Its
+		// PodSets are immutable once it has reserved, and an update is how it
+		// writes a condition, deactivates, releases quota and drops its
+		// finalizer, so refusing the entry it is not changing would strand it
+		// in Terminating still holding the quota.
+		"a reserved workload keeps a reserved-name overhead it is not changing": {
+			before: reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}),
+			after: func() *kueue.Workload {
+				wl := reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")})
+				wl.Finalizers = nil
+				wl.Status.Conditions = append(wl.Status.Conditions, metav1.Condition{
+					Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue,
+					Reason: "Succeeded", Message: "done", LastTransitionTime: metav1.NewTime(now),
+				})
+				return wl
+			}(),
+			wantErr: nil,
+		},
+		// Before it reserves, the PodSets can still change, which is where an
+		// entry can actually be introduced. Adding or changing one is refused.
+		"a reserved workload with a legacy overhead can still be deactivated": {
+			before: reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}),
+			after: func() *kueue.Workload {
+				wl := reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")})
+				wl.Spec.Active = new(bool)
+				return wl
+			}(),
+			wantErr: nil,
+		},
+		// The gate is on here, so this is the ratchet doing the work rather than
+		// the gate not looking.
+		"a reserved workload keeps a negative overhead it is not changing": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before:       reservedWithOverhead(now, corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}),
+			after: func() *kueue.Workload {
+				wl := reservedWithOverhead(now, corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")})
+				wl.Status.Conditions = append(wl.Status.Conditions, metav1.Condition{
+					Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue,
+					Reason: "Succeeded", Message: "done", LastTransitionTime: metav1.NewTime(now),
+				})
+				return wl
+			}(),
+			wantErr: nil,
+		},
+		"removing a legacy overhead is how it gets fixed": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					corev1.ResourcePods: resource.MustParse("1"),
+				})).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", nil)).Obj(),
+			wantErr: nil,
+		},
+		"a reserved workload with a legacy overhead can release its quota": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			before:       reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}),
+			after: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+					PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+						corev1.ResourcePods: resource.MustParse("1"),
+					})).Obj()
+				wl.Finalizers = []string{kueue.ResourceInUseFinalizerName}
+				return wl
+			}(),
+			wantErr: nil,
+		},
+		"a reserved-name overhead added before reserving is refused": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", nil)).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					corev1.ResourcePods: resource.MustParse("1"),
+				})).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "overhead").Key(string(corev1.ResourcePods)), nil, ""),
+			}.ToAggregate(),
+		},
+		"changing a negative overhead to another negative one is refused": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-1"),
+				})).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-2"),
+				})).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "overhead").Key("example.com/gpu"), nil, ""),
+			}.ToAggregate(),
+		},
+		// The negative half has a gate, so an operator caught out by it has a
+		// way to keep a reserved workload moving while they fix the source.
+		"the gate lets a reserved workload keep a negative overhead": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: false},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-1"),
+				})).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(kueue.PodSetAssignment{Name: "main"}).Obj(), now).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-1"),
+				})).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(kueue.PodSetAssignment{Name: "main"}).Obj(), now).
+				Obj(),
+			wantErr: nil,
+		},
 		"reclaimable pod count can change up": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
@@ -1408,4 +1559,24 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// podSetWithOverhead builds a PodSet carrying pod overhead, which the wrappers do
+// not otherwise reach.
+// reservedWithOverhead is a workload that already holds quota and a finalizer,
+// which is the shape an existing one takes when the rules change under it.
+func reservedWithOverhead(now time.Time, overhead corev1.ResourceList) *kueue.Workload {
+	wl := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+		PodSets(*podSetWithOverhead("main", overhead)).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+			PodSets(kueue.PodSetAssignment{Name: "main"}).Obj(), now).
+		Obj()
+	wl.Finalizers = []string{kueue.ResourceInUseFinalizerName}
+	return wl
+}
+
+func podSetWithOverhead(name kueue.PodSetReference, overhead corev1.ResourceList) *kueue.PodSet {
+	ps := utiltestingapi.MakePodSet(name, 1).Obj()
+	ps.Template.Spec.Overhead = overhead
+	return ps
 }

@@ -74,8 +74,34 @@ func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	if podSpec == nil {
 		return CreateEmpty()
 	}
-	rl := resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
-	return NewRequestsFromResourceList(rl)
+	return NewRequestsFromResourceList(PodRequests(podSpec))
+}
+
+// PodRequests aggregates what a PodSpec asks for, less the overhead entries
+// that cannot be charged. `pods` is written from the PodSet count during flavor
+// assignment, and a negative quantity cancels a request the PodSet did make,
+// which nothing downstream can tell apart from nothing having been asked for.
+// Every place Kueue computes requests from a spec goes through here, so quota,
+// topology assignment and LimitRange all read one view of the same Workload.
+func PodRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
+	spec := *podSpec
+	spec.Overhead = ChargeableOverhead(spec.Overhead)
+	return resourcehelpers.PodRequests(&corev1.Pod{Spec: spec}, resourcehelpers.PodResourcesOptions{})
+}
+
+// ChargeableOverhead drops the overhead entries Kueue will not charge.
+func ChargeableOverhead(overhead corev1.ResourceList) corev1.ResourceList {
+	charged := make(corev1.ResourceList, len(overhead))
+	for name, quantity := range overhead {
+		if name == corev1.ResourcePods || quantity.Sign() < 0 {
+			continue
+		}
+		charged[name] = quantity
+	}
+	if len(charged) == len(overhead) {
+		return overhead
+	}
+	return charged
 }
 
 // ToMap converts any Requests instance into a MapRequests map.

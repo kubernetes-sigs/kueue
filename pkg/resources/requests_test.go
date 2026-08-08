@@ -853,3 +853,43 @@ func TestRequestsEqual(t *testing.T) {
 		})
 	}
 }
+
+// One view: quota, topology assignment and LimitRange all reach a spec through
+// here, so an overhead entry that is not charged must not be visible to any of
+// them, and the spec they were handed must come back unchanged.
+func TestPodRequestsDropsOverheadThatIsNotCharged(t *testing.T) {
+	spec := &corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name: "c",
+			Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("1"),
+			}},
+		}},
+		Overhead: corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("-1"),
+			corev1.ResourcePods: resource.MustParse("8"),
+			"example.com/gpu":   resource.MustParse("2"),
+		},
+	}
+	before := spec.Overhead.DeepCopy()
+
+	got := PodRequests(spec)
+	if cpu := got[corev1.ResourceCPU]; cpu.Value() != 1 {
+		t.Errorf("cpu charged %s, want the container's 1 with the negative overhead left out", cpu.String())
+	}
+	if _, ok := got[corev1.ResourcePods]; ok {
+		t.Errorf("pods reached the charge from overhead: %v", got)
+	}
+	if gpu := got["example.com/gpu"]; gpu.Value() != 2 {
+		t.Errorf("a positive overhead was charged %s, want 2", gpu.String())
+	}
+	if diff := cmp.Diff(before, spec.Overhead); diff != "" {
+		t.Errorf("the caller's overhead was modified (-before +after):\n%s", diff)
+	}
+	if v := NewRequestsFromPodSpec(spec).GetValue(corev1.ResourceCPU); v != 1000 {
+		t.Errorf("NewRequestsFromPodSpec disagrees: cpu %d, want 1000 milli", v)
+	}
+	if v := NewMapRequestsFromPodSpec(spec).GetValue(corev1.ResourceCPU); v != 1000 {
+		t.Errorf("NewMapRequestsFromPodSpec disagrees: cpu %d, want 1000 milli", v)
+	}
+}
