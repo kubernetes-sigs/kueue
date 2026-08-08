@@ -3451,6 +3451,10 @@ func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
 						"example.com/z-negative": resource.MustParse("-1"),
 						"example.com/a-negative": resource.MustParse("-1m"),
 						"example.com/fine":       resource.MustParse("1"),
+						// Sorts after `pods`, so an implementation that walks the
+						// ordinary outputs and appends the reserved one cannot come
+						// out in order by accident.
+						"zzz.example.com/negative": resource.MustParse("-1"),
 					},
 				},
 				{

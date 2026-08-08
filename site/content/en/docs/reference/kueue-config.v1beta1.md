@@ -602,7 +602,7 @@ DNS labels consist of lower-case alphanumeric characters or hyphens,
 and must start and end with an alphanumeric character.
 DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
 The total length must not exceed 253 characters.
-It must not be <code>pods</code>, which Kueue writes itself from the PodSet count.</p>
+It must not be <code>pods</code>, which is reserved for Kueue's internal Pod-count accounting.</p>
 </td>
 </tr>
 <tr><td><code>deviceClassNames</code> <B>[Required]</B><br/>
@@ -1168,7 +1168,8 @@ amount of the resource indicated by the &quot;input&quot; field when computing
 </td>
 <td>
    <p>Outputs specifies the output resources and quantities per unit of input resource.
-A resource must not be named <code>pods</code>, which Kueue writes itself from the PodSet count.
+Output resource names must not include <code>pods</code>, which is reserved for Kueue's
+internal Pod-count accounting.
 An empty Outputs combined with a <code>Replace</code> Strategy causes the Input resource to be ignored by Kueue.</p>
 </td>
 </tr>
