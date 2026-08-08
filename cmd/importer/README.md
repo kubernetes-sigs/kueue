@@ -29,7 +29,10 @@ The importer will perform following checks:
 - For every Pod a  mapping to a LocalQueue is available.
 - The target LocalQueue exists.
 - The LocalQueues involved in the import are using an existing ClusterQueue.
-- The ClusterQueues involved have at least one ResourceGroup using an existing ResourceFlavor. This ResourceFlavor is used when the importer creates the admission for the created workloads.
+- The ClusterQueues involved have ResourceGroups that reference existing ResourceFlavors.
+- For each Pod, the dry-run validates that every non-zero requested resource is covered by the target ClusterQueue ResourceGroups.
+- For each Pod, the dry-run validates that Workload construction succeeds (using the same construction path used by import) before any Pod mutation.
+- If a Pod specifies a PriorityClass, the dry-run validates that the PriorityClass exists.
 
 There are two ways the mapping from a pod to a LocalQueue can be specified:
 
@@ -172,7 +175,7 @@ Note: `dry-run` is set to `false` by default.
 
 5. (Optional) Check your config by dry-running it locally e.g.
 ```bash
-./bin/importer --dry-run=true <your-custom-flags> --queuemapping-file=cmd/importer/run-in-cluster/mapping.yaml
+./bin/importer import --dry-run=true <your-custom-flags> --queuemapping-file=cmd/importer/run-in-cluster/mapping.yaml
 ```
 
 6. Deploy the configuration:
