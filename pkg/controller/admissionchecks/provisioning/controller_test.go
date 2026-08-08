@@ -111,7 +111,7 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 				Obj()
 			assignments[i] = kueue.PodSetAssignment{
 				Name:  name,
-				Count: ptr.To(admissionCounts[i]),
+				Count: new(admissionCounts[i]),
 			}
 		}
 		return utiltestingapi.MakeWorkload("wl", TestNamespace).
