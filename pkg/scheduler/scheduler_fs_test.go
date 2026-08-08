@@ -25,10 +25,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -3581,6 +3583,988 @@ func TestScheduleForFairSharing(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "fs-low-pob", "Preempted", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "fs-high-pob", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("default", "fs-high-pob", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		// Reproduces https://github.com/kubernetes-sigs/kueue/issues/9345.
+		// Cohort has 4 shared CPU; deep-a is already using 2 (over-share).
+		// deep-a has one pending head (a2); deep-b has two (b0, b1) and 2 CPU is
+		// free. With look-ahead, the DRS tournament sends both freed units to
+		// the under-share deep-b (b0 then b1); deep-b reaching depth 2 interrupts
+		// the cycle, so the over-share deep-a does not borrow. DRS ends balanced.
+		"fair sharing look-ahead: both freed units go to the under-share CQ": {
+			enableFairSharing: true,
+			featureGates:      map[featuregate.Feature]bool{features.FairSharingLookAhead: true},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("deep-a").
+					FairWeight(resource.MustParse("1")).
+					Cohort("deep-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("deep-b").
+					FairWeight(resource.MustParse("1")).
+					Cohort("deep-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("deep-lender").
+					FairWeight(resource.MustParse("1")).
+					Cohort("deep-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "4").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("deep-a-q", "default").ClusterQueue("deep-a").Obj(),
+				*utiltestingapi.MakeLocalQueue("deep-b-q", "default").ClusterQueue("deep-b").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("deep-a-run", "default").
+					Queue("deep-a-q").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("deep-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "2000m").Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("deep-a2", "default").
+					Queue("deep-a-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("deep-b0", "default").
+					Queue("deep-b-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("deep-b1", "default").
+					Queue("deep-b-q").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("deep-a-run", "default").
+					Queue("deep-a-q").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("deep-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "2000m").Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				// deep-a2 was dropped by the interrupt without evaluation:
+				// no status patch, requeued straight back to the heap.
+				*utiltestingapi.MakeWorkload("deep-a2", "default").
+					Queue("deep-a-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("deep-b0", "default").
+					Queue("deep-b-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue deep-b",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("deep-b").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("deep-b1", "default").
+					Queue("deep-b-q").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue deep-b",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("deep-b").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/deep-a-run": *utiltestingapi.MakeAdmission("deep-a").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "2000m").Obj()).Obj(),
+				"default/deep-b0": *utiltestingapi.MakeAdmission("deep-b").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+				"default/deep-b1": *utiltestingapi.MakeAdmission("deep-b").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"deep-a": {"default/deep-a2"},
+			},
+		},
+		// Same scenario as above but with the gate off: only one head per CQ is
+		// considered, so after the under-share deep-b admits its single head the
+		// cycle falls through to the over-share deep-a (the original #9345 bug).
+		// This documents the pre-fix behavior and guards the gate-off path.
+		"fair sharing look-ahead gate off: over-share CQ still borrows the freed unit": {
+			enableFairSharing: true,
+			featureGates:      map[featuregate.Feature]bool{features.FairSharingLookAhead: false},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("deep-a").
+					FairWeight(resource.MustParse("1")).
+					Cohort("deep-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("deep-b").
+					FairWeight(resource.MustParse("1")).
+					Cohort("deep-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("deep-lender").
+					FairWeight(resource.MustParse("1")).
+					Cohort("deep-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "4").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("deep-a-q", "default").ClusterQueue("deep-a").Obj(),
+				*utiltestingapi.MakeLocalQueue("deep-b-q", "default").ClusterQueue("deep-b").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("deep-a-run", "default").
+					Queue("deep-a-q").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("deep-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "2000m").Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("deep-a2", "default").
+					Queue("deep-a-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("deep-b0", "default").
+					Queue("deep-b-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("deep-b1", "default").
+					Queue("deep-b-q").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("deep-a-run", "default").
+					Queue("deep-a-q").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("deep-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "2000m").Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("deep-a2", "default").
+					Queue("deep-a-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue deep-a",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("deep-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("deep-b0", "default").
+					Queue("deep-b-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue deep-b",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("deep-b").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("deep-b1", "default").
+					Queue("deep-b-q").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/deep-a-run": *utiltestingapi.MakeAdmission("deep-a").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "2000m").Obj()).Obj(),
+				"default/deep-a2": *utiltestingapi.MakeAdmission("deep-a").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+				"default/deep-b0": *utiltestingapi.MakeAdmission("deep-b").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"deep-b": {"default/deep-b1"},
+			},
+		},
+		// High-DRS starvation with abundant free capacity. Cohort has 6 shared
+		// CPU; hd-a is already using 3 (high DRS) and hd-b is idle (low DRS).
+		// 3 CPU is free and both CQs are backlogged. Look-ahead sends the
+		// freed capacity to hd-b, but the interrupt bounds it to N=2 this cycle,
+		// so only b0 and b1 admit (b2 waits for a later cycle) and the over-share
+		// hd-a admits nothing despite the spare unit.
+		"fair sharing look-ahead: interrupt bounds admissions to depth even with spare capacity": {
+			enableFairSharing: true,
+			featureGates:      map[featuregate.Feature]bool{features.FairSharingLookAhead: true},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("hd-a").
+					FairWeight(resource.MustParse("1")).
+					Cohort("hd-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("hd-b").
+					FairWeight(resource.MustParse("1")).
+					Cohort("hd-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("hd-lender").
+					FairWeight(resource.MustParse("1")).
+					Cohort("hd-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "6").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("hd-a-q", "default").ClusterQueue("hd-a").Obj(),
+				*utiltestingapi.MakeLocalQueue("hd-b-q", "default").ClusterQueue("hd-b").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("hd-a-run", "default").
+					Queue("hd-a-q").
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("hd-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "3000m").Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("hd-a1", "default").
+					Queue("hd-a-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("hd-b0", "default").
+					Queue("hd-b-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("hd-b1", "default").
+					Queue("hd-b-q").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("hd-b2", "default").
+					Queue("hd-b-q").
+					Creation(now.Add(2*time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("hd-a-run", "default").
+					Queue("hd-a-q").
+					Request(corev1.ResourceCPU, "3").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("hd-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "3000m").Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				// hd-a1 was dropped by the interrupt without evaluation:
+				// no status patch, requeued straight back to the heap.
+				*utiltestingapi.MakeWorkload("hd-a1", "default").
+					Queue("hd-a-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("hd-b0", "default").
+					Queue("hd-b-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue hd-b",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("hd-b").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("hd-b1", "default").
+					Queue("hd-b-q").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue hd-b",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("hd-b").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("hd-b2", "default").
+					Queue("hd-b-q").
+					Creation(now.Add(2*time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/hd-a-run": *utiltestingapi.MakeAdmission("hd-a").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "3000m").Obj()).Obj(),
+				"default/hd-b0": *utiltestingapi.MakeAdmission("hd-b").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+				"default/hd-b1": *utiltestingapi.MakeAdmission("hd-b").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"hd-a": {"default/hd-a1"},
+				"hd-b": {"default/hd-b2"},
+			},
+		},
+		// Two under-share CQs in the same flat cohort: after du-b admits its
+		// 2nd workload the interrupt drops the whole root scope, including
+		// du-c's remaining entry and the over-share du-a's head. Post the
+		// dropped-entry fix these return to the HEAP (one cycle of latency),
+		// not the inadmissible set. One unit stays idle this cycle - the
+		// documented cost of the interrupt.
+		"fair sharing look-ahead: interrupt drops a sibling under-share CQ's remaining entry to the heap": {
+			enableFairSharing: true,
+			featureGates:      map[featuregate.Feature]bool{features.FairSharingLookAhead: true},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("du-a").
+					FairWeight(resource.MustParse("1")).
+					Cohort("du-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("du-b").
+					FairWeight(resource.MustParse("1")).
+					Cohort("du-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("du-c").
+					FairWeight(resource.MustParse("1")).
+					Cohort("du-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("du-lender").
+					FairWeight(resource.MustParse("1")).
+					Cohort("du-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "6").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("du-a-q", "default").ClusterQueue("du-a").Obj(),
+				*utiltestingapi.MakeLocalQueue("du-b-q", "default").ClusterQueue("du-b").Obj(),
+				*utiltestingapi.MakeLocalQueue("du-c-q", "default").ClusterQueue("du-c").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("du-a-run", "default").
+					Queue("du-a-q").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("du-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "2000m").Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("du-a1", "default").
+					Queue("du-a-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("du-b1", "default").
+					Queue("du-b-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("du-b2", "default").
+					Queue("du-b-q").
+					Creation(now.Add(2*time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("du-c1", "default").
+					Queue("du-c-q").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("du-c2", "default").
+					Queue("du-c-q").
+					Creation(now.Add(3*time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				// du-a1 and du-c2 were dropped by the interrupt without
+				// evaluation: no status patch, requeued straight to the heap.
+				*utiltestingapi.MakeWorkload("du-a-run", "default").
+					Queue("du-a-q").
+					Request(corev1.ResourceCPU, "2").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("du-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "2000m").Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("du-a1", "default").
+					Queue("du-a-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("du-b1", "default").
+					Queue("du-b-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue du-b",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("du-b").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("du-b2", "default").
+					Queue("du-b-q").
+					Creation(now.Add(2*time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue du-b",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("du-b").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("du-c1", "default").
+					Queue("du-c-q").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue du-c",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("du-c").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("du-c2", "default").
+					Queue("du-c-q").
+					Creation(now.Add(3*time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/du-a-run": *utiltestingapi.MakeAdmission("du-a").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "2000m").Obj()).Obj(),
+				"default/du-b1": *utiltestingapi.MakeAdmission("du-b").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+				"default/du-b2": *utiltestingapi.MakeAdmission("du-b").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+				"default/du-c1": *utiltestingapi.MakeAdmission("du-c").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"du-a": {"default/du-a1"},
+				"du-c": {"default/du-c2"},
+			},
+		},
+		// Look-ahead with a preempting front: the under-share CQ's head
+		// needs a preemption, so it is not assumed this cycle - the interrupt
+		// must NOT fire, and the CQ's deeper entry must return to the HEAP
+		// (dropped without evaluation), not park as inadmissible.
+		"fair sharing look-ahead: preempting front does not trigger the interrupt and the deeper entry returns to the heap": {
+			enableFairSharing: true,
+			featureGates:      map[featuregate.Feature]bool{features.FairSharingLookAhead: true},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("pr-a").
+					FairWeight(resource.MustParse("1")).
+					Cohort("pr-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("pr-b").
+					FairWeight(resource.MustParse("1")).
+					Cohort("pr-cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("pr-lender").
+					FairWeight(resource.MustParse("1")).
+					Cohort("pr-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "2").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("pr-a-q", "default").ClusterQueue("pr-a").Obj(),
+				*utiltestingapi.MakeLocalQueue("pr-b-q", "default").ClusterQueue("pr-b").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("pr-a-run1", "default").
+					Queue("pr-a-q").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("pr-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).
+						Obj(), now.Add(-time.Minute)).
+					AdmittedAt(true, now.Add(-time.Minute)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("pr-a-run2", "default").
+					Queue("pr-a-q").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("pr-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("pr-b1", "default").
+					UID("wl-pr-b1").
+					JobUID("job-pr-b1").
+					Queue("pr-b-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("pr-b2", "default").
+					Queue("pr-b-q").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("pr-a-run1", "default").
+					Queue("pr-a-q").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("pr-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).
+						Obj(), now.Add(-time.Minute)).
+					AdmittedAt(true, now.Add(-time.Minute)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("pr-a-run2", "default").
+					Queue("pr-a-q").
+					Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("pr-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-pr-b1, JobUID: job-pr-b1) due to Fair Sharing within the cohort; preemptor path: /pr-cohort/pr-b; preemptee path: /pr-cohort/pr-a",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortFairSharing",
+						Message:            "Preempted to accommodate a workload (UID: wl-pr-b1, JobUID: job-pr-b1) due to Fair Sharing within the cohort; preemptor path: /pr-cohort/pr-b; preemptee path: /pr-cohort/pr-a",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("pr-b1", "default").
+					UID("wl-pr-b1").
+					JobUID("job-pr-b1").
+					Queue("pr-b-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: kueue.DefaultPodSetName,
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+				// pr-b2 was dropped without evaluation behind the preempting
+				// front: no status patch, requeued straight to the heap.
+				*utiltestingapi.MakeWorkload("pr-b2", "default").
+					Queue("pr-b-q").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/pr-a-run1": *utiltestingapi.MakeAdmission("pr-a").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+				"default/pr-a-run2": *utiltestingapi.MakeAdmission("pr-a").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"pr-b": {"default/pr-b1", "default/pr-b2"},
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "pr-a-run2", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "pr-a-run2", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "pr-b1", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "pr-b1", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		// A front head that cannot fit (requests more than the whole cohort)
+		// fails during processing; with look-ahead the CQ's deeper entry is
+		// dropped without evaluation and must return to the HEAP (wantLeft) so
+		// the next cycle can reconsider it - not park as inadmissible. The
+		// failed front itself keeps the pre-existing NoFit parking semantics.
+		"fair sharing look-ahead: deeper entry behind a failed front returns to the heap": {
+			enableFairSharing: true,
+			featureGates:      map[featuregate.Feature]bool{features.FairSharingLookAhead: true},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("ff-a").
+					FairWeight(resource.MustParse("1")).
+					Cohort("ff-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("ff-lender").
+					FairWeight(resource.MustParse("1")).
+					Cohort("ff-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "2").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("ff-a-q", "default").ClusterQueue("ff-a").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("ff-a-big", "default").
+					Queue("ff-a-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "3").
+					Obj(),
+				*utiltestingapi.MakeWorkload("ff-a-small", "default").
+					Queue("ff-a-q").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("ff-a-big", "default").
+					Queue("ff-a-q").
+					Creation(now).
+					Request(corev1.ResourceCPU, "3").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+						Message:            "couldn't assign flavors to pod set main: insufficient quota for cpu in flavor on-demand, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: kueue.DefaultPodSetName,
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}).
+					Obj(),
+				// ff-a-small was dropped without evaluation: no status patch,
+				// requeued straight back to the heap.
+				*utiltestingapi.MakeWorkload("ff-a-small", "default").
+					Queue("ff-a-q").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"ff-a": {"default/ff-a-small"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"ff-a": {"default/ff-a-big"},
+			},
+		},
+		// Hierarchical cohorts: root -> {hx (under-share, CQs x1+x2), hy
+		// (over-share, CQ y1)}, with 8 shared CPU and hy already using 4. The
+		// interrupt is keyed on the root's child subtree, so the two freed-capacity
+		// admissions both land in subtree hx (one from x1, one from x2) and then
+		// interrupt the cycle - the over-share subtree hy borrows nothing. A per-CQ
+		// interrupt would not have fired (each of x1,x2 admits only once) and hy
+		// would have grabbed the spare capacity.
+		"fair sharing look-ahead: subtree interrupt keeps freed capacity within the under-share sub-cohort": {
+			enableFairSharing: true,
+			featureGates:      map[featuregate.Feature]bool{features.FairSharingLookAhead: true},
+			cohorts: []kueue.Cohort{
+				*utiltestingapi.MakeCohort("hroot").Obj(),
+				*utiltestingapi.MakeCohort("hx").Parent("hroot").Obj(),
+				*utiltestingapi.MakeCohort("hy").Parent("hroot").Obj(),
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("hlender").
+					FairWeight(resource.MustParse("1")).
+					Cohort("hroot").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "8").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("x1").
+					FairWeight(resource.MustParse("1")).
+					Cohort("hx").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("x2").
+					FairWeight(resource.MustParse("1")).
+					Cohort("hx").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("y1").
+					FairWeight(resource.MustParse("1")).
+					Cohort("hy").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("lq-x1", "eng-alpha").ClusterQueue("x1").Obj(),
+				*utiltestingapi.MakeLocalQueue("lq-x2", "eng-alpha").ClusterQueue("x2").Obj(),
+				*utiltestingapi.MakeLocalQueue("lq-y1", "eng-alpha").ClusterQueue("y1").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("py-run", "eng-alpha").
+					Queue("lq-y1").
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("y1").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "4000m").Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("px1", "eng-alpha").
+					Queue("lq-x1").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("px2", "eng-alpha").
+					Queue("lq-x2").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakeWorkload("py1", "eng-alpha").
+					Queue("lq-y1").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			// Listed alphabetically to match the fake client List ordering.
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("px1", "eng-alpha").
+					Queue("lq-x1").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue x1",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("x1").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("px2", "eng-alpha").
+					Queue("lq-x2").
+					Creation(now.Add(time.Second)).
+					Request(corev1.ResourceCPU, "1").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue x2",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("x2").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("py-run", "eng-alpha").
+					Queue("lq-y1").
+					Request(corev1.ResourceCPU, "4").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("y1").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "on-demand", "4000m").Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				// py1 was dropped by the interrupt without evaluation:
+				// no status patch, requeued straight back to the heap.
+				*utiltestingapi.MakeWorkload("py1", "eng-alpha").
+					Queue("lq-y1").
+					Creation(now).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/py-run": *utiltestingapi.MakeAdmission("y1").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "4000m").Obj()).Obj(),
+				"eng-alpha/px1": *utiltestingapi.MakeAdmission("x1").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+				"eng-alpha/px2": *utiltestingapi.MakeAdmission("x2").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "on-demand", "1000m").Obj()).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"y1": {"eng-alpha/py1"},
 			},
 		},
 	}
