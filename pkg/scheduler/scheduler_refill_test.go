@@ -17,17 +17,26 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/util/routine"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -405,4 +414,110 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 		resourceFlavors: resourceFlavors,
 		fakeClock:       fakeClock,
 	}, cases)
+}
+
+// TestRefillReleasesWorkloadAlreadyAccountedInCache covers the one exit where a
+// refilled workload leaves the cycle without being requeued or deleted: its
+// nomination is dropped because the scheduler cache already accounts for it.
+// The queue's copy is stale in that case, which is reachable whenever a
+// workload is admitted between the cycle's snapshot and the refill pop.
+//
+// This cannot be expressed as a scheduleTestCase because the harness derives
+// the queues and the scheduler cache from one workload list, so no workload can
+// be pending in the queue and admitted in the cache at the same time.
+func TestRefillReleasesWorkloadAlreadyAccountedInCache(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.FairSharingRefill: true})
+
+	now := time.Now().Truncate(time.Second)
+	flavor := utiltestingapi.MakeResourceFlavor("default").Obj()
+	cq := utiltestingapi.MakeClusterQueue("refill-poor").
+		Cohort("refill").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+			Resource(corev1.ResourceCPU, "8", "0").Obj()).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("poor-lq", "default").ClusterQueue("refill-poor").Obj()
+
+	pending := func(name string, creation time.Time) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, "default").
+			Queue("poor-lq").
+			Creation(creation).
+			PodSets(*utiltestingapi.MakePodSet("one", 1).
+				Request(corev1.ResourceCPU, "1").
+				Obj())
+	}
+	// head is admitted by the cycle, which triggers the refill pop of stale.
+	head := pending("head", now.Add(-2*time.Minute)).Obj()
+	staleWrapper := pending("stale", now.Add(-time.Minute))
+	stale := staleWrapper.Obj()
+
+	cl := utiltesting.NewClientBuilder().
+		WithLists(
+			&kueue.WorkloadList{Items: []kueue.Workload{*head, *stale}},
+			&kueue.LocalQueueList{Items: []kueue.LocalQueue{*lq}},
+		).
+		WithObjects(utiltesting.MakeNamespaceWrapper("default").Obj()).
+		WithStatusSubresource(&kueue.Workload{}).
+		Build()
+
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+		qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	cqCache.AddOrUpdateResourceFlavor(log, flavor)
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue in cache: %v", err)
+	}
+	if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue in manager: %v", err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Inserting localQueue in manager: %v", err)
+	}
+
+	// The queue keeps the pending copy it was loaded with, which is the state
+	// a refill pop can observe.
+	admittedStale := staleWrapper.Clone().
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("refill-poor").PodSets(
+			utiltestingapi.MakePodSetAssignment("one").
+				Assignment(corev1.ResourceCPU, "default", "1").Count(1).Obj(),
+		).Obj(), now).
+		Obj()
+	if !cqCache.AddOrUpdateWorkload(log, admittedStale) {
+		t.Fatal("Failed to account the workload in the scheduler cache")
+	}
+	if !cqCache.IsAdded(*workload.NewInfo(admittedStale)) {
+		t.Fatal("The workload is not accounted in the scheduler cache")
+	}
+
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{},
+		WithFairSharing(&config.FairSharing{}),
+		WithClock(t, testingclock.NewFakeClock(now)),
+		WithPreemptionExpectations(preemptexpectations.New()),
+	)
+	wg := sync.WaitGroup{}
+	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+		func() { wg.Add(1) },
+		func() { wg.Done() },
+	))
+	ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+	defer cancel()
+	go qManager.CleanUpOnContext(ctx)
+
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	// Dropped means neither requeued nor deleted, so nothing returns to the heap.
+	if got := qManager.Dump()["refill-poor"]; len(got) != 0 {
+		t.Errorf("Workloads left on the heap after the dropped nomination: %v", got)
+	}
+
+	// The workload controller re-adds the workload once it is pending again.
+	// A claim left behind by the drop would make this a no-op.
+	if err := qManager.AddOrUpdateWorkload(log, stale.DeepCopy()); err != nil {
+		t.Fatalf("Re-adding the workload: %v", err)
+	}
+	want := []workload.Reference{"default/stale"}
+	if diff := cmp.Diff(want, qManager.Dump()["refill-poor"], cmpDump); diff != "" {
+		t.Errorf("The workload did not return to the queue; the drop kept its inflight claim (-want,+got):\n%s", diff)
+	}
 }
