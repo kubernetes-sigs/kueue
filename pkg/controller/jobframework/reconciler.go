@@ -1219,11 +1219,15 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 }
 
 // ApplyWorkloadPriority is the resolved-input variant of UpdateWorkloadPriority.
-// It has the same update semantics, but rather than resolving the class itself it
-// takes the reference and value the caller supplies, so a reconcile that already
-// resolved for another set of workloads reuses that exact result. Two lookups of
-// one class in the same reconcile can return different values, which would leave
-// the sets holding different priorities.
+//
+// It has the same update semantics as UpdateWorkloadPriority, but instead of
+// resolving priority class/value internally, it uses the (priorityClassRef,
+// priority) provided by the caller.
+//
+// Use this when priority was already resolved for obj earlier in the same
+// reconcile and that exact result must be reused across another workload set.
+// This prevents multiple lookups of the same class in one reconcile from
+// producing mixed priority values.
 //
 // Every workload passed has to belong to obj, and the reference and value have
 // to be what obj resolved to in this reconcile: neither is checked here.
@@ -1239,10 +1243,20 @@ func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventR
 	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, sameClassName, needsClassChange)
 }
 
-// applyResolvedPriority is the write path UpdateWorkloadPriority and
-// ApplyWorkloadPriority share. It writes the resolved ref/value to every eligible
-// workload whose full priority state differs, so a transition carries along the
-// ones already naming the class rather than leaving the object's set split.
+// applyResolvedPriority contains the common write path shared by
+// UpdateWorkloadPriority and ApplyWorkloadPriority.
+//
+// It applies one resolved (priorityClassRef, priority) to eligible workloads
+// whose current state differs, so a transition carries along the ones already
+// naming the class rather than leaving the object's set split.
+//
+// Ordering is intentional:
+//  1. sameClassName first (repair a stale value under the same class name)
+//  2. needsClassChange second (class transition)
+//
+// The transitions start only once the repairs are through, so a class-name
+// mismatch survives as the retry marker if a repair fails. Updates within each
+// group are parallelized and cancellable via ctx.
 func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
 	priorityClassRef *kueue.PriorityClassRef, priority int32, sameClassName, needsClassChange []*kueue.Workload) error {
 	// One workload that will not take the write does not speak for the rest, so
