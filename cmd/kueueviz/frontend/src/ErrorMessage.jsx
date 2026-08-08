@@ -25,6 +25,7 @@ import './App.css';
  * Handles plain strings, Error objects, and arbitrary objects/events.
  */
 export const errorToString = (error) => {
+  if (error === undefined) return undefined;
   if (typeof error === 'string') return error;
   if (error && typeof error.message === 'string' && error.message.length > 0) return error.message;
   try {
