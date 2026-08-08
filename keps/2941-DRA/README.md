@@ -1816,6 +1816,7 @@ Fitting in an `int64` is not quite the range either. `resources.Amount` keeps `m
 another sums to exactly `MaxInt64` with no overflow and no rounding, and comes out of that fold as
 unlimited rather than as the number it is. The finite range is `0` up to `MaxInt64` exclusive, and a
 total landing on the sentinel is refused alongside the ones past it.
+
 Nothing currently stops an administrator from naming a logical resource `cpu`, where an
 unconditional `SafeValue` would read `8` as 8 milliCPU. `pods` is worse, since flavor assignment
 writes that key from the PodSet count and the write replaces rather than adds, so a charge mapped
@@ -1825,10 +1826,6 @@ is not refused with it: its milli-unit reading is a conversion to get right, not
 away. The component-wise maximum keeps the
 envelope itself bounded, and tests cover multiple `firstAvailable` requests, `Exactly` plus
 `firstAvailable` on one resource, and PodSet scaling past the representable range.
-
-The same check is needed wherever these quantities are summed, not only within a Pod. Two PodSets
-can each have a representable total for a logical resource while the sum across PodSets does not
-fit in an `int64`.
 
 There is currently no way to report any of this. `totalRequestsFromPodSets` returns
 `[]PodSetResources` and no error, and `NewInfo` and `Info.Update` do not return errors either. The
@@ -1894,8 +1891,8 @@ unknown forms are rejected rather than charged.
 The other operand has to be non-negative too. A logical resource is merged with whatever the PodSet
 already requests under that name, and the total is floored to zero afterwards, so a negative
 ordinary request on that key subtracts from the envelope and leaves a clean zero where a device was
-charged. Three ways in. A resource transformation output is a factor supplied by configuration, and a negative
-one reaches the merge as a request; that is
+charged. Three ways in. A resource transformation output is a factor supplied by configuration, and
+a negative one reaches the merge as a request; that is
 [#13985](https://github.com/kubernetes-sigs/kueue/issues/13985). And `validatePodSet` does not reach
 `spec.overhead`, which `PodRequests` adds to the charge, so a negative overhead survives even with
 `WorkloadValidateResourcesAreNonNegative` on; that is
@@ -1909,8 +1906,8 @@ envelope of `8` gives `5`, which is positive and three short. Non-negativity
 of both operands belongs with exact representability in what has to hold before the merge; treating
 `FloorToZero` as the guard hides the cancellation rather than preventing it.
 
-Both say something about the operands and nothing about them arriving. A third has to: every
-contribution to a key a logical resource is charged on reaches the merge exactly once.
+Those two premises say something about the operands and nothing about them arriving. One more has
+to: every contribution to a key a logical resource is charged on reaches the merge exactly once.
 `applyResourceTransformations` accumulates the outputs of transformations but assigns a retained or
 untransformed input, so when an output shares its name with something the PodSet requests directly,
 which of them survives is decided by the order the input map is walked, and the same workload can be
@@ -1932,7 +1929,10 @@ after the merge is not there to be transformed. Named as `transformations[].inpu
 nothing and produces no output, and named as `multiplyBy` it is absent, which leaves the input
 carried through unmultiplied rather than scaled by the device count. The same identity fallback is
 reachable without DRA, from `excludeResourcePrefixes` covering the multiplier;
-[#14007](https://github.com/kubernetes-sigs/kueue/issues/14007) tracks that one.
+[#14007](https://github.com/kubernetes-sigs/kueue/issues/14007) tracks that one. Outputs aimed at a
+logical resource are the other direction and do reach it through the merge. Alpha does not add a
+second pass over the merged requests; the restriction is written down so that a configuration
+reading as though it scales with the devices is not taken for one that does.
 
 That filter is applied in the same place, to the pod's requests and before the merge, so it does not
 reach a logical resource either. With `example.com/` excluded, an ordinary `example.com/other`
@@ -1940,10 +1940,7 @@ request drops to zero while a logical `example.com/gpu` is still charged 8. Noth
 and the bound is untouched, but one part of the configuration says a resource is ignored while
 another charges it. Alpha has to pick: refuse a `deviceClassMappings[].name` an excluded prefix
 covers, apply the filter again after the merge, or write logical resources down as an exception.
-Refusing the overlap is the one that fails closed and keeps a name meaning one thing. Outputs aimed at a logical
-resource are the other direction and do reach it through the merge. Alpha does not add a second
-pass over the merged requests; the restriction is written down so that a configuration reading as
-though it scales with the devices is not taken for one that does.
+Refusing the overlap is the one that fails closed and keeps a name meaning one thing.
 
 This only covers the request forms that exist in
 the Kubernetes API version Kueue is compiled against. A classifier written over the Go types cannot
