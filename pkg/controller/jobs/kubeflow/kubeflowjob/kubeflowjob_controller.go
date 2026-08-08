@@ -149,6 +149,14 @@ func (j *KubeflowJob) PodsReady(ctx context.Context, _ client.Client) bool {
 	return false
 }
 
+func (j *KubeflowJob) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
+	minCount := 0
+	for _, rt := range j.OrderedReplicaTypes() {
+		minCount += int(podsCount(j.KFJobControl.ReplicaSpecs(), rt))
+	}
+	return jobframework.PodsScheduledBySelector(ctx, c, j.Object().GetNamespace(), j.PodLabelSelector(), minCount)
+}
+
 func (j *KubeflowJob) GVK() schema.GroupVersionKind {
 	return j.KFJobControl.GVK()
 }

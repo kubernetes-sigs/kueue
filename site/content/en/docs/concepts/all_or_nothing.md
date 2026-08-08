@@ -59,6 +59,9 @@ Two settings are worth calling out:
   This prevents two half-scheduled jobs from deadlocking each other.
 - `recoveryTimeout`: bounds how long an already-running workload may wait for
   a replacement Pod (for example after a node failure) before being evicted.
+- `unscheduledTimeout`: bounds how long an admitted workload may wait for all
+  required pods to be scheduled (`PodScheduled=True`) before being evicted,
+  independently of the main `timeout` used for post-schedule startup.
 
 This mechanism is a heuristic: it does not prevent partial scheduling, but it
 guarantees that a partially scheduled workload does not hold resources
