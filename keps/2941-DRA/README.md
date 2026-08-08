@@ -1809,6 +1809,13 @@ What the check covers is the resources an envelope is charged on, and every cont
 one of them: ordinary requests, transformation outputs, overhead, `Exactly` charges, and the sum
 across PodSets. A resource no envelope reaches keeps the conversion it has now, so turning the gate
 on does not change what an unrelated fractional request admits to.
+
+Fitting in an `int64` is not quite the range either. `resources.Amount` keeps `math.MaxInt64` as its
+`Unlimited` sentinel, and `Info.ResourceUsage` folds the PodSets together through
+`Amount.AddInt64`, which saturates there. A charge of `MaxInt64 - 10` on one PodSet and `10` on
+another sums to exactly `MaxInt64` with no overflow and no rounding, and comes out of that fold as
+unlimited rather than as the number it is. The finite range is `0` up to `MaxInt64` exclusive, and a
+total landing on the sentinel is refused alongside the ones past it.
 Nothing currently stops an administrator from naming a logical resource `cpu`, where an
 unconditional `SafeValue` would read `8` as 8 milliCPU. `pods` is worse, since flavor assignment
 writes that key from the PodSet count and the write replaces rather than adds, so a charge mapped
@@ -1830,7 +1837,14 @@ instead of saturating. It belongs where the quantities are already combined: `to
 is what converts, accumulates, merges, and multiplies them, and a check kept next to the envelope
 alone would answer for the envelope while the `Exactly` charge on the same resource went through
 unchecked. What it reports is a property of the request rather than of the attempt, so it is
-permanent; a retry rebuilds the same numbers. Until that exists, the Alpha bound holds for charges
+permanent; a retry rebuilds the same numbers.
+
+That much covers a PodSet. The sum across them is taken later, in `Info.ResourceUsage`, and neither
+half of it is checked: the assigned side goes through the saturating `Amount.AddInt64` and lands on
+the sentinel above, and the unassigned side is a plain `+=` that wraps, `MaxInt64 - 10` plus `20`
+coming out as `-9223372036854775799`. Carrying a running total while the PodSets are built catches
+both, and is the last point where the workload can still be refused rather than admitted holding a
+number nothing downstream represents. Until that exists, the Alpha bound holds for charges
 the shared path can represent, which is the condition the existing `Exactly` charges already depend
 on.
 
@@ -1918,7 +1932,15 @@ after the merge is not there to be transformed. Named as `transformations[].inpu
 nothing and produces no output, and named as `multiplyBy` it is absent, which leaves the input
 carried through unmultiplied rather than scaled by the device count. The same identity fallback is
 reachable without DRA, from `excludeResourcePrefixes` covering the multiplier;
-[#14007](https://github.com/kubernetes-sigs/kueue/issues/14007) tracks that one. Outputs aimed at a logical
+[#14007](https://github.com/kubernetes-sigs/kueue/issues/14007) tracks that one.
+
+That filter is applied in the same place, to the pod's requests and before the merge, so it does not
+reach a logical resource either. With `example.com/` excluded, an ordinary `example.com/other`
+request drops to zero while a logical `example.com/gpu` is still charged 8. Nothing is undercharged
+and the bound is untouched, but one part of the configuration says a resource is ignored while
+another charges it. Alpha has to pick: refuse a `deviceClassMappings[].name` an excluded prefix
+covers, apply the filter again after the merge, or write logical resources down as an exception.
+Refusing the overlap is the one that fails closed and keeps a name meaning one thing. Outputs aimed at a logical
 resource are the other direction and do reach it through the merge. Alpha does not add a second
 pass over the merged requests; the restriction is written down so that a configuration reading as
 though it scales with the devices is not taken for one that does.
