@@ -2181,6 +2181,10 @@ func TestReconcileWorkloadsDoesNotCancelTheOtherBranches(t *testing.T) {
 				case <-time.After(30 * time.Second):
 					return errNotOrdered
 				}
+				// A second rather than the microseconds the cancel would take:
+				// the branch it would come from has already failed, so waiting
+				// costs nothing on a passing run and a short window would let a
+				// descheduled goroutine read as no cancellation at all.
 				select {
 				case <-ctx.Done():
 					cancelledHere.Store(true)
