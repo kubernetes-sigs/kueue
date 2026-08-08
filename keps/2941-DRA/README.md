@@ -1850,8 +1850,10 @@ therefore has no place to run.
 For Alpha the rule is phrased where the grouping still exists: every alternative of one
 `firstAvailable` request has to map to the same logical resource, and a request whose alternatives
 map to more than one is permanently inadmissible. The envelope then covers a single resource, which
-takes a single flavor, whose labels are the ones every alternative would have wanted. Nothing has to
-be said about those labels, and nothing downstream has to know the request was a prioritized list.
+takes a flavor the way any other single resource does. What that flavor's labels admit may leave an
+alternative without a node to run on, which is an admission-accuracy and liveness question rather
+than something the count bound rests on, and nothing downstream has to know the request was a
+prioritized list.
 
 This keeps the case the feature is for, several DeviceClasses that an administrator already maps to
 one logical resource, and leaves out fallback between different resources. That one needs an
