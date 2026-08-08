@@ -1,0 +1,15 @@
+# MultiKueue control-plane performance baseline.
+#
+# This is observational until repeated runs establish stable CI thresholds.
+#
+# The run measures a manager configured the way Kueue ships: the manager's own client at the
+# clientConnection defaults, and the worker-cluster clients at client-go's defaults, which is what
+# MultiKueue leaves them at. Those defaults are what bounds the throughput, so the workload count is
+# sized for a run of about a minute and a half rather than for a large population. See README.
+workloadCount: 120
+workerClusters: 3
+creationWorkers: 20
+cpuRequest: 1m
+# Safety bound for a hung run, not a performance threshold. The baseline drains in about 95 seconds,
+# so this leaves ample room for a slower CI node.
+timeout: 10m

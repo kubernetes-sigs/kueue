@@ -1,0 +1,77 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package main
+
+import (
+	"testing"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+func TestBenchmarkConfigValidate(t *testing.T) {
+	valid := benchmarkConfig{
+		WorkloadCount:   1000,
+		WorkerClusters:  3,
+		CreationWorkers: 20,
+		CPURequest:      "1m",
+		Timeout:         metav1.Duration{Duration: 30 * time.Minute},
+	}
+
+	testCases := map[string]struct {
+		mutate func(*benchmarkConfig)
+		valid  bool
+	}{
+		"valid": {
+			valid: true,
+		},
+		"zero workloads": {
+			mutate: func(c *benchmarkConfig) { c.WorkloadCount = 0 },
+		},
+		"zero workers": {
+			mutate: func(c *benchmarkConfig) { c.WorkerClusters = 0 },
+		},
+		"zero creation workers": {
+			mutate: func(c *benchmarkConfig) { c.CreationWorkers = 0 },
+		},
+		"invalid CPU": {
+			mutate: func(c *benchmarkConfig) { c.CPURequest = "not-a-quantity" },
+		},
+		"zero CPU": {
+			mutate: func(c *benchmarkConfig) { c.CPURequest = "0" },
+		},
+		"zero timeout": {
+			mutate: func(c *benchmarkConfig) { c.Timeout.Duration = 0 },
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			cfg := valid
+			if tc.mutate != nil {
+				tc.mutate(&cfg)
+			}
+			err := cfg.validate()
+			if tc.valid && err != nil {
+				t.Fatalf("validate() unexpected error: %v", err)
+			}
+			if !tc.valid && err == nil {
+				t.Fatal("validate() returned no error")
+			}
+		})
+	}
+}
