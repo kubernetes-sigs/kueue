@@ -345,12 +345,6 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
-- name: SkipFinalizersForPodsSuspendedByParent
-  versionedSpecs:
-  - default: true
-    lockToDefault: false
-    preRelease: Beta
-    version: "0.16"
 - name: SkipReassignmentForPodOwnedWorkloads
   versionedSpecs:
   - default: true
