@@ -37,17 +37,28 @@ import (
 // consideration by scheduling when FairSharing is enabled. See
 // runTournament for description of algorithm.
 type fairSharingIterator struct {
-	// cqToEntry tracks ClusterQueues which still have workloads
-	// to schedule, and the corresponding workload entry.
-	cqToEntry     map[*schdcache.ClusterQueueSnapshot]*entry
-	entryComparer entryComparer
-	log           logr.Logger
+	// cqToEntry tracks ClusterQueues which still have workloads to schedule,
+	// and their pending entries in popped (heap) order. With Fair Sharing
+	// look-ahead a CQ may have more than one entry; the tournament always
+	// considers each CQ's front entry, and done() advances that front only
+	// after the previous entry is successfully assumed.
+	cqToEntry map[*schdcache.ClusterQueueSnapshot][]*entry
+	// secondPassEntries holds entries that already reserved quota and are only
+	// back to complete or repair their topology assignment. They are not "in
+	// line" for admission, so they stay out of the per-CQ chains: they are
+	// returned before any tournament round (mirroring the classical iterator,
+	// which sorts quota-reserved workloads first), a failure of theirs never
+	// drops the CQ's fresh heads in done(), and the look-ahead interrupt
+	// never discards them.
+	secondPassEntries []*entry
+	entryComparer     entryComparer
+	log               logr.Logger
 }
 
 func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering) *fairSharingIterator {
 	log := ctrl.LoggerFrom(ctx)
 	f := fairSharingIterator{
-		cqToEntry: make(map[*schdcache.ClusterQueueSnapshot]*entry, len(entries)),
+		cqToEntry: make(map[*schdcache.ClusterQueueSnapshot][]*entry, len(entries)),
 		entryComparer: entryComparer{
 			log:              log,
 			workloadOrdering: workloadOrdering,
@@ -55,49 +66,151 @@ func makeFairSharingIterator(ctx context.Context, entries []entry, workloadOrder
 		log: log,
 	}
 	for i := range entries {
-		f.cqToEntry[entries[i].clusterQueueSnapshot] = &entries[i]
+		if entries[i].secondPass {
+			f.secondPassEntries = append(f.secondPassEntries, &entries[i])
+			continue
+		}
+		cq := entries[i].clusterQueueSnapshot
+		f.cqToEntry[cq] = append(f.cqToEntry[cq], &entries[i])
 	}
+	// takeAllReady emits second-pass entries in map order; sort them so
+	// contended repairs resolve deterministically. This approximates the
+	// classical iterator's ordering of quota-reserved workloads, which
+	// additionally tiebreaks on borrowing and gates the priority comparison
+	// behind PrioritySortingWithinCohort.
+	slices.SortStableFunc(f.secondPassEntries, func(a, b *entry) int {
+		p1, p2 := priority.EffectivePriority(log, a.Obj), priority.EffectivePriority(log, b.Obj)
+		if p1 != p2 {
+			if p1 > p2 {
+				return -1
+			}
+			return 1
+		}
+		ta, tb := workloadOrdering.GetQueueOrderTimestamp(a.Obj), workloadOrdering.GetQueueOrderTimestamp(b.Obj)
+		if ta.Before(tb) {
+			return -1
+		}
+		if tb.Before(ta) {
+			return 1
+		}
+		return 0
+	})
 	return &f
 }
 
 func (f *fairSharingIterator) hasNext() bool {
-	return len(f.cqToEntry) > 0
+	return len(f.secondPassEntries) > 0 || len(f.cqToEntry) > 0
 }
 
 func (f *fairSharingIterator) pop() *entry {
+	// Second-pass entries go first: their quota is already reserved and sits
+	// idle until the topology assignment completes, and they compete with
+	// nobody for capacity, so there is nothing for a tournament to decide.
+	if len(f.secondPassEntries) > 0 {
+		e := f.secondPassEntries[0]
+		f.secondPassEntries = f.secondPassEntries[1:]
+		f.log.V(3).Info("Returning second-pass workload",
+			"clusterQueue", klog.KRef("", string(e.ClusterQueue)),
+			"workload", klog.KObj(e.Obj))
+		return e
+	}
+
 	cq := f.getCq()
 
-	// CQ has no Cohort. We simply return its workload.
+	// CQ has no Cohort. We simply return its front workload.
 	if !cq.HasParent() {
-		entry := f.cqToEntry[cq]
+		e := f.cqToEntry[cq][0]
 		f.log.V(3).Info("Returning workload from ClusterQueue without Cohort",
 			"clusterQueue", klog.KRef("", string(cq.GetName())),
-			"workload", klog.KObj(entry.Obj))
-		delete(f.cqToEntry, cq)
-		return entry
+			"workload", klog.KObj(e.Obj))
+		return e
 	}
 
 	// CQ is part of a Cohort. We run a tournament, to select the
-	// most fair workload at each level.
+	// most fair workload at each level. Only each CQ's front entry
+	// participates in a given round.
 	root := cq.Parent().Root()
 	log := f.log.WithValues("rootCohort", klog.KRef("", string(root.GetName())))
 
+	front := f.frontEntries()
+
 	log.V(5).Info("Computing DominantResourceShare for tournament")
-	f.entryComparer.computeDRS(root, f.cqToEntry)
+	f.entryComparer.computeDRS(root, front)
 
 	log.V(3).Info("Running tournament to decide next workload to consider in scheduling cycle")
-	entry := runTournament(root, f.entryComparer, f.cqToEntry)
+	e := runTournament(root, f.entryComparer, front)
 
 	log = log.WithValues(
-		"cohort", klog.KRef("", string(entry.clusterQueueSnapshot.Parent().GetName())),
-		"clusterQueue", klog.KRef("", string(entry.clusterQueueSnapshot.GetName())),
-		"winningWorkload", klog.KObj(entry.Obj))
+		"cohort", klog.KRef("", string(e.clusterQueueSnapshot.Parent().GetName())),
+		"clusterQueue", klog.KRef("", string(e.clusterQueueSnapshot.GetName())),
+		"winningWorkload", klog.KObj(e.Obj))
 
 	log.V(3).Info("Determined tournament winner")
 	f.entryComparer.logDrsValuesWhenVerbose(log)
 
-	delete(f.cqToEntry, entry.clusterQueueSnapshot)
-	return entry
+	return e
+}
+
+func (f *fairSharingIterator) done(e *entry) {
+	// Second-pass entries are not part of any per-CQ chain: their outcome
+	// must neither advance the CQ's front nor drop its fresh heads.
+	if e.secondPass {
+		return
+	}
+	if e.status == assumed {
+		f.advance(e.clusterQueueSnapshot)
+		return
+	}
+	// The front entry failed, so this ClusterQueue's deeper entries are
+	// dropped without evaluation; mark them so they requeue to the heap and
+	// the next cycle reconsiders them (under BestEffortFIFO a smaller deeper
+	// workload may then legitimately jump the failed front).
+	for _, deeper := range f.cqToEntry[e.clusterQueueSnapshot][1:] {
+		deeper.markDropped()
+	}
+	delete(f.cqToEntry, e.clusterQueueSnapshot)
+}
+
+func (f *fairSharingIterator) dropWhile(match func(*entry) bool) int {
+	dropped := 0
+	for cq, entries := range f.cqToEntry {
+		kept := entries[:0]
+		for _, e := range entries {
+			if !match(e) {
+				kept = append(kept, e)
+			} else {
+				e.markDropped()
+				dropped++
+			}
+		}
+		if len(kept) == 0 {
+			delete(f.cqToEntry, cq)
+		} else {
+			f.cqToEntry[cq] = kept
+		}
+	}
+	return dropped
+}
+
+// frontEntries returns the current front entry of every ClusterQueue still
+// holding pending entries, keyed by CQ. This is the set considered in one
+// tournament round.
+func (f *fairSharingIterator) frontEntries() map[*schdcache.ClusterQueueSnapshot]*entry {
+	front := make(map[*schdcache.ClusterQueueSnapshot]*entry, len(f.cqToEntry))
+	for cq, entries := range f.cqToEntry {
+		front[cq] = entries[0]
+	}
+	return front
+}
+
+// advance drops the front entry of the given CQ, removing the CQ entirely
+// once it has no more entries to consider.
+func (f *fairSharingIterator) advance(cq *schdcache.ClusterQueueSnapshot) {
+	if entries := f.cqToEntry[cq]; len(entries) > 1 {
+		f.cqToEntry[cq] = entries[1:]
+		return
+	}
+	delete(f.cqToEntry, cq)
 }
 
 // getCq returns a CQ with a workload pending scheduling. This
@@ -135,8 +248,9 @@ func runTournament(cohort *schdcache.CohortSnapshot, ec entryComparer, cqToEntry
 		}
 	}
 
-	// Collect entries from CQ. If an entry was returned during a
-	// previous call to pop, it will not be in the cqToEntry map.
+	// Collect entries from CQ. A ClusterQueue is absent from the map once
+	// done() consumed its entries: advanced past them after successful
+	// assumptions, or dropped them behind a failed front.
 	for _, childCq := range cohort.ChildCQs() {
 		if candidate, ok := cqToEntry[childCq]; ok {
 			candidates = append(candidates, candidate)
@@ -167,8 +281,8 @@ type entryComparer struct {
 	log       logr.Logger
 	drsValues map[drsKey]schdcache.DRS
 	// requestedFRs stores the FlavorResources each workload's
-	// assignment uses. Bounded by the number of ClusterQueues
-	// (one head-of-line workload per CQ), not total workloads.
+	// assignment uses. Bounded by the number of ClusterQueues because only
+	// front entries participate in a round; rebuilt on every pop.
 	requestedFRs     map[workload.Reference]resources.FlavorResourceQuantities
 	workloadOrdering workload.Ordering
 }

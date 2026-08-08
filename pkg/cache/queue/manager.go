@@ -56,6 +56,12 @@ var (
 	errWorkloadIsInadmissible           = errors.New("workload is inadmissible and can't be added to a LocalQueue")
 )
 
+// FairSharingLookAheadDepth is the fixed number of heads popped per
+// ClusterQueue per scheduling cycle when Fair Sharing look-ahead is active.
+// The scheduler interrupts the cycle once a single root-cohort subtree admits
+// this many workloads, so both values must stay in sync.
+const FairSharingLookAheadDepth = 2
+
 // Option configures the manager.
 type Option func(*Manager)
 
@@ -69,6 +75,15 @@ func WithClock(c clock.WithDelayedExecution) Option {
 func WithAdmissionFairSharing(cfg *config.AdmissionFairSharing) Option {
 	return func(m *Manager) {
 		m.admissionFairSharingConfig = cfg
+	}
+}
+
+// WithFairSharing records whether Fair Sharing is enabled. When it is (and the
+// FairSharingLookAhead feature gate is on), heads() pops up to
+// FairSharingLookAheadDepth workloads per ClusterQueue per cycle.
+func WithFairSharing(enabled bool) Option {
+	return func(m *Manager) {
+		m.fairSharingEnabled = enabled
 	}
 }
 
@@ -176,6 +191,7 @@ type Manager struct {
 	topologyUpdateWatchers []TopologyUpdateWatcher
 
 	admissionFairSharingConfig *config.AdmissionFairSharing
+	fairSharingEnabled         bool
 	secondPassQueue            *secondPassQueue
 
 	AfsEntryPenalties      *queueafs.AfsEntryPenalties
@@ -760,19 +776,42 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	var w kueue.Workload
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
-	// Since the client is cached, the only possible error is NotFound.
+	// Since the client is cached, the only expected error is NotFound.
 	// We should not requeue a workload that is not admissible.
-	if apierrors.IsNotFound(err) || !workload.IsAdmissible(&w) {
+	// In all these cases the caller popped this workload and no requeue follows,
+	// so drop the queue-side bookkeeping here; a stale inflight entry would
+	// otherwise make PushOrUpdate ignore every future update for the workload.
+	if apierrors.IsNotFound(err) {
+		m.deleteAndForgetWorkloadWithoutLock(ctrl.LoggerFrom(ctx), workload.Key(info.Obj))
+		return false
+	}
+	if err != nil {
+		// Unexpected with a cached client; the object may still exist, so
+		// clear only the queue-side bookkeeping and keep the records owned
+		// by the workload controller.
+		m.deleteWorkloadWithoutLock(ctrl.LoggerFrom(ctx), workload.Key(info.Obj))
+		return false
+	}
+	if !workload.IsAdmissible(&w) {
+		// The workload still exists (e.g. it finished or was put on hold
+		// while inflight), so keep its finished/unadmitted records and queue
+		// assignment: the workload controller owns their lifecycle and only
+		// forgets them when the object is deleted.
+		m.deleteWorkloadWithoutLock(ctrl.LoggerFrom(ctx), workload.Key(info.Obj))
 		return false
 	}
 
+	log := ctrl.LoggerFrom(ctx)
+	wlKey := workload.Key(&w)
 	qKey := queue.KeyFromWorkload(&w)
+	if assignedQueue, ok := m.workloadAssignedQueues[wlKey]; ok && assignedQueue != qKey {
+		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
+	}
 
 	q := m.localQueues[qKey]
 	if q == nil {
 		return false
 	}
-	log := ctrl.LoggerFrom(ctx)
 	workload.AdjustResources(ctx, m.client, &w)
 	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
 		info.Update(log, &w, workload.WithPreserveTotalRequests())
@@ -912,25 +951,38 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 
 func (m *Manager) heads() []workload.Info {
 	workloads := m.secondPassQueue.takeAllReady()
+	// With Fair Sharing look-ahead, look a fixed depth into each CQ so the
+	// DRS tournament can keep serving a low-DRS owner before an over-share
+	// sibling borrows freed capacity (see issue #9345).
+	depth := 1
+	if m.fairSharingEnabled && features.Enabled(features.FairSharingLookAhead) {
+		depth = FairSharingLookAheadDepth
+	}
+	// Pending gauges are invariant under Pop (both count inflight workloads),
+	// so report once per touched queue after popping instead of once per pop.
+	touchedLQs := make(map[*LocalQueue]struct{})
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 			continue
 		}
-		wl := cq.Pop()
-		reportCQPendingWorkloads(m, cq)
-		if wl == nil {
-			continue
+		for _, wl := range cq.popMany(depth) {
+			wlKey := workload.Key(wl.Obj)
+			wlCopy := *wl
+			wlCopy.ClusterQueue = cqName
+			workloads = append(workloads, wlCopy)
+
+			qKey := m.workloadAssignedQueues[wlKey]
+			// The LocalQueue may already be gone if it was deleted while this
+			// workload sat in the ClusterQueue heap.
+			if q := m.localQueues[qKey]; q != nil {
+				delete(q.items, wlKey)
+				touchedLQs[q] = struct{}{}
+			}
 		}
-		wlKey := workload.Key(wl.Obj)
-		wlCopy := *wl
-		wlCopy.ClusterQueue = cqName
-		workloads = append(workloads, wlCopy)
-
-		qKey := m.workloadAssignedQueues[wlKey]
-		q := m.localQueues[qKey]
-		delete(q.items, wlKey)
-
+		reportCQPendingWorkloads(m, cq)
+	}
+	for q := range touchedLQs {
 		reportLQPendingWorkloads(m, q)
 	}
 	return workloads
