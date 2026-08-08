@@ -74,6 +74,20 @@ const (
 	// during the Pod creation.
 	TopologySchedulingGate = "kueue.x-k8s.io/topology"
 
+	// TASUnhealthyNodesEvictionThresholdAnnotation bounds how many of a TAS
+	// Workload's nodes may be unhealthy at once before the Workload is evicted
+	// instead of having its failed nodes replaced in place. The value is an
+	// integer N: while at most N of the Workload's assigned nodes are unhealthy,
+	// Kueue keeps the Workload admitted and replaces the failed node(s)
+	// incrementally; once a further distinct node failure would exceed N (or no
+	// replacement can be found for the current unhealthy set), the Workload is
+	// evicted. The special value "0" means never evict due to node failures (the
+	// failed nodes are always replaced in place). An absent or otherwise invalid
+	// value defaults to 1, which reproduces the default single-node-replacement
+	// behavior (evict on the second distinct node failure). Requires the
+	// TASReplaceMultipleFailedNodes feature gate to be enabled; ignored otherwise.
+	TASUnhealthyNodesEvictionThresholdAnnotation = "kueue.x-k8s.io/tas-unhealthy-nodes-eviction-threshold"
+
 	// WorkloadAnnotation is an annotation set on the Job's PodTemplate to
 	// indicate the name of the admitted Workload corresponding to the Job. The
 	// annotation is set when starting the Job, and removed on stopping the Job.

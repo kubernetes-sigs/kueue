@@ -48,6 +48,7 @@
       - [Until v0.13](#until-v013)
       - [Since v0.14](#since-v014)
       - [Sunsetting fixed-time marking (since v0.19)](#sunsetting-fixed-time-marking-since-v019)
+      - [Replacing multiple failed nodes](#replacing-multiple-failed-nodes)
       - [Workloads owned by a single Pod](#workloads-owned-by-a-single-pod)
     - [Tainted nodes treatment](#tainted-nodes-treatment)
       - [User stories](#user-stories-1)
@@ -1484,6 +1485,50 @@ Kueue tries to find a replacement for a failed node until success (or until it g
 evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries
 to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `true`.
 
+##### Replacing multiple failed nodes
+
+The mechanism described above replaces a single failed node. As soon as a *second* distinct
+node fails while a replacement is still in flight, the workload is evicted — both by the
+node-failure controller (the `evictWorkloadIfNeeded` "multiple node failures" path) and, when
+`TASFailedNodeReplacementFailFast` is enabled, by the scheduler's fail-fast eviction. The
+original design chose single-node replacement deliberately, since replacing multiple nodes at
+once complicates the assignment algorithm. The `UnhealthyNodes` status field was nonetheless
+modeled as a *list* (rather than a single node) to leave room for this generalization.
+
+For large, long-running gang-scheduled TAS workloads on unreliable hardware (e.g. GPU fleets),
+eviction is expensive: the whole workload is torn down and re-admitted, even though only a
+couple of nodes failed. We introduce the `TASReplaceMultipleFailedNodes` feature gate (Alpha,
+default off) which, when enabled, allows a workload to keep being admitted while its failed
+nodes are replaced incrementally instead of evicting. How many nodes may be unhealthy at once
+before falling back to eviction is controlled per-Workload by the
+`kueue.x-k8s.io/tas-unhealthy-nodes-eviction-threshold` annotation (a positive integer `N`,
+default `1`):
+
+- The node-failure controller evicts only once the Workload already has `N` unhealthy nodes and
+  a further distinct node fails; below that it appends the new node to `Status.UnhealthyNodes`
+  and the workload stays admitted.
+- The scheduler fail-fast eviction is suppressed while the number of unhealthy nodes is at or
+  below `N` (overriding `TASFailedNodeReplacementFailFast`); above `N` it is allowed to evict.
+- Replacement is processed **head-of-queue, one node per scheduling cycle**. The planner
+  replaces `UnhealthyNodes[0]` and ignores the remaining queued unhealthy nodes during the
+  stale-assignment check, so a tail entry whose node is already missing from the snapshot does
+  not block head replacement. On a successful head replacement only the replaced head is dropped
+  from `UnhealthyNodes`; the remaining entries are retried on subsequent cycles (this matters
+  because a deleted tail node generates no further node events, so the tail must be carried
+  forward explicitly rather than re-discovered).
+
+The default threshold of `1` lets the Workload tolerate one unhealthy node while a replacement
+is in flight and evicts it on the second distinct failure. While the gate is enabled, scheduler
+fail-fast eviction is also suppressed for that first unhealthy node, so replacement is retried
+until a fit is found. With a higher threshold the same behavior extends to additional unhealthy
+nodes, and the `UnhealthyNodes` list drains as nodes are replaced.
+
+This makes the eviction-vs-incremental tradeoff — which is genuinely workload-dependent
+(best-effort/elastic workloads prefer "keep replacing"; strict gang workloads may prefer "evict
+fast, re-admit cleanly") — a per-Workload policy with a conservative default, while preserving
+eviction as a bounded guaranteed-progress fallback. The annotation-based surface is intentionally
+minimal for Alpha; a richer (e.g. per-ClusterQueue) configuration can be revisited for Beta.
+
 ##### Workloads owned by a single Pod
 
 Node replacement assumes the Workload's controller re-creates pods within the same
@@ -2063,6 +2108,12 @@ The new validations which are for MVP, but likely will be relaxed in the future:
 - change how the information about the failed nodes is stored at a Workload from Annotation into a field in workload.Status
 - handle a more comprehensive set of failure scenarios (e.g., including node becoming unschedulable due to a taint)
 - re-evaluate replacing `NodeToReplace` annotation with a status field, to optimize number of requests in scheduler loop. [Discussion](https://github.com/kubernetes-sigs/kueue/issues/5560)
+- re-evaluate the `TASReplaceMultipleFailedNodes` sub-feature (multiple-node hot swap): decide
+  whether the general (multi-node) algorithm subsumes single-node replacement, whether a bounded
+  fallback to eviction is required to preserve guaranteed progress, and whether the
+  eviction-vs-incremental tradeoff is exposed as a per-ClusterQueue/per-Workload policy (see the
+  open questions in [Node failures](#node-failures) and
+  [#6514](https://github.com/kubernetes-sigs/kueue/issues/6514)).
 
 #### Stable
 
