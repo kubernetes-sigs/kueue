@@ -1407,10 +1407,9 @@ func TestFindLatestActiveWorkload(t *testing.T) {
 	now := time.Now()
 	admission := utiltestingapi.MakeAdmission("cq").Obj()
 
-	admitted := func(name string, created time.Time) *utiltestingapi.WorkloadWrapper {
+	live := func(name string, created time.Time) *utiltestingapi.WorkloadWrapper {
 		return testWorkload(name, testJobObject.Name, testJobObject.UID, created).
-			ReserveQuotaAt(admission, created).
-			AdmittedAt(true, created)
+			ReserveQuotaAt(admission, created)
 	}
 
 	cases := map[string]struct {
@@ -1418,42 +1417,46 @@ func TestFindLatestActiveWorkload(t *testing.T) {
 		want      string
 	}{
 		"none": {},
-		"quota reservation alone is not active": {
+		"the only reserved one": {
+			workloads: []kueue.Workload{*live("only", now).Obj()},
+			want:      "only",
+		},
+		"the newest reserved one": {
 			workloads: []kueue.Workload{
-				*testWorkload("reserved", testJobObject.Name, testJobObject.UID, now).
-					ReserveQuotaAt(admission, now).
+				*live("older", now.Add(-time.Minute)).Obj(),
+				*live("newer", now).Obj(),
+			},
+			want: "newer",
+		},
+		// A pending AdmissionCheck does not disqualify a slice from being the
+		// chain's active one: FindLatestActiveWorkload only tracks quota
+		// reservation. Callers that must wait for full admission apply their
+		// own additional check on the result.
+		"quota reservation is active even with a pending admission check": {
+			workloads: []kueue.Workload{
+				*live("reserved", now).
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:  "provisioning",
 						State: kueue.CheckStatePending,
 					}).
 					Obj(),
 			},
-		},
-		"the only admitted one": {
-			workloads: []kueue.Workload{*admitted("only", now).Obj()},
-			want:      "only",
-		},
-		"the newest admitted one": {
-			workloads: []kueue.Workload{
-				*admitted("older", now.Add(-time.Minute)).Obj(),
-				*admitted("newer", now).Obj(),
-			},
-			want: "newer",
+			want: "reserved",
 		},
 		// Eviction sets its condition before the reservation is released, so a
 		// slice can still report one while its capacity is on the way out. The
 		// older slice is the one still holding capacity.
 		"a newer slice that is being evicted": {
 			workloads: []kueue.Workload{
-				*admitted("older", now.Add(-time.Minute)).Obj(),
-				*admitted("evicting", now).EvictedAt(now).Obj(),
+				*live("older", now.Add(-time.Minute)).Obj(),
+				*live("evicting", now).EvictedAt(now).Obj(),
 			},
 			want: "older",
 		},
 		"every slice is being evicted": {
 			workloads: []kueue.Workload{
-				*admitted("one", now.Add(-time.Minute)).EvictedAt(now).Obj(),
-				*admitted("two", now).EvictedAt(now).Obj(),
+				*live("one", now.Add(-time.Minute)).EvictedAt(now).Obj(),
+				*live("two", now).EvictedAt(now).Obj(),
 			},
 		},
 	}
