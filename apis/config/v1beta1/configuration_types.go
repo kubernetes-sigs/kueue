@@ -575,7 +575,8 @@ type ResourceTransformation struct {
 	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 
 	// Outputs specifies the output resources and quantities per unit of input resource.
-	// A resource must not be named `pods`, which Kueue writes itself from the PodSet count.
+	// Output resource names must not include `pods`, which is reserved for Kueue's
+	// internal Pod-count accounting.
 	// An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.
 	Outputs corev1.ResourceList `json:"outputs,omitempty"`
 }
@@ -590,7 +591,7 @@ type DeviceClassMapping struct {
 	// and must start and end with an alphanumeric character.
 	// DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
 	// The total length must not exceed 253 characters.
-	// It must not be `pods`, which Kueue writes itself from the PodSet count.
+	// It must not be `pods`, which is reserved for Kueue's internal Pod-count accounting.
 	Name corev1.ResourceName `json:"name"`
 
 	// DeviceClassNames enumerates the DeviceClasses represented by this resource name.
