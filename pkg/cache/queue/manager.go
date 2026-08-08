@@ -750,6 +750,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).
+// Either way the workload is no longer inflight in the ClusterQueue it was popped from.
 // The quotaReservedReason parameter represents the WorkloadQuotaReserved condition reason
 // computed by the scheduler during this cycle. It must be passed explicitly because info.Obj
 // has not yet been patched with the updated condition when RequeueWorkload is called.
@@ -757,22 +758,52 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	m.Lock()
 	defer m.Unlock()
 
+	// This call decides where the workload goes, so the claim taken by Pop does
+	// not survive it. Releasing it up front also covers the returns below that
+	// never reach the ClusterQueue: a claim left behind makes PushOrUpdate a
+	// no-op, keeping the workload out of the queues even once it could be added
+	// again. Read before info.Update, which resets info.ClusterQueue.
+	m.forgetInflight(info.ClusterQueue, workload.Key(info.Obj))
+
 	var w kueue.Workload
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
-	// Since the client is cached, the only possible error is NotFound.
-	// We should not requeue a workload that is not admissible.
-	if apierrors.IsNotFound(err) || !workload.IsAdmissible(&w) {
+	// Since the client is cached, the only expected error is NotFound.
+	// We should not requeue a workload that is not admissible. In all these
+	// cases the caller popped this workload and no requeue follows, so the
+	// records it left in the queues are dropped here; which of them survive
+	// depends on whether the object itself is gone.
+	if apierrors.IsNotFound(err) {
+		m.deleteAndForgetWorkloadWithoutLock(ctrl.LoggerFrom(ctx), workload.Key(info.Obj))
+		return false
+	}
+	if err != nil {
+		// Unexpected with a cached client; the object may still exist, so
+		// clear only the queue-side bookkeeping and keep the records owned
+		// by the workload controller.
+		m.deleteWorkloadWithoutLock(ctrl.LoggerFrom(ctx), workload.Key(info.Obj))
+		return false
+	}
+	if !workload.IsAdmissible(&w) {
+		// The workload still exists (e.g. it finished or was put on hold
+		// while inflight), so keep its finished/unadmitted records and queue
+		// assignment: the workload controller owns their lifecycle and only
+		// forgets them when the object is deleted.
+		m.deleteWorkloadWithoutLock(ctrl.LoggerFrom(ctx), workload.Key(info.Obj))
 		return false
 	}
 
+	log := ctrl.LoggerFrom(ctx)
+	wlKey := workload.Key(&w)
 	qKey := queue.KeyFromWorkload(&w)
+	if assignedQueue, ok := m.workloadAssignedQueues[wlKey]; ok && assignedQueue != qKey {
+		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
+	}
 
 	q := m.localQueues[qKey]
 	if q == nil {
 		return false
 	}
-	log := ctrl.LoggerFrom(ctx)
 	workload.AdjustResources(ctx, m.client, &w)
 	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
 		info.Update(log, &w, workload.WithPreserveTotalRequests())
@@ -793,6 +824,17 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		m.Broadcast()
 	}
 	return added
+}
+
+// forgetInflight releases the claim that Pop took on a workload in the given
+// ClusterQueue. Must be called with the lock held.
+func (m *Manager) forgetInflight(cqName kueue.ClusterQueueReference, key workload.Reference) {
+	cq := m.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return
+	}
+	cq.ForgetInflight(key)
+	reportCQPendingWorkloads(m, cq)
 }
 
 // Delete the workload from queue or cluster queue.
@@ -934,6 +976,63 @@ func (m *Manager) heads() []workload.Info {
 		reportLQPendingWorkloads(m, q)
 	}
 	return workloads
+}
+
+// PopFrom pops the head of the given ClusterQueue so it can join the running
+// scheduling cycle mid-way (fair sharing refill), with the same per-queue
+// bookkeeping as heads(). The popped workload becomes inflight and, like the
+// workloads returned by Heads, must be requeued or deleted by the caller
+// before the end of the cycle. Returns nil if the ClusterQueue is unknown,
+// inactive, or has no pending workloads.
+func (m *Manager) PopFrom(ctx context.Context, cqName kueue.ClusterQueueReference) *workload.Info {
+	m.Lock()
+	defer m.Unlock()
+	cq := m.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return nil
+	}
+	// Cache might be nil in tests, if cache is nil, we'll skip the check.
+	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
+		return nil
+	}
+	wl := cq.PopMidCycle()
+	reportCQPendingWorkloads(m, cq)
+	if wl == nil {
+		return nil
+	}
+	wlKey := workload.Key(wl.Obj)
+	wlCopy := *wl
+	wlCopy.ClusterQueue = cqName
+	// Defensive: deleting a LocalQueue removes its workloads from the heap
+	// under the same lock, so q is expected to exist here.
+	if q := m.localQueues[m.workloadAssignedQueues[wlKey]]; q != nil {
+		delete(q.items, wlKey)
+		reportLQPendingWorkloads(m, q)
+	}
+	return &wlCopy
+}
+
+// HasQueuedWorkloads reports whether the ClusterQueue has a workload waiting
+// in its active heap, i.e. whether a mid-cycle pop would find a successor.
+// Inflight and inadmissible workloads do not count.
+func (m *Manager) HasQueuedWorkloads(cqName kueue.ClusterQueueReference) bool {
+	m.RLock()
+	defer m.RUnlock()
+	cq := m.hm.ClusterQueue(cqName)
+	return cq != nil && cq.hasQueuedWorkloads()
+}
+
+// ForgetInflight releases the claim on a workload that leaves the scheduling
+// cycle without being requeued or deleted, for the callers outside
+// RequeueWorkload (e.g. a refill pop that is already accounted in the
+// scheduler cache).
+func (m *Manager) ForgetInflight(cqName kueue.ClusterQueueReference, key workload.Reference) {
+	m.Lock()
+	defer m.Unlock()
+	m.forgetInflight(cqName, key)
+	if q := m.localQueues[m.workloadAssignedQueues[key]]; q != nil {
+		reportLQPendingWorkloads(m, q)
+	}
 }
 
 func (m *Manager) Broadcast() {
