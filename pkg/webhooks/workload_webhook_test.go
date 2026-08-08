@@ -786,7 +786,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			before: reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}),
 			after: func() *kueue.Workload {
 				wl := reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")})
-				wl.Spec.Active = ptr.To(false)
+				wl.Spec.Active = new(bool)
 				return wl
 			}(),
 			wantErr: nil,
