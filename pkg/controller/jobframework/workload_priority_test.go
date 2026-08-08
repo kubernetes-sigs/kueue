@@ -19,11 +19,16 @@ package jobframework
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -54,6 +59,9 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 	}
 
 	cases := map[string]struct {
+		// The owner's kueue.x-k8s.io/priority-class label, "high" when unset and
+		// left off entirely when empty.
+		ownerClass   *string
 		class        *kueue.WorkloadPriorityClass
 		workloads    []*kueue.Workload
 		interceptors func(s *priorityStats) interceptor.Funcs
@@ -171,10 +179,9 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			},
 		},
 
-		// Same-name workloads are repaired before the name-changing ones, so a failed
-		// write leaves a name mismatch behind. That mismatch is the only thing that
-		// makes a later call resolve the class again, so writing the two groups the
-		// other way round strands the stale one for good.
+		// Same-name workloads are repaired before the name-changing ones, so a failure
+		// among them leaves a name mismatch behind for the next call to find. The
+		// values disagreeing would say so too, but the order keeps the cheaper signal.
 		"keeps a retry marker when a write fails": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
 			workloads: []*kueue.Workload{
@@ -202,12 +209,103 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				"transitioning": {priority: new(int32(200))},
 			},
 		},
+
+		// A repair under a matching name has nothing of its own to bring a later
+		// call back, so the transition waits: the name it has not changed yet is
+		// what the next call finds.
+		"a same-class write that keeps failing holds the transition back": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("stuck", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("moving", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: func(*priorityStats) interceptor.Funcs {
+				return interceptor.Funcs{
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						if wl, ok := obj.(*kueue.Workload); ok && wl.Name == "stuck" {
+							return errors.New("simulated rejection")
+						}
+						return c.Update(ctx, obj, opts...)
+					},
+				}
+			},
+			steps: []step{{wantErr: true}},
+			want: map[string]wantWorkload{
+				"stuck":  {refName: new("high"), priority: new(int32(100))},
+				"moving": {refName: new("low"), priority: new(int32(10))},
+			},
+		},
+
+		// spec.priority is mutable, so two workloads under one name disagreeing is
+		// not on its own an unfinished write. WorkloadPriorityClassReconciler lists
+		// by class name and holds the value that settles it; this helper is not
+		// asked, and does not read the class to guess.
+		"leaves values under a name that already matches to the class": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(500).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("chosen", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("other", "ns").WorkloadPriorityClassRef("high").Priority(200).Obj(),
+			},
+			interceptors: countingReadsAndWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"chosen": {refName: new("high"), priority: new(int32(100))},
+				"other":  {refName: new("high"), priority: new(int32(200))},
+			},
+			wantClassReads:     new(0),
+			wantWorkloadWrites: new(0),
+		},
+
+		// Without the label every workload with no reference reads as naming the
+		// same class, and the name that would be resolved is the empty one. Writing
+		// on the strength of that takes back a value this helper was never given,
+		// and can leave a Pod PriorityClass reference behind where there was none.
+		"leaves an owner with no priority class alone": {
+			ownerClass: new(""),
+			class:      utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(500).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("first", "ns").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("second", "ns").Priority(200).Obj(),
+			},
+			interceptors: countingReadsAndWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"first":  {refName: new(""), priority: new(int32(100))},
+				"second": {refName: new(""), priority: new(int32(200))},
+			},
+			wantClassReads:     new(0),
+			wantWorkloadWrites: new(0),
+		},
+
+		// A sibling whose name does have to change makes the helper resolve, and the
+		// name it resolves is the empty one. The workloads with no reference are not
+		// what that answer is about: theirs came from a Pod PriorityClass or the
+		// default. Only the one naming a class is written.
+		"leaves the unreferenced workloads of an unlabelled owner alone while a sibling transitions": {
+			ownerClass: new(""),
+			class:      utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("chosen", "ns").Priority(500).Obj(),
+				utiltestingapi.MakeWorkload("moving", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+			},
+			interceptors: countingReadsAndWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"chosen": {refName: new(""), priority: new(int32(500))},
+				"moving": {refName: new(""), priority: new(int32(0))},
+			},
+			wantWorkloadWrites: new(1),
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+			jobWrapper := testingjob.MakeJob("job", "ns")
+			if className := ptr.Deref(tc.ownerClass, "high"); className != "" {
+				jobWrapper = jobWrapper.WorkloadPriorityClass(className)
+			}
+			job := jobWrapper.Obj()
 
 			objs := []client.Object{job, tc.class}
 			names := make([]string, 0, len(tc.workloads))
@@ -268,7 +366,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				}
 				if want.priority != nil {
 					if persisted.Spec.Priority == nil || *persisted.Spec.Priority != *want.priority {
-						t.Errorf("%s priority = %v, want %d", n, persisted.Spec.Priority, *want.priority)
+						t.Errorf("%s priority = %d, want %d", n, ptr.Deref(persisted.Spec.Priority, 0), *want.priority)
 					}
 				}
 			}
@@ -315,6 +413,22 @@ func countingWrites(s *priorityStats) interceptor.Funcs {
 	}
 }
 
+// countingReadsAndWrites counts both, for the cases asserting that a set was
+// neither resolved for nor written to. An empty class name resolves through a
+// PriorityClass list rather than a class read, so that shape counts too.
+func countingReadsAndWrites(s *priorityStats) interceptor.Funcs {
+	return interceptor.Funcs{
+		Get: countingClassReads(s).Get,
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, ok := list.(*schedulingv1.PriorityClassList); ok {
+				s.classReads++
+			}
+			return c.List(ctx, list, opts...)
+		},
+		Update: countingWrites(s).Update,
+	}
+}
+
 // raiseClassTo changes the class value between two invocations.
 func raiseClassTo(value int32) func(t *testing.T, ctx context.Context, cl client.Client) {
 	return func(t *testing.T, ctx context.Context, cl client.Client) {
@@ -326,5 +440,203 @@ func raiseClassTo(value int32) func(t *testing.T, ctx context.Context, cl client
 		if err := cl.Update(ctx, class); err != nil {
 			t.Fatalf("updating class: %v", err)
 		}
+	}
+}
+
+// TestApplyWorkloadPriorityLeavesUnlabelledWorkloadsAlone pins that holding a
+// resolution is not a reason to write one. With no class named there is no
+// transition to make, and every workload without a reference classifies as
+// naming the same (empty) class, so writing would take back a value that
+// nothing here owns.
+func TestApplyWorkloadPriorityLeavesUnlabelledWorkloadsAlone(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	job := testingjob.MakeJob("job", "ns").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Priority(1000).Obj()
+	var writes int
+	cl := utiltesting.NewClientBuilder().WithObjects(wl).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				writes++
+				return c.Update(ctx, obj, opts...)
+			},
+		}).Build()
+
+	if err := ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, 0, wl); err != nil {
+		t.Fatalf("ApplyWorkloadPriority() = %v", err)
+	}
+
+	var got kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &got); err != nil {
+		t.Fatalf("reading the workload back: %v", err)
+	}
+	if got.Spec.Priority == nil || *got.Spec.Priority != 1000 {
+		t.Errorf("workload priority = %d, want it left at 1000", ptr.Deref(got.Spec.Priority, 0))
+	}
+	if got.Spec.PriorityClassRef != nil {
+		t.Errorf("workload gained a priority class reference: %v", got.Spec.PriorityClassRef)
+	}
+	if writes != 0 {
+		t.Errorf("wrote the workload %d times, want none", writes)
+	}
+}
+
+// TestApplyWorkloadPriorityAttemptsEverySibling pins the failure boundary. One
+// workload that will not take the write used to end the batch, leaving the rest
+// waiting on it for as long as it kept failing.
+func TestApplyWorkloadPriorityAttemptsEverySibling(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+	// Both in the transition group, so the sibling that follows is not on the far
+	// side of the barrier the phases keep between them.
+	first := utiltestingapi.MakeWorkload("first", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj()
+	second := utiltestingapi.MakeWorkload("second", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj()
+
+	errRefused := errors.New("the write was refused")
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(first, second).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if obj.GetName() == "first" {
+					return errRefused
+				}
+				return c.Update(ctx, obj, opts...)
+			},
+		}).Build()
+
+	err := ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job,
+		kueue.NewWorkloadPriorityClassRef("high"), 200, first, second)
+	if !errors.Is(err, errRefused) {
+		t.Fatalf("ApplyWorkloadPriority() = %v, want the refused write reported", err)
+	}
+
+	var got kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKey{Namespace: "ns", Name: "second"}, &got); err != nil {
+		t.Fatalf("reading the sibling back: %v", err)
+	}
+	if diff := cmp.Diff(new(int32(200)), got.Spec.Priority); diff != "" {
+		t.Errorf("the sibling was not attempted (-want +got):\n%s", diff)
+	}
+}
+
+// TestApplyWorkloadPriorityLeavesAValueUnderTheSameClassAlone is the other half
+// of the unlabelled case: with a class named and no transition to make, the
+// value a workload already on that class carries is not the caller's to replace
+// just because another set forced a lookup.
+func TestApplyWorkloadPriorityLeavesAValueUnderTheSameClassAlone(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(500).Obj()
+	var writes int
+	cl := utiltesting.NewClientBuilder().WithObjects(wl).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				writes++
+				return c.Update(ctx, obj, opts...)
+			},
+		}).Build()
+
+	ref := kueue.NewWorkloadPriorityClassRef("high")
+	if err := ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, ref, 100, wl); err != nil {
+		t.Fatalf("ApplyWorkloadPriority() = %v", err)
+	}
+
+	var got kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &got); err != nil {
+		t.Fatalf("reading the workload back: %v", err)
+	}
+	if diff := cmp.Diff(ref, got.Spec.PriorityClassRef); diff != "" {
+		t.Errorf("priority class reference (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(new(int32(500)), got.Spec.Priority); diff != "" {
+		t.Errorf("priority (-want +got):\n%s", diff)
+	}
+	if writes != 0 {
+		t.Errorf("wrote the workload %d times, want none", writes)
+	}
+}
+
+// TestUpdateWorkloadPriorityKeepsTheMarkerAcrossCalls pins what the ordering is
+// for. A repair under a name that already matches has nothing of its own to
+// bring a later call back, so the name still to change has to outlive it.
+func TestUpdateWorkloadPriorityKeepsTheMarkerAcrossCalls(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+	stale := utiltestingapi.MakeWorkload("stale", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj()
+	transitioning := utiltestingapi.MakeWorkload("transitioning", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj()
+
+	failStaleOnce := true
+	cl := utiltesting.NewClientBuilder(batchv1.AddToScheme).
+		WithObjects(job, stale, transitioning,
+			utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if wl, ok := obj.(*kueue.Workload); ok && wl.Name == "stale" && failStaleOnce {
+					failStaleOnce = false
+					return errors.New("simulated conflict")
+				}
+				return c.Update(ctx, obj, opts...)
+			},
+		}).Build()
+
+	read := func() []*kueue.Workload {
+		out := make([]*kueue.Workload, 0, 2)
+		for _, n := range []string{"stale", "transitioning"} {
+			wl := &kueue.Workload{}
+			if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: n}, wl); err != nil {
+				t.Fatalf("getting %s: %v", n, err)
+			}
+			out = append(out, wl)
+		}
+		return out
+	}
+
+	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, read()...); err == nil {
+		t.Fatal("first call returned no error, want the conflict on the stale workload")
+	}
+	if err := UpdateWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job, nil, read()...); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+	for _, wl := range read() {
+		if ptr.Deref(wl.Spec.Priority, 0) != 200 {
+			t.Errorf("%s: priority = %d, want 200; the set stayed split", wl.Name, ptr.Deref(wl.Spec.Priority, 0))
+		}
+	}
+}
+
+// TestApplyWorkloadPriorityStopsWhenCancelled pins that the batch does not
+// carry on issuing writes after the reconcile is over. Each component used to
+// write from its own worker, which checked for cancellation before starting.
+func TestApplyWorkloadPriorityStopsWhenCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+
+	wls := make([]*kueue.Workload, 0, 20)
+	objs := make([]client.Object, 0, 20)
+	for i := range 20 {
+		// On another class, so cancellation is the only thing stopping the write.
+		wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", i), "ns").
+			WorkloadPriorityClassRef("low").Priority(10).Obj()
+		wls = append(wls, wl)
+		objs = append(objs, wl)
+	}
+
+	var writes atomic.Int32
+	cl := utiltesting.NewClientBuilder().WithObjects(objs...).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				writes.Add(1)
+				return c.Update(ctx, obj, opts...)
+			},
+		}).Build()
+
+	cancel()
+	err := ApplyWorkloadPriority(ctx, cl, &utiltesting.EventRecorder{}, job,
+		kueue.NewWorkloadPriorityClassRef("high"), 200, wls...)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("ApplyWorkloadPriority() = %v, want the cancellation reported rather than a batch that never ran", err)
+	}
+
+	if got := writes.Load(); got != 0 {
+		t.Errorf("wrote %d workloads after cancellation, want none", got)
 	}
 }

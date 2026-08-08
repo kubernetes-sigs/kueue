@@ -63,6 +63,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -1192,17 +1193,19 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 // follows the object's kueue.x-k8s.io/priority-class label. Every workload
 // passed must belong to obj, since the class is resolved once for the whole set
 // rather than per workload, so one batch cannot itself write two different
-// values. The resolved value is applied to every eligible workload whose full
-// priority state has drifted, so a partial write followed by a class-value
-// change converges on retry instead of leaving same-name workloads pinned to a
-// stale value. The workloads are written one by one rather than atomically, and
-// a class edited once every workload already names it is not re-resolved here.
+// values. It resolves only when a workload's class name has to change, and then
+// applies the result to the rest of the set as well. The writes run in two
+// ordered phases, bounded and parallel within a phase, not atomic across them.
+// The transitions start only once the same-class repairs are through, so a
+// failed repair leaves the class names still mismatched for the retry to find.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
 	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
 
 	// Resolving only when at least one workload needs a transition keeps
-	// steady-state reconciles from re-resolving and overwriting the
-	// otherwise-mutable priority value.
+	// steady-state reconciles from re-resolving and overwriting the otherwise
+	// mutable priority value. A value left behind under a name that already
+	// matches is WorkloadPriorityClassReconciler's to repair: it lists by class
+	// name, and the value it holds is the one that says so.
 	if len(needsClassChange) == 0 {
 		return nil
 	}
@@ -1212,30 +1215,98 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 		return fmt.Errorf("prepare workload priority: %w", err)
 	}
 
-	// Apply the resolved ref/value to every eligible workload whose full priority
-	// state differs. Same-name workloads with a stale value are repaired before the
-	// name-changing ones, so a name mismatch survives as the retry marker if a
-	// write in this batch fails.
-	targets := make([]*kueue.Workload, 0, len(sameClassName)+len(needsClassChange))
-	targets = append(targets, sameClassName...)
-	targets = append(targets, needsClassChange...)
-	for _, wl := range targets {
-		if priorityStateEqual(wl, priorityClassRef, priority) {
-			continue
-		}
-		wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
-		wl.Spec.Priority = new(priority)
-		if err := c.Update(ctx, wl); err != nil {
-			return fmt.Errorf("updating existing workload: %w", err)
-		}
-		r.Eventf(obj,
-			nil,
-			corev1.EventTypeNormal, ReasonUpdatedWorkload,
-			"UpdatedWorkload",
-			"Updated workload priority class: %v", klog.KObj(wl),
-		)
+	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, sameClassName, needsClassChange)
+}
+
+// ApplyWorkloadPriority is the resolved-input variant of UpdateWorkloadPriority.
+//
+// It has the same update semantics as UpdateWorkloadPriority, but instead of
+// resolving priority class/value internally, it uses the (priorityClassRef,
+// priority) provided by the caller.
+//
+// Use this when priority was already resolved for obj earlier in the same
+// reconcile and that exact result must be reused across another workload set.
+// This prevents multiple lookups of the same class in one reconcile from
+// producing mixed priority values.
+//
+// Every workload passed has to belong to obj, and the reference and value have
+// to be what obj resolved to in this reconcile: neither is checked here.
+func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
+	priorityClassRef *kueue.PriorityClassRef, priority int32, wls ...*kueue.Workload) error {
+	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
+	// Same rule as UpdateWorkloadPriority, so that whether another set forced a
+	// lookup is not what decides this one is written. Holding a resolution is
+	// not a reason to have one.
+	if len(needsClassChange) == 0 {
+		return nil
 	}
-	return nil
+	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, sameClassName, needsClassChange)
+}
+
+// applyResolvedPriority contains the common write path shared by
+// UpdateWorkloadPriority and ApplyWorkloadPriority.
+//
+// It applies one resolved (priorityClassRef, priority) to eligible workloads
+// whose current state differs, so a transition carries along the ones already
+// naming the class rather than leaving the object's set split.
+//
+// Ordering is intentional:
+//  1. sameClassName first (repair a stale value under the same class name)
+//  2. needsClassChange second (class transition)
+//
+// The transitions start only once the repairs are through, so a class-name
+// mismatch survives as the retry marker if a repair fails. Updates within each
+// group are parallelized and cancellable via ctx.
+func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
+	priorityClassRef *kueue.PriorityClassRef, priority int32, sameClassName, needsClassChange []*kueue.Workload) error {
+	// One workload that will not take the write does not speak for the rest, so
+	// the others are still attempted. Bounded and cancellable, the way each
+	// component's own write was before they were batched.
+	apply := func(wls []*kueue.Workload) error {
+		return parallelize.Until(ctx, len(wls), func(i int) error {
+			wl := wls[i]
+			if priorityStateEqual(wl, priorityClassRef, priority) {
+				return nil
+			}
+			wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
+			wl.Spec.Priority = new(priority)
+			if err := c.Update(ctx, wl); err != nil {
+				return fmt.Errorf("updating existing workload %s: %w", klog.KObj(wl), err)
+			}
+			r.Eventf(obj,
+				nil,
+				corev1.EventTypeNormal, ReasonUpdatedWorkload,
+				"UpdatedWorkload",
+				"Updated workload priority class: %v", klog.KObj(wl),
+			)
+			return nil
+		})
+	}
+	// Same-name repairs go first and the transitions wait on them. A repair has
+	// nothing of its own to bring a later call back, since its name already
+	// matches; the name still to change is the only thing that does, so it has to
+	// outlive a failure among them. Within a phase every workload is still
+	// attempted: parallelize.Until keeps one error, not one abandoned batch.
+	if err := apply(sameClassName); err != nil {
+		return err
+	}
+	err := apply(needsClassChange)
+	// parallelize.Until reports nothing when the context was already done, since
+	// no piece runs to send an error. A batch that never started would otherwise
+	// read back as one that was written.
+	if err == nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return err
+}
+
+// WorkloadsNeedingPriorityClassChange returns the subset of wls whose priority
+// class name does not match obj's and that this package may move to it. A caller
+// batching a whole set can use it to leave the ones already on the name alone,
+// whose value is theirs to keep rather than this reconciliation's to replace.
+func WorkloadsNeedingPriorityClassChange(log logr.Logger, obj client.Object, wls []*kueue.Workload) []*kueue.Workload {
+	_, needsClassChange := classifyWorkloadsForPriorityUpdate(log, WorkloadPriorityClassName(obj), wls)
+	return needsClassChange
 }
 
 // classifyWorkloadsForPriorityUpdate splits the workloads this helper may manage
@@ -1260,6 +1331,14 @@ func classifyWorkloadsForPriorityUpdate(log logr.Logger, jobPriorityClassName st
 				log.V(2).Info("Leaving a workload that reserved quota with no priority class alone, since one can no longer be added",
 					"workload", klog.KObj(wl))
 			}
+			continue
+		}
+		// The same reach, for the ones that have not reserved yet. Under an empty
+		// label every workload without a reference reads as naming that same empty
+		// class, so a sibling whose name does have to change would otherwise carry
+		// them all to whatever the fallback resolved to. Their value came from a Pod
+		// PriorityClass or the default, which this reconciliation leaves alone.
+		if jobPriorityClassName == "" && workload.HasNoPriority(wl) {
 			continue
 		}
 		if !workload.HasNoPriority(wl) && !workload.IsWorkloadPriorityClass(wl) {
