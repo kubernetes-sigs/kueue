@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -3442,62 +3443,55 @@ func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
 		},
 	}
 
-	var fields, refusedForItsFactor []string
-	reserved := map[string]int{}
-	refusedForItsFactorFirst := map[string]bool{}
+	// Whether the sign check is on this branch is settled on its own input, not
+	// on what the case below reports, so a fold that drops every factor error
+	// cannot pick the expectation that lets it pass.
+	signChecked := len(Validate(&configapi.Configuration{
+		Integrations: &configapi.Integrations{Frameworks: []string{"batch/job"}},
+		Resources: &configapi.Resources{
+			Transformations: []configapi.ResourceTransformation{{
+				Input:    "example.com/credits",
+				Strategy: ptr.To(configapi.Retain),
+				Outputs:  corev1.ResourceList{"example.com/one-negative": resource.MustParse("-1")},
+			}},
+		},
+	}, scheme, jobs.NewIntegrationManager())) > 0
+
+	reserved := func(idx int) reportedError {
+		return reportedError{fmt.Sprintf("resources.transformations[%d].outputs[pods]", idx), reservedResourceNameMsg}
+	}
+	negative := func(field string) reportedError {
+		return reportedError{field, apimachineryvalidation.IsNegativeErrorMsg}
+	}
+	// Transformations in the order they are configured, each one's outputs in
+	// name order, and an output refused for both named before it is weighed.
+	want := []reportedError{reserved(0), reserved(1)}
+	if signChecked {
+		want = []reportedError{
+			negative("resources.transformations[0].outputs[example.com/a-negative]"),
+			negative("resources.transformations[0].outputs[example.com/z-negative]"),
+			reserved(0),
+			negative("resources.transformations[0].outputs[pods]"),
+			negative("resources.transformations[0].outputs[zzz.example.com/negative]"),
+			negative("resources.transformations[1].outputs[example.com/b-negative]"),
+			reserved(1),
+		}
+	}
+
+	var got []reportedError
 	for _, e := range Validate(cfg, scheme, jobs.NewIntegrationManager()) {
-		if !strings.Contains(e.Field, ".outputs[") {
-			continue
-		}
-		fields = append(fields, e.Field)
-		// Both checks reach a field with the same type, so only the reason says
-		// which of them refused it.
-		if e.Detail == reservedResourceNameMsg {
-			reserved[e.Field]++
-			// The webhook names the key before it judges the value, and one
-			// output refused for both has to read the same way round. Sorting
-			// the fields cannot see this, since the two share one.
-			if refusedForItsFactorFirst[e.Field] {
-				t.Errorf("%s was refused for its factor before its name", e.Field)
-			}
-			continue
-		}
-		refusedForItsFactorFirst[e.Field] = true
-		refusedForItsFactor = append(refusedForItsFactor, e.Field)
-	}
-	if len(fields) == 0 {
-		t.Fatal("no output was refused")
-	}
-	// The index sorts before the name in the path, so one comparison covers both
-	// the transformations keeping their order and each one's outputs being named
-	// in order.
-	if !slices.IsSorted(fields) {
-		t.Errorf("reported %v, want them in path order", fields)
-	}
-	for _, want := range []string{
-		"resources.transformations[0].outputs[pods]",
-		"resources.transformations[1].outputs[pods]",
-	} {
-		if reserved[want] != 1 {
-			t.Errorf("reported %v, want %s refused for its name exactly once, got %d", fields, want, reserved[want])
+		if strings.Contains(e.Field, ".outputs[") {
+			got = append(got, reportedError{e.Field, e.Detail})
 		}
 	}
-	if len(reserved) != 2 {
-		t.Errorf("reported %v, want the reserved name to be the only one refused for its name", fields)
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("output errors (-want +got):\n%s", diff)
 	}
-	// Nothing here refuses a factor yet, so this stays empty. Once the check
-	// that does arrives every one of these has to be listed, the reserved name
-	// carrying a negative factor among them: the name and the factor are
-	// separate things to fix, and a walk that stops at the name would leave out
-	// both the factor under it and the output sorting after it.
-	wantFactor := []string{
-		"resources.transformations[0].outputs[example.com/a-negative]",
-		"resources.transformations[0].outputs[example.com/z-negative]",
-		"resources.transformations[0].outputs[pods]",
-		"resources.transformations[0].outputs[zzz.example.com/negative]",
-		"resources.transformations[1].outputs[example.com/b-negative]",
-	}
-	if len(refusedForItsFactor) != 0 && !slices.Equal(refusedForItsFactor, wantFactor) {
-		t.Errorf("refused for their factor: %v, want none of them or exactly %v", refusedForItsFactor, wantFactor)
-	}
+}
+
+// reportedError is a field path with the reason it was refused, which is the
+// only thing telling the two checks apart when they land on one output.
+type reportedError struct {
+	Field  string
+	Detail string
 }
