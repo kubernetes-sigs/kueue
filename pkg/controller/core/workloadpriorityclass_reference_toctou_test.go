@@ -86,14 +86,109 @@ func TestReferenceReconcileNoticesTheClassMovingUnderIt(t *testing.T) {
 			t.Fatalf("reference reconcile: %v", err)
 		}
 		passes++
-		if res.RequeueAfter == 0 || passes > 4 {
+		if res.RequeueAfter == 0 {
 			break
+		}
+		if passes == 4 {
+			t.Fatalf("still asking to come back after %d passes", passes)
 		}
 	}
 	t.Logf("passes: %d", passes)
 
 	var got kueue.Workload
 	if err := store.Get(ctx, client.ObjectKey{Namespace: "ns", Name: "wl"}, &got); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("class value = 200, workload priority = %d", ptr.Deref(got.Spec.Priority, -1))
+	if ptr.Deref(got.Spec.Priority, -1) != 200 {
+		t.Errorf("WINDOW OPEN: workload left at %d", ptr.Deref(got.Spec.Priority, -1))
+	}
+}
+
+// The pass above comes back to a cache the write it made need not have reached
+// yet. Read from there, the workload still holds the value the class has since
+// moved to, so the pass sent to repair it finds nothing to do and the API server
+// keeps what the first pass wrote. Nothing follows: the watch catching up only
+// changes a number, which the predicate filters, and the class controller has
+// already spent its event.
+func TestReferenceReconcileResolvesTheRequeueFromTheAPIServer(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	newStore := func() client.WithWatch {
+		return utiltesting.NewClientBuilder().
+			WithObjects(
+				utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj(),
+				utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(200).Obj(),
+			).
+			WithIndex(&kueue.Workload{}, indexer.WorkloadPriorityClassKey, indexer.IndexWorkloadPriorityClass).
+			Build()
+	}
+	api, cache := newStore(), newStore()
+
+	// What a manager hands a reconciler: reads served by an informer, writes sent
+	// to the API server.
+	var mgrClient client.WithWatch
+	moved := false
+	mgrClient = interceptor.NewClient(api, interceptor.Funcs{
+		Get: func(ctx context.Context, _ client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			return cache.Get(ctx, key, obj, opts...)
+		},
+		List: func(ctx context.Context, _ client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			return cache.List(ctx, list, opts...)
+		},
+		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			if err := c.Update(ctx, obj, opts...); err != nil {
+				return err
+			}
+			if _, ok := obj.(*kueue.Workload); !ok || moved {
+				return nil
+			}
+			moved = true
+			// The class moves once the write has landed. Its own informer sees
+			// that, which is what queues the sweep, while the workload informer
+			// is still behind the write.
+			var live kueue.WorkloadPriorityClass
+			if err := api.Get(ctx, client.ObjectKey{Name: "high"}, &live); err != nil {
+				t.Fatalf("moving the class: %v", err)
+			}
+			live.Value = 200
+			if err := api.Update(ctx, &live); err != nil {
+				t.Fatalf("moving the class: %v", err)
+			}
+			var cached kueue.WorkloadPriorityClass
+			if err := cache.Get(ctx, client.ObjectKey{Name: "high"}, &cached); err != nil {
+				t.Fatalf("moving the class: %v", err)
+			}
+			live.ResourceVersion = cached.ResourceVersion
+			if err := cache.Update(ctx, &live); err != nil {
+				t.Fatalf("moving the class: %v", err)
+			}
+			sweep := NewWorkloadPriorityClassReconciler(mgrClient, roletracker.NewFakeRoleTracker("leader"))
+			if _, err := sweep.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "high"}}); err != nil {
+				t.Errorf("class sweep: %v", err)
+			}
+			return nil
+		},
+	})
+
+	ref := NewWorkloadPriorityClassReferenceReconciler(mgrClient, api, roletracker.NewFakeRoleTracker("leader"))
+	req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl"}}
+	for passes := 1; ; passes++ {
+		res, err := ref.Reconcile(ctx, req)
+		if err != nil {
+			t.Fatalf("reference reconcile: %v", err)
+		}
+		if res.RequeueAfter == 0 {
+			t.Logf("passes: %d", passes)
+			break
+		}
+		if passes == 4 {
+			t.Fatalf("still asking to come back after %d passes", passes)
+		}
+	}
+
+	var got kueue.Workload
+	if err := api.Get(ctx, client.ObjectKey{Namespace: "ns", Name: "wl"}, &got); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("class value = 200, workload priority = %d", ptr.Deref(got.Spec.Priority, -1))

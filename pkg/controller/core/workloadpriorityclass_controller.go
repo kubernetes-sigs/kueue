@@ -199,11 +199,13 @@ func ownsPriority(wl *kueue.Workload) bool {
 type WorkloadPriorityClassReferenceReconciler struct {
 	logName string
 	client  client.Client
-	// The class is read straight from the API server. This reconcile is queued by
-	// a Workload event, so a cached read can be one this replica took before the
-	// class moved, and the pass that would have repaired it has already decided
-	// there was nothing to do. Reading live means any change after it is one the
-	// class controller still has an event for.
+	// Both objects are read straight from the API server, since neither cached
+	// answer is ordered against what this reconcile is deciding from. The class
+	// read can be one this replica took before the class moved, and the pass that
+	// would have repaired it has already decided there was nothing to do. The
+	// workload read can be one from before this reconcile's own write, which on a
+	// requeue still holds the value the class has since moved to, so the pass
+	// that came back to repair it reports nothing left to do instead.
 	apiReader   client.Reader
 	roleTracker *roletracker.RoleTracker
 }
@@ -227,7 +229,7 @@ func NewWorkloadPriorityClassReferenceReconciler(
 
 func (r *WorkloadPriorityClassReferenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var wl kueue.Workload
-	if err := r.client.Get(ctx, req.NamespacedName, &wl); err != nil {
+	if err := r.apiReader.Get(ctx, req.NamespacedName, &wl); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	// Checked again here, not only in the predicate: the label can arrive
@@ -258,9 +260,9 @@ func (r *WorkloadPriorityClassReferenceReconciler) Reconcile(ctx context.Context
 	// The class can move between the read above and this write, and the pass that
 	// change starts can find the workload already holding the new value and leave
 	// it alone, which leaves nothing to stop this write landing on top of a
-	// correct one. Reading the class again is what notices: a change before this
-	// read is one this sees, and a change after it is one the class controller
-	// still has an event for.
+	// correct one. Reading the class again closes the window this write opened,
+	// and the requeue resolves from the API server rather than from a cache that
+	// has not caught up with the write above.
 	var after kueue.WorkloadPriorityClass
 	if err := r.apiReader.Get(ctx, client.ObjectKey{Name: wl.Spec.PriorityClassRef.Name}, &after); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
