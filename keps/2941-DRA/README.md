@@ -1808,8 +1808,10 @@ quantity, which a transformation output can produce, is as much a rejection as o
 Nothing currently stops an administrator from naming a logical resource `cpu`, where an
 unconditional `SafeValue` would read `8` as 8 milliCPU. `pods` is worse, since flavor assignment
 writes that key from the PodSet count and the write replaces rather than adds, so a charge mapped
-there is discarded rather than misread; refusing both names in configuration is
-[#13988](https://github.com/kubernetes-sigs/kueue/issues/13988). The component-wise maximum keeps the
+there is discarded rather than misread; refusing that one name in both the places
+configuration can set it is [#13988](https://github.com/kubernetes-sigs/kueue/issues/13988). `cpu`
+is not refused with it: its milli-unit reading is a conversion to get right, not a name to take
+away. The component-wise maximum keeps the
 envelope itself bounded, and tests cover multiple `firstAvailable` requests, `Exactly` plus
 `firstAvailable` on one resource, and PodSet scaling past the representable range.
 
