@@ -565,32 +565,51 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 	if !match {
 		return input
 	}
-	output := make(corev1.ResourceList)
+	// What the transformations produce is kept apart from what the PodSet asked
+	// for until the end. A negative output factor is how an allowance is
+	// written, so outputs still cancel each other, but the total one resource
+	// generates cannot go on to reduce a request that was never part of that
+	// arithmetic: an ordinary request under the same name, or the DRA charge
+	// merged in after this returns.
+	retained := make(corev1.ResourceList)
+	generated := make(corev1.ResourceList)
 	for inputName, inputQuantity := range input {
-		if mapping, ok := transforms[inputName]; ok {
-			// If MultiplyBy is specified, multiply the input quantity by
-			// the value of the resource specified in MultiplyBy.
-			if mapping.MultiplyBy != "" {
-				if q, ok := input[mapping.MultiplyBy]; ok {
-					inputQuantity = multiplyResourceQuantities(inputQuantity, q)
-				}
+		mapping, ok := transforms[inputName]
+		if !ok {
+			addResourceQuantity(retained, inputName, inputQuantity)
+			continue
+		}
+		// If MultiplyBy is specified, multiply the input quantity by
+		// the value of the resource specified in MultiplyBy.
+		if mapping.MultiplyBy != "" {
+			if q, ok := input[mapping.MultiplyBy]; ok {
+				inputQuantity = multiplyResourceQuantities(inputQuantity, q)
 			}
+		}
 
-			for outputName, baseFactor := range mapping.Outputs {
-				outputQuantity := multiplyResourceQuantities(inputQuantity, baseFactor)
-				if accumulated, ok := output[outputName]; ok {
-					outputQuantity.Add(accumulated)
-				}
-				output[outputName] = outputQuantity
-			}
-			if ptr.Deref(mapping.Strategy, config.Retain) == config.Retain {
-				output[inputName] = inputQuantity
-			}
-		} else {
-			output[inputName] = inputQuantity
+		for outputName, baseFactor := range mapping.Outputs {
+			addResourceQuantity(generated, outputName, multiplyResourceQuantities(inputQuantity, baseFactor))
+		}
+		if ptr.Deref(mapping.Strategy, config.Retain) == config.Retain {
+			addResourceQuantity(retained, inputName, inputQuantity)
 		}
 	}
-	return output
+	for name, quantity := range generated {
+		if quantity.Sign() < 0 {
+			quantity = resource.Quantity{}
+		}
+		addResourceQuantity(retained, name, quantity)
+	}
+	return retained
+}
+
+// addResourceQuantity accumulates rather than assigns, so which order the input
+// map is walked in does not decide which contribution to a name survives.
+func addResourceQuantity(list corev1.ResourceList, name corev1.ResourceName, quantity resource.Quantity) {
+	if existing, ok := list[name]; ok {
+		quantity.Add(existing)
+	}
+	list[name] = quantity
 }
 
 func multiplyResourceQuantities(value, mul resource.Quantity) resource.Quantity {
