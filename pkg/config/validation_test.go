@@ -3498,4 +3498,24 @@ func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
 			t.Errorf("reported %v, want %s exactly once, got %d", fields, want, reserved[want])
 		}
 	}
+	// Nothing here refuses a factor yet, so the outputs carrying a negative one
+	// go unreported. Once the check that does arrives they all have to be, and a
+	// fold that stops the walk at the reserved name rather than skipping past it
+	// would leave the one sorting after it out.
+	negative := []string{
+		"resources.transformations[0].outputs[example.com/a-negative]",
+		"resources.transformations[0].outputs[example.com/z-negative]",
+		"resources.transformations[0].outputs[zzz.example.com/negative]",
+		"resources.transformations[1].outputs[example.com/b-negative]",
+	}
+	reportedNegative := 0
+	for _, f := range negative {
+		if slices.Contains(fields, f) {
+			reportedNegative++
+		}
+	}
+	if reportedNegative != 0 && reportedNegative != len(negative) {
+		t.Errorf("reported %v, want every output with a negative factor or none of them, got %d of %d",
+			fields, reportedNegative, len(negative))
+	}
 }
