@@ -1344,29 +1344,6 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		// The sign check that lands alongside this one has to leave a reserved key
-		// to this check alone, rather than reporting the name and the sign of the
-		// same output separately.
-		"negative transformation output named pods rejected once": {
-			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-				Resources: &configapi.Resources{
-					Transformations: []configapi.ResourceTransformation{
-						{
-							Input:    "example.com/credits",
-							Strategy: ptr.To(configapi.Retain),
-							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("-1")},
-						},
-					},
-				},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
-				},
-			},
-		},
 		"transformation output named pods rejected": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -3380,10 +3357,11 @@ func TestValidateCustomLabels(t *testing.T) {
 
 // The sign check for output factors lands next to the reserved-name check, and
 // folding the two decides the order the errors come out in, whether a reserved
-// output is reported once, and which of the two reasons a negative `pods` is
-// given. Asserting those as properties holds before that check exists and after
-// it arrives. Two transformations, and one output name sorting after `pods`, so
-// neither the grouping nor the order can come out right by accident.
+// output is named once, and whether a negative `pods` is refused for both its
+// name and its factor. Asserting those as properties holds before that check
+// exists and after it arrives. Two transformations, and one output name sorting
+// after `pods`, so neither the grouping nor the order can come out right by
+// accident.
 func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
