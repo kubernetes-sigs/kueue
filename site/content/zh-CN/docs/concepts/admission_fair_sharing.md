@@ -93,5 +93,5 @@ kubectl get lq user-queue -o jsonpath={.status.fairSharing}
 输出类似于：
 
 ```
-{"admissionFairSharingStatus":{"consumedResources":{"cpu":"31999m"},"lastUpdate":"2025-06-03T14:25:15Z"},"weightedShare":0}
+{"admissionFairSharingStatus":{"consumedResources":{"cpu":"31999m"},"lastUpdate":"2025-06-03T14:25:15Z"}}
 ```
