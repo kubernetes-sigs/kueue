@@ -2,6 +2,7 @@ aliases:
   kueue-approvers:
     - gabesaba
     - mimowo
+    - sohankunkerkar
     - tenzen-y
   kueue-reviewers:
     - gabesaba
@@ -17,11 +18,9 @@ aliases:
   dependency-approvers:
     - mbobrovskyi
     - pbundyra
-    - sohankunkerkar
   test-approvers:
     - mbobrovskyi
     - pbundyra
-    - sohankunkerkar
   agent-approvers:
     - amy
     - kannon92
