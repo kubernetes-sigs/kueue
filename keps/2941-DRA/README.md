@@ -1867,11 +1867,14 @@ unknown forms are rejected rather than charged.
 The other operand has to be non-negative too. A logical resource is merged with whatever the PodSet
 already requests under that name, and the total is floored to zero afterwards, so a negative
 ordinary request on that key subtracts from the envelope and leaves a clean zero where a device was
-charged. Pod resource requests cannot be negative, but a resource transformation output is a factor
-supplied by configuration, and one that is negative reaches the merge as a request. Non-negativity
+charged. Two ways in. A resource transformation output is a factor supplied by configuration, and a negative
+one reaches the merge as a request; that is
+[#13985](https://github.com/kubernetes-sigs/kueue/issues/13985). And `validatePodSet` does not reach
+`spec.overhead`, which `PodRequests` adds to the charge, so a negative overhead survives even with
+`WorkloadValidateResourcesAreNonNegative` on; that is
+[#13991](https://github.com/kubernetes-sigs/kueue/issues/13991). Non-negativity
 of both operands belongs with exact representability in what has to hold before the merge; treating
-`FloorToZero` as the guard hides the cancellation rather than preventing it. #13985 covers refusing
-such a factor where it is configured. This only covers the request forms that exist in
+`FloorToZero` as the guard hides the cancellation rather than preventing it. This only covers the request forms that exist in
 the Kubernetes API version Kueue is compiled against. A classifier written over the Go types cannot
 see a field that was added in a later Kubernetes minor release, so bumping the API dependency will
 require reviewing any new fields that affect the charge.
