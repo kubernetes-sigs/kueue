@@ -228,6 +228,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 						Message: `load client config failed: Secret "testing-secret" not found`,
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectMultiKueueClusterStatusMetric("testing-cluster", metav1.ConditionFalse)
 			})
 
 			ginkgo.By("wait for the check's active state update", func() {
@@ -265,6 +267,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 						Message: "Connected",
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.ExpectMultiKueueClusterStatusMetric("testing-cluster", metav1.ConditionTrue)
 			})
 
 			ginkgo.By("wait for the check's active state update", func() {
