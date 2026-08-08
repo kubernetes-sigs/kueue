@@ -35,7 +35,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/apimachinery/pkg/util/sets"
-	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
@@ -468,28 +467,6 @@ func (i *Info) ResourceUsage() ResourceUsage {
 	return ru
 }
 
-// podSpecForRequests drops the overhead entries that cannot be charged before
-// anything is summed. `pods` is written from the PodSet count during flavor
-// assignment, and a negative quantity cancels a request the PodSet did make,
-// which the floor afterwards cannot tell from nothing having been asked for.
-// The webhook refuses both, and refuses them only on the way in, so a workload
-// that predates it or was admitted while the check was off still reaches here.
-func podSpecForRequests(spec *corev1.PodSpec) corev1.PodSpec {
-	charged := make(corev1.ResourceList, len(spec.Overhead))
-	for name, quantity := range spec.Overhead {
-		if name == corev1.ResourcePods || quantity.Sign() < 0 {
-			continue
-		}
-		charged[name] = quantity
-	}
-	if len(charged) == len(spec.Overhead) {
-		return *spec
-	}
-	out := *spec
-	out.Overhead = charged
-	return out
-}
-
 func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string) corev1.ResourceList {
 	res := corev1.ResourceList{}
 	for inputName, inputQuantity := range input {
@@ -715,7 +692,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			Name:  ps.Name,
 			Count: count,
 		}
-		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: podSpecForRequests(&ps.Template.Spec)}, resourcehelpers.PodResourcesOptions{})
+		specRequests := resources.PodRequests(&ps.Template.Spec)
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
 		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {

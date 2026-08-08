@@ -58,6 +58,9 @@ func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload
 	var errs []error
 	for i := range wl.Spec.PodSets {
 		podSpec := &wl.Spec.PodSets[i].Template.Spec
+		// An entry that will not be charged must not stand in for one, or a
+		// RuntimeClass overhead is skipped here and then dropped downstream.
+		podSpec.Overhead = resources.ChargeableOverhead(podSpec.Overhead)
 		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
 			var runtimeClass nodev1.RuntimeClass
 			if err := cl.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {

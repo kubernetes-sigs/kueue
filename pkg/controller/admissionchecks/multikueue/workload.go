@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -669,7 +670,39 @@ func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
 	// so any differences should not be considered as out-of-sync.
 	local.PreemptionGates = nil
 	remote.PreemptionGates = nil
+	// The remote was created without the overhead entries that are not charged,
+	// so compare what both sides would carry rather than deleting and recreating
+	// it on every pass.
+	local.PodSets = podSetsWithChargeableOverhead(local.PodSets)
+	remote.PodSets = podSetsWithChargeableOverhead(remote.PodSets)
 	return !equality.Semantic.DeepEqual(local, remote)
+}
+
+// chargeableOverhead rewrites the overhead in place, for PodSets that are
+// already a copy.
+func chargeableOverhead(podSets []kueue.PodSet) {
+	for i := range podSets {
+		podSets[i].Template.Spec.Overhead = resources.ChargeableOverhead(podSets[i].Template.Spec.Overhead)
+	}
+}
+
+// podSetsWithChargeableOverhead returns podSets, or a shallow copy of it whose
+// overhead is the chargeable part, leaving the caller's slice alone.
+func podSetsWithChargeableOverhead(podSets []kueue.PodSet) []kueue.PodSet {
+	changed := false
+	out := make([]kueue.PodSet, len(podSets))
+	copy(out, podSets)
+	for i := range out {
+		charged := resources.ChargeableOverhead(out[i].Template.Spec.Overhead)
+		if len(charged) != len(out[i].Template.Spec.Overhead) {
+			changed = true
+			out[i].Template.Spec.Overhead = charged
+		}
+	}
+	if !changed {
+		return podSets
+	}
+	return out
 }
 
 func (w *wlReconciler) listComponentWorkloads(ctx context.Context, wl *kueue.Workload) (*kueue.WorkloadList, error) {
@@ -1417,6 +1450,9 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 	}
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
 	orig.Spec.DeepCopyInto(&remoteWl.Spec)
+	// The worker sees this as a create, so it has no earlier state to weigh it
+	// against and refuses an overhead entry the manager is only carrying.
+	chargeableOverhead(remoteWl.Spec.PodSets)
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) && preemptionGated {
 		// Preemption gates should be treated independently on the remotes and manager,
