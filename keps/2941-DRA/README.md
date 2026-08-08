@@ -1791,9 +1791,11 @@ came from. The merge into `resources.Requests` is weaker still, since `MapReques
 charge that cannot be represented exactly as `int64` therefore makes the workload inadmissible
 rather than being clamped and admitted, at each step that can produce one: the per-Pod sum across
 requests, the merge with ordinary resources, and the PodSet-count multiplication. Nor is a saturated
-aggregate divided to recover a smaller request: `PodSetResources` scaling divides by the old count
-and multiplies by the new, so partial admission, `ReclaimablePods`, and workload-slice replacement
-recompute from the per-Pod envelope instead.
+aggregate divided to recover a smaller request. `PodSetResources` holds the aggregate alone and
+scales by dividing by the old count and multiplying by the new, which is exact for what it admits:
+an aggregate that had to be exactly the per-Pod value times the count divides back to that value,
+so partial admission, `ReclaimablePods`, and workload-slice replacement recover it rather than
+needing it stored.
 
 Converting a combined `resource.Quantity` back to `int64` follows the unit convention in
 `resources.ResourceValue`, milli-units for `cpu` and absolute units otherwise. That helper calls
@@ -1826,9 +1828,17 @@ flavor into the same PodSet. `podSetAssignments[].flavors` is a map, so when two
 set the same label key, the value that survives depends on map iteration order. This is not
 specific to prioritized lists, since any PodSet assigned two such flavors behaves the same way, but
 a prioritized list makes it easy to reach: the alternatives are mutually exclusive, and a user is
-likely to expect a fallback rather than the labels of both branches. For Alpha, the logical
-resources used by prioritized-list alternatives are expected to use flavors whose node labels do
-not conflict. DRA flavors normally carry none.
+likely to expect a fallback rather than the labels of both branches. Labels that do not share a key
+are the worse case, not the safe one: they accumulate, so a Pod ends up selecting a node that
+satisfies every branch at once, while the request asks for any one of them.
+
+For Alpha a prioritized-list request is admitted only when the logical resources its alternatives
+resolve to all take one ResourceFlavor and that flavor sets no node labels. Anything else is
+permanently inadmissible: a request whose resources would take different flavors has no single
+selector to render, and one flavor carrying labels cannot say which alternative they belong to.
+DRA flavors normally carry none, so this is a restriction on the shape of the queue rather than on
+the request. Binding an alternative to a flavor, and with it the per-flavor attribution of the
+charge, is left to a later stage.
 
 #### Safety argument
 
@@ -2132,9 +2142,9 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
   per-Pod value times the count is admitted in the first place
 - Prioritized list with a logical resource named `cpu`: the charge round-trips through the
   milli-unit convention rather than being read as absolute units
-- Prioritized list flavors: disjoint alternatives whose logical resources resolve to flavors
-  without node labels, and to flavors whose node labels do not share a key, produce the PodSet
-  node selector the alternatives imply
+- Prioritized list flavors: alternatives whose logical resources all resolve to one label-less
+  flavor are admitted; resources taking different flavors, or a flavor carrying node labels, are
+  rejected rather than rendered into a selector that means every branch at once
 - Prioritized list under MultiKueue: the admission check rejects before any remote Workload or Job
   exists, and a transient template read error is retried instead of rejected
 - Prioritized list under `quotaCheckStrategy: IgnoreUndeclared`: an alternative resolving to an
@@ -2197,13 +2207,16 @@ the realized allocation.
 
 - count-based `firstAvailable` quota via the component-wise-max envelope, computed after
   DeviceClass-to-logical-resource mapping
-- rejection of counter-backed and capacity-backed alternatives, and of `All`, unknown allocation
-  modes, and unmapped DeviceClasses
+- rejection of counter-backed and capacity-backed alternatives, of an alternative setting
+  `capacity` on the subrequest, and of `All`, unknown allocation modes, and unmapped DeviceClasses
+- selectors compiled with the DRA CEL feature environment the supported Kubernetes API uses, so a
+  selector the apiserver accepted is not refused here
 - a shared static-support classifier that the quota path consumes, with table-driven tests freezing
   the supported-versus-rejected contract (agreement with the feasibility path is a Beta criterion)
-- an envelope that cannot be represented exactly makes the workload permanently inadmissible
-  instead of being saturated. The same check at the shared aggregation boundaries, which every DRA
-  charge already passes through, is a Beta criterion
+- a charge that cannot be represented exactly makes the workload permanently inadmissible instead
+  of being saturated, at the envelope and at every shared aggregation boundary it passes through.
+  Mixing `Exactly` and `firstAvailable` can overflow a boundary neither reaches alone, so this
+  cannot wait for Beta
 - integration and e2e tests
 
 #### Beta
@@ -2254,10 +2267,8 @@ the realized allocation.
 
 - feature gate enabled by default
 - quota and feasibility paths agree on the supported-versus-rejected predicate, with tests
-- no known quota under-accounting at the aggregation boundaries: the per-Pod sum across requests,
-  the merge with an ordinary resource sharing the same key, the PodSet-count multiplication, the
-  sum across PodSets, and the `resource.Quantity` to `int64` conversion where several DeviceClasses
-  map to one logical resource
+- alternatives bound to a ResourceFlavor, so a prioritized list is no longer confined to queues
+  exposing one label-less flavor for the resources it reaches
 - upgrade and downgrade behavior verified
 - E2E stability for the count-based case
 - re-evaluate source-backed alternatives, charging each through its source path and taking the
