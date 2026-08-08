@@ -275,6 +275,26 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			wantClassReads:     new(0),
 			wantWorkloadWrites: new(0),
 		},
+
+		// A sibling whose name does have to change makes the helper resolve, and the
+		// name it resolves is the empty one. The workloads with no reference are not
+		// what that answer is about: theirs came from a Pod PriorityClass or the
+		// default. Only the one naming a class is written.
+		"leaves the unreferenced workloads of an unlabelled owner alone while a sibling transitions": {
+			ownerClass: new(""),
+			class:      utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("chosen", "ns").Priority(500).Obj(),
+				utiltestingapi.MakeWorkload("moving", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+			},
+			interceptors: countingReadsAndWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"chosen": {refName: new(""), priority: new(int32(500))},
+				"moving": {refName: new(""), priority: new(int32(0))},
+			},
+			wantWorkloadWrites: new(1),
+		},
 	}
 
 	for name, tc := range cases {

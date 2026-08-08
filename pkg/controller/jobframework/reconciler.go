@@ -1298,6 +1298,14 @@ func classifyWorkloadsForPriorityUpdate(log logr.Logger, jobPriorityClassName st
 			}
 			continue
 		}
+		// The same reach, for the ones that have not reserved yet. Under an empty
+		// label every workload without a reference reads as naming that same empty
+		// class, so a sibling whose name does have to change would otherwise carry
+		// them all to whatever the fallback resolved to. Their value came from a Pod
+		// PriorityClass or the default, which this reconciliation leaves alone.
+		if jobPriorityClassName == "" && workload.HasNoPriority(wl) {
+			continue
+		}
 		if !workload.HasNoPriority(wl) && !workload.IsWorkloadPriorityClass(wl) {
 			continue
 		}
