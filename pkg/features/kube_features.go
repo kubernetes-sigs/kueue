@@ -88,6 +88,12 @@ const (
 	// Enabled gathering of LocalQueue metrics
 	LocalQueueMetrics featuregate.Feature = "LocalQueueMetrics"
 
+	// owner: @PannagaRao
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/11520-local-queue-defaulting-per-namespace
+	//
+	// Enable per-namespace control over LocalQueue defaulting via localQueueDefaultingNamespaceSelector.
+	LocalQueueDefaultingPerNamespace featuregate.Feature = "LocalQueueDefaultingPerNamespace"
+
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -613,6 +619,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	LocalQueueMetrics: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.17"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	LocalQueueDefaultingPerNamespace: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASProfileMixed: {
 		{Version: version.MustParse("0.10"), Default: false, PreRelease: featuregate.Alpha},

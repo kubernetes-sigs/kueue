@@ -326,6 +326,7 @@ func autoConvert_v1beta1_Configuration_To_v1beta2_Configuration(in *Configuratio
 	}
 	out.ManageJobsWithoutQueueName = in.ManageJobsWithoutQueueName
 	out.ManagedJobsNamespaceSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.ManagedJobsNamespaceSelector))
+	out.LocalQueueDefaultingNamespaceSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.LocalQueueDefaultingNamespaceSelector))
 	out.InternalCertManagement = (*v1beta2.InternalCertManagement)(unsafe.Pointer(in.InternalCertManagement))
 	if in.WaitForPodsReady != nil {
 		in, out := &in.WaitForPodsReady, &out.WaitForPodsReady
@@ -387,6 +388,7 @@ func autoConvert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Conf
 	}
 	out.ManageJobsWithoutQueueName = in.ManageJobsWithoutQueueName
 	out.ManagedJobsNamespaceSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.ManagedJobsNamespaceSelector))
+	out.LocalQueueDefaultingNamespaceSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.LocalQueueDefaultingNamespaceSelector))
 	out.InternalCertManagement = (*InternalCertManagement)(unsafe.Pointer(in.InternalCertManagement))
 	if in.WaitForPodsReady != nil {
 		in, out := &in.WaitForPodsReady, &out.WaitForPodsReady

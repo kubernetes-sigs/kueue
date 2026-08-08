@@ -67,6 +67,17 @@ type Configuration struct {
 	// true and the job's namespace matches ManagedJobsNamespaceSelector.
 	ManagedJobsNamespaceSelector *metav1.LabelSelector `json:"managedJobsNamespaceSelector,omitempty"`
 
+	// LocalQueueDefaultingNamespaceSelector restricts which namespaces
+	// participate in LocalQueue defaulting. When set and the
+	// LocalQueueDefaultingPerNamespace feature gate is enabled, only
+	// workloads in namespaces matching this selector will have the default
+	// LocalQueue label injected if a LocalQueue named "default" exists in
+	// the namespace.
+	// When nil, defaulting is active in all managed namespaces where a
+	// "default" LocalQueue exists (preserving current behavior).
+	// +optional
+	LocalQueueDefaultingNamespaceSelector *metav1.LabelSelector `json:"localQueueDefaultingNamespaceSelector,omitempty"`
+
 	// InternalCertManagement is configuration for internalCertManagement
 	InternalCertManagement *InternalCertManagement `json:"internalCertManagement,omitempty"`
 

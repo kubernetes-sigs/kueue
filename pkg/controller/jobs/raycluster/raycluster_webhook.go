@@ -47,12 +47,13 @@ var (
 )
 
 type RayClusterWebhook struct {
-	integrationManager           *jobframework.IntegrationManager
-	client                       client.Client
-	queues                       *qcache.Manager
-	manageJobsWithoutQueueName   bool
-	managedJobsNamespaceSelector labels.Selector
-	cache                        *schdcache.Cache
+	integrationManager                    *jobframework.IntegrationManager
+	client                                client.Client
+	queues                                *qcache.Manager
+	manageJobsWithoutQueueName            bool
+	managedJobsNamespaceSelector          labels.Selector
+	localQueueDefaultingNamespaceSelector labels.Selector
+	cache                                 *schdcache.Cache
 }
 
 // SetupRayClusterWebhook configures the webhook for rayv1 RayCluster.
@@ -62,12 +63,13 @@ func SetupRayClusterWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error
 		opt(&options)
 	}
 	wh := &RayClusterWebhook{
-		integrationManager:           options.IntegrationManager,
-		client:                       mgr.GetClient(),
-		queues:                       options.Queues,
-		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
-		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-		cache:                        options.Cache,
+		integrationManager:                    options.IntegrationManager,
+		client:                                mgr.GetClient(),
+		queues:                                options.Queues,
+		manageJobsWithoutQueueName:            options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector:          options.ManagedJobsNamespaceSelector,
+		localQueueDefaultingNamespaceSelector: options.LocalQueueDefaultingNamespaceSelector,
+		cache:                                 options.Cache,
 	}
 	obj := &rayv1.RayCluster{}
 	if options.NoopWebhook {
@@ -89,7 +91,14 @@ func (w *RayClusterWebhook) Default(ctx context.Context, obj *rayv1.RayCluster) 
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Applying defaults")
-	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, job.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
+	if err := w.integrationManager.ApplyDefaultLocalQueue(
+		ctx,
+		w.client,
+		job.Object(),
+		w.queues.DefaultLocalQueueExist,
+		w.managedJobsNamespaceSelector,
+		w.localQueueDefaultingNamespaceSelector,
+	); err != nil {
 		return err
 	}
 	w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())

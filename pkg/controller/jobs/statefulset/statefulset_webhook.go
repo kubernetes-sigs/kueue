@@ -41,21 +41,23 @@ import (
 )
 
 type Webhook struct {
-	integrationManager           *jobframework.IntegrationManager
-	client                       client.Client
-	manageJobsWithoutQueueName   bool
-	managedJobsNamespaceSelector labels.Selector
-	queues                       *qcache.Manager
+	integrationManager                    *jobframework.IntegrationManager
+	client                                client.Client
+	manageJobsWithoutQueueName            bool
+	managedJobsNamespaceSelector          labels.Selector
+	localQueueDefaultingNamespaceSelector labels.Selector
+	queues                                *qcache.Manager
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &Webhook{
-		integrationManager:           options.IntegrationManager,
-		client:                       mgr.GetClient(),
-		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
-		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-		queues:                       options.Queues,
+		integrationManager:                    options.IntegrationManager,
+		client:                                mgr.GetClient(),
+		manageJobsWithoutQueueName:            options.ManageJobsWithoutQueueName,
+		managedJobsNamespaceSelector:          options.ManagedJobsNamespaceSelector,
+		localQueueDefaultingNamespaceSelector: options.LocalQueueDefaultingNamespaceSelector,
+		queues:                                options.Queues,
 	}
 	obj := &appsv1.StatefulSet{}
 	if options.NoopWebhook {
@@ -84,7 +86,14 @@ func (wh *Webhook) Default(ctx context.Context, stsObj *appsv1.StatefulSet) erro
 
 	log.V(5).Info("Propagating queue-name")
 
-	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, ss.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
+	if err := wh.integrationManager.ApplyDefaultLocalQueue(
+		ctx,
+		wh.client,
+		ss.Object(),
+		wh.queues.DefaultLocalQueueExist,
+		wh.managedJobsNamespaceSelector,
+		wh.localQueueDefaultingNamespaceSelector,
+	); err != nil {
 		return err
 	}
 	wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object())

@@ -35,26 +35,28 @@ import (
 
 // BaseWebhook applies basic defaulting and validation for jobs.
 type BaseWebhook[T any] struct {
-	IntegrationManager           *IntegrationManager
-	Client                       client.Client
-	ManageJobsWithoutQueueName   bool
-	ManagedJobsNamespaceSelector labels.Selector
-	FromObject                   func(T) GenericJob
-	Queues                       *qcache.Manager
-	Cache                        *schdcache.Cache
+	IntegrationManager                    *IntegrationManager
+	Client                                client.Client
+	ManageJobsWithoutQueueName            bool
+	ManagedJobsNamespaceSelector          labels.Selector
+	LocalQueueDefaultingNamespaceSelector labels.Selector
+	FromObject                            func(T) GenericJob
+	Queues                                *qcache.Manager
+	Cache                                 *schdcache.Cache
 }
 
 func BaseWebhookFactory[T runtime.Object](obj T, fromObject func(T) GenericJob) func(ctrl.Manager, ...Option) error {
 	return func(mgr ctrl.Manager, opts ...Option) error {
 		options := ProcessOptions(opts...)
 		wh := &BaseWebhook[T]{
-			IntegrationManager:           options.IntegrationManager,
-			Client:                       mgr.GetClient(),
-			ManageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
-			ManagedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
-			FromObject:                   fromObject,
-			Queues:                       options.Queues,
-			Cache:                        options.Cache,
+			IntegrationManager:                    options.IntegrationManager,
+			Client:                                mgr.GetClient(),
+			ManageJobsWithoutQueueName:            options.ManageJobsWithoutQueueName,
+			ManagedJobsNamespaceSelector:          options.ManagedJobsNamespaceSelector,
+			LocalQueueDefaultingNamespaceSelector: options.LocalQueueDefaultingNamespaceSelector,
+			FromObject:                            fromObject,
+			Queues:                                options.Queues,
+			Cache:                                 options.Cache,
 		}
 		if options.NoopWebhook {
 			return webhook.SetupNoopWebhook(mgr, obj)
@@ -73,7 +75,14 @@ func (w *BaseWebhook[T]) Default(ctx context.Context, obj T) error {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Applying defaults")
 	if w.IntegrationManager != nil {
-		if err := w.IntegrationManager.ApplyDefaultLocalQueue(ctx, w.Client, job.Object(), w.Queues.DefaultLocalQueueExist, w.ManagedJobsNamespaceSelector); err != nil {
+		if err := w.IntegrationManager.ApplyDefaultLocalQueue(
+			ctx,
+			w.Client,
+			job.Object(),
+			w.Queues.DefaultLocalQueueExist,
+			w.ManagedJobsNamespaceSelector,
+			w.LocalQueueDefaultingNamespaceSelector,
+		); err != nil {
 			return err
 		}
 		w.IntegrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.Client, job.Object())

@@ -613,6 +613,14 @@ func setupControllers(
 	}
 	jfOpts = append(jfOpts, jobframework.WithManagedJobsNamespaceSelector(nsSelector))
 
+	if cfg.LocalQueueDefaultingNamespaceSelector != nil {
+		lqdSelector, err := metav1.LabelSelectorAsSelector(cfg.LocalQueueDefaultingNamespaceSelector)
+		if err != nil {
+			return fmt.Errorf("failed to parse localQueueDefaultingNamespaceSelector: %w", err)
+		}
+		jfOpts = append(jfOpts, jobframework.WithLocalQueueDefaultingNamespaceSelector(lqdSelector))
+	}
+
 	if err := integrationManager.SetupControllers(ctx, mgr, setupLog, jfOpts...); err != nil {
 		return fmt.Errorf(
 			"unable to create controller or webhook for kubernetesVersion %v: %w",
