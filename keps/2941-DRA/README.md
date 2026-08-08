@@ -1938,7 +1938,7 @@ through unscaled; that is
 [#14007](https://github.com/kubernetes-sigs/kueue/issues/14007), and the output it produces still
 arrives, once, positive and exactly representable, at a fraction of what the configuration asked
 for. So the premise covers both: every contribution to a key a logical resource is charged on
-reaches the merge exactly once, and reaches it at the size the configuration asked for. The envelope
+reaches the merge exactly once, and reaches it at the size it was computed to have. The envelope
 bounds a resource, and it bounds nothing if the other charges on that resource arrive wrong or not
 at all.
 
@@ -2022,10 +2022,12 @@ until it holds, so the Alpha implementation waits on it.
 Supported: `ResourceClaimTemplate` references; `ExactCount` subrequests; count-based
 `deviceClassMappings` (no `sources`); request-selector CEL compilation.
 
-Rejected: a request whose alternatives map to more than one logical resource; direct
+Rejected: a request whose alternatives map to more than one logical resource; a request whose
+logical resource an `excludeResourcePrefixes` entry covers; direct
 `ResourceClaim` references; `All` and unknown allocation modes; unmapped
 DeviceClasses; any alternative that sets `capacity` on the subrequest; and any alternative whose
-DeviceClass mapping configures a counter or capacity `source`. Source-backed alternatives are excluded because the counter and consumable-capacity
+DeviceClass mapping configures a counter or capacity `source`. Source-backed alternatives are
+excluded because the counter and consumable-capacity
 accounting paths process only `Exactly` requests today; they can be added later by charging each
 alternative through its source path and taking the component-wise maximum of the resulting vectors.
 
@@ -2222,7 +2224,8 @@ What closes one is a merged fix or an equivalent guard, not the state of the iss
 - [#14007](https://github.com/kubernetes-sigs/kueue/issues/14007): `excludeResourcePrefixes` is
   applied before transformations run, so a `multiplyBy` naming a resource it covers is absent by
   then and the input is carried through unscaled. An output on a key an envelope also charges is
-  then a fraction of what was configured, while staying positive, exact and arriving once.
+  then computed as though the multiplier were one, which is short of the configured charge when the
+  multiplier is above one and over it when below, while staying positive, exact and arriving once.
 
 Each fix regresses against the path it lives on, which is the `Exactly` charge those paths carry
 today; a fix cannot test a shape the feature it precedes has not introduced. The implementation
@@ -2314,8 +2317,8 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
   `firstAvailable`, PodSet count greater than one, and a total that exceeds the representable range
   rejected rather than saturated
 - Prioritized list rejection: unmapped alternative, `All` and unknown allocation modes, a
-  counter-backed or capacity-backed alternative, and the feature gate disabled all marked
-  inadmissible
+  counter-backed or capacity-backed alternative, a logical resource an `excludeResourcePrefixes`
+  entry covers, and the feature gate disabled all marked inadmissible
 - Prioritized list representability: a per-Pod sum, a merge with an ordinary resource that shares
   the same key, a PodSet multiplication, and a sum across two PodSets that each fit on their own,
   none of which lands in the finite range. That range stops below `math.MaxInt64` rather than at
