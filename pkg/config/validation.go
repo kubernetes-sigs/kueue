@@ -455,6 +455,11 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
+// reservedResourceNameMsg is the Workload webhook's message for the same key.
+// Only the message is shared, since the two validators do not refuse the same
+// set of things.
+const reservedResourceNameMsg = "the key is reserved for internal kueue use"
+
 func validateResourceTransformations(c *configapi.Configuration) field.ErrorList {
 	res := c.Resources
 	if res == nil {
@@ -472,6 +477,13 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 			allErrs = append(allErrs, field.Duplicate(resourceTransformationPath.Index(idx).Child("input"), transform.Input))
 		} else {
 			seenKeys.Insert(transform.Input)
+		}
+		// The same key, reached from the other side of the configuration, and
+		// discarded in the same place.
+		if _, ok := transform.Outputs[corev1.ResourcePods]; ok {
+			allErrs = append(allErrs, field.Invalid(
+				resourceTransformationPath.Index(idx).Child("outputs").Key(string(corev1.ResourcePods)),
+				corev1.ResourcePods, reservedResourceNameMsg))
 		}
 	}
 	return allErrs
@@ -502,6 +514,12 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 
 		if len(string(mapping.Name)) > 253 {
 			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, "must not exceed 253 characters"))
+		}
+
+		// Flavor assignment replaces this key with the PodSet count, discarding
+		// whatever was stored under it.
+		if mapping.Name == corev1.ResourcePods {
+			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, reservedResourceNameMsg))
 		}
 
 		if seenResourceNames.Has(mapping.Name) {
