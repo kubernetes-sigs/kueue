@@ -161,6 +161,7 @@ func (c *clusterQueue) updateClusterQueue(
 	}
 	c.NamespaceSelector = nsSelector
 
+	var cohortUpdateErr error
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			updateCohortTreeResourcesIfNoCycle(oldParent)
@@ -168,7 +169,13 @@ func (c *clusterQueue) updateClusterQueue(
 		if c.HasParent() {
 			// clusterQueue will be updated as part of tree update.
 			if err := updateCohortTreeResources(c.Parent()); err != nil {
-				return err
+				if !errors.Is(err, ErrCohortHasCycle) {
+					return err
+				}
+				// A ClusterQueue remains cached when its Cohort has a cycle. Keep
+				// updating its independent fields so it is not left partially initialized
+				// or stale while the cycle is being repaired.
+				cohortUpdateErr = err
 			}
 		} else {
 			// since ClusterQueue has no parent, it won't be updated
@@ -207,7 +214,7 @@ func (c *clusterQueue) updateClusterQueue(
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
 	}
-	return nil
+	return cohortUpdateErr
 }
 
 func (c *clusterQueue) ConcurrentAdmissionEnabled() bool {
@@ -288,6 +295,11 @@ func (c *clusterQueue) ensureTASIsSynced(log logr.Logger) {
 		return
 	}
 	if c.isTASSynced {
+		return
+	}
+	// Workload resync updates usage and metrics through the Cohort hierarchy, so it
+	// cannot run while that hierarchy contains a cycle.
+	if c.HasParent() && hierarchy.HasCycle(c.Parent()) {
 		return
 	}
 	log.V(2).Info("Syncing TAS usage initilized TAS cache", "workloads", len(c.Workloads))

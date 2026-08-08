@@ -522,8 +522,9 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 	}
 	oldParent := cqImpl.Parent()
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
-	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
-		return err
+	updateErr := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, oldParent)
+	if updateErr != nil && !errors.Is(updateErr, ErrCohortHasCycle) {
+		return updateErr
 	}
 	c.handleParentUpdate(oldParent)
 	for _, qImpl := range cqImpl.localQueues {
@@ -536,7 +537,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 	parentCohort, rootCohort := cqImpl.parentAndRootCohort()
 	c.recordCQInfo(cqImpl, parentCohort, rootCohort)
 
-	return nil
+	return updateErr
 }
 
 func (c *Cache) resyncClusterQueueGaugeMetricsLocked(cq *clusterQueue) {
@@ -651,8 +652,20 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	}
 	c.handleParentUpdate(oldParent)
 	c.updateCohortTreeAndInfoMetricsIfNoCycle(cohort)
+	c.ensureTASIsSyncedForClusterQueues()
 
 	return nil
+}
+
+// ensureTASIsSyncedForClusterQueues retries TAS usage synchronization that may
+// have been blocked by a Cohort cycle. The caller must hold the cache write lock.
+func (c *Cache) ensureTASIsSyncedForClusterQueues() {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return
+	}
+	for _, cq := range c.hm.ClusterQueues() {
+		cq.ensureTASIsSynced(logr.Discard())
+	}
 }
 
 // DeleteCohort removes the cohort from the cache and updates the SubtreeQuota
@@ -685,6 +698,7 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	}
 
 	c.handleParentUpdate(parent)
+	c.ensureTASIsSyncedForClusterQueues()
 }
 
 func (c *Cache) handleParentUpdate(cachedParent *cohort) {

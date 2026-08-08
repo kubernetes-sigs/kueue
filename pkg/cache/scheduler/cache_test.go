@@ -3376,6 +3376,7 @@ func TestCohortCycles(t *testing.T) {
 		}
 	})
 	t.Run("clusterqueue add and update return error when cohort has cycle", func(t *testing.T) {
+		features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, true)
 		cache := New(utiltesting.NewFakeClient())
 		ctx, log := utiltesting.ContextWithLog(t)
 		cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
@@ -3393,14 +3394,65 @@ func TestCohortCycles(t *testing.T) {
 
 		// Error when creating CQ with parent Cohort-A
 		cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Obj()
-		if err := cache.AddClusterQueue(ctx, cq); err == nil {
-			t.Fatal("Expected failure when adding cq to cohort with cycle")
+		if err := cache.AddClusterQueue(ctx, cq); !errors.Is(err, ErrCohortHasCycle) {
+			t.Fatalf("Expected cohort cycle error when adding cq, got %v", err)
+		}
+		cachedCQ := cache.hm.ClusterQueue("cq")
+		if cachedCQ == nil {
+			t.Fatal("Expected ClusterQueue to remain cached")
+		}
+		if diff := cmp.Diff(defaultPreemption, cachedCQ.Preemption); diff != "" {
+			t.Errorf("Unexpected default preemption (-want,+got):\n%s", diff)
+		}
+		if diff := cmp.Diff(defaultFlavorFungibility, cachedCQ.FlavorFungibility); diff != "" {
+			t.Errorf("Unexpected default flavor fungibility (-want,+got):\n%s", diff)
+		}
+		if diff := cmp.Diff(defaultWeight, cachedCQ.FairWeight); diff != "" {
+			t.Errorf("Unexpected default fair weight (-want,+got):\n%s", diff)
 		}
 
 		// Error when updating CQ with parent Cohort-B
-		cq = utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-b").Obj()
-		if err := cache.UpdateClusterQueue(log, cq); err == nil {
-			t.Fatal("Expected failure when updating cq to cohort with cycle")
+		wantPreemption := kueue.ClusterQueuePreemption{
+			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+		}
+		wantFlavorFungibility := kueue.FlavorFungibility{
+			WhenCanBorrow:  kueue.TryNextFlavor,
+			WhenCanPreempt: kueue.MayStopSearch,
+		}
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			Cohort("cohort-b").
+			NamespaceSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"team": "new"}}).
+			StopPolicy(kueue.Hold).
+			Preemption(wantPreemption).
+			FlavorFungibility(wantFlavorFungibility).
+			FairWeight(resource.MustParse("2")).
+			AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+			ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+			Obj()
+		if err := cache.UpdateClusterQueue(log, cq); !errors.Is(err, ErrCohortHasCycle) {
+			t.Fatalf("Expected cohort cycle error when updating cq, got %v", err)
+		}
+		if !cachedCQ.isStopped {
+			t.Error("Expected cached cq to be stopped")
+		}
+		if !cachedCQ.NamespaceSelector.Matches(labels.Set{"team": "new"}) ||
+			cachedCQ.NamespaceSelector.Matches(labels.Set{}) {
+			t.Error("Expected cached cq to use the updated namespace selector")
+		}
+		if diff := cmp.Diff(wantPreemption, cachedCQ.Preemption); diff != "" {
+			t.Errorf("Unexpected preemption (-want,+got):\n%s", diff)
+		}
+		if diff := cmp.Diff(wantFlavorFungibility, cachedCQ.FlavorFungibility); diff != "" {
+			t.Errorf("Unexpected flavor fungibility (-want,+got):\n%s", diff)
+		}
+		if diff := cmp.Diff(2.0, cachedCQ.FairWeight); diff != "" {
+			t.Errorf("Unexpected fair weight (-want,+got):\n%s", diff)
+		}
+		if !cache.ClusterQueueUsesAdmissionFairSharing("cq") {
+			t.Error("Expected cached cq to use admission fair sharing")
+		}
+		if diff := cmp.Diff(cq.Spec.ConcurrentAdmissionPolicy, cachedCQ.ConcurrentAdmissionPolicy); diff != "" {
+			t.Errorf("Unexpected concurrent admission policy (-want,+got):\n%s", diff)
 		}
 
 		// Delete Cohort C, breaking cycle
@@ -3426,8 +3478,8 @@ func TestCohortCycles(t *testing.T) {
 		}
 
 		cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Obj()
-		if err := cache.AddClusterQueue(ctx, cq); err == nil {
-			t.Fatal("Expected failure when adding cq to cohort with cycle")
+		if err := cache.AddClusterQueue(ctx, cq); !errors.Is(err, ErrCohortHasCycle) {
+			t.Fatalf("Expected cohort cycle error when adding cq, got %v", err)
 		}
 
 		// The ClusterQueue stays cached so that a later update can recover it, which
@@ -3436,6 +3488,78 @@ func TestCohortCycles(t *testing.T) {
 		gotCQs := cache.MatchingClusterQueues(nil)
 		if diff := cmp.Diff(wantCQs, gotCQs); diff != "" {
 			t.Errorf("Wrong ClusterQueues (-want,+got):\n%s", diff)
+		}
+	})
+
+	t.Run("TAS sync resumes after repairing a cohort cycle", func(t *testing.T) {
+		features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+		cases := map[string]struct {
+			repair func(*Cache) error
+		}{
+			"updating the cohort": {
+				repair: func(cache *Cache) error {
+					return cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cycle").Obj())
+				},
+			},
+			"deleting the cohort": {
+				repair: func(cache *Cache) error {
+					cache.DeleteCohort("cycle")
+					return nil
+				},
+			},
+		}
+		for name, tc := range cases {
+			t.Run(name, func(t *testing.T) {
+				cache := New(utiltesting.NewFakeClient())
+				ctx, log := utiltesting.ContextWithLog(t)
+				topology := utiltestingapi.MakeTopology("topology").Levels("hostname").Obj()
+				flavor := utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
+				cache.AddOrUpdateResourceFlavor(log, flavor)
+				cache.AddOrUpdateTopology(log, topology)
+				cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
+				if err := cache.AddOrUpdateCohort(cycleCohort); !errors.Is(err, ErrCohortHasCycle) {
+					t.Fatalf("Expected cohort cycle error, got %v", err)
+				}
+				cq := utiltestingapi.MakeClusterQueue("cq").
+					Cohort("cycle").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					Obj()
+				if err := cache.AddClusterQueue(ctx, cq); !errors.Is(err, ErrCohortHasCycle) {
+					t.Fatalf("Expected cohort cycle error when adding cq, got %v", err)
+				}
+
+				cachedCQ := cache.hm.ClusterQueue("cq")
+				if cachedCQ == nil {
+					t.Fatal("Expected ClusterQueue to remain cached")
+				}
+				wantTASFlavors := map[kueue.ResourceFlavorReference]kueue.TopologyReference{
+					kueue.ResourceFlavorReference(flavor.Name): kueue.TopologyReference(topology.Name),
+				}
+				if diff := cmp.Diff(wantTASFlavors, cachedCQ.tasFlavors); diff != "" {
+					t.Errorf("Unexpected TAS flavors (-want,+got):\n%s", diff)
+				}
+				if !cachedCQ.isTASInitialized() {
+					t.Fatal("Expected TAS cache to be initialized")
+				}
+				if cachedCQ.isTASSynced {
+					t.Error("Expected TAS sync to be skipped while the cohort has a cycle")
+				}
+
+				if err := tc.repair(cache); err != nil {
+					t.Fatalf("Repairing cohort cycle: %v", err)
+				}
+				if !cachedCQ.isTASSynced {
+					t.Error("Expected TAS sync after the cohort cycle is repaired")
+				}
+				snapshot, err := cache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("Creating snapshot: %v", err)
+				}
+				if snapshot.ClusterQueue("cq") == nil {
+					t.Error("Expected repaired ClusterQueue in snapshot")
+				}
+			})
 		}
 	})
 

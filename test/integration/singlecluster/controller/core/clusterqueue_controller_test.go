@@ -896,6 +896,81 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 		})
 	})
 
+	// cycle-update-cohort --parent--> cycle-update-cohort
+	ginkgo.When("Updating a ClusterQueue whose Cohort has a cycle", func() {
+		var (
+			cq     *kueue.ClusterQueue
+			cohort *kueue.Cohort
+		)
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+		})
+
+		ginkgo.It("Should refresh independent ClusterQueue fields", func() {
+			cycleErrorLogCount := func(message string) int {
+				return fwk.ObservedLogs.Filter(func(entry observer.LoggedEntry) bool {
+					errText, ok := entry.ContextMap()["error"].(string)
+					return entry.Message == message && ok && errText == "cohort has a cycle"
+				}).Len()
+			}
+
+			cohort = utiltestingapi.MakeCohort("cycle-update-cohort").Obj()
+			util.MustCreate(ctx, k8sClient, cohort)
+
+			cohortCycleErrorCount := cycleErrorLogCount("Error adding or updating cohort in the cache")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got kueue.Cohort
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &got)).To(gomega.Succeed())
+				got.Spec.ParentName = kueue.CohortReference(got.Name)
+				g.Expect(k8sClient.Update(ctx, &got)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func() int {
+				return cycleErrorLogCount("Error adding or updating cohort in the cache")
+			}, util.Timeout, util.Interval).Should(gomega.BeNumerically(">", cohortCycleErrorCount))
+
+			clusterQueueCycleErrorCount := cycleErrorLogCount("Failed to add clusterQueue to cache")
+			cq = utiltestingapi.MakeClusterQueue("cycle-update-cq").
+				Cohort(kueue.CohortReference(cohort.Name)).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("cycle-update-old-flavor").
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			gomega.Eventually(func() int {
+				return cycleErrorLogCount("Failed to add clusterQueue to cache")
+			}, util.Timeout, util.Interval).Should(gomega.BeNumerically(">", clusterQueueCycleErrorCount))
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &got)).To(gomega.Succeed())
+				got.Spec.ResourceGroups = []kueue.ResourceGroup{
+					utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("cycle-update-missing-flavor").
+						Resource(corev1.ResourceCPU, "2").Obj()),
+				}
+				got.Spec.StopPolicy = ptr.To(kueue.Hold)
+				got.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{{Name: "cycle-update-missing-check"}},
+				}
+				g.Expect(k8sClient.Update(ctx, &got)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &got)).To(gomega.Succeed())
+				condition := apimeta.FindStatusCondition(got.Status.Conditions, kueue.ClusterQueueActive)
+				g.Expect(condition).NotTo(gomega.BeNil())
+				g.Expect(condition.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(condition.Reason).To(gomega.Equal(kueue.ClusterQueueActiveReasonStopped))
+				expectedMessage := "Can't admit new workloads: is stopped, " +
+					"references missing ResourceFlavor(s): cycle-update-missing-flavor, " +
+					"references missing AdmissionCheck(s): cycle-update-missing-check."
+				g.Expect(condition.Message).To(gomega.Equal(expectedMessage))
+				g.Expect(condition.ObservedGeneration).To(gomega.Equal(got.Generation))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("ReclaimablePods feature gate is off and clusterQueue usage status is reconciled", func() {
 		var (
 			clusterQueue *kueue.ClusterQueue
