@@ -713,6 +713,132 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		// A negative output factor is how a per-unit allowance is written: the
+		// charge is what the request exceeds it by. These three are the same
+		// configuration at, above and below the allowance.
+		"transformAllowanceAboveIt": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("nvidia.com/gpumem", "2048").
+					Request("nvidia.com/gpu", "2").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations(allowanceTransformations())},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/gpu-memory-overage"): 2048,
+						corev1.ResourceName("nvidia.com/gpu"):                       2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"transformAllowanceExactlyAtIt": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("nvidia.com/gpumem", "1024").
+					Request("nvidia.com/gpu", "2").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations(allowanceTransformations())},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/gpu-memory-overage"): 0,
+						corev1.ResourceName("nvidia.com/gpu"):                       2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"transformAllowanceUnderIt": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("nvidia.com/gpumem", "512").
+					Request("nvidia.com/gpu", "2").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations(allowanceTransformations())},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/gpu-memory-overage"): 0,
+						corev1.ResourceName("nvidia.com/gpu"):                       2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// An allowance is spent against what the transformations generate, and
+		// nothing else. Here it would otherwise come off a request the PodSet
+		// made directly under the same name.
+		"transformAllowanceDoesNotReachADirectRequest": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "8").
+					Request("example.com/credit", "3").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: ptr.To(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// An output sharing a name with something the PodSet requests directly
+		// used to be kept or dropped by the order the input map was walked.
+		"transformOutputSharingANameWithARequestIsAdded": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					Request("example.com/credit", "1").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: ptr.To(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// And one naming its own retained input used to be overwritten by the
+		// retain assignment every time.
+		"transformOutputSharingANameWithItsRetainedInputIsAdded": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/gpu",
+				Strategy: ptr.To(config.Retain),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("5")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 6,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		"transformMilliValues": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(
@@ -3434,5 +3560,23 @@ func TestTotalExecutionTime(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// allowanceTransformations charges the memory a Workload asks for beyond a
+// per-GPU allowance, which is what a negative output factor expresses.
+func allowanceTransformations() []config.ResourceTransformation {
+	return []config.ResourceTransformation{
+		{
+			Input:      "nvidia.com/gpumem",
+			Strategy:   ptr.To(config.Replace),
+			MultiplyBy: "nvidia.com/gpu",
+			Outputs:    corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("1")},
+		},
+		{
+			Input:    "nvidia.com/gpu",
+			Strategy: ptr.To(config.Retain),
+			Outputs:  corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("-1024")},
+		},
 	}
 }
