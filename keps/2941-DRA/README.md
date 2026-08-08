@@ -1917,6 +1917,15 @@ IgnoreUndeclared` deliberately omits undeclared dimensions from enforcement. Sin
 of a request resolves to the same logical resource, that leaves out the request as a whole rather
 than one of its alternatives.
 
+Third, the envelope has to survive as far as the queue entry. It is carried by
+`WithPreprocessedDRAResources`, and a `Workload` requeued after its backoff has elapsed is added
+again without those options, so the entry is rebuilt from the pod spec. A `firstAvailable` request
+asks for its devices through a `ResourceClaimTemplate` rather than through container resources, so
+nothing of it is left in that rebuild: the charge is not reduced, it is gone. This is the existing
+`Exactly` path's problem too and is tracked in
+[#13930](https://github.com/kubernetes-sigs/kueue/issues/13930), but the envelope is worth nothing
+until it holds, so the Alpha implementation waits on it.
+
 #### Scope
 
 Supported: `ResourceClaimTemplate` references; `ExactCount` subrequests; count-based
@@ -1998,7 +2007,9 @@ to the same workload; this design does not let a user use `firstAvailable` to by
 #### Feature gate lifecycle, version skew, and observability
 
 - Rollback: the gate is Alpha, default off. Disabling it returns a new `firstAvailable` workload to
-  the current rejection. A workload that has reserved quota keeps the accounting recorded in its
+  the current rejection. The MultiKueue rejection below is not conditioned on the gate, so a
+  workload that reserved quota under it and is still waiting for its admission check is refused
+  remote dispatch on the same terms after the gate goes off or the manager is rolled back. A workload that has reserved quota keeps the accounting recorded in its
   status: `Info.rebuildTotalRequests` reads from the admission once `status.admission` is set, which
   a reservation does, rather than recomputing from the PodSets. So a controller restart or downgrade
   does not lose the envelope, and the case of a workload holding a reservation while it waits for an
