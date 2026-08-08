@@ -1876,7 +1876,17 @@ one reaches the merge as a request; that is
 `WorkloadValidateResourcesAreNonNegative` on; that is
 [#13991](https://github.com/kubernetes-sigs/kueue/issues/13991). Non-negativity
 of both operands belongs with exact representability in what has to hold before the merge; treating
-`FloorToZero` as the guard hides the cancellation rather than preventing it. This only covers the request forms that exist in
+`FloorToZero` as the guard hides the cancellation rather than preventing it.
+
+Both say something about the operands and nothing about them arriving. A third has to: every
+contribution to a key a logical resource is charged on reaches the merge exactly once.
+`applyResourceTransformations` accumulates the outputs of transformations but assigns a retained or
+untransformed input, so when an output shares its name with something the PodSet requests directly,
+which of them survives is decided by the order the input map is walked, and the same workload can be
+charged differently from one call to the next. No sign or range is involved: a positive request
+disappears. That is
+[#13990](https://github.com/kubernetes-sigs/kueue/issues/13990), and the bound says nothing until it
+holds. This only covers the request forms that exist in
 the Kubernetes API version Kueue is compiled against. A classifier written over the Go types cannot
 see a field that was added in a later Kubernetes minor release, so bumping the API dependency will
 require reviewing any new fields that affect the charge.
@@ -1890,7 +1900,7 @@ The subrequest fields Kueue can see today, and how the classifier treats each on
 | `count` | the charge itself |
 | `selectors` | compiled, and otherwise not part of the charge |
 | `tolerations` | feasibility only, and not part of the charge |
-| `capacity` | rejected, for the same reason a capacity-backed mapping is: the count path does not charge a consumable-capacity request |
+| `capacity` | rejected as a scope restriction rather than a counting one: under a count mapping it leaves the declared device count alone, so the envelope still bounds it, but what it consumes is not something this path accounts for |
 
 The API specifies the defaults, so the classifier reads effective values: an omitted
 `allocationMode` is `ExactCount`, and an omitted `count` under that mode is one. The same type
@@ -2009,7 +2019,11 @@ to the same workload; this design does not let a user use `firstAvailable` to by
 - Rollback: the gate is Alpha, default off. Disabling it returns a new `firstAvailable` workload to
   the current rejection. The MultiKueue rejection below is not conditioned on the gate, so a
   workload that reserved quota under it and is still waiting for its admission check is refused
-  remote dispatch on the same terms after the gate goes off or the manager is rolled back. A workload that has reserved quota keeps the accounting recorded in its
+  remote dispatch on the same terms once the gate goes off. Rolling the binary back is a different
+  thing and this cannot promise it: a version from before this feature carries no such rejection,
+  and does not reach the `Pending` path that would refuse the workload either, because it already
+  has an admission recorded. For Alpha a downgrade wants those workloads released or deactivated
+  first, and validating one that does not is a Beta criterion. A workload that has reserved quota keeps the accounting recorded in its
   status: `Info.rebuildTotalRequests` reads from the admission once `status.admission` is set, which
   a reservation does, rather than recomputing from the PodSets. So a controller restart or downgrade
   does not lose the envelope, and the case of a workload holding a reservation while it waits for an
@@ -2095,6 +2109,26 @@ to implement this enhancement.
 Based on reviewers feedback describe what additional tests need to be added prior
 implementing this enhancement to ensure the enhancements have also solid foundations.
 -->
+
+The envelope is computed on a path several existing defects run through, and each of them can turn
+a correct one into a wrong charge before it is admitted. They are shared with the `Exactly` path
+rather than introduced here, so they are prerequisites rather than work this design adds, but the
+prioritized-list implementation does not ship while any of them is open:
+
+- [#13930](https://github.com/kubernetes-sigs/kueue/issues/13930): a workload requeued after its
+  backoff is added again without the preprocessed resources, and a `firstAvailable` request keeps
+  its devices in a template rather than in container resources, so the rebuild leaves none of the
+  charge behind.
+- [#13988](https://github.com/kubernetes-sigs/kueue/issues/13988): a logical resource named `pods`
+  is accepted and then replaced with the PodSet count.
+- [#13990](https://github.com/kubernetes-sigs/kueue/issues/13990): a transformation output sharing
+  a name with a requested resource is kept or dropped by map iteration order.
+- [#13985](https://github.com/kubernetes-sigs/kueue/issues/13985) and
+  [#13991](https://github.com/kubernetes-sigs/kueue/issues/13991): a negative transformation output
+  and a negative `spec.overhead` each reach the merge and subtract from it.
+
+Each wants a regression test where the charge under scrutiny is a `firstAvailable` envelope, since
+that is the shape with nothing in the pod spec to fall back on.
 
 #### Unit Tests
 
@@ -2275,6 +2309,8 @@ the realized allocation.
 - the same for an operand that is negative on a key an alternative charges. `FloorToZero` runs
   after the merge, so a negative request under that name subtracts from the envelope and leaves a
   zero that reads as nothing having been asked for
+- the prerequisites above closed, since each of them can lose or alter the envelope after it is
+  computed correctly
 - integration and e2e tests
 
 #### Beta
