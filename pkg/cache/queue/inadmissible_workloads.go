@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
+	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -35,8 +36,9 @@ import (
 )
 
 const (
-	requeueBatchPeriod     = 1 * time.Second
-	requeueLongBatchPeriod = 10 * time.Second
+	requeueBatchPeriod              = 1 * time.Second
+	requeueLongBatchPeriod          = 10 * time.Second
+	periodicInadmissibleRetryPeriod = 5 * time.Minute
 )
 
 func getRequeueBatchPeriod() time.Duration {
@@ -234,9 +236,11 @@ type requeueRequest struct {
 // workqueueRequeuer satisfies the inadmissibleRequeuer
 // interface, implemented via a workqueue.TypedDelayingQueue.
 type workqueueRequeuer struct {
-	manager     *Manager
-	queue       workqueue.TypedDelayingInterface[requeueRequest]
-	batchPeriod time.Duration
+	manager             *Manager
+	queue               workqueue.TypedDelayingInterface[requeueRequest]
+	batchPeriod         time.Duration
+	periodicRetryPeriod time.Duration
+	clock               clock.WithTicker
 }
 
 func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
@@ -247,8 +251,10 @@ func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
 		opt(&options)
 	}
 	return &workqueueRequeuer{
-		queue:       workqueue.NewTypedDelayingQueue[requeueRequest](),
-		batchPeriod: options.batchPeriod,
+		queue:               workqueue.NewTypedDelayingQueue[requeueRequest](),
+		batchPeriod:         options.batchPeriod,
+		periodicRetryPeriod: periodicInadmissibleRetryPeriod,
+		clock:               realClock,
 	}
 }
 
@@ -267,6 +273,7 @@ func (r *workqueueRequeuer) setManager(manager *Manager) {
 func (r *workqueueRequeuer) Start(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx).WithName("inadmissible_workload_requeue_worker")
 	ctx = ctrl.LoggerInto(ctx, log)
+	go r.retryInadmissiblePeriodically(ctx)
 	go func() {
 		<-ctx.Done()
 		r.queue.ShutDown()
@@ -278,6 +285,19 @@ func (r *workqueueRequeuer) Start(ctx context.Context) error {
 		}
 		r.reconcile(ctx, item)
 		r.queue.Done(item)
+	}
+}
+
+func (r *workqueueRequeuer) retryInadmissiblePeriodically(ctx context.Context) {
+	ticker := r.clock.NewTicker(r.periodicRetryPeriod)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C():
+			NotifyRetryInadmissible(r.manager, sets.New(r.manager.GetClusterQueueNames()...))
+		case <-ctx.Done():
+			return
+		}
 	}
 }
 
