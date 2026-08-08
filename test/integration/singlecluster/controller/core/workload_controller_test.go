@@ -1848,4 +1848,46 @@ var _ = ginkgo.Describe("Workload priority class reference", ginkgo.Label("contr
 			g.Expect(got.Spec.Priority).To(gomega.Equal(new(int32(200))))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("should leave a Workload MultiKueue created here alone", func() {
+		// Paired with one this cluster does own. Repairing that one is what says the
+		// controller has worked through the events, so the other staying put is a
+		// decision rather than a window that closed before the write landed.
+		owned := utiltestingapi.MakeWorkload("owned", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+			WorkloadPriorityClassRef("reference-source").
+			Priority(0).
+			Obj()
+		remote := utiltestingapi.MakeWorkload("remote", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+			WorkloadPriorityClassRef("reference-source").
+			Priority(0).
+			Label(kueue.MultiKueueOriginLabel, "manager").
+			Obj()
+		util.MustCreate(ctx, k8sClient, owned)
+		util.MustCreate(ctx, k8sClient, remote)
+
+		expectPriority := func(wl *kueue.Workload, want int32) func(gomega.Gomega) {
+			return func(g gomega.Gomega) {
+				var got kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &got)).To(gomega.Succeed())
+				g.Expect(got.Spec.Priority).To(gomega.Equal(new(want)))
+			}
+		}
+
+		gomega.Eventually(expectPriority(owned, 100), util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Consistently(expectPriority(remote, 0), util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+		ginkgo.By("moving both references", func() {
+			for _, wl := range []*kueue.Workload{owned, remote} {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var got kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &got)).To(gomega.Succeed())
+					got.Spec.PriorityClassRef = kueue.NewWorkloadPriorityClassRef("reference-target")
+					g.Expect(k8sClient.Update(ctx, &got)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+		})
+
+		gomega.Eventually(expectPriority(owned, 200), util.Timeout, util.Interval).Should(gomega.Succeed())
+		gomega.Consistently(expectPriority(remote, 0), util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
 })
