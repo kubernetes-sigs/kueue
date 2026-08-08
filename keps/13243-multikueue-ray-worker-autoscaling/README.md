@@ -135,10 +135,19 @@ temporarily.
 
 ### Risks and Mitigations
 
-- **The manager overwrites an autoscaler resize (fight loop).** In autoscaling
-  mode the forward sync never pushes replicas; its only remaining duty is
-  repointing the remote's prebuilt-workload marker at the current slice
-  (idempotent). Replicas flow one way — worker→manager — while autoscaling is on.
+- **The owner of the worker group's `replicas` differs with and without
+  autoscaling.** **Without** autoscaling the manager owns them: a manager-side
+  `replicas` edit is allowed, and the existing forward sync
+  ([#12885](https://github.com/kubernetes-sigs/kueue/pull/12885), which implements
+  elastic RayCluster sync from the manager to the worker) propagates it down to the
+  worker copy's workload. **With** autoscaling on, the Ray autoscaler on the worker
+  cluster owns them instead, and they flow the other way — worker→manager — through
+  the reverse sync.
+  The reason for the split: if both the manager and the autoscaler could write the
+  worker group's `replicas`, they would fight (fight loop). So while autoscaling is
+  on, a mutating webhook on the manager pins the worker group's `replicas` and
+  reverts any manager-side edit, keeping the autoscaler as the single writer —
+  matching the Non-Goal of resizing the same object from both sides.
 - **The handover finishes the workload `OutOfSync` and tears the job down.** A
   worker-scoped resize tolerance absorbs the transient job/slice count mismatch
   during handover (see below).
@@ -289,18 +298,18 @@ None beyond the coverage described below.
 
 #### e2e tests
 
-- Real-autoscaler e2e (extended MultiKueue suite: manager + worker clusters,
-  KubeRay operator on the workers), scaling driven by detached Ray actors that each
-  require a per-worker resource so the actual Ray autoscaler resizes the group. A
-  standalone RayCluster and a RayJob's child are each driven **up (2) → down (0) →
-  up (1)**, and every resize is reflected onto the manager. Assertions cover the
-  manager runtime annotation, the worker `DesiredWorkerReplicas` and Running
-  worker-pod count, the ClusterQueue admitted count, and — on **both** the manager
-  and the worker cluster — exactly one live, admitted workload slice reserving the
-  reflected count. The slice lifecycle is checked by slice **name** (in-place on
-  scale-down, fresh replacement on scale-up), which keeps the assertions robust to
-  the autoscaler transiently overshooting the requested count. Worker RayCluster
-  not torn down mid-handover; MultiKueue GC clean after deletion.
+- **Real-autoscaler e2e** (extended MultiKueue suite: manager + worker clusters,
+  KubeRay operator on the workers). Two scenarios run on this same setup:
+
+  - *Single-resize lifecycle*: a standalone RayCluster and a RayJob's child are each
+    driven **up (2) → down (0) → up (1)**; in-place slice update on scale-down, fresh
+    replacement on scale-up; worker RayCluster not torn down mid-handover; MultiKueue
+    GC clean after deletion.
+  - *Sequential scale-ups*: two consecutive scale-ups on the standalone RayCluster,
+    each adding one worker pod (**0 → 1 → 2**). Ensures that while the manager has
+    admitted only the first scale-up's slice, the worker schedules exactly one extra
+    worker pod, not two — the second pod stays gated until the manager admits the
+    second scale-up's slice.
 
 ### Graduation Criteria
 
