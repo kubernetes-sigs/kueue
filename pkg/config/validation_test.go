@@ -1345,6 +1345,29 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		// The sign check that lands alongside this one has to leave a reserved key
+		// to this check alone, rather than reporting the name and the sign of the
+		// same output separately.
+		"negative transformation output named pods rejected once": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    "example.com/credits",
+							Strategy: ptr.To(configapi.Retain),
+							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("-1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[pods]",
+				},
+			},
+		},
 		"transformation output named pods rejected": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
