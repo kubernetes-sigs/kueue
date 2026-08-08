@@ -578,7 +578,7 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 		if mapping, ok := transforms[inputName]; ok {
 			// MultiplyBy scales the value the outputs are computed from. Retain
 			// still keeps the input as it was requested, so the multiplier only
-			// reaches the outputs and never inflates the retained charge.
+			// reaches the outputs and never changes the retained charge.
 			scaledInput := inputQuantity
 			if mapping.MultiplyBy != "" {
 				if q, ok := input[mapping.MultiplyBy]; ok {
