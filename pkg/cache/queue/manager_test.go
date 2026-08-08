@@ -3366,3 +3366,96 @@ func TestRequeueWorkloadWhileInflight(t *testing.T) {
 		}
 	})
 }
+
+// TestDeleteLocalQueueReleasesInflight covers the LocalQueue deletion sweep
+// as the only releaser of an inflight claim: the pop removed the workload
+// from the LocalQueue's items, so the per-item cleanup never sees it, and a
+// stale claim would make the ClusterQueue ignore the workload once re-added.
+func TestDeleteLocalQueueReleasesInflight(t *testing.T) {
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("a", "earth").Queue("foo").Obj()
+	kClient := utiltesting.NewFakeClient(wl, lq, cq)
+	manager := NewManagerForUnitTests(kClient, nil)
+	ctx, log := utiltesting.ContextWithLog(t)
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding queue: %v", err)
+	}
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue: %v", err)
+	}
+
+	popped := manager.PopFrom(ctx, "cq")
+	if popped == nil || workload.Key(popped.Obj) != "earth/a" {
+		t.Fatalf("PopFrom returned %v, want earth/a", popped)
+	}
+
+	manager.DeleteLocalQueue(log, lq)
+
+	// The LocalQueue is recreated and the still-existing workload re-added.
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed re-adding queue: %v", err)
+	}
+	if manager.getClusterQueue("cq").workloads.active.GetByKey("earth/a") == nil {
+		t.Fatal("Workload was not re-added to the heap; the LocalQueue deletion left a stale inflight claim")
+	}
+}
+
+// TestAddOrUpdateWorkloadCarriesLastAssignmentMultiInflight covers the
+// LastAssignment carry-over with several inflight workloads, as during a
+// refill cycle: the carry must come from the updated workload's own record.
+func TestAddOrUpdateWorkloadCarriesLastAssignmentMultiInflight(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.FlavorFungibilityPreserveScanProgress, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil,
+		WithPreemptionExpectations(preemptexpectations.New()))
+	if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+		t.Fatalf("Adding ClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq", "").ClusterQueue("cq").Obj()); err != nil {
+		t.Fatalf("Adding LocalQueue: %v", err)
+	}
+
+	wlA := utiltestingapi.MakeWorkload("wl-a", "").Queue("lq").Obj()
+	wlB := utiltestingapi.MakeWorkload("wl-b", "").Queue("lq").Creation(time.Now().Add(time.Second)).Obj()
+	cqImpl := manager.hm.ClusterQueue("cq")
+	recorded := make(map[workload.Reference]*workload.AssignmentClusterQueueState)
+	for i, wl := range []*kueue.Workload{wlA, wlB} {
+		if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+			t.Fatalf("Adding Workload: %v", err)
+		}
+		tracked := cqImpl.trackedInfo(workload.Key(wl))
+		if tracked == nil {
+			t.Fatalf("Workload %s is not tracked after being added", wl.Name)
+		}
+		// Distinct cycles tell the two records apart in the assertion.
+		tracked.LastAssignment = &workload.AssignmentClusterQueueState{
+			LastTriedFlavorIdx:     []map[corev1.ResourceName]int{{corev1.ResourceCPU: 1}},
+			ClusterQueueGeneration: 3,
+			SchedulingCycle:        int64(7 + i),
+			SchedulingHash:         tracked.SchedulingHash,
+		}
+		recorded[workload.Key(wl)] = tracked.LastAssignment
+	}
+	for range 2 {
+		if cqImpl.Pop() == nil {
+			t.Fatal("Popping a Workload returned nothing")
+		}
+	}
+
+	updated := wlB.DeepCopy()
+	updated.Labels = map[string]string{"updated": "true"}
+	if err := manager.AddOrUpdateWorkload(log, updated); err != nil {
+		t.Fatalf("Updating Workload: %v", err)
+	}
+
+	// The inflight update reaches the LocalQueue copy only.
+	got := manager.localQueues[queue.KeyFromWorkload(updated)].items[workload.Key(updated)]
+	if got == nil {
+		t.Fatal("Workload is not tracked after the update")
+	}
+	if diff := gocmp.Diff(recorded[workload.Key(wlB)], got.LastAssignment); diff != "" {
+		t.Errorf("LastAssignment after the update (-want,+got):\n%s", diff)
+	}
+}

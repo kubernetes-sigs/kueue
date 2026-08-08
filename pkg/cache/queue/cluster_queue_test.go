@@ -1017,29 +1017,63 @@ func TestPendingInLocalQueueCountsInflight(t *testing.T) {
 		Queue("lq-a").
 		Creation(now).
 		Obj()
+	secondInflightWl := utiltestingapi.MakeWorkload("wl-inflight-2", defaultNamespace).
+		Queue("lq-a").
+		Creation(now.Add(500 * time.Millisecond)).
+		Obj()
 	otherWl := utiltestingapi.MakeWorkload("wl-other", defaultNamespace).
 		Queue("lq-b").
 		Creation(now.Add(time.Second)).
 		Obj()
 
 	cq.PushOrUpdate(workload.NewInfo(inflightWl))
+	cq.PushOrUpdate(workload.NewInfo(secondInflightWl))
 	cq.PushOrUpdate(workload.NewInfo(otherWl))
 
-	popped := cq.Pop()
-	if popped == nil {
-		t.Fatal("expected to pop a workload")
+	// Pop both lq-a workloads, as a cycle with a refill pop would.
+	for range 2 {
+		if cq.Pop() == nil {
+			t.Fatal("expected to pop a workload")
+		}
 	}
 
 	lqA := utilqueue.NewLocalQueueReference(defaultNamespace, kueue.LocalQueueName("lq-a"))
 	activeA, inadmissibleA := cq.PendingInLocalQueue(lqA)
-	if activeA != 1 || inadmissibleA != 0 {
-		t.Fatalf("LocalQueue lq-a pending mismatch: active=%d inadmissible=%d, want active=1 inadmissible=0", activeA, inadmissibleA)
+	if activeA != 2 || inadmissibleA != 0 {
+		t.Fatalf("LocalQueue lq-a pending mismatch: active=%d inadmissible=%d, want active=2 inadmissible=0", activeA, inadmissibleA)
 	}
 
 	lqB := utilqueue.NewLocalQueueReference(defaultNamespace, kueue.LocalQueueName("lq-b"))
 	activeB, inadmissibleB := cq.PendingInLocalQueue(lqB)
 	if activeB != 1 || inadmissibleB != 0 {
 		t.Fatalf("LocalQueue lq-b pending mismatch: active=%d inadmissible=%d, want active=1 inadmissible=0", activeB, inadmissibleB)
+	}
+}
+
+// TestPopEmptyHeapKeepsInflightClaims covers a pop that finds the heap empty
+// while claims from earlier pops of the same cycle are still held, as when
+// refill probes a ClusterQueue whose only workload was just admitted. Wiping
+// the claims there would let PushOrUpdate re-add a workload the scheduler is
+// still processing.
+func TestPopEmptyHeapKeepsInflightClaims(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+	wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Creation(now).Obj()
+	cq.PushOrUpdate(workload.NewInfo(wl))
+
+	if cq.Pop() == nil {
+		t.Fatal("expected to pop the workload")
+	}
+	// A mid-cycle pop finds the heap empty; the claim above must survive it.
+	if got := cq.PopMidCycle(); got != nil {
+		t.Fatalf("PopMidCycle on an empty heap returned %v, want nil", got)
+	}
+
+	cq.PushOrUpdate(workload.NewInfo(wl.DeepCopy()))
+	if activeWorkloads, _ := cq.Dump(); len(activeWorkloads) != 0 {
+		t.Errorf("the empty-heap pop dropped the inflight claim; heap has %v", activeWorkloads)
 	}
 }
 
