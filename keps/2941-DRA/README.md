@@ -1906,9 +1906,11 @@ unknown forms are rejected rather than charged.
 The other operand has to be non-negative too. A logical resource is merged with whatever the PodSet
 already requests under that name, and the total is floored to zero afterwards, so a negative
 ordinary request on that key subtracts from the envelope and leaves a clean zero where a device was
-charged. Three ways in. A resource transformation output is a factor supplied by configuration, and
-a negative one reaches the merge as a request; that is
-[#13985](https://github.com/kubernetes-sigs/kueue/issues/13985). And `validatePodSet` does not reach
+charged. Three ways in. A resource transformation output can be negative on purpose, which is how a
+per-unit allowance is written, and the total one resource generates is not confined to the outputs
+it was written against: it reaches the merge and comes off the envelope; that is
+[#13985](https://github.com/kubernetes-sigs/kueue/issues/13985), where an envelope of `8` with a
+generated `-3` under that name is charged `5`. And `validatePodSet` does not reach
 `spec.overhead`, which `PodRequests` adds to the charge, so a negative overhead survives even with
 `WorkloadValidateResourcesAreNonNegative` on; that is
 [#13991](https://github.com/kubernetes-sigs/kueue/issues/13991). The third is the guard itself.
@@ -2219,8 +2221,11 @@ What closes one is a merged fix or an equivalent guard, not the state of the iss
 - [#13990](https://github.com/kubernetes-sigs/kueue/issues/13990): a transformation output sharing
   a name with a requested resource is kept or dropped by map iteration order.
 - [#13985](https://github.com/kubernetes-sigs/kueue/issues/13985) and
-  [#13991](https://github.com/kubernetes-sigs/kueue/issues/13991): a negative transformation output
-  and a negative `spec.overhead` each reach the merge and subtract from it.
+  [#13991](https://github.com/kubernetes-sigs/kueue/issues/13991): a transformation allowance spent
+  outside the outputs it was written against, and a negative `spec.overhead`, each reach the merge
+  and subtract from it. The first is not the factor's sign: a negative factor is the intended way to
+  write an allowance, and what is wrong is that a generated total can be spent on anything sharing
+  the name.
 - [#13992](https://github.com/kubernetes-sigs/kueue/issues/13992): `Retain` writes the product back
   under the input's own name, so a multiplier below one shrinks what the PodSet asked for. A request
   of 1024 with `multiplyBy` on a `cpu: 500m` is retained as 512.
