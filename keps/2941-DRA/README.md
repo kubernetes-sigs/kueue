@@ -1805,6 +1805,10 @@ not convert exactly has to be reported rather than silently changed, which is wh
 rejection above possible. Exactly means at milli scale for `cpu` and at scale zero otherwise, and
 covers rounding as well as range, since `Value()` rounds away from zero: a fractional non-`cpu`
 quantity, which a transformation output can produce, is as much a rejection as one past `MaxInt64`.
+What the check covers is the resources an envelope is charged on, and every contribution merged into
+one of them: ordinary requests, transformation outputs, overhead, `Exactly` charges, and the sum
+across PodSets. A resource no envelope reaches keeps the conversion it has now, so turning the gate
+on does not change what an unrelated fractional request admits to.
 Nothing currently stops an administrator from naming a logical resource `cpu`, where an
 unconditional `SafeValue` would read `8` as 8 milliCPU. `pods` is worse, since flavor assignment
 writes that key from the PodSet count and the write replaces rather than adds, so a charge mapped
@@ -1822,8 +1826,13 @@ fit in an `int64`.
 There is currently no way to report any of this. `totalRequestsFromPodSets` returns
 `[]PodSetResources` and no error, and `NewInfo` and `Info.Update` do not return errors either. The
 implementation will need to add an error path, so that the workload can be marked inadmissible
-instead of saturating. Until that exists, the Alpha bound holds for charges the shared path can
-represent, which is the condition the existing `Exactly` charges already depend on.
+instead of saturating. It belongs where the quantities are already combined: `totalRequestsFromPodSets`
+is what converts, accumulates, merges, and multiplies them, and a check kept next to the envelope
+alone would answer for the envelope while the `Exactly` charge on the same resource went through
+unchecked. What it reports is a property of the request rather than of the attempt, so it is
+permanent; a retry rebuilds the same numbers. Until that exists, the Alpha bound holds for charges
+the shared path can represent, which is the condition the existing `Exactly` charges already depend
+on.
 
 The maximum is taken after DeviceClass-to-logical-resource mapping. Two DeviceClasses may
 intentionally map to one logical resource (for example an H100 and an A100 class both mapping to a
@@ -1888,7 +1897,25 @@ which of them survives is decided by the order the input map is walked, and the 
 charged differently from one call to the next. No sign or range is involved: a positive request
 disappears. That is
 [#13990](https://github.com/kubernetes-sigs/kueue/issues/13990), and the bound says nothing until it
-holds. This only covers the request forms that exist in
+holds. There is a second way to lose one, on the extended-resource path rather than in the
+transformation. A DRA-backed extended resource is removed from the PodSet's requests by name and its
+charge added back from the container requests alone, so `spec.overhead` or a transformation output
+on that name is deleted with it, and a restartable init container is summed into the requests and
+maxed out of what replaces them; that is
+[#14004](https://github.com/kubernetes-sigs/kueue/issues/14004). Neither is about the size of a
+charge. The envelope bounds a resource, and it bounds nothing if the other charges on that resource
+do not arrive.
+
+The order decides what a transformation can see, too. `applyResourceTransformations` runs over the
+pod's requests, before the logical resources are merged in, so a logical resource that exists only
+after the merge is not there to be transformed. Named as `transformations[].input` it matches
+nothing and produces no output, and named as `multiplyBy` it is absent, which leaves the input
+carried through unmultiplied rather than scaled by the device count. Outputs aimed at a logical
+resource are the other direction and do reach it through the merge. Alpha does not add a second
+pass over the merged requests; the restriction is written down so that a configuration reading as
+though it scales with the devices is not taken for one that does.
+
+This only covers the request forms that exist in
 the Kubernetes API version Kueue is compiled against. A classifier written over the Go types cannot
 see a field that was added in a later Kubernetes minor release, so bumping the API dependency will
 require reviewing any new fields that affect the charge.
@@ -2116,7 +2143,8 @@ implementing this enhancement to ensure the enhancements have also solid foundat
 The envelope is computed on a path several existing defects run through, and each of them can turn
 a correct one into a wrong charge before it is admitted. They are shared with the `Exactly` path
 rather than introduced here, so they are prerequisites rather than work this design adds, but the
-prioritized-list implementation does not ship while any of them is open:
+prioritized-list implementation does not ship while any of these failure modes is still reachable.
+What closes one is a merged fix or an equivalent guard, not the state of the issue tracking it:
 
 - [#13930](https://github.com/kubernetes-sigs/kueue/issues/13930): a workload requeued after its
   backoff is added again without the preprocessed resources, and a `firstAvailable` request keeps
@@ -2135,6 +2163,10 @@ prioritized-list implementation does not ship while any of them is open:
 - [#13998](https://github.com/kubernetes-sigs/kueue/issues/13998): a product beyond `int64` is
   converted by wrapping rather than reported, so a positive charge can come out negative and be
   floored away.
+- [#14004](https://github.com/kubernetes-sigs/kueue/issues/14004): a DRA-backed extended resource is
+  replaced by deleting its whole key, so overhead, a transformation output, or a sidecar's share of
+  the same resource is deleted with it and only the container requests are added back. Reached when
+  a PodSet carries both an extended resource and an envelope on the logical resource it maps to.
 
 Each fix regresses against the path it lives on, which is the `Exactly` charge those paths carry
 today; a fix cannot test a shape the feature it precedes has not introduced. The implementation
