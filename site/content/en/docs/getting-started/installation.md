@@ -186,6 +186,11 @@ more about using `waitForPodsReady` for Kueue.
 {{% /alert %}}
 
 {{% alert title="Note" color="primary" %}}
+See [Setup Quota Release Strategy](/docs/tasks/manage/setup_quota_release_strategy) to learn
+how to configure early quota release for high-throughput environments.
+{{% /alert %}}
+
+{{% alert title="Note" color="primary" %}}
 Certain Kubernetes distributions might use batch/jobs to perform maintenance operations.
 For these distributions, setting `manageJobsWithoutQueueName` to `true` without disabling the
 `batch/job` integration may prevent system-created jobs from executing.
