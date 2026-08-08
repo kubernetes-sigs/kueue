@@ -44,15 +44,20 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Label("controller:ad
 
 	ginkgo.When("one clusterQueue references admissionChecks", func() {
 		var admissionCheck *kueue.AdmissionCheck
+		var resourceFlavor *kueue.ResourceFlavor
 		var clusterQueue *kueue.ClusterQueue
 
 		ginkgo.BeforeEach(func() {
 			admissionCheck = utiltestingapi.MakeAdmissionCheck("check1").ControllerName("ac-controller").Obj()
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			clusterQueue = utiltestingapi.MakeClusterQueue("foo").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+					Resource(corev1.ResourceCPU, "0").Obj()).
 				AdmissionChecks("check1").
 				Obj()
 
 			util.MustCreate(ctx, k8sClient, admissionCheck)
+			util.MustCreate(ctx, k8sClient, resourceFlavor)
 
 			ginkgo.By("Activating the admission check", func() {
 				util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
@@ -68,6 +73,7 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Label("controller:ad
 		ginkgo.AfterEach(func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 		})
 
 		ginkgo.It("Should delete the admissionCheck when the corresponding clusterQueue no longer uses the admissionCheck", func() {

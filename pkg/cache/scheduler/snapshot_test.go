@@ -78,7 +78,7 @@ func TestSnapshot(t *testing.T) {
 						"a": {
 							Name:                          "a",
 							NamespaceSelector:             labels.Everything(),
-							Status:                        active,
+							Status:                        pending,
 							FlavorFungibility:             defaultFlavorFungibility,
 							AllocatableResourceGeneration: 1,
 							Workloads: map[workload.Reference]*workload.Info{
@@ -92,7 +92,7 @@ func TestSnapshot(t *testing.T) {
 						"b": {
 							Name:                          "b",
 							NamespaceSelector:             labels.Everything(),
-							Status:                        active,
+							Status:                        pending,
 							FlavorFungibility:             defaultFlavorFungibility,
 							AllocatableResourceGeneration: 1,
 							Workloads: map[workload.Reference]*workload.Info{
@@ -105,6 +105,7 @@ func TestSnapshot(t *testing.T) {
 						},
 					},
 				),
+				InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference]("a", "b"),
 			},
 		},
 		"inactive clusterQueues": {
@@ -392,7 +393,7 @@ func TestSnapshot(t *testing.T) {
 							Name:                          "with-preemption",
 							NamespaceSelector:             labels.Everything(),
 							AllocatableResourceGeneration: 1,
-							Status:                        active,
+							Status:                        pending,
 							Workloads:                     map[workload.Reference]*workload.Info{},
 							FlavorFungibility:             defaultFlavorFungibility,
 							Preemption: kueue.ClusterQueuePreemption{
@@ -403,6 +404,7 @@ func TestSnapshot(t *testing.T) {
 						},
 					},
 				),
+				InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference]("with-preemption"),
 			},
 		},
 		"clusterQueue with fair sharing weight": {
@@ -417,7 +419,7 @@ func TestSnapshot(t *testing.T) {
 							Name:                          "with-preemption",
 							NamespaceSelector:             labels.Everything(),
 							AllocatableResourceGeneration: 1,
-							Status:                        active,
+							Status:                        pending,
 							Workloads:                     map[workload.Reference]*workload.Info{},
 							FlavorFungibility:             defaultFlavorFungibility,
 							Preemption:                    defaultPreemption,
@@ -425,6 +427,7 @@ func TestSnapshot(t *testing.T) {
 						},
 					},
 				),
+				InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference]("with-preemption"),
 			},
 		},
 		"lendingLimit with 2 clusterQueues and 2 flavors(whenCanBorrow: MayStopSearch)": {

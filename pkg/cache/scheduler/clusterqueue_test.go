@@ -179,10 +179,12 @@ func TestClusterQueueUpdate(t *testing.T) {
 
 func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 	cqWithAC := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor").Resource(corev1.ResourceCPU, "1").Obj()).
 		AdmissionChecks("check1", "check2", "check3").
 		Obj()
 
 	cqWithACStrategy := utiltestingapi.MakeClusterQueue("cq2").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor").Resource(corev1.ResourceCPU, "1").Obj()).
 		AdmissionCheckStrategy(
 			*utiltestingapi.MakeAdmissionCheckStrategyRule("check1").Obj(),
 			*utiltestingapi.MakeAdmissionCheckStrategyRule("check2").Obj(),
@@ -478,6 +480,9 @@ func TestClusterQueueUpdateWithAdmissionCheck(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to new clusterQueue %v", err)
 			}
+			cq.UpdateWithFlavors(log, map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+				"flavor": utiltestingapi.MakeResourceFlavor("flavor").Obj(),
+			})
 
 			cq.Status = tc.cqStatus
 
