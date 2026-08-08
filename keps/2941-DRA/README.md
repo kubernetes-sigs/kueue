@@ -131,7 +131,8 @@ tags, and then generate with `hack/update-toc.sh`.
 [Dynamic Resource Allocation (DRA)](https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/)
 is a major effort to improve device support in Kubernetes. It changes how one can request resources in a myriad of ways.
 
-This KEP supports four approaches for DRA integration with Kueue:
+This KEP supports four approaches for DRA integration with Kueue, with prioritized alternatives
+as an additional quota mode of the ResourceClaimTemplate approach rather than a fifth one:
 1. **ResourceClaimTemplates**: Pods explicitly reference ResourceClaimTemplates that specify device requests.
 2. **Extended Resources**: Pods request DRA devices via standard `resources.requests` (e.g., `example.com/gpu: 1`), and kube-scheduler automatically creates ResourceClaims when the DeviceClass has an `extendedResourceName` field set.
 3. **Partitionable Devices**: Counter-based quota for devices that can be dynamically
@@ -253,7 +254,8 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
 - Counter-backed or capacity-backed `firstAvailable` (`DRAPrioritizedList`) alternatives are
   out of scope for the initial Alpha. Count-based prioritized-list quota is supported; see
   [Prioritized List Quota](#prioritized-list-quota).
-- Support for DRA features like DRADeviceTaints is not included.
+- Admission-time device-taint feasibility is not in scope. Subrequest tolerations do not change what
+  is charged and stay available to kube-scheduler.
 - Multi-host partitionable devices (e.g., NVLink fabrics spanning multiple nodes) are not
   supported.
 - This design does not work with Topology Aware Scheduling feature of Kueue. It is a significant
@@ -326,7 +328,7 @@ GPU memory quota, while a team requesting a 7g.80gb profile should consume 80Gi.
 - DRA resource preprocessing is not scoped by ResourceFlavor node constraints. Counter
   charges and device matching are computed globally before flavor assignment.
 - AdminAccess requests are skipped in quota counting (zero charge) since they provide
-  shared read-only access to already-allocated devices. DRADeviceTaints is not supported.
+  shared read-only access to already-allocated devices. Device taints are left to kube-scheduler.
 - Count-based `firstAvailable` (`DRAPrioritizedList`) quota is supported behind the
   `KueueDRAIntegrationPrioritizedList` feature gate; see
   [Prioritized List Quota](#prioritized-list-quota). Counter-backed and capacity-backed
@@ -556,8 +558,10 @@ is supported in kubernetes, GPUs partitions can be represented by a single devic
 
 #### Device Class Mapping Uniqueness
 
-To ensure predictable and deterministic quota enforcement, Kueue enforces strict uniqueness constraints on device class
-mappings. Each device class can only map to one resource name across all device class mappings in the configuration.
+To ensure predictable and deterministic quota enforcement, Kueue enforces uniqueness constraints on device class
+mappings. For count-based mappings, each device class maps to one resource name across all device class mappings in the
+configuration. Counter-backed mappings are the exception validation already makes: the same device class may appear in
+several of them as long as each names a different counter, since those track different dimensions of the same device.
 
 Kueue prevents ambiguous configurations through validation at configuration load time. The following configuration
 would be rejected:
@@ -2156,8 +2160,10 @@ borrowing, and preemption state.
 ### Integration with Admission Fair Sharing
 
 DRA logical resources participate in Admission Fair Sharing (AFS) when both DRA and AFS are enabled.
-The logical resource from `deviceClassMappings.name` lands in the workload's admitted `ResourceUsage`,
-and the AFS penalty accounting mechanism applies weights to all resources without filtering for DRA. This means
+A logical resource from `deviceClassMappings.name` that the ClusterQueue covers lands in the workload's admitted
+`ResourceUsage`, and the AFS penalty accounting mechanism applies weights to all resources without filtering for DRA.
+One the ClusterQueue does not declare is skipped from the usage count under `IgnoreUndeclared`, so it does not enter
+admitted usage or AFS either. This means
 the existing `AdmissionFairSharing.ResourceWeights` configuration handles DRA resources naturally
 without any additional API fields.
 
@@ -2494,7 +2500,7 @@ the realized allocation.
 
 - the feature gate in stable
 - TAS + DRA integration and testing
-- re-evaluate support for AdminAccess requests
+- validate the AdminAccess zero-charge policy against production feedback
 - re-evaluate support for AllocationMode All
 - re-evaluate closing the admission-scheduling timing gap via scheduler-library
   integration
