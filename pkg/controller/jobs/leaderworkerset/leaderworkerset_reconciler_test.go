@@ -2437,6 +2437,63 @@ func TestReconcilerResolvesThePodPriorityClassOnce(t *testing.T) {
 	}
 }
 
+// TestReconcilerResolvesThePodPriorityClassOnceForMixedSets is the fallback and
+// the sharing together. Without the label the lookup needs a Workload built to
+// ask with, and that answer still has to reach the component that was already
+// there rather than only the one being created.
+func TestReconcilerResolvesThePodPriorityClassOnceForMixedSets(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
+
+	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).Replicas(2).UID(testLWS).Obj()
+	lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.PriorityClassName = "pod-high"
+	existing := lwsComponent("0", "stale-wpc", 5)
+
+	var classReads atomic.Int32
+	clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*schedulingv1.PriorityClass); ok {
+					classReads.Add(1)
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		})
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(lws, existing,
+		utiltestingapi.MakeWorkloadPriorityClass("stale-wpc").PriorityValue(5).Obj(),
+		&schedulingv1.PriorityClass{ObjectMeta: metav1.ObjectMeta{Name: "pod-high"}, Value: 700}).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, request); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	if got := classReads.Load(); got != 1 {
+		t.Errorf("PriorityClass reads = %d, want 1", got)
+	}
+	var got kueue.WorkloadList
+	if err := kClient.List(ctx, &got, client.InNamespace(testNS)); err != nil {
+		t.Fatalf("Listing workloads: %v", err)
+	}
+	if len(got.Items) != 2 {
+		t.Fatalf("got %d workloads, want 2", len(got.Items))
+	}
+	want := kueue.NewPodPriorityClassRef("pod-high")
+	for _, wl := range got.Items {
+		if diff := cmp.Diff(want, wl.Spec.PriorityClassRef); diff != "" {
+			t.Errorf("%s: priority class reference (-want +got):\n%s", wl.Name, diff)
+		}
+		if diff := cmp.Diff(new(int32(700)), wl.Spec.Priority); diff != "" {
+			t.Errorf("%s: priority (-want +got):\n%s", wl.Name, diff)
+		}
+	}
+}
+
 // TestReconcilerLeavesAChosenValueWhenASiblingTransitions is the other half of
 // the same contract. A sibling that does have to move must not decide the value
 // of one that does not: whether the component is missing or merely on the wrong
