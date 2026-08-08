@@ -110,6 +110,46 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(firstPodSetSpecPath.Child("containers").Index(0).Child("resources", "requests").Key(string(corev1.ResourcePods)), nil, ""),
 			}.ToAggregate(),
 		},
+		// Overhead is added to the request PodRequests computes, so a negative one
+		// takes from the charge and the reserved key is discarded there too.
+		"should reject a negative pod overhead": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-1"),
+				})).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("overhead").Key("example.com/gpu"), nil, ""),
+			}.ToAggregate(),
+		},
+		"should accept a negative pod overhead while the gate is off": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: false},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-1"),
+				})).
+				Obj(),
+		},
+		"should reject the reserved pods key in overhead whatever the gate says": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: false},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					corev1.ResourcePods: resource.MustParse("1"),
+				})).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("overhead").Key(string(corev1.ResourcePods)), nil, ""),
+			}.ToAggregate(),
+		},
+		"should accept an ordinary pod overhead": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidateResourcesAreNonNegative: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("100m"),
+				})).
+				Obj(),
+		},
 		"should reject reserved pods resource key in limits": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
@@ -1408,4 +1448,12 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// podSetWithOverhead builds a PodSet carrying pod overhead, which the wrappers do
+// not otherwise reach.
+func podSetWithOverhead(name kueue.PodSetReference, overhead corev1.ResourceList) *kueue.PodSet {
+	ps := utiltestingapi.MakePodSet(name, 1).Obj()
+	ps.Template.Spec.Overhead = overhead
+	return ps
 }

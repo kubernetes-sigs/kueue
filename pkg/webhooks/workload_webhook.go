@@ -171,6 +171,11 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	for ci := range ps.Template.Spec.Containers {
 		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.Containers[ci], cPath.Index(ci))...)
 	}
+	// Pod overhead is added to the request PodRequests computes, so it is charged
+	// like the rest and has to be validated with them.
+	if ps.Template.Spec.Overhead != nil {
+		allErrs = append(allErrs, validateResourceList(ps.Template.Spec.Overhead, path.Child("template", "spec", "overhead"))...)
+	}
 	// validate pod-level resources
 	if ps.Template.Spec.Resources != nil {
 		resPath := path.Child("template", "spec", "resources")
