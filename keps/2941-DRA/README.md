@@ -1955,13 +1955,17 @@ That filter, the one #14007 above is about, is applied in the same place, to the
 before the merge, so it does not reach a logical resource either. With `example.com/` excluded, an
 ordinary `example.com/other` request drops to zero while a logical `example.com/gpu` is charged 8.
 Nothing is undercharged and the bound is untouched, but one part of the configuration says a
-resource is ignored while another charges it. Two of the answers to that change what the `Exactly` path already does for
-everyone using it: refusing a `deviceClassMappings[].name` an excluded prefix covers, or applying
-the filter a second time after the merge. The third leaves it and writes logical resources down as
-an exception. Alpha takes none of them and restricts only what it adds, rejecting a `firstAvailable`
-request whose logical resource an excluded prefix covers while
+resource is ignored while another charges it. Two of the answers to that change what the `Exactly`
+path already does for everyone using it: refusing a `deviceClassMappings[].name` that an excluded
+prefix covers, or applying the filter a second time after the merge. The third leaves it alone and
+writes logical resources down as an exception. Alpha takes none of them and restricts only what it
+adds, rejecting a `firstAvailable` request whose logical resource an excluded prefix covers while
 `KueueDRAIntegrationPrioritizedList` is on. That fails closed without settling the older question
-on everyone else's behalf.
+on everyone else's behalf, and it costs something worth saying: the rejection lands on a workload
+whose author cannot fix it, since the overlap is the administrator's to remove. Refusing the
+configuration at startup instead would put it in front of whoever can, at the price of failing a
+startup over mappings this feature never touches. Alpha takes the narrower one, and the choice is
+worth revisiting if the wrong party turns out to be the one who notices.
 
 This only covers the request forms that exist in
 the Kubernetes API version Kueue is compiled against. A classifier written over the Go types cannot
