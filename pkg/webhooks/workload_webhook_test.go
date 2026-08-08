@@ -782,23 +782,48 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		// container and pod-level lists beside it already do, and the two are
 		// only worth having together, but it has to be a decision rather than
 		// something a later reader relaxes for this one field.
-		"a reserved workload keeping a reserved-name overhead cannot be updated": {
+		// A workload that already carries one has to be able to leave. Its
+		// PodSets are immutable once it has reserved, and an update is how it
+		// writes a condition, deactivates, releases quota and drops its
+		// finalizer, so refusing the entry it is not changing would strand it
+		// in Terminating still holding the quota.
+		"a reserved workload keeps a reserved-name overhead it is not changing": {
+			before: reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}),
+			after: func() *kueue.Workload {
+				wl := reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")})
+				wl.Finalizers = nil
+				wl.Status.Conditions = append(wl.Status.Conditions, metav1.Condition{
+					Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue,
+					Reason: "Succeeded", Message: "done", LastTransitionTime: metav1.NewTime(now),
+				})
+				return wl
+			}(),
+			wantErr: nil,
+		},
+		// Before it reserves, the PodSets can still change, which is where an
+		// entry can actually be introduced. Adding or changing one is refused.
+		"a reserved-name overhead added before reserving is refused": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
-					corev1.ResourcePods: resource.MustParse("1"),
-				})).
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
-					PodSets(kueue.PodSetAssignment{Name: "main"}).Obj(), now).
-				Obj(),
+				PodSets(*podSetWithOverhead("main", nil)).Obj(),
 			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
 					corev1.ResourcePods: resource.MustParse("1"),
-				})).
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
-					PodSets(kueue.PodSetAssignment{Name: "main"}).Obj(), now).
-				Obj(),
+				})).Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "overhead").Key(string(corev1.ResourcePods)), nil, ""),
+			}.ToAggregate(),
+		},
+		"changing a negative overhead to another negative one is refused": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-1"),
+				})).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*podSetWithOverhead("main", corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("-2"),
+				})).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "overhead").Key("example.com/gpu"), nil, ""),
 			}.ToAggregate(),
 		},
 		// The negative half has a gate, so an operator caught out by it has a
@@ -1539,6 +1564,18 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 
 // podSetWithOverhead builds a PodSet carrying pod overhead, which the wrappers do
 // not otherwise reach.
+// reservedWithOverhead is a workload that already holds quota and a finalizer,
+// which is the shape an existing one takes when the rules change under it.
+func reservedWithOverhead(now time.Time, overhead corev1.ResourceList) *kueue.Workload {
+	wl := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+		PodSets(*podSetWithOverhead("main", overhead)).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+			PodSets(kueue.PodSetAssignment{Name: "main"}).Obj(), now).
+		Obj()
+	wl.Finalizers = []string{kueue.ResourceInUseFinalizerName}
+	return wl
+}
+
 func podSetWithOverhead(name kueue.PodSetReference, overhead corev1.ResourceList) *kueue.PodSet {
 	ps := utiltestingapi.MakePodSet(name, 1).Obj()
 	ps.Template.Spec.Overhead = overhead
