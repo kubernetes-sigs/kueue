@@ -3444,6 +3444,7 @@ func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
 
 	var fields, refusedForItsFactor []string
 	reserved := map[string]int{}
+	refusedForItsFactorFirst := map[string]bool{}
 	for _, e := range Validate(cfg, scheme, jobs.NewIntegrationManager()) {
 		if !strings.Contains(e.Field, ".outputs[") {
 			continue
@@ -3453,8 +3454,15 @@ func TestValidateReportsOutputProblemsOnceAndInOrder(t *testing.T) {
 		// which of them refused it.
 		if e.Detail == reservedResourceNameMsg {
 			reserved[e.Field]++
+			// The webhook names the key before it judges the value, and one
+			// output refused for both has to read the same way round. Sorting
+			// the fields cannot see this, since the two share one.
+			if refusedForItsFactorFirst[e.Field] {
+				t.Errorf("%s was refused for its factor before its name", e.Field)
+			}
 			continue
 		}
+		refusedForItsFactorFirst[e.Field] = true
 		refusedForItsFactor = append(refusedForItsFactor, e.Field)
 	}
 	if len(fields) == 0 {
