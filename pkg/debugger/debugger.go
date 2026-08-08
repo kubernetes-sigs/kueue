@@ -43,6 +43,7 @@ func (d *Dumper) ListenForSignal(ctx context.Context) {
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, syscall.SIGUSR2)
 	go func() {
+		defer signal.Stop(signalCh)
 		for {
 			select {
 			case <-ctx.Done():
