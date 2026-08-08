@@ -1801,9 +1801,15 @@ needing it stored.
 Converting a combined `resource.Quantity` back to `int64` follows the unit convention in
 `resources.ResourceValue`, milli-units for `cpu` and absolute units otherwise. That helper calls
 `Value()` for everything but `cpu`, so following it is not on its own enough: a quantity that does
-not fit has to be reported rather than silently truncated, which is what makes the rejection above
-possible. Nothing currently stops an administrator from naming a logical resource `cpu`, where an
-unconditional `SafeValue` would read `8` as 8 milliCPU. The component-wise maximum keeps the
+not convert exactly has to be reported rather than silently changed, which is what makes the
+rejection above possible. Exactly means at milli scale for `cpu` and at scale zero otherwise, and
+covers rounding as well as range, since `Value()` rounds away from zero: a fractional non-`cpu`
+quantity, which a transformation output can produce, is as much a rejection as one past `MaxInt64`.
+Nothing currently stops an administrator from naming a logical resource `cpu`, where an
+unconditional `SafeValue` would read `8` as 8 milliCPU. `pods` is worse, since flavor assignment
+writes that key from the PodSet count and the write replaces rather than adds, so a charge mapped
+there is discarded rather than misread; refusing both names in configuration is
+[#13988](https://github.com/kubernetes-sigs/kueue/issues/13988). The component-wise maximum keeps the
 envelope itself bounded, and tests cover multiple `firstAvailable` requests, `Exactly` plus
 `firstAvailable` on one resource, and PodSet scaling past the representable range.
 
@@ -1902,8 +1908,9 @@ path, rather than introduced here. It is a known limitation tracked in
 [#13842](https://github.com/kubernetes-sigs/kueue/issues/13842), and the bound above is stated for a
 fixed `ResourceClaimSpec` rather than made conditional on that issue landing first. Second, the
 bound covers the logical resources the target `ClusterQueue` manages; `quotaCheckStrategy:
-IgnoreUndeclared` deliberately omits undeclared dimensions from enforcement, so an alternative that
-resolves to an omitted resource is not charged.
+IgnoreUndeclared` deliberately omits undeclared dimensions from enforcement. Since every alternative
+of a request resolves to the same logical resource, that leaves out the request as a whole rather
+than one of its alternatives.
 
 #### Scope
 
@@ -1986,9 +1993,11 @@ to the same workload; this design does not let a user use `firstAvailable` to by
 #### Feature gate lifecycle, version skew, and observability
 
 - Rollback: the gate is Alpha, default off. Disabling it returns a new `firstAvailable` workload to
-  the current rejection. An already-admitted workload keeps the `resourceUsage` recorded in its
-  status, so a controller restart or downgrade does not lose admitted accounting and no envelope is
-  recomputed for it.
+  the current rejection. A workload that has reserved quota keeps the accounting recorded in its
+  status: `Info.rebuildTotalRequests` reads from the admission once `status.admission` is set, which
+  a reservation does, rather than recomputing from the PodSets. So a controller restart or downgrade
+  does not lose the envelope, and the case of a workload holding a reservation while it waits for an
+  AdmissionCheck settles the same way an admitted one does.
 - Version skew: the gate requires `KueueDRAIntegration`, and it requires that a cluster has not
   disabled the upstream `DRAPrioritizedList` gate, which has been Beta and on by default since
   Kubernetes 1.34 and GA since 1.36. If the API does not offer `firstAvailable`, no envelope is
@@ -2173,8 +2182,8 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
   tell apart from ones that are all needed
 - Prioritized list under MultiKueue: the admission check rejects before any remote Workload or Job
   exists, and a transient template read error is retried instead of rejected
-- Prioritized list under `quotaCheckStrategy: IgnoreUndeclared`: an alternative resolving to an
-  undeclared logical resource is left out of enforcement and out of reported usage
+- Prioritized list under `quotaCheckStrategy: IgnoreUndeclared`: a request whose one logical
+  resource is undeclared is left out of enforcement and out of reported usage as a whole
 
 #### E2E Test
 
