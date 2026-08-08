@@ -941,6 +941,17 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				return cycleErrorLogCount("Failed to add clusterQueue to cache")
 			}, util.Timeout, util.Interval).Should(gomega.BeNumerically(">", clusterQueueCycleErrorCount))
 
+			ginkgo.By("Updating a Namespace while the ClusterQueue remains cached with a Cohort cycle")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got corev1.Namespace
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ns), &got)).To(gomega.Succeed())
+				if got.Labels == nil {
+					got.Labels = make(map[string]string)
+				}
+				got.Labels["cycle-update"] = "true"
+				g.Expect(k8sClient.Update(ctx, &got)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
 			gomega.Eventually(func(g gomega.Gomega) {
 				var got kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &got)).To(gomega.Succeed())
