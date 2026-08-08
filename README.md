@@ -135,7 +135,7 @@ High-level overview of the main priorities for 2026:
 - Improve user experience for [Topology Aware Scheduling](https://kueue.sigs.k8s.io/docs/concepts/topology_aware_scheduling/), in particular:
   * Support for ResourceTransformations [#8860](https://github.com/kubernetes-sigs/kueue/issues/8860)
   * Support for [Elastic Workloads](https://kueue.sigs.k8s.io/docs/concepts/elastic_workload/) [#8160](https://github.com/kubernetes-sigs/kueue/issues/8160)
-  * Evict workloads which are running on nodes which become tainted [#8838](https://github.com/kubernetes-sigs/kueue/issues/8828)
+  * Evict workloads which are running on nodes which become tainted [#8828](https://github.com/kubernetes-sigs/kueue/issues/8828)
 - Integration with the k8s native Workload-Aware Scheduler (WAS) and Topology-Aware Scheduling [#8871](https://github.com/kubernetes-sigs/kueue/issues/8871)
 - Support for Concurrent Workload Admission [#8691](https://github.com/kubernetes-sigs/kueue/issues/8691)
 - Support for running hero workloads [#8826](https://github.com/kubernetes-sigs/kueue/issues/8826)
