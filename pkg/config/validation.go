@@ -452,8 +452,9 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 }
 
 // reservedResourceNameMsg is the Workload webhook's message for the same key.
-// Only the message is shared: that validator reports the reserved name and the
-// sign of a negative quantity separately, where this one stops at the name.
+// That validator reports the reserved name and the sign of a negative quantity
+// as two errors, and this follows it: fixing either one leaves the other, and a
+// check the manager will not start past costs a restart to find the next.
 const reservedResourceNameMsg = "the key is reserved for internal kueue use"
 
 func validateResourceTransformations(c *configapi.Configuration) field.ErrorList {
@@ -476,10 +477,9 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 		}
 		// The same key, reached from the other side of the configuration, and
 		// discarded in the same place. When a check on the value lands next to
-		// this one, the reserved name is the error to give: changing the factor
-		// cannot make this output legal, so the name is what an operator has to
-		// act on, and it belongs in the same walk over the outputs so the whole
-		// list comes out in name order.
+		// this one, both belong in one walk over the outputs, so the whole list
+		// comes out in name order and a name and a factor that are each wrong
+		// are each reported.
 		if _, ok := transform.Outputs[corev1.ResourcePods]; ok {
 			allErrs = append(allErrs, field.Invalid(
 				resourceTransformationPath.Index(idx).Child("outputs").Key(string(corev1.ResourcePods)),
