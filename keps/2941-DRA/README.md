@@ -1789,10 +1789,11 @@ Saturating arithmetic stops a sum from wrapping, but a saturated sum no longer s
 it replaced, so it cannot carry the bound: clamping to `MaxInt64` reports less than the total it
 came from. The merge into `resources.Requests` is weaker still, since `MapRequests.Add` uses plain
 `+` and can wrap negative where a DRA logical resource shares a key with an ordinary Pod resource. A
-charge that cannot be represented exactly as `int64` therefore makes the workload inadmissible
-rather than being clamped and admitted, at each step that can produce one: the per-Pod sum across
-requests, the merge with ordinary resources, and the PodSet-count multiplication. Nor is a saturated
-aggregate divided to recover a smaller request. `PodSetResources` holds the aggregate alone and
+charge that does not land in the finite range below the sentinel therefore makes the workload
+inadmissible rather than being clamped and admitted, at each step that can produce one: the per-Pod
+sum across requests, the merge with ordinary resources, and the PodSet-count multiplication. Nor is
+a saturated aggregate divided to recover a smaller request. `PodSetResources` holds the aggregate
+alone and
 scales by dividing by the old count and multiplying by the new, which is exact for what it admits:
 an aggregate that had to be exactly the per-Pod value times the count divides back to that value,
 so partial admission, `ReclaimablePods`, and workload-slice replacement recover it rather than
@@ -1809,6 +1810,15 @@ What the check covers is the resources an envelope is charged on, and every cont
 one of them: ordinary requests, transformation outputs, overhead, `Exactly` charges, and the sum
 across PodSets. A resource no envelope reaches keeps the conversion it has now, so turning the gate
 on does not change what an unrelated fractional request admits to.
+
+Which resources those are is not in what preprocessing hands over.
+`WithPreprocessedDRAResources` carries one `ResourceList` per PodSet with every DRA path already
+merged into it, so nothing downstream can tell a key an envelope reached from one that only an
+`Exactly` request or a DRA-backed extended resource reached. Preprocessing has to carry that set of
+names alongside the merged charge, and it has to survive the same requeue the charge does. The scope
+is their union across the workload rather than the set for one PodSet: an ordinary `gpu` request in
+a PodSet with no alternatives at all still lands in the same cross-PodSet total as an envelope
+charged on `gpu` somewhere else.
 
 Fitting in an `int64` is not quite the range either. `resources.Amount` keeps `math.MaxInt64` as its
 `Unlimited` sentinel, and `Info.ResourceUsage` folds the PodSets together, the half every consumer
@@ -1900,10 +1910,11 @@ a negative one reaches the merge as a request; that is
 [#13991](https://github.com/kubernetes-sigs/kueue/issues/13991). The third is the guard itself.
 `WorkloadValidateResourcesAreNonNegative` is Beta and on by default, and an administrator can turn
 it off, after which an ordinary container request carries the sign into `PodRequests` with nothing
-between it and the merge. Alpha therefore either requires that gate alongside
-`KueueDRAIntegrationPrioritizedList` or checks the operand where the merge happens. Reading the
-sign of the result instead is a different check and a weaker one: a request of `-3` merged with an
-envelope of `8` gives `5`, which is positive and three short. Non-negativity
+between it and the merge. Requiring that gate alongside `KueueDRAIntegrationPrioritizedList` would
+leave the bound resting on something an administrator can switch off, so Alpha checks the operand
+where the merge happens instead. Reading the sign of the result rather than of the operand is a
+different check and a weaker one: a request of `-3` merged with an envelope of `8` gives `5`, which
+is positive and three short. Non-negativity
 of both operands belongs with exact representability in what has to hold before the merge; treating
 `FloorToZero` as the guard hides the cancellation rather than preventing it.
 
@@ -1920,9 +1931,16 @@ transformation. A DRA-backed extended resource is removed from the PodSet's requ
 charge added back from the container requests alone, so `spec.overhead` or a transformation output
 on that name is deleted with it, and a restartable init container is summed into the requests and
 maxed out of what replaces them; that is
-[#14004](https://github.com/kubernetes-sigs/kueue/issues/14004). Neither is about the size of a
-charge. The envelope bounds a resource, and it bounds nothing if the other charges on that resource
-do not arrive.
+[#14004](https://github.com/kubernetes-sigs/kueue/issues/14004). Neither of those is about the size
+of a charge, and a third one is. A multiplier is read out of the list transformations run over, so
+one that `excludeResourcePrefixes` has already removed is simply absent and the input is carried
+through unscaled; that is
+[#14007](https://github.com/kubernetes-sigs/kueue/issues/14007), and the output it produces still
+arrives, once, positive and exactly representable, at a fraction of what the configuration asked
+for. So the premise covers both: every contribution to a key a logical resource is charged on
+reaches the merge exactly once, and reaches it at the size the configuration asked for. The envelope
+bounds a resource, and it bounds nothing if the other charges on that resource arrive wrong or not
+at all.
 
 The order decides what a transformation can see, too. `applyResourceTransformations` runs over the
 pod's requests, before the logical resources are merged in, so a logical resource that exists only
@@ -1933,15 +1951,17 @@ resource are the other direction and do reach it through the merge. Alpha does n
 pass over the merged requests; the restriction is written down so that a configuration reading as
 though it scales with the devices is not taken for one that does.
 
-The same identity fallback is reachable without DRA, from `excludeResourcePrefixes` covering the
-multiplier; [#14007](https://github.com/kubernetes-sigs/kueue/issues/14007) tracks that one. That
-filter is applied in the same place, to the pod's requests and before the merge, so it does not
-reach a logical resource either. With `example.com/` excluded, an ordinary `example.com/other`
-request drops to zero while a logical `example.com/gpu` is still charged 8. Nothing is undercharged
-and the bound is untouched, but one part of the configuration says a resource is ignored while
-another charges it. Alpha has to pick: refuse a `deviceClassMappings[].name` an excluded prefix
-covers, apply the filter again after the merge, or write logical resources down as an exception.
-Refusing the overlap is the one that fails closed and keeps a name meaning one thing.
+That filter, the one #14007 above is about, is applied in the same place, to the pod's requests and
+before the merge, so it does not reach a logical resource either. With `example.com/` excluded, an
+ordinary `example.com/other` request drops to zero while a logical `example.com/gpu` is charged 8.
+Nothing is undercharged and the bound is untouched, but one part of the configuration says a
+resource is ignored while another charges it. Two of the answers to that change what the `Exactly` path already does for
+everyone using it: refusing a `deviceClassMappings[].name` an excluded prefix covers, or applying
+the filter a second time after the merge. The third leaves it and writes logical resources down as
+an exception. Alpha takes none of them and restricts only what it adds, rejecting a `firstAvailable`
+request whose logical resource an excluded prefix covers while
+`KueueDRAIntegrationPrioritizedList` is on. That fails closed without settling the older question
+on everyone else's behalf.
 
 This only covers the request forms that exist in
 the Kubernetes API version Kueue is compiled against. A classifier written over the Go types cannot
@@ -2195,6 +2215,10 @@ What closes one is a merged fix or an equivalent guard, not the state of the iss
   replaced by deleting its whole key, so overhead, a transformation output, or a sidecar's share of
   the same resource is deleted with it and only the container requests are added back. Reached when
   a PodSet carries both an extended resource and an envelope on the logical resource it maps to.
+- [#14007](https://github.com/kubernetes-sigs/kueue/issues/14007): `excludeResourcePrefixes` is
+  applied before transformations run, so a `multiplyBy` naming a resource it covers is absent by
+  then and the input is carried through unscaled. An output on a key an envelope also charges is
+  then a fraction of what was configured, while staying positive, exact and arriving once.
 
 Each fix regresses against the path it lives on, which is the `Exactly` charge those paths carry
 today; a fix cannot test a shape the feature it precedes has not introduced. The implementation
@@ -2290,8 +2314,10 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
   inadmissible
 - Prioritized list representability: a per-Pod sum, a merge with an ordinary resource that shares
   the same key, a PodSet multiplication, and a sum across two PodSets that each fit on their own,
-  none of which can be represented as `int64`. Each of these marks the workload inadmissible instead
-  of clamping. Scaling a PodSet down stays exact, because only an aggregate that is exactly the
+  none of which lands in the finite range. That range stops below `math.MaxInt64` rather than at
+  it, since that value is the one `resources.Amount` keeps for unlimited, so a total landing exactly
+  on it is refused with the ones past it. Each of these marks the workload inadmissible instead of
+  clamping. Scaling a PodSet down stays exact, because only an aggregate that is exactly the
   per-Pod value times the count is admitted in the first place
 - Prioritized list cancellation: a negative request under a name an alternative charges, whether
   written on the Workload or produced by a resource transformation output, marks the workload
