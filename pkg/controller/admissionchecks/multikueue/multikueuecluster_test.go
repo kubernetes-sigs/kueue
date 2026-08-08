@@ -1344,7 +1344,8 @@ func TestEstablishWatch(t *testing.T) {
 	}
 
 	// Watch races with the timeout: returns a non-nil watcher just after
-	// time.After fires. Must Stop() it to avoid leaking the stream.
+	// time.After fires. Must Stop() it to avoid leaking the stream, and
+	// establishWatch must return immediately without blocking on the late Watch call.
 	t.Run("racing watcher is stopped on timeout", func(t *testing.T) {
 		fw := watch.NewFake()
 		c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
@@ -1354,12 +1355,17 @@ func TestEstablishWatch(t *testing.T) {
 			},
 		}).Build()
 
+		start := time.Now()
 		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
+		elapsed := time.Since(start)
 		if !errors.Is(err, errWatchEstablishTimeout) {
 			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
 		}
 		if w != nil {
 			t.Fatalf("want nil watcher, got: %v", w)
+		}
+		if elapsed >= 2*testTimeout {
+			t.Fatalf("took %v, expected < %v; establishWatch blocked on the late watch call", elapsed, 2*testTimeout)
 		}
 		for start := time.Now(); !fw.IsStopped() && time.Since(start) < 5*testTimeout; {
 			time.Sleep(10 * time.Millisecond)
