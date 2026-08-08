@@ -364,6 +364,30 @@ func TestWorkloadPriorityClassRefChangedPredicate(t *testing.T) {
 				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
 			want: false,
 		},
+		// The manager resolved the value this Workload carries. Once the label
+		// saying so is gone, this cluster's class is what it has to follow, and
+		// the reference did not have to move for that to be true.
+		"ownership moved here with the reference unchanged": {
+			eventType: "update",
+			oldWL: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			newWL: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			want:  true,
+		},
+		"ownership moved away with the reference unchanged": {
+			eventType: "update",
+			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			newWL: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			want: false,
+		},
+		"ownership moved here on a Pod PriorityClass reference": {
+			eventType: "update",
+			oldWL: utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			newWL: utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").Obj(),
+			want:  false,
+		},
 		"moved to a Pod PriorityClass": {
 			eventType: "update",
 			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),

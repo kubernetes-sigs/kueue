@@ -21,6 +21,7 @@ import (
 	"errors"
 
 	"github.com/go-logr/logr"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -158,12 +159,18 @@ func workloadPriorityClassRefChanged() predicate.TypedPredicate[*kueue.Workload]
 			if !ownsPriority(e.ObjectNew) {
 				return false
 			}
+			// The reference can stay put while the answer stops being someone
+			// else's. A Workload that loses the MultiKueue origin label carries a
+			// value resolved on the manager, from a class this cluster's own is
+			// under no obligation to agree with.
+			if !ownsPriority(e.ObjectOld) {
+				return true
+			}
 			// Compared as a whole reference, and against the reference rather
 			// than the value: Reconcile writes spec.priority and leaves the
 			// reference alone, so this does not fire on its own writes, and a
 			// move between two groups sharing a name is still a move.
-			old := e.ObjectOld.Spec.PriorityClassRef
-			return old == nil || *old != *e.ObjectNew.Spec.PriorityClassRef
+			return !apiequality.Semantic.DeepEqual(e.ObjectOld.Spec.PriorityClassRef, e.ObjectNew.Spec.PriorityClassRef)
 		},
 		DeleteFunc:  func(event.TypedDeleteEvent[*kueue.Workload]) bool { return false },
 		GenericFunc: func(event.TypedGenericEvent[*kueue.Workload]) bool { return false },
