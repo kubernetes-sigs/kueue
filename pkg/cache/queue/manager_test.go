@@ -1318,6 +1318,175 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 	}
 }
 
+// TestRequeueWorkloadForgetsInflightWhenNotRequeued covers a popped head that
+// RequeueWorkload cannot put back, on each of the paths where it gives up. The
+// ClusterQueue must not keep claiming it: while the claim is held the workload
+// cannot be added to any queue again.
+func TestRequeueWorkloadForgetsInflightWhenNotRequeued(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "default").Queue("lq").Creation(now).Obj()
+
+	cases := map[string]struct {
+		// block makes the requeue fail while the head is out of the queues.
+		block func(ctx context.Context, t *testing.T, log logr.Logger, m *Manager, cl client.Client) *kueue.Workload
+		// unblock undoes it, as the controllers would once the cluster recovers.
+		unblock func(ctx context.Context, t *testing.T, log logr.Logger, m *Manager, cl client.Client) *kueue.Workload
+	}{
+		"LocalQueue is deleted": {
+			block: func(ctx context.Context, t *testing.T, log logr.Logger, m *Manager, cl client.Client) *kueue.Workload {
+				m.DeleteLocalQueue(log, lq)
+				if err := cl.Delete(ctx, lq); err != nil {
+					t.Fatalf("Failed deleting local queue: %v", err)
+				}
+				return wl
+			},
+			unblock: func(ctx context.Context, t *testing.T, log logr.Logger, m *Manager, cl client.Client) *kueue.Workload {
+				recreated := utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj()
+				if err := cl.Create(ctx, recreated); err != nil {
+					t.Fatalf("Failed recreating local queue: %v", err)
+				}
+				if err := m.AddLocalQueue(ctx, recreated); err != nil {
+					t.Fatalf("Failed re-adding local queue: %v", err)
+				}
+				return wl
+			},
+		},
+		"LocalQueue points at a ClusterQueue that does not exist": {
+			block: func(ctx context.Context, t *testing.T, log logr.Logger, m *Manager, cl client.Client) *kueue.Workload {
+				moved := utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("gone").Obj()
+				if err := m.UpdateLocalQueue(log, moved); err != nil {
+					t.Fatalf("Failed repointing local queue: %v", err)
+				}
+				return wl
+			},
+			unblock: func(ctx context.Context, t *testing.T, log logr.Logger, m *Manager, cl client.Client) *kueue.Workload {
+				if err := m.UpdateLocalQueue(log, lq); err != nil {
+					t.Fatalf("Failed repointing local queue back: %v", err)
+				}
+				return wl
+			},
+		},
+		"workload is deactivated": {
+			block: func(ctx context.Context, t *testing.T, log logr.Logger, m *Manager, cl client.Client) *kueue.Workload {
+				return setWorkloadActive(ctx, t, cl, wl, false)
+			},
+			unblock: func(ctx context.Context, t *testing.T, log logr.Logger, m *Manager, cl client.Client) *kueue.Workload {
+				return setWorkloadActive(ctx, t, cl, wl, true)
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
+			defer cancel()
+
+			cl := utiltesting.NewClientBuilder().WithObjects(lq, wl).Build()
+			manager := NewManagerForUnitTests(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding cluster queue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding local queue: %v", err)
+			}
+			if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+				t.Fatalf("Failed adding workload: %v", err)
+			}
+
+			go manager.CleanUpOnContext(ctx)
+			heads := manager.Heads(ctx)
+			if len(heads) != 1 {
+				t.Fatalf("Heads returned %d workloads, want 1", len(heads))
+			}
+
+			tc.block(ctx, t, log, manager, cl)
+			if requeued := manager.RequeueWorkload(ctx, &heads[0], RequeueReasonFailedAfterNomination, ""); requeued {
+				t.Fatalf("RequeueWorkload returned true, want false")
+			}
+
+			readded := tc.unblock(ctx, t, log, manager, cl)
+			if err := manager.AddOrUpdateWorkload(log, readded); err != nil {
+				t.Fatalf("Failed re-adding workload: %v", err)
+			}
+
+			wantDump := map[kueue.ClusterQueueReference][]workload.Reference{"cq": {workload.Key(wl)}}
+			if diff := cmp.Diff(wantDump, manager.Dump()); diff != "" {
+				t.Errorf("Unexpected queue content once the workload could be queued again (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestRequeueWorkloadForgetsInflightWhenLocalQueueRetargeted covers a requeue
+// that succeeds against a different ClusterQueue than the one that popped the
+// workload: the ClusterQueue it is requeued into releases the claim on its own,
+// the one it came from does not, and would go on counting the workload.
+func TestRequeueWorkloadForgetsInflightWhenLocalQueueRetargeted(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	ctx, cancel := context.WithTimeout(ctx, headsTimeout)
+	defer cancel()
+
+	now := time.Now().Truncate(time.Second)
+	cqs := []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("cq").Obj(),
+		utiltestingapi.MakeClusterQueue("other-cq").Obj(),
+	}
+	lq := utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "default").Queue("lq").Creation(now).Obj()
+
+	cl := utiltesting.NewClientBuilder().WithObjects(lq, wl).Build()
+	manager := NewManagerForUnitTests(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
+	for _, cq := range cqs {
+		if err := manager.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
+		}
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding local queue: %v", err)
+	}
+	if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+		t.Fatalf("Failed adding workload: %v", err)
+	}
+
+	go manager.CleanUpOnContext(ctx)
+	heads := manager.Heads(ctx)
+	if len(heads) != 1 {
+		t.Fatalf("Heads returned %d workloads, want 1", len(heads))
+	}
+
+	retargeted := utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue("other-cq").Obj()
+	if err := manager.UpdateLocalQueue(log, retargeted); err != nil {
+		t.Fatalf("Failed repointing local queue: %v", err)
+	}
+	if requeued := manager.RequeueWorkload(ctx, &heads[0], RequeueReasonFailedAfterNomination, ""); !requeued {
+		t.Fatalf("RequeueWorkload returned false, want true against the new ClusterQueue")
+	}
+
+	wantDump := map[kueue.ClusterQueueReference][]workload.Reference{"other-cq": {workload.Key(wl)}}
+	if diff := cmp.Diff(wantDump, manager.Dump()); diff != "" {
+		t.Errorf("Unexpected queue content after retargeting (-want,+got):\n%s", diff)
+	}
+	for key := range manager.hm.ClusterQueue("cq").inflight {
+		t.Errorf("The original ClusterQueue still claims %q", key)
+	}
+}
+
+func setWorkloadActive(ctx context.Context, t *testing.T, cl client.Client, wl *kueue.Workload, active bool) *kueue.Workload {
+	t.Helper()
+	var got kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &got); err != nil {
+		t.Fatalf("Failed obtaining the workload: %v", err)
+	}
+	got.Spec.Active = new(active)
+	if err := cl.Update(ctx, &got); err != nil {
+		t.Fatalf("Failed setting the workload active to %t: %v", active, err)
+	}
+	return &got
+}
+
 func TestUpdateWorkload(t *testing.T) {
 	now := time.Now()
 	cases := map[string]struct {
@@ -2573,4 +2742,153 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestForgetInflight verifies that a popped workload whose inflight entry is
+// explicitly forgotten becomes visible to PushOrUpdate again. Without the
+// cleanup, the stale inflight entry would make PushOrUpdate ignore every
+// future update for the workload (the entry is no longer overwritten by a
+// later Pop since inflight became a map).
+func TestForgetInflight(t *testing.T) {
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("a", "earth").Queue("foo").Obj()
+	kClient := utiltesting.NewFakeClient(wl, lq, cq)
+	manager := NewManagerForUnitTests(kClient, nil)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding queue: %v", err)
+	}
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQueue: %v", err)
+	}
+
+	popped := manager.PopFrom(ctx, "cq")
+	if popped == nil || workload.Key(popped.Obj) != "earth/a" {
+		t.Fatalf("PopFrom returned %v, want earth/a", popped)
+	}
+
+	cqImpl := manager.getClusterQueue("cq")
+	// PopFrom is a mid-cycle pop and must not start a new evaluation epoch.
+	if cqImpl.popCycle != 0 {
+		t.Errorf("PopFrom advanced popCycle to %d, want 0", cqImpl.popCycle)
+	}
+	cqImpl.PushOrUpdate(workload.NewInfo(wl))
+	if cqImpl.heap.GetByKey("earth/a") != nil {
+		t.Fatal("PushOrUpdate added the workload back while it is inflight")
+	}
+
+	// Unknown ClusterQueue must be a no-op.
+	manager.ForgetInflight("nonexistent-cq", "earth/a")
+
+	manager.ForgetInflight("cq", "earth/a")
+	cqImpl.PushOrUpdate(workload.NewInfo(wl))
+	if cqImpl.heap.GetByKey("earth/a") == nil {
+		t.Fatal("PushOrUpdate did not add the workload back after ForgetInflight")
+	}
+}
+
+// TestRequeueWorkloadWhileInflight covers RequeueWorkload's non-requeue exits
+// for popped (inflight) workloads: the queue-side bookkeeping must be dropped
+// so PushOrUpdate does not ignore future updates for the workload, while
+// records owned by the workload controller are kept when the object still
+// exists.
+func TestRequeueWorkloadWhileInflight(t *testing.T) {
+	setup := func(t *testing.T) (context.Context, client.Client, *Manager, *workload.Info) {
+		t.Helper()
+		wl := utiltestingapi.MakeWorkload("a", "earth").Queue("foo").Obj()
+		cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+		lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()
+		cq2 := utiltestingapi.MakeClusterQueue("cq2").Obj()
+		lq2 := utiltestingapi.MakeLocalQueue("bar", "earth").ClusterQueue("cq2").Obj()
+		cl := utiltesting.NewFakeClient(wl, lq, cq, lq2, cq2)
+		manager := NewManagerForUnitTests(cl, nil)
+		ctx, _ := utiltesting.ContextWithLog(t)
+		for _, q := range []*kueue.LocalQueue{lq, lq2} {
+			if err := manager.AddLocalQueue(ctx, q); err != nil {
+				t.Fatalf("Failed adding queue: %v", err)
+			}
+		}
+		for _, c := range []*kueue.ClusterQueue{cq, cq2} {
+			if err := manager.AddClusterQueue(ctx, c); err != nil {
+				t.Fatalf("Failed adding clusterQueue: %v", err)
+			}
+		}
+		popped := manager.PopFrom(ctx, "cq")
+		if popped == nil || workload.Key(popped.Obj) != "earth/a" {
+			t.Fatalf("PopFrom returned %v, want earth/a", popped)
+		}
+		return ctx, cl, manager, popped
+	}
+
+	t.Run("deleted while inflight", func(t *testing.T) {
+		ctx, cl, manager, popped := setup(t)
+		if err := cl.Delete(ctx, popped.Obj); err != nil {
+			t.Fatalf("Failed deleting workload: %v", err)
+		}
+		if manager.RequeueWorkload(ctx, popped, RequeueReasonGeneric, "") {
+			t.Error("RequeueWorkload requeued a deleted workload")
+		}
+		if got := len(manager.getClusterQueue("cq").inflight); got != 0 {
+			t.Errorf("inflight entries left after requeue of deleted workload: %d", got)
+		}
+		if _, ok := manager.workloadAssignedQueues["earth/a"]; ok {
+			t.Error("queue assignment kept for a deleted workload")
+		}
+	})
+
+	t.Run("finished while inflight", func(t *testing.T) {
+		ctx, cl, manager, popped := setup(t)
+		var w kueue.Workload
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(popped.Obj), &w); err != nil {
+			t.Fatalf("Failed getting workload: %v", err)
+		}
+		w.Status.Conditions = append(w.Status.Conditions, metav1.Condition{
+			Type:               kueue.WorkloadFinished,
+			Status:             metav1.ConditionTrue,
+			Reason:             "JobFinished",
+			Message:            "by test",
+			LastTransitionTime: metav1.NewTime(time.Now()),
+		})
+		if err := cl.Status().Update(ctx, &w); err != nil {
+			t.Fatalf("Failed updating workload status: %v", err)
+		}
+		if manager.RequeueWorkload(ctx, popped, RequeueReasonGeneric, "") {
+			t.Error("RequeueWorkload requeued a finished workload")
+		}
+		if got := len(manager.getClusterQueue("cq").inflight); got != 0 {
+			t.Errorf("inflight entries left after requeue of finished workload: %d", got)
+		}
+		// The object still exists: the workload controller owns the queue
+		// assignment record and forgets it only on deletion.
+		if _, ok := manager.workloadAssignedQueues["earth/a"]; !ok {
+			t.Error("queue assignment dropped for a workload that still exists")
+		}
+	})
+
+	t.Run("queue moved while inflight", func(t *testing.T) {
+		ctx, cl, manager, popped := setup(t)
+		var w kueue.Workload
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(popped.Obj), &w); err != nil {
+			t.Fatalf("Failed getting workload: %v", err)
+		}
+		w.Spec.QueueName = "bar"
+		if err := cl.Update(ctx, &w); err != nil {
+			t.Fatalf("Failed updating workload: %v", err)
+		}
+		if !manager.RequeueWorkload(ctx, popped, RequeueReasonGeneric, "") {
+			t.Error("RequeueWorkload did not requeue the workload into its new queue")
+		}
+		if got := len(manager.getClusterQueue("cq").inflight); got != 0 {
+			t.Errorf("inflight entries left in the old ClusterQueue: %d", got)
+		}
+		// A generic requeue is non-immediate, so the workload lands in the new
+		// ClusterQueue's inadmissible set until a cluster event revives it.
+		if !manager.getClusterQueue("cq2").inadmissibleWorkloads.hasKey("earth/a") {
+			t.Error("workload not present in the new ClusterQueue")
+		}
+		if got := manager.workloadAssignedQueues["earth/a"]; got != "earth/bar" {
+			t.Errorf("queue assignment = %q, want %q", got, "earth/bar")
+		}
+	})
 }
