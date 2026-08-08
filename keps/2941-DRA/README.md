@@ -386,14 +386,15 @@ documented here:
    upper bound on any single realized allocation (see [Prioritized List Quota](#prioritized-list-quota)).
    Counter-backed and capacity-backed alternatives are rejected until their accounting paths can
    produce per-alternative charge vectors, as are alternatives using allocation mode `All` or a
-   mode Kueue does not recognise. The worst-case `All` charge in item 3 applies to a whole-claim
-   `All` request, not to an alternative.
+   mode Kueue does not recognise.
 2. AdminAccess requests are skipped in quota counting. This feature can only be enabled in
    admin namespaces (gated by the `resource.kubernetes.io/admin-access` label), and provides
    shared read-only access to already-allocated devices. Charging quota would double-count the
    device. This matches the Kubernetes scheduler which excludes AdminAccess from `allocatedDevices`.
-3. For ResourceClaims with allocation mode `All`: worst-case scenario of the max number of devices that could be
-   allocated to a single claim will be used against quota.
+3. For allocation mode `All`: the request is rejected rather than charged. `countDevicesPerClass`
+   refuses it on any request it reads, since how many devices the claim would receive is not in the
+   spec, and Kueue has no worst-case charge for it. Whether a finite policy can be defined is left
+   to a later stage.
 4. For Extended Resources: if a DeviceClass is created or updated between Kueue admitting a
    workload and kube-scheduler scheduling it, the two components may pick different DeviceClasses
    for the same `extendedResourceName` (a TOCTOU gap). This can happen during valid operational
@@ -2158,6 +2159,9 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
   none of which can be represented as `int64`. Each of these marks the workload inadmissible instead
   of clamping. Scaling a PodSet down stays exact, because only an aggregate that is exactly the
   per-Pod value times the count is admitted in the first place
+- Prioritized list cancellation: a negative request under a name an alternative charges, whether
+  written on the Workload or produced by a resource transformation output, marks the workload
+  inadmissible rather than merging to a zero that `FloorToZero` leaves looking deliberate
 - Prioritized list with a logical resource named `cpu`: the charge round-trips through the
   milli-unit convention rather than being read as absolute units
 - Prioritized list flavors: alternatives mapping to one logical resource are admitted and render
@@ -2228,6 +2232,10 @@ the realized allocation.
   DeviceClass-to-logical-resource mapping
 - rejection of counter-backed and capacity-backed alternatives, of an alternative setting
   `capacity` on the subrequest, and of `All`, unknown allocation modes, and unmapped DeviceClasses
+- every alternative of one `firstAvailable` request mapping to the same logical resource, with a
+  request whose alternatives map to more than one rejected while the claim is read. The envelope
+  then covers one resource, which takes one flavor, so nothing downstream has to be told the
+  request was a prioritized list
 - selectors compiled with the DRA CEL feature environment the supported Kubernetes API uses, so a
   selector the apiserver accepted is not refused here
 - a shared static-support classifier that the quota path consumes, with table-driven tests freezing
@@ -2236,6 +2244,9 @@ the realized allocation.
   of being saturated, at the envelope and at every shared aggregation boundary it passes through.
   Mixing `Exactly` and `firstAvailable` can overflow a boundary neither reaches alone, so this
   cannot wait for Beta
+- the same for an operand that is negative on a key an alternative charges. `FloorToZero` runs
+  after the merge, so a negative request under that name subtracts from the envelope and leaves a
+  zero that reads as nothing having been asked for
 - integration and e2e tests
 
 #### Beta
