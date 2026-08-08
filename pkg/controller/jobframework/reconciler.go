@@ -1240,9 +1240,8 @@ func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventR
 
 // applyResolvedPriority is the write path UpdateWorkloadPriority and
 // ApplyWorkloadPriority share. It writes the resolved ref/value to every eligible
-// workload whose full priority state differs. Same-name workloads with a stale
-// value are repaired before the name-changing ones, so a name mismatch survives
-// as the retry marker if a write in this batch fails.
+// workload whose full priority state differs, so a transition carries along the
+// ones already naming the class rather than leaving the object's set split.
 func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
 	priorityClassRef *kueue.PriorityClassRef, priority int32, sameClassName, needsClassChange []*kueue.Workload) error {
 	// One workload that will not take the write does not speak for the rest, so
@@ -1268,9 +1267,14 @@ func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventR
 			return nil
 		})
 	}
-	// Same-name workloads with a stale value go first, so a name mismatch outlives
-	// a failure among them. Both groups are attempted either way: one workload the
-	// API server will not take is not a reason to leave the rest where they are.
+	// Both groups are attempted whatever the other does: one workload the API
+	// server will not take is not a reason to leave the rest where they are. A
+	// failed transition keeps its old name, so this call finds it again. A failed
+	// same-name repair does not, and does not need to: those workloads all carry a
+	// reference to the object's class, which puts them in the index
+	// WorkloadPriorityClassReconciler lists by, and the class value moving is what
+	// left them stale in the first place. The order only fixes which error is
+	// reported first.
 	return errors.Join(apply(sameClassName), apply(needsClassChange))
 }
 
