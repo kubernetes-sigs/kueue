@@ -674,6 +674,9 @@ func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
 	// it on every pass.
 	local.PodSets = podSetsWithChargeableOverhead(local.PodSets)
 	remote.PodSets = podSetsWithChargeableOverhead(remote.PodSets)
+	// The remote was created without the overhead entries that are not charged,
+	// so compare what both sides would carry rather than deleting and recreating
+	// it on every pass.
 	return !equality.Semantic.DeepEqual(local, remote)
 }
 

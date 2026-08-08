@@ -29,6 +29,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -3220,5 +3221,71 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 	if gotResult.RequeueAfter != syncDeferredRequeueAfter {
 		t.Fatalf("reconcileGroup result has RequeueAfter=%v; want %v (sync was deferred)",
 			gotResult.RequeueAfter, syncDeferredRequeueAfter)
+	}
+}
+
+// The remote copy is created without the overhead entries Kueue will not
+// charge, so the comparison that decides whether to replace it has to read both
+// sides the same way. Otherwise the remote it just created is out of sync with
+// the local one on the next pass, for as long as the entry is there.
+func TestRemoteCloneNormalizesOverheadWithoutChurn(t *testing.T) {
+	withOverhead := func(o corev1.ResourceList) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("wl", TestNamespace).
+			PodSets(*utiltestingapi.MakePodSet("main", 1).
+				Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		wl.Spec.PodSets[0].Template.Spec.Overhead = o
+		return wl
+	}
+
+	cases := map[string]struct {
+		local            corev1.ResourceList
+		wantRemote       corev1.ResourceList
+		remoteAfterClone corev1.ResourceList
+		wantOutOfSync    bool
+	}{
+		"an entry that is not charged is dropped on the way and does not read as a difference": {
+			local:      corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+			wantRemote: corev1.ResourceList{},
+		},
+		"a negative one goes the same way": {
+			local:      corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")},
+			wantRemote: corev1.ResourceList{},
+		},
+		"an overhead that is charged reaches the remote unchanged": {
+			local:      corev1.ResourceList{"example.com/gpu": resource.MustParse("2")},
+			wantRemote: corev1.ResourceList{"example.com/gpu": resource.MustParse("2")},
+		},
+		"a remote carrying a different charged overhead is still out of sync": {
+			local:            corev1.ResourceList{"example.com/gpu": resource.MustParse("2")},
+			wantRemote:       corev1.ResourceList{"example.com/gpu": resource.MustParse("2")},
+			remoteAfterClone: corev1.ResourceList{"example.com/gpu": resource.MustParse("3")},
+			wantOutOfSync:    true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			local := withOverhead(tc.local)
+			before := local.Spec.PodSets[0].Template.Spec.Overhead.DeepCopy()
+
+			remote := cloneForCreate(local, "origin1", false)
+			if diff := cmp.Diff(tc.wantRemote, remote.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+				t.Errorf("remote overhead (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(before, local.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+				t.Errorf("the local workload was modified (-before +after):\n%s", diff)
+			}
+
+			if tc.remoteAfterClone != nil {
+				remote.Spec.PodSets[0].Template.Spec.Overhead = tc.remoteAfterClone
+			}
+			if got := isRemoteSpecOutOfSync(local.Spec, remote.Spec); got != tc.wantOutOfSync {
+				t.Errorf("out of sync = %v, want %v", got, tc.wantOutOfSync)
+			}
+			if diff := cmp.Diff(before, local.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+				t.Errorf("comparing modified the local workload (-before +after):\n%s", diff)
+			}
+		})
 	}
 }
