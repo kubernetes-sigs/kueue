@@ -995,6 +995,17 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return wl, nil
 		}
 
+		if workloadslicing.Enabled(object) {
+			resizePending, err := hasPendingElasticResize(ctx, r.client, job, wl)
+			if err != nil {
+				return nil, err
+			}
+			if resizePending {
+				log.V(3).Info("WorkloadSlice: skip in-sync check during resize handover")
+				return wl, nil
+			}
+		}
+
 		if inSync, err := r.ensurePrebuiltWorkloadInSync(ctx, wl, job); !inSync || err != nil {
 			return nil, err
 		}
@@ -1327,6 +1338,30 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 		}
 	}
 	return nil
+}
+
+// hasPendingElasticResize reports whether the elastic job's pod sets have the
+// same keys as its pinned workload slice but at least one count differs.
+// For worker-side autoscaling (e.g. the Ray autoscaler resizing the worker copy
+// directly), the workload is owned by the manager cluster, so the resize is only
+// complete once the manager updates the worker's workload slice to match. Until
+// then the count mismatch on a MultiKueue-dispatched copy (identified by the
+// origin label) is expected, not out-of-sync. A change that alters the pod set
+// structure (different keys) is not a resize and still fails the in-sync check.
+func hasPendingElasticResize(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
+	if job.Object().GetLabels()[kueue.MultiKueueOriginLabel] == "" {
+		return false, nil
+	}
+	jobPodSets, err := JobPodSets(ctx, job, c)
+	if err != nil {
+		return false, err
+	}
+	jobCounts := workload.ExtractPodSetCounts(jobPodSets)
+	wlCounts := workload.ExtractPodSetCountsFromWorkload(wl)
+	if !jobCounts.HasSamePodSetKeys(wlCounts) {
+		return false, nil
+	}
+	return !jobCounts.EqualTo(wlCounts), nil
 }
 
 func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {

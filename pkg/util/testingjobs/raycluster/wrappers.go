@@ -173,6 +173,12 @@ func (j *ClusterWrapper) WithEnableAutoscaling(value *bool) *ClusterWrapper {
 	return j
 }
 
+// WithAutoscalerOptions sets the RayClusterSpec's AutoscalerOptions.
+func (j *ClusterWrapper) WithAutoscalerOptions(value *rayv1.AutoscalerOptions) *ClusterWrapper {
+	j.Spec.AutoscalerOptions = value
+	return j
+}
+
 // SchedulingGate adds a scheduling gate to the head group and every worker group template.
 func (j *ClusterWrapper) SchedulingGate(name string) *ClusterWrapper {
 	gate := corev1.PodSchedulingGate{Name: name}
@@ -184,13 +190,17 @@ func (j *ClusterWrapper) SchedulingGate(name string) *ClusterWrapper {
 	return j
 }
 
-func (j *ClusterWrapper) WithAutoscalerOptions(value *rayv1.AutoscalerOptions) *ClusterWrapper {
-	j.Spec.AutoscalerOptions = value
+func (j *ClusterWrapper) ScaleFirstWorkerGroup(replicas int32) *ClusterWrapper {
+	j.Spec.WorkerGroupSpecs[0].Replicas = &replicas
 	return j
 }
 
-func (j *ClusterWrapper) ScaleFirstWorkerGroup(replicas int32) *ClusterWrapper {
-	j.Spec.WorkerGroupSpecs[0].Replicas = &replicas
+// FirstWorkerGroupReplicas pins replicas, minReplicas and maxReplicas of the first worker group.
+func (j *ClusterWrapper) FirstWorkerGroupReplicas(replicas, minReplicas, maxReplicas int32) *ClusterWrapper {
+	wgs := &j.Spec.WorkerGroupSpecs[0]
+	wgs.Replicas = new(replicas)
+	wgs.MinReplicas = new(minReplicas)
+	wgs.MaxReplicas = new(maxReplicas)
 	return j
 }
 

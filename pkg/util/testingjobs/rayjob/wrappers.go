@@ -159,6 +159,12 @@ func (j *JobWrapper) WithEnableAutoscaling(value *bool) *JobWrapper {
 	return j
 }
 
+// WithAutoscalerOptions sets the RayClusterSpec's AutoscalerOptions.
+func (j *JobWrapper) WithAutoscalerOptions(value *rayv1.AutoscalerOptions) *JobWrapper {
+	j.Spec.RayClusterSpec.AutoscalerOptions = value
+	return j
+}
+
 func (j *JobWrapper) RayClusterSpec(spec *rayv1.RayClusterSpec) *JobWrapper {
 	j.Spec.RayClusterSpec = spec
 	return j
@@ -364,6 +370,23 @@ func (j *JobWrapper) EnableInTreeAutoscaling() *JobWrapper {
 
 func (j *JobWrapper) MaxWorkerReplicas(count int32) *JobWrapper {
 	j.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = new(count)
+	return j
+}
+
+// FirstWorkerGroupReplicas sets replicas, minReplicas and maxReplicas on the
+// first worker group of the RayClusterSpec.
+func (j *JobWrapper) FirstWorkerGroupReplicas(replicas, minReplicas, maxReplicas int32) *JobWrapper {
+	wgs := &j.Spec.RayClusterSpec.WorkerGroupSpecs[0]
+	wgs.Replicas = new(replicas)
+	wgs.MinReplicas = new(minReplicas)
+	wgs.MaxReplicas = new(maxReplicas)
+	return j
+}
+
+// RayClusterNameStatus sets status.rayClusterName, the name of the child
+// RayCluster KubeRay created for this RayJob.
+func (j *JobWrapper) RayClusterNameStatus(name string) *JobWrapper {
+	j.Status.RayClusterName = name
 	return j
 }
 
