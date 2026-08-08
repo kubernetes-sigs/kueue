@@ -27,7 +27,11 @@ import './App.css';
 export const errorToString = (error) => {
   if (typeof error === 'string') return error;
   if (error && typeof error.message === 'string' && error.message.length > 0) return error.message;
-  return JSON.stringify(error);
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
 };
 
 const ErrorMessage = ({ error }) => {
@@ -42,9 +46,6 @@ const ErrorMessage = ({ error }) => {
   
   // The rest is considered details
   const errorDetails = lines.slice(1).join('\n');
-  
-  // Format for HTML display
-  const formattedDetails = errorDetails.replace(/\n/g, '<br />');
 
   return (
     <Paper className="error-message" elevation={2}>
@@ -74,8 +75,10 @@ const ErrorMessage = ({ error }) => {
                 color="textSecondary" 
                 component="div"
                 className="error-details-text"
-                dangerouslySetInnerHTML={{ __html: formattedDetails }} 
-              />
+                sx={{ whiteSpace: 'pre-wrap' }}
+              >
+                {errorDetails}
+              </Typography>
             </Box>
           </Collapse>
         </Box>
