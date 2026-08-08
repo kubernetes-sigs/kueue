@@ -1830,18 +1830,18 @@ envelope itself bounded, and tests cover multiple `firstAvailable` requests, `Ex
 There is currently no way to report any of this. `totalRequestsFromPodSets` returns
 `[]PodSetResources` and no error, and `NewInfo` and `Info.Update` do not return errors either. The
 implementation will need to add an error path, so that the workload can be marked inadmissible
-instead of saturating. It belongs where the quantities are already combined: `totalRequestsFromPodSets`
-is what converts, accumulates, merges, and multiplies them, and a check kept next to the envelope
-alone would answer for the envelope while the `Exactly` charge on the same resource went through
-unchecked. What it reports is a property of the request rather than of the attempt, so it is
-permanent; a retry rebuilds the same numbers.
+instead of saturating. It belongs where the quantities are already combined:
+`totalRequestsFromPodSets` is what converts, accumulates, merges, and multiplies them, and a check
+kept next to the envelope alone would answer for the envelope while the `Exactly` charge on the
+same resource went through unchecked. What it reports is a property of the request rather than of
+the attempt, so it is permanent; a retry rebuilds the same numbers.
 
 That much covers a PodSet. The sum across them is taken later, in `Info.ResourceUsage`, and neither
 half of it is checked: the assigned side goes through the saturating `Amount.AddInt64` and lands on
 the sentinel above, and the unassigned side is a plain `+=` that wraps, `MaxInt64 - 10` plus `20`
 coming out as `-9223372036854775799`. Carrying a running total while the PodSets are built catches
-both, and is the last point where the workload can still be refused rather than admitted holding a
-number nothing downstream represents. Until that exists, the Alpha bound holds for charges
+both, in the pass that already has to check each one and before the sum reaches a representation
+that cannot tell it from unlimited. Until that exists, the Alpha bound holds for charges
 the shared path can represent, which is the condition the existing `Exactly` charges already depend
 on.
 
@@ -1927,14 +1927,14 @@ The order decides what a transformation can see, too. `applyResourceTransformati
 pod's requests, before the logical resources are merged in, so a logical resource that exists only
 after the merge is not there to be transformed. Named as `transformations[].input` it matches
 nothing and produces no output, and named as `multiplyBy` it is absent, which leaves the input
-carried through unmultiplied rather than scaled by the device count. The same identity fallback is
-reachable without DRA, from `excludeResourcePrefixes` covering the multiplier;
-[#14007](https://github.com/kubernetes-sigs/kueue/issues/14007) tracks that one. Outputs aimed at a
-logical resource are the other direction and do reach it through the merge. Alpha does not add a
-second pass over the merged requests; the restriction is written down so that a configuration
-reading as though it scales with the devices is not taken for one that does.
+carried through unmultiplied rather than scaled by the device count. Outputs aimed at a logical
+resource are the other direction and do reach it through the merge. Alpha does not add a second
+pass over the merged requests; the restriction is written down so that a configuration reading as
+though it scales with the devices is not taken for one that does.
 
-That filter is applied in the same place, to the pod's requests and before the merge, so it does not
+The same identity fallback is reachable without DRA, from `excludeResourcePrefixes` covering the
+multiplier; [#14007](https://github.com/kubernetes-sigs/kueue/issues/14007) tracks that one. That
+filter is applied in the same place, to the pod's requests and before the merge, so it does not
 reach a logical resource either. With `example.com/` excluded, an ordinary `example.com/other`
 request drops to zero while a logical `example.com/gpu` is still charged 8. Nothing is undercharged
 and the bound is untouched, but one part of the configuration says a resource is ignored while
