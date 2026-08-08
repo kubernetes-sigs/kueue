@@ -78,6 +78,10 @@ type workloadToCreate struct {
 	index int
 }
 
+// resolvedPriority is what one lookup of the LeaderWorkerSet's priority class
+// answered, carried across the branches of a single reconcile so that every
+// component Workload is written with the same value. A second lookup of the
+// same class can return a different one, which would leave the set split.
 type resolvedPriority struct {
 	classRef *kueue.PriorityClassRef
 	priority int32
