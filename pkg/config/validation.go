@@ -456,9 +456,9 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 }
 
 // reservedResourceNameMsg is the Workload webhook's message for the same key.
-// That validator reports the reserved name and the sign of a negative quantity
-// as two errors, and this follows it: fixing either one leaves the other, and a
-// check the manager will not start past costs a restart to find the next.
+// Only the message is shared. A name that cannot be used and a factor that
+// cannot be used are separate things to fix, and both are reported: a check the
+// manager will not start past costs a restart to find the second one.
 const reservedResourceNameMsg = "the key is reserved for internal kueue use"
 
 func validateResourceTransformations(c *configapi.Configuration) field.ErrorList {
