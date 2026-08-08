@@ -802,6 +802,15 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		},
 		// Before it reserves, the PodSets can still change, which is where an
 		// entry can actually be introduced. Adding or changing one is refused.
+		"a reserved workload with a legacy overhead can still be deactivated": {
+			before: reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}),
+			after: func() *kueue.Workload {
+				wl := reservedWithOverhead(now, corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")})
+				wl.Spec.Active = ptr.To(false)
+				return wl
+			}(),
+			wantErr: nil,
+		},
 		"a reserved-name overhead added before reserving is refused": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*podSetWithOverhead("main", nil)).Obj(),
