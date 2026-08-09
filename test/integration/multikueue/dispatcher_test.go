@@ -497,11 +497,18 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 			gomega.Eventually(func(g gomega.Gomega) {
 				managerWl := &kueue.Workload{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-				g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerWl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
-					workloadevict.SetEvictedCondition(wl, util.RealClock.Now(), kueue.WorkloadEvictedByAdmissionCheck, "check rejected")
-					wl.Status.NominatedClusterNames = nil
-					return true, nil
-				})).To(gomega.Succeed())
+				g.Expect(workloadpatching.PatchAdmissionStatus(
+					managerTestCluster.ctx,
+					managerTestCluster.client,
+					managerWl,
+					util.RealClock,
+					func(wl *kueue.Workload) (bool, error) {
+						workloadevict.SetEvictedCondition(wl, util.RealClock.Now(), kueue.WorkloadEvictedByAdmissionCheck, "check rejected")
+						wl.Status.NominatedClusterNames = nil
+						return true, nil
+					},
+					workloadpatching.WithForceApply(),
+				)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
