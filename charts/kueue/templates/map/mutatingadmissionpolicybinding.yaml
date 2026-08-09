@@ -1,0 +1,10 @@
+{{- if .Values.enableMutatingAdmissionPolicy }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "kueue.fullname" . }}-clear-nominated-cluster-names-binding
+  labels:
+    {{- include "kueue.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "kueue.fullname" . }}-clear-nominated-cluster-names
+{{- end }}
