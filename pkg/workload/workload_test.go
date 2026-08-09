@@ -722,7 +722,19 @@ func TestNewInfo(t *testing.T) {
 					Request("nvidia.com/gpumem", "2048").
 					Request("nvidia.com/gpu", "2").Obj()).
 				Obj(),
-			infoOptions: []InfoOption{WithResourceTransformations(allowanceTransformations())},
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:      "nvidia.com/gpumem",
+					Strategy:   ptr.To(config.Replace),
+					MultiplyBy: "nvidia.com/gpu",
+					Outputs:    corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("1")},
+				},
+				{
+					Input:    "nvidia.com/gpu",
+					Strategy: ptr.To(config.Retain),
+					Outputs:  corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("-1024")},
+				},
+			})},
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{{
 					Name: "a",
@@ -740,7 +752,19 @@ func TestNewInfo(t *testing.T) {
 					Request("nvidia.com/gpumem", "1024").
 					Request("nvidia.com/gpu", "2").Obj()).
 				Obj(),
-			infoOptions: []InfoOption{WithResourceTransformations(allowanceTransformations())},
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:      "nvidia.com/gpumem",
+					Strategy:   ptr.To(config.Replace),
+					MultiplyBy: "nvidia.com/gpu",
+					Outputs:    corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("1")},
+				},
+				{
+					Input:    "nvidia.com/gpu",
+					Strategy: ptr.To(config.Retain),
+					Outputs:  corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("-1024")},
+				},
+			})},
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{{
 					Name: "a",
@@ -758,7 +782,19 @@ func TestNewInfo(t *testing.T) {
 					Request("nvidia.com/gpumem", "512").
 					Request("nvidia.com/gpu", "2").Obj()).
 				Obj(),
-			infoOptions: []InfoOption{WithResourceTransformations(allowanceTransformations())},
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:      "nvidia.com/gpumem",
+					Strategy:   ptr.To(config.Replace),
+					MultiplyBy: "nvidia.com/gpu",
+					Outputs:    corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("1")},
+				},
+				{
+					Input:    "nvidia.com/gpu",
+					Strategy: ptr.To(config.Retain),
+					Outputs:  corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("-1024")},
+				},
+			})},
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{{
 					Name: "a",
@@ -834,6 +870,105 @@ func TestNewInfo(t *testing.T) {
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("example.com/gpu"): 6,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"transformRetainWithMultiplyBy": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/gpumem", "1024").
+						Request("example.com/gpu", "2").
+						Obj(),
+				).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:      "example.com/gpumem",
+					Strategy:   ptr.To(config.Retain),
+					MultiplyBy: "example.com/gpu",
+					Outputs: corev1.ResourceList{
+						"example.com/gpumem-quota": resource.MustParse("1"),
+					},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "a",
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							// Retain keeps gpumem as requested (1024), not the multiplyBy
+							// product (2048); the multiplier only scales the quota output.
+							corev1.ResourceName("example.com/gpumem"):       1024,
+							corev1.ResourceName("example.com/gpumem-quota"): 2048,
+							corev1.ResourceName("example.com/gpu"):          2,
+						}),
+						Count: 1,
+					},
+				},
+			},
+		},
+		// A multiplier below one is the direction that undercharges: the old
+		// behaviour retained 512 for a PodSet that asked for 1024, and every
+		// check on the way past reads a positive, exactly representable number
+		// that arrives once.
+		"transformRetainWithMultiplyByUnderOne": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/gpumem", "1024").
+						Request(corev1.ResourceCPU, "500m").
+						Obj(),
+				).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input: "example.com/gpumem",
+					// Strategy left unset: nil defaults to Retain in production,
+					// so this covers the path an operator gets without asking.
+					MultiplyBy: corev1.ResourceCPU,
+					Outputs: corev1.ResourceList{
+						"example.com/gpumem-quota": resource.MustParse("1"),
+					},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "a",
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceName("example.com/gpumem"):       1024,
+							corev1.ResourceName("example.com/gpumem-quota"): 512,
+							corev1.ResourceCPU:                              500,
+						}),
+						Count: 1,
+					},
+				},
+			},
+		},
+		// MultiplyBy scales the value the outputs are computed from. Retain keeps
+		// the input as it was requested, so a request of 1 against a multiplier
+		// of 2 leaves 2 generated and 1 retained rather than 2 and 2.
+		"transformOutputSharingANameWithItsRetainedInputIsAddedToTheAmountRequested": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					Request("example.com/node", "2").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:      "example.com/gpu",
+				Strategy:   ptr.To(config.Retain),
+				MultiplyBy: "example.com/node",
+				Outputs:    corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"):  3,
+						corev1.ResourceName("example.com/node"): 2,
 					}),
 					Count: 1,
 				}},
@@ -3560,23 +3695,5 @@ func TestTotalExecutionTime(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// allowanceTransformations charges the memory a Workload asks for beyond a
-// per-GPU allowance, which is what a negative output factor expresses.
-func allowanceTransformations() []config.ResourceTransformation {
-	return []config.ResourceTransformation{
-		{
-			Input:      "nvidia.com/gpumem",
-			Strategy:   ptr.To(config.Replace),
-			MultiplyBy: "nvidia.com/gpu",
-			Outputs:    corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("1")},
-		},
-		{
-			Input:    "nvidia.com/gpu",
-			Strategy: ptr.To(config.Retain),
-			Outputs:  corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("-1024")},
-		},
 	}
 }

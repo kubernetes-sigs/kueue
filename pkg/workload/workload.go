@@ -60,6 +60,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
@@ -584,40 +585,37 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 	for inputName, inputQuantity := range input {
 		mapping, ok := transforms[inputName]
 		if !ok {
-			addResourceQuantity(retained, inputName, inputQuantity)
+			retained[inputName] = inputQuantity
 			continue
 		}
-		// If MultiplyBy is specified, multiply the input quantity by
-		// the value of the resource specified in MultiplyBy.
+		// If MultiplyBy is specified, multiply the input quantity by the value
+		// of the resource specified in MultiplyBy. It scales the value the
+		// outputs are computed from; Retain keeps the input as it was
+		// requested, so the multiplier does not reach that as well.
+		outputInputVal := inputQuantity
 		if mapping.MultiplyBy != "" {
 			if q, ok := input[mapping.MultiplyBy]; ok {
-				inputQuantity = multiplyResourceQuantities(inputQuantity, q)
+				outputInputVal = multiplyResourceQuantities(inputQuantity, q)
 			}
 		}
 
+		outputs := make(corev1.ResourceList, len(mapping.Outputs))
 		for outputName, baseFactor := range mapping.Outputs {
-			addResourceQuantity(generated, outputName, multiplyResourceQuantities(inputQuantity, baseFactor))
+			outputs[outputName] = multiplyResourceQuantities(outputInputVal, baseFactor)
 		}
+		// Summed rather than assigned, so which order the input map is walked
+		// in does not decide which contribution to a name survives.
+		generated = utilresource.MergeResourceListKeepSum(generated, outputs)
 		if ptr.Deref(mapping.Strategy, config.Retain) == config.Retain {
-			addResourceQuantity(retained, inputName, inputQuantity)
+			retained[inputName] = inputQuantity
 		}
 	}
 	for name, quantity := range generated {
 		if quantity.Sign() < 0 {
-			quantity = resource.Quantity{}
+			generated[name] = resource.Quantity{}
 		}
-		addResourceQuantity(retained, name, quantity)
 	}
-	return retained
-}
-
-// addResourceQuantity accumulates rather than assigns, so which order the input
-// map is walked in does not decide which contribution to a name survives.
-func addResourceQuantity(list corev1.ResourceList, name corev1.ResourceName, quantity resource.Quantity) {
-	if existing, ok := list[name]; ok {
-		quantity.Add(existing)
-	}
-	list[name] = quantity
+	return utilresource.MergeResourceListKeepSum(retained, generated)
 }
 
 func multiplyResourceQuantities(value, mul resource.Quantity) resource.Quantity {
