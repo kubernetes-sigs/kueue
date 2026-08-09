@@ -55,18 +55,16 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 	// on the worker cluster. It is left unset for job types that do not support
 	// this (see ElasticReplicaSync).
 	elastic *ElasticReplicaSync[PtrT, T]
-	// remoteSpecSync is optional. When set, the adapter forwards spec changes that
-	// do not alter the workload's PodSets from the manager copy onto the remote copy
-	// on the worker cluster after admission (see RemoteSpecSyncer). It is left unset
-	// for job types that keep the create-once behavior.
+	// remoteSpecSync is optional. When set, the adapter forwards manager-side spec
+	// changes onto the remote copy on the worker cluster after admission (see
+	// RemoteSpecSyncer). It is left unset for job types that keep the create-once
+	// behavior.
 	remoteSpecSync RemoteSpecSyncer[PtrT]
 }
 
-// RemoteSpecSyncer lets a job type forward spec changes that do not alter the
-// workload's PodSets from the manager copy to its worker copy after admission
-// (e.g. RayService's serveConfigV2). Such changes need no quota change and no
-// re-admission. Each job type decides which fields to forward and when; fields
-// that change the PodSets must not be forwarded here.
+// RemoteSpecSyncer lets a job type forward selected spec changes from the manager
+// copy to its worker copy after the job is admitted, via an in-place patch of the
+// remote. Each job type decides which fields to forward and when a sync is needed.
 type RemoteSpecSyncer[PtrT any] interface {
 	// NeedsSync reports whether a manager-side change must be forwarded to the
 	// worker copy. It must be side-effect free.
@@ -115,9 +113,8 @@ func WithElasticReplicaSync[PtrT objAsPtr[T], T any](e *ElasticReplicaSync[PtrT,
 	}
 }
 
-// WithRemoteSpecSync enables forwarding spec changes that do not alter the
-// workload's PodSets from the manager copy to the worker copy for job types that
-// support it (see RemoteSpecSyncer).
+// WithRemoteSpecSync enables forwarding manager-side spec changes to the worker copy
+// for job types that support it (see RemoteSpecSyncer).
 func WithRemoteSpecSync[PtrT objAsPtr[T], T any](s RemoteSpecSyncer[PtrT]) Option[PtrT, T] {
 	return func(a *adapter[PtrT, T]) {
 		a.remoteSpecSync = s
