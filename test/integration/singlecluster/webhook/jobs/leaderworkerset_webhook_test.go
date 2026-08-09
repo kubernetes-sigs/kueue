@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -61,7 +60,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 			ginkgo.By("Increasing the size is rejected by the webhook", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
-					createdLws.Spec.LeaderWorkerTemplate.Size = ptr.To[int32](10)
+					createdLws.Spec.LeaderWorkerTemplate.Size = new(int32(10))
 					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.SatisfyAll(
 						utiltesting.BeForbiddenError(),
 						gomega.MatchError(gomega.ContainSubstring("spec.leaderWorkerTemplate.size")),
@@ -82,7 +81,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 			ginkgo.By("Decreasing the size is rejected by the webhook", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
-					createdLws.Spec.LeaderWorkerTemplate.Size = ptr.To[int32](1)
+					createdLws.Spec.LeaderWorkerTemplate.Size = new(int32(1))
 					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.SatisfyAll(
 						utiltesting.BeForbiddenError(),
 						gomega.MatchError(gomega.ContainSubstring("spec.leaderWorkerTemplate.size")),
@@ -104,7 +103,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 			ginkgo.By("Increasing replicas is accepted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
-					createdLws.Spec.Replicas = ptr.To[int32](3)
+					createdLws.Spec.Replicas = new(int32(3))
 					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -127,7 +126,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 				ginkgo.By("Increasing the size is accepted", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
-						createdLws.Spec.LeaderWorkerTemplate.Size = ptr.To[int32](10)
+						createdLws.Spec.LeaderWorkerTemplate.Size = new(int32(10))
 						g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
@@ -147,7 +146,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 			ginkgo.By("Increasing the size is accepted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
-					createdLws.Spec.LeaderWorkerTemplate.Size = ptr.To[int32](10)
+					createdLws.Spec.LeaderWorkerTemplate.Size = new(int32(10))
 					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

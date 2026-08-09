@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -815,7 +814,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "spot",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1108,7 +1107,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "spot",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1200,7 +1199,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "on-demand",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1292,7 +1291,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "reservation",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1391,7 +1390,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "spot",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1474,7 +1473,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "on-demand",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1566,7 +1565,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "reservation",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1665,7 +1664,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "spot",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -2051,7 +2050,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "spot",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{

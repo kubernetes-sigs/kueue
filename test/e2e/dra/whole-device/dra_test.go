@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -466,7 +465,7 @@ var _ = ginkgo.Describe("DRA", func() {
 						},
 					},
 					// This is the key field for Extended Resources backed by DRA
-					ExtendedResourceName: ptr.To(extendedResourceName),
+					ExtendedResourceName: new(extendedResourceName),
 				},
 			}
 			util.MustCreate(ctx, k8sClient, extendedResDevClass)
@@ -780,7 +779,7 @@ var _ = ginkgo.Describe("DRA", func() {
 							},
 						},
 					},
-					ExtendedResourceName: ptr.To(extendedResourceName),
+					ExtendedResourceName: new(extendedResourceName),
 				},
 			}
 			util.MustCreate(ctx, k8sClient, deviceClass)

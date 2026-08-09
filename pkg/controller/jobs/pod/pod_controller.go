@@ -751,7 +751,7 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&p.ObjectMeta).PodIndexLabel(
-			ptr.To(kueue.PodGroupPodIndexLabel)).Build()
+			new(kueue.PodGroupPodIndexLabel)).Build()
 		if err != nil {
 			return kueue.PodSet{}, err
 		}
