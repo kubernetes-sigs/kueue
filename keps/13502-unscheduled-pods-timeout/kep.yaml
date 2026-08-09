@@ -17,10 +17,10 @@ see-also:
 
 stage: beta
 
-latest-milestone: "v0.15"
+latest-milestone: "v0.20"
 
 milestone:
-  beta: "v0.15"
+  beta: "v0.20"
 
 feature-gates: []
 disable-supported: true
