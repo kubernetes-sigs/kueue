@@ -7,3 +7,10 @@ resources:
 replicas:
 - name: kueue-controller-manager
   count: 1
+
+configMapGenerator:
+- behavior: merge
+  files:
+  - controller_manager_config.yaml
+  name: kueue-manager-config
+  namespace: kueue-system
