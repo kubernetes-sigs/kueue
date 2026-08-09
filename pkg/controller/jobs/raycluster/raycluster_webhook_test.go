@@ -37,6 +37,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestValidateDefault(t *testing.T) {
@@ -150,7 +151,9 @@ func TestValidateCreate(t *testing.T) {
 				field.Invalid(
 					field.NewPath("spec", "enableInTreeAutoscaling"),
 					new(true),
-					"a kueue managed job can use autoscaling only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+					fmt.Sprintf("a kueue-managed RayCluster can use autoscaling only as an elastic job: "+
+						"enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
+						workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue),
 				),
 			}.ToAggregate(),
 		},
