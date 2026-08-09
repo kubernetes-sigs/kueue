@@ -121,7 +121,7 @@ func (j *KubeflowJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.Pod
 		if features.Enabled(features.TopologyAwareScheduling) {
 			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 				&j.KFJobControl.ReplicaSpecs()[replicaType].Template.ObjectMeta).PodIndexLabel(
-				ptr.To(kftraining.ReplicaIndexLabel)).Build()
+				new(kftraining.ReplicaIndexLabel)).Build()
 			if err != nil {
 				return nil, err
 			}

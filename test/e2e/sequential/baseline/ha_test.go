@@ -100,7 +100,7 @@ var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", util.Shard0), gin
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
 					oldReplicas = max(oldReplicas, ptr.Deref(deployment.Spec.Replicas, int32(0)))
-					deployment.Spec.Replicas = ptr.To[int32](0)
+					deployment.Spec.Replicas = new(int32(0))
 					g.Expect(k8sClient.Update(ctx, deployment)).Should(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -172,7 +172,7 @@ var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", util.Shard0), gin
 			ginkgo.By("verify the localQueue can be fetched and mutated", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), localQueue)).To(gomega.Succeed())
-					localQueue.Spec.StopPolicy = ptr.To(kueue.Hold)
+					localQueue.Spec.StopPolicy = new(kueue.Hold)
 					g.Expect(k8sClient.Update(ctx, localQueue)).Should(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})

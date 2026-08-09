@@ -235,7 +235,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 					if cfg.MultiKueue == nil {
 						cfg.MultiKueue = &kueueconfig.MultiKueue{}
 					}
-					cfg.MultiKueue.DispatcherName = ptr.To(kueueconfig.MultiKueueDispatcherModeIncremental)
+					cfg.MultiKueue.DispatcherName = new(kueueconfig.MultiKueueDispatcherModeIncremental)
 				})
 			})
 		})

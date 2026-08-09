@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -284,7 +283,7 @@ func TestNewInfo(t *testing.T) {
 								corev1.ResourceCPU:    resource.MustParse("10m"),
 								corev1.ResourceMemory: resource.MustParse("512Ki"),
 							},
-							Count: ptr.To[int32](1),
+							Count: new(int32(1)),
 						},
 						kueue.PodSetAssignment{
 							Name: "workers",
@@ -293,7 +292,7 @@ func TestNewInfo(t *testing.T) {
 								corev1.ResourceMemory: resource.MustParse("3Mi"),
 								"ex.com/gpu":          resource.MustParse("3"),
 							},
-							Count: ptr.To[int32](3),
+							Count: new(int32(3)),
 						},
 					).
 					Obj(), now).
@@ -632,7 +631,7 @@ func TestNewInfo(t *testing.T) {
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
 				{
 					Input:    "nvidia.com/mig-1g.5gb",
-					Strategy: ptr.To(config.Replace),
+					Strategy: new(config.Replace),
 					Outputs: corev1.ResourceList{
 						"example.com/accelerator-memory": resource.MustParse("5Ki"),
 						"example.com/credits":            resource.MustParse("10"),
@@ -640,7 +639,7 @@ func TestNewInfo(t *testing.T) {
 				},
 				{
 					Input:    "nvidia.com/mig-2g.10gb",
-					Strategy: ptr.To(config.Replace),
+					Strategy: new(config.Replace),
 					Outputs: corev1.ResourceList{
 						"example.com/accelerator-memory": resource.MustParse("10Ki"),
 						"example.com/credits":            resource.MustParse("15"),
@@ -648,7 +647,7 @@ func TestNewInfo(t *testing.T) {
 				},
 				{
 					Input:    "nvidia.com/gpu",
-					Strategy: ptr.To(config.Retain),
+					Strategy: new(config.Retain),
 					Outputs: corev1.ResourceList{
 						"example.com/accelerator-memory": resource.MustParse("40Ki"),
 						"example.com/credits":            resource.MustParse("100"),
@@ -656,7 +655,7 @@ func TestNewInfo(t *testing.T) {
 				},
 				{
 					Input:      "nvidia.com/vgpucores",
-					Strategy:   ptr.To(config.Replace),
+					Strategy:   new(config.Replace),
 					MultiplyBy: "nvidia.com/vgpu",
 					Outputs: corev1.ResourceList{
 						"nvidia.com/total-vgpucores": resource.MustParse("1"),
@@ -664,7 +663,7 @@ func TestNewInfo(t *testing.T) {
 				},
 				{
 					Input:      "nvidia.com/vgpumem",
-					Strategy:   ptr.To(config.Replace),
+					Strategy:   new(config.Replace),
 					MultiplyBy: "nvidia.com/vgpu",
 					Outputs: corev1.ResourceList{
 						"nvidia.com/total-vgpumem": resource.MustParse("1"),
@@ -725,13 +724,13 @@ func TestNewInfo(t *testing.T) {
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
 				{
 					Input:      "nvidia.com/gpumem",
-					Strategy:   ptr.To(config.Replace),
+					Strategy:   new(config.Replace),
 					MultiplyBy: "nvidia.com/gpu",
 					Outputs:    corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("1")},
 				},
 				{
 					Input:    "nvidia.com/gpu",
-					Strategy: ptr.To(config.Retain),
+					Strategy: new(config.Retain),
 					Outputs:  corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("-1024")},
 				},
 			})},
@@ -755,13 +754,13 @@ func TestNewInfo(t *testing.T) {
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
 				{
 					Input:      "nvidia.com/gpumem",
-					Strategy:   ptr.To(config.Replace),
+					Strategy:   new(config.Replace),
 					MultiplyBy: "nvidia.com/gpu",
 					Outputs:    corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("1")},
 				},
 				{
 					Input:    "nvidia.com/gpu",
-					Strategy: ptr.To(config.Retain),
+					Strategy: new(config.Retain),
 					Outputs:  corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("-1024")},
 				},
 			})},
@@ -785,13 +784,13 @@ func TestNewInfo(t *testing.T) {
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
 				{
 					Input:      "nvidia.com/gpumem",
-					Strategy:   ptr.To(config.Replace),
+					Strategy:   new(config.Replace),
 					MultiplyBy: "nvidia.com/gpu",
 					Outputs:    corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("1")},
 				},
 				{
 					Input:    "nvidia.com/gpu",
-					Strategy: ptr.To(config.Retain),
+					Strategy: new(config.Retain),
 					Outputs:  corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("-1024")},
 				},
 			})},
@@ -817,7 +816,7 @@ func TestNewInfo(t *testing.T) {
 				Obj(),
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
 				Input:    "example.com/credit",
-				Strategy: ptr.To(config.Replace),
+				Strategy: new(config.Replace),
 				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")},
 			}})},
 			wantInfo: Info{
@@ -840,7 +839,7 @@ func TestNewInfo(t *testing.T) {
 				Obj(),
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
 				Input:    "example.com/credit",
-				Strategy: ptr.To(config.Replace),
+				Strategy: new(config.Replace),
 				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
 			}})},
 			wantInfo: Info{
@@ -862,7 +861,7 @@ func TestNewInfo(t *testing.T) {
 				Obj(),
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
 				Input:    "example.com/gpu",
-				Strategy: ptr.To(config.Retain),
+				Strategy: new(config.Retain),
 				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("5")},
 			}})},
 			wantInfo: Info{
@@ -887,7 +886,7 @@ func TestNewInfo(t *testing.T) {
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
 				{
 					Input:      "example.com/gpumem",
-					Strategy:   ptr.To(config.Retain),
+					Strategy:   new(config.Retain),
 					MultiplyBy: "example.com/gpu",
 					Outputs: corev1.ResourceList{
 						"example.com/gpumem-quota": resource.MustParse("1"),
@@ -957,7 +956,7 @@ func TestNewInfo(t *testing.T) {
 				Obj(),
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
 				Input:      "example.com/gpu",
-				Strategy:   ptr.To(config.Retain),
+				Strategy:   new(config.Retain),
 				MultiplyBy: "example.com/node",
 				Outputs:    corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
 			}})},
@@ -984,14 +983,14 @@ func TestNewInfo(t *testing.T) {
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
 				{
 					Input:    corev1.ResourceCPU,
-					Strategy: ptr.To(config.Replace),
+					Strategy: new(config.Replace),
 					Outputs: corev1.ResourceList{
 						"example.com/cpu-credits": resource.MustParse("3000"),
 					},
 				},
 				{
 					Input:    corev1.ResourceMemory,
-					Strategy: ptr.To(config.Replace),
+					Strategy: new(config.Replace),
 					Outputs: corev1.ResourceList{
 						"example.com/memory-credits": resource.MustParse("3m"),
 					},
@@ -1078,7 +1077,7 @@ func TestUpdateWithRebuild(t *testing.T) {
 					PodSets(kueue.PodSetAssignment{
 						Name:          kueue.DefaultPodSetName,
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 					}).Obj(), now).
 				Obj(),
 			wantRequests: []PodSetResources{{
@@ -2549,14 +2548,14 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: true,
 			wantUpdated:    true,
 			wantRequeueAt:  new(metav1.NewTime(futureTime)),
-			wantCount:      ptr.To[int32](1),
+			wantCount:      new(int32(1)),
 		},
 		"should update time when existing requeue time is earlier": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
 						RequeueAt: new(metav1.NewTime(pastTime)),
-						Count:     ptr.To[int32](2),
+						Count:     new(int32(2)),
 					},
 				},
 			},
@@ -2564,14 +2563,14 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: false,
 			wantUpdated:    true,
 			wantRequeueAt:  new(metav1.NewTime(futureTime)),
-			wantCount:      ptr.To[int32](2),
+			wantCount:      new(int32(2)),
 		},
 		"should not update time when existing requeue time is later": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
 						RequeueAt: new(metav1.NewTime(evenMoreFutureTime)),
-						Count:     ptr.To[int32](3),
+						Count:     new(int32(3)),
 					},
 				},
 			},
@@ -2579,14 +2578,14 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: false,
 			wantUpdated:    false,
 			wantRequeueAt:  new(metav1.NewTime(evenMoreFutureTime)),
-			wantCount:      ptr.To[int32](3),
+			wantCount:      new(int32(3)),
 		},
 		"should increment count but keep later requeue time": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
 						RequeueAt: new(metav1.NewTime(evenMoreFutureTime)),
-						Count:     ptr.To[int32](3),
+						Count:     new(int32(3)),
 					},
 				},
 			},
@@ -2594,14 +2593,14 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: true,
 			wantUpdated:    true,
 			wantRequeueAt:  new(metav1.NewTime(evenMoreFutureTime)),
-			wantCount:      ptr.To[int32](4),
+			wantCount:      new(int32(4)),
 		},
 		"should increment count when requeue time is same": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
 						RequeueAt: new(metav1.NewTime(futureTime)),
-						Count:     ptr.To[int32](1),
+						Count:     new(int32(1)),
 					},
 				},
 			},
@@ -2609,14 +2608,14 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: true,
 			wantUpdated:    true,
 			wantRequeueAt:  new(metav1.NewTime(futureTime)),
-			wantCount:      ptr.To[int32](2),
+			wantCount:      new(int32(2)),
 		},
 		"should increment from zero count": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
 						RequeueAt: new(metav1.NewTime(pastTime)),
-						Count:     ptr.To[int32](0),
+						Count:     new(int32(0)),
 					},
 				},
 			},
@@ -2624,14 +2623,14 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: true,
 			wantUpdated:    true,
 			wantRequeueAt:  new(metav1.NewTime(futureTime)),
-			wantCount:      ptr.To[int32](1),
+			wantCount:      new(int32(1)),
 		},
 		"should handle zero time in requeue state": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
 						RequeueAt: new(metav1.NewTime(time.Time{})),
-						Count:     ptr.To[int32](0),
+						Count:     new(int32(0)),
 					},
 				},
 			},
@@ -2639,7 +2638,7 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: true,
 			wantUpdated:    true,
 			wantRequeueAt:  new(metav1.NewTime(futureTime)),
-			wantCount:      ptr.To[int32](1),
+			wantCount:      new(int32(1)),
 		},
 	}
 
@@ -3179,7 +3178,7 @@ func TestUsedNodes(t *testing.T) {
 												}},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -3210,7 +3209,7 @@ func TestUsedNodes(t *testing.T) {
 												}},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -3252,7 +3251,7 @@ func TestUsedNodes(t *testing.T) {
 												}},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -3283,7 +3282,7 @@ func TestUsedNodes(t *testing.T) {
 												}},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -3302,7 +3301,7 @@ func TestUsedNodes(t *testing.T) {
 												}},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -3333,7 +3332,7 @@ func TestUsedNodes(t *testing.T) {
 												}},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -3365,7 +3364,7 @@ func TestUsedNodes(t *testing.T) {
 												{Universal: new("rack-1")},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -3637,7 +3636,7 @@ func TestTotalExecutionTime(t *testing.T) {
 				AdmittedAt(true, now).
 				FinishedAt(now.Add(10 * time.Second)).
 				Obj(),
-			want: ptr.To(10 * time.Second),
+			want: new(10 * time.Second),
 		},
 		"not admitted": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
@@ -3674,7 +3673,7 @@ func TestTotalExecutionTime(t *testing.T) {
 				FinishedAt(now.Add(5 * time.Second)).
 				PastAdmittedTime(30).
 				Obj(),
-			want: ptr.To(35 * time.Second),
+			want: new(35 * time.Second),
 		},
 	}
 	for name, tc := range cases {

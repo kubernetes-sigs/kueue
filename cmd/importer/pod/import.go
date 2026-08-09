@@ -29,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -192,7 +191,7 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 					Name:          info.TotalRequests[0].Name,
 					Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 					ResourceUsage: info.TotalRequests[0].Requests.ToResourceList(resourceFormatter),
-					Count:         ptr.To[int32](1),
+					Count:         new(int32(1)),
 				},
 			},
 		}

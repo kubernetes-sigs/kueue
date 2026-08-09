@@ -161,14 +161,14 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
-			WithAutoscalerOptions(&rayv1.AutoscalerOptions{IdleTimeoutSeconds: ptr.To[int32](1)}).
+			WithAutoscalerOptions(&rayv1.AutoscalerOptions{IdleTimeoutSeconds: new(int32(1))}).
 			Obj()
 
 		workerA := rayCluster.Spec.WorkerGroupSpecs[0].DeepCopy()
 		workerA.GroupName = workerGroupA
-		workerA.Replicas = ptr.To[int32](0)
-		workerA.MinReplicas = ptr.To[int32](0)
-		workerA.MaxReplicas = ptr.To[int32](1)
+		workerA.Replicas = new(int32(0))
+		workerA.MinReplicas = new(int32(0))
+		workerA.MaxReplicas = new(int32(1))
 		workerA.RayStartParams = map[string]string{
 			"num-cpus":            "0",
 			"object-store-memory": objectStoreMemory,

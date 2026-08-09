@@ -26,7 +26,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -1378,7 +1377,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Eventually(func(g gomega.Gomega) {
 				var dc resourcev1.DeviceClass
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: deviceClassName}, &dc)).To(gomega.Succeed())
-				dc.Spec.ExtendedResourceName = ptr.To(newExtendedResourceName)
+				dc.Spec.ExtendedResourceName = new(newExtendedResourceName)
 				g.Expect(k8sClient.Update(ctx, &dc)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -1431,7 +1430,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Eventually(func(g gomega.Gomega) {
 				var dc resourcev1.DeviceClass
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: deviceClassName}, &dc)).To(gomega.Succeed())
-				dc.Spec.ExtendedResourceName = ptr.To(newExtendedResourceName)
+				dc.Spec.ExtendedResourceName = new(newExtendedResourceName)
 				g.Expect(k8sClient.Update(ctx, &dc)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -1468,7 +1467,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			gomega.Eventually(func(g gomega.Gomega) {
 				var dc resourcev1.DeviceClass
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: deviceClassName}, &dc)).To(gomega.Succeed())
-				dc.Spec.ExtendedResourceName = ptr.To(extendedResourceName)
+				dc.Spec.ExtendedResourceName = new(extendedResourceName)
 				g.Expect(k8sClient.Update(ctx, &dc)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

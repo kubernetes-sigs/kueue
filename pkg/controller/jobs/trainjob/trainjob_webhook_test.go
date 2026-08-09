@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -57,7 +56,7 @@ func TestValidateCreate(t *testing.T) {
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
 		APIGroup: new(kftrainerapi.GroupVersion.Group),
 		Name:     "testCtr",
-		Kind:     ptr.To(kftrainerapi.ClusterTrainingRuntimeKind),
+		Kind:     new(kftrainerapi.ClusterTrainingRuntimeKind),
 	}).Suspend(false)
 	testcases := map[string]struct {
 		clusterTrainingRuntime  *kftrainerapi.ClusterTrainingRuntime

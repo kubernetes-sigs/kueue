@@ -122,8 +122,8 @@ func (j *JobSet) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, 
 		if features.Enabled(features.TopologyAwareScheduling) {
 			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 				&replicatedJob.Template.Spec.Template.ObjectMeta).PodIndexLabel(
-				ptr.To(batchv1.JobCompletionIndexAnnotation)).SubGroup(
-				ptr.To(jobsetapi.JobIndexKey),
+				new(batchv1.JobCompletionIndexAnnotation)).SubGroup(
+				new(jobsetapi.JobIndexKey),
 				new(replicatedJob.Replicas)).Build()
 			if err != nil {
 				return nil, err

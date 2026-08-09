@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -103,10 +102,10 @@ func TestCustomLabels(t *testing.T) {
 		},
 		"entries with specified source kinds": {
 			entries: []configapi.ControllerMetricsCustomLabel{
-				{Name: "cohort", SourceAnnotationKey: "cohort", SourceKind: ptr.To(configapi.SourceKindCohort)},
-				{Name: "team", SourceKind: ptr.To(configapi.SourceKindClusterQueue)},
-				{Name: "env", SourceLabelKey: "environment", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-				{Name: "cost", SourceAnnotationKey: "billing/cost", SourceKind: ptr.To(configapi.SourceKindClusterQueue)},
+				{Name: "cohort", SourceAnnotationKey: "cohort", SourceKind: new(configapi.SourceKindCohort)},
+				{Name: "team", SourceKind: new(configapi.SourceKindClusterQueue)},
+				{Name: "env", SourceLabelKey: "environment", SourceKind: new(configapi.SourceKindLocalQueue)},
+				{Name: "cost", SourceAnnotationKey: "billing/cost", SourceKind: new(configapi.SourceKindClusterQueue)},
 			},
 			labels:      map[string]string{"team": "ml", "environment": "prod"},
 			annotations: map[string]string{"billing/cost": "high", "cohort": "c1"},
@@ -236,9 +235,9 @@ func TestStoreCustomLabels(t *testing.T) {
 			},
 			entries: []configapi.ControllerMetricsCustomLabel{
 				{Name: "cq-label"},
-				{Name: "wl-label", SourceKind: ptr.To(configapi.SourceKindWorkload)},
+				{Name: "wl-label", SourceKind: new(configapi.SourceKindWorkload)},
 				{Name: "cq-annotation", SourceAnnotationKey: "cq-annotation"},
-				{Name: "wl-annotation", SourceAnnotationKey: "wl-annotation", SourceKind: ptr.To(configapi.SourceKindWorkload)},
+				{Name: "wl-annotation", SourceAnnotationKey: "wl-annotation", SourceKind: new(configapi.SourceKindWorkload)},
 			},
 			initialLabels: map[string]string{
 				"cq-label":    "cq-label-value",
@@ -323,7 +322,7 @@ func TestUpdateRequired(t *testing.T) {
 			nilReceiver: true,
 		},
 		"unsupported kind": {
-			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: ptr.To(configapi.SourceKindClusterQueue)}},
+			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: new(configapi.SourceKindClusterQueue)}},
 			kind:       configapi.SourceKindLocalQueue,
 			ref:        "lq1",
 			testLabels: map[string]string{"team": "infra"},
