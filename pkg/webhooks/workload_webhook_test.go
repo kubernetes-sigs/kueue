@@ -1470,4 +1470,3 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		})
 	}
 }
-
