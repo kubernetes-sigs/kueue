@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -161,6 +162,41 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 			Obj())
 	poorRetry := pendingWl("poor-retry", "poor-lq", now.Add(-time.Minute)).
 		AdmissionCheck(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateRetry})
+
+	// Preemption-case fixture: high-priority prio-head can only enter by
+	// preempting the low-priority prio-victim; prio-next waits behind it.
+	prioVictim := utiltestingapi.MakeWorkload("prio-victim", "default").
+		Queue("prio-lq").
+		Priority(0).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "2").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("refill-prio").PodSets(
+			utiltestingapi.MakePodSetAssignment("one").
+				Assignment(corev1.ResourceCPU, "default", "2").Count(1).Obj(),
+		).Obj(), now)
+	prioHead := utiltestingapi.MakeWorkload("prio-head", "default").
+		Queue("prio-lq").
+		UID("wl-prio-head").
+		JobUID("job-prio-head").
+		Priority(100).
+		Creation(now.Add(-2 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "2").
+			Obj())
+	prioNext := utiltestingapi.MakeWorkload("prio-next", "default").
+		Queue("prio-lq").
+		Priority(100).
+		Creation(now.Add(-time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj())
+
+	// Budget-case fixture: bgt-solo admits with an empty backlog, then the
+	// bgt-poor pair is the refill that must still happen.
+	bgtSolo := pendingWl("bgt-solo", "bgt-solo-lq", now.Add(-4*time.Minute))
+	bgtPoorA := pendingWl("bgt-poor-a", "bgt-poor-lq", now.Add(-3*time.Minute))
+	bgtPoorB := pendingWl("bgt-poor-b", "bgt-poor-lq", now.Add(-2*time.Minute))
 
 	cases := map[string]scheduleTestCase{
 		// Two CPUs are free. The refilled workload wins the second admission on
@@ -373,6 +409,124 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 				"refill-a": {"default/chain-a3"},
 			},
 		},
+		// An entry that issues preemptions is not assumed and so ends its
+		// ClusterQueue's refill chain: the successor stays in the heap even
+		// though the head slot is vacated.
+		"a preempting workload does not refill its successor": {
+			enableFairSharing: true,
+			featureGates:      map[featuregate.Feature]bool{features.FairSharingRefill: true},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("refill-prio").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "3", "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+					}).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("prio-lq", "default").ClusterQueue("refill-prio").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*prioVictim.Clone().Obj(),
+				*prioHead.Clone().Obj(),
+				*prioNext.Clone().Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*prioHead.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 1 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+					}).
+					Obj(),
+				*prioNext.Clone().Obj(),
+				*prioVictim.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-prio-head, JobUID: job-prio-head) due to prioritization in the ClusterQueue; preemptor path: /refill-prio; preemptee path: /refill-prio",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: wl-prio-head, JobUID: job-prio-head) due to prioritization in the ClusterQueue; preemptor path: /refill-prio; preemptee path: /refill-prio",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/prio-victim": *utiltestingapi.MakeAdmission("refill-prio").PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "default", "2").Count(1).Obj(),
+				).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"refill-prio": {"default/prio-head", "default/prio-next"},
+			},
+			// A wrongly popped successor would collide with the preemptor's
+			// targets and count a skip.
+			wantSkippedPreemptions: map[string]int{"refill-prio": 0},
+		},
+		// An admission whose ClusterQueue has an empty backlog pops nothing
+		// and must not consume budget: after bgt-solo's admission (first by
+		// FIFO, all DRS zero), the single budget unit must remain available
+		// for bgt-poor's refill.
+		"an admission with an empty backlog does not consume the budget": {
+			enableFairSharing: true,
+			featureGates:      map[featuregate.Feature]bool{features.FairSharingRefill: true},
+			refillBudget:      new(1),
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("bgt-solo").
+					Cohort("refill-budget").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1", "0").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("bgt-poor").
+					Cohort("refill-budget").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "2", "0").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("bgt-solo-lq", "default").ClusterQueue("bgt-solo").Obj(),
+				*utiltestingapi.MakeLocalQueue("bgt-poor-lq", "default").ClusterQueue("bgt-poor").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*bgtSolo.Clone().Obj(),
+				*bgtPoorA.Clone().Obj(),
+				*bgtPoorB.Clone().Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*admittedWl(bgtPoorA, "bgt-poor").Obj(),
+				*admittedWl(bgtPoorB, "bgt-poor").Obj(),
+				*admittedWl(bgtSolo, "bgt-solo").Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/bgt-solo":   *singleCPUAdmission("bgt-solo"),
+				"default/bgt-poor-a": *singleCPUAdmission("bgt-poor"),
+				"default/bgt-poor-b": *singleCPUAdmission("bgt-poor"),
+			},
+		},
 		// Budget zero with the gate on must behave exactly like the gate off.
 		"budget zero disables refill while the gate is on": {
 			enableFairSharing: true,
@@ -514,5 +668,103 @@ func TestRefillReleasesWorkloadAlreadyAccountedInCache(t *testing.T) {
 	want := []workload.Reference{"default/stale"}
 	if diff := cmp.Diff(want, qManager.Dump()["refill-poor"], cmpDump); diff != "" {
 		t.Errorf("The workload did not return to the queue; the drop kept its inflight claim (-want,+got):\n%s", diff)
+	}
+}
+
+// TestRefillNotTriggeredWhenPodsReadyBlocksAdmission covers refill under
+// WaitForPodsReady with blockAdmission: after the cycle's first fresh
+// admission, that workload is itself admitted-but-not-ready, so a refill pop
+// would send the successor straight into the admission block. Refill leaves
+// the backlog in the heap instead.
+//
+// Not expressible as a scheduleTestCase: the harness does not enable
+// pods-ready tracking on the scheduler cache.
+func TestRefillNotTriggeredWhenPodsReadyBlocksAdmission(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.FairSharingRefill: true})
+
+	now := time.Now().Truncate(time.Second)
+	cq := utiltestingapi.MakeClusterQueue("refill-poor").
+		Cohort("refill").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+			Resource(corev1.ResourceCPU, "8", "0").Obj()).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("poor-lq", "default").ClusterQueue("refill-poor").Obj()
+
+	pending := func(name string, creation time.Time) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(name, "default").
+			Queue("poor-lq").
+			Creation(creation).
+			PodSets(*utiltestingapi.MakePodSet("one", 1).
+				Request(corev1.ResourceCPU, "1").
+				Obj()).
+			Obj()
+	}
+	head := pending("head", now.Add(-2*time.Minute))
+	next := pending("next", now.Add(-time.Minute))
+
+	cl := utiltesting.NewClientBuilder().
+		WithLists(
+			&kueue.WorkloadList{Items: []kueue.Workload{*head, *next}},
+			&kueue.LocalQueueList{Items: []kueue.LocalQueue{*lq}},
+		).
+		WithObjects(utiltesting.MakeNamespaceWrapper("default").Obj()).
+		WithStatusSubresource(&kueue.Workload{}).
+		Build()
+
+	cqCache := schdcache.New(cl, schdcache.WithPodsReadyTracking(true))
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+		qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue in cache: %v", err)
+	}
+	if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue in manager: %v", err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Inserting localQueue in manager: %v", err)
+	}
+
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{},
+		WithFairSharing(&config.FairSharing{}),
+		WithClock(t, testingclock.NewFakeClock(now)),
+		WithPreemptionExpectations(preemptexpectations.New()),
+	)
+	wg := sync.WaitGroup{}
+	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+		func() { wg.Add(1) },
+		func() { wg.Done() },
+	))
+	ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+	defer cancel()
+	go cqCache.CleanUpOnContext(ctx)
+	go qManager.CleanUpOnContext(ctx)
+
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	// Nothing was admitted before head, so the block does not apply to it.
+	var gotHead kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(head), &gotHead); err != nil {
+		t.Fatalf("Getting the head workload: %v", err)
+	}
+	if !workload.HasQuotaReservation(&gotHead) {
+		t.Error("The head workload was not admitted")
+	}
+
+	want := []workload.Reference{"default/next"}
+	if diff := cmp.Diff(want, qManager.Dump()["refill-poor"], cmpDump); diff != "" {
+		t.Errorf("The successor did not stay in the heap (-want,+got):\n%s", diff)
+	}
+
+	// Entering the admission block would have patched a WaitingForPodsReady
+	// condition on the successor.
+	var gotNext kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(next), &gotNext); err != nil {
+		t.Fatalf("Getting the successor workload: %v", err)
+	}
+	if len(gotNext.Status.Conditions) != 0 {
+		t.Errorf("The successor's status was patched during the cycle: %v", gotNext.Status.Conditions)
 	}
 }
