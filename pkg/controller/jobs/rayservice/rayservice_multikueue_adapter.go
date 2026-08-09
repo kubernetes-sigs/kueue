@@ -34,9 +34,7 @@ var _ ray.RemoteSpecSyncer[*rayv1.RayService] = remoteSpecSyncer{}
 
 // NeedsSync reports whether the manager's serveConfigV2 differs from the worker's.
 // serveConfigV2 is the Ray Serve application config; forwarding it performs an
-// in-place Serve update on the worker's KubeRay. It changes no PodSet, so no quota
-// change or re-admission is involved. rayClusterConfig and upgradeStrategy, which
-// drive a pod-affecting zero-downtime upgrade, are intentionally not forwarded.
+// in-place Serve update on the worker cluster's RayService.
 func (remoteSpecSyncer) NeedsSync(remote, local *rayv1.RayService) bool {
 	return remote.Spec.ServeConfigV2 != local.Spec.ServeConfigV2
 }
