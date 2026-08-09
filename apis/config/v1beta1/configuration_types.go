@@ -568,7 +568,9 @@ type ResourceTransformation struct {
 	// MultiplyBy indicates the resource name requested by a workload, if
 	// specified.
 	// The requested amount of the resource is used to multiply the requested
-	// amount of the resource indicated by the "input" field.
+	// amount of the resource indicated by the "input" field when computing
+	// "outputs". It does not change the quantity retained under "input" when
+	// "strategy" is Retain.
 	// +optional
 	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 
