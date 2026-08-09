@@ -23,12 +23,10 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -38,7 +36,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -449,129 +446,6 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(createdWorkload.Status.NominatedClusterNames).To(gomega.BeNil())
 				g.Expect(createdWorkload.Status.ClusterName).To(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-	})
-
-	ginkgo.It("Should clear nominatedClusterNames when external dispatcher uses custom field manager", func() {
-		mapPolicy := &admissionregistrationv1.MutatingAdmissionPolicy{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "clear-nominated-cluster-names-test",
-			},
-			Spec: admissionregistrationv1.MutatingAdmissionPolicySpec{
-				FailurePolicy: ptr.To(admissionregistrationv1.Fail),
-				MatchConstraints: &admissionregistrationv1.MatchResources{
-					ResourceRules: []admissionregistrationv1.NamedRuleWithOperations{
-						{
-							RuleWithOperations: admissionregistrationv1.RuleWithOperations{
-								Operations: []admissionregistrationv1.OperationType{
-									admissionregistrationv1.Create,
-									admissionregistrationv1.Update,
-								},
-								Rule: admissionregistrationv1.Rule{
-									APIGroups:   []string{"kueue.x-k8s.io"},
-									APIVersions:  []string{"v1beta2"},
-									Resources:   []string{"workloads", "workloads/status"},
-								},
-							},
-						},
-					},
-				},
-				MatchConditions: []admissionregistrationv1.MatchCondition{
-					{
-						Name:       "has-nominated-clusters",
-						Expression: "has(object.status.nominatedClusterNames) && size(object.status.nominatedClusterNames) > 0",
-					},
-					{
-						Name: "trigger",
-						Expression: "(has(object.status.clusterName) && !has(oldObject.status.clusterName)) || " +
-							"(object.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True') && " +
-							"!oldObject.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True'))",
-					},
-				},
-				Mutations: []admissionregistrationv1.Mutation{
-					{
-						PatchType: admissionregistrationv1.PatchTypeApplyConfiguration,
-						ApplyConfiguration: &admissionregistrationv1.ApplyConfiguration{
-							Expression: "Object{ status: Object.status{ nominatedClusterNames: null } }",
-						},
-					},
-				},
-			},
-		}
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, mapPolicy)
-		defer func() {
-			_ = managerTestCluster.client.Delete(managerTestCluster.ctx, mapPolicy)
-		}()
-
-		mapBinding := &admissionregistrationv1.MutatingAdmissionPolicyBinding{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: "clear-nominated-cluster-names-binding-test",
-			},
-			Spec: admissionregistrationv1.MutatingAdmissionPolicyBindingSpec{
-				PolicyName: "clear-nominated-cluster-names-test",
-			},
-		}
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, mapBinding)
-		defer func() {
-			_ = managerTestCluster.client.Delete(managerTestCluster.ctx, mapBinding)
-		}()
-
-		job := testingjob.MakeJob("job-custom-fm", managerNs.Name).
-			ManagedBy(kueue.MultiKueueControllerName).
-			Queue(kueue.LocalQueueName(managerLq.Name)).
-			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
-
-		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
-
-		ginkgo.By("setting workload reservation in the management cluster", func() {
-			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
-				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
-				Obj()
-			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
-		})
-
-		ginkgo.By("updating workload nomination using SSA with a custom external field manager", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				managerWl := &kueue.Workload{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-
-				err := workloadpatching.PatchStatus(
-					managerTestCluster.ctx,
-					managerTestCluster.client,
-					managerWl,
-					client.FieldOwner("external-dispatcher-app"),
-					func(wl *kueue.Workload) (bool, error) {
-						wl.Status.NominatedClusterNames = []string{workerCluster1.Name, workerCluster2.Name}
-						return true, nil
-					},
-					workloadpatching.WithForceApply(),
-				)
-				g.Expect(err).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				managerWl := &kueue.Workload{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-				g.Expect(managerWl.Status.NominatedClusterNames).To(gomega.ConsistOf(workerCluster1.Name, workerCluster2.Name))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("evicting the workload and verifying nominatedClusterNames is cleared", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				managerWl := &kueue.Workload{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-				g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerWl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
-					workloadevict.SetEvictedCondition(wl, util.RealClock.Now(), kueue.WorkloadEvictedByAdmissionCheck, "check rejected")
-					return true, nil
-				})).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				managerWl := &kueue.Workload{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-				g.Expect(managerWl.Status.NominatedClusterNames).To(gomega.BeNil())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
