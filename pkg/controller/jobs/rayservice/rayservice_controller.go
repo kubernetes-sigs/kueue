@@ -60,7 +60,7 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 		JobType:       &rayv1.RayService{},
 		AddToScheme:   rayv1.AddToScheme,
 		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
-			ray.WithRemoteSpecSync[*rayv1.RayService, rayv1.RayService](serveConfigV2Syncer{}),
+			ray.WithRemoteSpecSync[*rayv1.RayService, rayv1.RayService](remoteSpecSyncer{}),
 		),
 	})
 }

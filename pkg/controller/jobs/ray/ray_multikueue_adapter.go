@@ -55,19 +55,18 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 	// on the worker cluster. It is left unset for job types that do not support
 	// this (see ElasticReplicaSync).
 	elastic *ElasticReplicaSync[PtrT, T]
-	// remoteSpecSync is optional. When set, the adapter forwards admission-safe,
-	// quota-neutral spec changes from the manager copy onto the remote copy on the
-	// worker cluster after admission (see RemoteSpecSyncer). It is left unset for
-	// job types that keep the create-once behavior.
+	// remoteSpecSync is optional. When set, the adapter forwards spec changes that
+	// do not alter the workload's PodSets from the manager copy onto the remote copy
+	// on the worker cluster after admission (see RemoteSpecSyncer). It is left unset
+	// for job types that keep the create-once behavior.
 	remoteSpecSync RemoteSpecSyncer[PtrT]
 }
 
-// RemoteSpecSyncer lets a job type forward admission-safe, quota-neutral spec
-// changes from the manager copy onto its worker copy after the job is admitted.
-// The adapter owns the mechanism (detect on reconcile, patch the remote); each
-// job type owns the policy: which fields are safe to forward, and when a sync is
-// needed. Fields that change the PodSets/quota, or that require re-admission,
-// must not be forwarded here.
+// RemoteSpecSyncer lets a job type forward spec changes that do not alter the
+// workload's PodSets from the manager copy to its worker copy after admission
+// (e.g. RayService's serveConfigV2). Such changes need no quota change and no
+// re-admission. Each job type decides which fields to forward and when; fields
+// that change the PodSets must not be forwarded here.
 type RemoteSpecSyncer[PtrT any] interface {
 	// NeedsSync reports whether a manager-side change must be forwarded to the
 	// worker copy. It must be side-effect free.
@@ -116,9 +115,9 @@ func WithElasticReplicaSync[PtrT objAsPtr[T], T any](e *ElasticReplicaSync[PtrT,
 	}
 }
 
-// WithRemoteSpecSync enables forwarding admission-safe, quota-neutral spec changes
-// from the manager copy to the worker copy for job types that support it (see
-// RemoteSpecSyncer).
+// WithRemoteSpecSync enables forwarding spec changes that do not alter the
+// workload's PodSets from the manager copy to the worker copy for job types that
+// support it (see RemoteSpecSyncer).
 func WithRemoteSpecSync[PtrT objAsPtr[T], T any](s RemoteSpecSyncer[PtrT]) Option[PtrT, T] {
 	return func(a *adapter[PtrT, T]) {
 		a.remoteSpecSync = s
@@ -271,9 +270,9 @@ func (a *adapter[PtrT, T]) syncElastic(ctx context.Context, remoteClient client.
 	return nil
 }
 
-// syncRemoteSpec patches the remote object's admission-safe spec fields to match
-// the local (manager) object via the configured RemoteSpecSyncer. It should only
-// be called when the syncer's NeedsSync returns true.
+// syncRemoteSpec patches the remote object's spec fields to match the local
+// (manager) object via the configured RemoteSpecSyncer. It should only be called
+// when the syncer's NeedsSync returns true.
 func (a *adapter[PtrT, T]) syncRemoteSpec(ctx context.Context, remoteClient client.Client, localJob, remoteJob PtrT) error {
 	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
 		if !a.remoteSpecSync.NeedsSync(remoteJob, localJob) {

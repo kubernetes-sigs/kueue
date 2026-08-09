@@ -293,7 +293,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			adapter := ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
-				ray.WithRemoteSpecSync[*rayv1.RayService, rayv1.RayService](serveConfigV2Syncer{}))
+				ray.WithRemoteSpecSync[*rayv1.RayService, rayv1.RayService](remoteSpecSyncer{}))
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
 
