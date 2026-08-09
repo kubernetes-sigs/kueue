@@ -43,6 +43,8 @@ const (
 	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor = "MultiKueueAdmissionCheckAppliedPerFlavor"
 	ClusterQueueActiveReasonMultiKueueWithProvisioningRequest        = "MultiKueueWithProvisioningRequest"
 	ClusterQueueActiveReasonTopologyNotFound                         = "TopologyNotFound"
+	ClusterQueueActiveReasonNoResourceGroups                         = "NoResourceGroups"
+	ClusterQueueActiveReasonEmptyResourceGroup                       = "EmptyResourceGroup"
 	ClusterQueueActiveReasonUnknown                                  = "Unknown"
 	ClusterQueueActiveReasonReady                                    = "Ready"
 )
@@ -275,9 +277,9 @@ type ResourceGroup struct {
 	// +listType=map
 	// +required
 	// +listMapKey=name
-	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=64
-	Flavors []FlavorQuotas `json:"flavors,omitempty"`
+	Flavors []FlavorQuotas `json:"flavors"`
 }
 
 type FlavorQuotas struct {

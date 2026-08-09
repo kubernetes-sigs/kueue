@@ -93,8 +93,9 @@ linters:
     - text: "requiredfields: field .* has a valid zero value.*should be a pointer"
       path: "apis/kueue/v1beta2"
 
-    # Required fields that intentionally exclude omitempty
-    - text: "requiredfields: field (ControllerName|LastUpdate|Reason|UnderlyingCause|Message|WeightedShare|Value|ConsumedResources|Location) should have the omitempty tag."
+    # Required fields that intentionally exclude omitempty. Flavors must preserve
+    # an explicit empty list because empty flavor lists are valid API input.
+    - text: "requiredfields: field (ControllerName|LastUpdate|Reason|UnderlyingCause|Message|WeightedShare|Value|ConsumedResources|Location|Flavors) should have the omitempty tag."
       path: "apis/kueue/v1beta2"
 
     # ResourceList fields (map types required for Kubernetes compatibility)

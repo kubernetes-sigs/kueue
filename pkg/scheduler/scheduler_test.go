@@ -7962,7 +7962,10 @@ func TestLastSchedulingContext(t *testing.T) {
 }
 
 func TestRequeueAndUpdate(t *testing.T) {
-	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1").Obj()).
+		Obj()
+	rf := utiltestingapi.MakeResourceFlavor("default").Obj()
 	q1 := utiltestingapi.MakeLocalQueue("q1", "ns1").ClusterQueue(cq.Name).Obj()
 	w1 := utiltestingapi.MakeWorkload("w1", "ns1").Queue(kueue.LocalQueueName(q1.Name)).Obj()
 
@@ -8092,7 +8095,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 		for _, unadmittedWorkloadsObservabilityEnabled := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/observability_%t", tc.name, unadmittedWorkloadsObservabilityEnabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, unadmittedWorkloadsObservabilityEnabled)
-				ctx, _ := utiltesting.ContextWithLog(t)
+				ctx, log := utiltesting.ContextWithLog(t)
 
 				updates := 0
 				objs := []client.Object{w1, q1, utiltesting.MakeNamespace("ns1")}
@@ -8104,6 +8107,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
 				recorder := &utiltesting.EventRecorder{}
 				cqCache := schdcache.New(cl)
+				cqCache.AddOrUpdateResourceFlavor(log, rf)
 				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 				scheduler := New(qManager, cqCache, cl, recorder, WithPreemptionExpectations(preemptexpectations.New()))
 				if err := qManager.AddLocalQueue(ctx, q1); err != nil {

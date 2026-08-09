@@ -28,6 +28,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -42,6 +43,7 @@ const (
 var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", util.Shard0), ginkgo.Ordered, func() {
 	var originalDeployment appsv1.Deployment
 	var originalService corev1.Service
+	var rf *kueue.ResourceFlavor
 	var cq *kueue.ClusterQueue
 
 	ginkgo.BeforeAll(func() {
@@ -61,9 +63,12 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", 
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		ginkgo.By("Creating a ClusterQueue")
-		cq = &kueue.ClusterQueue{
-			ObjectMeta: metav1.ObjectMeta{Name: cqName},
-		}
+		rf = utiltestingapi.MakeResourceFlavor("test-kubeconfig-rf").Obj()
+		util.MustCreate(ctx, k8sClient, rf)
+		cq = utiltestingapi.MakeClusterQueue(cqName).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "0").Obj()).
+			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 	})
 
@@ -88,6 +93,7 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", 
 
 		ginkgo.By("Cleaning up cluster queue")
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 	})
 
 	ginkgo.It("Should use the custom port from the visibilityServer configuration API", func() {
