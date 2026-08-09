@@ -910,9 +910,8 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
-		// A multiplier below one is the direction that undercharges, and nothing
-		// downstream can see it: the retained 512 for a PodSet that asked for
-		// 1024 is positive and reads like a smaller request.
+		// A multiplier below one scales the generated output but leaves the
+		// retained input unchanged: 1024 is retained while the output is 512.
 		"transformRetainWithMultiplyByUnderOne": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(
