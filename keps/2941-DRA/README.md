@@ -576,7 +576,7 @@ complex runtime resolution logic, ensuring predictable and efficient workload ad
 **Note**: A single mapping can have multiple capacity sources that sum into one quota
 resource, which does not violate this constraint. Tracking independent capacity
 dimensions as separate quota resources (same DeviceClass, different resource names)
-remains deferred to beta, while count-based mappings already relax this constraint
+remains deferred to beta, while counter-based mappings already relax this constraint
 for distinct counter names.
 
 ### RBAC Requirements
@@ -1641,7 +1641,7 @@ capacity sources cannot be mixed within the same mapping. This means a unified
 quota pool across both device types (e.g., partitioned and time-sliced GPUs both
 charging `gpu.memory`) is not supported. Relaxing the resource name uniqueness
 to allow separate counter and capacity mappings to share a quota resource is to
-be evaluated for [Beta](#beta). For count-based mappings, the same DeviceClass
+be evaluated for [Beta](#beta). For counter-based mappings, the same DeviceClass
 cannot appear in two different mappings unless the counter names differ.
 
 **Extended resources and capacity sources are not supported together:**
