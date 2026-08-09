@@ -55,6 +55,26 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 	// on the worker cluster. It is left unset for job types that do not support
 	// this (see ElasticReplicaSync).
 	elastic *ElasticReplicaSync[PtrT, T]
+	// remoteSpecSync is optional. When set, the adapter forwards admission-safe,
+	// quota-neutral spec changes from the manager copy onto the remote copy on the
+	// worker cluster after admission (see RemoteSpecSyncer). It is left unset for
+	// job types that keep the create-once behavior.
+	remoteSpecSync RemoteSpecSyncer[PtrT]
+}
+
+// RemoteSpecSyncer lets a job type forward admission-safe, quota-neutral spec
+// changes from the manager copy onto its worker copy after the job is admitted.
+// The adapter owns the mechanism (detect on reconcile, patch the remote); each
+// job type owns the policy: which fields are safe to forward, and when a sync is
+// needed. Fields that change the PodSets/quota, or that require re-admission,
+// must not be forwarded here.
+type RemoteSpecSyncer[PtrT any] interface {
+	// NeedsSync reports whether a manager-side change must be forwarded to the
+	// worker copy. It must be side-effect free.
+	NeedsSync(remote, local PtrT) bool
+	// Apply copies the safe fields from local onto remote. It is invoked only when
+	// NeedsSync returned true, and must be idempotent.
+	Apply(remote, local PtrT)
 }
 
 // ElasticReplicaSync carries the type-specific hooks that let the MultiKueue
@@ -93,6 +113,15 @@ type Option[PtrT objAsPtr[T], T any] func(*adapter[PtrT, T])
 func WithElasticReplicaSync[PtrT objAsPtr[T], T any](e *ElasticReplicaSync[PtrT, T]) Option[PtrT, T] {
 	return func(a *adapter[PtrT, T]) {
 		a.elastic = e
+	}
+}
+
+// WithRemoteSpecSync enables forwarding admission-safe, quota-neutral spec changes
+// from the manager copy to the worker copy for job types that support it (see
+// RemoteSpecSyncer).
+func WithRemoteSpecSync[PtrT objAsPtr[T], T any](s RemoteSpecSyncer[PtrT]) Option[PtrT, T] {
+	return func(a *adapter[PtrT, T]) {
+		a.remoteSpecSync = s
 	}
 }
 
@@ -177,6 +206,9 @@ func (a *adapter[PtrT, T]) SyncJob(
 		if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
 			return false, a.syncElastic(ctx, remoteClient, workloadName, localJob, remoteJob)
 		}
+		if a.remoteSpecSync != nil && a.remoteSpecSync.NeedsSync(remoteJob, localJob) {
+			return false, a.syncRemoteSpec(ctx, remoteClient, localJob, remoteJob)
+		}
 		return false, nil
 	}
 
@@ -235,6 +267,22 @@ func (a *adapter[PtrT, T]) syncElastic(ctx context.Context, remoteClient client.
 		return changed, nil
 	}); err != nil {
 		return fmt.Errorf("failed to patch remote %s: %w", a.gvk.Kind, err)
+	}
+	return nil
+}
+
+// syncRemoteSpec patches the remote object's admission-safe spec fields to match
+// the local (manager) object via the configured RemoteSpecSyncer. It should only
+// be called when the syncer's NeedsSync returns true.
+func (a *adapter[PtrT, T]) syncRemoteSpec(ctx context.Context, remoteClient client.Client, localJob, remoteJob PtrT) error {
+	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
+		if !a.remoteSpecSync.NeedsSync(remoteJob, localJob) {
+			return false, nil
+		}
+		a.remoteSpecSync.Apply(remoteJob, localJob)
+		return true, nil
+	}); err != nil {
+		return fmt.Errorf("failed to sync remote %s spec: %w", a.gvk.Kind, err)
 	}
 	return nil
 }
