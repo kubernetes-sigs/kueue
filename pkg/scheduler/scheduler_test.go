@@ -64,7 +64,7 @@ const (
 )
 
 var cmpDump = cmp.Options{
-	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+	cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b }),
 }
 
 // scheduleTestCase is the shared case definition for the core scheduling tests
