@@ -32,7 +32,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -66,7 +65,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "workers",
-						Replicas:  ptr.To[int32](3),
+						Replicas:  new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker"}},
@@ -100,7 +99,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "group1",
-						Replicas:  ptr.To[int32](2),
+						Replicas:  new(int32(2)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker1"}},
@@ -109,7 +108,7 @@ func TestBuildPodSets(t *testing.T) {
 					},
 					{
 						GroupName: "group2",
-						Replicas:  ptr.To[int32](5),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker2"}},
@@ -181,7 +180,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName:  "workers",
-						Replicas:   ptr.To[int32](3),
+						Replicas:   new(int32(3)),
 						NumOfHosts: 2,
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
@@ -230,7 +229,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "workers",
-						Replicas:  ptr.To[int32](1),
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker"}},
@@ -321,7 +320,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "workers",
-						Replicas:  ptr.To[int32](1),
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker"}},

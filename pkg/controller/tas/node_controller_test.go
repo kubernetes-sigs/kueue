@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -508,7 +507,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 							Key:               "foo",
 							Effect:            corev1.TaintEffectNoExecute,
 							Operator:          corev1.TolerationOpExists,
-							TolerationSeconds: ptr.To[int64](300),
+							TolerationSeconds: new(int64(300)),
 						}).
 						Obj()).
 					ReserveQuotaAt(
@@ -544,7 +543,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 							Key:               "foo",
 							Effect:            corev1.TaintEffectNoExecute,
 							Operator:          corev1.TolerationOpExists,
-							TolerationSeconds: ptr.To[int64](300),
+							TolerationSeconds: new(int64(300)),
 						}).
 						Obj()).
 					ReserveQuotaAt(
@@ -648,7 +647,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 							Key:               "foo",
 							Effect:            corev1.TaintEffectNoExecute,
 							Operator:          corev1.TolerationOpExists,
-							TolerationSeconds: ptr.To[int64](300),
+							TolerationSeconds: new(int64(300)),
 						}).
 						Obj()).
 					ReserveQuotaAt(
@@ -688,7 +687,7 @@ func TestNodeFailureReconciler(t *testing.T) {
 							Key:               "foo",
 							Effect:            corev1.TaintEffectNoExecute,
 							Operator:          corev1.TolerationOpExists,
-							TolerationSeconds: ptr.To[int64](300),
+							TolerationSeconds: new(int64(300)),
 						}).
 						Obj()).
 					ReserveQuotaAt(

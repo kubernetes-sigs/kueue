@@ -386,7 +386,7 @@ func TestReconcileGenericJob(t *testing.T) {
 								Name:          "main",
 								Flavors:       nil,
 								ResourceUsage: nil,
-								Count:         ptr.To[int32](1),
+								Count:         new(int32(1)),
 							},
 						},
 					}).

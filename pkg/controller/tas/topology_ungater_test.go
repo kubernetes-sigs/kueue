@@ -33,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -856,9 +855,9 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
-						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
-						SubGroupCount(ptr.To[int32](1)).
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(new(jobset.JobIndexKey)).
+						SubGroupCount(new(int32(1))).
 						Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -997,7 +996,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 						Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -1119,12 +1118,12 @@ func TestReconcile(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet("workers", 4).
 							Request(corev1.ResourceCPU, "1").
-							PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							PodSetGroup("lws-group").
 							Obj(),
 						*utiltestingapi.MakePodSet("leader", 1).
 							Request(corev1.ResourceCPU, "1").
-							PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							PodSetGroup("lws-group").
 							Obj(),
 					).
@@ -1253,7 +1252,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 						Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -1376,12 +1375,12 @@ func TestReconcile(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet("workers", 4).
 							Request(corev1.ResourceCPU, "1").
-							PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							PodSetGroup("lws-group").
 							Obj(),
 						*utiltestingapi.MakePodSet("leader", 1).
 							Request(corev1.ResourceCPU, "1").
-							PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							PodSetGroup("lws-group").
 							Obj(),
 					).
@@ -1672,9 +1671,9 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
-						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
-						SubGroupCount(ptr.To[int32](2)).
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(new(jobset.JobIndexKey)).
+						SubGroupCount(new(int32(2))).
 						Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -1796,9 +1795,9 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
-						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
-						SubGroupCount(ptr.To[int32](2)).
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(new(jobset.JobIndexKey)).
+						SubGroupCount(new(int32(2))).
 						Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -1922,9 +1921,9 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
-						SubGroupIndexLabel(ptr.To(jobset.JobIndexKey)).
-						SubGroupCount(ptr.To[int32](2)).
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						SubGroupIndexLabel(new(jobset.JobIndexKey)).
+						SubGroupCount(new(int32(2))).
 						Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -2026,12 +2025,12 @@ func TestReconcile(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet("launcher", 1).
 							Request(corev1.ResourceCPU, "1").
-							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 							PodSetGroup("mpijob-group").
 							Obj(),
 						*utiltestingapi.MakePodSet("worker", 3).
 							Request(corev1.ResourceCPU, "1").
-							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 							PodSetGroup("mpijob-group").
 							Obj(),
 					).
@@ -2327,12 +2326,12 @@ func TestReconcile(t *testing.T) {
 					PodSets(
 						*utiltestingapi.MakePodSet("launcher", 1).
 							Request(corev1.ResourceCPU, "1").
-							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 							PodSetGroup("mpijob-group").
 							Obj(),
 						*utiltestingapi.MakePodSet("worker", 3).
 							Request(corev1.ResourceCPU, "1").
-							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 							PodSetGroup("mpijob-group").
 							Obj(),
 					).
@@ -2436,7 +2435,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 						Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -2548,7 +2547,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 						Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -2662,7 +2661,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 						Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -2768,7 +2767,7 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
 						Request(corev1.ResourceCPU, "1").
-						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 						Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
