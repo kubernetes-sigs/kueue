@@ -136,8 +136,8 @@ const (
 	// a TAS workload instead of evicting the workload. Without this gate, TAS
 	// replaces a single failed node, but evicts the workload as soon as a
 	// second distinct node fails while a replacement is still in flight. With
-	// this gate enabled and an eviction threshold greater than 1 configured via the
-	// kueue.x-k8s.io/tas-unhealthy-nodes-eviction-threshold annotation (or 0 for unlimited),
+	// this gate enabled and an eviction threshold in the range [1, 8] configured
+	// via the kueue.x-k8s.io/tas-unhealthy-nodes-eviction-threshold annotation,
 	// the workload stays admitted: failed nodes are queued in Status.UnhealthyNodes
 	// and replaced incrementally, head-of-queue first, as fits become available. While
 	// within threshold, it suppresses both the node-controller eviction on the second

@@ -3333,14 +3333,26 @@ func TestUnhealthyNodesEvictionThreshold(t *testing.T) {
 			annotationValue: "3",
 			want:            3,
 		},
-		"zero means never evict (unlimited)": {
+		"maximum threshold is valid": {
+			annotationSet:   true,
+			annotationValue: "8",
+			want:            MaxUnhealthyNodesEvictionThreshold,
+		},
+		"zero falls back to default": {
 			annotationSet:   true,
 			annotationValue: "0",
-			want:            UnlimitedUnhealthyNodesEvictionThreshold,
+			want:            1,
+			wantErr:         true,
 		},
 		"negative falls back to default": {
 			annotationSet:   true,
 			annotationValue: "-2",
+			want:            1,
+			wantErr:         true,
+		},
+		"above maximum falls back to default": {
+			annotationSet:   true,
+			annotationValue: "9",
 			want:            1,
 			wantErr:         true,
 		},

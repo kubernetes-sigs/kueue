@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -1366,18 +1365,16 @@ func HasTopologyAssignmentWithUnhealthyNode(w *kueue.Workload) bool {
 // unhealthy node while a replacement is in flight).
 const DefaultUnhealthyNodesEvictionThreshold = 1
 
-// UnlimitedUnhealthyNodesEvictionThreshold is returned when the annotation is
-// set to "0", meaning the Workload is never evicted due to node failures: its
-// failed nodes are always replaced in place. It is large enough that the
-// `len(UnhealthyNodes) > threshold` eviction check can never be satisfied.
-const UnlimitedUnhealthyNodesEvictionThreshold = math.MaxInt
+// MaxUnhealthyNodesEvictionThreshold is the maximum supported threshold,
+// matching the API limit on Workload.Status.UnhealthyNodes.
+const MaxUnhealthyNodesEvictionThreshold = 8
 
 // UnhealthyNodesEvictionThreshold returns the maximum number of the Workload's
 // nodes that may be unhealthy at once before the Workload is evicted instead of
 // having its failed nodes replaced in place, as configured by the
 // TASUnhealthyNodesEvictionThresholdAnnotation:
-//   - "0" means never evict (UnlimitedUnhealthyNodesEvictionThreshold);
-//   - a positive integer N tolerates up to N unhealthy nodes;
+//   - an integer N in the range [1, MaxUnhealthyNodesEvictionThreshold]
+//     tolerates up to N unhealthy nodes;
 //   - an absent value returns DefaultUnhealthyNodesEvictionThreshold (1);
 //   - an invalid value returns DefaultUnhealthyNodesEvictionThreshold (1)
 //     together with an error.
@@ -1390,13 +1387,10 @@ func UnhealthyNodesEvictionThreshold(w *kueue.Workload) (int, error) {
 		if err != nil {
 			return DefaultUnhealthyNodesEvictionThreshold, fmt.Errorf("invalid %s annotation value %q: %w", kueue.TASUnhealthyNodesEvictionThresholdAnnotation, v, err)
 		}
-		if n == 0 {
-			return UnlimitedUnhealthyNodesEvictionThreshold, nil
-		}
-		if n > 0 {
+		if n >= DefaultUnhealthyNodesEvictionThreshold && n <= MaxUnhealthyNodesEvictionThreshold {
 			return n, nil
 		}
-		return DefaultUnhealthyNodesEvictionThreshold, fmt.Errorf("invalid %s annotation value %q: must be non-negative", kueue.TASUnhealthyNodesEvictionThresholdAnnotation, v)
+		return DefaultUnhealthyNodesEvictionThreshold, fmt.Errorf("invalid %s annotation value %q: must be between %d and %d", kueue.TASUnhealthyNodesEvictionThresholdAnnotation, v, DefaultUnhealthyNodesEvictionThreshold, MaxUnhealthyNodesEvictionThreshold)
 	}
 	return DefaultUnhealthyNodesEvictionThreshold, nil
 }
