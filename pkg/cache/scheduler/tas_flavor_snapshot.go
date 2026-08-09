@@ -727,29 +727,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 ) (*utiltas.TopologyAssignment, *utiltas.TopologyAssignment, string) {
 	headNodeName := wl.Status.UnhealthyNodes[0].Name
 	tr.Count = deleteDomain(existingAssignment, headNodeName)
-	// When TASReplaceMultipleFailedNodes is enabled, multiple unhealthy nodes may be
-	// queued in Status.UnhealthyNodes. We only replace the head; other queued
-	// nodes that may also be missing from the snapshot must not poison the
-	// stale-assignment check below, otherwise head replacement would never
-	// succeed and the workload would be stuck without an automatic eviction
-	// safety net.
-	var ignoreNodes sets.Set[string]
-	if features.Enabled(features.TASReplaceMultipleFailedNodes) {
-		ignoreNodes = sets.New[string]()
-		for _, n := range wl.Status.UnhealthyNodes[1:] {
-			ignoreNodes.Insert(n.Name)
-		}
-		// The node controller can append a concurrently failed node after the
-		// scheduler has already queued this replacement attempt. Treat any
-		// other missing node-level domain as pending replacement too; the
-		// admission patch removes only the recorded head and preserves newer
-		// UnhealthyNodes observed from the API server.
-		for _, domain := range existingAssignment.Domains {
-			if _, found := s.domains[utiltas.DomainID(domain.Values)]; !found {
-				ignoreNodes.Insert(domain.Values[len(domain.Values)-1])
-			}
-		}
-	}
+	ignoreNodes := s.replacementIgnoreNodes(wl, existingAssignment)
 	if isStale, staleDomain := s.isTopologyAssignmentStaleIgnoring(existingAssignment, ignoreNodes); isStale {
 		return nil, nil, fmt.Sprintf("Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain %v", staleDomain)
 	}
@@ -788,6 +766,32 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	}
 	newAssignment := s.mergeTopologyAssignments(replacementAssignment[tr.PodSet.Name], existingAssignment)
 	return newAssignment, replacementAssignment[tr.PodSet.Name], ""
+}
+
+func (s *TASFlavorSnapshot) replacementIgnoreNodes(
+	wl *kueue.Workload,
+	existingAssignment *utiltas.TopologyAssignment,
+) sets.Set[string] {
+	if !features.Enabled(features.TASReplaceMultipleFailedNodes) {
+		return nil
+	}
+
+	// We only replace the head; other queued unhealthy nodes that may also be
+	// missing from the snapshot must not make the assignment appear stale.
+	ignoreNodes := sets.New[string]()
+	for _, n := range wl.Status.UnhealthyNodes[1:] {
+		ignoreNodes.Insert(n.Name)
+	}
+
+	// A node can fail after this replacement attempt was queued. Treat any other
+	// missing node-level domain as pending replacement; the admission patch
+	// preserves failures added after the recorded head.
+	for _, domain := range existingAssignment.Domains {
+		if _, found := s.domains[utiltas.DomainID(domain.Values)]; !found {
+			ignoreNodes.Insert(domain.Values[len(domain.Values)-1])
+		}
+	}
+	return ignoreNodes
 }
 
 func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, ta *utiltas.TopologyAssignment, tr *TASPodSetRequests) {
