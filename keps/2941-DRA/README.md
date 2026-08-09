@@ -304,7 +304,7 @@ GPU memory quota, while a team requesting a 7g.80gb profile should consume 80Gi.
 - The `ResourceClaims` and `ResourceClaimTemplates` APIs for DRA in k8s are immutable.
 - ResourceClaims are not supported in alpha - workloads must use ResourceClaimTemplates.
   Direct ResourceClaim references will result in inadmissible workloads.
-- Device class uniqueness is enforced for count-based mappings - each device class can only map to one resource name to prevent quota ambiguity.
+- Device class uniqueness is enforced. Each device class can only map to one resource name to prevent quota ambiguity. Counter-based mappings relax this when counter names differ.
 - Configuration-based approach - device class mappings are configured through the Kueue Configuration API
 - This design does not work with Kueue's Topology Aware Scheduling feature and will be addressed in future work.
 - DRA resource preprocessing is not scoped by ResourceFlavor node constraints. Counter
