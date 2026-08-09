@@ -40,7 +40,6 @@ import (
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -58,7 +57,7 @@ func setupWebhookForWorkload(mgr ctrl.Manager, roleTracker *roletracker.RoleTrac
 		Complete()
 }
 
-// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta2-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads;workloads/status,verbs=create;update,versions=v1beta2,name=mworkload.kb.io,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/mutate-kueue-x-k8s-io-v1beta2-workload,mutating=true,failurePolicy=fail,sideEffects=None,groups=kueue.x-k8s.io,resources=workloads,verbs=create,versions=v1beta2,name=mworkload.kb.io,admissionReviewVersions=v1
 
 var _ admission.Defaulter[*kueue.Workload] = &WorkloadWebhook{}
 
@@ -72,10 +71,6 @@ func (w *WorkloadWebhook) Default(ctx context.Context, wl *kueue.Workload) error
 		for i := range wl.Spec.PodSets {
 			wl.Spec.PodSets[i].MinCount = nil
 		}
-	}
-
-	if workload.IsAdmitted(wl) || evict.IsEvicted(wl) {
-		wl.Status.NominatedClusterNames = nil
 	}
 
 	return nil

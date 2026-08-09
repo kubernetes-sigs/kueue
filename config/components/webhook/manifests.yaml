@@ -384,10 +384,8 @@ webhooks:
     - v1beta2
     operations:
     - CREATE
-    - UPDATE
     resources:
     - workloads
-    - workloads/status
   sideEffects: None
 - admissionReviewVersions:
   - v1

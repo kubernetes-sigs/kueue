@@ -1,0 +1,43 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: clear-nominated-cluster-names
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - kueue.x-k8s.io
+        apiVersions:
+          - v1beta2
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - workloads
+          - workloads/status
+  matchConditions:
+    - name: has-nominated-clusters
+      expression: "has(object.status.nominatedClusterNames) && size(object.status.nominatedClusterNames) > 0"
+    - name: trigger
+      expression: >-
+        (has(object.status.clusterName) && !has(oldObject.status.clusterName))
+        ||
+        (object.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True') &&
+         !oldObject.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True'))
+  mutations:
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: >-
+          Object{
+            status: Object.status{
+              nominatedClusterNames: null
+            }
+          }
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: clear-nominated-cluster-names-binding
+spec:
+  policyName: clear-nominated-cluster-names

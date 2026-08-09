@@ -1,0 +1,40 @@
+{{- if .Values.enableMutatingAdmissionPolicy }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: {{ include "kueue.fullname" . }}-clear-nominated-cluster-names
+  labels:
+    {{- include "kueue.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - kueue.x-k8s.io
+        apiVersions:
+          - v1beta2
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - workloads
+          - workloads/status
+  matchConditions:
+    - name: has-nominated-clusters
+      expression: "has(object.status.nominatedClusterNames) && size(object.status.nominatedClusterNames) > 0"
+    - name: trigger
+      expression: >-
+        (has(object.status.clusterName) && !has(oldObject.status.clusterName))
+        ||
+        (object.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True') &&
+         !oldObject.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True'))
+  mutations:
+    - patchType: ApplyConfiguration
+      applyConfiguration:
+        expression: >-
+          Object{
+            status: Object.status{
+              nominatedClusterNames: null
+            }
+          }
+{{- end }}
