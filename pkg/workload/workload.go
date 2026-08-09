@@ -588,9 +588,8 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 			retained[inputName] = inputQuantity
 			continue
 		}
-		// If MultiplyBy is specified, multiply the input quantity by the value
-		// of the resource specified in MultiplyBy. It scales the value the
-		// outputs are computed from; Retain keeps the input as it was
+		// MultiplyBy scales the value the outputs are computed from by the
+		// quantity of the resource it names. Retain keeps the input as it was
 		// requested, so the multiplier does not reach that as well.
 		outputInputVal := inputQuantity
 		if mapping.MultiplyBy != "" {
