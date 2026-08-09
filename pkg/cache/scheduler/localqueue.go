@@ -46,10 +46,13 @@ func (q *LocalQueue) customMetricLabelValues() []string {
 	return q.customLabels.LQGet(q.key)
 }
 
-func (q *LocalQueue) GetAdmittedUsage() corev1.ResourceList {
+// GetReservedUsage returns usage for all quota-reserving workloads, including
+// those still waiting on admission checks — the source matching AFS's
+// QuotaReserved accounting anchor, unlike admitted-gated usage.
+func (q *LocalQueue) GetReservedUsage() corev1.ResourceList {
 	q.RLock()
 	defer q.RUnlock()
-	return q.admittedUsage.FlattenFlavors().ToResourceList(q.resourceFormatter)
+	return q.totalReserved.FlattenFlavors().ToResourceList(q.resourceFormatter)
 }
 
 func (q *LocalQueue) GetLabels() map[string]string {
@@ -70,6 +73,12 @@ func (q *LocalQueue) updateAdmittedUsage(usage resources.FlavorResourceQuantitie
 	q.Lock()
 	defer q.Unlock()
 	updateFlavorUsage(usage, q.admittedUsage, op)
+}
+
+func (q *LocalQueue) updateTotalReserved(usage resources.FlavorResourceQuantities, op usageOp) {
+	q.Lock()
+	defer q.Unlock()
+	updateFlavorUsage(usage, q.totalReserved, op)
 }
 
 func (q *LocalQueue) reportActiveWorkloads(tracker *roletracker.RoleTracker) {

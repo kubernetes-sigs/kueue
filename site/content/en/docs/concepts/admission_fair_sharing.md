@@ -33,9 +33,11 @@ When multiple workloads compete for resources within a ClusterQueue:
 Entry Penalty is available since Kueue v0.13.0.
 {{% /alert %}}
 
-To prevent exploitation where tenants could submit many workloads quickly before usage statistics are updated, Kueue applies an entry penalty to each admitted workload. This penalty is immediately added to the LocalQueue's usage statistics. This ensures that even if a tenant submits multiple workloads rapidly, subsequent workloads will be properly prioritized based on the updated usage including the penalty.
+To prevent exploitation where tenants could submit many workloads quickly before usage statistics are updated, Kueue applies an entry penalty when it selects a workload for quota reservation. The penalty counts toward the LocalQueue usage used to order admissions immediately, and is folded into the reported `consumedResources` once the quota reservation is observed. This ensures that even if a tenant submits multiple workloads rapidly, subsequent workloads will be properly prioritized based on the updated usage including the penalty.
 
-For example, if Tenant A has low historical usage and Tenant B has high usage, but Tenant B submits 100 workloads simultaneously, without the entry penalty all 100 workloads might be admitted before the usage statistics update. With the entry penalty, each admitted workload immediately increases Tenant B's usage statistics, so subsequent workloads from Tenant B will be properly deprioritized in favor of workloads from Tenant A.
+For example, if Tenant A has low historical usage and Tenant B has high usage, but Tenant B submits 100 workloads simultaneously, without the entry penalty all 100 workloads might be admitted before the usage statistics update. With the entry penalty, each workload that reserves quota immediately increases Tenant B's usage statistics, so subsequent workloads from Tenant B will be properly deprioritized in favor of workloads from Tenant A.
+
+Usage is counted from the moment a workload reserves quota rather than from the moment it is admitted, so a workload still waiting on its AdmissionChecks already counts toward its LocalQueue's usage.
 
 ## Configuration
 
