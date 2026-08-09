@@ -1,0 +1,30 @@
+title: Unscheduled Pods Timeout
+kep-number: 13502
+authors:
+  - "@vibhordubey333"
+status: provisional
+creation-date: 2026-07-27
+reviewers:
+  - mimowo
+  - tenzen-y
+approvers:
+  - mimowo
+  - tenzen-y
+
+see-also:
+  - "/keps/349-all-or-nothing"
+  - "/keps/1282-pods-ready-requeue-strategy"
+
+stage: beta
+
+latest-milestone: "v0.20"
+
+milestone:
+  beta: "v0.20"
+
+feature-gates: []
+disable-supported: true
+
+metrics:
+  - kueue_evicted_workloads_once_total
+  - kueue_pods_ready_to_evicted_time_seconds
