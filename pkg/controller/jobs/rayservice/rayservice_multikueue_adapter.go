@@ -27,16 +27,16 @@ import (
 
 var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy)
 
-// remoteSpecSyncer is RayService's RemoteSpecSyncer for MultiKueue. It forwards
-// serveConfigV2 from the manager copy onto the worker copy, so an operator editing
-// the Serve application config on the manager reaches the worker's KubeRay (an
-// in-place Serve update). serveConfigV2 changes no PodSet, so no quota change or
-// re-admission is involved. rayClusterConfig and upgradeStrategy, which drive a
-// pod-affecting zero-downtime upgrade, are intentionally not forwarded here.
+// remoteSpecSyncer is RayService's RemoteSpecSyncer for MultiKueue.
 type remoteSpecSyncer struct{}
 
 var _ ray.RemoteSpecSyncer[*rayv1.RayService] = remoteSpecSyncer{}
 
+// NeedsSync reports whether the manager's serveConfigV2 differs from the worker's.
+// serveConfigV2 is the Ray Serve application config; forwarding it performs an
+// in-place Serve update on the worker's KubeRay. It changes no PodSet, so no quota
+// change or re-admission is involved. rayClusterConfig and upgradeStrategy, which
+// drive a pod-affecting zero-downtime upgrade, are intentionally not forwarded.
 func (remoteSpecSyncer) NeedsSync(remote, local *rayv1.RayService) bool {
 	return remote.Spec.ServeConfigV2 != local.Spec.ServeConfigV2
 }
