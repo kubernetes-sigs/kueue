@@ -468,6 +468,72 @@ func (i *Info) ResourceUsage() ResourceUsage {
 	return ru
 }
 
+// chargeableRequests zeroes the quantities a PodSet cannot be charged for,
+// which today means the negative ones. It runs before the transformations and
+// the DRA merge, since a negative left in place is spent against what those
+// generate under the same name.
+func chargeableRequests(input corev1.ResourceList) corev1.ResourceList {
+	res := make(corev1.ResourceList, len(input))
+	for name, quantity := range input {
+		if quantity.Sign() < 0 {
+			// Zeroed rather than dropped, so the resource stays named.
+			quantity = resource.Quantity{}
+		}
+		res[name] = quantity
+	}
+	return res
+}
+
+// chargeablePodRequests totals a PodSet the way a Pod's own requests are
+// totalled, with each list read as chargeable first. Zeroing the sum instead
+// would let a negative request in one container spend what another asked for
+// under the same name, and the aggregation hides that the sum ever went there.
+func chargeablePodRequests(spec *corev1.PodSpec) corev1.ResourceList {
+	if hasNegativeRequest(spec) {
+		spec = zeroNegativeRequests(spec)
+	}
+	return resourcehelpers.PodRequests(&corev1.Pod{Spec: *spec}, resourcehelpers.PodResourcesOptions{})
+}
+
+func hasNegativeRequest(spec *corev1.PodSpec) bool {
+	negative := func(rl corev1.ResourceList) bool {
+		for _, q := range rl {
+			if q.Sign() < 0 {
+				return true
+			}
+		}
+		return false
+	}
+	for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
+		for _, c := range containers {
+			if negative(c.Resources.Requests) {
+				return true
+			}
+		}
+	}
+	if spec.Resources != nil && negative(spec.Resources.Requests) {
+		return true
+	}
+	return negative(spec.Overhead)
+}
+
+// zeroNegativeRequests copies the spec rather than editing the one the Workload
+// holds, which the caller is only borrowing.
+func zeroNegativeRequests(spec *corev1.PodSpec) *corev1.PodSpec {
+	out := spec.DeepCopy()
+	for i := range out.InitContainers {
+		out.InitContainers[i].Resources.Requests = chargeableRequests(out.InitContainers[i].Resources.Requests)
+	}
+	for i := range out.Containers {
+		out.Containers[i].Resources.Requests = chargeableRequests(out.Containers[i].Resources.Requests)
+	}
+	if out.Resources != nil {
+		out.Resources.Requests = chargeableRequests(out.Resources.Requests)
+	}
+	out.Overhead = chargeableRequests(out.Overhead)
+	return out
+}
+
 func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string) corev1.ResourceList {
 	res := corev1.ResourceList{}
 	for inputName, inputQuantity := range input {
@@ -693,7 +759,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			Name:  ps.Name,
 			Count: count,
 		}
-		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
+		specRequests := chargeablePodRequests(&ps.Template.Spec)
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
 		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
