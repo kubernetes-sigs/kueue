@@ -1084,27 +1084,27 @@ webhook:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+					QPS:   new(configapi.DefaultClientConnectionQPS),
+					Burst: new(configapi.DefaultClientConnectionBurst),
 				},
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1190,26 +1190,26 @@ webhook:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+					QPS:   new(configapi.DefaultClientConnectionQPS),
+					Burst: new(configapi.DefaultClientConnectionBurst),
 				},
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1237,27 +1237,27 @@ webhook:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+					QPS:   new(configapi.DefaultClientConnectionQPS),
+					Burst: new(configapi.DefaultClientConnectionBurst),
 				},
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{

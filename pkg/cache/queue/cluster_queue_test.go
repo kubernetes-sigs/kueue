@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -86,7 +85,7 @@ func Test_PushOrUpdate(t *testing.T) {
 		},
 		"workload is still under the backoff waiting time": {
 			workload: wlBase.Clone().
-				RequeueState(ptr.To[int32](10), new(metav1.NewTime(minuteLater))).
+				RequeueState(new(int32(10)), new(metav1.NewTime(minuteLater))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -99,7 +98,7 @@ func Test_PushOrUpdate(t *testing.T) {
 			wantInAdmissibleWorkloads: inadmissibleWorkloads{
 				"default/workload-1": workload.NewInfo(wlBase.Clone().
 					ResourceVersion("1").
-					RequeueState(ptr.To[int32](10), new(metav1.NewTime(minuteLater))).
+					RequeueState(new(int32(10)), new(metav1.NewTime(minuteLater))).
 					Condition(metav1.Condition{
 						Type:   kueue.WorkloadEvicted,
 						Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
@@ -265,7 +264,7 @@ func TestPushOrUpdateGenerationChanged(t *testing.T) {
 		"stays inadmissible when generation changed but backoff unexpired": {
 			updatedWorkload: utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
 				Creation(now).Generation(2).ResourceVersion("2").Priority(300).
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(time.Hour)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(time.Hour)))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadRequeued,
 					Status: metav1.ConditionFalse,
@@ -385,11 +384,11 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 			},
 			inadmissibleWorkloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-3")).
-					RequeueState(ptr.To[int32](1), new(metav1.NewTime(backoffUntil))).
+					RequeueState(new(int32(1)), new(metav1.NewTime(backoffUntil))).
 					Condition(metav1.Condition{Type: kueue.WorkloadRequeued, Status: metav1.ConditionFalse}).
 					Obj(),
 				utiltestingapi.MakeWorkload("wl4", defaultNamespace).Queue(lqName).Creation(now).UID(types.UID("uid-4")).
-					RequeueState(ptr.To[int32](1), new(metav1.NewTime(backoffUntil))).
+					RequeueState(new(int32(1)), new(metav1.NewTime(backoffUntil))).
 					Condition(metav1.Condition{Type: kueue.WorkloadRequeued, Status: metav1.ConditionFalse}).
 					Obj(),
 			},
@@ -984,7 +983,7 @@ func TestClusterQueueImpl(t *testing.T) {
 		utiltestingapi.MakeWorkload("w2", "ns2").Queue("q2").Obj(),
 		utiltestingapi.MakeWorkload("w3", "ns3").Queue("q3").Obj(),
 		utiltestingapi.MakeWorkload("w4-requeue-state", "ns1").
-			RequeueState(ptr.To[int32](1), new(metav1.NewTime(minuteLater))).
+			RequeueState(new(int32(1)), new(metav1.NewTime(minuteLater))).
 			Queue("q1").
 			Condition(metav1.Condition{
 				Type:   kueue.WorkloadEvicted,
@@ -1228,12 +1227,12 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 		},
 		"workload doesn't have an evicted condition with reason=PodsReadyTimeout": {
 			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(ptr.To[int32](10), nil).Obj()),
+				RequeueState(new(int32(10)), nil).Obj()),
 			want: true,
 		},
 		"now already has exceeded requeueAt": {
 			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(ptr.To[int32](10), new(metav1.NewTime(minuteAgo))).
+				RequeueState(new(int32(10)), new(metav1.NewTime(minuteAgo))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Status: metav1.ConditionTrue,
@@ -1243,7 +1242,7 @@ func TestBackoffWaitingTimeExpired(t *testing.T) {
 		},
 		"now hasn't yet exceeded requeueAt": {
 			workloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("wl", "ns").
-				RequeueState(ptr.To[int32](10), new(metav1.NewTime(minuteLater))).
+				RequeueState(new(int32(10)), new(metav1.NewTime(minuteLater))).
 				Condition(metav1.Condition{
 					Type:   kueue.WorkloadEvicted,
 					Status: metav1.ConditionTrue,

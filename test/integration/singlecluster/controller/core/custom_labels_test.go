@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/component-base/metrics/testutil"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -50,8 +49,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
-				{Name: "team_lq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindLocalQueue)},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "team_lq", SourceLabelKey: "team", SourceKind: new(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -194,7 +193,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "cost_center", SourceLabelKey: "billing/cost-center", SourceKind: ptr.To(config.SourceKindClusterQueue)},
+				{Name: "cost_center", SourceLabelKey: "billing/cost-center", SourceKind: new(config.SourceKindClusterQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -244,7 +243,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "budget", SourceAnnotationKey: "billing.co/budget", SourceKind: ptr.To(config.SourceKindClusterQueue)},
+				{Name: "budget", SourceAnnotationKey: "billing.co/budget", SourceKind: new(config.SourceKindClusterQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -294,8 +293,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, false)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
-				{Name: "team_lq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindLocalQueue)},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "team_lq", SourceLabelKey: "team", SourceKind: new(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -402,8 +401,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
-				{Name: "team_lq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindLocalQueue)},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "team_lq", SourceLabelKey: "team", SourceKind: new(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -465,8 +464,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
-				{Name: "team_lq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindLocalQueue)},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "team_lq", SourceLabelKey: "team", SourceKind: new(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -626,7 +625,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
+				{Name: "team", SourceKind: new(config.SourceKindClusterQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -723,8 +722,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			controllersCfg := &config.Configuration{}
 			controllersCfg.FairSharing = &config.FairSharing{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
-				{Name: "team_cohort", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindCohort)},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "team_cohort", SourceLabelKey: "team", SourceKind: new(config.SourceKindCohort)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -985,8 +984,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
-				{Name: "wl_kind", SourceLabelKey: "workload-kind", SourceKind: ptr.To(config.SourceKindWorkload), TrackedValues: []string{"kind1", "kind2"}},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "wl_kind", SourceLabelKey: "workload-kind", SourceKind: new(config.SourceKindWorkload), TrackedValues: []string{"kind1", "kind2"}},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
