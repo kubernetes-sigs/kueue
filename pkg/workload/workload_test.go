@@ -910,10 +910,9 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
-		// A multiplier below one is the direction that undercharges: the old
-		// behaviour retained 512 for a PodSet that asked for 1024, and every
-		// check on the way past reads a positive, exactly representable number
-		// that arrives once.
+		// A multiplier below one is the direction that undercharges, and nothing
+		// downstream can see it: the retained 512 for a PodSet that asked for
+		// 1024 is positive and reads like a smaller request.
 		"transformRetainWithMultiplyByUnderOne": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(
