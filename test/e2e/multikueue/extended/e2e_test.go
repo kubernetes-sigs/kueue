@@ -845,7 +845,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						createdRayCluster := &rayv1.RayCluster{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
-						createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](3)
+						createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(3))
 						g.Expect(k8sManagerClient.Update(ctx, createdRayCluster)).To(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
@@ -862,7 +862,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						createdRayCluster := &rayv1.RayCluster{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(raycluster), createdRayCluster)).To(gomega.Succeed())
-						createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](1)
+						createdRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(1))
 						g.Expect(k8sManagerClient.Update(ctx, createdRayCluster)).To(gomega.Succeed())
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
@@ -958,8 +958,8 @@ app = HelloWorld.bind()`,
 					Obj()
 
 				rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName = "small-group"
-				rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = ptr.To[int32](1)
-				rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
+				rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MinReplicas = new(int32(1))
+				rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = new(int32(2))
 
 				ginkgo.By("Creating the ConfigMap on all clusters", func() {
 					worker1ConfigMap := configMap.DeepCopy()

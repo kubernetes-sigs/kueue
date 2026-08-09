@@ -381,7 +381,7 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 	if features.Enabled(features.TopologyAwareScheduling) {
 		builder := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy())
 		if podIndexLabel != nil {
-			builder.PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey))
+			builder.PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey))
 		}
 		topologyRequest, err := builder.Build()
 		if err != nil {
@@ -414,7 +414,7 @@ func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 		defaultPodSetName,
 		defaultPodSetCount,
 		&lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
-		ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
+		new(leaderworkersetv1.WorkerIndexLabelKey),
 	)
 	if err != nil {
 		return nil, err

@@ -41,7 +41,6 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -67,9 +66,9 @@ var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
 		Duration: 30 * time.Minute,
 	},
 	RequeuingStrategy: &configapi.RequeuingStrategy{
-		Timestamp:          ptr.To(configapi.EvictionTimestamp),
-		BackoffBaseSeconds: ptr.To[int32](configapi.DefaultRequeuingBackoffBaseSeconds),
-		BackoffMaxSeconds:  ptr.To[int32](configapi.DefaultRequeuingBackoffMaxSeconds),
+		Timestamp:          new(configapi.EvictionTimestamp),
+		BackoffBaseSeconds: new(int32(configapi.DefaultRequeuingBackoffBaseSeconds)),
+		BackoffMaxSeconds:  new(int32(configapi.DefaultRequeuingBackoffMaxSeconds)),
 	},
 }
 
@@ -96,9 +95,9 @@ func defaultControlOptions(namespace string) ctrl.Options {
 		LeaderElectionID:              configapi.DefaultLeaderElectionID,
 		LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
 		LeaderElectionReleaseOnCancel: true,
-		LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-		RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-		RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+		LeaseDuration:                 new(configapi.DefaultLeaderElectionLeaseDuration),
+		RenewDeadline:                 new(configapi.DefaultLeaderElectionRenewDeadline),
+		RetryPeriod:                   new(configapi.DefaultLeaderElectionRetryPeriod),
 	}
 }
 
@@ -406,8 +405,8 @@ objectRetentionPolicies:
 
 	enableDefaultInternalCertManagement := &configapi.InternalCertManagement{
 		Enable:             new(true),
-		WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-		WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+		WebhookServiceName: new(configapi.DefaultWebhookServiceName),
+		WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 	}
 
 	ctrlOptsCmpOpts := cmp.Options{
@@ -429,8 +428,8 @@ objectRetentionPolicies:
 	}
 
 	defaultClientConnection := &configapi.ClientConnection{
-		QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-		Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+		QPS:   new(configapi.DefaultClientConnectionQPS),
+		Burst: new(configapi.DefaultClientConnectionBurst),
 	}
 
 	defaultIntegrations := &configapi.Integrations{
@@ -449,13 +448,13 @@ objectRetentionPolicies:
 
 	defaultMultiKueue := &configapi.MultiKueue{
 		GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-		Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+		Origin:            new(configapi.DefaultMultiKueueOrigin),
 		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-		DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+		DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 	}
 
 	defaultVisibility := &configapi.VisibilityServerConfiguration{
-		BindPort: ptr.To[int32](configapi.DefaultVisibilityBindPort),
+		BindPort: new(int32(configapi.DefaultVisibilityBindPort)),
 	}
 
 	testcases := []struct {
@@ -471,7 +470,7 @@ objectRetentionPolicies:
 			name:       "default config",
 			configFile: "",
 			wantConfiguration: configapi.Configuration{
-				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				Namespace:                    new(configapi.DefaultNamespace),
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
@@ -490,7 +489,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				Namespace:                    new(configapi.DefaultNamespace),
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
@@ -548,7 +547,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				Namespace:                    new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName:   false,
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
@@ -568,9 +567,9 @@ objectRetentionPolicies:
 				LeaderElectionID:              "test-id",
 				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
 				LeaderElectionReleaseOnCancel: true,
-				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaseDuration:                 new(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:                 new(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                   new(configapi.DefaultLeaderElectionRetryPeriod),
 			},
 		},
 		{
@@ -581,7 +580,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable:             new(true),
@@ -605,7 +604,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable: new(false),
@@ -646,9 +645,9 @@ objectRetentionPolicies:
 				LeaderElectionID:              configapi.DefaultLeaderElectionID,
 				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
 				LeaderElectionReleaseOnCancel: false,
-				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaseDuration:                 new(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:                 new(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                   new(configapi.DefaultLeaderElectionRetryPeriod),
 				LeaderElection:                false,
 			},
 		},
@@ -660,7 +659,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
@@ -668,10 +667,10 @@ objectRetentionPolicies:
 					Timeout:         metav1.Duration{Duration: 50 * time.Second},
 					RecoveryTimeout: &metav1.Duration{Duration: 3 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						Timestamp:          ptr.To(configapi.CreationTimestamp),
-						BackoffLimitCount:  ptr.To[int32](10),
-						BackoffBaseSeconds: ptr.To[int32](30),
-						BackoffMaxSeconds:  ptr.To[int32](1800),
+						Timestamp:          new(configapi.CreationTimestamp),
+						BackoffLimitCount:  new(int32(10)),
+						BackoffBaseSeconds: new(int32(30)),
+						BackoffMaxSeconds:  new(int32(1800)),
 					},
 				},
 				ClientConnection:             defaultClientConnection,
@@ -690,12 +689,12 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To[float32](50),
-					Burst: ptr.To[int32](100),
+					QPS:   new(float32(50)),
+					Burst: new(int32(100)),
 				},
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
@@ -713,12 +712,12 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To[float32](50),
-					Burst: ptr.To[int32](100),
+					QPS:   new(float32(50)),
+					Burst: new(int32(100)),
 				},
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
@@ -740,9 +739,9 @@ objectRetentionPolicies:
 				LeaderElectionNamespace:       "namespace",
 				LeaderElectionResourceLock:    "lock",
 				LeaderElectionReleaseOnCancel: true,
-				LeaseDuration:                 ptr.To(time.Second * 100),
-				RenewDeadline:                 ptr.To(time.Second * 15),
-				RetryPeriod:                   ptr.To(time.Second * 30),
+				LeaseDuration:                 new(time.Second * 100),
+				RenewDeadline:                 new(time.Second * 15),
+				RetryPeriod:                   new(time.Second * 30),
 				Controller: runtimeconfig.Controller{
 					GroupKindConcurrency: map[string]int{
 						"workload": 5,
@@ -759,7 +758,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
@@ -785,7 +784,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
@@ -794,7 +793,7 @@ objectRetentionPolicies:
 					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
 					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -829,7 +828,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
@@ -838,7 +837,7 @@ objectRetentionPolicies:
 					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
 					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -869,7 +868,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				Namespace:                    new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName:   false,
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
@@ -882,7 +881,7 @@ objectRetentionPolicies:
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    corev1.ResourceName("nvidia.com/mig-1g.5gb"),
-							Strategy: ptr.To(configapi.Replace),
+							Strategy: new(configapi.Replace),
 							Outputs: corev1.ResourceList{
 								corev1.ResourceName("example.com/accelerator-memory"): resourcev1.MustParse("5Gi"),
 								corev1.ResourceName("example.com/credits"):            resourcev1.MustParse("10"),
@@ -890,7 +889,7 @@ objectRetentionPolicies:
 						},
 						{
 							Input:    corev1.ResourceName("nvidia.com/mig-2g.10gb"),
-							Strategy: ptr.To(configapi.Replace),
+							Strategy: new(configapi.Replace),
 							Outputs: corev1.ResourceList{
 								corev1.ResourceName("example.com/accelerator-memory"): resourcev1.MustParse("10Gi"),
 								corev1.ResourceName("example.com/credits"):            resourcev1.MustParse("15"),
@@ -898,7 +897,7 @@ objectRetentionPolicies:
 						},
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: ptr.To(configapi.Retain),
+							Strategy: new(configapi.Retain),
 							Outputs: corev1.ResourceList{
 								corev1.ResourceName("example.com/credits"): resourcev1.MustParse("1"),
 							},
@@ -924,7 +923,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				Namespace:                    new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName:   false,
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
@@ -1034,26 +1033,26 @@ webhook:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+					QPS:   new(configapi.DefaultClientConnectionQPS),
+					Burst: new(configapi.DefaultClientConnectionBurst),
 				},
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1085,27 +1084,27 @@ webhook:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+					QPS:   new(configapi.DefaultClientConnectionQPS),
+					Burst: new(configapi.DefaultClientConnectionBurst),
 				},
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1137,27 +1136,27 @@ webhook:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+					QPS:   new(configapi.DefaultClientConnectionQPS),
+					Burst: new(configapi.DefaultClientConnectionBurst),
 				},
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1191,26 +1190,26 @@ webhook:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+					QPS:   new(configapi.DefaultClientConnectionQPS),
+					Burst: new(configapi.DefaultClientConnectionBurst),
 				},
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1238,27 +1237,27 @@ webhook:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+					QPS:   new(configapi.DefaultClientConnectionQPS),
+					Burst: new(configapi.DefaultClientConnectionBurst),
 				},
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1541,7 +1540,7 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 				Cache: defaultControlCacheOptions(configapi.DefaultNamespace),
 			}
 			cfg := &configapi.Configuration{
-				Namespace: ptr.To(configapi.DefaultNamespace),
+				Namespace: new(configapi.DefaultNamespace),
 			}
 
 			var objects []runtime.Object
@@ -1602,7 +1601,7 @@ func TestConfigureClusterProfileCache(t *testing.T) {
 			opts := &ctrl.Options{
 				Cache: ctrlcache.Options{},
 			}
-			cfg := configapi.Configuration{Namespace: ptr.To(configapi.DefaultNamespace)}
+			cfg := configapi.Configuration{Namespace: new(configapi.DefaultNamespace)}
 			err := ConfigureClusterProfileCache(ctx, log, opts, tc.kubeConfig, cfg)
 
 			if err == nil {

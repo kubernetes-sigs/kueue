@@ -738,7 +738,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 
 		ginkgo.It("should write granular conditions and reasons when localQueue is inactive", func() {
 			lq := utiltestingapi.MakeLocalQueue("inactive-q", ns.Name).ClusterQueue("cq").Obj()
-			lq.Spec.StopPolicy = ptr.To(kueue.Hold)
+			lq.Spec.StopPolicy = new(kueue.Hold)
 			gomega.Expect(k8sClient.Create(ctx, lq)).To(gomega.Succeed())
 
 			// Wait for LocalQueue to be reconciled and registered in the Queue Manager
@@ -772,7 +772,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
 					Resource(corev1.ResourceCPU, "1").Obj()).
 				Obj()
-			inactiveCq.Spec.StopPolicy = ptr.To(kueue.Hold)
+			inactiveCq.Spec.StopPolicy = new(kueue.Hold)
 			gomega.Expect(k8sClient.Create(ctx, inactiveCq)).To(gomega.Succeed())
 
 			lq := utiltestingapi.MakeLocalQueue("inactive-cq-q", ns.Name).ClusterQueue("inactive-cq").Obj()
@@ -1174,7 +1174,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			gomega.Eventually(func(g gomega.Gomega) {
 				var fetchedLq kueue.LocalQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &fetchedLq)).To(gomega.Succeed())
-				fetchedLq.Spec.StopPolicy = ptr.To(kueue.Hold)
+				fetchedLq.Spec.StopPolicy = new(kueue.Hold)
 				g.Expect(k8sClient.Update(ctx, &fetchedLq)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -1207,7 +1207,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 			gomega.Eventually(func(g gomega.Gomega) {
 				var fetchedLq kueue.LocalQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(localQueue), &fetchedLq)).To(gomega.Succeed())
-				fetchedLq.Spec.StopPolicy = ptr.To(kueue.None)
+				fetchedLq.Spec.StopPolicy = new(kueue.None)
 				g.Expect(k8sClient.Update(ctx, &fetchedLq)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

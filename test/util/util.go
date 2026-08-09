@@ -408,7 +408,7 @@ func UnholdClusterQueue(ctx context.Context, k8sClient client.Client, cq *kueue.
 		if ptr.Deref(cqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
 			return
 		}
-		cqCopy.Spec.StopPolicy = ptr.To(kueue.None)
+		cqCopy.Spec.StopPolicy = new(kueue.None)
 		g.Expect(k8sClient.Update(ctx, &cqCopy)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold cluster queue", &cqCopy))
 }
@@ -420,7 +420,7 @@ func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.Lo
 		if ptr.Deref(lqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
 			return
 		}
-		lqCopy.Spec.StopPolicy = ptr.To(kueue.None)
+		lqCopy.Spec.StopPolicy = new(kueue.None)
 		g.Expect(k8sClient.Update(ctx, &lqCopy)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold local queue", &lqCopy))
 }
@@ -1679,7 +1679,7 @@ func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node 
 			SuccessPolicy(&batchv1.SuccessPolicy{
 				Rules: []batchv1.SuccessPolicyRule{
 					{
-						SucceededCount: ptr.To[int32](1),
+						SucceededCount: new(int32(1)),
 					},
 				},
 			}).

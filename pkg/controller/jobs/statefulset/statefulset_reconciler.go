@@ -347,7 +347,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(sts.Spec.Template.ObjectMeta.DeepCopy()).
-			PodIndexLabel(ptr.To(appsv1.PodIndexLabel)).
+			PodIndexLabel(new(appsv1.PodIndexLabel)).
 			Build()
 		if err != nil {
 			return nil, err

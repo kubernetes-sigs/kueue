@@ -24,7 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -404,7 +403,7 @@ func TestDefault(t *testing.T) {
 			name: "TestDefault_JobSetManagedBy_jobsetapi.JobSetControllerName",
 			jobSet: &jobset.JobSet{
 				Spec: jobset.JobSetSpec{
-					ManagedBy: ptr.To(jobset.JobSetControllerName),
+					ManagedBy: new(jobset.JobSetControllerName),
 				},
 				ObjectMeta: ctrl.ObjectMeta{
 					Labels: map[string]string{
@@ -428,7 +427,7 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To(kueue.MultiKueueControllerName),
+			wantManagedBy: new(kueue.MultiKueueControllerName),
 		},
 		{
 			name: "TestDefault_WithQueueLabel",
@@ -455,7 +454,7 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To(kueue.MultiKueueControllerName),
+			wantManagedBy: new(kueue.MultiKueueControllerName),
 		},
 		{
 			name: "TestDefault_WithoutQueueLabel",

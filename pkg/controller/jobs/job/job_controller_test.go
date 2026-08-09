@@ -33,7 +33,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -62,8 +61,8 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; no progress": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
-					Completions: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
+					Completions: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{},
 			},
@@ -72,11 +71,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; not enough progress": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
-					Completions: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
+					Completions: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
-					Ready:     ptr.To[int32](1),
+					Ready:     new(int32(1)),
 					Succeeded: 1,
 				},
 			},
@@ -85,11 +84,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; all ready": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
-					Completions: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
+					Completions: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
-					Ready:     ptr.To[int32](3),
+					Ready:     new(int32(3)),
 					Succeeded: 0,
 				},
 			},
@@ -98,11 +97,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; some ready, some succeeded": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
-					Completions: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
+					Completions: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
-					Ready:     ptr.To[int32](2),
+					Ready:     new(int32(2)),
 					Succeeded: 1,
 				},
 			},
@@ -111,8 +110,8 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; all succeeded": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
-					Completions: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
+					Completions: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
 					Succeeded: 3,
@@ -123,11 +122,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism < completions; reaching parallelism is enough": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](2),
-					Completions: ptr.To[int32](3),
+					Parallelism: new(int32(2)),
+					Completions: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
-					Ready: ptr.To[int32](2),
+					Ready: new(int32(2)),
 				},
 			},
 			want: true,
@@ -135,11 +134,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism > completions; reaching completions is enough": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
-					Completions: ptr.To[int32](2),
+					Parallelism: new(int32(3)),
+					Completions: new(int32(2)),
 				},
 				Status: batchv1.JobStatus{
-					Ready: ptr.To[int32](2),
+					Ready: new(int32(2)),
 				},
 			},
 			want: true,
@@ -147,10 +146,10 @@ func TestPodsReady(t *testing.T) {
 		"parallelism specified only; not enough progress": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
-					Ready: ptr.To[int32](2),
+					Ready: new(int32(2)),
 				},
 			},
 			want: false,
@@ -158,10 +157,10 @@ func TestPodsReady(t *testing.T) {
 		"parallelism specified only; all ready": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
-					Ready: ptr.To[int32](3),
+					Ready: new(int32(3)),
 				},
 			},
 			want: true,
@@ -408,7 +407,7 @@ func TestPodSets(t *testing.T) {
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
@@ -425,7 +424,7 @@ func TestPodSets(t *testing.T) {
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
 					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
@@ -445,7 +444,7 @@ func TestPodSets(t *testing.T) {
 						kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
 						kueue.PodSetSliceSizeAnnotation:             "1",
 					}).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					SliceRequiredTopologyRequest("cloud.com/block").
 					SliceSizeTopologyRequest(1).
 					Obj(),
@@ -484,7 +483,7 @@ func TestPodSets(t *testing.T) {
 					Annotations(map[string]string{
 						kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
 					}).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
@@ -502,7 +501,7 @@ func TestPodSets(t *testing.T) {
 					Annotations(map[string]string{
 						kueue.PodSetSliceSizeAnnotation: "1",
 					}).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
@@ -4474,7 +4473,7 @@ func TestReconciler(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
-						Count: ptr.To[int32](10),
+						Count: new(int32(10)),
 					}).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
@@ -4503,7 +4502,7 @@ func TestReconciler(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
-						Count: ptr.To[int32](10),
+						Count: new(int32(10)),
 					}).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
@@ -4550,7 +4549,7 @@ func TestReconciler(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
-						Count: ptr.To[int32](10),
+						Count: new(int32(10)),
 					}).Obj(), now).
 					Obj(),
 			},
@@ -5015,13 +5014,13 @@ func TestReclaimablePods(t *testing.T) {
 		j.Status.Failed = failed
 		j.Status.CompletedIndexes = completedIndexes
 		if failedIndexes != "" {
-			j.Spec.BackoffLimitPerIndex = ptr.To[int32](0)
+			j.Spec.BackoffLimitPerIndex = new(int32(0))
 			j.Status.FailedIndexes = new(failedIndexes)
 		}
 		return (*Job)(j)
 	}
 	retryableFailureJob := indexedJob(1, 1, "0", "")
-	retryableFailureJob.Spec.BackoffLimitPerIndex = ptr.To[int32](1)
+	retryableFailureJob.Spec.BackoffLimitPerIndex = new(int32(1))
 	cases := map[string]struct {
 		job  *Job
 		want []kueue.ReclaimablePod

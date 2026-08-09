@@ -37,7 +37,6 @@ import (
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -6104,7 +6103,7 @@ func TestSchedule(t *testing.T) {
 					FlavorFungibility(kueue.FlavorFungibility{
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
-						Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+						Preference:     new(kueue.PreemptionOverBorrowing),
 					}).
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("on-demand").
@@ -6248,7 +6247,7 @@ func TestSchedule(t *testing.T) {
 					FlavorFungibility(kueue.FlavorFungibility{
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
-						Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+						Preference:     new(kueue.PreemptionOverBorrowing),
 					}).
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("on-demand").
@@ -6352,7 +6351,7 @@ func TestSchedule(t *testing.T) {
 					FlavorFungibility(kueue.FlavorFungibility{
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
-						Preference:     ptr.To(kueue.BorrowingOverPreemption),
+						Preference:     new(kueue.BorrowingOverPreemption),
 					}).
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("on-demand").
@@ -6809,7 +6808,7 @@ func TestEntryOrdering(t *testing.T) {
 					Name:              "high_pri_borrowing",
 					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
 				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
+					Priority: new(int32(1)),
 				}},
 			},
 			assignment: flavorassigner.Assignment{
@@ -6822,7 +6821,7 @@ func TestEntryOrdering(t *testing.T) {
 					Name:              "new_high_pri",
 					CreationTimestamp: metav1.NewTime(now.Add(4 * time.Second)),
 				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
+					Priority: new(int32(1)),
 				}},
 			},
 		},
@@ -6886,7 +6885,7 @@ func TestEntryOrdering(t *testing.T) {
 					Name:              "high_pri_borrowing_more",
 					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
 				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
+					Priority: new(int32(1)),
 				}},
 			},
 			assignment: flavorassigner.Assignment{
@@ -6901,7 +6900,7 @@ func TestEntryOrdering(t *testing.T) {
 					Name:              "old-mid-recently-preempted-in-queue",
 					CreationTimestamp: metav1.NewTime(now),
 				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
+					Priority: new(int32(1)),
 				}, Status: kueue.WorkloadStatus{
 					Conditions: []metav1.Condition{
 						{
@@ -6920,7 +6919,7 @@ func TestEntryOrdering(t *testing.T) {
 					Name:              "old-mid-recently-reclaimed-while-borrowing",
 					CreationTimestamp: metav1.NewTime(now),
 				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
+					Priority: new(int32(1)),
 				}, Status: kueue.WorkloadStatus{
 					Conditions: []metav1.Condition{
 						{
@@ -6939,7 +6938,7 @@ func TestEntryOrdering(t *testing.T) {
 					Name:              "old-mid-more-recently-reclaimed-while-borrowing",
 					CreationTimestamp: metav1.NewTime(now),
 				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
+					Priority: new(int32(1)),
 				}, Status: kueue.WorkloadStatus{
 					Conditions: []metav1.Condition{
 						{
@@ -6958,7 +6957,7 @@ func TestEntryOrdering(t *testing.T) {
 					Name:              "old-mid-not-preempted-yet",
 					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
+					Priority: new(int32(1)),
 				}},
 			},
 		},
@@ -6968,7 +6967,7 @@ func TestEntryOrdering(t *testing.T) {
 					Name:              "preemptor",
 					CreationTimestamp: metav1.NewTime(now.Add(7 * time.Second)),
 				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](2),
+					Priority: new(int32(2)),
 				}},
 			},
 		},

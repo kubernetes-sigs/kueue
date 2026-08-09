@@ -24,7 +24,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -261,8 +260,8 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
 						Name:                   kueue.DefaultPodSetName,
-						Count:                  ptr.To[int32](1),
-						DelayedTopologyRequest: ptr.To(kueue.DelayedTopologyRequestStatePending),
+						Count:                  new(int32(1)),
+						DelayedTopologyRequest: new(kueue.DelayedTopologyRequestStatePending),
 					},
 				},
 			},
@@ -302,8 +301,8 @@ func TestSyncAdmittedCondition(t *testing.T) {
 				PodSetAssignments: []kueue.PodSetAssignment{
 					{
 						Name:                   kueue.DefaultPodSetName,
-						Count:                  ptr.To[int32](1),
-						DelayedTopologyRequest: ptr.To(kueue.DelayedTopologyRequestStatePending),
+						Count:                  new(int32(1)),
+						DelayedTopologyRequest: new(kueue.DelayedTopologyRequestStatePending),
 					},
 				},
 			},
@@ -551,7 +550,7 @@ func TestGetMaxRetryTime(t *testing.T) {
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(time.Time{}),
-					RequeueAfterSeconds: ptr.To[int32](60),
+					RequeueAfterSeconds: new(int32(60)),
 				},
 			},
 			wantRetryTime: metav1.NewTime(time.Time{}),
@@ -562,7 +561,7 @@ func TestGetMaxRetryTime(t *testing.T) {
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime),
-					RequeueAfterSeconds: ptr.To[int32](60),
+					RequeueAfterSeconds: new(int32(60)),
 				},
 			},
 			wantRetryTime: metav1.NewTime(baseTime.Add(60 * time.Second)),
@@ -573,19 +572,19 @@ func TestGetMaxRetryTime(t *testing.T) {
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime),
-					RequeueAfterSeconds: ptr.To[int32](60),
+					RequeueAfterSeconds: new(int32(60)),
 				},
 				{
 					Name:                "check2",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime),
-					RequeueAfterSeconds: ptr.To[int32](120),
+					RequeueAfterSeconds: new(int32(120)),
 				},
 				{
 					Name:                "check3",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime),
-					RequeueAfterSeconds: ptr.To[int32](30),
+					RequeueAfterSeconds: new(int32(30)),
 				},
 			},
 			wantRetryTime: metav1.NewTime(baseTime.Add(120 * time.Second)),
@@ -602,13 +601,13 @@ func TestGetMaxRetryTime(t *testing.T) {
 					Name:                "check2",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime),
-					RequeueAfterSeconds: ptr.To[int32](90),
+					RequeueAfterSeconds: new(int32(90)),
 				},
 				{
 					Name:                "check3",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(time.Time{}),
-					RequeueAfterSeconds: ptr.To[int32](180),
+					RequeueAfterSeconds: new(int32(180)),
 				},
 			},
 			wantRetryTime: metav1.NewTime(baseTime.Add(90 * time.Second)),
@@ -619,13 +618,13 @@ func TestGetMaxRetryTime(t *testing.T) {
 					Name:                "check1",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime),
-					RequeueAfterSeconds: ptr.To[int32](60),
+					RequeueAfterSeconds: new(int32(60)),
 				},
 				{
 					Name:                "check2",
 					State:               kueue.CheckStateRetry,
 					LastTransitionTime:  metav1.NewTime(baseTime.Add(30 * time.Second)),
-					RequeueAfterSeconds: ptr.To[int32](60),
+					RequeueAfterSeconds: new(int32(60)),
 				},
 			},
 			wantRetryTime: metav1.NewTime(baseTime.Add(90 * time.Second)),
