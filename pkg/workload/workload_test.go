@@ -994,6 +994,32 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// An excluded resource is not charged, but can still be a multiplier.
+		"transformMultiplierSurvivesAnExcludedPrefix": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/mem", "1024").
+					Request("vendor.example/gpu", "4").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{
+				WithExcludedResourcePrefixes([]string{"vendor.example/"}),
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:      "example.com/mem",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "vendor.example/gpu",
+					Outputs:    corev1.ResourceList{"quota.example.com/total-mem": resource.MustParse("1")},
+				}}),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/total-mem"): 4096,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		"transformMilliValues": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(
