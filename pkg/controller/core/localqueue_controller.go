@@ -178,9 +178,14 @@ func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload
 // ClusterQueue watch, while Delete must run again after ClusterQueueReconciler
 // removes the scheduler cache entry so LocalQueue status can publish
 // ClusterQueueDoesNotExist with zero usage from the cache.
+// The send is non-blocking so a full channel cannot stall ClusterQueue delete
+// handling or later watchers; RequeueAfter in Reconcile covers dropped notifies.
 func (r *LocalQueueReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) {
 	if oldCQ != nil && newCQ == nil {
-		r.cqUpdateCh <- event.GenericEvent{Object: oldCQ}
+		select {
+		case r.cqUpdateCh <- event.GenericEvent{Object: oldCQ}:
+		default:
+		}
 	}
 }
 
@@ -220,17 +225,13 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// publishing ClusterQueueDoesNotExist so status never mixes that
 			// reason with stale usage. NotifyClusterQueueUpdate requeues
 			// LocalQueues after cleanup; RequeueAfter is a backup if this
-			// reconcile raced ahead of the notify.
-			stats, cqInCache, cacheErr := r.cache.LocalQueueUsage(&queueObj)
-			// Presence is checked before the error because a LocalQueue
-			// missing from a still-cached ClusterQueue is the same
-			// disagreement, not a failure to report.
+			// reconcile raced ahead of the notify, or if the notify was dropped.
+			// LocalQueueUsage returns existence and usage from one snapshot;
+			// when the ClusterQueue is absent it returns empty stats and a nil
+			// error.
+			stats, cqInCache, _ := r.cache.LocalQueueUsage(&queueObj)
 			if cqInCache {
 				return ctrl.Result{RequeueAfter: constants.UpdatesBatchPeriod}, nil
-			}
-			if cacheErr != nil {
-				log.Error(cacheErr, failedUpdateLqStatusMsg)
-				return ctrl.Result{}, cacheErr
 			}
 			err = r.applyLocalQueueStatus(ctx, &queueObj, stats, metav1.ConditionFalse, clusterQueueDoesNotExistReason, clusterQueueIsInactiveMsg)
 		}
