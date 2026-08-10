@@ -231,10 +231,20 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 		{Name: jobframework.GetWorkloadNameForOwnerWithGVK(job.GetName(), job.GetUID(), gvk), Namespace: job.Namespace},
 	}
 	if workloadslicing.Enabled(job) {
+		gen := job.GetGeneration()
 		keys = append(keys, types.NamespacedName{
-			Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), gvk, job.GetGeneration()),
+			Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), gvk, gen),
 			Namespace: job.Namespace,
 		})
+		// Scale-down does not create a new Workload slice: the Job's generation
+		// increments (N→N+1) while the Workload retains the gen-N name.
+		// Include the previous generation so the ownership check still passes.
+		if gen > 0 {
+			keys = append(keys, types.NamespacedName{
+				Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), gvk, gen-1),
+				Namespace: job.Namespace,
+			})
+		}
 	}
 	return keys, nil
 }

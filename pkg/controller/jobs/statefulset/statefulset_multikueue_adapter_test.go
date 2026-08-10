@@ -207,3 +207,65 @@ func TestMultiKueueAdapter(t *testing.T) {
 		})
 	}
 }
+
+// TestWorkloadKeysFor verifies that WorkloadKeysFor returns the correct workload
+// keys for the three meaningful cases: prebuilt label, plain local StatefulSet,
+// and remote StatefulSet (MultiKueue worker) where the Workload is named from
+// the origin UID stored in the annotation rather than from the object's own UID.
+func TestWorkloadKeysFor(t *testing.T) {
+	adapter := &multiKueueAdapter{}
+
+	cases := map[string]struct {
+		statefulSet *appsv1.StatefulSet
+		wantKeys    []types.NamespacedName
+	}{
+		"prebuilt workload label returns that name directly": {
+			statefulSet: utiltestingstatefulset.MakeStatefulSet("sts", TestNamespace).
+				UID("local-uid").
+				PrebuiltWorkloadLabel("my-prebuilt-wl").
+				Obj(),
+			wantKeys: []types.NamespacedName{
+				{Name: "my-prebuilt-wl", Namespace: TestNamespace},
+			},
+		},
+		"plain local StatefulSet uses its own UID": {
+			statefulSet: utiltestingstatefulset.MakeStatefulSet("sts", TestNamespace).
+				UID("local-uid").
+				Obj(),
+			wantKeys: []types.NamespacedName{
+				{Name: GetWorkloadName("local-uid", "sts"), Namespace: TestNamespace},
+				// legacy fallback (empty UID)
+				{Name: GetWorkloadName("", "sts"), Namespace: TestNamespace},
+			},
+		},
+		"remote StatefulSet uses origin UID annotation, not object UID": {
+			// On a worker cluster MultiKueue stamps MultiKueueOriginLabel and
+			// writes the manager UID into MultiKueueOriginUIDAnnotation.
+			// The Workload is named from the origin UID, so the first key must
+			// also be built from the annotation rather than from .UID.
+			// Reverting to statefulSet.GetUID() must turn this case red.
+			statefulSet: utiltestingstatefulset.MakeStatefulSet("sts", TestNamespace).
+				UID("worker-local-uid").
+				Label(kueue.MultiKueueOriginLabel, "manager").
+				Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-origin-uid").
+				Obj(),
+			wantKeys: []types.NamespacedName{
+				{Name: GetWorkloadName("manager-origin-uid", "sts"), Namespace: TestNamespace},
+				// legacy fallback (empty UID)
+				{Name: GetWorkloadName("", "sts"), Namespace: TestNamespace},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := adapter.WorkloadKeysFor(tc.statefulSet)
+			if err != nil {
+				t.Fatalf("WorkloadKeysFor returned unexpected error: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantKeys, got); diff != "" {
+				t.Errorf("WorkloadKeysFor keys mismatch (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}

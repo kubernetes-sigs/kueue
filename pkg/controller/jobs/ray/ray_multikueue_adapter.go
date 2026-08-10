@@ -319,13 +319,32 @@ func (a *adapter[PtrT, T]) WorkloadKeysFor(o runtime.Object) ([]types.Namespaced
 	}
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(job)
-	if prebuiltWorkload == "" {
-		if workloadslicing.Enabled(job) {
-			prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), a.gvk, job.GetGeneration())
-		} else {
-			prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVK(job.GetName(), job.GetUID(), a.gvk)
-		}
+	if prebuiltWorkload != "" {
+		return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.GetNamespace()}}, nil
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.GetNamespace()}}, nil
+	if !workloadslicing.Enabled(job) {
+		return []types.NamespacedName{{
+			Name:      jobframework.GetWorkloadNameForOwnerWithGVK(job.GetName(), job.GetUID(), a.gvk),
+			Namespace: job.GetNamespace(),
+		}}, nil
+	}
+
+	gen := job.GetGeneration()
+	keys := []types.NamespacedName{
+		{
+			Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), a.gvk, gen),
+			Namespace: job.GetNamespace(),
+		},
+	}
+	// Scale-down does not create a new Workload slice: the job's generation
+	// increments (N→N+1) while the Workload retains the gen-N name.
+	// Include the previous generation so the ownership check still passes.
+	if gen > 0 {
+		keys = append(keys, types.NamespacedName{
+			Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), a.gvk, gen-1),
+			Namespace: job.GetNamespace(),
+		})
+	}
+	return keys, nil
 }
