@@ -1134,13 +1134,19 @@ func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r events.Event
 	}
 
 	if propagated {
-		r.Eventf(obj, nil,
-			corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
-			"Updated workload AdmissionGatedBy to %q", obj.GetAnnotations()[constants.AdmissionGatedByAnnotation],
-		)
+		RecordAdmissionGatedByUpdateEvent(r, obj)
 	}
 
 	return nil
+}
+
+// RecordAdmissionGatedByUpdateEvent records a successful AdmissionGatedBy
+// propagation to a workload.
+func RecordAdmissionGatedByUpdateEvent(r events.EventRecorder, obj client.Object) {
+	r.Eventf(obj, nil,
+		corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
+		"Updated workload AdmissionGatedBy to %q", obj.GetAnnotations()[constants.AdmissionGatedByAnnotation],
+	)
 }
 
 // PropagateAdmissionGatedByAnnotation copies the AdmissionGatedBy annotation from the given object to
