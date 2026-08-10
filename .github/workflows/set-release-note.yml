@@ -1,0 +1,88 @@
+name: Set PR release note
+
+on:
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: set-release-note-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  set-release-note:
+    name: Set PR release note
+    if: |
+      github.event.issue.pull_request != null &&
+      contains(github.event.comment.body, '/set-release-note')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify actor authorization
+        id: auth
+        env:
+          ACTOR: ${{ github.actor }}
+          OWNERS_FILE: OWNERS_ALIASES
+        run: |
+          if [ ! -f "$OWNERS_FILE" ]; then
+            echo "error_message=❌ $OWNERS_FILE not found." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          if ! python3 hack/releasing/authorize_release_team.py \
+            --actor "$ACTOR" \
+            --owners-file "$OWNERS_FILE"; then
+            echo "error_message=❌ Actor $ACTOR is not authorized." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Set release note
+        id: update
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          TARGET_REPO: ${{ github.repository }}
+        run: |
+          printf '%s' "$COMMENT_BODY" > comment.md
+          gh pr view "$PR_NUMBER" --repo "$TARGET_REPO" --json body --jq '.body' > pr_body.md
+
+          if ! ERROR_MESSAGE=$(python3 hack/releasing/set_release_note.py \
+            --comment-file comment.md \
+            --body-file pr_body.md \
+            --output-file new_body.md 2>&1); then
+            {
+              echo 'error_message<<EOF'
+              printf '❌ %s\n' "$ERROR_MESSAGE"
+              echo 'EOF'
+            } >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          if ! gh pr edit "$PR_NUMBER" --repo "$TARGET_REPO" --body-file new_body.md; then
+            echo "error_message=❌ Failed to update the pull request body." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Report success
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          TARGET_REPO: ${{ github.repository }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$TARGET_REPO" \
+            --body '✅ The release note was updated.'
+
+      - name: Report failure
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MESSAGE: ${{ steps.update.outputs.error_message || steps.auth.outputs.error_message || '❌ Failed to update the release note.' }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          TARGET_REPO: ${{ github.repository }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$TARGET_REPO" --body "$MESSAGE"
