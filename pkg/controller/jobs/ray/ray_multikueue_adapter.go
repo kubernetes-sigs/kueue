@@ -57,8 +57,7 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 	elastic *ElasticReplicaSync[PtrT, T]
 	// remoteSpecSync is optional. When set, the adapter forwards manager-side spec
 	// changes onto the remote copy on the worker cluster after admission (see
-	// RemoteSpecSyncer). It is left unset for job types that keep the create-once
-	// behavior.
+	// RemoteSpecSyncer).
 	remoteSpecSync RemoteSpecSyncer[PtrT]
 }
 
