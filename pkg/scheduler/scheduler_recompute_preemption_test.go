@@ -23,11 +23,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -132,10 +130,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			// featuregate, it refreshes its targets, finds wl-noisy-admitted from cq-noisy
 			// and preempts it in the same scheduling cycle.
 			enableFairSharing: true,
-			featureGates: map[featuregate.Feature]bool{
-				features.RecomputePreemptionTargetsUponOverlap: true,
-			},
-			cohorts: defaultCohorts(),
+			cohorts:           defaultCohorts(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-noisy-admitted", "eng-alpha").
 					UID("wl-noisy-admitted").
@@ -310,10 +305,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		},
 		"with fair sharing: two workloads reclaim nominal quota; RecomputePreemptionTargetsUponOverlap enabled": {
 			enableFairSharing: true,
-			featureGates: map[featuregate.Feature]bool{
-				features.RecomputePreemptionTargetsUponOverlap: true,
-			},
-			cohorts: defaultCohorts(),
+			cohorts:           defaultCohorts(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-rest-admitted", "eng-alpha").
 					UID("wl-rest-admitted").
@@ -431,10 +423,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		},
 		"two workloads reclaim nominal quota; RecomputePreemptionTargetsUponOverlap enabled": {
 			enableFairSharing: false,
-			featureGates: map[featuregate.Feature]bool{
-				features.RecomputePreemptionTargetsUponOverlap: true,
-			},
-			cohorts: defaultCohorts(),
+			cohorts:           defaultCohorts(),
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-rest-admitted", "eng-alpha").
 					UID("wl-rest-admitted").
@@ -568,9 +557,6 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			// When wl-pending-high-prio-1 is processed next, it is skipped due to overlapping targets
 			// on the default flavor rather than violating flavor stickiness to switch to the on-demand flavor.
 			enableFairSharing: true,
-			featureGates: map[featuregate.Feature]bool{
-				features.RecomputePreemptionTargetsUponOverlap: true,
-			},
 			cohorts: []kueue.Cohort{
 				*utiltestingapi.MakeCohort("root").Obj(),
 			},
@@ -756,23 +742,4 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 		resourceFlavors: resourceFlavors,
 		fakeClock:       fakeClock,
 	}, cases)
-}
-
-func TestScheduleForFairSharingWithRecomputePreemptionTargetsUponOverlap(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-	fakeClock := testingclock.NewFakeClock(now)
-	cfg, cases := fairSharingTestConfigAndCases(now, fakeClock)
-
-	for name, tc := range cases {
-		if name == "multiple preemptions skip overlapping preemption targets" {
-			// This test case is designed to test the opposite behavior, so we exclude it.
-			continue
-		}
-		if tc.featureGates == nil {
-			tc.featureGates = make(map[featuregate.Feature]bool)
-		}
-		tc.featureGates[features.RecomputePreemptionTargetsUponOverlap] = true
-		cases[name] = tc
-	}
-	runScheduleTestCases(t, cfg, cases)
 }
