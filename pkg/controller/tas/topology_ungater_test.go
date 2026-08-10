@@ -162,6 +162,109 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"does not ungate a replacement pod onto the unhealthy domain of a two-pod group": {
+			// Closer to production than the single-pod case below: one pod of the
+			// group survives on a healthy domain and holds its slot, so the only
+			// slot the replacement could take is the one on the unhealthy node.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj(),
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj(),
+									).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					UnhealthyNodes("x1").
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				// Survivor: already ungated on the healthy domain, holding x2's slot.
+				*testingpod.MakePod("pod-survivor", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(corev1.LabelHostname, "x2").
+					Obj(),
+				// Replacement for the pod that was on the unhealthy node.
+				*testingpod.MakePod("pod-replacement", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			// Listed name-sorted, which is the order the comparison uses.
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod-replacement", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("pod-survivor", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(corev1.LabelHostname, "x2").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{corev1.LabelHostname: "x2"},
+					Count:        1,
+				},
+			},
+		},
+		"does not ungate a pod onto a node marked unhealthy": {
+			// The workload keeps its admission and its TopologyAssignment while it
+			// waits for a replacement node (see the "should update workload
+			// TopologyAssignment after a node becomes available" integration
+			// test, which asserts the assignment is retained). A replacement pod
+			// created during that window must NOT be ungated onto the domain of
+			// the node already recorded in Status.UnhealthyNodes: it can never
+			// schedule there, and the node controller then terminates it with
+			// UnschedulableOnAssignedNode, so every recreation burns a retry.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					UnhealthyNodes("x1").
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertCountsOnly,
+			// The pod must stay gated: no node selector applied, nothing ungated.
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			wantCounts: []counts{},
+		},
 		"ungate single pod with sub group index label but no sub group count": {
 			// Regression test: a PodSet with SubGroupIndexLabel set but SubGroupCount
 			// nil (e.g. from an unvalidated user-supplied annotation) must not panic
