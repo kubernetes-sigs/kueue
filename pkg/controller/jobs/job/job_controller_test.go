@@ -3170,6 +3170,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantErr: cmpopts.AnyError,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    "WorkloadPriorityClassNotFound",
+					Message:   "WorkloadPriorityClass missing-wpc not found",
+				},
+			},
 		},
 		"the workload slice is updated when priority class has changed for suspended job": {
 			featureGates: map[featuregate.Feature]bool{
@@ -4831,14 +4839,16 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"job with validate workload-priorityclass": {
-			enableManagedJobsNamespaceSelectorAlwaysRespected: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManagedJobsNamespaceSelector(labels.SelectorFromSet(map[string]string{
 					"managed-by-kueue": "true",
 				})),
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job: *utiltestingjob.MakeJob("job", "labelled-ns").
+			job: utiltestingjob.MakeJob("job", "labelled-ns").
 				Queue("test-queue").
 				Suspend(true).
 				UID("test-uid").
@@ -4883,14 +4893,16 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"job with invalid workload-priorityclass": {
-			enableManagedJobsNamespaceSelectorAlwaysRespected: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManagedJobsNamespaceSelector(labels.SelectorFromSet(map[string]string{
 					"managed-by-kueue": "true",
 				})),
 				jobframework.WithManageJobsWithoutQueueName(true),
 			},
-			job: *utiltestingjob.MakeJob("job", "labelled-ns").
+			job: utiltestingjob.MakeJob("job", "labelled-ns").
 				Queue("test-queue").
 				Suspend(true).
 				UID("test-uid").
