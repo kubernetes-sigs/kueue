@@ -1131,8 +1131,8 @@ func multiKueueConfigName(ac *kueue.AdmissionCheck) string {
 // turn reconciles this admission-check controller. But a spec change that does not
 // alter the workload's PodSets (e.g. a RayService serveConfigV2 edit) leaves the
 // workload untouched, so that path never fires and this controller would only
-// reconcile on the next periodic requeue (~workerLostTimeout). This handler bridges
-// that gap by watching the job directly, so such a change promptly re-runs SyncJob
+// reconcile on the next periodic requeue. This handler bridges that gap by watching
+// the job directly, so such a change promptly re-runs SyncJob
 // (e.g. to forward the serveConfigV2 edit to the worker).
 type localJobHandler struct {
 	client            client.Client
