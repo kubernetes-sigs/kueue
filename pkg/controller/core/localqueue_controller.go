@@ -176,16 +176,11 @@ func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload
 // NotifyClusterQueueUpdate enqueues LocalQueues after ClusterQueue cache cleanup.
 // Only delete events are forwarded: Create/Update are already covered by the
 // ClusterQueue watch. On Delete, ClusterQueueReconciler removes the scheduler
-// cache entry and then notifies so LocalQueue reconcile can publish
+// cache entry and then notifies, so LocalQueue reconcile can publish
 // ClusterQueueDoesNotExist with zero usage from the cache.
-// The send is non-blocking so a full channel cannot stall ClusterQueue delete
-// handling or later watchers; RequeueAfter in Reconcile covers dropped notifies.
 func (r *LocalQueueReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) {
 	if oldCQ != nil && newCQ == nil {
-		select {
-		case r.cqUpdateCh <- event.GenericEvent{Object: oldCQ}:
-		default:
-		}
+		r.cqUpdateCh <- event.GenericEvent{Object: oldCQ}
 	}
 }
 
@@ -218,20 +213,20 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	var cq kueue.ClusterQueue
 	if err := r.client.Get(ctx, client.ObjectKey{Name: string(queueObj.Spec.ClusterQueue)}, &cq); err != nil {
 		if apierrors.IsNotFound(err) {
-			// Active comes from this API Get; usage comes from the scheduler
-			// cache. ClusterQueueReconciler deletes the cache entry
-			// asynchronously, so reconcile can observe NotFound while the
-			// cache still holds non-zero usage. Wait for cleanup before
-			// publishing ClusterQueueDoesNotExist so status never mixes that
-			// reason with stale usage. NotifyClusterQueueUpdate requeues
-			// LocalQueues after cleanup; RequeueAfter is a backup if this
-			// reconcile raced ahead of the notify, or if the notify was dropped.
-			// LocalQueueUsage returns existence and usage from one snapshot;
-			// when the ClusterQueue is absent it returns empty stats and a nil
-			// error.
-			stats, cqInCache, _ := r.cache.LocalQueueUsage(&queueObj)
+			// Active comes from this API Get, usage from the scheduler cache.
+			// ClusterQueueReconciler deletes the cache entry asynchronously, so
+			// reconcile can observe NotFound while the cache still holds
+			// non-zero usage. Wait for that cleanup instead of publishing a
+			// status that mixes ClusterQueueDoesNotExist with stale usage.
+			// NotifyClusterQueueUpdate enqueues the LocalQueues once cleanup is
+			// done; RequeueAfter backs it up if this reconcile raced ahead of
+			// the notify.
+			stats, cqInCache, usageErr := r.cache.LocalQueueUsage(&queueObj)
 			if cqInCache {
 				return ctrl.Result{RequeueAfter: constants.UpdatesBatchPeriod}, nil
+			}
+			if usageErr != nil {
+				return ctrl.Result{}, usageErr
 			}
 			err = r.applyLocalQueueStatus(ctx, &queueObj, stats, metav1.ConditionFalse, clusterQueueDoesNotExistReason, clusterQueueIsInactiveMsg)
 		}

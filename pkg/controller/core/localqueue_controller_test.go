@@ -1110,26 +1110,6 @@ func TestLocalQueueNotifyClusterQueueUpdate(t *testing.T) {
 			}
 		})
 	}
-
-	t.Run("delete drops notify when channel is full", func(t *testing.T) {
-		reconciler := NewLocalQueueReconciler(nil, nil, nil)
-		for range cap(reconciler.cqUpdateCh) {
-			reconciler.cqUpdateCh <- event.GenericEvent{Object: clusterQueue}
-		}
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			reconciler.NotifyClusterQueueUpdate(clusterQueue, nil)
-		}()
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-			t.Fatal("NotifyClusterQueueUpdate blocked on full channel")
-		}
-		if got, want := len(reconciler.cqUpdateCh), cap(reconciler.cqUpdateCh); got != want {
-			t.Fatalf("channel length = %d, want %d", got, want)
-		}
-	})
 }
 
 func TestLocalQueueClusterQueueHandlerGeneric(t *testing.T) {
