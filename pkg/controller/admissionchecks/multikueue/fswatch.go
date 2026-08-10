@@ -124,9 +124,12 @@ func (w *KubeConfigFSWatcher) set(cluster, kcPath string) error {
 	defer w.lock.Unlock()
 
 	dir := path.Dir(kcPath)
+	// fsnotify watches the parent directory, so a directory only needs to be
+	// added the first time one of its files is tracked. Do this before mutating
+	// the bookkeeping maps below so that a failed Add (e.g. the directory does
+	// not exist) leaves the watcher state unchanged.
 	if _, found := w.parentDirToFiles[dir]; !found {
-		err := w.watcher.Add(dir)
-		if err != nil {
+		if err := w.watcher.Add(dir); err != nil {
 			return err
 		}
 	}
@@ -141,7 +144,6 @@ func (w *KubeConfigFSWatcher) set(cluster, kcPath string) error {
 		w.parentDirToFiles[dir].Insert(kcPath)
 	} else {
 		w.parentDirToFiles[dir] = set.New(kcPath)
-		return w.watcher.Add(dir)
 	}
 	return nil
 }
