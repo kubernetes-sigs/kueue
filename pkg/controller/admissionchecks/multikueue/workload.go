@@ -1197,20 +1197,22 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	// workload CR, so it does not reconcile this controller through the usual path;
 	// watching the job directly lets it promptly trigger a sync instead of waiting for
 	// the next periodic requeue.
-	for _, adapter := range w.adapters {
-		lw, ok := adapter.(jobframework.MultiKueueLocalJobWatcher)
-		if !ok {
-			continue
+	if features.Enabled(features.MultiKueueRemoteSpecSync) {
+		for _, adapter := range w.adapters {
+			lw, ok := adapter.(jobframework.MultiKueueLocalJobWatcher)
+			if !ok {
+				continue
+			}
+			emptyJob := lw.NewEmptyLocalJob()
+			if emptyJob == nil {
+				continue
+			}
+			builder = builder.Watches(emptyJob, &localJobHandler{
+				client:            w.client,
+				gvk:               adapter.GVK(),
+				eventsBatchPeriod: w.eventsBatchPeriod,
+			})
 		}
-		emptyJob := lw.NewEmptyLocalJob()
-		if emptyJob == nil {
-			continue
-		}
-		builder = builder.Watches(emptyJob, &localJobHandler{
-			client:            w.client,
-			gvk:               adapter.GVK(),
-			eventsBatchPeriod: w.eventsBatchPeriod,
-		})
 	}
 
 	return builder.

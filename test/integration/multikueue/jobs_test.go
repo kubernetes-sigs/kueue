@@ -1796,6 +1796,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	})
 
 	ginkgo.It("Should forward a serveConfigV2 update to the RayService on the worker if admitted", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueRemoteSpecSync, true)
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
 			utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
 			utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),

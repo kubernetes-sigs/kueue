@@ -202,7 +202,7 @@ func (a *adapter[PtrT, T]) SyncJob(
 		if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
 			return false, a.syncElastic(ctx, remoteClient, workloadName, localJob, remoteJob)
 		}
-		if a.remoteSpecSync != nil && a.remoteSpecSync.NeedsSync(remoteJob, localJob) {
+		if a.remoteSpecSync != nil && features.Enabled(features.MultiKueueRemoteSpecSync) && a.remoteSpecSync.NeedsSync(remoteJob, localJob) {
 			return false, a.syncRemoteSpec(ctx, remoteClient, localJob, remoteJob)
 		}
 		return false, nil
