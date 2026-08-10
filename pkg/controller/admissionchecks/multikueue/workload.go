@@ -1164,9 +1164,6 @@ func (h *localJobHandler) Generic(context.Context, event.GenericEvent, workqueue
 }
 
 func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	// Resolve owned workloads via the owner-reference index rather than the adapter's
-	// WorkloadKeysFor: this handler is generic over adapters (it only holds the GVK)
-	// and the index does not depend on the prebuilt-workload annotation being set.
 	wls := &kueue.WorkloadList{}
 	if err := h.client.List(ctx, wls, client.InNamespace(obj.GetNamespace()),
 		client.MatchingFields{indexer.OwnerReferenceIndexKey(h.gvk): obj.GetName()}); err != nil {
