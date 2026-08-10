@@ -124,6 +124,7 @@ func WithRemoteSpecSync[PtrT objAsPtr[T], T any](s RemoteSpecSyncer[PtrT]) Optio
 type fullInterface interface {
 	jobframework.MultiKueueAdapter
 	jobframework.MultiKueueWatcher
+	jobframework.MultiKueueLocalJobWatcher
 }
 
 // NewMKAdapter creates a generic MultiKueue adapter for Ray job types.
