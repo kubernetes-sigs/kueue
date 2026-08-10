@@ -111,6 +111,53 @@ func TestIsExtendedResourceName(t *testing.T) {
 	}
 }
 
+func TestSelectedDeviceClass(t *testing.T) {
+	at := func(sec int64) metav1.Time { return metav1.Unix(sec, 0) }
+	class := func(name string, created metav1.Time) resourceapi.DeviceClass {
+		return resourceapi.DeviceClass{ObjectMeta: metav1.ObjectMeta{Name: name, CreationTimestamp: created}}
+	}
+	cases := map[string]struct {
+		items []resourceapi.DeviceClass
+		want  string
+	}{
+		"one class is the one": {
+			items: []resourceapi.DeviceClass{class("a", at(100))},
+			want:  "a",
+		},
+		"the class created later wins": {
+			items: []resourceapi.DeviceClass{class("a", at(100)), class("b", at(200))},
+			want:  "b",
+		},
+		"and wins from either end of the list": {
+			items: []resourceapi.DeviceClass{class("b", at(200)), class("a", at(100))},
+			want:  "b",
+		},
+		"created together, the lexicographically first name wins": {
+			items: []resourceapi.DeviceClass{class("b", at(100)), class("a", at(100))},
+			want:  "a",
+		},
+		"and that tie does not depend on the list order either": {
+			items: []resourceapi.DeviceClass{class("a", at(100)), class("b", at(100))},
+			want:  "a",
+		},
+		"a later class beats an earlier one with a smaller name": {
+			items: []resourceapi.DeviceClass{class("a", at(100)), class("z", at(200))},
+			want:  "z",
+		},
+		"the tie-break applies among the latest only": {
+			items: []resourceapi.DeviceClass{class("a", at(300)), class("z", at(100)), class("b", at(300))},
+			want:  "a",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := selectedDeviceClass(tc.items); got.Name != tc.want {
+				t.Errorf("selectedDeviceClass() = %q, want %q", got.Name, tc.want)
+			}
+		})
+	}
+}
+
 func TestResolveExtendedResourceQuota(t *testing.T) {
 	gpuDeviceClass := &resourceapi.DeviceClass{
 		ObjectMeta: metav1.ObjectMeta{
@@ -135,6 +182,28 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			Name: "plain.nvidia.com",
 		},
 		Spec: resourceapi.DeviceClassSpec{},
+	}
+
+	// Two classes on one extendedResourceName. The names sort against the
+	// timestamps, so only the creation order can explain the class picked.
+	alphaDeviceClass := &resourceapi.DeviceClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "alpha.example.com",
+			CreationTimestamp: metav1.Unix(100, 0),
+		},
+		Spec: resourceapi.DeviceClassSpec{
+			ExtendedResourceName: new("example.com/gpu"),
+		},
+	}
+
+	omegaDeviceClass := &resourceapi.DeviceClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "omega.example.com",
+			CreationTimestamp: metav1.Unix(200, 0),
+		},
+		Spec: resourceapi.DeviceClassSpec{
+			ExtendedResourceName: new("example.com/gpu"),
+		},
 	}
 
 	tests := []struct {
@@ -533,6 +602,90 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 					field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "containers").Index(0),
 					"", "",
 				),
+			},
+		},
+		{
+			name: "the mapping of the later DeviceClass decides the quota key",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name:  "c",
+									Image: "pause",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"example.com/gpu": resource.MustParse("1"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{alphaDeviceClass, omegaDeviceClass},
+			mapperMappings: []configapi.DeviceClassMapping{
+				{
+					Name:             "alpha-claims",
+					DeviceClassNames: []corev1.ResourceName{"alpha.example.com"},
+				},
+				{
+					Name:             "omega-claims",
+					DeviceClassNames: []corev1.ResourceName{"omega.example.com"},
+				},
+			},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"omega-claims": resource.MustParse("1"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		},
+		{
+			name: "an unmapped later DeviceClass leaves the extended resource name as the quota key",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name:  "c",
+									Image: "pause",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"example.com/gpu": resource.MustParse("1"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{alphaDeviceClass, omegaDeviceClass},
+			mapperMappings: []configapi.DeviceClassMapping{
+				{
+					Name:             "alpha-claims",
+					DeviceClassNames: []corev1.ResourceName{"alpha.example.com"},
+				},
+			},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"example.com/gpu": resource.MustParse("1"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		},
 	}
