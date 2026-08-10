@@ -18,7 +18,7 @@
     - [Scenario Summary](#scenario-summary)
   - [Workload API](#workload-api)
   - [Scheduler / Flavorassignment](#scheduler--flavorassignment)
-    - [Partial Admission for one PodSets](#partial-admission-for-one-podsets)
+    - [Partial Admission for one PodSet](#partial-admission-for-one-podset)
     - [Partial Admission for multiple PodSets](#partial-admission-for-multiple-podsets)
     - [Order-Based policy (<code>order-based</code>)](#order-based-policy-order-based)
   - [Jobframework](#jobframework)
@@ -112,8 +112,8 @@ When both conditions are met, Kueue treats the Workload as eligible for partial 
 #### Partial Admission Annotation
 ```go
 const (
-  // EnabledAnnotationKey refers to the annotation key present on Job's that support
-  // workload slicing.
+  // EnabledAnnotationKey refers to the annotation key present on Jobs that support
+  // partial admission.
   // This annotation is alpha-level.
   EnabledPartialAdmission = "kueue.x-k8s.io/partial-admission"
 )
@@ -167,18 +167,18 @@ type PodSetAssignment struct {
 
 ### Scheduler / Flavorassignment
 
-In case the workload proposed for the current scheduling cycle does not fit, with or without preemption, in the current available quota and any of its PodSets allow partial admission, kueue will try to find a lower counts combination that fits the available quota with or without borrowing.
+In case the workload proposed for the current scheduling cycle does not fit, with or without preemption, in the current available quota and any of its PodSets allow partial admission, Kueue will try to find a lower counts combination that fits the available quota with or without borrowing.
 
-#### Partial Admission for one PodSets
+#### Partial Admission for one PodSet
 
-The search for appopriate count value is done using binary search algorithm.
+The search for appropriate count value is done using binary search algorithm.
 
 #### Partial Admission for multiple PodSets
 
-The are multiple ways how to approach multiple podsets shrinking in case of insufficient quota. For simplisity reason we'll start with the order-based one and will expand option if needed in future.
-Another approch that was considered is proportional. However it was disgarded because of insufficiency for some use cases.
+There are multiple ways how to approach multiple podsets shrinking in case of insufficient quota. For simplicity reasons we'll start with the order-based one and will expand options if needed in future.
+Another approach that was considered is proportional. However it was discarded because of insufficiency for some use cases.
 
-- **`order-based` (default)**: Shrinks the counts of the PodSets sequentially starting from the last one (suits for the cases when the podsets are ordered by priority). The Workload PodSet order is usually the same as the order of the PodSet in the Job spec. For the RayCluster the Workload PodSets starting from Head PodSet and following by WorkerGroupPodSets in the same order as in RayCluster.
+- **`order-based` (default)**: Shrinks the counts of the PodSets sequentially starting from the last one (suits for the cases when the podsets are ordered by priority). The Workload PodSet order is usually the same as the order of the PodSet in the Job spec. For the RayCluster the Workload PodSets starting from Head PodSet and followed by WorkerGroupPodSets in the same order as in RayCluster.
 
 #### Order-Based policy (`order-based`)
 
@@ -186,7 +186,7 @@ Under the `order-based` policy, Kueue shrinks the PodSets starting from the last
 Specifically, if multiple PodSets have variable counts, Kueue iterates over them in the order they are defined in the Workload spec, starting from the last one. It decreases the count of the current PodSet down to its `minCount` until the workload fits the available quota. If shrinking the last PodSet to its `minCount` is still not enough to fit, Kueue keeps it at its `minCount` and moves to the second-to-last PodSet, decreasing its count down to its `minCount`, and so on.
 As an optimization, we will introduce a second phase (similar to the preemption algorithm): when a workload finds a combination that fits the available quota, Kueue tries to gradually put the reduced counts back. In this phase, Kueue iterates over all PodSets from the first to the last one. For each PodSet that was reduced, Kueue tries to increase its count back to the original count. If that fits, Kueue keeps it. Otherwise, Kueue performs a binary search on the PodSet's count between the current count and the original count to find the maximum count that fits.
 
-One example when order-based policy is used, is when the RayCluster has identical WorkerGroupPodSets, that have different node selectors that are tight to different node group capacity — for example, reservation/on-demand/spot. In this case, it is preferable to keep workers to run on reservation nodes than on-demand/spot nodes.
+One example when order-based policy is used, is when the RayCluster has identical WorkerGroupPodSets, that have different node selectors that are tied to different node group capacity — for example, reservation/on-demand/spot. In this case, it is preferable to keep workers to run on reservation nodes than on-demand/spot nodes.
 
 **Examples:**
 Consider a Job with three PodSets:
@@ -251,9 +251,9 @@ type GenericJob interface {
 
 ### ElasticJob
 
-For ElasticJobs, updating `job.spec.parallelism` or `job.spec.count` could cause race conditions between partial admission and scaling up/down activity. 
-To avoid this, the `podSets` count won't be updated in `RunWithPodSetsInfo` for elastic jobs. Instead, the workload controller will use the `workload.Status.Admission.PodSetAssignments[*].Count` value to calculate the number of pods from which Kueue should remove scheduling gates. 
-The `minCount` value for an ElasticJob workload will represent the currently admitted value + 1.
+For ElasticJobs, updating `job.spec.parallelism` could cause race conditions between partial admission and scaling up/down activity. 
+To avoid this, the `job.spec.parallelism` won't be updated in `RunWithPodSetsInfo` for elastic jobs. Instead, the workload controller will use the `workload.Status.Admission.PodSetAssignments[*].Count` value to calculate the number of pods from which Kueue should remove scheduling gates. 
+The `Workload.Spec.PodSets[].MinCount` for an ElasticJob workload will represent the currently admitted value + 1.
 Also, a new Workload representing the full job will be created and added to the queue, to admit the remaining capacity once it becomes available.
 
 #### Opportunistic scale up when capacity is freed
@@ -269,6 +269,7 @@ Consider a scenario where:
 
 ##### Step 0: Job Creation (Initial Size: 5)
 * **Job spec.parallelism**: 5
+* **Job spec.minParallelism**: 2
 * **Workloads**:
   * `wl-A` (Admitted):
     * `spec.podSets.count` = 5
@@ -284,6 +285,7 @@ Consider a scenario where:
 
 ##### Step 1: Scale Up from 5 to 10 (Quota Constraint: 7), partial admission of scale up
 * **Job spec.parallelism**: 10
+* **Job spec.minParallelism**: 2
 * **Workloads**:
   * `wl-A` (Finished - aggregated/replaced by `wl-B`)
   * `wl-B` (Admitted - Partially):
@@ -303,6 +305,7 @@ Consider a scenario where:
 
 ##### Step 2: Scale Up to 12 (Quota Constraint: 7), scale up isn't admitted
 * **Job spec.parallelism**: 12
+* **Job spec.minParallelism**: 2
 * **Workloads**:
   * `wl-B` (Admitted)
   * `wl-C` (Updated, keep pending):
@@ -412,7 +415,7 @@ major outstanding bugs.
 
 
 ## Implementation History
-- 07/07/2023 - Partial admission for batch.job was added that support only 1 podSet with minCount value.
+- 07/07/2023 - Partial admission for batch/Job was added that supports only 1 podSet with minCount value.
 
 
 ## Drawbacks
