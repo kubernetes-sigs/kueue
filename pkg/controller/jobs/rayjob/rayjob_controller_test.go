@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -63,7 +62,7 @@ func TestPodSets(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "group2",
-						Replicas:  ptr.To[int32](3),
+						Replicas:  new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
 						},
@@ -157,7 +156,7 @@ func TestPodSets(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "group2",
-						Replicas:  ptr.To[int32](3),
+						Replicas:  new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
 						},
@@ -206,7 +205,7 @@ func TestPodSets(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "group2",
-						Replicas:  ptr.To[int32](3),
+						Replicas:  new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -265,7 +264,7 @@ func TestPodSets(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "group2",
-						Replicas:  ptr.To[int32](3),
+						Replicas:  new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -313,7 +312,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
-						Replicas:  ptr.To[int32](3),
+						Replicas:  new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -362,7 +361,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
-						Replicas:  ptr.To[int32](3),
+						Replicas:  new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -429,7 +428,7 @@ func TestPodSets(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName:  "group2",
-						Replicas:   ptr.To[int32](3),
+						Replicas:   new(int32(3)),
 						NumOfHosts: 4,
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
@@ -471,7 +470,7 @@ func TestPodSets(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "group2",
-						Replicas:  ptr.To[int32](3),
+						Replicas:  new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
 						},
@@ -515,7 +514,7 @@ func TestPodSets(t *testing.T) {
 					},
 					rayv1.WorkerGroupSpec{
 						GroupName: "group2",
-						Replicas:  ptr.To[int32](3),
+						Replicas:  new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
 						},

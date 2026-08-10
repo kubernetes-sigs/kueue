@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -3469,7 +3468,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 					FlavorFungibility(kueue.FlavorFungibility{
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
-						Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+						Preference:     new(kueue.PreemptionOverBorrowing),
 					}).
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("on-demand").

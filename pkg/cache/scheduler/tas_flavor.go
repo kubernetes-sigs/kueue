@@ -125,6 +125,12 @@ func (c *TASFlavorCache) updateNodeLabels(nodeLabels map[string]string) {
 	c.flavor.NodeLabels = nodeLabels
 }
 
+func (c *TASFlavorCache) updateTopology(topology topologyInformation) {
+	c.Lock()
+	defer c.Unlock()
+	c.topology = topology
+}
+
 // NodeLabels returns the node labels of the flavor. The returned map is safe to
 // read without holding the lock, because updateNodeLabels always replaces the
 // whole map with a copy owned by the cache, and never mutates it in place.
@@ -138,7 +144,13 @@ func (c *TASFlavorCache) Topology() kueue.TopologyReference {
 	return c.flavor.TopologyName
 }
 
+// TopologyLevels returns the levels of the topology referenced by the flavor.
+// The returned slice is safe to read without holding the lock, because
+// updateTopology always replaces the whole topologyInformation with one owning
+// a freshly built slice, and never mutates it in place.
 func (c *TASFlavorCache) TopologyLevels() []string {
+	c.RLock()
+	defer c.RUnlock()
 	return c.topology.Levels
 }
 

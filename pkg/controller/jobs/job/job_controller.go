@@ -362,7 +362,7 @@ func (j *Job) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&j.Spec.Template.ObjectMeta).PodIndexLabel(
-			ptr.To(batchv1.JobCompletionIndexAnnotation)).Build()
+			new(batchv1.JobCompletionIndexAnnotation)).Build()
 		if err != nil {
 			return nil, err
 		}

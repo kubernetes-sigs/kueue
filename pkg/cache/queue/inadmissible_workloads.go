@@ -30,21 +30,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const (
-	requeueBatchPeriod     = 1 * time.Second
-	requeueLongBatchPeriod = 10 * time.Second
-)
-
-func getRequeueBatchPeriod() time.Duration {
-	if features.Enabled(features.SchedulerLongRequeueInterval) {
-		return requeueLongBatchPeriod
-	}
-	return requeueBatchPeriod
-}
+const requeueBatchPeriod = time.Second
 
 type requeuerOptions struct {
 	batchPeriod time.Duration
@@ -241,7 +230,7 @@ type workqueueRequeuer struct {
 
 func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
 	options := requeuerOptions{
-		batchPeriod: getRequeueBatchPeriod(),
+		batchPeriod: requeueBatchPeriod,
 	}
 	for _, opt := range opts {
 		opt(&options)

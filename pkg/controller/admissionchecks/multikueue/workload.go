@@ -1248,7 +1248,7 @@ func updateDelayedTopologyRequest(local, remote *kueue.Workload) {
 
 		if localPSA.DelayedTopologyRequest != nil &&
 			*localPSA.DelayedTopologyRequest == kueue.DelayedTopologyRequestStatePending {
-			localPSA.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
+			localPSA.DelayedTopologyRequest = new(kueue.DelayedTopologyRequestStateReady)
 		}
 	}
 }

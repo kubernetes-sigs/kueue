@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/metrics/testutil"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -991,7 +990,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			ginkgo.By("Pausing admissions to CQ")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).To(gomega.Succeed())
-				cq1.Spec.StopPolicy = ptr.To(kueue.Hold)
+				cq1.Spec.StopPolicy = new(kueue.Hold)
 				g.Expect(k8sClient.Update(ctx, cq1)).Should(gomega.Succeed())
 			}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
@@ -1020,7 +1019,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			ginkgo.By("Resuming admissions to CQ")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).To(gomega.Succeed())
-				cq1.Spec.StopPolicy = ptr.To(kueue.None)
+				cq1.Spec.StopPolicy = new(kueue.None)
 				g.Expect(k8sClient.Update(ctx, cq1)).Should(gomega.Succeed())
 			}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 

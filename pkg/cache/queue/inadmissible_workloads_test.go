@@ -43,26 +43,6 @@ func TestNewRequeuer(t *testing.T) {
 		args args
 		want want
 	}{
-		"SchedulerLongRequeueInterval feature disabled": {
-			args: args{
-				featureGates: map[featuregate.Feature]bool{
-					features.SchedulerLongRequeueInterval: false,
-				},
-			},
-			want: want{
-				batchPeriod: time.Second,
-			},
-		},
-		"SchedulerLongRequeueInterval feature enabled": {
-			args: args{
-				featureGates: map[featuregate.Feature]bool{
-					features.SchedulerLongRequeueInterval: true,
-				},
-			},
-			want: want{
-				batchPeriod: 10 * time.Second,
-			},
-		},
 		"custom batch period": {
 			args: args{
 				opts: []RequeuerOption{
