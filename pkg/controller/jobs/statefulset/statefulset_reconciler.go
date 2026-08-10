@@ -247,20 +247,19 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = true
 	}
 
+	var admissionGatedByUpdated bool
+	if features.Enabled(features.AdmissionGatedBy) {
+		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
+		shouldUpdate = admissionGatedByUpdated || shouldUpdate
+	}
+
 	if shouldUpdate {
 		if err := r.client.Update(ctx, wl); err != nil {
 			return err
 		}
 	}
-
-	// Must run after the Update above: UpdateAdmissionGatedBy patches the
-	// workload, and the patch response overwrites wl with the persisted state.
-	// Running it earlier would discard the in-memory owner reference and queue
-	// name set above before they are written, silently dropping them.
-	if features.Enabled(features.AdmissionGatedBy) {
-		if err := jobframework.UpdateAdmissionGatedBy(ctx, r.client, r.record, sts, wl); err != nil {
-			return err
-		}
+	if admissionGatedByUpdated {
+		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
 	}
 
 	if shouldReleaseReservation {
