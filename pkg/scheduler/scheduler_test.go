@@ -8323,6 +8323,7 @@ func TestEntryComparerLess(t *testing.T) {
 		b            *entry
 		drsValues    map[drsKey]schdcache.DRS
 		requestedFRs map[workload.Reference]resources.FlavorResourceQuantities
+		featureGates map[featuregate.Feature]bool
 		wantLess     bool
 	}{
 		{
@@ -8433,8 +8434,152 @@ func TestEntryComparerLess(t *testing.T) {
 			},
 			wantLess: true,
 		},
+		{
+			name: "a pending preemption, b not, feature enabled",
+			a: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pending-borrowing",
+							Namespace: "default",
+						},
+						Status: kueue.WorkloadStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:   kueue.WorkloadQuotaReserved,
+									Status: metav1.ConditionFalse,
+									Reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+								},
+							},
+						},
+					},
+				},
+			},
+			b: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "not-pending-nominal",
+							Namespace: "default",
+						},
+					},
+				},
+			},
+			drsValues: map[drsKey]schdcache.DRS{
+				{parentCohort: cohort, workloadKey: "default/pending-borrowing"}: schdcache.BorrowingDRS(cpuDefault),
+				{parentCohort: cohort, workloadKey: "default/not-pending-nominal"}: {},
+			},
+			requestedFRs: map[workload.Reference]resources.FlavorResourceQuantities{
+				"default/pending-borrowing": {cpuDefault: resources.NewAmount(1)},
+				"default/not-pending-nominal": {cpuDefault: resources.NewAmount(1)},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PrioritizeWorkloadsPendingPreemption: true,
+			},
+			wantLess: true,
+		},
+		{
+			name: "a pending preemption, b not, feature disabled",
+			a: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pending-borrowing",
+							Namespace: "default",
+						},
+						Status: kueue.WorkloadStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:   kueue.WorkloadQuotaReserved,
+									Status: metav1.ConditionFalse,
+									Reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+								},
+							},
+						},
+					},
+				},
+			},
+			b: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "not-pending-nominal",
+							Namespace: "default",
+						},
+					},
+				},
+			},
+			drsValues: map[drsKey]schdcache.DRS{
+				{parentCohort: cohort, workloadKey: "default/pending-borrowing"}: schdcache.BorrowingDRS(cpuDefault),
+				{parentCohort: cohort, workloadKey: "default/not-pending-nominal"}: {},
+			},
+			requestedFRs: map[workload.Reference]resources.FlavorResourceQuantities{
+				"default/pending-borrowing": {cpuDefault: resources.NewAmount(1)},
+				"default/not-pending-nominal": {cpuDefault: resources.NewAmount(1)},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PrioritizeWorkloadsPendingPreemption: false,
+			},
+			wantLess: false,
+		},
+		{
+			name: "both pending preemption, feature enabled",
+			a: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pending-borrowing",
+							Namespace: "default",
+						},
+						Status: kueue.WorkloadStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:   kueue.WorkloadQuotaReserved,
+									Status: metav1.ConditionFalse,
+									Reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+								},
+							},
+						},
+					},
+				},
+			},
+			b: &entry{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      "pending-nominal",
+							Namespace: "default",
+						},
+						Status: kueue.WorkloadStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:   kueue.WorkloadQuotaReserved,
+									Status: metav1.ConditionFalse,
+									Reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+								},
+							},
+						},
+					},
+				},
+			},
+			drsValues: map[drsKey]schdcache.DRS{
+				{parentCohort: cohort, workloadKey: "default/pending-borrowing"}: schdcache.BorrowingDRS(cpuDefault),
+				{parentCohort: cohort, workloadKey: "default/pending-nominal"}:   {},
+			},
+			requestedFRs: map[workload.Reference]resources.FlavorResourceQuantities{
+				"default/pending-borrowing": {cpuDefault: resources.NewAmount(1)},
+				"default/pending-nominal":   {cpuDefault: resources.NewAmount(1)},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PrioritizeWorkloadsPendingPreemption: true,
+			},
+			wantLess: false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.featureGates != nil {
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			}
 			drsValues := tc.drsValues
 			if drsValues == nil {
 				drsValues = make(map[drsKey]schdcache.DRS)
