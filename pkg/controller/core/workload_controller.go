@@ -127,6 +127,10 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 	return dra.MergeDRAResources(draResources, capacityResources), false, ctrl.Result{}, nil
 }
 
+// handleDRA preprocesses DRA-backed resources for a pending workload and queues it.
+// Returns done=true when reconciliation should stop (error or terminal DRA outcome).
+// When done=false, queueOptions holds the InfoOptions the caller must pass to any
+// subsequent AddOrUpdateWorkload in the same reconcile (e.g. the backoff-requeue path).
 func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, queueOptions []workload.InfoOption, err error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -524,11 +528,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	}
 	var draQueueOptions []workload.InfoOption
 	if workload.Status(&wl) == workload.StatusPending && dra.NeedsDRAReconcile(&wl, r.draBackedResources) {
-		var done bool
-		var result ctrl.Result
-		var err error
-		if done, result, draQueueOptions, err = r.handleDRA(ctx, &wl); done {
+		if done, result, opts, err := r.handleDRA(ctx, &wl); done {
 			return result, err
+		} else {
+			draQueueOptions = opts
 		}
 	}
 

@@ -250,6 +250,38 @@ func TestReconcileDRA(t *testing.T) {
 				Obj(),
 			wantEvents: nil,
 		},
+		"reconcile DRA extended resource requeued after backoff should replace extended resource in queue": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                 true,
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.MultiKueueOrchestratedPreemption:    false,
+			},
+			wantDRAResourceTotal:   new(int64(1)),
+			wantAbsentDRAResources: []corev1.ResourceName{"example.com/gpu"},
+			wantWorkloadsInQueue:   new(1),
+			workload: utiltestingapi.MakeWorkload("wlDRAExtendedRequeuedAfterBackoff", "ns").
+				Queue("lq").
+				Request("example.com/gpu", "1").
+				RequeueState(new(int32(1)), new(metav1.NewTime(fakeClock.Now().Add(-time.Hour)))).
+				Obj(),
+			additionalObjects: []client.Object{
+				utiltesting.MakeDeviceClass("gpu-class").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlDRAExtendedRequeuedAfterBackoff", "ns").
+				Queue("lq").
+				Request("example.com/gpu", "1").
+				RequeueState(new(int32(1)), nil).
+				Obj(),
+			wantEvents: nil,
+		},
 		"reconcile DRA ResourceClaimTemplate multi-pod should be pre-processed and queued": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              true,
