@@ -1147,6 +1147,10 @@ func (h *localJobHandler) Create(context.Context, event.CreateEvent, workqueue.T
 func (h *localJobHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	// React to spec changes only; a status-only update (e.g. status synced back
 	// from the worker) neither needs nor should re-trigger a sync.
+	//
+	// TODO: generation bumps only on spec changes, so metadata-only edits (labels,
+	// annotations) are filtered out here. Revisit if a future adapter needs to forward
+	// such metadata to the worker.
 	if e.ObjectOld.GetGeneration() == e.ObjectNew.GetGeneration() {
 		return
 	}
