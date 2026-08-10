@@ -3683,9 +3683,8 @@ func TestValidateCustomLabels(t *testing.T) {
 	})
 }
 
-// One reserved output per transformation, in the order the transformations are
-// configured, and not deduplicated across them: the same name in two of them is
-// two separate things for an operator to fix.
+// TestValidateReportsAReservedOutputPerTransformation pins one error per
+// transformation, in configured order and not deduplicated across them.
 func TestValidateReportsAReservedOutputPerTransformation(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := clientgoscheme.AddToScheme(scheme); err != nil {
