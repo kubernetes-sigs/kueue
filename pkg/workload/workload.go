@@ -548,12 +548,15 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
-func (i *Info) CalcLocalQueueFSUsage(
-	ctx context.Context,
-	c client.Client,
+// ComputeLocalQueueFSUsage returns the fair-sharing usage for the workload's
+// LocalQueue using the given weight, without any API read. The persistent heap
+// comparator uses this with a cached weight so its ordering stays consistent even
+// if a LocalQueue lookup fails. See Kueue#13476.
+func (i *Info) ComputeLocalQueueFSUsage(
+	weight float64,
 	resWeights map[corev1.ResourceName]float64,
 	afsUsageLedger *queueafs.AfsUsageLedger,
-) (float64, error) {
+) float64 {
 	lqKey := queue.KeyFromWorkload(i.Obj)
 
 	// One Get, so the (consumed, penalty) pair is consistent.
@@ -566,12 +569,21 @@ func (i *Info) CalcLocalQueueFSUsage(
 		}
 	}
 
+	return afs.CalculateUsage(consumed, penalty, weight, resWeights)
+}
+
+func (i *Info) CalcLocalQueueFSUsage(
+	ctx context.Context,
+	c client.Client,
+	resWeights map[corev1.ResourceName]float64,
+	afsUsageLedger *queueafs.AfsUsageLedger,
+) (float64, error) {
 	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
 	lqWeight, err := afs.ResolveLQWeight(ctx, c, lqObjKey)
 	if err != nil {
 		return 0, err
 	}
-	return afs.CalculateUsage(consumed, penalty, lqWeight, resWeights), nil
+	return i.ComputeLocalQueueFSUsage(lqWeight, resWeights, afsUsageLedger), nil
 }
 
 // IsUsingTAS returns information if the workload is using TAS
