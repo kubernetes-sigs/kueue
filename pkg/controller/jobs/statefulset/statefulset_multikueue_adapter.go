@@ -103,9 +103,14 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 		return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: statefulSet.Namespace}}, nil
 	}
 
+	// Use GetOwnerUID so that on a worker cluster the key is computed from the
+	// origin UID (stamped in MultiKueueOriginUIDAnnotation), which is exactly
+	// what the StatefulSet reconciler uses when naming the Workload.  On the
+	// manager cluster GetOwnerUID falls back to statefulSet.UID, so both sides
+	// produce consistent names.
 	return []types.NamespacedName{
-		{Name: jobframework.GetWorkloadNameForOwnerWithGVK(statefulSet.GetName(), statefulSet.GetUID(), gvk), Namespace: statefulSet.Namespace},
-		// TODO(#9497, v0.20): Remove legacy fallback.
+		{Name: GetWorkloadName(GetOwnerUID(statefulSet), statefulSet.Name), Namespace: statefulSet.Namespace},
+		// TODO(#9497, v0.20): Remove legacy fallback (empty UID).
 		{Name: GetWorkloadName("", statefulSet.Name), Namespace: statefulSet.Namespace},
 	}, nil
 }

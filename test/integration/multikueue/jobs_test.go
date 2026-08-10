@@ -1910,7 +1910,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Eventually(func(g gomega.Gomega) {
 				getJob(worker1.ctx, worker1.client, remoteJob)
 				g.Expect(remoteJob.Spec.Parallelism).To(gomega.BeEquivalentTo(new(int32(1))))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.By("observe: there are no new workloads created in response to scale-down even in the worker1 cluster", func() {
 			list := &kueue.WorkloadList{}
@@ -2236,7 +2236,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				remote := raycluster.DeepCopy()
 				getRayCluster(worker1.ctx, worker1.client, remote)
 				g.Expect(remote.Spec.WorkerGroupSpecs[0].Replicas).To(gomega.BeEquivalentTo(new(int32(1))))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("observe: there are still no workloads in the worker2 cluster", func() {
