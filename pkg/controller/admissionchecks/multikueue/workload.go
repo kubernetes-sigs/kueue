@@ -1132,8 +1132,7 @@ func multiKueueConfigName(ac *kueue.AdmissionCheck) string {
 // alter the workload's PodSets (e.g. a RayService serveConfigV2 edit) leaves the
 // workload untouched, so that path never fires and this controller would only
 // reconcile on the next periodic requeue. This handler bridges that gap by watching
-// the job directly, so such a change promptly re-runs SyncJob
-// (e.g. to forward the serveConfigV2 edit to the worker).
+// the job directly, so such a change promptly re-runs SyncJob.
 type localJobHandler struct {
 	client            client.Client
 	gvk               schema.GroupVersionKind
@@ -1143,7 +1142,6 @@ type localJobHandler struct {
 var _ handler.EventHandler = (*localJobHandler)(nil)
 
 func (h *localJobHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	// no-op as the workload is synced through its own watch on creation
 }
 
 func (h *localJobHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -1156,8 +1154,6 @@ func (h *localJobHandler) Update(ctx context.Context, e event.UpdateEvent, q wor
 }
 
 func (h *localJobHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	// no-op as a manager-job deletion needs no sync trigger: the owning workload is
-	// being finalized regardless.
 }
 
 func (h *localJobHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
