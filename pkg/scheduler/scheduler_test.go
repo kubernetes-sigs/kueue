@@ -8466,11 +8466,11 @@ func TestEntryComparerLess(t *testing.T) {
 				},
 			},
 			drsValues: map[drsKey]schdcache.DRS{
-				{parentCohort: cohort, workloadKey: "default/pending-borrowing"}: schdcache.BorrowingDRS(cpuDefault),
+				{parentCohort: cohort, workloadKey: "default/pending-borrowing"}:   schdcache.BorrowingDRS(cpuDefault),
 				{parentCohort: cohort, workloadKey: "default/not-pending-nominal"}: {},
 			},
 			requestedFRs: map[workload.Reference]resources.FlavorResourceQuantities{
-				"default/pending-borrowing": {cpuDefault: resources.NewAmount(1)},
+				"default/pending-borrowing":   {cpuDefault: resources.NewAmount(1)},
 				"default/not-pending-nominal": {cpuDefault: resources.NewAmount(1)},
 			},
 			featureGates: map[featuregate.Feature]bool{
@@ -8510,11 +8510,11 @@ func TestEntryComparerLess(t *testing.T) {
 				},
 			},
 			drsValues: map[drsKey]schdcache.DRS{
-				{parentCohort: cohort, workloadKey: "default/pending-borrowing"}: schdcache.BorrowingDRS(cpuDefault),
+				{parentCohort: cohort, workloadKey: "default/pending-borrowing"}:   schdcache.BorrowingDRS(cpuDefault),
 				{parentCohort: cohort, workloadKey: "default/not-pending-nominal"}: {},
 			},
 			requestedFRs: map[workload.Reference]resources.FlavorResourceQuantities{
-				"default/pending-borrowing": {cpuDefault: resources.NewAmount(1)},
+				"default/pending-borrowing":   {cpuDefault: resources.NewAmount(1)},
 				"default/not-pending-nominal": {cpuDefault: resources.NewAmount(1)},
 			},
 			featureGates: map[featuregate.Feature]bool{
