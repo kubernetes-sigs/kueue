@@ -1518,6 +1518,13 @@ default. The upper bound matches the API limit on `Status.UnhealthyNodes`:
   because a deleted tail node generates no further node events, so the tail must be carried
   forward explicitly rather than re-discovered).
 
+The replacement algorithm is greedy and does not atomically recompute the entire PodSet. For a
+required topology request, healthy members of the current assignment pin replacement to their
+existing required domain. If that domain has no spare capacity, replacement remains pending even
+when moving the entire PodSet to another domain would fit. Conversely, queued failures can be
+replaced one by one when suitable capacity exists in the required domain. A future enhancement
+may consider whole-PodSet replanning, but Alpha users should not rely on it.
+
 The default threshold of `1` lets the Workload tolerate one unhealthy node while a replacement
 is in flight and evicts it on the second distinct failure. While the gate is enabled, scheduler
 fail-fast eviction is also suppressed for that first unhealthy node, so replacement is retried
