@@ -223,15 +223,20 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 	}
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(job)
-	if prebuiltWorkload == "" {
-		if workloadslicing.Enabled(job) {
-			prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), gvk, job.GetGeneration())
-		} else {
-			prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVK(job.GetName(), job.GetUID(), gvk)
-		}
+	if prebuiltWorkload != "" {
+		return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.Namespace}}, nil
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.Namespace}}, nil
+	keys := []types.NamespacedName{
+		{Name: jobframework.GetWorkloadNameForOwnerWithGVK(job.GetName(), job.GetUID(), gvk), Namespace: job.Namespace},
+	}
+	if workloadslicing.Enabled(job) {
+		keys = append(keys, types.NamespacedName{
+			Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), gvk, job.GetGeneration()),
+			Namespace: job.Namespace,
+		})
+	}
+	return keys, nil
 }
 
 // needElasticJobSync determines if a remote Job requires synchronization due to elastic job features.

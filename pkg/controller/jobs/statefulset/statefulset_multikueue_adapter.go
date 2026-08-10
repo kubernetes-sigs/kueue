@@ -99,9 +99,13 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 	}
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(statefulSet)
-	if prebuiltWorkload == "" {
-		prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVK(statefulSet.GetName(), statefulSet.GetUID(), gvk)
+	if prebuiltWorkload != "" {
+		return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: statefulSet.Namespace}}, nil
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: statefulSet.Namespace}}, nil
+	return []types.NamespacedName{
+		{Name: jobframework.GetWorkloadNameForOwnerWithGVK(statefulSet.GetName(), statefulSet.GetUID(), gvk), Namespace: statefulSet.Namespace},
+		// TODO(#9497, v0.20): Remove legacy fallback.
+		{Name: GetWorkloadName("", statefulSet.Name), Namespace: statefulSet.Namespace},
+	}, nil
 }

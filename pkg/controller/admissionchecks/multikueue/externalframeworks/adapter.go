@@ -249,7 +249,7 @@ func (a *Adapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, err
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(unstructuredObj)
 	if prebuiltWorkload == "" {
-		return nil, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(unstructuredObj))
+		prebuiltWorkload = jobframework.GetWorkloadNameForOwnerWithGVK(unstructuredObj.GetName(), unstructuredObj.GetUID(), a.gvk)
 	}
 
 	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: unstructuredObj.GetNamespace()}}, nil

@@ -3253,3 +3253,52 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 			gotResult.RequeueAfter, syncDeferredRequeueAfter)
 	}
 }
+
+func TestIsWorkloadOwnedByKeys(t *testing.T) {
+	cases := map[string]struct {
+		wlName      string
+		wlNamespace string
+		keys        []types.NamespacedName
+		want        bool
+	}{
+		"exact match": {
+			wlName:      "wl1",
+			wlNamespace: "default",
+			keys:        []types.NamespacedName{{Name: "wl1", Namespace: "default"}},
+			want:        true,
+		},
+		"wrong namespace": {
+			wlName:      "wl1",
+			wlNamespace: "default",
+			keys:        []types.NamespacedName{{Name: "wl1", Namespace: "other"}},
+			want:        false,
+		},
+		"prefix match with dash": {
+			wlName:      "job1-a1b2c",
+			wlNamespace: "default",
+			keys:        []types.NamespacedName{{Name: "job1", Namespace: "default"}},
+			want:        false,
+		},
+		"prefix match for generated name": {
+			wlName:      "job-test-12345",
+			wlNamespace: "default",
+			keys:        []types.NamespacedName{{Name: "job-test", Namespace: "default"}},
+			want:        false,
+		},
+		"no match": {
+			wlName:      "spoofed-wl",
+			wlNamespace: "default",
+			keys:        []types.NamespacedName{{Name: "victim-wl", Namespace: "default"}},
+			want:        false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := isWorkloadOwnedByKeys(tc.wlName, tc.wlNamespace, tc.keys)
+			if got != tc.want {
+				t.Errorf("isWorkloadOwnedByKeys() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

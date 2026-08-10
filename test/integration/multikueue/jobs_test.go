@@ -2575,9 +2575,9 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		// Step 2: Craft the spoofed workload. The attacker references the victim
-		// Job by name in owner annotations, but the Job's prebuilt label points to
-		// a *different* workload ("victim-wl"), so the ownership check fails.
+		// Step 2: Craft the spoofed workload. The attacker references another existing
+		// Job (to avoid Kubernetes GC from deleting the Workload immediately), but the Job's
+		// prebuilt label points to a *different* workload, so the Kueue ownership check fails.
 		ginkgo.By("creating a spoofed workload whose owner annotations reference the victim Job", func() {
 			spoofedWl := utiltestingapi.MakeWorkload("spoofed-wl", managerNs.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
@@ -2589,13 +2589,10 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				types.NamespacedName{Name: "spoofed-wl", Namespace: managerNs.Name}, admission)
 		})
 
-		ginkgo.By("verifying the spoofed workload is rejected or deleted", func() {
+		ginkgo.By("verifying the spoofed workload is rejected", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				wl := &kueue.Workload{}
 				err := managerTestCluster.client.Get(managerTestCluster.ctx, types.NamespacedName{Name: "spoofed-wl", Namespace: managerNs.Name}, wl)
-				if apierrors.IsNotFound(err) {
-					return
-				}
 				g.Expect(err).To(gomega.Succeed())
 				ac := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, kueue.AdmissionCheckReference(multiKueueAC.Name))
 				g.Expect(ac).NotTo(gomega.BeNil())

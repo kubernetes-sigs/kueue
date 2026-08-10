@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -290,30 +289,31 @@ func (w *wlReconciler) verifyWorkloadOwnership(
 	mkAc *kueue.AdmissionCheckState,
 	isDeleted bool,
 ) (reconcile.Result, bool, error) {
-	watcher, implements := adapter.(jobframework.MultiKueueWatcher)
-	if !implements {
+	if !features.Enabled(features.MultiKueueStrictValidation) {
 		return reconcile.Result{}, false, nil
+	}
+
+	watcher, ok := adapter.(jobframework.MultiKueueWatcher)
+	if !ok {
+		// If strict validation is enabled but the adapter doesn't support the required interface,
+		// we fail closed and reject the workload to prevent bypassing the check.
+		if !isDeleted {
+			log := ctrl.LoggerFrom(ctx)
+			log.V(2).Info("Cannot verify ownership due to missing MultiKueueWatcher interface", "workload", req.NamespacedName)
+			return reconcile.Result{}, true, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, "adapter does not implement MultiKueueWatcher for strict validation")
+		}
+		return reconcile.Result{}, true, nil
 	}
 
 	log := ctrl.LoggerFrom(ctx)
 
-	emptyList := watcher.GetEmptyList()
-	t := reflect.TypeOf(emptyList)
-	if t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	itemsField, found := t.FieldByName("Items")
-	if !found || itemsField.Type.Kind() != reflect.Slice {
-		return reconcile.Result{}, true, fmt.Errorf("items slice not found in list type %T", emptyList)
-	}
-	itemType := itemsField.Type.Elem()
-	jobObj, ok := reflect.New(itemType).Interface().(client.Object)
-	if !ok {
-		return reconcile.Result{}, true, errors.New("instantiated item type does not implement client.Object")
+	jobObj, err := newJobObject(watcher)
+	if err != nil {
+		return reconcile.Result{}, true, err
 	}
 	jobObj.GetObjectKind().SetGroupVersionKind(adapter.GVK())
 
-	err := w.client.Get(ctx, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace}, jobObj)
+	err = w.client.Get(ctx, types.NamespacedName{Name: owner.Name, Namespace: wl.Namespace}, jobObj)
 	if err != nil {
 		if client.IgnoreNotFound(err) != nil {
 			// Fail closed on transient errors.
@@ -341,28 +341,7 @@ func (w *wlReconciler) verifyWorkloadOwnership(
 			return reconcile.Result{}, true, nil
 		}
 
-		ownsWorkload := false
-		for _, k := range keys {
-			if k.Namespace != wl.Namespace {
-				continue
-			}
-
-			if k.Name == wl.Name {
-				ownsWorkload = true
-				break
-			}
-
-			prefix := k.Name
-			if dashIdx := strings.LastIndex(prefix, "-"); dashIdx != -1 {
-				prefix = prefix[:dashIdx+1]
-			}
-
-			if strings.HasPrefix(wl.Name, prefix) {
-				ownsWorkload = true
-				break
-			}
-		}
-		if !ownsWorkload {
+		if !isWorkloadOwnedByKeys(wl.Name, wl.Namespace, keys) {
 			if !isDeleted {
 				log.V(2).Info("Workload is not owned by the referenced Job", "workload", req.NamespacedName)
 				return reconcile.Result{}, true, w.updateACS(ctx, wl, mkAc, kueue.CheckStateRejected, "Workload is not owned by the referenced Job")
@@ -375,6 +354,45 @@ func (w *wlReconciler) verifyWorkloadOwnership(
 	}
 
 	return reconcile.Result{}, false, nil
+}
+
+// newJobObject uses reflection to dynamically instantiate an empty client.Object
+// of the correct Job type (e.g. batchv1.Job, rayv1.RayJob) managed by the given adapter.
+// This is necessary because MultiKueue adapters handle arbitrary Job frameworks, so we
+// cannot hardcode the concrete struct type. We fetch the list type, extract the item type,
+// and create a new instance of it to pass into the Kubernetes client for GET requests.
+func newJobObject(watcher jobframework.MultiKueueWatcher) (client.Object, error) {
+	emptyList := watcher.GetEmptyList()
+	t := reflect.TypeOf(emptyList)
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	itemsField, found := t.FieldByName("Items")
+	if !found || itemsField.Type.Kind() != reflect.Slice {
+		return nil, fmt.Errorf("items slice not found in list type %T", emptyList)
+	}
+	itemType := itemsField.Type.Elem()
+	jobObj, ok := reflect.New(itemType).Interface().(client.Object)
+	if !ok {
+		return nil, errors.New("instantiated item type does not implement client.Object")
+	}
+	return jobObj, nil
+}
+
+// isWorkloadOwnedByKeys checks if the given workload is exactly represented by one of the generated keys.
+// Exact matching is used to ensure security, preventing attackers from spoofing workloads by
+// registering names that merely share a prefix. If a framework dynamically mutates workload names
+// (e.g. by appending generations), the framework adapter must explicitly return all valid keys.
+func isWorkloadOwnedByKeys(wlName, wlNamespace string, keys []types.NamespacedName) bool {
+	for _, k := range keys {
+		if k.Namespace != wlNamespace {
+			continue
+		}
+		if wlName == k.Name {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
