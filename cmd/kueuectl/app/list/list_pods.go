@@ -45,9 +45,9 @@ import (
 
 var (
 	podLong = templates.LongDesc(`
-		Lists all pods that matches the given criteria: should be part 
+		Lists all pods that match the given criteria: should be part 
 		of the specified Job kind, belonging to the specified namespace, 
-		matching the label selector or the field selector.)
+		matching the label selector or the field selector.
 
 		The --for=pod/pod-name option allows to find pods from the same 
 		pod group as the specified pod, including that pod itself. 

@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -3176,7 +3175,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with Resource Transformation (Retain CPU → cpu_credits)": {
 			resourceTransformations: []config.ResourceTransformation{{
 				Input:    corev1.ResourceCPU,
-				Strategy: ptr.To(config.Retain),
+				Strategy: new(config.Retain),
 				Outputs:  corev1.ResourceList{cpuCredits: resource.MustParse("1")},
 			}},
 			nodes:           defaultSingleNode,
@@ -3224,7 +3223,7 @@ func TestScheduleForTAS(t *testing.T) {
 		"workload with Resource Transformation (Retain CPU → cpu_credits, not enough credits)": {
 			resourceTransformations: []config.ResourceTransformation{{
 				Input:    corev1.ResourceCPU,
-				Strategy: ptr.To(config.Retain),
+				Strategy: new(config.Retain),
 				Outputs:  corev1.ResourceList{cpuCredits: resource.MustParse("1")},
 			}},
 			nodes:           defaultSingleNode,

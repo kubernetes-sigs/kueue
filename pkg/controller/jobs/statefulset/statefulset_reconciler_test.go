@@ -29,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -290,7 +289,7 @@ func TestReconciler(t *testing.T) {
 						},
 						TopologyRequest: &kueue.PodSetTopologyRequest{
 							Required:      new("cloud.com/block"),
-							PodIndexLabel: ptr.To(appsv1.PodIndexLabel),
+							PodIndexLabel: new(appsv1.PodIndexLabel),
 						},
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").

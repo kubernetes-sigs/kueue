@@ -26,7 +26,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -86,7 +85,7 @@ func TestPodSets(t *testing.T) {
 							},
 							{
 								GroupName: "group2",
-								Replicas:  ptr.To[int32](3),
+								Replicas:  new(int32(3)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
 								},
@@ -176,7 +175,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName:  "group1",
-								Replicas:   ptr.To[int32](2),
+								Replicas:   new(int32(2)),
 								NumOfHosts: 3,
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
@@ -223,7 +222,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
-								Replicas:  ptr.To[int32](1),
+								Replicas:  new(int32(1)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},
@@ -276,7 +275,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
-								Replicas:  ptr.To[int32](1),
+								Replicas:  new(int32(1)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},
@@ -304,7 +303,7 @@ func TestPodSets(t *testing.T) {
 					WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 						{
 							GroupName: "group1",
-							Replicas:  ptr.To[int32](5), // RayCluster has scaled to 5 replicas
+							Replicas:  new(int32(5)), // RayCluster has scaled to 5 replicas
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 							},
@@ -347,7 +346,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
-								Replicas:  ptr.To[int32](2),
+								Replicas:  new(int32(2)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},
@@ -370,7 +369,7 @@ func TestPodSets(t *testing.T) {
 					WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 						{
 							GroupName: "group1",
-							Replicas:  ptr.To[int32](10), // RayCluster has different count
+							Replicas:  new(int32(10)), // RayCluster has different count
 						},
 					},
 				},
@@ -410,7 +409,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
-								Replicas:  ptr.To[int32](3),
+								Replicas:  new(int32(3)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},
@@ -460,7 +459,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
-								Replicas:  ptr.To[int32](2),
+								Replicas:  new(int32(2)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},

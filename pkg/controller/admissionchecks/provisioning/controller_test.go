@@ -35,7 +35,6 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -123,7 +122,7 @@ func TestReconcile(t *testing.T) {
 				ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 					corev1.ResourceCPU: resource.MustParse("4"),
 				},
-				Count: ptr.To[int32](4),
+				Count: new(int32(4)),
 			},
 			kueue.PodSetAssignment{
 				Name: "ps2",
@@ -133,7 +132,7 @@ func TestReconcile(t *testing.T) {
 				ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 					corev1.ResourceCPU: resource.MustParse("3M"),
 				},
-				Count: ptr.To[int32](3),
+				Count: new(int32(3)),
 			},
 		).
 			Obj(), now).
@@ -232,9 +231,9 @@ func TestReconcile(t *testing.T) {
 
 	var backoffBaseSeconds int32 = 60
 	baseConfigWithRetryStrategy := baseConfig.Clone().RetryStrategy(&kueue.ProvisioningRequestRetryStrategy{
-		BackoffLimitCount:  ptr.To[int32](3),
+		BackoffLimitCount:  new(int32(3)),
 		BackoffBaseSeconds: new(backoffBaseSeconds),
-		BackoffMaxSeconds:  ptr.To[int32](1800),
+		BackoffMaxSeconds:  new(int32(1800)),
 	})
 
 	baseConfigWithPodSetUpdates := baseConfigWithRetryStrategy.Clone().PodSetUpdate(kueue.ProvisioningRequestPodSetUpdates{
@@ -260,7 +259,7 @@ func TestReconcile(t *testing.T) {
 			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceCPU: resource.MustParse("1"),
 			},
-			Count: ptr.To[int32](1),
+			Count: new(int32(1)),
 		},
 		{
 			Name: "ps2",
@@ -270,7 +269,7 @@ func TestReconcile(t *testing.T) {
 			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceCPU: resource.MustParse("1"),
 			},
-			Count: ptr.To[int32](2),
+			Count: new(int32(2)),
 		},
 		{
 			Name: "ps3",
@@ -280,7 +279,7 @@ func TestReconcile(t *testing.T) {
 			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceMemory: resource.MustParse("1M"),
 			},
-			Count: ptr.To[int32](2),
+			Count: new(int32(2)),
 		},
 		{
 			Name: "ps4",
@@ -290,7 +289,7 @@ func TestReconcile(t *testing.T) {
 			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceMemory: resource.MustParse("1M"),
 			},
-			Count: ptr.To[int32](1),
+			Count: new(int32(1)),
 		},
 		{
 			Name: "ps5",
@@ -300,7 +299,7 @@ func TestReconcile(t *testing.T) {
 			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceMemory: resource.MustParse("1M"),
 			},
-			Count: ptr.To[int32](1),
+			Count: new(int32(1)),
 		},
 	}
 
@@ -618,7 +617,7 @@ func TestReconcile(t *testing.T) {
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:       "check1",
 					State:      kueue.CheckStatePending,
-					RetryCount: ptr.To[int32](1),
+					RetryCount: new(int32(1)),
 				}, kueue.AdmissionCheckState{
 					Name:  "not-provisioning",
 					State: kueue.CheckStatePending,
@@ -632,7 +631,7 @@ func TestReconcile(t *testing.T) {
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:       "check1",
 						State:      kueue.CheckStatePending,
-						RetryCount: ptr.To[int32](1),
+						RetryCount: new(int32(1)),
 					}, kueue.AdmissionCheckState{
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
@@ -2079,7 +2078,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 					corev1.ResourceCPU: resource.MustParse("4"),
 				},
-				Count: ptr.To[int32](4),
+				Count: new(int32(4)),
 			},
 		).
 			Obj(), now).
