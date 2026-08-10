@@ -1193,8 +1193,10 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod})
 
 	// Watch the local (manager) job objects of adapters that forward spec changes
-	// after admission, so an edit (e.g. RayService serveConfigV2) promptly triggers
-	// a sync instead of waiting for the next periodic requeue.
+	// after admission. Such an edit (e.g. RayService serveConfigV2) does not alter the
+	// workload CR, so it does not reconcile this controller through the usual path;
+	// watching the job directly lets it promptly trigger a sync instead of waiting for
+	// the next periodic requeue.
 	for _, adapter := range w.adapters {
 		lw, ok := adapter.(jobframework.MultiKueueLocalJobWatcher)
 		if !ok {
