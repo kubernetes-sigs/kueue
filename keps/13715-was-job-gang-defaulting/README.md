@@ -216,13 +216,17 @@ Eligibility does not depend on `completionMode`; Indexed and NonIndexed Jobs of 
 The implementation must verify that the target cluster preserves `batch/v1 Job.spec.scheduling` before defaulting.
 REST mapping and OpenAPI are insufficient, because the Job resource and the field schema remain visible even when the field is not preserved.
 The presence of the `scheduling.k8s.io` API group is also only a proxy, because it is governed by `GenericWorkload` rather than by `WorkloadWithJob`, which is the gate that decides whether the Job field survives.
-The check therefore targets the observable itself rather than any particular gate: every unsupported state, whether the cluster predates the field or serves the schema while `WorkloadWithJob` is disabled, collapses into the same symptom, the field is not preserved, and the same behavior, skipping the mutation and reporting the reason.
+The check therefore targets the observable itself rather than any particular gate: every state that loses the field, whether the cluster predates it or the API server runs with `WorkloadWithJob` disabled, collapses into the same symptom, the field is not preserved, and the same behavior, skipping the mutation and reporting the reason.
 Kueue therefore needs a preflight mechanism, such as a dry-run create that carries the field followed by inspection of the returned object.
 Whatever mechanism is selected must run outside the admission path, since a dry-run create passes through Kueue's own mutating webhook and the probe object must be excluded from defaulting, and its result must be cached rather than re-verified on every request.
 Selecting it is [OQ6](#open-questions) and blocks implementation, because rule 7 depends on it.
 
 Independently, a controller-side comparison after creation should report unexpected loss of the field, including on a MultiKueue worker.
 That is defensive reporting, not a substitute: once the field is dropped it cannot be restored on that Job.
+
+The preflight covers the API-server side of the contract only, because `WorkloadWithJob` takes effect per component: the API-server gate decides whether the field is preserved, while the controller-manager gate decides whether the Job controller compiles the `scheduling.Workload` and `PodGroup`.
+A cluster with the API-server gate enabled and the controller-manager gate disabled preserves the field but never compiles it, so the preservation probe passes while the injected policy stays inert.
+No API-level probe can detect that skew in advance; the controller-side check above is the detection point and should also report a defaulted gang Job whose compiled objects never appear.
 
 ### Observability
 
@@ -246,7 +250,7 @@ A shared write abstraction should wait until those interfaces stabilize.
 | OQ4 | What is the final Configuration API shape? | Settle before implementable. |
 | OQ5 | Should defaulting be skipped when workload slices are enabled? | Yes for alpha, because the Kueue-side slice semantics are unverified. |
 | OQ6 | How can Kueue reliably detect that the apiserver preserves `spec.scheduling`? | Not from REST mapping or OpenAPI. Blocks implementation together with rule 7. |
-| OQ7 | Does `spec.scheduling` with a nil `schedulingPolicy` count as user intent? | No. Blocks implementation, since it fixes rule 5, the escape hatch, and the webhook tests together. |
+| OQ7 | Does `spec.scheduling` with a nil `schedulingPolicy` count as user intent? | No. Upstream resolves an unset policy to `Basic` at compile time rather than persisting it, which the stricter reading would treat as an implicit opt-out. Blocks implementation, since it fixes rule 5, the escape hatch, and the webhook tests together. |
 
 ### Upstream dependencies
 
@@ -273,11 +277,11 @@ Until one exists, the tests run in the WAS lane built from Kubernetes `main`.
 
 ### Unit tests
 
-Table-driven Job webhook tests cover the gate disabled, the configured policy `None`, an explicit `gang`, an explicit `basic`, `spec.scheduling` with a nil policy, ineligible Job shapes, a child Job with a Kueue-managed ancestor, a Job not managed by Kueue, idempotent reinvocation, and a target cluster that does not preserve the field, covering both an absent API and an API that is served while `WorkloadWithJob` is disabled.
+Table-driven Job webhook tests cover the gate disabled, the configured policy `None`, an explicit `gang`, an explicit `basic`, `spec.scheduling` with a nil policy, ineligible Job shapes, a child Job with a Kueue-managed ancestor, a Job not managed by Kueue, idempotent reinvocation, and a target cluster that does not preserve the field, covering both an absent API and a schema that is served while the API server drops the field.
 
 ### Integration tests
 
-Using an `envtest` that serves the field with `WorkloadWithJob` enabled: defaulting enabled and disabled, explicit opt-out, child Job exclusion, unsupported API behavior, eviction of a defaulted Job followed by resume with the injected policy unchanged, and observability for applied and skipped defaulting.
+Using an `envtest` that serves the field with `WorkloadWithJob` enabled: defaulting enabled and disabled, explicit opt-out, child Job exclusion, unsupported API behavior, eviction of a defaulted Job followed by resume with the injected policy unchanged, and observability for applied defaulting, skipped defaulting, and a preserved but never-compiled policy.
 
 ### e2e tests
 
