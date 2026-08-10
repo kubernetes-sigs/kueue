@@ -168,6 +168,83 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 	}
 }
 
+func TestReqIsNeeded(t *testing.T) {
+	makeWorkload := func(specCount int32, admissionCount *int32, includeAssignment bool) *kueue.Workload {
+		builder := utiltestingapi.MakeWorkload("wl", TestNamespace).
+			PodSets(*utiltestingapi.MakePodSet("ps", int(specCount)).
+				Request(corev1.ResourceCPU, "1").
+				Obj())
+		admission := utiltestingapi.MakeAdmission("q")
+		if includeAssignment {
+			admission = admission.PodSets(kueue.PodSetAssignment{
+				Name:  "ps",
+				Count: admissionCount,
+			})
+		}
+		return builder.ReserveQuotaAt(admission.Obj(), time.Now()).Obj()
+	}
+
+	prc := utiltestingapi.MakeProvisioningRequestConfig("config").
+		ManagedResources([]corev1.ResourceName{corev1.ResourceCPU}).
+		Obj()
+
+	cases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+		wantErr  error
+	}{
+		"positive admitted count needs request": {
+			workload: makeWorkload(1, ptr.To[int32](1), true),
+			want:     true,
+		},
+		"missing admitted count falls back to spec count": {
+			workload: makeWorkload(1, nil, true),
+			want:     true,
+		},
+		"zero admitted count does not need request": {
+			workload: makeWorkload(1, ptr.To[int32](0), true),
+		},
+		"zero spec count does not require assignment": {
+			workload: makeWorkload(0, nil, false),
+		},
+		"missing assignment returns inconsistency error": {
+			workload: makeWorkload(1, nil, false),
+			wantErr:  errInconsistentPodSetAssignments,
+		},
+		"needed podset does not short circuit later missing assignment": {
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ps1", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					*utiltestingapi.MakePodSet("ps2", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("q").
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](1)}).
+						Obj(),
+					time.Now(),
+				).
+				Obj(),
+			wantErr: errInconsistentPodSetAssignments,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := reqIsNeeded(tc.workload, prc)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			}
+			if got != tc.want {
+				t.Errorf("reqIsNeeded() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReconcile(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
@@ -2283,7 +2360,10 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				t.Fatalf("Setting up the provisioning request controller: %v", err)
 			}
 
-			gotResult := controller.activeOrLastPRForChecks(ctx, workload, checkConfig, tc.requests)
+			gotResult, err := controller.activeOrLastPRForChecks(ctx, workload, checkConfig, tc.requests)
+			if err != nil {
+				t.Fatalf("activeOrLastPRForChecks() error = %v", err)
+			}
 			if diff := cmp.Diff(tc.wantResult, gotResult, reqCmpOptions...); diff != "" {
 				t.Errorf("unexpected request %q (-want/+got):\n%s", name, diff)
 			}

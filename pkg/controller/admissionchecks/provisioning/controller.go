@@ -170,7 +170,10 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		checkConfig[checkName] = prc
 	}
 
-	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, checkConfig, provReqs.Items)
+	activeOrLastPRForChecks, err := c.activeOrLastPRForChecks(ctx, wl, checkConfig, provReqs.Items)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 
 	wlInfo := workloadInfo{
 		checkStates: make([]kueue.AdmissionCheckState, 0),
@@ -201,18 +204,22 @@ func (c *Controller) activeOrLastPRForChecks(
 	wl *kueue.Workload,
 	checkConfig map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig,
 	ownedPRs []autoscaling.ProvisioningRequest,
-) map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest {
+) (map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest, error) {
 	activeOrLastPRForChecks := make(map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest)
 	log := ctrl.LoggerFrom(ctx)
 	for checkName, prc := range checkConfig {
 		if prc == nil {
 			continue
 		}
+		reqNeeded, err := reqIsNeeded(wl, prc)
+		if err != nil {
+			return nil, err
+		}
 		for i := range ownedPRs {
 			req := &ownedPRs[i]
 			// PRs relevant for the admission check
 			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
-				if c.reqIsNeeded(wl, prc) && provReqSyncedWithConfig(req, prc) {
+				if reqNeeded && provReqSyncedWithConfig(req, prc) {
 					currPr, exists := activeOrLastPRForChecks[checkName]
 					if !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
@@ -221,7 +228,7 @@ func (c *Controller) activeOrLastPRForChecks(
 			}
 		}
 	}
-	return activeOrLastPRForChecks
+	return activeOrLastPRForChecks, nil
 }
 
 func (c *Controller) deleteUnusedProvisioningRequests(
@@ -259,7 +266,11 @@ func (c *Controller) syncOwnedProvisionRequest(
 			// the check is not active
 			continue
 		}
-		if !c.reqIsNeeded(wl, prc) {
+		reqNeeded, err := reqIsNeeded(wl, prc)
+		if err != nil {
+			return err
+		}
+		if !reqNeeded {
 			continue
 		}
 		ac := admissioncheck.FindAdmissionCheck(wlInfo.checkStates, checkName)
@@ -464,11 +475,28 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 	return nil
 }
 
-func (c *Controller) reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) bool {
-	mergedPodSets, err := mergePodSets(wl, &prc.Spec)
-	// Preserve the existing reconciliation path for inconsistent Workloads
-	// so it can report the underlying error.
-	return err != nil || len(mergedPodSets) > 0
+func reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) (bool, error) {
+	assignments := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(psa *kueue.PodSetAssignment) kueue.PodSetReference {
+		return psa.Name
+	})
+	managedResources := sets.New(prc.Spec.ManagedResources...)
+	needed := false
+	// Each managed PodSet checked. An assignment missing for a single PodSet 
+	// indicates the Workloads admission data is inconsistent regardless of other PodSets.
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		if ps.Count <= 0 || (managedResources.Len() > 0 && !podUses(&ps.Template.Spec, managedResources)) {
+			continue
+		}
+		psa, found := assignments[ps.Name]
+		if !found {
+			return false, fmt.Errorf("%w: missing assignment for PodSet %q", errInconsistentPodSetAssignments, ps.Name)
+		}
+		if ptr.Deref(psa.Count, ps.Count) > 0 {
+			needed = true
+		}
+	}
+	return needed, nil
 }
 
 func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []kueue.PodSetReference {
@@ -566,7 +594,9 @@ func (c *Controller) syncCheckStates(
 				// the check is not active
 				updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 				updated = updateCheckMessage(&checkState, CheckInactiveMessage) || updated
-			} else if !c.reqIsNeeded(wl, prc) {
+			} else if reqNeeded, err := reqIsNeeded(wl, prc); err != nil {
+				return false, err
+			} else if !reqNeeded {
 				if updateCheckState(&checkState, kueue.CheckStateReady) {
 					updated = true
 					checkState.Message = NoRequestNeeded
