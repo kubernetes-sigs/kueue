@@ -144,7 +144,8 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 	for remote, wl := range g.remotes {
 		if wl != nil {
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, conditionType)
-			if cond != nil && cond.Status == metav1.ConditionTrue && (bestMatchCond == nil || cond.LastTransitionTime.Before(&bestMatchCond.LastTransitionTime)) {
+			if cond != nil && cond.Status == metav1.ConditionTrue &&
+				(bestMatchCond == nil || cond.LastTransitionTime.Before(&bestMatchCond.LastTransitionTime)) {
 				bestMatchCond = cond
 				bestMatchRemote = remote
 			}

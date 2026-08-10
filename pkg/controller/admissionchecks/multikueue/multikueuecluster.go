@@ -1260,7 +1260,11 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		})
 
 		controllerBuilder = controllerBuilder.
-			Watches(&inventoryv1alpha1.ClusterProfile{}, &clusterProfileHandler{client: mgr.GetClient()}, builder.WithPredicates(systemNamespacePredicate))
+			Watches(
+				&inventoryv1alpha1.ClusterProfile{},
+				&clusterProfileHandler{client: mgr.GetClient()},
+				builder.WithPredicates(systemNamespacePredicate),
+			)
 	}
 
 	return controllerBuilder.Complete(core.WithLeadingManagerAndObserver(mgr, c, cfg))
