@@ -3055,3 +3055,64 @@ func TestCohortSubtreePendingWorkloads_CohortReparent(t *testing.T) {
 		t.Errorf("after reparent: root2 active = %v, want 1", got)
 	}
 }
+
+func TestCohortSubtreePendingWorkloads_CohortCustomLabels(t *testing.T) {
+	// Verify that CohortSubtreePendingWorkloads is emitted with the configured
+	// Cohort custom label value and does not panic when custom labels are
+	// enabled. Uses a single cohort → cq topology to keep it focused.
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	log := logr.Discard()
+	defer metrics.InitMetricVectors(nil)
+
+	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		{Name: "env", SourceKind: new(configapi.SourceKindCohort)},
+	})
+	fakeClient := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+	manager, _ := NewManagerForUnitTestsWithRequeuer(fakeClient, nil,
+		WithPreemptionExpectations(preemptexpectations.New()),
+		WithCustomLabels(customLabels),
+	)
+
+	// Store the cohort's custom label value before adding it.
+	cohortObj := utiltestingapi.MakeCohort("team-a").Label("env", "prod").Obj()
+	customLabels.CohortStore(kueue.CohortReference("team-a"), cohortObj.GetLabels(), cohortObj.GetAnnotations())
+	manager.AddOrUpdateCohort(ctx, cohortObj)
+
+	cq1 := utiltestingapi.MakeClusterQueue("cq1").Cohort("team-a").Obj()
+	if err := manager.AddClusterQueue(ctx, cq1); err != nil {
+		t.Fatalf("Failed adding cq1: %v", err)
+	}
+	lq1 := utiltestingapi.MakeLocalQueue("lq1", defaultNamespace).ClusterQueue("cq1").Obj()
+	if err := manager.AddLocalQueue(ctx, lq1); err != nil {
+		t.Fatalf("Failed adding lq1: %v", err)
+	}
+	wl1 := utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq1").Creation(time.Now()).Obj()
+	if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
+		t.Fatalf("Failed adding wl1: %v", err)
+	}
+
+	// The metric must fire exactly once for team-a/active with custom_env=prod and value 1.
+	got := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreePendingWorkloads, map[string]string{
+		"cohort":     "team-a",
+		"status":     metrics.PendingStatusActive,
+		"custom_env": "prod",
+	})
+	if len(got) != 1 || got[0].Value != 1 {
+		t.Errorf("cohort=team-a status=active custom_env=prod: got %v, want [{Value:1}]", got)
+	}
+
+	// Adding a second workload must increment the gauge to 2.
+	wl2 := utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq1").Creation(time.Now()).Obj()
+	if err := manager.AddOrUpdateWorkload(log, wl2); err != nil {
+		t.Fatalf("Failed adding wl2: %v", err)
+	}
+	got = testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreePendingWorkloads, map[string]string{
+		"cohort":     "team-a",
+		"status":     metrics.PendingStatusActive,
+		"custom_env": "prod",
+	})
+	if len(got) != 1 || got[0].Value != 2 {
+		t.Errorf("after wl2: cohort=team-a status=active custom_env=prod: got %v, want [{Value:2}]", got)
+	}
+}
