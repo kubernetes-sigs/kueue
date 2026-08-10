@@ -540,21 +540,21 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 	cqName := string(c.Name)
 	for fr, quota := range c.resourceNode.Quotas {
 		fName, rName := string(fr.Flavor), string(fr.Resource)
-		nominal := resourceFloat(fr.Resource, quota.Nominal.Int64())
+		nominal := quota.Nominal.AsApproximateFloat64(fr.Resource)
 		var borrowing, lending float64
 		if quota.BorrowingLimit == nil {
 			borrowing = math.Inf(1)
 		} else {
-			borrowing = resourceFloat(fr.Resource, quota.BorrowingLimit.Int64())
+			borrowing = quota.BorrowingLimit.AsApproximateFloat64(fr.Resource)
 		}
 		if quota.LendingLimit == nil {
 			lending = math.Inf(1)
 		} else {
-			lending = resourceFloat(fr.Resource, quota.LendingLimit.Int64())
+			lending = quota.LendingLimit.AsApproximateFloat64(fr.Resource)
 		}
 		metrics.ReportClusterQueueQuotas(cohort, cqName, fName, rName, nominal, borrowing, lending, c.customMetricLabelValues, c.roleTracker)
-		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, resourceFloat(fr.Resource, c.resourceNode.Usage[fr].Int64()), c.customMetricLabelValues, c.roleTracker)
-		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, resourceFloat(fr.Resource, c.AdmittedUsage[fr].Int64()), c.customMetricLabelValues, c.roleTracker)
+		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, c.resourceNode.Usage[fr].AsApproximateFloat64(fr.Resource), c.customMetricLabelValues, c.roleTracker)
+		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, c.AdmittedUsage[fr].AsApproximateFloat64(fr.Resource), c.customMetricLabelValues, c.roleTracker)
 	}
 	if fairSharingEnabled {
 		c.reportWeightedShare(cohort)

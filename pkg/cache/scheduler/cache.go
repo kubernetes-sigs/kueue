@@ -25,7 +25,6 @@ import (
 	"sync"
 
 	"github.com/go-logr/logr"
-	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -42,7 +41,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
-	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -1143,11 +1141,6 @@ func (c *Cache) ResyncGaugeMetrics(log logr.Logger) {
 	for _, cohortName := range cohortNames {
 		c.ResyncCohortGaugeMetrics(log, cohortName)
 	}
-}
-
-func resourceFloat(name corev1.ResourceName, v int64) float64 {
-	q := resources.ResourceQuantity(name, v)
-	return utilresource.QuantityToFloat(&q)
 }
 
 // Key is the key used to index the queue.
