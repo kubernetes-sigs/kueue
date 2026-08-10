@@ -29,7 +29,6 @@ import (
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -413,7 +412,7 @@ func TestValidateWorkload(t *testing.T) {
 									Operator:          corev1.TolerationOpEqual,
 									Value:             "t1v",
 									Effect:            corev1.TaintEffectNoExecute,
-									TolerationSeconds: ptr.To[int64](5),
+									TolerationSeconds: new(int64(5)),
 								},
 							},
 							NodeSelector: map[string]string{"type": "first"},
@@ -428,7 +427,7 @@ func TestValidateWorkload(t *testing.T) {
 									Operator:          corev1.TolerationOpEqual,
 									Value:             "t2v",
 									Effect:            corev1.TaintEffectNoExecute,
-									TolerationSeconds: ptr.To[int64](10),
+									TolerationSeconds: new(int64(10)),
 								},
 							},
 							NodeSelector: map[string]string{"type": "second"},
@@ -897,7 +896,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(8))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -909,7 +908,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(8))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -929,7 +928,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 10).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](20)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(20))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -941,7 +940,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 10).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](20)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(20))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -987,7 +986,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(8))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -999,7 +998,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 1).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(8))}).
 						Obj(), now,
 				).
 				Obj(),

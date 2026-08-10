@@ -27,8 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func ExpectEventsForObjectsWithTimeout(eventWatcher watch.Interface, objs sets.Set[types.NamespacedName], filter func(*eventsv1.Event) bool, timeout time.Duration) {
@@ -56,9 +54,11 @@ readCh:
 // ExpectEventAppeared asserts that an event matching Reason/Type/Note has been emitted.
 func ExpectEventAppeared(ctx context.Context, k8sClient client.Client, event eventsv1.Event) {
 	ginkgo.GinkgoHelper()
+	observedEvents := &eventsv1.EventList{}
 	gomega.Eventually(func(g gomega.Gomega) {
-		ok, err := utiltesting.HasEventAppeared(ctx, k8sClient, event)
+		observedEvents.Items = nil
+		err := k8sClient.List(ctx, observedEvents)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
-		g.Expect(ok).Should(gomega.BeTrue())
+		g.Expect(observedEvents.Items).To(haveEvent(event))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }

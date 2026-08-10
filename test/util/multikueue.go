@@ -38,7 +38,6 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -194,7 +193,7 @@ func KubeconfigForMultiKueueSA(ctx context.Context, c client.Client, restConfig 
 		Spec: authenticationv1.TokenRequestSpec{
 			// The 7d expiration duration matches the max expiration time value for this token
 			// and is configured in [hack/testing/multikueue/worker-cluster.kind.yaml].
-			ExpirationSeconds: ptr.To[int64](7 * 24 * 3600),
+			ExpirationSeconds: new(int64(7 * 24 * 3600)),
 		},
 	}
 	err = c.SubResource("token").Create(ctx, sa, token)

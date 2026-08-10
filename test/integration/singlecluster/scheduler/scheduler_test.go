@@ -294,7 +294,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 						ResourceUsage: corev1.ResourceList{
 							corev1.ResourceCPU: resource.MustParse("0"),
 						},
-						Count: ptr.To[int32](0),
+						Count: new(int32(0)),
 					}).Obj()
 
 				util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, emptyWl, emptyWlAdmission)
@@ -608,7 +608,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.When("Hold ClusterQueue at startup", func() {
 			ginkgo.BeforeEach(func() {
-				cqsStopPolicy = ptr.To(kueue.Hold)
+				cqsStopPolicy = new(kueue.Hold)
 			})
 			ginkgo.AfterEach(func() {
 				cqsStopPolicy = nil
@@ -706,7 +706,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 		ginkgo.When("Hold LocalQueue at startup", func() {
 			ginkgo.BeforeEach(func() {
-				lqsStopPolicy = ptr.To(kueue.Hold)
+				lqsStopPolicy = new(kueue.Hold)
 			})
 			ginkgo.AfterEach(func() {
 				lqsStopPolicy = nil
@@ -2158,7 +2158,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				var cq kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqTeamA), &cq)).To(gomega.Succeed())
-				cq.Spec.StopPolicy = ptr.To(kueue.Hold)
+				cq.Spec.StopPolicy = new(kueue.Hold)
 				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -2183,7 +2183,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				var cq kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqTeamA), &cq)).To(gomega.Succeed())
-				cq.Spec.StopPolicy = ptr.To(kueue.None)
+				cq.Spec.StopPolicy = new(kueue.None)
 				g.Expect(k8sClient.Update(ctx, &cq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -2543,7 +2543,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			var clusterQueue kueue.ClusterQueue
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &clusterQueue)).To(gomega.Succeed())
-				clusterQueue.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
+				clusterQueue.Spec.StopPolicy = new(kueue.HoldAndDrain)
 				g.Expect(k8sClient.Update(ctx, &clusterQueue)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -2645,7 +2645,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			ginkgo.By("Stopping the LocalQueue")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), createdLq)).To(gomega.Succeed())
-				createdLq.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
+				createdLq.Spec.StopPolicy = new(kueue.HoldAndDrain)
 				g.Expect(k8sClient.Update(ctx, createdLq)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

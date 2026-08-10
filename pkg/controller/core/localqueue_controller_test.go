@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -261,7 +260,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			// The full interval pins that the tick ran; the sampling-interval
 			// guard short-circuit would return interval minus the (negative)
 			// sinceLastUpdate instead.
-			wantRequeueAfter: ptr.To(5 * time.Minute),
+			wantRequeueAfter: new(5 * time.Minute),
 		},
 		"local queue decaying usage sums the previous state and running workloads": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -592,7 +591,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 						},
 					}).
 				Obj(),
-			wantRequeueAfter: ptr.To(time.Minute),
+			wantRequeueAfter: new(time.Minute),
 			afsConfig: &config.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
@@ -892,7 +891,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				}).
 				Obj(),
 			// 5s interval - 1s elapsed = 4s remaining
-			wantRequeueAfter: ptr.To(4 * time.Second),
+			wantRequeueAfter: new(4 * time.Second),
 			afsConfig: &config.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: 60 * time.Second},
 				UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Second},

@@ -109,6 +109,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: FlavorFungibilityPreserveScanProgress
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true
@@ -317,12 +323,6 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
-- name: SchedulerLongRequeueInterval
-  versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.17"
 - name: SchedulerTimestampPreemptionBuffer
   versionedSpecs:
   - default: false
@@ -547,6 +547,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: WorkloadRequestUseMergePatch
   versionedSpecs:
   - default: false
