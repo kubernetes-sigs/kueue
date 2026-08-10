@@ -17,16 +17,12 @@ limitations under the License.
 package common
 
 import (
-	"time"
-
 	"github.com/go-logr/logr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
-
-const timestampPreemptionBuffer = 5 * time.Minute
 
 func SatisfiesPreemptionPolicy(log logr.Logger, preemptor, candidate *kueue.Workload, workloadOrdering workload.Ordering, policy kueue.PreemptionPolicy) bool {
 	preemptorPriority := priority.EffectivePriority(log, preemptor)
