@@ -1364,6 +1364,54 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		// The multiplier is read while transformations run, before flavor
+		// assignment writes this key, so the lookup always misses.
+		"transformation multiplying by pods rejected": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "example.com/credits",
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: corev1.ResourcePods,
+							Outputs:    corev1.ResourceList{"example.com/charge": resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].multiplyBy",
+				},
+			},
+		},
+		"transformation naming pods twice reports both": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "example.com/credits",
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: corev1.ResourcePods,
+							Outputs:    corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[pods]",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].multiplyBy",
+				},
+			},
+		},
 		"multi-counter: whole-device and counter for same DeviceClass rejected": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
