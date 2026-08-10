@@ -1124,6 +1124,48 @@ func multiKueueConfigName(ac *kueue.AdmissionCheck) string {
 	return ac.Spec.Parameters.Name
 }
 
+// localJobHandler enqueues the workload(s) owned by a manager-side job when the
+// job's spec changes, so MultiKueue promptly re-runs SyncJob (e.g. to forward a
+// RayService serveConfigV2 edit to the worker) instead of waiting for the next
+// periodic requeue.
+type localJobHandler struct {
+	client            client.Client
+	gvk               schema.GroupVersionKind
+	eventsBatchPeriod time.Duration
+}
+
+var _ handler.EventHandler = (*localJobHandler)(nil)
+
+func (h *localJobHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *localJobHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	// React to spec changes only; a status-only update (e.g. status synced back
+	// from the worker) neither needs nor should re-trigger a sync.
+	if e.ObjectOld.GetGeneration() == e.ObjectNew.GetGeneration() {
+		return
+	}
+	h.queue(ctx, e.ObjectNew, q)
+}
+
+func (h *localJobHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *localJobHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	wls := &kueue.WorkloadList{}
+	if err := h.client.List(ctx, wls, client.InNamespace(obj.GetNamespace()),
+		client.MatchingFields{indexer.OwnerReferenceIndexKey(h.gvk): obj.GetName()}); err != nil {
+		ctrl.LoggerFrom(ctx).V(3).Error(err, "Listing workloads for manager job", "job", klog.KObj(obj))
+		return
+	}
+	for i := range wls.Items {
+		q.AddAfter(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&wls.Items[i])}, h.eventsBatchPeriod)
+	}
+}
+
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -1134,12 +1176,33 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		},
 	}
 
-	return ctrl.NewControllerManagedBy(mgr).
+	builder := ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
-		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
+		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod})
+
+	// Watch the local (manager) job objects of adapters that forward spec changes
+	// after admission, so an edit (e.g. RayService serveConfigV2) promptly triggers
+	// a sync instead of waiting for the next periodic requeue.
+	for _, adapter := range w.adapters {
+		lw, ok := adapter.(jobframework.MultiKueueLocalJobWatcher)
+		if !ok {
+			continue
+		}
+		emptyJob := lw.NewEmptyLocalJob()
+		if emptyJob == nil {
+			continue
+		}
+		builder = builder.Watches(emptyJob, &localJobHandler{
+			client:            w.client,
+			gvk:               adapter.GVK(),
+			eventsBatchPeriod: w.eventsBatchPeriod,
+		})
+	}
+
+	return builder.
 		WithEventFilter(w).
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload"),

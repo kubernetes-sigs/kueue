@@ -302,6 +302,17 @@ func (a *adapter[PtrT, T]) GetEmptyList() client.ObjectList {
 	return a.emptyList()
 }
 
+// NewEmptyLocalJob lets the MultiKueue controller watch the manager job so a spec
+// change promptly triggers a sync. It is wired only for types that forward spec
+// changes after admission (remoteSpecSync); create-once types return nil and are
+// not watched.
+func (a *adapter[PtrT, T]) NewEmptyLocalJob() client.Object {
+	if a.remoteSpecSync == nil {
+		return nil
+	}
+	return PtrT(new(T))
+}
+
 func (a *adapter[PtrT, T]) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
 	job, isTheJob := o.(PtrT)
 	if !isTheJob {
