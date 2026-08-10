@@ -101,10 +101,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
-	if err := r.syncQueueLabel(ctx, sts, podList.Items); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	// Finalizing pods and reconciling the Workload touch different objects, so
 	// one failing is no reason to abandon the other. A derived context would
 	// cancel it, and its own lookups would then fail as cancelled rather than
@@ -112,7 +108,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	// carries shutdown and any deadline.
 	var eg errgroup.Group
 
+	// Both patch the same Pods, so they stay in order on one branch.
 	eg.Go(func() error {
+		if err := r.syncQueueLabel(ctx, sts, podList.Items); err != nil {
+			return err
+		}
 		return r.finalizePods(ctx, sts, podList.Items)
 	})
 
