@@ -466,7 +466,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlA), wlA)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(wlA)).To(gomega.BeFalse())
-			}, util.ConsistentDuration, util.LongInterval).Should(gomega.Succeed())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Finishing eviction for wlB")
 			util.FinishEvictionForWorkloads(ctx, k8sClient, wlB)
