@@ -58,7 +58,12 @@ func (r *readOnlyClient) DeleteAllOf(ctx context.Context, obj client.Object, opt
 	return ErrWriteForbidden("DeleteAllOf")
 }
 
-func (r *readOnlyClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+func (r *readOnlyClient) Patch(
+	ctx context.Context,
+	obj client.Object,
+	patch client.Patch,
+	opts ...client.PatchOption,
+) error {
 	return ErrWriteForbidden("Patch")
 }
 
@@ -70,19 +75,37 @@ func (r *readOnlyClient) Status() client.SubResourceWriter {
 
 type readOnlySubResourceWriter struct{}
 
-func (w *readOnlySubResourceWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+func (w *readOnlySubResourceWriter) Apply(
+	ctx context.Context,
+	obj runtime.ApplyConfiguration,
+	opts ...client.SubResourceApplyOption,
+) error {
 	return ErrWriteForbidden("Status.Apply")
 }
 
-func (w *readOnlySubResourceWriter) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
+func (w *readOnlySubResourceWriter) Create(
+	ctx context.Context,
+	obj client.Object,
+	subResource client.Object,
+	opts ...client.SubResourceCreateOption,
+) error {
 	return ErrWriteForbidden("Status.Create")
 }
 
-func (w *readOnlySubResourceWriter) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+func (w *readOnlySubResourceWriter) Update(
+	ctx context.Context,
+	obj client.Object,
+	opts ...client.SubResourceUpdateOption,
+) error {
 	return ErrWriteForbidden("Status.Update")
 }
 
-func (w *readOnlySubResourceWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+func (w *readOnlySubResourceWriter) Patch(
+	ctx context.Context,
+	obj client.Object,
+	patch client.Patch,
+	opts ...client.SubResourcePatchOption,
+) error {
 	return ErrWriteForbidden("Status.Patch")
 }
 
@@ -96,22 +119,45 @@ type readOnlySubResourceClient struct {
 	client client.SubResourceClient
 }
 
-func (w *readOnlySubResourceClient) Get(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceGetOption) error {
+func (w *readOnlySubResourceClient) Get(
+	ctx context.Context,
+	obj client.Object,
+	subResource client.Object,
+	opts ...client.SubResourceGetOption,
+) error {
 	return w.client.Get(ctx, obj, subResource, opts...)
 }
 
-func (w *readOnlySubResourceClient) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
+func (w *readOnlySubResourceClient) Create(
+	ctx context.Context,
+	obj client.Object,
+	subResource client.Object,
+	opts ...client.SubResourceCreateOption,
+) error {
 	return ErrWriteForbidden("SubResource.Create")
 }
 
-func (w *readOnlySubResourceClient) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+func (w *readOnlySubResourceClient) Update(
+	ctx context.Context,
+	obj client.Object,
+	opts ...client.SubResourceUpdateOption,
+) error {
 	return ErrWriteForbidden("SubResource.Update")
 }
 
-func (w *readOnlySubResourceClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+func (w *readOnlySubResourceClient) Patch(
+	ctx context.Context,
+	obj client.Object,
+	patch client.Patch,
+	opts ...client.SubResourcePatchOption,
+) error {
 	return ErrWriteForbidden("SubResource.Patch")
 }
 
-func (w *readOnlySubResourceClient) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+func (w *readOnlySubResourceClient) Apply(
+	ctx context.Context,
+	obj runtime.ApplyConfiguration,
+	opts ...client.SubResourceApplyOption,
+) error {
 	return ErrWriteForbidden("SubResource.Apply")
 }
