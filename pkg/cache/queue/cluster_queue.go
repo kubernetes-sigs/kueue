@@ -373,7 +373,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	key := workload.Key(wInfo.Obj)
 	// Skip if the scheduler is actively processing this workload.
 	// RequeueWorkload will handle placement with the latest version.
-	if c.workloads.IsInflight(key) {
+	if c.workloads.HasInflight(key) {
 		return
 	}
 	if oldInfo := c.workloads.GetInadmissible(key); oldInfo != nil {
@@ -453,7 +453,7 @@ func (c *ClusterQueue) RebuildHeap(log logr.Logger, lqName string) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	log.V(3).Info("Rebuilding heap after LocalQueue fair-sharing usage change", "clusterQueue", c.name, "localQueue", lqName)
-	c.workloads.RebuildLocalQueue(lqName)
+	c.workloads.RebuildActiveHeap()
 }
 
 // backoffWaitingTimeExpired returns true if the current time is after the requeueAt
@@ -646,7 +646,12 @@ func (c *ClusterQueue) Pop() *workload.Info {
 	defer c.rwm.Unlock()
 
 	if c.hasPendingPenalties() {
-		c.workloads.RebuildAll()
+		// A pending penalty can change the fair-sharing usage of several workloads from
+		// the same LocalQueue at once, so they all shift relative to other LocalQueues'
+		// workloads together. heap.Fix assumes a single element moved while the rest of
+		// the heap is valid, so fixing these entries one by one can leave the heap
+		// invalid; instead the whole invariant is re-established in O(n) with heap.Init.
+		c.workloads.RebuildActiveHeap()
 	}
 
 	c.popCycle++
@@ -915,5 +920,5 @@ func (c *ClusterQueue) UpdateLocalQueueWeight(lqKey utilqueue.LocalQueueReferenc
 		return
 	}
 	c.lqWeights[lqKey] = weight
-	c.heap.Init()
+	c.workloads.RebuildActiveHeap()
 }

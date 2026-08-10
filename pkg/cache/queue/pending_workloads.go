@@ -187,10 +187,10 @@ func (p *PendingWorkloads) RemoveActive(key workload.Reference) {
 	}
 }
 
-func (p *PendingWorkloads) IsInflight(key workload.Reference) bool {
+func (p *PendingWorkloads) HasInflight(ref workload.Reference) bool {
 	p.RLock()
 	defer p.RUnlock()
-	return p.inflight != nil && workloadKey(p.inflight) == key
+	return p.inflight != nil && workloadKey(p.inflight) == ref
 }
 
 func (p *PendingWorkloads) GetInadmissible(key workload.Reference) *workload.Info {
@@ -226,23 +226,11 @@ func (p *PendingWorkloads) RemoveFromInadmissible(key workload.Reference, wInfo 
 	metrics.UntrackWorkload(p.customLabels, p.inadmissibleTracker, wInfo.Obj)
 }
 
-// rebuildAll rebuilds the active workloads heap. Must be called with lock held.
-func (p *PendingWorkloads) RebuildAll() {
+// rebuildActiveHeap rebuilds the active workloads heap.
+func (p *PendingWorkloads) RebuildActiveHeap() {
 	p.Lock()
 	defer p.Unlock()
-	for w := range p.activeIterator() {
-		p.active.PushOrUpdate(w)
-	}
-}
-
-func (p *PendingWorkloads) RebuildLocalQueue(lqName string) {
-	p.Lock()
-	defer p.Unlock()
-	for wl := range p.activeIterator() {
-		if string(wl.Obj.Spec.QueueName) == lqName {
-			p.active.PushOrUpdate(wl)
-		}
-	}
+	p.active.Init()
 }
 
 func (p *PendingWorkloads) addPendingResources(wInfo *workload.Info) {
