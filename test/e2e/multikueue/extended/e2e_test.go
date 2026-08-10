@@ -1001,6 +1001,19 @@ app = HelloWorld.bind()`,
         ray_actor_options:
           num_cpus: 0.2`
 
+				gomega.Expect(updatedServeConfigV2).NotTo(gomega.Equal(serveConfigV2), "the updated serveConfigV2 must differ from the initial config so the forward assertion is meaningful")
+
+				workerClient := kubernetesClients[admittedWorker].client
+				var workerRayServiceUID types.UID
+				ginkgo.By("Recording the existing worker copy and its initial serveConfigV2", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						workerRayService := &rayv1.RayService{}
+						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(rayService), workerRayService)).To(gomega.Succeed())
+						g.Expect(workerRayService.Spec.ServeConfigV2).To(gomega.Equal(serveConfigV2))
+						workerRayServiceUID = workerRayService.UID
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
 				ginkgo.By("Updating serveConfigV2 on the manager", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						createdRayService := &rayv1.RayService{}
@@ -1010,12 +1023,12 @@ app = HelloWorld.bind()`,
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				ginkgo.By("Checking the serveConfigV2 change is promptly forwarded to the worker cluster", func() {
-					workerClient := kubernetesClients[admittedWorker].client
+				ginkgo.By("Checking the change is promptly forwarded to the same worker copy (in-place, no re-admission)", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						workerRayService := &rayv1.RayService{}
 						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(rayService), workerRayService)).To(gomega.Succeed())
 						g.Expect(workerRayService.Spec.ServeConfigV2).To(gomega.Equal(updatedServeConfigV2))
+						g.Expect(workerRayService.UID).To(gomega.Equal(workerRayServiceUID))
 					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
