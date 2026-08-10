@@ -1123,7 +1123,7 @@ func TestLocalQueueClusterQueueHandlerGeneric(t *testing.T) {
 		{NamespacedName: client.ObjectKeyFromObject(matchingQueues[1])},
 	}
 	sortRequests := cmpopts.SortSlices(func(a, b reconcile.Request) bool {
-		return a.NamespacedName.String() < b.NamespacedName.String()
+		return a.String() < b.String()
 	})
 	if diff := cmp.Diff(wantRequests, queue.Items, sortRequests); diff != "" {
 		t.Errorf("enqueued requests mismatch (-want/+got):\n%s", diff)
