@@ -68,7 +68,7 @@ type PendingWorkloads struct {
 	pendingResourcesTotal map[corev1.ResourceName]int64
 }
 
-// get returns the workload.Info for the key, wherever it is held:
+// Get returns the workload.Info for the key, wherever it is held:
 // the active heap, inadmissible list once the Workload has been tried and could not be admitted,
 // or inflight while the scheduler is processing it.
 //
@@ -94,12 +94,14 @@ func (c *PendingWorkloads) Get(key workload.Reference) *workload.Info {
 	return nil
 }
 
+// GetActive returns the workload.Info for the key from the active workloads heap.
 func (p *PendingWorkloads) GetActive(key workload.Reference) *workload.Info {
 	p.RLock()
 	defer p.RUnlock()
 	return p.active.GetByKey(key)
 }
 
+// PopActive pops the first workload on the active workloads heap.
 func (p *PendingWorkloads) PopActive() *workload.Info {
 	p.Lock()
 	defer p.Unlock()
@@ -187,10 +189,22 @@ func (p *PendingWorkloads) RemoveActive(key workload.Reference) {
 	}
 }
 
+// HasInflight checks if the provided reference mathces the current inflight workload (if any exists).
 func (p *PendingWorkloads) HasInflight(ref workload.Reference) bool {
 	p.RLock()
 	defer p.RUnlock()
 	return p.inflight != nil && workloadKey(p.inflight) == ref
+}
+
+// ForgetInflightByKey forgets the current inflight workload if it matches the provided reference.
+func (p *PendingWorkloads) ForgetInflightByKey(ref workload.Reference) {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.inflight != nil && workloadKey(p.inflight) == ref {
+		p.inflight = nil
+		p.schedulingHashes.clearInflight()
+	}
 }
 
 func (p *PendingWorkloads) GetInadmissible(key workload.Reference) *workload.Info {
@@ -226,7 +240,7 @@ func (p *PendingWorkloads) RemoveFromInadmissible(key workload.Reference, wInfo 
 	metrics.UntrackWorkload(p.customLabels, p.inadmissibleTracker, wInfo.Obj)
 }
 
-// rebuildActiveHeap rebuilds the active workloads heap.
+// RebuildActiveHeap re-establishes the active workloads heap invariant across all entries.
 func (p *PendingWorkloads) RebuildActiveHeap() {
 	p.Lock()
 	defer p.Unlock()
@@ -314,16 +328,6 @@ func (p *PendingWorkloads) MoveToInadmissible(key workload.Reference, wInfo *wor
 
 	p.inadmissible.insert(key, wInfo)
 	metrics.TrackWorkload(p.customLabels, p.inadmissibleTracker, wInfo.Obj)
-}
-
-func (p *PendingWorkloads) ForgetInflightByKey(key workload.Reference) {
-	p.Lock()
-	defer p.Unlock()
-
-	if p.inflight != nil && workload.Key(p.inflight.Obj) == key {
-		p.inflight = nil
-		p.schedulingHashes.clearInflight()
-	}
 }
 
 // PendingResources returns the total resources requested by all pending workloads,
