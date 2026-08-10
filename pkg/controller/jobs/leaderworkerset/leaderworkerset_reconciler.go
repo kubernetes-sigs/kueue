@@ -533,8 +533,18 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 }
 
 func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *corev1.Pod) bool {
-	// Pod already has managed-by-kueue label, skipping.
+	queueName := jobframework.QueueNameForObject(lws)
+
 	if _, ok := pod.Labels[constants.ManagedByKueueLabelKey]; ok {
+		// TODO(#13968): Candidate for removal once LeaderWorkerSets admitted before #4932
+		// are gone, no earlier than 0.21. The webhook stamps the queue name on the pod
+		// templates, so it is only missing here on those, which #4932 did not migrate.
+		// Only gated pods qualify: the pod webhook rejects the change on others.
+		if queueName != "" && utilpod.HasGate(pod, podconstants.SchedulingGateName) &&
+			pod.Labels[controllerconstants.QueueLabel] != string(queueName) {
+			pod.Labels[controllerconstants.QueueLabel] = string(queueName)
+			return true
+		}
 		return false
 	}
 
@@ -550,6 +560,14 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 	}
 
 	pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
+	// TODO(#13968): Candidate for removal together with the backfill above, no earlier
+	// than 0.21. Normally the webhook has already stamped the queue name on the pod
+	// template, so this only matters for a LeaderWorkerSet admitted before #4932;
+	// setting it here saves reconciling the pod a second time to backfill it.
+	// Only gated pods qualify: the pod webhook rejects the change on others.
+	if queueName != "" && utilpod.HasGate(pod, podconstants.SchedulingGateName) {
+		pod.Labels[controllerconstants.QueueLabel] = string(queueName)
+	}
 	podcontroller.SetPodGroupName(pod, wlName)
 	jobframework.SetPrebuiltWorkloadName(pod, wlName)
 	pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
