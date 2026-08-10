@@ -2848,3 +2848,206 @@ func TestUpdateLocalQueueWeightZeroReheapifies(t *testing.T) {
 		t.Errorf("zero weight did not disadvantage the LocalQueue (-want,+got):\n%s", diff)
 	}
 }
+
+func TestCohortSubtreePendingWorkloadsMetric(t *testing.T) {
+	// Topology: root cohort → ch1 cohort → cq1 ClusterQueue
+	//                      → cq2 ClusterQueue (direct child of root)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	expectPending := func(cohort string, status string, want float64) {
+		t.Helper()
+		got := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreePendingWorkloads, map[string]string{
+			"cohort": cohort,
+			"status": status,
+		})
+		if len(got) == 0 {
+			if want != 0 {
+				t.Errorf("cohort=%s status=%s: got no metric, want %v", cohort, status, want)
+			}
+			return
+		}
+		for _, g := range got {
+			if g.Value != want {
+				t.Errorf("cohort=%s status=%s: got %v, want %v", cohort, status, g.Value, want)
+			}
+		}
+	}
+
+	fakeClient := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+	manager, _ := NewManagerForUnitTestsWithRequeuer(fakeClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
+	defer metrics.InitMetricVectors(nil)
+
+	root := utiltestingapi.MakeCohort("root").Obj()
+	ch1 := utiltestingapi.MakeCohort("ch1").Parent("root").Obj()
+	manager.AddOrUpdateCohort(ctx, root)
+	manager.AddOrUpdateCohort(ctx, ch1)
+
+	cq1 := utiltestingapi.MakeClusterQueue("cq1").Cohort("ch1").Obj()
+	cq2 := utiltestingapi.MakeClusterQueue("cq2").Cohort("root").Obj()
+	if err := manager.AddClusterQueue(ctx, cq1); err != nil {
+		t.Fatalf("Failed adding cq1: %v", err)
+	}
+	if err := manager.AddClusterQueue(ctx, cq2); err != nil {
+		t.Fatalf("Failed adding cq2: %v", err)
+	}
+
+	lq1 := utiltestingapi.MakeLocalQueue("lq1", defaultNamespace).ClusterQueue("cq1").Obj()
+	lq2 := utiltestingapi.MakeLocalQueue("lq2", defaultNamespace).ClusterQueue("cq2").Obj()
+	if err := manager.AddLocalQueue(ctx, lq1); err != nil {
+		t.Fatalf("Failed adding lq1: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq2); err != nil {
+		t.Fatalf("Failed adding lq2: %v", err)
+	}
+
+	log := logr.Discard()
+	wl1 := utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq1").Creation(time.Now()).Obj()
+	wl2 := utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq2").Creation(time.Now()).Obj()
+	if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
+		t.Fatalf("Failed adding wl1: %v", err)
+	}
+	if err := manager.AddOrUpdateWorkload(log, wl2); err != nil {
+		t.Fatalf("Failed adding wl2: %v", err)
+	}
+
+	expectPending("ch1", metrics.PendingStatusActive, 1)
+	expectPending("ch1", metrics.PendingStatusInadmissible, 0)
+	expectPending("root", metrics.PendingStatusActive, 2)
+	expectPending("root", metrics.PendingStatusInadmissible, 0)
+
+	manager.DeleteClusterQueue(logr.Discard(), cq1)
+	expectPending("ch1", metrics.PendingStatusActive, 0)
+	expectPending("root", metrics.PendingStatusActive, 1)
+
+	manager.DeleteCohort("root")
+	expectPending("root", metrics.PendingStatusActive, 0)
+}
+
+func TestCohortSubtreePendingWorkloads_CQMovesCohort(t *testing.T) {
+	// Start: cq1 under cohort-a. Move cq1 to cohort-b.
+	// cohort-a count must drop to 0; cohort-b count must rise to 1.
+	ctx, _ := utiltesting.ContextWithLog(t)
+	log := logr.Discard()
+	defer metrics.InitMetricVectors(nil)
+
+	pendingActive := func(cohort string) float64 {
+		t.Helper()
+		got := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreePendingWorkloads, map[string]string{
+			"cohort": cohort,
+			"status": metrics.PendingStatusActive,
+		})
+		if len(got) == 0 {
+			return 0
+		}
+		return got[0].Value
+	}
+
+	fakeClient := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+	manager, _ := NewManagerForUnitTestsWithRequeuer(fakeClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
+
+	cohortA := utiltestingapi.MakeCohort("cohort-a").Obj()
+	cohortB := utiltestingapi.MakeCohort("cohort-b").Obj()
+	manager.AddOrUpdateCohort(ctx, cohortA)
+	manager.AddOrUpdateCohort(ctx, cohortB)
+
+	cq1 := utiltestingapi.MakeClusterQueue("cq1").Cohort("cohort-a").Obj()
+	if err := manager.AddClusterQueue(ctx, cq1); err != nil {
+		t.Fatalf("Failed adding cq1: %v", err)
+	}
+	lq1 := utiltestingapi.MakeLocalQueue("lq1", defaultNamespace).ClusterQueue("cq1").Obj()
+	if err := manager.AddLocalQueue(ctx, lq1); err != nil {
+		t.Fatalf("Failed adding lq1: %v", err)
+	}
+	wl1 := utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq1").Creation(time.Now()).Obj()
+	if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
+		t.Fatalf("Failed adding wl1: %v", err)
+	}
+
+	if got := pendingActive("cohort-a"); got != 1 {
+		t.Errorf("before move: cohort-a active = %v, want 1", got)
+	}
+	if got := pendingActive("cohort-b"); got != 0 {
+		t.Errorf("before move: cohort-b active = %v, want 0", got)
+	}
+
+	// Move cq1 from cohort-a to cohort-b.
+	cq1Updated := utiltestingapi.MakeClusterQueue("cq1").Cohort("cohort-b").Obj()
+	if err := manager.UpdateClusterQueue(ctx, cq1Updated, true); err != nil {
+		t.Fatalf("Failed updating cq1: %v", err)
+	}
+
+	if got := pendingActive("cohort-a"); got != 0 {
+		t.Errorf("after move: cohort-a active = %v, want 0", got)
+	}
+	if got := pendingActive("cohort-b"); got != 1 {
+		t.Errorf("after move: cohort-b active = %v, want 1", got)
+	}
+}
+
+func TestCohortSubtreePendingWorkloads_CohortReparent(t *testing.T) {
+	// Topology before: root → ch1 → cq1 (1 pending workload)
+	// Reparent ch1 under root2.
+	// root must drop to 0; root2 must rise to 1.
+	ctx, _ := utiltesting.ContextWithLog(t)
+	log := logr.Discard()
+	defer metrics.InitMetricVectors(nil)
+
+	pendingActive := func(cohort string) float64 {
+		t.Helper()
+		got := testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreePendingWorkloads, map[string]string{
+			"cohort": cohort,
+			"status": metrics.PendingStatusActive,
+		})
+		if len(got) == 0 {
+			return 0
+		}
+		return got[0].Value
+	}
+
+	fakeClient := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+	manager, _ := NewManagerForUnitTestsWithRequeuer(fakeClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
+
+	root := utiltestingapi.MakeCohort("root").Obj()
+	root2 := utiltestingapi.MakeCohort("root2").Obj()
+	ch1 := utiltestingapi.MakeCohort("ch1").Parent("root").Obj()
+	manager.AddOrUpdateCohort(ctx, root)
+	manager.AddOrUpdateCohort(ctx, root2)
+	manager.AddOrUpdateCohort(ctx, ch1)
+
+	cq1 := utiltestingapi.MakeClusterQueue("cq1").Cohort("ch1").Obj()
+	if err := manager.AddClusterQueue(ctx, cq1); err != nil {
+		t.Fatalf("Failed adding cq1: %v", err)
+	}
+	lq1 := utiltestingapi.MakeLocalQueue("lq1", defaultNamespace).ClusterQueue("cq1").Obj()
+	if err := manager.AddLocalQueue(ctx, lq1); err != nil {
+		t.Fatalf("Failed adding lq1: %v", err)
+	}
+	wl1 := utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq1").Creation(time.Now()).Obj()
+	if err := manager.AddOrUpdateWorkload(log, wl1); err != nil {
+		t.Fatalf("Failed adding wl1: %v", err)
+	}
+
+	if got := pendingActive("ch1"); got != 1 {
+		t.Errorf("before reparent: ch1 active = %v, want 1", got)
+	}
+	if got := pendingActive("root"); got != 1 {
+		t.Errorf("before reparent: root active = %v, want 1", got)
+	}
+	if got := pendingActive("root2"); got != 0 {
+		t.Errorf("before reparent: root2 active = %v, want 0", got)
+	}
+
+	// Move ch1 from root to root2.
+	ch1Updated := utiltestingapi.MakeCohort("ch1").Parent("root2").Obj()
+	manager.AddOrUpdateCohort(ctx, ch1Updated)
+
+	if got := pendingActive("ch1"); got != 1 {
+		t.Errorf("after reparent: ch1 active = %v, want 1", got)
+	}
+	if got := pendingActive("root"); got != 0 {
+		t.Errorf("after reparent: root active = %v, want 0", got)
+	}
+	if got := pendingActive("root2"); got != 1 {
+		t.Errorf("after reparent: root2 active = %v, want 1", got)
+	}
+}
