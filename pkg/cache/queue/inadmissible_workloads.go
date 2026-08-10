@@ -33,14 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const (
-	requeueBatchPeriod     = 1 * time.Second
-	requeueLongBatchPeriod = 10 * time.Second
-)
-
-func getRequeueBatchPeriod() time.Duration {
-	return requeueBatchPeriod
-}
+const requeueBatchPeriod = time.Second
 
 type requeuerOptions struct {
 	batchPeriod time.Duration
@@ -237,7 +230,7 @@ type workqueueRequeuer struct {
 
 func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
 	options := requeuerOptions{
-		batchPeriod: getRequeueBatchPeriod(),
+		batchPeriod: requeueBatchPeriod,
 	}
 	for _, opt := range opts {
 		opt(&options)
