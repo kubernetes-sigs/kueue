@@ -69,7 +69,7 @@ type PendingWorkloads struct {
 
 // get returns the workload.Info for the key, wherever it is held:
 // the active heap, inadmissible list once the Workload has been tried and could not be admitted,
-// or inflight while the scheduler is processing it. Info covers only the heap.
+// or inflight while the scheduler is processing it.
 //
 // An update to the inflight Workload reaches the LocalQueue but not the heap, since
 // PushOrUpdate deliberately drops it in favour of the newer copy the scheduler requeues at
@@ -81,14 +81,14 @@ func (c *PendingWorkloads) Get(key workload.Reference) *workload.Info {
 	c.RLock()
 	defer c.RUnlock()
 
+	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
+		return c.inflight
+	}
 	if wInfo := c.active.GetByKey(key); wInfo != nil {
 		return wInfo
 	}
 	if wInfo := c.inadmissible.get(key); wInfo != nil {
 		return wInfo
-	}
-	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
-		return c.inflight
 	}
 	return nil
 }
