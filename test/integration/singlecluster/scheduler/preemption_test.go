@@ -1316,7 +1316,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 	})
 
-	ginkgo.Context("When a preemptor is waiting for multiple evictions", func() {
+	ginkgo.Context("In a cohort with multiple queues", func() {
 		var (
 			alphaCQ, betaCQ, gammaCQ *kueue.ClusterQueue
 			alphaLQ, betaLQ, gammaLQ *kueue.LocalQueue
