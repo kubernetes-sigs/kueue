@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 
 	"github.com/go-logr/logr"
@@ -267,6 +268,16 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 				}
 			}
 			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], maxRank[psa.Name])
+			if unhealthy := unhealthyDomainIDs(wl, &psa); len(unhealthy) > 0 {
+				gatedPodsToDomains = slices.DeleteFunc(gatedPodsToDomains, func(pd podWithDomain) bool {
+					if !unhealthy[pd.domainID] {
+						return false
+					}
+					log.V(2).Info("skipping ungate; the assigned domain's node is unhealthy and awaiting replacement",
+						"pod", klog.KObj(pd.pod), "domain", pd.domainID)
+					return true
+				})
+			}
 			if len(gatedPodsToDomains) > 0 {
 				toUngate := podsToUngateInfo(&psa, gatedPodsToDomains)
 				log.V(2).Info("identified pods to ungate for podset", "podset", psa.Name, "count", len(toUngate))
@@ -351,6 +362,36 @@ func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceNa
 		result = append(result, pod)
 	}
 	return result, nil
+}
+
+// unhealthyDomainIDs returns the assignment's domains whose node is recorded in
+// the Workload's Status.UnhealthyNodes.
+//
+// With TASFailedNodeReplacementFailFast disabled the assignment deliberately
+// keeps pointing at an unhealthy node while the scheduler's second pass looks
+// for a replacement domain. Gated pods must not be ungated onto those domains
+// in the meantime: they can never schedule there, and the node controller then
+// terminates them with UnschedulableOnAssignedNode, so each recreated pod is
+// killed again immediately. Leaving them gated lets them wait for either a
+// replacement domain or the recovery timeout.
+func unhealthyDomainIDs(wl *kueue.Workload, psa *kueue.PodSetAssignment) map[utiltas.TopologyDomainID]bool {
+	if !workload.HasUnhealthyNodes(wl) || psa.TopologyAssignment == nil ||
+		!utiltas.IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
+		return nil
+	}
+	var ids map[utiltas.TopologyDomainID]bool
+	for domain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
+		if len(domain.Values) == 0 {
+			continue
+		}
+		if workload.HasUnhealthyNode(wl, domain.Values[len(domain.Values)-1]) {
+			if ids == nil {
+				ids = make(map[utiltas.TopologyDomainID]bool)
+			}
+			ids[utiltas.DomainID(domain.Values)] = true
+		}
+	}
+	return ids
 }
 
 func podsToUngateInfo(
