@@ -1157,7 +1157,6 @@ func (h *localJobHandler) Delete(context.Context, event.DeleteEvent, workqueue.T
 }
 
 func (h *localJobHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	// no-op as we don't need to react to generic
 }
 
 func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
