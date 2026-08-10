@@ -638,15 +638,15 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 			if len(seeded) == 0 {
 				t.Fatal("the seeded penalty is empty, so the settlement would subtract nothing and every case would pass")
 			}
-			qManager.AfsEntryPenalties.Push(lqKey, seeded)
+			qManager.AfsUsageLedger.PushPenalty(lqKey, seeded, time.Now())
 
 			reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
 				ObjectOld: tc.oldWl.DeepCopy(),
 				ObjectNew: tc.newWl.DeepCopy(),
 			})
 
-			if hasPending := qManager.AfsEntryPenalties.HasPendingFor(lqKey); hasPending == tc.wantSettled {
-				t.Errorf("HasPendingFor() = %v, want settled = %v", hasPending, tc.wantSettled)
+			if hasPending := qManager.AfsUsageLedger.HasPendingPenalty(lqKey); hasPending == tc.wantSettled {
+				t.Errorf("HasPendingPenalty() = %v, want settled = %v", hasPending, tc.wantSettled)
 			}
 		})
 	}
@@ -2292,7 +2292,7 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 	// With halfLifeTime == samplingInterval the entry penalty is half of the
 	// request, so the 4 CPU workload settles a 2 CPU penalty.
 	cases := map[string]struct {
-		initialEntry        *queueafs.ConsumedResourcesEntry
+		initialEntry        *queueafs.UsageLedgerEntry
 		wantCPUMilli        int64
 		wantStatusAccounted bool
 		// wantLastUpdate defaults to now when zero.
@@ -2305,7 +2305,7 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 			wantStatusAccounted: false,
 		},
 		"folds into an existing entry and preserves StatusAccounted": {
-			initialEntry: &queueafs.ConsumedResourcesEntry{
+			initialEntry: &queueafs.UsageLedgerEntry{
 				Resources:       corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
 				LastUpdate:      now,
 				StatusAccounted: true,
@@ -2319,7 +2319,7 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 			// usage is kept verbatim and only the 2 CPU penalty folds in (8+2=10),
 			// instead of the negative-elapsed path inflating it. The stored
 			// timestamp stays monotonic at the later value rather than rewinding.
-			initialEntry: &queueafs.ConsumedResourcesEntry{
+			initialEntry: &queueafs.UsageLedgerEntry{
 				Resources:       corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
 				LastUpdate:      now.Add(5 * time.Minute),
 				StatusAccounted: true,
@@ -2356,16 +2356,16 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 
 			lqKey := utilqueue.KeyFromWorkload(wl)
 			if tc.initialEntry != nil {
-				qManager.AfsConsumedResources.Update(lqKey, func(queueafs.ConsumedResourcesEntry, bool) queueafs.ConsumedResourcesEntry {
+				qManager.AfsUsageLedger.Update(lqKey, func(queueafs.UsageLedgerEntry, bool) queueafs.UsageLedgerEntry {
 					return *tc.initialEntry
 				})
 			}
 
 			reconciler.updateAfsConsumedUsage(log, wl)
 
-			gotEntry, found := qManager.AfsConsumedResources.Get(lqKey)
+			gotEntry, found := qManager.AfsUsageLedger.Get(lqKey)
 			if !found {
-				t.Fatal("expected an AfsConsumedResources entry after settlement")
+				t.Fatal("expected an AfsUsageLedger entry after settlement")
 			}
 			gotCPU := gotEntry.Resources[corev1.ResourceCPU]
 			if gotCPU.MilliValue() != tc.wantCPUMilli {

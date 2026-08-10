@@ -437,9 +437,9 @@ func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
 			},
 		}).
 		Build()
-	afsConsumedResources := queueafs.NewAfsConsumedResources()
-	afsConsumedResources.Set("default/higher-usage", corev1.ResourceList{resourceGPU: resource.MustParse("20")}, now)
-	afsConsumedResources.Set("default/lower-usage", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsUsageLedger := queueafs.NewAfsUsageLedger()
+	afsUsageLedger.SetForTest("default/higher-usage", corev1.ResourceList{resourceGPU: resource.MustParse("20")}, now)
+	afsUsageLedger.SetForTest("default/lower-usage", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
 
 	cq, err := newClusterQueue(
 		ctx,
@@ -448,8 +448,7 @@ func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
 		nil,
 		defaultOrdering,
 		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1}},
-		nil,
-		afsConsumedResources,
+		afsUsageLedger,
 	)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
@@ -491,17 +490,16 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).Obj(),
 	)
 
-	afsConsumedResources := queueafs.NewAfsConsumedResources()
-	afsConsumedResources.Set("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("5")}, now)
-	afsConsumedResources.Set("default/lq2", corev1.ResourceList{resourceGPU: resource.MustParse("5")}, now)
+	afsUsageLedger := queueafs.NewAfsUsageLedger()
+	afsUsageLedger.SetForTest("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("5")}, now)
+	afsUsageLedger.SetForTest("default/lq2", corev1.ResourceList{resourceGPU: resource.MustParse("5")}, now)
 
-	penaltyMap := queueafs.NewPenaltyMap()
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cq, err := newClusterQueue(ctx, builder.Build(),
 		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
 		nil, defaultOrdering,
 		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1.0}},
-		penaltyMap, afsConsumedResources)
+		afsUsageLedger)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
@@ -523,8 +521,8 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				penaltyMap.Push("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("100")})
-				penaltyMap.Sub("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("100")})
+				afsUsageLedger.PushPenalty("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("100")}, now)
+				afsUsageLedger.SubPenalty("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("100")})
 			}
 		}
 	}()
@@ -549,9 +547,9 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	ctx, _ := utiltesting.ContextWithLog(t)
-	afsConsumedResources := queueafs.NewAfsConsumedResources()
-	afsConsumedResources.Set("default/existing", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
-	afsConsumedResources.Set("default/missing", corev1.ResourceList{resourceGPU: resource.MustParse("15")}, now)
+	afsUsageLedger := queueafs.NewAfsUsageLedger()
+	afsUsageLedger.SetForTest("default/existing", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsUsageLedger.SetForTest("default/missing", corev1.ResourceList{resourceGPU: resource.MustParse("15")}, now)
 
 	cq, err := newClusterQueue(
 		ctx,
@@ -562,8 +560,7 @@ func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 		nil,
 		defaultOrdering,
 		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1}},
-		nil,
-		afsConsumedResources,
+		afsUsageLedger,
 	)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
@@ -605,17 +602,16 @@ func TestHeapOrderingStableOnLocalQueueLookupError(t *testing.T) {
 	}).Build()
 
 	// lq1 high usage (10 GPU), lq2 low usage (1 GPU); both weight 1.0.
-	afsConsumedResources := queueafs.NewAfsConsumedResources()
-	afsConsumedResources.Set("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
-	afsConsumedResources.Set("default/lq2", corev1.ResourceList{resourceGPU: resource.MustParse("1")}, now)
+	afsUsageLedger := queueafs.NewAfsUsageLedger()
+	afsUsageLedger.SetForTest("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsUsageLedger.SetForTest("default/lq2", corev1.ResourceList{resourceGPU: resource.MustParse("1")}, now)
 
-	penaltyMap := queueafs.NewPenaltyMap()
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cq, err := newClusterQueue(ctx, failingClient,
 		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
 		nil, defaultOrdering,
 		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1.0}},
-		penaltyMap, afsConsumedResources)
+		afsUsageLedger)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
@@ -677,7 +673,7 @@ func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
 			},
 		}, nil,
 		defaultOrdering,
-		nil, nil, nil)
+		nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
@@ -736,7 +732,7 @@ func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
 			},
 		}, nil,
 		defaultOrdering,
-		nil, nil, nil)
+		nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
@@ -1418,7 +1414,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 					},
 				}, nil,
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-				nil, nil, nil)
+				nil, nil)
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 			info := workload.NewInfo(wl)
 			info.LastAssignment = tc.lastAssignment
@@ -1453,7 +1449,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		}, nil,
 		workload.Ordering{
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
-		}, nil, nil, nil)
+		}, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed creating ClusterQueue %v", err)
 	}
@@ -1610,7 +1606,7 @@ func TestStrictFIFO(t *testing.T) {
 					},
 				}, nil,
 				*tt.workloadOrdering,
-				nil, nil, nil)
+				nil, nil)
 			if err != nil {
 				t.Fatalf("Failed creating ClusterQueue %v", err)
 			}
@@ -1654,7 +1650,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 					},
 				}, nil,
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-				nil, nil, nil)
+				nil, nil)
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), reason, ""); !ok {
 				t.Error("failed to requeue nonexistent workload")
@@ -1826,12 +1822,12 @@ func TestFsAdmission(t *testing.T) {
 			}
 			client := builder.Build()
 
-			afsConsumedResources := queueafs.NewAfsConsumedResources()
+			afsUsageLedger := queueafs.NewAfsUsageLedger()
 			for lqKey, consumedResources := range tc.initConsumedResources {
-				afsConsumedResources.Set(utilqueue.LocalQueueReference(lqKey), consumedResources, time.Now())
+				afsUsageLedger.SetForTest(utilqueue.LocalQueueReference(lqKey), consumedResources, time.Now())
 			}
 
-			cq, _ := newClusterQueue(t.Context(), client, tc.cq, nil, defaultOrdering, tc.afsConfig, nil, afsConsumedResources)
+			cq, _ := newClusterQueue(t.Context(), client, tc.cq, nil, defaultOrdering, tc.afsConfig, afsUsageLedger)
 			for _, wl := range tc.wls {
 				cq.PushOrUpdate(workload.NewInfo(&wl))
 			}
@@ -2045,7 +2041,7 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 					},
 				}, nil,
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-				nil, nil, nil)
+				nil, nil)
 
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
 				Request(corev1.ResourceCPU, "1").Obj()

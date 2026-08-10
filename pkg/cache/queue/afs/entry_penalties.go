@@ -15,75 +15,82 @@
 package afs
 
 import (
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 )
 
-type AfsEntryPenalties struct {
-	penalties *utilmaps.SyncMap[utilqueue.LocalQueueReference, corev1.ResourceList]
-}
-
-func NewPenaltyMap() *AfsEntryPenalties {
-	return &AfsEntryPenalties{
-		penalties: utilmaps.NewSyncMap[utilqueue.LocalQueueReference, corev1.ResourceList](0),
-	}
-}
-
-func (m *AfsEntryPenalties) Push(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {
-	m.penalties.Update(lqKey, func(existing corev1.ResourceList, _ bool) corev1.ResourceList {
-		return resource.MergeResourceListKeepSum(existing, penalty)
+// PushPenalty records an entry penalty for a LocalQueue; it counts toward the
+// LocalQueue's fair-sharing usage until a settlement consolidates it. now stamps
+// a newly created entry's LastUpdate so the first decay elapses from the push
+// rather than from the zero time; such an entry carries StatusAccounted=false so
+// the persisted status is still merged.
+func (a *AfsUsageLedger) PushPenalty(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList, now time.Time) {
+	a.entries.Update(lqKey, func(entry UsageLedgerEntry, found bool) UsageLedgerEntry {
+		if !found {
+			entry.LastUpdate = now
+		}
+		entry.PendingPenalty = resource.MergeResourceListKeepSum(entry.PendingPenalty, penalty)
+		return entry
 	})
 }
 
-func (m *AfsEntryPenalties) Sub(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {
+// SubPenalty removes a penalty that was pushed but will never settle, i.e. the
+// scheduler rolled an assumed Workload back after a failed admission patch.
+// A LocalQueue with no ledger entry is a no-op: materializing one would outlive
+// the LocalQueue's own cleanup when the rollback races its deletion.
+func (a *AfsUsageLedger) SubPenalty(lqKey utilqueue.LocalQueueReference, penalty corev1.ResourceList) {
 	negated := make(corev1.ResourceList, len(penalty))
 	for k, v := range penalty {
 		q := v.DeepCopy()
 		q.Neg()
 		negated[k] = q
 	}
-	m.penalties.UpdateOrDelete(lqKey, func(existing corev1.ResourceList) (corev1.ResourceList, bool) {
-		merged := resource.MergeResourceListKeepSum(existing, negated)
-		// Sub recomputes the amount at settlement time rather than recording it at
-		// push time, so it can exceed what was pushed (e.g. after a restart loses the
-		// in-memory penalties). Clamp at zero: a mismatch must not become a permanent
-		// usage discount for the LocalQueue.
-		for k, v := range merged {
-			if v.Sign() < 0 {
-				v.Set(0)
-				merged[k] = v
-			}
-		}
-		return merged, canClearPenalty(merged)
+	a.entries.UpdateIfPresent(lqKey, func(entry UsageLedgerEntry) UsageLedgerEntry {
+		entry.PendingPenalty = clampNegativeToZero(resource.MergeResourceListKeepSum(entry.PendingPenalty, negated))
+		return entry
 	})
 }
 
-func canClearPenalty(penalty corev1.ResourceList) bool {
-	for _, v := range penalty {
-		if !v.IsZero() {
-			return false
+// clampNegativeToZero floors each resource at zero. A rollback can outrun the
+// settlement that already consolidated the penalty; a negative bucket would be a
+// lasting usage discount for the LocalQueue — the exploitable direction, whereas
+// over-counting only penalizes the queue itself.
+func clampNegativeToZero(penalty corev1.ResourceList) corev1.ResourceList {
+	for k, v := range penalty {
+		if v.Sign() < 0 {
+			q := v.DeepCopy()
+			q.Set(0)
+			penalty[k] = q
 		}
 	}
-	return true
-}
-
-func (m *AfsEntryPenalties) Peek(lqKey utilqueue.LocalQueueReference) corev1.ResourceList {
-	penalty, found := m.penalties.Get(lqKey)
-	if !found {
-		return corev1.ResourceList{}
-	}
-
 	return penalty
 }
 
-func (m *AfsEntryPenalties) HasPendingFor(lqKey utilqueue.LocalQueueReference) bool {
-	_, found := m.penalties.Get(lqKey)
-	return found
+// PeekPenalty returns the penalties awaiting settlement for a LocalQueue.
+func (a *AfsUsageLedger) PeekPenalty(lqKey utilqueue.LocalQueueReference) corev1.ResourceList {
+	entry, found := a.entries.Get(lqKey)
+	if !found {
+		return corev1.ResourceList{}
+	}
+	return entry.PendingPenalty
 }
 
-func (m *AfsEntryPenalties) Delete(lqKey utilqueue.LocalQueueReference) {
-	m.penalties.Delete(lqKey)
+// HasPendingPenalty reports whether any penalty is awaiting settlement. It tests
+// the amounts: an entry outlives its penalties (it also holds the consumed
+// history), so entry presence is not a reliable signal of pending work.
+func (a *AfsUsageLedger) HasPendingPenalty(lqKey utilqueue.LocalQueueReference) bool {
+	entry, found := a.entries.Get(lqKey)
+	if !found {
+		return false
+	}
+	for _, q := range entry.PendingPenalty {
+		if !q.IsZero() {
+			return true
+		}
+	}
+	return false
 }

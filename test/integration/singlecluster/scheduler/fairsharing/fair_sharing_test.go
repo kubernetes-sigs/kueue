@@ -1215,7 +1215,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 			ginkgo.By("Verifying no entry penalty exists after workload admission")
 			gomega.Eventually(func(g gomega.Gomega) {
-				penalty := qManager.AfsEntryPenalties.HasPendingFor(lqAKey)
+				penalty := qManager.AfsUsageLedger.HasPendingPenalty(lqAKey)
 				g.Expect(penalty).To(gomega.BeFalse(), "entry penalty should be absent for lq-a")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -1228,7 +1228,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 			ginkgo.By("Verifying no entry penalty exists after second admission")
 			gomega.Eventually(func(g gomega.Gomega) {
-				penalty := qManager.AfsEntryPenalties.HasPendingFor(lqAKey)
+				penalty := qManager.AfsUsageLedger.HasPendingPenalty(lqAKey)
 				g.Expect(penalty).To(gomega.BeFalse(), "entry penalty should be absent for lq-a")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -1279,7 +1279,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 			ginkgo.By("Verifying the entry penalty is pending while the workload is in QuotaReserved")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(qManager.AfsEntryPenalties.HasPendingFor(lqKey)).To(gomega.BeTrue(), "entry penalty should be pending for lq-a")
+				g.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeTrue(), "entry penalty should be pending for lq-a")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Marking the admission check Ready so the workload transitions from QuotaReserved to Admitted")
@@ -1288,7 +1288,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 			ginkgo.By("Verifying the entry penalty is subtracted after admission")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(qManager.AfsEntryPenalties.HasPendingFor(lqKey)).To(gomega.BeFalse(), "entry penalty should be subtracted for lq-a after admission via admission check")
+				g.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeFalse(), "entry penalty should be subtracted for lq-a after admission via admission check")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -1556,16 +1556,14 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 					ctx,
 					k8sClient,
 					nil,
-					qManager.AfsEntryPenalties,
-					qManager.AfsConsumedResources,
+					qManager.AfsUsageLedger,
 				)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				lqBUsage, err := wlLowBInfo.CalcLocalQueueFSUsage(
 					ctx,
 					k8sClient,
 					nil,
-					qManager.AfsEntryPenalties,
-					qManager.AfsConsumedResources,
+					qManager.AfsUsageLedger,
 				)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(lqAUsage).To(gomega.BeNumerically(">", lqBUsage),

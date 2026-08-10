@@ -185,8 +185,8 @@ func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
 	}
 
 	lqKey := utilqueue.NewLocalQueueReference("default", "lq")
-	if qManager.AfsEntryPenalties.HasPendingFor(lqKey) {
+	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
 		t.Errorf("second pass pushed a duplicate entry penalty for an already-reserved workload; bucket = %v, want empty",
-			qManager.AfsEntryPenalties.Peek(lqKey))
+			qManager.AfsUsageLedger.PeekPenalty(lqKey))
 	}
 }

@@ -155,21 +155,14 @@ func (s *Snapshot) Log(log logr.Logger) {
 }
 
 type snapshotOption struct {
-	afsEntryPenalties    *queueafs.AfsEntryPenalties
-	afsConsumedResources *queueafs.AfsConsumedResources
+	afsUsageLedger *queueafs.AfsUsageLedger
 }
 
 type SnapshotOption func(*snapshotOption)
 
-func WithAfsEntryPenalties(penalties *queueafs.AfsEntryPenalties) SnapshotOption {
+func WithAfsUsageLedger(ledger *queueafs.AfsUsageLedger) SnapshotOption {
 	return func(o *snapshotOption) {
-		o.afsEntryPenalties = penalties
-	}
-}
-
-func WithAfsConsumedResources(consumedResources *queueafs.AfsConsumedResources) SnapshotOption {
-	return func(o *snapshotOption) {
-		o.afsConsumedResources = consumedResources
+		o.afsUsageLedger = ledger
 	}
 }
 
@@ -237,7 +230,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		if snap.InactiveClusterQueueSets.Has(cq.Name) {
 			continue
 		}
-		cqSnapshot, err := c.snapshotClusterQueue(ctx, cq, opts.afsEntryPenalties, opts.afsConsumedResources)
+		cqSnapshot, err := c.snapshotClusterQueue(ctx, cq, opts.afsUsageLedger)
 		if err != nil {
 			return nil, err
 		}
@@ -298,8 +291,7 @@ func skipInactiveCQReason(cq *clusterQueue) inactiveCQReason {
 func (c *Cache) snapshotClusterQueue(
 	ctx context.Context,
 	cq *clusterQueue,
-	afsEntryPenalties *queueafs.AfsEntryPenalties,
-	afsConsumedResources *queueafs.AfsConsumedResources,
+	afsUsageLedger *queueafs.AfsUsageLedger,
 ) (*ClusterQueueSnapshot, error) {
 	log := log.FromContext(ctx)
 	cc := &ClusterQueueSnapshot{
@@ -332,7 +324,7 @@ func (c *Cache) snapshotClusterQueue(
 			return cc, nil
 		}
 		for key, wl := range cc.Workloads {
-			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights, afsEntryPenalties, afsConsumedResources)
+			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights, afsUsageLedger)
 			if err != nil {
 				return nil, fmt.Errorf("failed to calculate LocalQueue FS usage for LocalQueue %v", client.ObjectKey{Namespace: wl.Obj.Namespace, Name: string(wl.Obj.Spec.QueueName)})
 			}
