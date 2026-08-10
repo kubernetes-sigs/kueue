@@ -6973,6 +6973,68 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 	}
+	inputForOrderingPendingPreemptionWorkloads := []entry{
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "pending-preemption-borrowing",
+						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+					},
+					Spec: kueue.WorkloadSpec{
+						Priority: ptr.To[int32](1),
+					},
+					Status: kueue.WorkloadStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:   kueue.WorkloadQuotaReserved,
+								Status: metav1.ConditionFalse,
+								Reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+							},
+						},
+					},
+				},
+			},
+			assignment: flavorassigner.Assignment{
+				Borrowing: 1,
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "pending-preemption-not-borrowing",
+						CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
+					},
+					Spec: kueue.WorkloadSpec{
+						Priority: ptr.To[int32](1),
+					},
+					Status: kueue.WorkloadStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:   kueue.WorkloadQuotaReserved,
+								Status: metav1.ConditionFalse,
+								Reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			Info: workload.Info{
+				Obj: &kueue.Workload{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:              "not-pending-preemption-not-borrowing",
+						CreationTimestamp: metav1.NewTime(now),
+					},
+					Spec: kueue.WorkloadSpec{
+						Priority: ptr.To[int32](2),
+					},
+				},
+			},
+		},
+	}
 	for _, tc := range []struct {
 		name             string
 		input            []entry
@@ -7030,6 +7092,32 @@ func TestEntryOrdering(t *testing.T) {
 				"old-mid-recently-reclaimed-while-borrowing",
 				"old-mid-more-recently-reclaimed-while-borrowing",
 				"old-mid-not-preempted-yet",
+			},
+		},
+		{
+			name:  "Some workloads are pending preemption; PrioritizeWorkloadsPendingPreemption is disabled",
+			input: inputForOrderingPendingPreemptionWorkloads,
+			featureGates: map[featuregate.Feature]bool{
+				features.PrioritySortingWithinCohort:          true,
+				features.PrioritizeWorkloadsPendingPreemption: false,
+			},
+			wantOrder: []string{
+				"not-pending-preemption-not-borrowing",
+				"pending-preemption-not-borrowing",
+				"pending-preemption-borrowing",
+			},
+		},
+		{
+			name:  "Some workloads are pending preemption; PrioritizeWorkloadsPendingPreemption is enabled",
+			input: inputForOrderingPendingPreemptionWorkloads,
+			featureGates: map[featuregate.Feature]bool{
+				features.PrioritySortingWithinCohort:          true,
+				features.PrioritizeWorkloadsPendingPreemption: true,
+			},
+			wantOrder: []string{
+				"pending-preemption-not-borrowing",
+				"pending-preemption-borrowing",
+				"not-pending-preemption-not-borrowing",
 			},
 		},
 	} {
