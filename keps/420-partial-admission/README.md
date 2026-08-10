@@ -30,7 +30,6 @@
       - [Step 2: Scale Up to 12 (Quota Constraint: 7), scale up isn't admitted](#step-2-scale-up-to-12-quota-constraint-7-scale-up-isnt-admitted)
       - [Step 3: Quota increases to 12, opportunistic scale up when capacity is freed](#step-3-quota-increases-to-12-opportunistic-scale-up-when-capacity-is-freed)
   - [batch/Job controller](#batchjob-controller)
-  - [kubeflow/MPIJob controller](#kubeflowmpijob-controller)
   - [RayJob/RayService/RayCluster controller](#rayjobrayserviceraycluster-controller)
   - [Limitations](#limitations)
   - [Test Plan](#test-plan)
@@ -165,6 +164,11 @@ type PodSetAssignment struct {
 }
 ```
 
+### Validation
+
+- `.spec.podSets.minCount <= .spec.podSets.count`
+- `.spec.podSets.minCount >= 0`
+
 ### Scheduler / Flavorassignment
 
 In case the workload proposed for the current scheduling cycle does not fit, with or without preemption, in the current available quota and any of its PodSets allow partial admission, Kueue will try to find a lower counts combination that fits the available quota with or without borrowing.
@@ -176,7 +180,6 @@ The search for appropriate count value is done using binary search algorithm.
 #### Partial Admission for multiple PodSets
 
 There are multiple ways how to approach multiple podsets shrinking in case of insufficient quota. For simplicity reasons we'll start with the order-based one and will expand options if needed in future.
-Another approach that was considered is proportional. However it was discarded because of insufficiency for some use cases.
 
 - **`order-based` (default)**: Shrinks the counts of the PodSets sequentially starting from the last one (suits for the cases when the podsets are ordered by priority). The Workload PodSet order is usually the same as the order of the PodSet in the Job spec. For the RayCluster the Workload PodSets starting from Head PodSet and followed by WorkerGroupPodSets in the same order as in RayCluster.
 
@@ -259,6 +262,7 @@ Also, a new Workload representing the full job will be created and added to the 
 #### Opportunistic scale up when capacity is freed
 
 In order to schedule remaining pods after partial admission, workload controller will create a new workload representing the full job and add it to the queue. The scheduler will admit new workload and replace the old workload via workload slice mechanism as the capacity becomes available.
+The newly created workload for opportunistic scale up should have a different name from the admitted workload.
 
 #### Example: Two-Step Scale Up under Quota Constraints (with Partial Admission)
 
@@ -337,13 +341,6 @@ Besides adapting `RunWithPodSetsInfo` and `RestorePodSetsInfo` it should also:
   * jobs which need the `completions` count kept in sync with `parallelism` should indicate this in a second annotation, `kueue.x-k8s.io/job-completions-equal-parallelism`
 - rework `EquivalentToWorkload` to account for potential differences in `PodSets` spec `Parallelism`.
 
-### kubeflow/MPIJob controller
-
-In case of MPIJob `j.Spec.RunPolicy.SchedulingPolicy.MinAvailable` can be used to provide a `minimumCount` for the `Worker` PodSets while updating `j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Replicas` before unsuspending the job and after suspending it.
-
-Whether an MPIJob supports partial admission or not can be deduced based on `MinAvailable` without the need of a dedicated annotation.
-Additional research is needed into the potential usage of multiple variable count PodSets.
-
 ### RayJob/RayService/RayCluster controller
 
 The RayCluster.workerGroupSpec[i].replicas * numOfHosts will be translated to the PodSet.Count, and minReplicas * numOfHosts will be translated to the PodSet.MinCount for the Worker PodSet.
@@ -367,7 +364,6 @@ to implement this enhancement.
     - `partial admission single variable pod set`: verifies flavor assignment with a single variable count PodSet.
     - `partial admission single variable pod set, preempt first`: verifies preemption behavior when a workload can be admitted using partial admission.
     - `partial admission single variable pod set, preempt with partial admission`: verifies that preemption triggers when partial admission alone is not enough.
-    - `partial admission multiple variable pod sets, proportional policy`: verifies shrinking order and flavor assignment when multiple variable count PodSets are defined using the default proportional policy.
     - `partial admission multiple variable pod sets, order-based policy`: verifies shrinking order when the order-based policy is set, starting from the last PodSet.
     - `partial admission disabled, multiple variable pod sets`: verifies that no partial admission is performed if features/annotations are not active.
   - `pkg/scheduler/scheduler_tas_test.go`:
@@ -422,3 +418,5 @@ major outstanding bugs.
 
 
 ## Alternatives
+
+For partial admission of multiple PodSets, another approach that was considered is proportional shrinking. However it was discarded because of insufficiency for some use cases. For example, when shrinking two PodSets from initial counts of (2, 2) down to 3 pods, a proportional approach might result in (1, 1) due to rounding, rather than an optimal (2, 1) or (1, 2).
