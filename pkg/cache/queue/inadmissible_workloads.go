@@ -40,9 +40,6 @@ const (
 )
 
 func getRequeueBatchPeriod() time.Duration {
-	if features.Enabled(features.SchedulerLongRequeueInterval) {
-		return requeueLongBatchPeriod
-	}
 	return requeueBatchPeriod
 }
 
