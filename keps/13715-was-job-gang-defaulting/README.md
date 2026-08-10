@@ -162,12 +162,14 @@ On a Job CREATE request, Kueue injects `schedulingPolicy.gang: {}` only when all
 2. The configured policy for `batch/job` is `Gang`.
 3. The Job is managed by Kueue.
 4. The Job has no Kueue-managed ancestor.
-5. The Job has not selected a scheduling policy, meaning `spec.scheduling` is unset or its `schedulingPolicy` is nil.
+5. The Job has not selected a scheduling policy, meaning `spec.scheduling` is unset or its `schedulingPolicy` is nil, and its Pod template does not set `schedulingGroup`.
 6. The Job is eligible.
 7. Kueue can verify that the target cluster will preserve the field.
 
 Rule 3 reuses the Job integration's existing managed-job decision, including `manageJobsWithoutQueueName` and `managedJobsNamespaceSelector` from [KEP-3589](/keps/3589-manage-jobs-selectively), and runs after LocalQueue defaulting.
 Rule 4 reuses the existing Kueue-managed-ancestor check, preventing child Jobs from receiving a second scheduling intent when their root controller owns compilation.
+A Pod template that sets `schedulingGroup` counts as user intent for the same reason: upstream treats it as a bring-your-own `PodGroup` and the Job controller compiles nothing for such a Job, so an injected policy would never take effect.
+Consuming user-provided `PodGroup`s belongs to [KEP-13150](/keps/13150-bring-your-own-podgroup).
 
 The mutation is idempotent and writes no other WAS fields.
 
@@ -219,7 +221,8 @@ The presence of the `scheduling.k8s.io` API group is also only a proxy, because 
 The check therefore targets the observable itself rather than any particular gate: every state that loses the field, whether the cluster predates it or the API server runs with `WorkloadWithJob` disabled, collapses into the same symptom, the field is not preserved, and the same behavior, skipping the mutation and reporting the reason.
 Kueue therefore needs a preflight mechanism, such as a dry-run create that carries the field followed by inspection of the returned object.
 Whatever mechanism is selected must run outside the admission path, since a dry-run create passes through Kueue's own mutating webhook and the probe object must be excluded from defaulting, and its result must be cached rather than re-verified on every request.
-Selecting it is [OQ6](#open-questions) and blocks implementation, because rule 7 depends on it.
+The cached result is keyed per target cluster, including each MultiKueue worker; observed field loss or a change in cluster version or gate posture invalidates it, and an unverified state fails closed.
+Selecting the mechanism, including the rest of the cache contract, is [OQ6](#open-questions) and blocks implementation, because rule 7 depends on it.
 
 Independently, a controller-side comparison after creation should report unexpected loss of the field, including on a MultiKueue worker.
 That is defensive reporting, not a substitute: once the field is dropped it cannot be restored on that Job.
