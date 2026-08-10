@@ -28,7 +28,7 @@ RELEASE_NOTE_BLOCK_RE = re.compile(
 
 
 def parse_release_note(comment: str) -> str:
-    """从 ChatOps 评论中解析并校验 release note。"""
+    """Parse and validate the release note from a ChatOps comment."""
     lines = comment.replace("\r\n", "\n").strip().splitlines()
     if not lines or lines[0].strip() != COMMAND:
         raise ValueError(f"{COMMAND} must be the first line of the comment.")
@@ -42,7 +42,7 @@ def parse_release_note(comment: str) -> str:
 
 
 def set_release_note(pr_body: str, release_note: str) -> str:
-    """替换已有 release-note 代码块；不存在时追加标准代码块。"""
+    """Replace an existing release-note block or append a standard block."""
     starts = list(RELEASE_NOTE_START_RE.finditer(pr_body))
     blocks = list(RELEASE_NOTE_BLOCK_RE.finditer(pr_body))
     if len(starts) != len(blocks):
@@ -67,7 +67,7 @@ def set_release_note(pr_body: str, release_note: str) -> str:
 
 
 def main() -> int:
-    """读取文件参数并生成更新后的 PR 正文。"""
+    """Read file arguments and generate the updated pull request body."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--comment-file", required=True, type=Path)
     parser.add_argument("--body-file", required=True, type=Path)

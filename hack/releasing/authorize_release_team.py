@@ -25,7 +25,7 @@ MEMBER_RE = re.compile(r"^    -\s+([a-zA-Z0-9-]+)(?:\s+#.*)?$")
 
 
 def is_authorized(actor: str, owners_aliases: str) -> bool:
-    """检查 actor 是否属于允许执行发布操作的 alias。"""
+    """Return whether the actor belongs to an alias allowed to run release operations."""
     current_alias = None
     for line in owners_aliases.splitlines():
         if alias_match := ALIAS_RE.fullmatch(line):
@@ -41,7 +41,7 @@ def is_authorized(actor: str, owners_aliases: str) -> bool:
 
 
 def main() -> int:
-    """读取 OWNERS_ALIASES 并返回授权结果。"""
+    """Read OWNERS_ALIASES and return the authorization result."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--actor", required=True)
     parser.add_argument("--owners-file", required=True, type=Path)
