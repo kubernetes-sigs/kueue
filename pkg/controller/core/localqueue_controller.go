@@ -175,8 +175,8 @@ func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload
 
 // NotifyClusterQueueUpdate enqueues LocalQueues after ClusterQueue cache cleanup.
 // Only delete events are forwarded: Create/Update are already covered by the
-// ClusterQueue watch, while Delete must run again after ClusterQueueReconciler
-// removes the scheduler cache entry so LocalQueue status can publish
+// ClusterQueue watch. On Delete, ClusterQueueReconciler removes the scheduler
+// cache entry and then notifies so LocalQueue reconcile can publish
 // ClusterQueueDoesNotExist with zero usage from the cache.
 // The send is non-blocking so a full channel cannot stall ClusterQueue delete
 // handling or later watchers; RequeueAfter in Reconcile covers dropped notifies.
