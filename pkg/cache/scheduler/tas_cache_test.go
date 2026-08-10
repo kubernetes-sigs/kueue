@@ -666,7 +666,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Required: ptr.To(tasBlockLabel),
+					Required: new(tasBlockLabel),
 				},
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 1000,
@@ -744,7 +744,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultThreeLevels,
 			podSets: []PodSetTestCase{{
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Required: ptr.To(tasBlockLabel),
+					Required: new(tasBlockLabel),
 				},
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 1000,
