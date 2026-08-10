@@ -1,8 +1,5 @@
 # Release process
 
-To begin the process, open an [issue](https://github.com/kubernetes-sigs/kueue/issues/new/choose)
-using the **New Release** template.
-
 ## Release cycle
 
 - Kueue aims for one minor release every two months, which allows to align with
@@ -15,6 +12,42 @@ using the **New Release** template.
   does not slip more than two weeks.
 - When a release slips it does not impact the target release date for the next
   minor release.
+
+## Release milestones
+
+Each minor release normally uses an eight-week cycle. The public release is planned for the middle of W8.
+
+| Milestone | Normal timing | Meaning |
+| --- | --- | --- |
+| **D1 — Planning opens** | W1–W2 | Scope is preferably discussed during a WG Batch meeting or a dedicated planning meeting, but may also be discussed asynchronously in the issue. |
+| **D2 — Larger KEP review** | W1–W4 | Larger KEPs should become visible early and discussed. |
+| **D3 — Scope cooldown** | W5 | Maintainers finalize the scope for the release in terms of larger KEPs. Small KEPs or KEP updates remain eligible unilt D4. |
+| **D4 — KEP publication** | W6 | Publish accepted KEPs for the release. |
+| **C1 — Code cooldown** | W6 | All big feature PRs must be open, substantially complete, and reviewable. |
+| **C2 — Code freeze** | W7 | Feature PRs are merged or deferred. Focus on bug or explicitly approved exceptions. |
+| **R — Public release** | W8 | Release is published. |
+
+### Tentative timelines
+
+You can find the tentative release timelines in the  [`release-timelines`](./release-timelines) directory.
+
+## Exceptions
+
+Exceptions are possible, and should be discussed between maintainers and feature owners.
+A dedicated Slack channel will be open per exception request. The decision is recorded in the feature tracking issue.
+
+## Clarifications
+
+Maintainers provide judgment on:
+- Scope determination for features depending on their review capacity.
+- Approval of individual feature PRs.
+- Potential update on the tentative release schedule.
+- Exception approvals.
+
+The release publication process is executed by the release team.
+
+The release publication process is tracked by opening an [issue](https://github.com/kubernetes-sigs/kueue/issues/new/choose)
+using the **New Release** template.
 
 ## Versioned docs
 
