@@ -71,7 +71,8 @@ var maxNonCPUQuantityForAmount = *resource.NewQuantity(math.MaxInt64, resource.D
 //
 // This is the safe constructor that all quota-side conversion (Nominal,
 // BorrowingLimit, LendingLimit) must use. ResourceValue is the equivalent for
-// workload requests, clamping to math.MaxInt64 rather than returning Unlimited.
+// workload requests, clamping to math.MinInt64 or math.MaxInt64 rather than
+// returning Unlimited.
 func AmountFromQuantity(name corev1.ResourceName, q resource.Quantity) Amount {
 	if name == corev1.ResourceCPU {
 		if q.Cmp(maxCPUQuantityForAmount) >= 0 {

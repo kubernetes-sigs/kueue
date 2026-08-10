@@ -340,11 +340,6 @@ func TestGreaterKeysRL(t *testing.T) {
 	}
 }
 
-// A quantity outside the int64 range reaches here from a resource
-// transformation, whose product is as large as the configuration asks for, and
-// from an extended resource a user can write by hand. Value reads a big.Int and
-// says nothing about what it returns when the value does not fit, so the result
-// used to be a number of another magnitude or another sign.
 func TestResourceValueClampsOutsideInt64(t *testing.T) {
 	cases := map[string]struct {
 		resource corev1.ResourceName
