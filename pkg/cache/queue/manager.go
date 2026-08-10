@@ -352,9 +352,11 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	for _, q := range queues.Items {
 		qImpl := m.localQueues[queue.Key(&q)]
 		if qImpl != nil {
+			// Seed the cached weight before pushing workloads so the heap
+			// orders them under the correct weight from the first push.
+			cqImpl.addLocalQueue(queue.Key(&q), afs.LQWeightAsFloat64(&q))
 			added := cqImpl.AddFromLocalQueue(qImpl, m.roleTracker, m.customLabels)
 			addedWorkloads = addedWorkloads || added
-			cqImpl.addLocalQueue(queue.Key(&q))
 			if features.Enabled(features.UnadmittedWorkloadsObservability) {
 				log := ctrl.LoggerFrom(ctx)
 				for _, wInfo := range qImpl.items {
@@ -444,14 +446,14 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	return nil
 }
 
-func (m *Manager) RebuildClusterQueue(cq *kueue.ClusterQueue, lqName string) error {
+func (m *Manager) RebuildClusterQueue(log logr.Logger, cq *kueue.ClusterQueue, lqName string) error {
 	m.Lock()
 	defer m.Unlock()
 	cqImpl := m.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 	if cqImpl == nil {
 		return ErrClusterQueueDoesNotExist
 	}
-	cqImpl.RebuildLocalQueue(lqName)
+	cqImpl.RebuildHeap(log, lqName)
 	return nil
 }
 
@@ -500,7 +502,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 
 	cq := m.hm.ClusterQueue(qImpl.ClusterQueue)
 	if cq != nil {
-		cq.addLocalQueue(key)
+		cq.addLocalQueue(key, afs.LQWeightAsFloat64(q))
 	}
 
 	// Iterate through existing workloads, as workloads corresponding to this
@@ -581,12 +583,17 @@ func (m *Manager) UpdateLocalQueue(log logr.Logger, q *kueue.LocalQueue) error {
 		}
 		newCQ := m.hm.ClusterQueue(q.Spec.ClusterQueue)
 		if newCQ != nil {
+			// Seed the weight before pushing so the heap uses it from the start.
+			newCQ.addLocalQueue(queue.Key(q), afs.LQWeightAsFloat64(q))
 			newCQ.AddFromLocalQueue(qImpl, m.roleTracker, m.customLabels)
-			newCQ.addLocalQueue(queue.Key(q))
 			m.Broadcast()
 		}
 	}
 	qImpl.update(q)
+	// Sync the cached weight with the spec and reheapify if it changed.
+	if newCQ := m.hm.ClusterQueue(q.Spec.ClusterQueue); newCQ != nil {
+		newCQ.UpdateLocalQueueWeight(queue.Key(q), afs.LQWeightAsFloat64(q))
+	}
 	if cqChanged && features.Enabled(features.UnadmittedWorkloadsObservability) {
 		for _, wInfo := range qImpl.items {
 			m.updateUnadmittedWorkloadWithoutLock(log, wInfo.Obj)
