@@ -623,6 +623,7 @@ type ResourceTransformation struct {
 	// amount of the resource indicated by the "input" field when computing
 	// "outputs". It does not change the quantity retained under "input" when
 	// "strategy" is Retain.
+	// It must not be `pods`, which is reserved for Kueue's internal Pod-count accounting.
 	// +optional
 	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 

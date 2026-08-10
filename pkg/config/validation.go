@@ -481,6 +481,12 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 				resourceTransformationPath.Index(idx).Child("outputs").Key(string(corev1.ResourcePods)),
 				corev1.ResourcePods, reservedResourceNameMsg))
 		}
+		// Not yet synthesized when transformations run, so it multiplies by one.
+		if transform.MultiplyBy == corev1.ResourcePods {
+			allErrs = append(allErrs, field.Invalid(
+				resourceTransformationPath.Index(idx).Child("multiplyBy"),
+				transform.MultiplyBy, reservedResourceNameMsg))
+		}
 	}
 	return allErrs
 }
