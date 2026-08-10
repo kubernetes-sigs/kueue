@@ -708,8 +708,10 @@ func (s *Scheduler) updateAssignmentIfNeeded(log logr.Logger,
 	e.NominationMapping = e.readResourceToFlavorMapping()
 	newAssignment, newTargets := s.getAssignments(log, &e.Info, snapshot)
 	e.recordAssignment(newAssignment, newTargets)
-	if revertRemoval != nil {
-		revertRemoval()
+	if needsOverlapRecompute {
+		if revertRemoval != nil {
+			revertRemoval()
+		}
 		if e.assignment.RepresentativeMode() == flavorassigner.Fit {
 			e.assignment.SetRepresentativeMode(flavorassigner.FitPendingPreemptions)
 		}
