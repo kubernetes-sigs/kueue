@@ -65,6 +65,29 @@ type pendingWorkloads struct {
 	pendingResourcesTotal map[corev1.ResourceName]int64
 }
 
+// get returns the workload.Info for the key, wherever it is held:
+// the active heap, inadmissible list once the Workload has been tried and could not be admitted,
+// or inflight while the scheduler is processing it. Info covers only the heap.
+//
+// An update to the inflight Workload reaches the LocalQueue but not the heap, since
+// PushOrUpdate deliberately drops it in favour of the newer copy the scheduler requeues at
+// the end of the cycle. The inflight lookup is still worth doing, because the LocalQueue copy
+// is what AddFromLocalQueue replays if the ClusterQueue is reactivated.
+//
+// Users of this method should not modify the returned object.
+func (c *pendingWorkloads) get(key workload.Reference) *workload.Info {
+	if wInfo := c.active.GetByKey(key); wInfo != nil {
+		return wInfo
+	}
+	if wInfo := c.inadmissible.get(key); wInfo != nil {
+		return wInfo
+	}
+	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
+		return c.inflight
+	}
+	return nil
+}
+
 func (p *pendingWorkloads) popActive() *workload.Info {
 	if p.active.Len() == 0 {
 		p.inflight = nil
