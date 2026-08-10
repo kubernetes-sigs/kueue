@@ -796,11 +796,11 @@ func Test_countDevicesPerClass_overflow(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			spec := &resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: tc.requests}}
-			out, errs := countDevicesPerClass(spec)
+			out, errs := countDevicesPerClass(spec, NewResourceMapper())
 			if len(errs) != 0 {
 				t.Fatalf("unexpected errors: %v", errs)
 			}
-			if got := out.ResourceValue("gpu"); got != tc.wantCount {
+			if got := out.perDeviceClass.ResourceValue("gpu"); got != tc.wantCount {
 				t.Errorf("count = %d, want %d", got, tc.wantCount)
 			}
 		})
