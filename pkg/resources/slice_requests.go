@@ -253,9 +253,7 @@ func (sr *SliceRequests) Add(other Requests) {
 	if isEmpty(other) || sr == nil {
 		return
 	}
-	sr.mergeWithInPlace(toSliceRequests(other), func(a, b int64) int64 {
-		return a + b
-	})
+	sr.mergeWithInPlace(toSliceRequests(other), utilmath.SaturatingAdd)
 }
 
 // Sub performs an element-wise subtraction.
@@ -263,9 +261,7 @@ func (sr *SliceRequests) Sub(other Requests) {
 	if isEmpty(other) || sr == nil {
 		return
 	}
-	sr.mergeWithInPlace(toSliceRequests(other), func(a, b int64) int64 {
-		return a - b
-	})
+	sr.mergeWithInPlace(toSliceRequests(other), utilmath.SaturatingSub)
 }
 
 // mergeFunc defines a computation lambda between matching or missing values in two SliceRequests.

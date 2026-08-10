@@ -134,13 +134,13 @@ func (r MapRequests) FloorToZero() {
 
 func (r MapRequests) Add(other Requests) {
 	other.ForEach(func(k corev1.ResourceName, v int64) {
-		r[k] += v
+		r[k] = utilmath.SaturatingAdd(r[k], v)
 	})
 }
 
 func (r MapRequests) Sub(other Requests) {
 	other.ForEach(func(k corev1.ResourceName, v int64) {
-		r[k] -= v
+		r[k] = utilmath.SaturatingSub(r[k], v)
 	})
 }
 
