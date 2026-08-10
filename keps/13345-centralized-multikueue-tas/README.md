@@ -196,7 +196,7 @@ between the manager and workers. The manager would have to blindly guess which
 worker might be able to fit the topology, leading to high latency and scheduling
 churn.
 
-**Aggregated TAS Capacity**: Management cluster calculates `ToplogyAssignment`s
+**Aggregated TAS Capacity**: Management cluster calculates `TopologyAssignment`s
 based on aggregated capacity advertised by each worker cluster organized by
 resource and topological domain instead of watching all Nodes and Pods across
 all worker clusters.
