@@ -811,14 +811,14 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 	}{
 		"the workload stays tracked as inadmissible": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
-				cq.workloads.insertInadmissible(workloadKey(wInfo), wInfo)
+				cq.workloads.InsertInadmissible(workloadKey(wInfo), wInfo)
 			},
 			wantInInadmissible: true,
 			wantCPU:            singleWorkloadCPU,
 		},
 		"requeuing all inadmissible workloads moves it to the heap": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
-				cq.workloads.insertInadmissible(workloadKey(wInfo), wInfo)
+				cq.workloads.InsertInadmissible(workloadKey(wInfo), wInfo)
 			},
 			afterResync: func(cq *ClusterQueue, _ *workload.Info) {
 				cq.namespaceSelector = labels.Everything()
@@ -830,7 +830,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 		},
 		"deleting the workload removes it and its resources": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
-				cq.workloads.insertInadmissible(workloadKey(wInfo), wInfo)
+				cq.workloads.InsertInadmissible(workloadKey(wInfo), wInfo)
 			},
 			afterResync: func(cq *ClusterQueue, wInfo *workload.Info) {
 				cq.Delete(log, workloadKey(wInfo))

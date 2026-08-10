@@ -167,7 +167,7 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
 			continue
 		}
-		if c.workloads.moveToActive(key, wInfo) {
+		if c.workloads.MoveToActive(key, wInfo) {
 			moved++
 		}
 	}
