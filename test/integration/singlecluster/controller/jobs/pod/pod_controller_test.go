@@ -3300,12 +3300,15 @@ var _ = ginkgo.Describe("Pod controller with TASFailedNodeReplacementFailFast di
 	})
 
 	ginkgo.It("should not ungate a replacement pod onto the failed node while no replacement domain is available", framework.SlowSpec, func() {
-		// With fail-fast disabled the workload keeps its admission and its
-		// TopologyAssignment while the second pass looks for a replacement
-		// domain, so the assignment still names the failed node. A replacement
-		// pod created in that window must stay gated rather than be ungated
-		// onto that node: it could never schedule there, and the node
-		// controller would terminate it again immediately.
+		// The ungater skips the failed node regardless of the fail-fast gate;
+		// the gate is disabled here only to keep the window open long enough to
+		// observe it. With fail-fast enabled and no replacement domain the
+		// workload is evicted right away, whereas with it disabled the workload
+		// keeps its admission and its TopologyAssignment while the second pass
+		// looks for a replacement domain, so the assignment still names the
+		// failed node. A replacement pod created in that window must stay gated
+		// rather than be ungated onto that node: it could never schedule there,
+		// and the node controller would terminate it again immediately.
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
 
 		podGroupName := "pod-group"

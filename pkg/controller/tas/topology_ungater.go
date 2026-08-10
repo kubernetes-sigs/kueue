@@ -245,13 +245,22 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 				}
 			}
 			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], maxRank[psa.Name])
-			if unhealthy := unhealthyDomainIDs(wl, &psa); len(unhealthy) > 0 {
+			// While a node is recorded in Status.UnhealthyNodes the assignment still
+			// points at it until the scheduler's second pass swaps in a replacement
+			// domain. Gated pods must not be ungated onto such a node in the
+			// meantime: they can never schedule there, and the node controller then
+			// terminates them with UnschedulableOnAssignedNode, so every recreated
+			// pod is killed again immediately. Leaving them gated lets them wait for
+			// the replacement domain and be ungated onto a healthy node instead.
+			if workload.HasUnhealthyNodes(wl) {
+				levels := psa.TopologyAssignment.Levels
 				gatedPodsToDomains = slices.DeleteFunc(gatedPodsToDomains, func(pd podWithDomain) bool {
-					if !unhealthy[pd.domainID] {
+					nodeName, ok := utiltas.NodeNameFromDomainID(levels, pd.domainID)
+					if !ok || !workload.HasUnhealthyNode(wl, nodeName) {
 						return false
 					}
-					log.V(2).Info("skipping ungate; the assigned domain's node is unhealthy and awaiting replacement",
-						"pod", klog.KObj(pd.pod), "domain", pd.domainID)
+					log.V(3).Info("skipping ungate; the assigned node is unhealthy and awaiting replacement",
+						"pod", klog.KObj(pd.pod), "domain", pd.domainID, "node", nodeName)
 					return true
 				})
 			}
@@ -337,36 +346,6 @@ func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceNa
 		result = append(result, pod)
 	}
 	return result, nil
-}
-
-// unhealthyDomainIDs returns the assignment's domains whose node is recorded in
-// the Workload's Status.UnhealthyNodes.
-//
-// With TASFailedNodeReplacementFailFast disabled the assignment deliberately
-// keeps pointing at an unhealthy node while the scheduler's second pass looks
-// for a replacement domain. Gated pods must not be ungated onto those domains
-// in the meantime: they can never schedule there, and the node controller then
-// terminates them with UnschedulableOnAssignedNode, so each recreated pod is
-// killed again immediately. Leaving them gated lets them wait for either a
-// replacement domain or the recovery timeout.
-func unhealthyDomainIDs(wl *kueue.Workload, psa *kueue.PodSetAssignment) map[utiltas.TopologyDomainID]bool {
-	if !workload.HasUnhealthyNodes(wl) || psa.TopologyAssignment == nil ||
-		!utiltas.IsLowestLevelHostname(psa.TopologyAssignment.Levels) {
-		return nil
-	}
-	var ids map[utiltas.TopologyDomainID]bool
-	for domain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
-		if len(domain.Values) == 0 {
-			continue
-		}
-		if workload.HasUnhealthyNode(wl, domain.Values[len(domain.Values)-1]) {
-			if ids == nil {
-				ids = make(map[utiltas.TopologyDomainID]bool)
-			}
-			ids[utiltas.DomainID(domain.Values)] = true
-		}
-	}
-	return ids
 }
 
 func podsToUngateInfo(

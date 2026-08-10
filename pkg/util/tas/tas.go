@@ -26,8 +26,26 @@ import (
 
 type TopologyDomainID string
 
+// domainIDSeparator joins the level values encoded in a TopologyDomainID.
+const domainIDSeparator = ","
+
 func DomainID(levelValues []string) TopologyDomainID {
-	return TopologyDomainID(strings.Join(levelValues, ","))
+	return TopologyDomainID(strings.Join(levelValues, domainIDSeparator))
+}
+
+// NodeNameFromDomainID returns the node name encoded as the lowest level of the
+// domain ID. It reports false when the domain does not identify a single node,
+// i.e. when the lowest level of levels is not the hostname label, or when
+// domainID does not encode exactly one value per level.
+func NodeNameFromDomainID(levels []string, domainID TopologyDomainID) (string, bool) {
+	if len(levels) == 0 || !IsLowestLevelHostname(levels) {
+		return "", false
+	}
+	values := strings.Split(string(domainID), domainIDSeparator)
+	if len(values) != len(levels) {
+		return "", false
+	}
+	return values[len(values)-1], true
 }
 
 func IsTAS(pod *corev1.Pod) bool {
