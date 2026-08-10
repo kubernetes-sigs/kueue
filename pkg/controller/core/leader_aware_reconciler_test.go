@@ -98,15 +98,18 @@ func TestLeaderAwareReconcilerNonLeadingDestinations(t *testing.T) {
 type fakeObserverReconciler struct {
 	reconcileCalled bool
 	observeCalled   bool
+	lastClient      client.Client
 }
 
-func (f *fakeObserverReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (f *fakeObserverReconciler) Reconcile(ctx context.Context, req reconcile.Request, cl client.Client) (reconcile.Result, error) {
 	f.reconcileCalled = true
+	f.lastClient = cl
 	return reconcile.Result{}, nil
 }
 
-func (f *fakeObserverReconciler) Observe(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+func (f *fakeObserverReconciler) Observe(ctx context.Context, req reconcile.Request, cl client.Client) (reconcile.Result, error) {
 	f.observeCalled = true
+	f.lastClient = cl
 	return reconcile.Result{}, nil
 }
 

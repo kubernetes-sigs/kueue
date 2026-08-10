@@ -758,7 +758,7 @@ var _ clusterProfileAccessProvider = (*access.Config)(nil)
 var _ clusterProfileAccessProvider = (*NoOpClusterProfileAccessProvider)(nil)
 
 var _ manager.Runnable = (*clustersReconciler)(nil)
-var _ reconcile.Reconciler = (*clustersReconciler)(nil)
+var _ core.ReconcilerWithFollowerObserver = (*clustersReconciler)(nil)
 var _ predicate.Predicate = (*clustersReconciler)(nil)
 
 func (c *clustersReconciler) Start(ctx context.Context) error {
@@ -790,13 +790,13 @@ func (c *clustersReconciler) disconnectCluster(clusterName string) {
 
 // findOrCreateRemoteClient returns the remoteClient for clusterName, creating
 // one if absent. Only the brief map operation runs under c.lock.
-func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string) *remoteClient {
+func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string, cl client.Client) *remoteClient {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
 	client, found := c.remoteClients[clusterName]
 	if !found {
-		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, c.adapters)
+		client = newRemoteClient(cl, c.wlUpdateCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, c.adapters)
 		if c.builderOverride != nil {
 			client.builderOverride = c.builderOverride
 		}
@@ -805,8 +805,8 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 	return client
 }
 
-func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string) (*time.Duration, error) {
-	client := c.findOrCreateRemoteClient(clusterName, origin)
+func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string, cl client.Client) (*time.Duration, error) {
+	client := c.findOrCreateRemoteClient(clusterName, origin, cl)
 
 	client.updateConfigLock.Lock()
 	defer client.updateConfigLock.Unlock()
@@ -832,10 +832,10 @@ func (c *clustersReconciler) controllerFor(acName string) (*remoteClient, bool) 
 	return rc, f
 }
 
-func (c *clustersReconciler) doReconcile(ctx context.Context, req reconcile.Request, isLeader bool) (reconcile.Result, error) {
+func (c *clustersReconciler) doReconcile(ctx context.Context, req reconcile.Request, isLeader bool, cl client.Client) (reconcile.Result, error) {
 	cluster := &kueue.MultiKueueCluster{}
 
-	err := c.localClient.Get(ctx, req.NamespacedName, cluster)
+	err := cl.Get(ctx, req.NamespacedName, cluster)
 	if client.IgnoreNotFound(err) != nil {
 		return reconcile.Result{}, err
 	}
@@ -858,12 +858,12 @@ func (c *clustersReconciler) doReconcile(ctx context.Context, req reconcile.Requ
 		return reconcile.Result{}, nil //nolint:nilerr // nil is intentional, as either the cluster is deleted, or not found
 	}
 
-	clientConfig, reason, err := c.loadClientConfig(ctx, cluster)
+	clientConfig, reason, err := c.loadClientConfig(ctx, cl, cluster)
 	if err != nil {
 		log.Error(err, "loading client config failed")
 		c.disconnectCluster(req.Name)
 		if isLeader {
-			if updateErr := c.updateStatus(ctx, cluster, false, reason, fmt.Sprintf("load client config failed: %v", err)); updateErr != nil {
+			if updateErr := c.updateStatus(ctx, cl, cluster, false, reason, fmt.Sprintf("load client config failed: %v", err)); updateErr != nil {
 				return reconcile.Result{}, fmt.Errorf("failed to update MultiKueueCluster status: %w after failing to load client config: %w", updateErr, err)
 			}
 		}
@@ -875,11 +875,11 @@ func (c *clustersReconciler) doReconcile(ctx context.Context, req reconcile.Requ
 		return reconcile.Result{}, fmt.Errorf("failed to load client config, reason: %s, error: %w", reason, err)
 	}
 
-	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin); err != nil {
+	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin, cl); err != nil {
 		log.Error(err, "setting client config", "retryAfter", retryAfter)
 		c.disconnectCluster(req.Name)
 		if isLeader {
-			if err := c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {
+			if err := c.updateStatus(ctx, cl, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {
 				return reconcile.Result{}, err
 			}
 		}
@@ -889,26 +889,26 @@ func (c *clustersReconciler) doReconcile(ctx context.Context, req reconcile.Requ
 	}
 
 	if isLeader {
-		return reconcile.Result{}, client.IgnoreNotFound(c.updateStatus(ctx, cluster, true, "Active", "Connected"))
+		return reconcile.Result{}, client.IgnoreNotFound(c.updateStatus(ctx, cl, cluster, true, "Active", "Connected"))
 	}
 
 	return reconcile.Result{}, nil
 }
 
-func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	return c.doReconcile(ctx, req, true)
+func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Request, cl client.Client) (reconcile.Result, error) {
+	return c.doReconcile(ctx, req, true, cl)
 }
 
-func (c *clustersReconciler) Observe(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	return c.doReconcile(ctx, req, false)
+func (c *clustersReconciler) Observe(ctx context.Context, req reconcile.Request, cl client.Client) (reconcile.Result, error) {
+	return c.doReconcile(ctx, req, false, cl)
 }
 
-func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueue.MultiKueueCluster) (*clientConfig, string, error) {
+func (c *clustersReconciler) loadClientConfig(ctx context.Context, cl client.Client, cluster *kueue.MultiKueueCluster) (*clientConfig, string, error) {
 	if cluster.Spec.ClusterSource.ClusterProfileRef != nil {
 		if !features.Enabled(features.MultiKueueClusterProfile) {
 			return nil, "MultiKueueClusterProfileFeatureDisabled", errors.New("MultiKueueClusterProfile feature gate is disabled")
 		}
-		restConfig, err := c.getRestConfigFromClusterProfile(ctx, cluster.Spec.ClusterSource.ClusterProfileRef)
+		restConfig, err := c.getRestConfigFromClusterProfile(ctx, cl, cluster.Spec.ClusterSource.ClusterProfileRef)
 		if err != nil {
 			return nil, "BadClusterProfile", err
 		}
@@ -922,7 +922,7 @@ func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueu
 		return &clientConfig{RestConfig: restConfig}, "", nil
 	}
 
-	kubeConfig, err := c.getKubeConfig(ctx, cluster.Spec.ClusterSource.KubeConfig)
+	kubeConfig, err := c.getKubeConfig(ctx, cl, cluster.Spec.ClusterSource.KubeConfig)
 	if err != nil {
 		return nil, "BadKubeConfig", err
 	}
@@ -1019,34 +1019,34 @@ func isValidHostname(server string) bool {
 	return len(errs) == 0
 }
 
-func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeConfig) ([]byte, error) {
+func (c *clustersReconciler) getKubeConfig(ctx context.Context, cl client.Client, ref *kueue.KubeConfig) ([]byte, error) {
 	if ref == nil {
 		return nil, errors.New("kubeconfig reference is nil")
 	}
 
 	if ref.LocationType == kueue.SecretLocationType {
-		return c.getKubeConfigFromSecret(ctx, ref.Location)
+		return c.getKubeConfigFromSecret(ctx, cl, ref.Location)
 	}
 	// Otherwise it's path
 	return c.getKubeConfigFromPath(ref.Location)
 }
 
-func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context, profileRef *kueue.ClusterProfileReference) (*rest.Config, error) {
+func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context, cl client.Client, profileRef *kueue.ClusterProfileReference) (*rest.Config, error) {
 	cp := &inventoryv1alpha1.ClusterProfile{}
-	if err := c.localClient.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: c.configNamespace}, cp); err != nil {
+	if err := cl.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: c.configNamespace}, cp); err != nil {
 		return nil, err
 	}
 
 	return c.clusterProfileAccessProvider.BuildConfigFromCP(cp)
 }
 
-func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, secretName string) ([]byte, error) {
+func (c *clustersReconciler) getKubeConfigFromSecret(ctx context.Context, cl client.Client, secretName string) ([]byte, error) {
 	sec := corev1.Secret{}
 	secretObjKey := types.NamespacedName{
 		Namespace: c.configNamespace,
 		Name:      secretName,
 	}
-	err := c.localClient.Get(ctx, secretObjKey, &sec)
+	err := cl.Get(ctx, secretObjKey, &sec)
 	if err != nil {
 		return nil, err
 	}
@@ -1125,7 +1125,7 @@ func (c *clustersReconciler) getKubeConfigFromPath(rawPath string) ([]byte, erro
 	return os.ReadFile(validated)
 }
 
-func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.MultiKueueCluster, active bool, reason, message string) error {
+func (c *clustersReconciler) updateStatus(ctx context.Context, cl client.Client, cluster *kueue.MultiKueueCluster, active bool, reason, message string) error {
 	if !active {
 		if rc, found := c.controllerFor(cluster.Name); found {
 			if attempts := rc.getFailedConnAttempts(); attempts > 0 {
@@ -1134,7 +1134,6 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.Mu
 			}
 		}
 	}
-
 	newCondition := metav1.Condition{
 		Type:               kueue.MultiKueueClusterActive,
 		Status:             metav1.ConditionFalse,
@@ -1153,7 +1152,7 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.Mu
 	}
 
 	apimeta.SetStatusCondition(&cluster.Status.Conditions, newCondition)
-	return c.localClient.Status().Update(ctx, cluster)
+	return cl.Status().Update(ctx, cluster)
 }
 
 func (c *clustersReconciler) runGC(ctx context.Context) {
@@ -1247,7 +1246,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager, cfg *config.Conf
 	controllerBuilder := ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_cluster").
 		For(&kueue.MultiKueueCluster{}).
-		Watches(&corev1.Secret{}, &secretHandler{client: c.localClient}).
+		Watches(&corev1.Secret{}, &secretHandler{client: mgr.GetClient()}).
 		WatchesRawSource(source.Channel(c.watchEndedCh, syncHndl)).
 		WatchesRawSource(source.Channel(c.fsWatcher.reconcile, fsWatcherHndl)).
 		WithEventFilter(c).
@@ -1261,7 +1260,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager, cfg *config.Conf
 		})
 
 		controllerBuilder = controllerBuilder.
-			Watches(&inventoryv1alpha1.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, builder.WithPredicates(systemNamespacePredicate))
+			Watches(&inventoryv1alpha1.ClusterProfile{}, &clusterProfileHandler{client: mgr.GetClient()}, builder.WithPredicates(systemNamespacePredicate))
 	}
 
 	return controllerBuilder.Complete(core.WithLeadingManagerAndObserver(mgr, c, cfg))

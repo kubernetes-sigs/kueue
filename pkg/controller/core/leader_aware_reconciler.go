@@ -26,25 +26,28 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
 
 type ReconcilerWithFollowerObserver interface {
-	reconcile.Reconciler
-	Observe(ctx context.Context, req reconcile.Request) (reconcile.Result, error)
+	Reconcile(ctx context.Context, req reconcile.Request, cl client.Client) (reconcile.Result, error)
+	Observe(ctx context.Context, req reconcile.Request, cl client.Client) (reconcile.Result, error)
 }
 
 type leaderAwareReconcilerObserver struct {
 	elected         <-chan struct{}
 	delegate        ReconcilerWithFollowerObserver
+	leaderClient    client.Client // full read-write client
+	followerClient  client.Client // read-only client
 	requeueDuration time.Duration
 }
 
 func (r *leaderAwareReconcilerObserver) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	select {
 	case <-r.elected:
-		return r.delegate.Reconcile(ctx, req)
+		return r.delegate.Reconcile(ctx, req, r.leaderClient)
 	default:
-		observeResult, err := r.delegate.Observe(ctx, req)
+		observeResult, err := r.delegate.Observe(ctx, req, r.followerClient)
 		if err != nil {
 			return observeResult, err
 		}
@@ -60,13 +63,25 @@ func (r *leaderAwareReconcilerObserver) Reconcile(ctx context.Context, req recon
 }
 
 func WithLeadingManagerAndObserver(mgr ctrl.Manager, reconciler ReconcilerWithFollowerObserver, cfg *config.Configuration) reconcile.Reconciler {
-	if cfg == nil || cfg.LeaderElection == nil || !ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
-		return reconciler
+	alreadyElected := make(chan struct{})
+	close(alreadyElected)
+	elected := (<-chan struct{})(alreadyElected)
+	var requeueDuration time.Duration
+
+	if cfg != nil && cfg.LeaderElection != nil && ptr.Deref(cfg.LeaderElection.LeaderElect, false) {
+		elected = mgr.Elected()
+		requeueDuration = cfg.LeaderElection.LeaseDuration.Duration
 	}
+
+	fullClient := mgr.GetClient()
+	readOnlyClient := clientutil.NewReadOnlyClient(fullClient)
+
 	return &leaderAwareReconcilerObserver{
-		elected:         mgr.Elected(),
+		elected:         elected,
 		delegate:        reconciler,
-		requeueDuration: cfg.LeaderElection.LeaseDuration.Duration,
+		leaderClient:    fullClient,
+		followerClient:  readOnlyClient,
+		requeueDuration: requeueDuration,
 	}
 }
 
