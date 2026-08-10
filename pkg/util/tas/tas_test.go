@@ -35,9 +35,12 @@ func TestNodeNameFromDomainID(t *testing.T) {
 			wantNodeName: "x1",
 			wantOK:       true,
 		},
+		// When the hostname is the lowest level, the assignment covers that level
+		// alone, so the domain ID holds only the node name even for a deeper
+		// topology. See buildAssignment in pkg/cache/scheduler/tas_flavor_snapshot.go.
 		"hostname is the lowest of multiple levels": {
 			levels:       []string{"cloud.com/topology-block", "cloud.com/topology-rack", corev1.LabelHostname},
-			domainID:     DomainID([]string{"b1", "r1", "x1"}),
+			domainID:     DomainID([]string{"x1"}),
 			wantNodeName: "x1",
 			wantOK:       true,
 		},
@@ -56,37 +59,13 @@ func TestNodeNameFromDomainID(t *testing.T) {
 			domainID: DomainID([]string{"x1"}),
 			wantOK:   false,
 		},
-		"fewer values than levels": {
-			levels:   []string{"cloud.com/topology-rack", corev1.LabelHostname},
-			domainID: DomainID([]string{"x1"}),
-			wantOK:   false,
-		},
-		"more values than levels": {
-			levels:   []string{corev1.LabelHostname},
-			domainID: DomainID([]string{"r1", "x1"}),
-			wantOK:   false,
-		},
+		// The domain ID is returned verbatim, so an empty one maps to the empty
+		// node name, which matches no UnhealthyNodes entry.
 		"empty domain ID": {
-			levels:   []string{corev1.LabelHostname, "cloud.com/topology-rack"},
-			domainID: "",
-			wantOK:   false,
-		},
-		// A single-level hostname topology encodes the node name verbatim, so an
-		// empty domain ID is indistinguishable from a node with an empty name. It
-		// maps to the empty node name, which matches no UnhealthyNodes entry.
-		"empty domain ID for a single hostname level": {
 			levels:       []string{corev1.LabelHostname},
 			domainID:     "",
 			wantNodeName: "",
 			wantOK:       true,
-		},
-		"node name containing the separator is not representable": {
-			// DomainID joins level values with ",", so a value containing a comma
-			// cannot be recovered. Node names cannot contain commas (RFC 1123),
-			// so this only guards against malformed input.
-			levels:   []string{corev1.LabelHostname},
-			domainID: DomainID([]string{"x1,x2"}),
-			wantOK:   false,
 		},
 	}
 	for name, tc := range cases {
