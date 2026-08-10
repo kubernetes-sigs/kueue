@@ -13,6 +13,7 @@
   - [API Definition](#api-definition)
     - [Workload API](#workload-api)
     - [<code>SingleClusterPreemptionTimeout</code> Default](#singleclusterpreemptiontimeout-default)
+    - [Configuration API](#configuration-api)
   - [MultiKueue Controller](#multikueue-controller)
   - [Kueue Scheduler](#kueue-scheduler)
   - [Test Plan](#test-plan)
@@ -258,6 +259,8 @@ In the alpha, a hard-coded default value of 5 minutes will be set for the `Singl
 This is done in anticipation of a new opt-in API in beta, in order to avoid locking into the wrong API structure in the alpha
 (see [Graduation Criteria](#graduation-criteria)).
 
+#### Configuration API
+
 When graduating to Beta, the MultiKueue configuration API will be extended with a string-based enum field (e.g. `PreemptionMode`)
 rather than a simple boolean flag.
 This field will allow administrators to explicitly configure how preemptions are orchestrated across worker clusters.
@@ -267,6 +270,16 @@ The design supports values such as:
 * `AtMostOne`: ensuring at most one worker cluster attempts preemption at a time.
 
 Using a string enum instead of a boolean provides flexibility and ensures that additional preemption orchestration modes can be seamlessly added in the future as the feature matures.
+
+For example:
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+multiKueue:
+  preemptionMode: AtMostOne
+```
+
 
 ### MultiKueue Controller
 
