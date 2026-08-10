@@ -220,9 +220,13 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// status that mixes ClusterQueueDoesNotExist with stale usage.
 			// NotifyClusterQueueUpdate enqueues the LocalQueues once cleanup is
 			// done; RequeueAfter backs it up if this reconcile raced ahead of
-			// the notify.
+			// the notify. errQNotFound is part of the same disagreement rather
+			// than a reconcile failure, since it only occurs while the
+			// ClusterQueue is still cached.
 			stats, cqInCache, usageErr := r.cache.LocalQueueUsage(&queueObj)
 			if cqInCache {
+				log.V(2).Info("ClusterQueue is deleted but still in the scheduler cache, waiting for cleanup before updating status",
+					"clusterQueue", queueObj.Spec.ClusterQueue, "cacheReadError", usageErr)
 				return ctrl.Result{RequeueAfter: constants.UpdatesBatchPeriod}, nil
 			}
 			if usageErr != nil {
