@@ -1001,23 +1001,6 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			g.Expect(workload.IsAdmitted(activeSlice)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("creating a still-gated pod that points at the origin slice, owned by the RayCluster")
-		gatedPod := testingpod.MakePod("worker-0", ns.Name).
-			Annotation(kueue.WorkloadAnnotation, originSliceName).
-			Annotation(kueue.WorkloadSliceNameAnnotation, originSliceName).
-			Label(constants.PodSetLabel, string(activeSlice.Spec.PodSets[1].Name)).
-			Gate(kueue.ElasticJobSchedulingGate).
-			Obj()
-		gatedPod.OwnerReferences = []metav1.OwnerReference{{
-			APIVersion:         rayv1.SchemeGroupVersion.String(),
-			Kind:               "RayCluster",
-			Name:               testRayCluster.Name,
-			UID:                testRayCluster.UID,
-			Controller:         new(true),
-			BlockOwnerDeletion: new(true),
-		}}
-		util.MustCreate(ctx, k8sClient, gatedPod)
-
 		ginkgo.By("deleting the origin slice to emulate a RayService rollout GC of the old RayCluster's workloads")
 		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, originSlice)).To(gomega.Succeed())
 		gomega.Expect(k8sClient.Delete(ctx, originSlice)).To(gomega.Succeed())
@@ -1033,6 +1016,23 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			}
 			g.Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, wl))).To(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("creating a still-gated pod that points at the now-deleted origin slice, owned by the RayCluster")
+		gatedPod := testingpod.MakePod("worker-0", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, originSliceName).
+			Annotation(kueue.WorkloadSliceNameAnnotation, originSliceName).
+			Label(constants.PodSetLabel, string(activeSlice.Spec.PodSets[1].Name)).
+			Gate(kueue.ElasticJobSchedulingGate).
+			Obj()
+		gatedPod.OwnerReferences = []metav1.OwnerReference{{
+			APIVersion:         rayv1.SchemeGroupVersion.String(),
+			Kind:               "RayCluster",
+			Name:               testRayCluster.Name,
+			UID:                testRayCluster.UID,
+			Controller:         new(true),
+			BlockOwnerDeletion: new(true),
+		}}
+		util.MustCreate(ctx, k8sClient, gatedPod)
 
 		ginkgo.By("the ungater removes the elastic scheduling gate despite the origin slice being gone")
 		gomega.Eventually(func(g gomega.Gomega) {
