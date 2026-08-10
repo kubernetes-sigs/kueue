@@ -42,6 +42,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -1314,19 +1315,20 @@ func (s *Scheduler) shouldApplyEntryPenalty(e *entry) bool {
 func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	lqKey := utilqueue.NewLocalQueueReference(e.Obj.Namespace, e.Obj.Spec.QueueName)
 	lqObjRef := klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName))
-	totalRequests := e.SumTotalRequests(s.resourceFormatter)
-	if flavorassigner.IgnoreUndeclaredResources(s.quotaCheckStrategy) {
-		totalRequests = filterByNames(totalRequests, resourcegroups.AllCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
-	}
-	penalty := afs.CalculateEntryPenalty(totalRequests, s.admissionFairSharing)
+	wlKey := queueafs.WorkloadReference(workload.Key(e.Obj))
 
 	switch op {
 	case add:
-		s.queues.AfsUsageLedger.PushPenalty(lqKey, penalty, s.clock.Now())
-		log.V(3).Info("Entry penalty added to localQueue", "localQueue", lqObjRef, "penalty", penalty)
+		totalRequests := e.SumTotalRequests(s.resourceFormatter)
+		if flavorassigner.IgnoreUndeclaredResources(s.quotaCheckStrategy) {
+			totalRequests = filterByNames(totalRequests, resourcegroups.AllCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
+		}
+		penalty := afs.CalculateEntryPenalty(totalRequests, s.admissionFairSharing)
+		s.queues.AfsUsageLedger.PushPenalty(lqKey, wlKey, penalty, s.clock.Now())
+		log.V(3).Info("Entry penalty added to localQueue", "localQueue", lqObjRef, "workload", wlKey, "penalty", penalty)
 	case subtract:
-		s.queues.AfsUsageLedger.SubPenalty(lqKey, penalty)
-		log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", lqObjRef, "penalty", penalty)
+		removed := s.queues.AfsUsageLedger.SubPenalty(lqKey, wlKey)
+		log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", lqObjRef, "workload", wlKey, "penalty", removed)
 	}
 }
 

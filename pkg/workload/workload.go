@@ -502,7 +502,7 @@ func (i *Info) ComputeLocalQueueFSUsage(
 	if afsUsageLedger != nil {
 		if entry, found := afsUsageLedger.Get(lqKey); found {
 			consumed = entry.Resources
-			penalty = entry.PendingPenalty
+			penalty = entry.PendingPenalty()
 		}
 	}
 

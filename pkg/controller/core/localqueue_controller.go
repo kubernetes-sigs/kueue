@@ -264,11 +264,6 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 	if r.lqMetrics.IsEnabled() {
 		metrics.ClearLocalQueueResourceMetrics(localQueueReferenceFromLocalQueue(e.Object))
 	}
-	if afs.Enabled(r.admissionFSConfig) {
-		lqKey := utilqueue.Key(e.Object)
-		r.queues.AfsUsageLedger.Delete(lqKey)
-	}
-
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.LQDelete(utilqueue.Key(e.Object))
 	}
@@ -277,6 +272,11 @@ func (r *LocalQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.LocalQueue
 	log.V(2).Info("LocalQueue delete event")
 	r.queues.DeleteLocalQueue(log, e.Object)
 	r.cache.DeleteLocalQueue(e.Object)
+	if afs.Enabled(r.admissionFSConfig) {
+		// Last, after the caches: a concurrent settlement that already passed
+		// its cache lookup could otherwise recreate the entry we just deleted.
+		r.queues.AfsUsageLedger.Delete(utilqueue.Key(e.Object))
+	}
 	return true
 }
 
@@ -393,7 +393,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 
 	if halfLifeTime == 0 {
 		entry, _ := r.queues.AfsUsageLedger.Get(lqKey)
-		if err := r.updateAdmissionFsStatus(ctx, lq, corev1.ResourceList{}, entry.PendingPenalty, now); err != nil {
+		if err := r.updateAdmissionFsStatus(ctx, lq, corev1.ResourceList{}, entry.PendingPenalty(), now); err != nil {
 			log.V(2).Info("Failed to reset LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
 			return err
 		}
@@ -426,7 +426,7 @@ func (r *LocalQueueReconciler) reconcileConsumedUsage(ctx context.Context, lq *k
 	elapsed := max(0, now.Sub(entry.LastUpdate).Seconds())
 	newConsumed := afs.CalculateDecayedConsumed(oldUsage, newUsage, elapsed, halfLifeTime)
 
-	if err := r.updateAdmissionFsStatus(ctx, lq, newConsumed, entry.PendingPenalty, now); err != nil {
+	if err := r.updateAdmissionFsStatus(ctx, lq, newConsumed, entry.PendingPenalty(), now); err != nil {
 		log.V(2).Info("Failed to update LocalQueue status", "namespace", lq.Namespace, "name", lq.Name, "error", err)
 		return err
 	}
@@ -512,7 +512,7 @@ func (r *LocalQueueReconciler) resyncLocalQueueGaugeMetrics(lq *kueue.LocalQueue
 		return
 	}
 	if entry, found := r.queues.AfsUsageLedger.Get(lqKey); found {
-		r.reportAfsUsage(lq, entry.Resources, entry.PendingPenalty)
+		r.reportAfsUsage(lq, entry.Resources, entry.PendingPenalty())
 	}
 	condition := meta.FindStatusCondition(lq.Status.Conditions, kueue.LocalQueueActive)
 	if condition == nil {

@@ -734,7 +734,7 @@ func buildSnapshotSort(
 			if afsUsageLedger != nil {
 				if entry, found := afsUsageLedger.Get(lqKey); found {
 					consumed = entry.Resources.DeepCopy()
-					penalty = entry.PendingPenalty.DeepCopy()
+					penalty = entry.PendingPenalty().DeepCopy()
 				}
 			}
 			lqWeight, ok := getLQWeight(lqKey)

@@ -1291,6 +1291,55 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				g.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeFalse(), "entry penalty should be subtracted for lq-a after admission via admission check")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("should drop the entry penalty when the workload is deleted while waiting for the admission check", func() {
+			lqKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lq.Name))
+
+			ginkgo.By("Creating a workload which reserves quota and waits for the admission check")
+			wl := createWorkload("lq-a", "4")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+
+			ginkgo.By("Verifying the entry penalty is pending while the workload is in QuotaReserved")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeTrue(), "entry penalty should be pending for lq-a")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Deleting the workload before the admission check approves it")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+
+			ginkgo.By("Verifying the entry penalty is dropped instead of pending forever")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeFalse(), "entry penalty should be dropped when the workload is deleted before admission")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should not stack entry penalties when an evicted workload reserves quota again", func() {
+			lqKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lq.Name))
+
+			ginkgo.By("Creating a workload which reserves quota and waits for the admission check")
+			wl := createWorkload("lq-a", "4")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+
+			ginkgo.By("Capturing the single pushed entry penalty")
+			var firstPenalty corev1.ResourceList
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeTrue(), "entry penalty should be pending for lq-a")
+				firstPenalty = qManager.AfsUsageLedger.PeekPenalty(lqKey).DeepCopy()
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Retrying the admission check so the workload is evicted back to pending")
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateRetry, true)
+			util.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, client.ObjectKeyFromObject(wl))
+
+			ginkgo.By("Waiting for the workload to reserve quota again")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+
+			ginkgo.By("Verifying the re-push replaced the record instead of stacking a second penalty")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(qManager.AfsUsageLedger.PeekPenalty(lqKey)).To(gomega.BeComparableTo(firstPenalty),
+					"re-reserving quota for the same workload must not accumulate entry penalties")
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
 	})
 
 	ginkgo.When("Preemption is enabled in fairsharing and there are large values of quota and weights", func() {

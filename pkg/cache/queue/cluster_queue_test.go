@@ -521,8 +521,8 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				afsUsageLedger.PushPenalty("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("100")}, now)
-				afsUsageLedger.SubPenalty("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("100")})
+				afsUsageLedger.PushPenalty("default/lq1", "default/toggle", corev1.ResourceList{resourceGPU: resource.MustParse("100")}, now)
+				afsUsageLedger.SubPenalty("default/lq1", "default/toggle")
 			}
 		}
 	}()

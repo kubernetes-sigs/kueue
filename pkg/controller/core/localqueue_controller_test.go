@@ -50,6 +50,8 @@ const (
 	resourceGPU = corev1.ResourceName("GPU")
 )
 
+const pendingWlKey queueafs.WorkloadReference = "ns/pending-wl"
+
 func TestLocalQueueReconcile(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	clock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
@@ -939,7 +941,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			if tc.pendingEntryPenalty != nil {
 				// A pending entry penalty bypasses the sampling-interval guard so
 				// the tick runs even when the cached LastUpdate is not yet stale.
-				qManager.AfsUsageLedger.PushPenalty(utilqueue.Key(tc.localQueue), tc.pendingEntryPenalty, clock.Now())
+				qManager.AfsUsageLedger.PushPenalty(utilqueue.Key(tc.localQueue), pendingWlKey, tc.pendingEntryPenalty, clock.Now())
 			}
 			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache,
 				WithClock(clock),
@@ -978,6 +980,15 @@ func TestLocalQueueReconcile(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantLocalQueue, gotLocalQueue, cmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
+			}
+
+			if tc.pendingEntryPenalty != nil {
+				// The per-Workload record must survive the tick's entry rewrite,
+				// or the later settlement finds nothing to fold.
+				gotEntry, _ := qManager.AfsUsageLedger.Get(utilqueue.Key(tc.localQueue))
+				if !gotEntry.HasPenaltyRecord(pendingWlKey) {
+					t.Error("the reconcile tick dropped the pending per-Workload penalty record")
+				}
 			}
 
 			if tc.wantConsumedResources != nil {
@@ -1053,7 +1064,7 @@ func TestLocalQueueReconcileReportsAdmissionFairSharingUsageMetric(t *testing.T)
 		corev1.ResourceCPU: resource.MustParse("8"),
 		resourceGPU:        resource.MustParse("4"),
 	}, now.Add(-5*time.Minute))
-	qManager.AfsUsageLedger.PushPenalty(lqKey, corev1.ResourceList{
+	qManager.AfsUsageLedger.PushPenalty(lqKey, pendingWlKey, corev1.ResourceList{
 		corev1.ResourceCPU: resource.MustParse("1"),
 		resourceGPU:        resource.MustParse("1"),
 	}, now)
