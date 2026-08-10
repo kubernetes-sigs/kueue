@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -126,12 +127,25 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	// one whose granted PodSet counts define how many pods may be ungated, so the
 	// cap is always taken from the live slice regardless of which slice (or which
 	// pod's stamped WorkloadAnnotation) triggered the event.
+	//
+	// The root slice may be gone (e.g. a RayService rollout cascade-deletes the
+	// old RayCluster and its Workloads) while later slices and their still-gated
+	// pods keep pointing at its name. In that case recover the owning job from a
+	// chain pod instead of bailing, so those pods still get ungated.
+	var active *kueue.Workload
 	root := &kueue.Workload{}
-	if err := r.client.Get(ctx, req.NamespacedName, root); err != nil {
-		return reconcile.Result{}, client.IgnoreNotFound(err)
-	}
-	active, err := r.activeSlice(ctx, root)
-	if err != nil {
+	switch err := r.client.Get(ctx, req.NamespacedName, root); {
+	case err == nil:
+		active, err = r.activeSlice(ctx, root)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+	case apierrors.IsNotFound(err):
+		active, err = r.activeSliceForDeletedRoot(ctx, req.NamespacedName)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+	default:
 		return reconcile.Result{}, err
 	}
 	if active == nil {
@@ -249,8 +263,35 @@ func (r *elasticJobUngater) activeSlice(ctx context.Context, anyWl *kueue.Worklo
 	if owner == nil {
 		return nil, nil
 	}
+	return r.activeSliceForOwner(ctx, anyWl.Namespace, owner)
+}
+
+// activeSliceForDeletedRoot resolves the chain's active slice when the root slice
+// named by key has been deleted. The owning job is recovered from a still-present
+// pod of the chain (indexed by the same slice key), so ungating still proceeds for
+// pods left pointing at a now-deleted origin slice. Returns nil if no chain pod or
+// job owner can be found.
+func (r *elasticJobUngater) activeSliceForDeletedRoot(ctx context.Context, key types.NamespacedName) (*kueue.Workload, error) {
+	var podList corev1.PodList
+	if err := r.client.List(ctx, &podList,
+		client.InNamespace(key.Namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameKey: key.Name},
+	); err != nil {
+		return nil, fmt.Errorf("listing pods for workload slice: %w", err)
+	}
+	for i := range podList.Items {
+		if owner := metav1.GetControllerOf(&podList.Items[i]); owner != nil {
+			return r.activeSliceForOwner(ctx, key.Namespace, owner)
+		}
+	}
+	return nil, nil
+}
+
+// activeSliceForOwner resolves the latest active workload slice owned by the given
+// job (owner) in namespace. Shared by activeSlice and activeSliceForDeletedRoot.
+func (r *elasticJobUngater) activeSliceForOwner(ctx context.Context, namespace string, owner *metav1.OwnerReference) (*kueue.Workload, error) {
 	jobObject := &metav1.PartialObjectMetadata{
-		ObjectMeta: metav1.ObjectMeta{Namespace: anyWl.Namespace, Name: owner.Name},
+		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: owner.Name},
 	}
 	return workloadslicing.FindLatestActiveWorkload(ctx, r.client, jobObject, schema.FromAPIVersionAndKind(owner.APIVersion, owner.Kind))
 }

@@ -674,6 +674,58 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"ungates pods when the chain-root slice has been deleted": {
+			// A RayService rollout can cascade-delete the old RayCluster and its
+			// root Workload while later scale-up slices and their still-gated pods
+			// keep pointing at the (now gone) root name. The reconcile key is the
+			// root name, which no longer resolves; the ungater must recover the
+			// owning job from a chain pod and still ungate up to the active slice's
+			// granted count instead of silently giving up.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-slice-1", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "2").
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+				// NOTE: the root slice "wl" is intentionally absent (deleted).
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-from-parent", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					OwnerReference("ray", rayClusterGVK).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-from-scale-up", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					OwnerReference("ray", rayClusterGVK).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod-from-parent", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					OwnerReference("ray", rayClusterGVK).
+					Obj(),
+				*testingpod.MakePod("pod-from-scale-up", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					OwnerReference("ray", rayClusterGVK).
+					Obj(),
+			},
+		},
 		"preserve topology gate when ungating elastic gate": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
