@@ -22,7 +22,6 @@ import (
 	"github.com/go-logr/logr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -41,9 +40,6 @@ func SatisfiesPreemptionPolicy(log logr.Logger, preemptor, candidate *kueue.Work
 		preemptorTS := workloadOrdering.GetQueueOrderTimestamp(preemptor)
 		candidateTS := workloadOrdering.GetQueueOrderTimestamp(candidate)
 		newerEqualPriority := (preemptorPriority == candidatePriority) && preemptorTS.Before(candidateTS)
-		if newerEqualPriority && features.Enabled(features.SchedulerTimestampPreemptionBuffer) {
-			newerEqualPriority = candidateTS.Sub(preemptorTS.Time) > timestampPreemptionBuffer
-		}
 		return lowerPriority || newerEqualPriority
 	}
 	return policy == kueue.PreemptionPolicyAny
