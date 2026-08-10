@@ -1,0 +1,43 @@
+---
+# Restricts egress from the Kueue controller-manager.
+#
+# This policy is opt-in. Enabling it turns on default-deny egress for the
+# controller-manager, which breaks MultiKueue unless the remote cluster API
+# servers are reachable through the rules below.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: controller-manager-egress
+  namespace: system
+spec:
+  podSelector:
+    matchLabels:
+      control-plane: controller-manager
+  policyTypes:
+    - Egress
+  egress:
+    # Cluster DNS. The in-cluster API server is reached by IP through the
+    # KUBERNETES_SERVICE_HOST environment variable and needs no DNS, but
+    # MultiKueue remote clusters addressed by hostname do.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # The in-cluster API server, and remote cluster API servers when MultiKueue
+    # is in use. MultiKueue destinations come from Secrets and ClusterProfiles
+    # at runtime and cannot be enumerated here, so the API server ports are
+    # allowed to any address. Narrow this to known CIDRs where the set of remote
+    # clusters is fixed.
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
