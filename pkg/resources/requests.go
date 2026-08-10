@@ -141,11 +141,13 @@ func (r MapRequests) ToResourceList(formatter *ResourceFormatter) corev1.Resourc
 
 // ResourceValue returns the integer value for the resource name.
 // It's milli-units for CPU and absolute units for everything else.
+// Both clamp: Quantity.Value and Quantity.MilliValue read a big.Int that need
+// not fit in an int64.
 func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
 	if name == corev1.ResourceCPU {
 		return utilmath.SafeMilliValue(q)
 	}
-	return q.Value()
+	return utilmath.SafeValue(q)
 }
 
 // GreaterKeys returns keys where the receiver is greater than other,
