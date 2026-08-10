@@ -225,9 +225,8 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 		"does not ungate a pod onto a node marked unhealthy": {
-			// With TASFailedNodeReplacementFailFast=false the workload keeps its
-			// admission and its TopologyAssignment while it waits for a
-			// replacement node (see the "should update workload
+			// The workload keeps its admission and its TopologyAssignment while it
+			// waits for a replacement node (see the "should update workload
 			// TopologyAssignment after a node becomes available" integration
 			// test, which asserts the assignment is retained). A replacement pod
 			// created during that window must NOT be ungated onto the domain of
