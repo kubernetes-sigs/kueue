@@ -65,12 +65,38 @@ func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool 
 	return false
 }
 
+// selectedDeviceClass returns the DeviceClass Kubernetes uses when more than one
+// declares the same extendedResourceName. Quoting the field's documentation:
+//
+//	It should be unique among all the device classes in a cluster. If two device
+//	classes have the same name, then the class created later is picked to satisfy
+//	a pod's extended resource requests. If two classes are created at the same
+//	time, then the name of the class lexicographically sorted first is picked.
+//
+// Ties are the common case, since a creation timestamp carries seconds. items
+// is non-empty and already filtered to one extendedResourceName.
+func selectedDeviceClass(items []resourceapi.DeviceClass) *resourceapi.DeviceClass {
+	selected := &items[0]
+	for i := range items[1:] {
+		candidate := &items[i+1]
+		switch candidate.CreationTimestamp.Compare(selected.CreationTimestamp.Time) {
+		case 1:
+			selected = candidate
+		case 0:
+			if candidate.Name < selected.Name {
+				selected = candidate
+			}
+		}
+	}
+	return selected
+}
+
 // resolveContainerExtendedResources converts DRA-backed extended resources in a
 // container's requests into logical quota keys. For each extended resource, it looks
-// up DeviceClasses by spec.extendedResourceName. If a DeviceClass is found in
-// deviceClassMappings, the mapped name is used as quota key; otherwise the
-// extendedResourceName itself is used. Returns the converted resources and the set
-// of original resource names that were replaced (for double-count prevention).
+// up DeviceClasses by spec.extendedResourceName, selects the one the scheduler would
+// allocate from, and uses that class's deviceClassMappings entry as the quota key;
+// otherwise the extendedResourceName itself is used. Returns the converted resources
+// and the set of original resource names that were replaced (for double-count prevention).
 func resolveContainerExtendedResources(
 	ctx context.Context,
 	cl client.Client,
@@ -116,26 +142,25 @@ func resolveContainerExtendedResources(
 			continue
 		}
 
+		// The class the scheduler will allocate from, not whichever List returned first.
+		selected := selectedDeviceClass(dcList.Items)
+
 		// Determine the quota key. If the DeviceClass is also in deviceClassMappings,
 		// use the mapped logical name to unify quota with the ResourceClaimTemplate path.
 		// Otherwise, use the extendedResourceName directly.
 		quotaKey := resourceName
-		for _, dc := range dcList.Items {
-			if logicalName, found := mapper.Lookup(corev1.ResourceName(dc.Name)); found {
-				quotaKey = logicalName
-				if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && mapper.getCounterConfig(corev1.ResourceName(dc.Name)) != nil {
-					errs = append(errs, field.Invalid(
-						containerPath,
-						resourceName,
-						fmt.Sprintf(
-							"extended resource %s resolves to DeviceClass %s with counters configured;"+
-								" use ResourceClaimTemplates with CEL selectors for counter-based quota",
-							resourceName, dc.Name,
-						),
-					))
-					continue
-				}
-				break
+		if logicalName, found := mapper.Lookup(corev1.ResourceName(selected.Name)); found {
+			quotaKey = logicalName
+			if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && mapper.getCounterConfig(corev1.ResourceName(selected.Name)) != nil {
+				errs = append(errs, field.Invalid(
+					containerPath,
+					resourceName,
+					fmt.Sprintf(
+						"extended resource %s resolves to DeviceClass %s with counters configured;"+
+							" use ResourceClaimTemplates with CEL selectors for counter-based quota",
+						resourceName, selected.Name,
+					),
+				))
 			}
 		}
 
@@ -143,7 +168,7 @@ func resolveContainerExtendedResources(
 
 		log.V(4).Info("Resolved extended resource to DRA quota key",
 			"resource", resourceName, "quotaKey", quotaKey, "quantity", chargeQuantity.String(),
-			"deviceClass", dcList.Items[0].Name)
+			"deviceClass", selected.Name)
 
 		replaced.Insert(resourceName)
 		result = utilresource.MergeResourceListKeepSum(result, corev1.ResourceList{
