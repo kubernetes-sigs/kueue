@@ -434,7 +434,7 @@ func (s *Scheduler) processEntry(
 
 	// If the workload only fits because of other preemptions in this cycle,
 	// we must wait for those preemptions to complete.
-	if mode == flavorassigner.FitPendingPreemptions {
+	if mode == flavorassigner.DeferredFit {
 		e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
@@ -687,7 +687,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(log logr.Logger,
 	fitsCheck := fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
 
 	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
-	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputePreemptionTargetsUponOverlap)
+	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
 
 	var revertRemoval func()
 	switch {
@@ -703,7 +703,8 @@ func (s *Scheduler) updateAssignmentIfNeeded(log logr.Logger,
 		// Short-circuit, nothing to recompute.
 		return usage, schdcache.FitsCheckOk == fitsCheck
 	}
-
+	// Clear the last assignment so that we can start from the first flavor again and
+	// reach all flavors from the nomination.
 	e.LastAssignment = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
 	newAssignment, newTargets := s.getAssignments(log, &e.Info, snapshot)
@@ -713,12 +714,13 @@ func (s *Scheduler) updateAssignmentIfNeeded(log logr.Logger,
 			revertRemoval()
 		}
 		if e.assignment.RepresentativeMode() == flavorassigner.Fit {
-			e.assignment.SetRepresentativeMode(flavorassigner.FitPendingPreemptions)
+			e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 		}
 	}
 	usage = e.assignmentUsage(log)
 	fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
 	log.V(2).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
+	// clear the assignment flavors as they are only used within a single scheduling cycle
 	e.NominationMapping = nil
 
 	return usage, schdcache.FitsCheckOk == fitsCheck

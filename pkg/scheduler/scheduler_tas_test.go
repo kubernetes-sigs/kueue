@@ -5419,8 +5419,8 @@ func TestScheduleForTASPreemption(t *testing.T) {
 		},
 		"preempting workload recomputes both overlapping preemption targets and TAS topology assignment; both features enabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.RecomputePreemptionTargetsUponOverlap:       true,
-				features.TASRecomputeAssignmentWithinSchedulingCycle: true,
+				features.RecomputeAssignmentUponPreemptionTargetsOverlap: true,
+				features.TASRecomputeAssignmentWithinSchedulingCycle:     true,
 			},
 			nodes:           defaultTwoNodes,
 			topologies:      []kueue.Topology{defaultSingleLevelTopology},
