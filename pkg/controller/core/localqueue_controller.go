@@ -18,7 +18,6 @@ package core
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -68,8 +67,6 @@ const (
 	clusterQueueIsInactiveReason   = "ClusterQueueIsInactive"
 	clusterQueueDoesNotExistReason = "ClusterQueueDoesNotExist"
 )
-
-var errClusterQueueStillInCache = errors.New("clusterQueue still exists in scheduler cache")
 
 type LocalQueueReconcilerOptions struct {
 	admissionFSConfig *config.AdmissionFairSharing
@@ -176,6 +173,11 @@ func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload
 	}
 }
 
+// NotifyClusterQueueUpdate enqueues LocalQueues after ClusterQueue cache cleanup.
+// Only delete events are forwarded: Create/Update are already covered by the
+// ClusterQueue watch, while Delete must run again after ClusterQueueReconciler
+// removes the scheduler cache entry so LocalQueue status can publish
+// ClusterQueueDoesNotExist with zero usage from the cache.
 func (r *LocalQueueReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) {
 	if oldCQ != nil && newCQ == nil {
 		r.cqUpdateCh <- event.GenericEvent{Object: oldCQ}
@@ -211,10 +213,23 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	var cq kueue.ClusterQueue
 	if err := r.client.Get(ctx, client.ObjectKey{Name: string(queueObj.Spec.ClusterQueue)}, &cq); err != nil {
 		if apierrors.IsNotFound(err) {
-			err = r.updateStatusIfChanged(ctx, &queueObj, true, metav1.ConditionFalse, clusterQueueDoesNotExistReason, clusterQueueIsInactiveMsg)
-			if errors.Is(err, errClusterQueueStillInCache) {
+			// Active comes from this API Get; usage comes from the scheduler
+			// cache. ClusterQueueReconciler deletes the cache entry
+			// asynchronously, so reconcile can observe NotFound while the
+			// cache still holds non-zero usage. Wait for cleanup before
+			// publishing ClusterQueueDoesNotExist so status never mixes that
+			// reason with stale usage. NotifyClusterQueueUpdate requeues
+			// LocalQueues after cleanup; RequeueAfter is a backup if this
+			// reconcile raced ahead of the notify.
+			stats, cqInCache, cacheErr := r.cache.LocalQueueUsageAndClusterQueueExists(&queueObj)
+			if cacheErr != nil {
+				log.Error(cacheErr, failedUpdateLqStatusMsg)
+				return ctrl.Result{}, cacheErr
+			}
+			if cqInCache {
 				return ctrl.Result{RequeueAfter: constants.UpdatesBatchPeriod}, nil
 			}
+			err = r.applyLocalQueueStatus(ctx, &queueObj, stats, metav1.ConditionFalse, clusterQueueDoesNotExistReason, clusterQueueIsInactiveMsg)
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -667,13 +682,32 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
 ) error {
-	return r.updateStatusIfChanged(ctx, queue, false, conditionStatus, reason, msg)
+	return r.updateStatusIfChanged(ctx, queue, conditionStatus, reason, msg)
 }
 
 func (r *LocalQueueReconciler) updateStatusIfChanged(
 	ctx context.Context,
 	queue *kueue.LocalQueue,
-	waitForClusterQueueCacheDeletion bool,
+	conditionStatus metav1.ConditionStatus,
+	reason, msg string,
+) error {
+	log := r.logger()
+	stats, _, err := r.cache.LocalQueueUsageAndClusterQueueExists(queue)
+	if err != nil {
+		log.Error(err, failedUpdateLqStatusMsg)
+		return err
+	}
+	return r.applyLocalQueueStatus(ctx, queue, stats, conditionStatus, reason, msg)
+}
+
+// applyLocalQueueStatus writes LocalQueue status from caller-provided usage
+// stats. Callers must obtain stats from the scheduler cache (via
+// LocalQueueUsageAndClusterQueueExists) so usage always has one derivation
+// path and can stay atomic with a ClusterQueue existence check.
+func (r *LocalQueueReconciler) applyLocalQueueStatus(
+	ctx context.Context,
+	queue *kueue.LocalQueue,
+	stats *schdcache.LocalQueueUsageStats,
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
 ) error {
@@ -689,14 +723,6 @@ func (r *LocalQueueReconciler) updateStatusIfChanged(
 			log.Error(err, failedUpdateLqStatusMsg)
 			return err
 		}
-	}
-	stats, clusterQueueExists, err := r.cache.LocalQueueUsageAndClusterQueueExists(queue)
-	if waitForClusterQueueCacheDeletion && clusterQueueExists {
-		return errClusterQueueStillInCache
-	}
-	if err != nil {
-		log.Error(err, failedUpdateLqStatusMsg)
-		return err
 	}
 	queue.Status.PendingWorkloads = pendingWls
 	queue.Status.ReservingWorkloads = int32(stats.ReservingWorkloads)
