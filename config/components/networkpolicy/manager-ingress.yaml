@@ -1,0 +1,36 @@
+---
+# Restricts ingress to the Kueue controller-manager to the ports it actually
+# serves. Traffic to any other port, including pprof when it is enabled, is
+# denied.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: controller-manager-ingress
+  namespace: system
+spec:
+  podSelector:
+    matchLabels:
+      control-plane: controller-manager
+  policyTypes:
+    - Ingress
+  ingress:
+    # kube-apiserver reaches the admission webhooks on 9443 and the aggregated
+    # visibility API on 8082. On most distributions the apiserver runs on the
+    # host network, so its source address cannot be expressed as a pod or
+    # namespace selector; these rules are scoped by port rather than by peer.
+    - ports:
+        - protocol: TCP
+          port: 9443
+        - protocol: TCP
+          port: 8082
+    # Prometheus scrapes metrics on 8443. The scraper may live in any namespace,
+    # so this rule is scoped by port.
+    - ports:
+        - protocol: TCP
+          port: 8443
+    # kubelet performs the health and readiness probes on 8081. Probe traffic
+    # originates from the node itself rather than from a pod, so it cannot be
+    # matched by a selector.
+    - ports:
+        - protocol: TCP
+          port: 8081
