@@ -221,13 +221,16 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 			// reason with stale usage. NotifyClusterQueueUpdate requeues
 			// LocalQueues after cleanup; RequeueAfter is a backup if this
 			// reconcile raced ahead of the notify.
-			stats, cqInCache, cacheErr := r.cache.LocalQueueUsageAndClusterQueueExists(&queueObj)
+			stats, cqInCache, cacheErr := r.cache.LocalQueueUsage(&queueObj)
+			// Presence is checked before the error because a LocalQueue
+			// missing from a still-cached ClusterQueue is the same
+			// disagreement, not a failure to report.
+			if cqInCache {
+				return ctrl.Result{RequeueAfter: constants.UpdatesBatchPeriod}, nil
+			}
 			if cacheErr != nil {
 				log.Error(cacheErr, failedUpdateLqStatusMsg)
 				return ctrl.Result{}, cacheErr
-			}
-			if cqInCache {
-				return ctrl.Result{RequeueAfter: constants.UpdatesBatchPeriod}, nil
 			}
 			err = r.applyLocalQueueStatus(ctx, &queueObj, stats, metav1.ConditionFalse, clusterQueueDoesNotExistReason, clusterQueueIsInactiveMsg)
 		}
@@ -682,17 +685,8 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
 ) error {
-	return r.updateStatusIfChanged(ctx, queue, conditionStatus, reason, msg)
-}
-
-func (r *LocalQueueReconciler) updateStatusIfChanged(
-	ctx context.Context,
-	queue *kueue.LocalQueue,
-	conditionStatus metav1.ConditionStatus,
-	reason, msg string,
-) error {
 	log := r.logger()
-	stats, _, err := r.cache.LocalQueueUsageAndClusterQueueExists(queue)
+	stats, _, err := r.cache.LocalQueueUsage(queue)
 	if err != nil {
 		log.Error(err, failedUpdateLqStatusMsg)
 		return err
@@ -701,9 +695,9 @@ func (r *LocalQueueReconciler) updateStatusIfChanged(
 }
 
 // applyLocalQueueStatus writes LocalQueue status from caller-provided usage
-// stats. Callers must obtain stats from the scheduler cache (via
-// LocalQueueUsageAndClusterQueueExists) so usage always has one derivation
-// path and can stay atomic with a ClusterQueue existence check.
+// stats. Callers must obtain stats from Cache.LocalQueueUsage so usage always
+// has one derivation path, and so the not-found branch can publish the same
+// snapshot it used to decide the ClusterQueue is gone.
 func (r *LocalQueueReconciler) applyLocalQueueStatus(
 	ctx context.Context,
 	queue *kueue.LocalQueue,

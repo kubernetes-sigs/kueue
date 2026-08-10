@@ -1037,14 +1037,10 @@ type LocalQueueUsageStats struct {
 	AdmittedWorkloads  int
 }
 
-func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, error) {
-	usage, _, err := c.LocalQueueUsageAndClusterQueueExists(qObj)
-	return usage, err
-}
-
-// LocalQueueUsageAndClusterQueueExists returns the LocalQueue usage and whether
-// its referenced ClusterQueue exists in the cache from the same cache snapshot.
-func (c *Cache) LocalQueueUsageAndClusterQueueExists(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, bool, error) {
+// LocalQueueUsage returns the LocalQueue usage and whether its referenced
+// ClusterQueue exists, both read from the same cache snapshot so callers can
+// rely on the two being consistent.
+func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, bool, error) {
 	c.RLock()
 	defer c.RUnlock()
 
