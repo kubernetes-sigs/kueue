@@ -1010,10 +1010,6 @@ app = HelloWorld.bind()`,
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				// The forward must be driven by the prompt local-job watch, not the
-				// ~workerLostTimeout periodic requeue, so this uses a moderate timeout on
-				// purpose: a broken/missing trigger (which would only sync minutes later)
-				// fails here rather than passing under a very long timeout.
 				ginkgo.By("Checking the serveConfigV2 change is promptly forwarded to the worker cluster", func() {
 					workerClient := kubernetesClients[admittedWorker].client
 					gomega.Eventually(func(g gomega.Gomega) {
