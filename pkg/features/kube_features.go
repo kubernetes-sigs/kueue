@@ -854,7 +854,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	RecomputeAssignmentUponPreemptionTargetsOverlap: {
-		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 
