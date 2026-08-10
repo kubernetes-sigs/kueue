@@ -1352,7 +1352,8 @@ specified.
 The requested amount of the resource is used to multiply the requested
 amount of the resource indicated by the &quot;input&quot; field when computing
 &quot;outputs&quot;. It does not change the quantity retained under &quot;input&quot; when
-&quot;strategy&quot; is Retain.</p>
+&quot;strategy&quot; is Retain.
+It must not be <code>pods</code>, which is reserved for Kueue's internal Pod-count accounting.</p>
 </td>
 </tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
