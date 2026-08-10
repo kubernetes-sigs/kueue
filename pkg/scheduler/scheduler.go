@@ -727,8 +727,10 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	e.NominationMapping = e.readResourceToFlavorMapping()
 	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
 	e.recordAssignment(newAssignment, newTargets)
-	if revertRemoval != nil {
-		revertRemoval()
+	if needsOverlapRecompute {
+		if revertRemoval != nil {
+			revertRemoval()
+		}
 		if e.assignment.RepresentativeMode() == flavorassigner.Fit {
 			e.assignment.SetRepresentativeMode(flavorassigner.FitPendingPreemptions)
 		}
