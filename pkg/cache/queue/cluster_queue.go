@@ -205,6 +205,11 @@ type ClusterQueue struct {
 	pw *preemptorWorkload
 
 	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
+	// lastReportedCohortActive and lastReportedCohortInadmissible are the pending
+	// counts last propagated into the cohort subtree aggregates. Used to compute
+	// the signed delta on each reportCQPendingWorkloads call.
+	lastReportedCohortActive       int
+	lastReportedCohortInadmissible int
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
