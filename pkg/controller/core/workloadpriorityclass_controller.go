@@ -99,6 +99,14 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 		wl := &workloads.Items[i]
 		wlLog := log.WithValues("workload", klog.KObj(wl))
 
+		// The same question the reference reconciler asks, since a Workload
+		// MultiKueue created here holds the priority the manager resolved and a
+		// class of this name on this cluster is not the policy behind it.
+		if !ownsPriority(wl) {
+			wlLog.V(3).Info("Workload's priority is not this cluster's to write")
+			continue
+		}
+
 		// Skip if priority is already up to date
 		if wl.Spec.Priority != nil && *wl.Spec.Priority == wpc.Value {
 			wlLog.V(3).Info("Workload priority already up to date")
