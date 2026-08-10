@@ -139,7 +139,7 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 		},
 		"zero count does not block compatible merging": {
 			workload:    makeWorkload([]int32{1, 2, 3}, []int32{0, 2, 3}),
-			mergePolicy: ptr.To(kueue.IdenticalPodTemplates),
+			mergePolicy: new(kueue.IdenticalPodTemplates),
 			wantNames:   []kueue.PodSetReference{"ps1"},
 			wantCounts:  []int32{5},
 		},
@@ -195,7 +195,7 @@ func TestReqIsNeeded(t *testing.T) {
 		wantErr  error
 	}{
 		"positive admitted count needs request": {
-			workload: makeWorkload(1, ptr.To[int32](1), true),
+			workload: makeWorkload(1, new(int32(1)), true),
 			want:     true,
 		},
 		"missing admitted count falls back to spec count": {
@@ -203,7 +203,7 @@ func TestReqIsNeeded(t *testing.T) {
 			want:     true,
 		},
 		"zero admitted count does not need request": {
-			workload: makeWorkload(1, ptr.To[int32](0), true),
+			workload: makeWorkload(1, new(int32(0)), true),
 		},
 		"zero spec count does not require assignment": {
 			workload: makeWorkload(0, nil, false),
@@ -224,7 +224,7 @@ func TestReqIsNeeded(t *testing.T) {
 				).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("q").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](1)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(1))}).
 						Obj(),
 					time.Now(),
 				).
@@ -399,7 +399,7 @@ func TestReconcile(t *testing.T) {
 	allZeroCountWorkload := baseWorkload.DeepCopy()
 	for i := range allZeroCountWorkload.Spec.PodSets {
 		allZeroCountWorkload.Spec.PodSets[i].Count = 0
-		allZeroCountWorkload.Status.Admission.PodSetAssignments[i].Count = ptr.To[int32](0)
+		allZeroCountWorkload.Status.Admission.PodSetAssignments[i].Count = new(int32(0))
 	}
 
 	podSetMergePolicyAssignemnt := []kueue.PodSetAssignment{
