@@ -1038,16 +1038,23 @@ type LocalQueueUsageStats struct {
 }
 
 func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, error) {
+	usage, _, err := c.LocalQueueUsageAndClusterQueueExists(qObj)
+	return usage, err
+}
+
+// LocalQueueUsageAndClusterQueueExists returns the LocalQueue usage and whether
+// its referenced ClusterQueue exists in the cache from the same cache snapshot.
+func (c *Cache) LocalQueueUsageAndClusterQueueExists(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, bool, error) {
 	c.RLock()
 	defer c.RUnlock()
 
 	cqImpl := c.hm.ClusterQueue(qObj.Spec.ClusterQueue)
 	if cqImpl == nil {
-		return &LocalQueueUsageStats{}, nil
+		return &LocalQueueUsageStats{}, false, nil
 	}
 	qImpl, ok := cqImpl.localQueues[queueKey(qObj)]
 	if !ok {
-		return nil, errQNotFound
+		return nil, true, errQNotFound
 	}
 
 	return &LocalQueueUsageStats{
@@ -1055,7 +1062,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  c.filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
-	}, nil
+	}, true, nil
 }
 
 func handleTASFlavor(rf *kueue.ResourceFlavor) bool {

@@ -18,6 +18,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -63,9 +64,12 @@ const (
 )
 
 const (
-	StoppedReason                = "Stopped"
-	clusterQueueIsInactiveReason = "ClusterQueueIsInactive"
+	StoppedReason                  = "Stopped"
+	clusterQueueIsInactiveReason   = "ClusterQueueIsInactive"
+	clusterQueueDoesNotExistReason = "ClusterQueueDoesNotExist"
 )
+
+var errClusterQueueStillInCache = errors.New("clusterQueue still exists in scheduler cache")
 
 type LocalQueueReconcilerOptions struct {
 	admissionFSConfig *config.AdmissionFairSharing
@@ -119,6 +123,7 @@ type LocalQueueReconciler struct {
 	queues            *qcache.Manager
 	cache             *schdcache.Cache
 	wlUpdateCh        chan event.GenericEvent
+	cqUpdateCh        chan event.GenericEvent
 	admissionFSConfig *config.AdmissionFairSharing
 	clock             clock.Clock
 	roleTracker       *roletracker.RoleTracker
@@ -145,6 +150,7 @@ func NewLocalQueueReconciler(
 		cache:             cache,
 		client:            client,
 		wlUpdateCh:        make(chan event.GenericEvent, updateChBuffer),
+		cqUpdateCh:        make(chan event.GenericEvent, updateChBuffer),
 		admissionFSConfig: options.admissionFSConfig,
 		clock:             options.clock,
 		roleTracker:       options.roleTracker,
@@ -167,6 +173,12 @@ func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload
 	}
 	if newWl != nil {
 		r.wlUpdateCh <- event.GenericEvent{Object: newWl}
+	}
+}
+
+func (r *LocalQueueReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) {
+	if oldCQ != nil && newCQ == nil {
+		r.cqUpdateCh <- event.GenericEvent{Object: oldCQ}
 	}
 }
 
@@ -199,7 +211,10 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	var cq kueue.ClusterQueue
 	if err := r.client.Get(ctx, client.ObjectKey{Name: string(queueObj.Spec.ClusterQueue)}, &cq); err != nil {
 		if apierrors.IsNotFound(err) {
-			err = r.updateStatusIfChanged(ctx, &queueObj, &schdcache.LocalQueueUsageStats{}, metav1.ConditionFalse, "ClusterQueueDoesNotExist", clusterQueueIsInactiveMsg)
+			err = r.updateStatusIfChanged(ctx, &queueObj, true, metav1.ConditionFalse, clusterQueueDoesNotExistReason, clusterQueueIsInactiveMsg)
+			if errors.Is(err, errClusterQueueStillInCache) {
+				return ctrl.Result{RequeueAfter: constants.UpdatesBatchPeriod}, nil
+			}
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -599,7 +614,12 @@ func (h *qCQHandler) Delete(ctx context.Context, e event.DeleteEvent, wq workque
 	h.addLocalQueueToWorkQueue(ctx, cq, wq)
 }
 
-func (h *qCQHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *qCQHandler) Generic(ctx context.Context, e event.GenericEvent, wq workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	cq, ok := e.Object.(*kueue.ClusterQueue)
+	if !ok {
+		return
+	}
+	h.addLocalQueueToWorkQueue(ctx, cq, wq)
 }
 
 func (h *qCQHandler) addLocalQueueToWorkQueue(ctx context.Context, cq *kueue.ClusterQueue, wq workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -636,6 +656,7 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Co
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "localqueue-reconciler"),
 		}).
 		WatchesRawSource(source.Channel(r.wlUpdateCh, &qWorkloadHandler{})).
+		WatchesRawSource(source.Channel(r.cqUpdateCh, &queueCQHandler)).
 		Watches(&kueue.ClusterQueue{}, &queueCQHandler).
 		Complete(WithLeadingManager(mgr, r, &kueue.LocalQueue{}, cfg))
 }
@@ -646,13 +667,13 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
 ) error {
-	return r.updateStatusIfChanged(ctx, queue, nil, conditionStatus, reason, msg)
+	return r.updateStatusIfChanged(ctx, queue, false, conditionStatus, reason, msg)
 }
 
 func (r *LocalQueueReconciler) updateStatusIfChanged(
 	ctx context.Context,
 	queue *kueue.LocalQueue,
-	usage *schdcache.LocalQueueUsageStats,
+	waitForClusterQueueCacheDeletion bool,
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
 ) error {
@@ -669,13 +690,13 @@ func (r *LocalQueueReconciler) updateStatusIfChanged(
 			return err
 		}
 	}
-	stats := usage
-	if stats == nil {
-		stats, err = r.cache.LocalQueueUsage(queue)
-		if err != nil {
-			log.Error(err, failedUpdateLqStatusMsg)
-			return err
-		}
+	stats, clusterQueueExists, err := r.cache.LocalQueueUsageAndClusterQueueExists(queue)
+	if waitForClusterQueueCacheDeletion && clusterQueueExists {
+		return errClusterQueueStillInCache
+	}
+	if err != nil {
+		log.Error(err, failedUpdateLqStatusMsg)
+		return err
 	}
 	queue.Status.PendingWorkloads = pendingWls
 	queue.Status.ReservingWorkloads = int32(stats.ReservingWorkloads)

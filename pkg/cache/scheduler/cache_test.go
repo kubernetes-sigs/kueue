@@ -2137,9 +2137,19 @@ func TestLocalQueueUsage(t *testing.T) {
 					t.Fatalf("Workload %s was not added", workload.Key(&w))
 				}
 			}
-			gotUsage, err := cache.LocalQueueUsage(&localQueue)
+			gotUsage, clusterQueueExists, err := cache.LocalQueueUsageAndClusterQueueExists(&localQueue)
 			if err != nil {
 				t.Fatalf("Couldn't get usage for the queue: %v", err)
+			}
+			if wantClusterQueueExists := tc.cq != nil; clusterQueueExists != wantClusterQueueExists {
+				t.Errorf("ClusterQueue exists = %t, want %t", clusterQueueExists, wantClusterQueueExists)
+			}
+			legacyUsage, err := cache.LocalQueueUsage(&localQueue)
+			if err != nil {
+				t.Fatalf("Couldn't get usage through the legacy API: %v", err)
+			}
+			if diff := cmp.Diff(gotUsage, legacyUsage); diff != "" {
+				t.Errorf("LocalQueueUsage changed (-atomic/+legacy):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantUsage, gotUsage.ReservedResources); diff != "" {
 				t.Errorf("Unexpected used resources for the queue (-want,+got):\n%s", diff)
