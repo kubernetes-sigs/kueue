@@ -1351,7 +1351,7 @@ func TestValidate(t *testing.T) {
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    "example.com/credits",
-							Strategy: ptr.To(configapi.Retain),
+							Strategy: new(configapi.Retain),
 							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
 						},
 					},
@@ -3417,7 +3417,7 @@ func TestValidateReportsAReservedOutputPerTransformation(t *testing.T) {
 			Transformations: []configapi.ResourceTransformation{
 				{
 					Input:    "example.com/credits",
-					Strategy: ptr.To(configapi.Retain),
+					Strategy: new(configapi.Retain),
 					Outputs: corev1.ResourceList{
 						corev1.ResourcePods: resource.MustParse("-1"),
 						"example.com/fine":  resource.MustParse("1"),
@@ -3425,7 +3425,7 @@ func TestValidateReportsAReservedOutputPerTransformation(t *testing.T) {
 				},
 				{
 					Input:    "example.com/tokens",
-					Strategy: ptr.To(configapi.Retain),
+					Strategy: new(configapi.Retain),
 					Outputs: corev1.ResourceList{
 						corev1.ResourcePods:     resource.MustParse("1"),
 						"example.com/also-fine": resource.MustParse("2"),
