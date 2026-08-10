@@ -6981,7 +6981,7 @@ func TestEntryOrdering(t *testing.T) {
 						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 					},
 					Spec: kueue.WorkloadSpec{
-						Priority: ptr.To[int32](1),
+						Priority: new(int32(1)),
 					},
 					Status: kueue.WorkloadStatus{
 						Conditions: []metav1.Condition{
@@ -7006,7 +7006,7 @@ func TestEntryOrdering(t *testing.T) {
 						CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
 					},
 					Spec: kueue.WorkloadSpec{
-						Priority: ptr.To[int32](1),
+						Priority: new(int32(1)),
 					},
 					Status: kueue.WorkloadStatus{
 						Conditions: []metav1.Condition{
@@ -7028,7 +7028,7 @@ func TestEntryOrdering(t *testing.T) {
 						CreationTimestamp: metav1.NewTime(now),
 					},
 					Spec: kueue.WorkloadSpec{
-						Priority: ptr.To[int32](2),
+						Priority: new(int32(2)),
 					},
 				},
 			},
