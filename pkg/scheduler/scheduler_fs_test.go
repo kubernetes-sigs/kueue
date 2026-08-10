@@ -25,9 +25,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -36,11 +38,6 @@ import (
 func TestScheduleForFairSharing(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
-	cfg, cases := fairSharingTestConfigAndCases(now, fakeClock)
-	runScheduleTestCases(t, cfg, cases)
-}
-
-func fairSharingTestConfigAndCases(now time.Time, fakeClock *testingclock.FakeClock) (scheduleTestConfig, map[string]scheduleTestCase) {
 	ignoreEventMessageCmpOpts := cmp.Options{cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")}
 
 	resourceFlavors := []*kueue.ResourceFlavor{
@@ -2733,6 +2730,9 @@ func fairSharingTestConfigAndCases(now time.Time, fakeClock *testingclock.FakeCl
 			// as we disallow overlapping preemption targets
 			// in the same cycle
 			enableFairSharing: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.RecomputeAssignmentUponPreemptionTargetsOverlap: false,
+			},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("other-alpha").
 					Cohort("other").
@@ -3588,5 +3588,10 @@ func fairSharingTestConfigAndCases(now time.Time, fakeClock *testingclock.FakeCl
 			},
 		},
 	}
-	return scheduleTestConfig{queues: queues, clusterQueues: clusterQueues, resourceFlavors: resourceFlavors, fakeClock: fakeClock}, cases
+	runScheduleTestCases(t, scheduleTestConfig{
+		queues:          queues,
+		clusterQueues:   clusterQueues,
+		resourceFlavors: resourceFlavors,
+		fakeClock:       fakeClock,
+	}, cases)
 }

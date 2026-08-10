@@ -426,10 +426,10 @@ const (
 	// Preempt indicates that admission is possible given Quotas.
 	// Preemption may be impossible due to policy/limits/priorities.
 	Preempt
-	// FitPendingPreemptions indicates that the workload fits, but only
-	// because we are speculatively waiting for other in-flight preemptions
-	// in this scheduling cycle to finish.
-	FitPendingPreemptions
+	// DeferredFit indicates that the workload fits, but we cannot
+	// admit it yet in this scheduling cycle as we are waiting
+	// e.g. for some preemptions to finish.
+	DeferredFit
 	// Fit means that there is enough unused quota to assign to this Flavor
 	// without preeemption, potentially with borrowing.
 	Fit
@@ -441,8 +441,8 @@ func (m FlavorAssignmentMode) String() string {
 		return "NoFit"
 	case Preempt:
 		return "Preempt"
-	case FitPendingPreemptions:
-		return "FitPendingPreemptions"
+	case DeferredFit:
+		return "DeferredFit"
 	case Fit:
 		return "Fit"
 	}

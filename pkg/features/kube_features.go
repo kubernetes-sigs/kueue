@@ -598,7 +598,7 @@ const (
 	//
 	// Enable recomputing preemption targets if they overlap with another workload's targets
 	// within the same scheduling cycle.
-	RecomputePreemptionTargetsUponOverlap featuregate.Feature = "RecomputePreemptionTargetsUponOverlap"
+	RecomputeAssignmentUponPreemptionTargetsOverlap featuregate.Feature = "RecomputeAssignmentUponPreemptionTargetsOverlap"
 )
 
 func init() {
@@ -915,8 +915,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 
-	RecomputePreemptionTargetsUponOverlap: {
-		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
+	RecomputeAssignmentUponPreemptionTargetsOverlap: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Alpha},
 	},
 }
 
