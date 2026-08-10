@@ -2919,8 +2919,12 @@ func TestCohortSubtreePendingWorkloadsMetric(t *testing.T) {
 	expectPending("ch1", metrics.PendingStatusActive, 0)
 	expectPending("root", metrics.PendingStatusActive, 1)
 
+	// DeleteCohort("root") removes the explicit cohort but cq2 is still a direct
+	// child, so the hierarchy manager replaces root with an implicit cohort. The
+	// implicit cohort is re-seeded from the children's last-reported counts, so
+	// the metric must reflect cq2's 1 pending workload rather than 0.
 	manager.DeleteCohort("root")
-	expectPending("root", metrics.PendingStatusActive, 0)
+	expectPending("root", metrics.PendingStatusActive, 1)
 }
 
 func TestCohortSubtreePendingWorkloads_CQMovesCohort(t *testing.T) {

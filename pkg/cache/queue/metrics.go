@@ -109,8 +109,8 @@ func reportCohortSubtreePendingWorkloads(m *Manager, cq *ClusterQueue, newActive
 	cohort.updatePendingWorkloadsCount(activeDelta, inadmissibleDelta)
 
 	for ancestor := range cohort.PathSelfToRoot() {
-		metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusActive, ancestor.pendingActiveCount, nil, m.roleTracker)
-		metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusInadmissible, ancestor.pendingInadmissibleCount, nil, m.roleTracker)
+		metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusActive, ancestor.pendingActiveCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
+		metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusInadmissible, ancestor.pendingInadmissibleCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
 	}
 }
 
