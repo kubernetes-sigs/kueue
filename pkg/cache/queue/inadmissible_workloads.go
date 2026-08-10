@@ -167,22 +167,22 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 	c.queueInadmissibleCycle = c.popCycle
 	// Clear bulk-move scheduling hashes so re-queued workloads are re-evaluated fresh.
 	c.hashToBulkMoveReason = make(map[workload.EquivalenceHash]QuotaReservedReason)
-	if c.inadmissibleWorkloads.empty() {
+	if c.workloads.inadmissible.empty() {
 		return 0
 	}
 	log.V(2).Info("Resetting the head of the ClusterQueue", "clusterQueue", c.name)
 	moved := 0
-	for key, wInfo := range c.inadmissibleWorkloads {
+	for key, wInfo := range c.workloads.inadmissible {
 		ns := corev1.Namespace{}
 		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
 		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
 			continue
 		}
-		if c.moveInadmissibleToHeap(key, wInfo) {
+		if c.workloads.moveToActive(key, wInfo) {
 			moved++
 		}
 	}
-	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", c.inadmissibleWorkloads.len())
+	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", c.workloads.inadmissible.len())
 	return moved
 }
 
