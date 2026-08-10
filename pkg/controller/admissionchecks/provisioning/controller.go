@@ -481,7 +481,7 @@ func reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) (bool
 	})
 	managedResources := sets.New(prc.Spec.ManagedResources...)
 	needed := false
-	// Each managed PodSet checked. An assignment missing for a single PodSet 
+	// Each managed PodSet checked. An assignment missing for a single PodSet
 	// indicates the Workloads admission data is inconsistent regardless of other PodSets.
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]
@@ -589,7 +589,6 @@ func (c *Controller) syncCheckStates(
 
 		for check, prc := range checkConfig {
 			checkState := *checksMap[check]
-			//nolint:gocritic // ignore ifElseChain
 			if prc == nil {
 				// the check is not active
 				updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
