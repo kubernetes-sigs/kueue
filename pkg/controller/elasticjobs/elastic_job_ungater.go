@@ -269,8 +269,10 @@ func (r *elasticJobUngater) activeSlice(ctx context.Context, anyWl *kueue.Worklo
 // activeSliceForDeletedRoot resolves the chain's active slice when the root slice
 // named by key has been deleted. The owning job is recovered from a still-present
 // pod of the chain (indexed by the same slice key), so ungating still proceeds for
-// pods left pointing at a now-deleted origin slice. Returns nil if no chain pod or
-// job owner can be found.
+// pods left pointing at a now-deleted origin slice. The recovered owner UID is
+// matched against the active slice's controller owner so a stale pod pointing at a
+// recreated same-named job cannot ungate against the wrong job's granted count.
+// Returns nil if no chain pod, no job owner, or no matching active slice is found.
 func (r *elasticJobUngater) activeSliceForDeletedRoot(ctx context.Context, key types.NamespacedName) (*kueue.Workload, error) {
 	var podList corev1.PodList
 	if err := r.client.List(ctx, &podList,
@@ -280,8 +282,23 @@ func (r *elasticJobUngater) activeSliceForDeletedRoot(ctx context.Context, key t
 		return nil, fmt.Errorf("listing pods for workload slice: %w", err)
 	}
 	for i := range podList.Items {
-		if owner := metav1.GetControllerOf(&podList.Items[i]); owner != nil {
-			return r.activeSliceForOwner(ctx, key.Namespace, owner)
+		owner := metav1.GetControllerOf(&podList.Items[i])
+		if owner == nil {
+			continue
+		}
+		active, err := r.activeSliceForOwner(ctx, key.Namespace, owner)
+		if err != nil {
+			return nil, err
+		}
+		if active == nil {
+			continue
+		}
+		// The pod's owner-ref names a job by name+GVK, but a same-named job could
+		// have been recreated with a new UID. The active slice's controller owner
+		// carries the current job UID, so require it to match the pod's owner UID
+		// before trusting this slice's granted counts.
+		if activeOwner := metav1.GetControllerOf(active); activeOwner != nil && activeOwner.UID == owner.UID {
+			return active, nil
 		}
 	}
 	return nil, nil

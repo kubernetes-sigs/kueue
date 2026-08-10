@@ -686,7 +686,7 @@ func TestReconcile(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					ControllerReference(rayClusterGVK, "ray", "ray").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
@@ -723,6 +723,46 @@ func TestReconcile(t *testing.T) {
 					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					OwnerReference("ray", rayClusterGVK).
+					Obj(),
+			},
+		},
+		"does not ungate when the chain pod owner UID no longer matches the active slice": {
+			// Guard against a stale pod pointing at a same-named job that was
+			// recreated with a new UID: the active slice belongs to the new job, so
+			// its granted count must not be used to ungate the stale pod. The pod
+			// keeps its gate.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-slice-1", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					ControllerReference(rayClusterGVK, "ray", "new-ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "2").
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				// Owner UID "ray" (stale) != active slice owner UID "new-ray-uid".
+				*testingpod.MakePod("stale-pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					OwnerReference("ray", rayClusterGVK).
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("stale-pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					OwnerReference("ray", rayClusterGVK).
+					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 			},
 		},
