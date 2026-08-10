@@ -1125,9 +1125,15 @@ func multiKueueConfigName(ac *kueue.AdmissionCheck) string {
 }
 
 // localJobHandler enqueues the workload(s) owned by a manager-side job when the
-// job's spec changes, so MultiKueue promptly re-runs SyncJob (e.g. to forward a
-// RayService serveConfigV2 edit to the worker) instead of waiting for the next
-// periodic requeue.
+// job's spec changes.
+//
+// Normally a job spec edit makes the job controller update the workload, which in
+// turn reconciles this admission-check controller. But a spec change that does not
+// alter the workload's PodSets (e.g. a RayService serveConfigV2 edit) leaves the
+// workload untouched, so that path never fires and this controller would only
+// reconcile on the next periodic requeue (~workerLostTimeout). This handler bridges
+// that gap by watching the job directly, so such a change promptly re-runs SyncJob
+// (e.g. to forward the serveConfigV2 edit to the worker).
 type localJobHandler struct {
 	client            client.Client
 	gvk               schema.GroupVersionKind
