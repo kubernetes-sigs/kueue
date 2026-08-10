@@ -126,7 +126,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			// the same candidate for preemption (wl-rest-admitted from cq-rest).
 			// Within the scheduling cycle, wl-tiny-pending is considered before wl-hero (due to
 			// Fair Sharing prioritization). So, wl-hero would normally be requeued due to
-			// overlapping preemption targets. But with RecomputePreemptionTargetsUponOverlap
+			// overlapping preemption targets. But with RecomputeAssignmentUponPreemptionTargetsOverlap
 			// featuregate, it refreshes its targets, finds wl-noisy-admitted from cq-noisy
 			// and preempts it in the same scheduling cycle.
 			enableFairSharing: true,
@@ -303,7 +303,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 				"cq-tiny": {"eng-alpha/wl-tiny-pending"},
 			},
 		},
-		"with fair sharing: two workloads reclaim nominal quota; RecomputePreemptionTargetsUponOverlap enabled": {
+		"with fair sharing: two workloads reclaim nominal quota; RecomputeAssignmentUponPreemptionTargetsOverlap enabled": {
 			enableFairSharing: true,
 			cohorts:           defaultCohorts(),
 			workloads: []kueue.Workload{
@@ -460,7 +460,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 				"cq-rest": {"eng-alpha/wl-rest-pending"},
 			},
 		},
-		"two workloads reclaim nominal quota; RecomputePreemptionTargetsUponOverlap enabled": {
+		"two workloads reclaim nominal quota; RecomputeAssignmentUponPreemptionTargetsOverlap enabled": {
 			enableFairSharing: false,
 			cohorts:           defaultCohorts(),
 			workloads: []kueue.Workload{
@@ -579,7 +579,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			},
 		},
 
-		"flavor stickiness with RecomputePreemptionTargetsUponOverlap": {
+		"flavor stickiness with RecomputeAssignmentUponPreemptionTargetsOverlap": {
 			// Admitted state:
 			// - wl-admitted-default (cq-1): uses 10 CPU on default flavor (borrowing 5)
 			// - wl-admitted-on-demand (cq-1): uses 10 CPU on on-demand flavor (borrowing 5)
