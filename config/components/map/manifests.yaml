@@ -4,6 +4,7 @@ metadata:
   name: clear-nominated-cluster-names
 spec:
   failurePolicy: Fail
+  reinvocationPolicy: Never
   matchConstraints:
     resourceRules:
       - apiGroups:
