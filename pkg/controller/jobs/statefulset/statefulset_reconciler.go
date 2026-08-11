@@ -18,6 +18,7 @@ package statefulset
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -114,15 +115,23 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	var eg errgroup.Group
 
 	// Both patch the same Pods, so they stay in order on one branch.
+	// Wait reports the first error it is given and drops the other, so say
+	// which branch each one came from.
 	eg.Go(func() error {
 		if err := r.syncQueueLabel(ctx, sts, podList.Items); err != nil {
-			return err
+			return fmt.Errorf("syncing the Pod queue labels: %w", err)
 		}
-		return r.finalizePods(ctx, sts, podList.Items)
+		if err := r.finalizePods(ctx, sts, podList.Items); err != nil {
+			return fmt.Errorf("finalizing the Pods: %w", err)
+		}
+		return nil
 	})
 
 	eg.Go(func() error {
-		return r.reconcileWorkload(ctx, workloadSts)
+		if err := r.reconcileWorkload(ctx, workloadSts); err != nil {
+			return fmt.Errorf("reconciling the Workload: %w", err)
+		}
+		return nil
 	})
 
 	return ctrl.Result{}, eg.Wait()
