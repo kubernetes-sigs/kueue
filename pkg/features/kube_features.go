@@ -484,6 +484,7 @@ const (
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
 	// Enable re-computing the assignment within the same scheduling cycle when a TAS workload doesn't fit.
+	// Requires TopologyAwareScheduling to be enabled.
 	TASRecomputeAssignmentWithinSchedulingCycle featuregate.Feature = "TASRecomputeAssignmentWithinSchedulingCycle"
 
 	// owner: @j-skiba
