@@ -490,7 +490,7 @@ Globally configured custom ClusterQueue labels are also appended to the base lab
 'status' can have the following values:
 - "active" means that the workloads are in the admission queue.
 - "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change`,
-		}, append([]string{"name", "namespace", "status", "replica_role"}, localQueueMetricsLabels...),
+		}, append([]string{"name", "namespace", "status", "replica_role"}, cl.LabelNames(configapi.SourceKindLocalQueue, configapi.SourceKindWorkload)...),
 	)
 	trackGaugeVec(LocalQueuePendingWorkloads, gaugeCleanupScopeLocalQueue)
 
@@ -1242,6 +1242,21 @@ func ReportLocalQueuePendingWorkloads(lq LocalQueueReference, active, inadmissib
 	inadmissibleLabels := append([]string{string(lq.Name), lq.Namespace, PendingStatusInadmissible, role}, customLabelValues...)
 	LocalQueuePendingWorkloads.WithLabelValues(activeLabels...).Set(float64(active))
 	LocalQueuePendingWorkloads.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
+}
+
+func ReportLocalQueuePendingWorkloadsByWorkload(lq LocalQueueReference, status string, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, status, roletracker.GetRole(tracker)}, customLabelValues...)
+	LocalQueuePendingWorkloads.WithLabelValues(labels...).Set(float64(count))
+}
+
+// ClearLocalQueuePendingWorkloadsSeries removes all LocalQueuePendingWorkloads
+// series for the given LocalQueue so stale workload label combinations are
+// cleaned up before a full re-report.
+func ClearLocalQueuePendingWorkloadsSeries(lq LocalQueueReference) {
+	LocalQueuePendingWorkloads.DeletePartialMatch(prometheus.Labels{
+		"name":      string(lq.Name),
+		"namespace": lq.Namespace,
+	})
 }
 
 func ReportEvictedWorkloads(cqName kueue.ClusterQueueReference, evictionReason, underlyingCause, priorityClass string, customLabelValues []string, tracker *roletracker.RoleTracker) {

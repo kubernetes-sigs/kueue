@@ -406,6 +406,31 @@ func (p *PendingWorkloads) PendingInadmissibleInLocalQueue(lqRef utilqueue.Local
 	return
 }
 
+// PendingBreakdownInLocalQueue returns LabelValsTrackers for active and inadmissible
+// pending workloads in the given LocalQueue, keyed by workload custom label values.
+func (p *PendingWorkloads) PendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueReference) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
+	p.RLock()
+	defer p.RUnlock()
+
+	active := metrics.NewLabelValsTracker()
+	for _, wl := range p.active.List() {
+		if utilqueue.KeyFromWorkload(wl.Obj) == lqRef {
+			metrics.TrackWorkload(p.customLabels, active, wl.Obj)
+		}
+	}
+	if p.inflight != nil && utilqueue.KeyFromWorkload(p.inflight.Obj) == lqRef {
+		metrics.TrackWorkload(p.customLabels, active, p.inflight.Obj)
+	}
+
+	inadmissible := metrics.NewLabelValsTracker()
+	for _, wl := range p.inadmissible {
+		if utilqueue.KeyFromWorkload(wl.Obj) == lqRef {
+			metrics.TrackWorkload(p.customLabels, inadmissible, wl.Obj)
+		}
+	}
+	return active, inadmissible
+}
+
 // DumpActive produces a dump of the current active workloads of
 // this ClusterQueue. It returns false if the queue is empty,
 // otherwise returns true.
