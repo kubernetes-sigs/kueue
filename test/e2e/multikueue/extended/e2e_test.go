@@ -986,6 +986,51 @@ app = HelloWorld.bind()`,
 						g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
 					}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 				})
+
+				// An in-place serveConfigV2 edit is quota-neutral, so MultiKueue forwards it
+				// to the worker copy without re-admission. num_replicas 1 -> 2 is a clear,
+				// observable change within serveConfigV2.
+				updatedServeConfigV2 := `applications:
+  - name: hello_app
+    import_path: hello_serve:app
+    route_prefix: /
+    deployments:
+      - name: HelloWorld
+        num_replicas: 2
+        max_replicas_per_node: 1
+        ray_actor_options:
+          num_cpus: 0.2`
+
+				gomega.Expect(updatedServeConfigV2).NotTo(gomega.Equal(serveConfigV2), "the updated serveConfigV2 must differ from the initial config so the forward assertion is meaningful")
+
+				workerClient := kubernetesClients[admittedWorker].client
+				var workerRayServiceUID types.UID
+				ginkgo.By("Recording the existing worker copy and its initial serveConfigV2", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						workerRayService := &rayv1.RayService{}
+						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(rayService), workerRayService)).To(gomega.Succeed())
+						g.Expect(workerRayService.Spec.ServeConfigV2).To(gomega.Equal(serveConfigV2))
+						workerRayServiceUID = workerRayService.UID
+					}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Updating serveConfigV2 on the manager", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdRayService := &rayv1.RayService{}
+						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
+						createdRayService.Spec.ServeConfigV2 = updatedServeConfigV2
+						g.Expect(k8sManagerClient.Update(ctx, createdRayService)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking the change is promptly forwarded to the same worker copy (in-place, no re-admission)", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						workerRayService := &rayv1.RayService{}
+						g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(rayService), workerRayService)).To(gomega.Succeed())
+						g.Expect(workerRayService.Spec.ServeConfigV2).To(gomega.Equal(updatedServeConfigV2))
+						g.Expect(workerRayService.UID).To(gomega.Equal(workerRayServiceUID))
+					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				})
 			})
 		})
 	})

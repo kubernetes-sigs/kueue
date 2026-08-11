@@ -285,6 +285,12 @@
     lockToDefault: true
     preRelease: GA
     version: "0.18"
+- name: MultiKueueRemoteSpecSync
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.19"
 - name: MultiKueueWaitForWorkloadAdmitted
   versionedSpecs:
   - default: true

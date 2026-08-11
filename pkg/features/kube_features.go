@@ -585,6 +585,13 @@ const (
 	// begun, and suspend defaulting only ever adds suspend, so no path exists to
 	// unsuspend an object or bypass quota via create-then-delete.
 	SkipAncestorCheckForDeletedWorkloads featuregate.Feature = "SkipAncestorCheckForDeletedWorkloads"
+
+	// owner: @kevin85421
+	//
+	// Enables MultiKueue to forward manager-side spec changes (currently a RayService
+	// serveConfigV2 edit) onto the worker copy after admission, and to watch the manager
+	// job so such a change is forwarded promptly instead of on the next periodic requeue.
+	MultiKueueRemoteSpecSync featuregate.Feature = "MultiKueueRemoteSpecSync"
 )
 
 func init() {
@@ -894,6 +901,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	SkipAncestorCheckForDeletedWorkloads: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	MultiKueueRemoteSpecSync: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
