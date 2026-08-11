@@ -266,6 +266,17 @@ func (e *entry) markEvicted() {
 	e.status = evicted
 }
 
+// markDropped marks an entry the cycle dropped without evaluation. The
+// non-empty status makes requeueAndUpdate upgrade the requeue reason to
+// RequeueReasonFailedAfterNomination (immediate, back to the heap) and
+// keeps the entry out of the "Pending" status-patch branch, matching the
+// status quo where the workload would simply not have been popped.
+func (e *entry) markDropped() {
+	e.status = dropped
+	e.skipStatusUpdate = true
+	e.LastAssignment = nil
+}
+
 func (e *entry) markNominated() {
 	e.status = nominated
 }
@@ -334,14 +345,26 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	snapshot, err := s.cache.Snapshot(ctx, snapshotOpts...)
 	if err != nil {
 		log.Error(err, "failed to build snapshot for scheduling")
+		// The heads were already popped from the queues and are tracked as
+		// inflight; put them back, or their stale inflight entries would make
+		// the queue manager ignore every future update for them. The requeue
+		// reason is immediate because the failure is transient: the next
+		// cycle should retry the heads, not park them as inadmissible.
+		for i := range headWorkloads {
+			if s.queues.QueueSecondPassIfNeeded(ctx, headWorkloads[i].Obj, headWorkloads[i].SecondPassIteration) {
+				continue
+			}
+			s.queues.RequeueWorkload(ctx, &headWorkloads[i], qcache.RequeueReasonFailedAfterNomination, "")
+		}
 		return wait.SlowDown
 	}
 	logSnapshotIfVerbose(log, snapshot)
 	log.V(2).Info("Snapshot taken", "duration", s.clock.Since(phaseStartTime))
+	lookAhead := fairsharing.Enabled(s.fairSharing) && features.Enabled(features.FairSharingLookAhead)
 
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	phaseStartTime = s.clock.Now()
-	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
+	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot, lookAhead)
 	log.V(2).Info("Nomination done", "entries", len(entries), "inadmissibleEntries", len(inadmissibleEntries), "duration", s.clock.Since(phaseStartTime))
 
 	// 4. Create iterator which returns ordered entries.
@@ -355,14 +378,66 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	phaseStartTime = s.clock.Now()
 	preemptedWorkloads := make(preemption.PreemptedWorkloads)
 	skippedPreemptions := make(map[kueue.ClusterQueueReference]int)
+	// Fair Sharing look-ahead: bound how much a single root-cohort subtree
+	// admits per cycle. Once a subtree reaches the look-ahead depth we
+	// interrupt the cycle so freed capacity keeps flowing to the low-DRS owner
+	// across cycles instead of an over-share sibling borrowing it (issue #9345).
+	admittedPerSubtree := make(map[string]int)
+	// assumedPerCQ records CQs that assumed a workload this cycle; a deeper
+	// entry re-computes its stale assignment only when its own CQ consumed
+	// quota earlier in the cycle (see updateAssignmentIfNeeded).
+	assumedPerCQ := make(map[kueue.ClusterQueueReference]bool)
+	interruptedRoots := 0
 	for iterator.hasNext() {
-		s.processEntry(ctx, iterator.pop(), snapshot, preemptedWorkloads, skippedPreemptions)
+		e := iterator.pop()
+		s.processEntry(ctx, e, snapshot, preemptedWorkloads, skippedPreemptions, assumedPerCQ)
+		iterator.done(e)
+		// A second-pass assumption reserves no quota, so the only misses
+		// it can cause are TAS misses - the TASRecomputeAssignment branch
+		// of updateAssignmentIfNeeded refreshes those, and with that gate
+		// off, skip-and-requeue is the status quo the look-ahead
+		// recompute must not override.
+		if e.status == assumed && !e.secondPass {
+			assumedPerCQ[e.ClusterQueue] = true
+		}
+		// Second-pass assumptions reserve no new quota (netUsage) and must not
+		// spend the subtree's look-ahead budget. A solo ClusterQueue's
+		// scope contains only itself and heads() already enforces the depth,
+		// so there is nothing to interrupt.
+		if lookAhead && e.status == assumed && !e.secondPass && e.clusterQueueSnapshot.HasParent() {
+			key := topLevelSubtreeKey(e.clusterQueueSnapshot)
+			admittedPerSubtree[key]++
+			if admittedPerSubtree[key] >= qcache.FairSharingLookAheadDepth {
+				root := e.clusterQueueSnapshot.Parent().Root()
+				// The interrupt is a fair-sharing-only concept: look-ahead
+				// implies Fair Sharing, so makeIterator returned this type.
+				droppedByInterrupt := iterator.(*fairSharingIterator).dropWhile(func(e *entry) bool {
+					return e.clusterQueueSnapshot.HasParent() && e.clusterQueueSnapshot.Parent().Root() == root
+				})
+				// Reaching the budget with nothing left to drop is normal
+				// saturation (e.g. a root cohort with a single ClusterQueue),
+				// not interrupt pressure; counting it would contradict the
+				// metric's help text.
+				if droppedByInterrupt > 0 {
+					interruptedRoots++
+					metrics.LookAheadInterrupt(s.roleTracker)
+					log.V(3).Info("Skipping remaining entries from root scope after subtree reached look-ahead depth",
+						"subtree", key,
+						"rootCohort", klog.KRef("", string(root.GetName())),
+						"dropped", droppedByInterrupt)
+				}
+			}
+		}
 	}
 
 	// 6. Requeue the heads that were not scheduled.
 	result := metrics.AdmissionResultInadmissible
+	droppedEntries := 0
 	for _, e := range entries {
 		logAdmissionAttemptIfVerbose(log, &e)
+		if e.status == dropped {
+			droppedEntries++
+		}
 		// When the workload is evicted by scheduler we skip requeueAndUpdate.
 		// The eviction process will be finalized by the workload controller.
 		if e.status != assumed && e.status != evicted {
@@ -376,7 +451,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		s.requeueAndUpdate(ctx, e)
 	}
 
-	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
+	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime), "lookAheadInterrupts", interruptedRoots, "droppedEntries", droppedEntries)
 	s.reportSkippedPreemptions(skippedPreemptions)
 	metrics.AdmissionAttempt(result, s.clock.Since(startTime), s.roleTracker)
 	if result != metrics.AdmissionResultSuccess {
@@ -395,6 +470,7 @@ func (s *Scheduler) processEntry(
 	snapshot *schdcache.Snapshot,
 	preemptedWorkloads preemption.PreemptedWorkloads,
 	skippedPreemptions map[kueue.ClusterQueueReference]int,
+	assumedPerCQ map[kueue.ClusterQueueReference]bool,
 ) {
 	cq := snapshot.ClusterQueue(e.ClusterQueue)
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)))
@@ -418,7 +494,7 @@ func (s *Scheduler) processEntry(
 	// independently, making them likely to choose conflicting topology domains.
 	// Recompute when needed so CQs considered later in the cycle don't repeatedly
 	// lose to earlier CQs and starve for prolonged periods.
-	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
+	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads, assumedPerCQ)
 	mode := e.assignment.RepresentativeMode()
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
@@ -607,6 +683,9 @@ const (
 	evicted entryStatus = "evicted"
 	// indicates if the workload was assumed to have been admitted.
 	assumed entryStatus = "assumed"
+	// indicates that the cycle dropped the workload without evaluating it
+	// (look-ahead interrupt, or a deeper entry behind a failed front).
+	dropped entryStatus = "dropped"
 	// indicates that the workload was never nominated for admission.
 	notNominated entryStatus = ""
 )
@@ -624,6 +703,12 @@ type entry struct {
 	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
 	quotaReservedReason  string
 	skipStatusUpdate     bool
+	// secondPass records, at nomination time, that the workload already holds
+	// a quota reservation and is only back to complete or repair its topology
+	// assignment. Captured on the entry because NeedsSecondPass flips once the
+	// entry is assumed. See fairSharingIterator.secondPassEntries for how these
+	// entries bypass the per-CQ queueing disciplines.
+	secondPass bool
 }
 
 func (e *entry) assignmentUsage(log logr.Logger) workload.Usage {
@@ -644,16 +729,28 @@ func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
 // they were admitted by the clusterQueues in the snapshot. The second return value
 // is the list of inadmissibleEntries.
-func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap *schdcache.Snapshot) ([]entry, []entry) {
+func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap *schdcache.Snapshot, blockSameCQHeads bool) ([]entry, []entry) {
 	log := ctrl.LoggerFrom(ctx)
 	entries := make([]entry, 0, len(workloads))
 	var inadmissibleEntries []entry
+	blockedCQs := make(map[kueue.ClusterQueueReference]bool)
 	for _, w := range workloads {
 		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", string(w.ClusterQueue)))
-		e := entry{Info: w}
+		e := entry{Info: w, secondPass: workload.NeedsSecondPass(w.Obj)}
 		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
-		if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAdded(w) {
+		if blockSameCQHeads && blockedCQs[w.ClusterQueue] && !workload.NeedsSecondPass(w.Obj) {
+			e.inadmissibleMsg = "Blocked by an earlier workload from the same ClusterQueue"
+			// Match the status quo, in which this deeper head would simply
+			// not have been popped this cycle; under BestEffortFIFO the next
+			// cycle may then legitimately let it jump the blocked head.
+			e.skipStatusUpdate = true
+			e.requeueReason = qcache.RequeueReasonFailedAfterNomination
+		} else if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAdded(w) {
 			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(w.Obj))
+			// The workload was popped from the queues and no requeue will
+			// follow; drop the queue-side bookkeeping, or its stale inflight
+			// entry would make the queue manager ignore every future update.
+			s.queues.DeleteWorkload(log, workload.Key(w.Obj))
 			continue
 		} else if workload.HasRetryChecks(w.Obj) || workload.HasRejectedChecks(w.Obj) {
 			e.inadmissibleMsg = "The workload has failed admission checks"
@@ -682,6 +779,11 @@ func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, sna
 			continue
 		}
 		inadmissibleEntries = append(inadmissibleEntries, e)
+		// Second-pass entries hold quota already; they are not "in line" for
+		// admission and must not block the ClusterQueue's fresh heads.
+		if blockSameCQHeads && !workload.NeedsSecondPass(w.Obj) {
+			blockedCQs[w.ClusterQueue] = true
+		}
 	}
 	return entries, inadmissibleEntries
 }
@@ -692,11 +794,29 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	e *entry,
 	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
-	preemptedWorkloads preemption.PreemptedWorkloads) (workload.Usage, bool) {
+	preemptedWorkloads preemption.PreemptedWorkloads,
+	assumedPerCQ map[kueue.ClusterQueueReference]bool) (workload.Usage, bool) {
 	usage := e.assignmentUsage(log)
 	fitsCheck := fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
-	if fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle) {
-		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
+	// With look-ahead, all entries were nominated against the pre-cycle
+	// snapshot; when an earlier admission from the same ClusterQueue consumed
+	// the quota or TAS capacity backing this entry's assignment, refresh it,
+	// but never when it still fits. The recompute is restricted to that
+	// same-CQ case: the tournament ranked this entry using the nominated
+	// assignment, and admitting a freshly recomputed (possibly more-borrowing)
+	// assignment without re-ranking would bypass the DRS ordering, so
+	// cross-CQ conflicts keep the status-quo skip-and-re-rank behavior. The
+	// per-CQ flag is a proxy for the deeper-head case; a miss can still have
+	// cross-CQ contamination when the entry's own CQ also admitted earlier.
+	// The look-ahead recompute is deliberately independent of the
+	// TASRecomputeAssignmentWithinSchedulingCycle gate: without it, a deeper
+	// head whose front consumed the quota would fail its fit every cycle and
+	// look-ahead would silently degrade to one admission per ClusterQueue.
+	lookAhead := fairsharing.Enabled(s.fairSharing) && features.Enabled(features.FairSharingLookAhead)
+	needsRecompute := (fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)) ||
+		(lookAhead && fitsCheck != schdcache.FitsCheckOk && assumedPerCQ[e.ClusterQueue])
+	if needsRecompute {
+		log.V(4).Info("Re-computing the assignment as it no longer fits", "fitsCheck", fitsCheck)
 		// Clear the last assignment so that we can start from the first flavor again and
 		// reach all flavors from the nomination.
 		e.LastAssignment = nil
@@ -705,7 +825,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		e.recordAssignment(newAssignment, newTargets)
 		usage = e.assignmentUsage(log)
 		fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
-		log.V(2).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
+		log.V(4).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
 		// clear the assignment flavors as they are only used within a single scheduling cycle
 		e.NominationMapping = nil
 	}
@@ -1022,6 +1142,32 @@ func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.Clus
 type entryIterator interface {
 	pop() *entry
 	hasNext() bool
+	done(*entry)
+}
+
+// topLevelSubtreeKey returns a key identifying the root cohort's child subtree
+// that contains cq - the top-level contender for cohort capacity. For a CQ that
+// is a direct child of the root cohort (including a CQ with no cohort at all)
+// the key is the CQ itself; for a CQ nested under sub-cohorts it is the ancestor
+// cohort that is a direct child of the root. This makes the look-ahead
+// interrupt bound each top-level subtree (not just each leaf CQ), preventing an
+// over-share sibling subtree from borrowing freed capacity within a cycle. It
+// reduces to a per-CQ key for flat cohorts.
+func topLevelSubtreeKey(cq *schdcache.ClusterQueueSnapshot) string {
+	if cq.HasParent() {
+		root := cq.Parent().Root()
+		var topChild *schdcache.CohortSnapshot
+		for ancestor := range cq.PathParentToRoot() {
+			if !ancestor.HasParent() {
+				break
+			}
+			topChild = ancestor
+		}
+		if topChild != nil {
+			return "root/" + string(root.GetName()) + "/cohort/" + string(topChild.GetName())
+		}
+	}
+	return "cq/" + string(cq.GetName())
 }
 
 func makeIterator(ctx context.Context, entries []entry, workloadOrdering workload.Ordering, enableFairSharing bool) entryIterator {
@@ -1053,6 +1199,8 @@ func (co *classicalIterator) pop() *entry {
 	co.entries = co.entries[1:]
 	return head
 }
+
+func (co *classicalIterator) done(*entry) {}
 
 func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering workload.Ordering) *classicalIterator {
 	slices.SortFunc(entries, func(a, b entry) int {

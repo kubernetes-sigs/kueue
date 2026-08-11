@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -63,7 +64,9 @@ const (
 )
 
 var cmpDump = cmp.Options{
-	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+	// Queue dumps are []workload.Reference; a plain string sorter would not
+	// match that element type and the option would never apply.
+	cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b }),
 }
 
 // scheduleTestCase is the shared case definition for the core scheduling tests
@@ -205,7 +208,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					cl := clientBuilder.Build()
 					recorder := &utiltesting.EventRecorder{}
 					cqCache := schdcache.New(cl)
-					qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+					qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithFairSharing(tc.enableFairSharing))
 					// Workloads are loaded into queues or clusterQueues as we add them.
 					for _, q := range allQueues {
 						if err := qManager.AddLocalQueue(ctx, &q); err != nil {
@@ -7038,7 +7041,9 @@ func TestEntryOrdering(t *testing.T) {
 			iter := makeIterator(ctx, tc.input, tc.workloadOrdering, false)
 			order := make([]string, len(tc.input))
 			for i := range tc.input {
-				order[i] = iter.pop().Obj.Name
+				e := iter.pop()
+				order[i] = e.Obj.Name
+				iter.done(e)
 			}
 			if iter.hasNext() {
 				t.Error("Expected iterator to be exhausted")
@@ -7048,6 +7053,268 @@ func TestEntryOrdering(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestFairSharingIteratorBlocksDeeperSameCQEntriesUntilAssumed(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq := &schdcache.ClusterQueueSnapshot{Name: "cq"}
+	entries := []entry{
+		{
+			Info: workload.Info{
+				Obj:          utiltestingapi.MakeWorkload("head", "default").Obj(),
+				ClusterQueue: "cq",
+			},
+			clusterQueueSnapshot: cq,
+		},
+		{
+			Info: workload.Info{
+				Obj:          utiltestingapi.MakeWorkload("second", "default").Obj(),
+				ClusterQueue: "cq",
+			},
+			clusterQueueSnapshot: cq,
+		},
+	}
+
+	t.Run("failed head blocks second entry", func(t *testing.T) {
+		iter := makeFairSharingIterator(ctx, slices.Clone(entries), workload.Ordering{})
+		e := iter.pop()
+		e.markSkipped("head blocked")
+		iter.done(e)
+		if iter.hasNext() {
+			t.Fatalf("expected iterator to drop deeper entries after blocked head")
+		}
+	})
+
+	t.Run("assumed head exposes second entry", func(t *testing.T) {
+		iter := makeFairSharingIterator(ctx, slices.Clone(entries), workload.Ordering{})
+		e := iter.pop()
+		e.markAssumed()
+		iter.done(e)
+		if !iter.hasNext() {
+			t.Fatalf("expected iterator to keep second entry after assumed head")
+		}
+		if got := iter.pop().Obj.Name; got != "second" {
+			t.Fatalf("expected second entry, got %q", got)
+		}
+	})
+}
+
+func TestNominateBlocksDeeperSameCQEntriesAfterInadmissibleHead(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	s := &Scheduler{cache: schdcache.New(utiltesting.NewFakeClient())}
+	workloads := []workload.Info{
+		{
+			Obj: utiltestingapi.MakeWorkload("head", "default").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "check",
+					State: kueue.CheckStateRetry,
+				}).
+				Obj(),
+			ClusterQueue: "cq",
+		},
+		{
+			Obj:          utiltestingapi.MakeWorkload("second", "default").Obj(),
+			ClusterQueue: "cq",
+		},
+	}
+
+	entries, inadmissible := s.nominate(ctx, workloads, &schdcache.Snapshot{}, true)
+	if len(entries) != 0 {
+		t.Fatalf("expected no schedulable entries, got %d", len(entries))
+	}
+	if got, want := len(inadmissible), 2; got != want {
+		t.Fatalf("inadmissible entries count: got %d, want %d", got, want)
+	}
+	if got, want := inadmissible[1].inadmissibleMsg, "Blocked by an earlier workload from the same ClusterQueue"; got != want {
+		t.Fatalf("second inadmissible message: got %q, want %q", got, want)
+	}
+	// The blocked entry was never evaluated: it must requeue immediately to
+	// the heap (not park as inadmissible) and must not patch the workload
+	// status, matching the status quo in which it would not have been popped.
+	if got, want := inadmissible[1].requeueReason, qcache.RequeueReasonFailedAfterNomination; got != want {
+		t.Errorf("blocked entry requeueReason: got %q, want %q", got, want)
+	}
+	if !inadmissible[1].skipStatusUpdate {
+		t.Error("blocked entry must skip the workload status update")
+	}
+	// The genuinely inadmissible head keeps the default (non-immediate) path.
+	if got, want := inadmissible[0].requeueReason, qcache.RequeueReasonGeneric; got != want {
+		t.Errorf("failed head requeueReason: got %q, want %q", got, want)
+	}
+}
+
+// TestNominateSkipsAddedWorkloadAndClearsQueueBookkeeping verifies that when
+// nominate() skips a popped head because the cache already accounts for it,
+// the queue-side bookkeeping is dropped too: the workload stops counting as
+// pending, and a later re-add is accepted instead of being silently ignored by
+// the stale inflight entry.
+func TestNominateSkipsAddedWorkloadAndClearsQueueBookkeeping(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("foo", "default").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "default").Queue("foo").Obj()
+	cl := utiltesting.NewFakeClient(wl)
+
+	cqCache := schdcache.New(cl)
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding ClusterQueue to cache: %v", err)
+	}
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding ClusterQueue to queue manager: %v", err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding LocalQueue: %v", err)
+	}
+	if err := qManager.AddOrUpdateWorkload(log, wl); err != nil {
+		t.Fatalf("Failed adding workload: %v", err)
+	}
+
+	heads := qManager.Heads(ctx)
+	if got, want := len(heads), 1; got != want {
+		t.Fatalf("Heads returned %d workloads, want %d", got, want)
+	}
+
+	// The workload gets accounted in the cache (e.g. admitted) while popped.
+	admitted := utiltestingapi.MakeWorkload("wl", "default").Queue("foo").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+		Obj()
+	cqCache.AddOrUpdateWorkload(log, admitted)
+
+	s := &Scheduler{cache: cqCache, queues: qManager}
+	entries, inadmissible := s.nominate(ctx, heads, &schdcache.Snapshot{}, false)
+	if len(entries) != 0 || len(inadmissible) != 0 {
+		t.Fatalf("expected the added workload to be skipped, got %d entries and %d inadmissible", len(entries), len(inadmissible))
+	}
+	if pending, err := qManager.Pending(cq); err != nil || pending != 0 {
+		t.Fatalf("pending after skip: got %d, err %v, want 0", pending, err)
+	}
+
+	// A later re-add (e.g. after eviction) must be accepted again.
+	if err := qManager.AddOrUpdateWorkload(log, wl); err != nil {
+		t.Fatalf("Failed re-adding workload: %v", err)
+	}
+	if pending, err := qManager.Pending(cq); err != nil || pending != 1 {
+		t.Fatalf("pending after re-add: got %d, err %v, want 1", pending, err)
+	}
+}
+
+func TestFairSharingIteratorDropWhile(t *testing.T) {
+	cqA := &schdcache.ClusterQueueSnapshot{Name: "cq-a"}
+	cqB := &schdcache.ClusterQueueSnapshot{Name: "cq-b"}
+
+	entries := []entry{
+		{
+			Info: workload.Info{
+				Obj:          utiltestingapi.MakeWorkload("a", "default").Obj(),
+				ClusterQueue: "cq-a",
+			},
+			clusterQueueSnapshot: cqA,
+		},
+		{
+			Info: workload.Info{
+				Obj:          utiltestingapi.MakeWorkload("b", "default").Obj(),
+				ClusterQueue: "cq-b",
+			},
+			clusterQueueSnapshot: cqB,
+		},
+	}
+	ctx, _ := utiltesting.ContextWithLog(t)
+	iter := makeFairSharingIterator(ctx, entries, workload.Ordering{})
+	if got := iter.dropWhile(func(e *entry) bool {
+		return e.ClusterQueue == "cq-a"
+	}); got != 1 {
+		t.Fatalf("dropWhile returned %d dropped entries, want 1", got)
+	}
+
+	if entries[0].status != dropped {
+		t.Fatalf("expected the matched entry to be marked dropped, got status %q", entries[0].status)
+	}
+	if !iter.hasNext() {
+		t.Fatalf("expected the unmatched entry to remain")
+	}
+	if got := iter.pop().ClusterQueue; got != "cq-b" {
+		t.Fatalf("expected the unmatched entry to survive, got %q", got)
+	}
+}
+
+func TestFairSharingIteratorSecondPassIsolation(t *testing.T) {
+	cqA := &schdcache.ClusterQueueSnapshot{Name: "cq-a"}
+
+	makeEntries := func() []entry {
+		return []entry{
+			{
+				// Second-pass entries are emitted first by heads().
+				Info: workload.Info{
+					Obj:          utiltestingapi.MakeWorkload("sp", "default").Obj(),
+					ClusterQueue: "cq-a",
+				},
+				clusterQueueSnapshot: cqA,
+				secondPass:           true,
+			},
+			{
+				Info: workload.Info{
+					Obj:          utiltestingapi.MakeWorkload("a1", "default").Obj(),
+					ClusterQueue: "cq-a",
+				},
+				clusterQueueSnapshot: cqA,
+			},
+			{
+				Info: workload.Info{
+					Obj:          utiltestingapi.MakeWorkload("a2", "default").Obj(),
+					ClusterQueue: "cq-a",
+				},
+				clusterQueueSnapshot: cqA,
+			},
+		}
+	}
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	t.Run("second-pass entry pops first and its failure keeps the CQ's fresh heads", func(t *testing.T) {
+		entries := makeEntries()
+		iter := makeFairSharingIterator(ctx, entries, workload.Ordering{})
+
+		first := iter.pop()
+		if !first.secondPass || first.Obj.Name != "sp" {
+			t.Fatalf("expected the second-pass entry first, got %q", first.Obj.Name)
+		}
+		// The second-pass entry failed (status stays non-assumed): the CQ's
+		// fresh heads must remain schedulable, not be dropped as collateral.
+		iter.done(first)
+		if !iter.hasNext() {
+			t.Fatalf("fresh heads were dropped after a failed second-pass entry")
+		}
+		for i := range entries {
+			if !entries[i].secondPass && entries[i].status == dropped {
+				t.Errorf("fresh head %q was marked dropped", entries[i].Obj.Name)
+			}
+		}
+		if got := iter.pop().Obj.Name; got != "a1" {
+			t.Fatalf("expected the CQ's front fresh head a1 next, got %q", got)
+		}
+	})
+
+	t.Run("interrupt never discards second-pass entries", func(t *testing.T) {
+		entries := makeEntries()
+		iter := makeFairSharingIterator(ctx, entries, workload.Ordering{})
+
+		iter.dropWhile(func(*entry) bool { return true })
+
+		for i := range entries {
+			if entries[i].secondPass && entries[i].status == dropped {
+				t.Errorf("second-pass entry was discarded by the interrupt")
+			}
+			if !entries[i].secondPass && entries[i].status != dropped {
+				t.Errorf("fresh entry %q should have been dropped", entries[i].Obj.Name)
+			}
+		}
+		if !iter.hasNext() {
+			t.Fatalf("second-pass entry must remain schedulable after the interrupt")
+		}
+		if got := iter.pop(); !got.secondPass {
+			t.Fatalf("expected the surviving entry to be the second-pass one, got %q", got.Obj.Name)
+		}
+	})
 }
 
 func TestLastSchedulingContext(t *testing.T) {
