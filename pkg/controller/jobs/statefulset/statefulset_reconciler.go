@@ -18,6 +18,7 @@ package statefulset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -112,34 +113,51 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	// side changes the StatefulSet today, and a copy keeps it that way.
 	workloadSts := sts.DeepCopy()
 
-	var eg errgroup.Group
+	var (
+		eg      errgroup.Group
+		podErr  error
+		workErr error
+	)
 
-	// Both patch the same Pods, so they stay in order on one branch.
-	// Wait reports the first error it is given and drops the other, so say
-	// which branch each one came from.
 	eg.Go(func() error {
-		if err := r.syncQueueLabel(ctx, sts, podList.Items); err != nil {
-			return fmt.Errorf("syncing the Pod queue labels: %w", err)
-		}
-		if err := r.finalizePods(ctx, sts, podList.Items); err != nil {
-			return fmt.Errorf("finalizing the Pods: %w", err)
-		}
-		return nil
+		podErr = r.reconcilePods(ctx, sts, podList.Items)
+		return podErr
 	})
 
 	eg.Go(func() error {
-		if err := r.reconcileWorkload(ctx, workloadSts); err != nil {
-			return fmt.Errorf("reconciling the Workload: %w", err)
-		}
-		return nil
+		workErr = r.reconcileWorkload(ctx, workloadSts)
+		return workErr
 	})
 
-	return ctrl.Result{}, eg.Wait()
+	// Wait keeps only the error it is handed first, and either branch can win
+	// that race, so hold both and report them together.
+	_ = eg.Wait()
+	if podErr != nil {
+		podErr = fmt.Errorf("reconciling the Pods: %w", podErr)
+	}
+	if workErr != nil {
+		workErr = fmt.Errorf("reconciling the Workload: %w", workErr)
+	}
+	return ctrl.Result{}, errors.Join(podErr, workErr)
 }
 
-func (r *Reconciler) finalizePods(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
+// reconcilePods brings each Pod to its queue label and then ungates it. The two
+// writes go to the same Pod, so they are ordered per Pod rather than per phase:
+// a Pod whose label patch fails must not hold back the others.
+func (r *Reconciler) reconcilePods(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
+	var queueName string
+	if sts != nil && ptr.Deref(sts.Spec.Replicas, 1) != 0 {
+		queueName = string(jobframework.QueueNameForObject(sts))
+	}
 	return parallelize.Until(ctx, len(pods), func(i int) error {
-		return r.finalizePod(ctx, sts, &pods[i])
+		pod := &pods[i]
+		if err := r.syncQueueLabel(ctx, pod, queueName); err != nil {
+			return fmt.Errorf("syncing the queue label on %s: %w", klog.KObj(pod), err)
+		}
+		if err := r.finalizePod(ctx, sts, pod); err != nil {
+			return fmt.Errorf("finalizing %s: %w", klog.KObj(pod), err)
+		}
+		return nil
 	})
 }
 
@@ -158,28 +176,17 @@ func (r *Reconciler) finalizePod(ctx context.Context, sts *appsv1.StatefulSet, p
 	}))
 }
 
-func (r *Reconciler) syncQueueLabel(ctx context.Context, sts *appsv1.StatefulSet, pods []corev1.Pod) error {
-	if sts == nil || ptr.Deref(sts.Spec.Replicas, 1) == 0 {
+func (r *Reconciler) syncQueueLabel(ctx context.Context, pod *corev1.Pod, queueName string) error {
+	if queueName == "" || pod.Labels[controllerconstants.QueueLabel] == queueName {
 		return nil
 	}
-	queueName := string(jobframework.QueueNameForObject(sts))
-	if queueName == "" {
-		return nil
-	}
-
-	return parallelize.Until(ctx, len(pods), func(i int) error {
-		pod := &pods[i]
-		if pod.Labels[controllerconstants.QueueLabel] == queueName {
-			return nil
+	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
+		if pod.Labels == nil {
+			pod.Labels = make(map[string]string, 1)
 		}
-		return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-			if pod.Labels == nil {
-				pod.Labels = make(map[string]string, 1)
-			}
-			pod.Labels[controllerconstants.QueueLabel] = queueName
-			return true, nil
-		}))
-	})
+		pod.Labels[controllerconstants.QueueLabel] = queueName
+		return true, nil
+	}))
 }
 
 // findWorkloadName returns the workload name for the given StatefulSet,
