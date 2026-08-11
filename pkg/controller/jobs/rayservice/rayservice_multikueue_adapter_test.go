@@ -83,10 +83,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 		},
 		"sync forwards a serveConfigV2 change to the existing remote rayservice": {
-			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.MultiKueueRemoteSpecSync:      true,
-			},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayServices: []rayv1.RayService{
 				*rayServiceBuilder.Clone().WithServeConfigV2("new-config").Obj(),
 			},

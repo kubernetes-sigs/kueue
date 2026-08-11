@@ -257,9 +257,9 @@
     version: "0.17"
 - name: MultiKueueRemoteSpecSync
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.20"
 - name: PartialAdmission
   versionedSpecs:
