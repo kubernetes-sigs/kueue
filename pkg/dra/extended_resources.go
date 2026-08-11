@@ -300,7 +300,7 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 				allErrs = append(allErrs, field.Invalid(
 					firstPath[resourceName].Child("resources", "requests", string(resourceName)),
 					quantity.String(),
-					"total extended resource quantity must be an integer",
+					"total extended resource quantity overflows int64",
 				))
 				continue
 			}
