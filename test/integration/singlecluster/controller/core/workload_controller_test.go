@@ -555,6 +555,53 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				g.Expect(finalQueueWorkload.Spec.Priority).To(gomega.Equal(&updatedPriority))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+		ginkgo.It("leaves a Workload MultiKueue created here alone", func() {
+			ginkgo.By("creating a local workload and one MultiKueue created here")
+			local := utiltestingapi.MakeWorkload("local", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClassRef("workload-priority-class").
+				Priority(200).
+				Obj()
+			util.MustCreate(ctx, k8sClient, local)
+
+			remote := utiltestingapi.MakeWorkload("remote", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+				WorkloadPriorityClassRef("workload-priority-class").
+				Label(kueue.MultiKueueOriginLabel, "manager").
+				Priority(200).
+				Obj()
+			util.MustCreate(ctx, k8sClient, remote)
+
+			// The class update has to arrive after both are in the cache the
+			// controller lists from, or this would be testing the ordering in
+			// #13866 rather than the ownership guard.
+			ginkgo.By("waiting for both to be reconciled")
+			gomega.Eventually(func(g gomega.Gomega) {
+				for _, wl := range []*kueue.Workload{local, remote} {
+					got := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &got)).To(gomega.Succeed())
+					g.Expect(got.Status.Conditions).ShouldNot(gomega.BeNil())
+				}
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("updating workloadPriorityClass")
+			updatedPriority := int32(150)
+			workloadPriorityClass.Value = updatedPriority
+			gomega.Expect(k8sClient.Update(ctx, workloadPriorityClass)).To(gomega.Succeed())
+
+			ginkgo.By("the local workload follows the class")
+			gomega.Eventually(func(g gomega.Gomega) {
+				got := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(local), &got)).To(gomega.Succeed())
+				g.Expect(got.Spec.Priority).To(gomega.Equal(&updatedPriority))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("the remote one keeps what the manager resolved")
+			managerPriority := int32(200)
+			gomega.Consistently(func(g gomega.Gomega) {
+				got := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(remote), &got)).To(gomega.Succeed())
+				g.Expect(got.Spec.Priority).To(gomega.Equal(&managerPriority))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
 	})
 
 	ginkgo.When("the workload has a maximum execution time set", func() {

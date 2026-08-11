@@ -337,6 +337,22 @@ func TestOwnsPriority(t *testing.T) {
 		"a PodPriorityClass of the same name is a different class": {
 			wl: utiltestingapi.MakeWorkload("wl", "default").PodPriorityClassRef("high").Obj(),
 		},
+		// A PodPriorityClass differs in both the kind and the group, so it cannot say
+		// which of the two is being read. These can.
+		"the right group under some other kind": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").PriorityClassRef(&kueue.PriorityClassRef{
+				Group: kueue.WorkloadPriorityClassGroup,
+				Kind:  "SomeOtherKind",
+				Name:  "high",
+			}).Obj(),
+		},
+		"the right kind under some other group": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").PriorityClassRef(&kueue.PriorityClassRef{
+				Group: "other.example.com",
+				Kind:  kueue.WorkloadPriorityClassKind,
+				Name:  "high",
+			}).Obj(),
+		},
 		"and one on a Workload MultiKueue created here is refused for both reasons": {
 			wl: utiltestingapi.MakeWorkload("wl", "default").
 				PodPriorityClassRef("high").
