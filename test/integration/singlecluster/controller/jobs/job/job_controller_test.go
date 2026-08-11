@@ -4689,20 +4689,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("deleting the origin slice to emulate a rollout GC of the old workloads")
-		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, originSlice)).To(gomega.Succeed())
-		gomega.Expect(k8sClient.Delete(ctx, originSlice)).To(gomega.Succeed())
-		gomega.Eventually(func(g gomega.Gomega) {
-			wl := &kueue.Workload{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, wl)
-			if apierrors.IsNotFound(err) {
-				return
-			}
-			g.Expect(err).To(gomega.Succeed())
-			// Strip the finalizer so the pending delete completes.
-			wl.Finalizers = nil
-			g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, wl))).To(gomega.Succeed())
-			g.Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, wl))).To(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.DeleteWorkloadSliceAndAwaitDeletion(ctx, k8sClient, types.NamespacedName{Namespace: ns.Name, Name: originSliceName})
 
 		ginkgo.By("creating a still-gated pod that points at the now-deleted origin slice, owned by the Job")
 		gatedPod := testingpod.MakePod("worker-0", ns.Name).
@@ -4751,20 +4738,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		originSliceName := originSlice.Name
 
 		ginkgo.By("deleting the only slice so the chain has no eligible active slice")
-		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, originSlice)).To(gomega.Succeed())
-		gomega.Expect(k8sClient.Delete(ctx, originSlice)).To(gomega.Succeed())
-		gomega.Eventually(func(g gomega.Gomega) {
-			wl := &kueue.Workload{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, wl)
-			if apierrors.IsNotFound(err) {
-				return
-			}
-			g.Expect(err).To(gomega.Succeed())
-			// Strip the finalizer so the pending delete completes.
-			wl.Finalizers = nil
-			g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, wl))).To(gomega.Succeed())
-			g.Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, wl))).To(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.DeleteWorkloadSliceAndAwaitDeletion(ctx, k8sClient, types.NamespacedName{Namespace: ns.Name, Name: originSliceName})
 
 		ginkgo.By("creating a gated pod that points at the deleted origin, owned by the Job")
 		gatedPod := testingpod.MakePod("worker-0", ns.Name).

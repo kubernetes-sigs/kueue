@@ -25,7 +25,6 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,7 +33,6 @@ import (
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -1002,20 +1000,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("deleting the origin slice to emulate a RayService rollout GC of the old RayCluster's workloads")
-		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, originSlice)).To(gomega.Succeed())
-		gomega.Expect(k8sClient.Delete(ctx, originSlice)).To(gomega.Succeed())
-		gomega.Eventually(func(g gomega.Gomega) {
-			wl := &kueue.Workload{}
-			err := k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, wl)
-			if apierrors.IsNotFound(err) {
-				return
-			}
-			g.Expect(err).To(gomega.Succeed())
-			if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
-				g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, wl))).To(gomega.Succeed())
-			}
-			g.Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, wl))).To(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.DeleteWorkloadSliceAndAwaitDeletion(ctx, k8sClient, types.NamespacedName{Namespace: ns.Name, Name: originSliceName})
 
 		ginkgo.By("creating a still-gated pod that points at the now-deleted origin slice, owned by the RayCluster")
 		gatedPod := testingpod.MakePod("worker-0", ns.Name).
