@@ -177,9 +177,9 @@ func chargeForPrioritizedList(req *resourcev1.DeviceRequest, mapper *ResourceMap
 		sub := &req.FirstAvailable[i]
 		subPath := reqPath.Child("firstAvailable").Index(i)
 
-		// An unset mode means ExactCount and an unset count means one, which the
-		// field documentation states rather than the apiserver defaulting, so a
-		// subrequest naming only a DeviceClass has to be read that way here.
+		// The apiserver defaults an unset mode to ExactCount and a zero count to
+		// one. Objects that never went through it, in tests and fake clients,
+		// arrive here unset, so read them the same way.
 		if sub.AllocationMode != "" && sub.AllocationMode != resourcev1.DeviceAllocationModeExactCount {
 			return "", 0, field.ErrorList{field.NotSupported(subPath.Child("allocationMode"), sub.AllocationMode,
 				[]resourcev1.DeviceAllocationMode{resourcev1.DeviceAllocationModeExactCount})}
