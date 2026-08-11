@@ -782,7 +782,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.RecomputeAssignmentUponPreemptionTargetsOverlap: true,
 				features.TopologyAwareScheduling:                         false,
-				features.TASRecomputeAssignmentWithinSchedulingCycle:     true,
+				features.TASRecomputeAssignmentWithinSchedulingCycle:     false,
 			},
 			// Admitted state:
 			// - wl-admitted-default (cq-1): uses 10 CPU on default flavor (borrowing 5)
