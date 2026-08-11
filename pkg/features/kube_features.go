@@ -597,7 +597,12 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/13320
 	//
 	// Enable recomputing preemption targets if they overlap with another workload's targets
-	// within the same scheduling cycle.
+	// within the same scheduling cycle. This recomputation is done assuming that the earlier
+	// preemptions issued in this cycle are already completed. If the outcome of the new assuignment
+	// is Preempt, we issue preemptions for the new set of targets. If the outcome is Fit,
+	// it means that the preemptions issued by other workloads in this cycle are sufficient also
+	// for the considered workload to get it. We don't immediately admit this workload as we have
+	// to wait for these preemptions to complete.
 	RecomputeAssignmentUponPreemptionTargetsOverlap featuregate.Feature = "RecomputeAssignmentUponPreemptionTargetsOverlap"
 )
 
