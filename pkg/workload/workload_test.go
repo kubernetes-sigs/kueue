@@ -1135,6 +1135,74 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// A negative pod-level override read by a multiplyBy has no container to
+		// fall back to, so it stays named at zero rather than vanish and read as one.
+		"negativePodLevelMultiplierWithoutContainerFallbackStaysZero": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelmultiplier", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/credit", "8").
+						Request("example.com/slot", "3").Obj()).
+					Obj(),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-2")}),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:    "example.com/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				},
+				{
+					Input:      "example.com/slot",
+					Strategy:   new(config.Replace),
+					MultiplyBy: corev1.ResourceCPU,
+					Outputs:    corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+						corev1.ResourceCPU:                     0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The same with a negative output factor is the quota-safety case: the slot
+		// contribution must be zero, not spent against the credit output.
+		"negativePodLevelMultiplierDoesNotUnderchargeWithNegativeFactor": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelmultiplierneg", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/credit", "8").
+						Request("example.com/slot", "3").Obj()).
+					Obj(),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-2")}),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:    "example.com/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				},
+				{
+					Input:      "example.com/slot",
+					Strategy:   new(config.Replace),
+					MultiplyBy: corev1.ResourceCPU,
+					Outputs:    corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+						corev1.ResourceCPU:                     0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		"negativeOverheadDoesNotSpendTheRequest": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
