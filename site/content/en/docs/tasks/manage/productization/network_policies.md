@@ -43,9 +43,54 @@ namespace selector, and the address of the Prometheus scraper or the ingress con
 depends on your cluster. To restrict a port to specific peers, add rules through
 `networkPolicy.extraIngress`, as shown below.
 
-Note that the pprof endpoint is deliberately not allowed. If you
+### Ports that are blocked
+
+One port Kueue can serve is deliberately not allowed: the ControllerManager's pprof
+endpoint. It is disabled by default and only listens when `pprofBindAddress` is set in
+the ControllerManager configuration. If you
 [enable pprof](/docs/tasks/dev/enabling_pprof_endpoints), reach it with
-`kubectl port-forward` rather than by opening the port.
+`kubectl port-forward` rather than by opening the port to the cluster, since profiling
+data may be sensitive.
+
+The KueueViz backend also starts a pprof listener on `localhost:6060` when it runs
+outside release mode, but that is bound to loopback and is not reachable from other pods
+either way.
+
+Apart from those, Kueue serves no port that these policies block.
+
+## When to enable these policies
+
+Enable them when your cluster runs a CNI plugin that enforces NetworkPolicy and you want
+to reduce what a compromised or untrusted workload can reach. Kueue is a privileged
+controller with broad watch permissions that also sits in the admission path, so limiting
+its reachable surface is worthwhile on shared or multi-tenant clusters.
+
+There are cases where turning them on needs more thought:
+
+- **You run the ControllerManager with `hostNetwork: true`.** The policies cannot help
+  here at all; see [Limitations](#limitations).
+- **You use MultiKueue and want egress restriction too.** Egress is a separate opt-in for
+  this reason; see [Restricting egress](#restricting-egress).
+- **You have changed Kueue's ports** through `managerConfig`, for example by setting a
+  different `metrics.bindAddress`. The policies allow the default ports, so adjust them
+  with `networkPolicy.extraIngress` to match your configuration.
+- **Your CNI plugin does not enforce NetworkPolicy.** The objects will be created and
+  accepted by the API server but have no effect, which can give a false sense of
+  protection.
+
+### Why they are not enabled by default
+
+The ControllerManager's admission webhook is reached by the kube-apiserver, which on most
+distributions runs on the host network. Its traffic therefore arrives with a node IP and
+matches no pod or namespace selector, and the correct `ipBlock` differs from cluster to
+cluster, so the chart cannot know it.
+
+If that rule were wrong on your cluster, the webhook would become unreachable and every
+Job creation in the cluster would start failing. Making the policies opt-in means an
+upgrade never changes the behaviour of an existing installation: you turn them on
+deliberately, and you know to look at them if something stops working.
+
+This is also why the rules above are scoped by port rather than by peer.
 
 ## Enabling the policies
 
