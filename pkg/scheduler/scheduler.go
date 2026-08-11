@@ -455,6 +455,12 @@ func (s *Scheduler) processEntry(
 		e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
+		// Clear LastAssignment to force a full re-evaluation of all flavors in the next cycle.
+		// Since we are deferring admission until in-flight preemptions complete, the cluster
+		// state will change. Retaining the current assignment could lock the workload into a
+		// suboptimal flavor, preventing it from claiming a more preferred flavor that might
+		// become available.
+		e.LastAssignment = nil
 		cq.AddUsage(usage)
 		return
 	}
