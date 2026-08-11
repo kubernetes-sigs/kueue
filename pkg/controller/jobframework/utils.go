@@ -265,11 +265,15 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 	if features.Enabled(features.CustomMetricLabels) {
 		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
 	}
+	labels := maps.FilterKeys(obj.GetLabels(), labelKeysToCopy.UnsortedList())
+	// Whether a Workload is one MultiKueue placed here is ours to say, so drop
+	// the marker however the configuration came to ask for it.
+	delete(labels, kueue.MultiKueueOriginLabel)
 	return &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   obj.GetNamespace(),
-			Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy.UnsortedList()),
+			Labels:      labels,
 			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
 			Annotations: annotations,
 		},

@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -62,6 +63,7 @@ var (
 	integrationsPath                      = field.NewPath("integrations")
 	integrationsFrameworksPath            = integrationsPath.Child("frameworks")
 	integrationsExternalFrameworkPath     = integrationsPath.Child("externalFrameworks")
+	integrationsLabelKeysToCopyPath       = integrationsPath.Child("labelKeysToCopy")
 	managedJobsNamespaceSelectorPath      = field.NewPath("managedJobsNamespaceSelector")
 	waitForPodsReadyPath                  = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath                 = waitForPodsReadyPath.Child("requeuingStrategy")
@@ -319,6 +321,10 @@ func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme, in
 	}
 	if c.Integrations.Frameworks == nil {
 		return field.ErrorList{field.Required(integrationsFrameworksPath, "cannot be empty")}
+	}
+
+	for idx, key := range c.Integrations.LabelKeysToCopy {
+		allErrs = append(allErrs, validateCopiedLabelKey(integrationsLabelKeysToCopyPath.Index(idx), key)...)
 	}
 
 	managedFrameworks := sets.New[string]()
@@ -776,6 +782,9 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 		sourceKind := ptr.Deref(entry.SourceKind, configapi.DefaultCustomMetricLabelSourceKind)
 		countPerSourceKind[sourceKind]++
 		if sourceKind == configapi.SourceKindWorkload {
+			if entry.SourceLabelKey != "" {
+				allErrs = append(allErrs, validateCopiedLabelKey(fldPath.Child("sourceLabelKey"), entry.SourceLabelKey)...)
+			}
 			if len(entry.TrackedValues) == 0 {
 				allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues,
 					"must not be empty when sourceKind is 'Workload'"))
@@ -810,6 +819,19 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 	}
 
 	return allErrs
+}
+
+// A configuration can name the labels to copy from a managed object onto the
+// Workload built from it, in more than one place. MultiKueue puts its origin
+// label on the Workloads it creates on a worker and reads it back to decide
+// which ones its watches, garbage collection and ownership checks may act on,
+// so a Workload this cluster owns must not inherit it from the object below.
+func validateCopiedLabelKey(fldPath *field.Path, key string) field.ErrorList {
+	if key == kueue.MultiKueueOriginLabel {
+		return field.ErrorList{field.Invalid(fldPath, key,
+			"is reserved for MultiKueue and must not be copied onto a Workload")}
+	}
+	return nil
 }
 
 func validateLabelKey(fldPath *field.Path, value string) field.ErrorList {
