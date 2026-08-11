@@ -1617,10 +1617,6 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		result = append(result, dom)
 	}
 	// Error logs are not verbosity-gated; dumping leaves scales with cluster size.
-	var lastDomainID utiltas.TopologyDomainID
-	if len(domains) > 0 {
-		lastDomainID = domains[len(domains)-1].id
-	}
 	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
 		"remainingCount", remainingPrimary,
 		"remainingLeaderCount", remainingLeaderCount,
@@ -1628,10 +1624,8 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		"leaderCount", leaderCount,
 		"sliceSize", sliceSize,
 		"unconstrained", unconstrained,
-		"slices", slices,
 		"topologyName", s.topologyName,
 		"domainCount", len(domains),
-		"lastDomainID", lastDomainID,
 		"leafCount", len(s.leaves))
 	s.logLeafDomainsIfVerbose()
 	return nil
