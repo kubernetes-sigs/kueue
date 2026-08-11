@@ -695,7 +695,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 5 more needed, untolerated taint {key val NoSchedule <nil>} in flavor spot-tainted",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 5 more needed, skipping flavor spot-tainted as it is not found in the nomination mapping for resource cpu",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1355,7 +1355,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 1 more needed, skipping flavor spot as it is not found in the nomination mapping for resource cpu",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1517,7 +1517,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 50 more needed, insufficient unused quota for cpu in flavor spot, 1 more needed",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor spot, 1 more needed, skipping flavor on-demand as it is not found in the nomination mapping for resource cpu",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -2495,7 +2495,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 41 more needed, insufficient unused quota for cpu in flavor spot, 50 more needed",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 41 more needed, skipping flavor spot as it is not found in the nomination mapping for resource cpu",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -3206,7 +3206,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for r1 in flavor default, 2 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -3231,7 +3231,7 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq2": {"sales/wl2"},
 			},
 		},
@@ -4276,7 +4276,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 3 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -4296,7 +4296,9 @@ func TestSchedule(t *testing.T) {
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/preemptor"},
-				"other-beta":  {"eng-beta/pretending-preemptor"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"other-beta": {"eng-beta/pretending-preemptor"},
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/a1": *utiltestingapi.MakeAdmission("other-alpha").
@@ -4309,10 +4311,6 @@ func TestSchedule(t *testing.T) {
 						Assignment(corev1.ResourceCPU, "default", "2").
 						Obj()).
 					Obj(),
-			},
-			wantSkippedPreemptions: map[string]int{
-				"other-alpha": 0,
-				"other-beta":  1,
 			},
 		},
 		"not enough resources": {
@@ -4979,7 +4977,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 5 more needed",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 10 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -5272,7 +5270,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -5290,11 +5288,9 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
-				"ClusterQueueB": {"eng-beta/b1-pending"},
-			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"ClusterQueueA": {"eng-alpha/a2-pending"},
+				"ClusterQueueB": {"eng-beta/b1-pending"},
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/a1-admitted": *utiltestingapi.MakeAdmission("ClusterQueueA").
@@ -5383,7 +5379,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for gpu in flavor on-demand, 1 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -5401,11 +5397,9 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
-				"ClusterQueueB": {"eng-beta/b1-pending"},
-			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"ClusterQueueA": {"eng-alpha/a2-pending"},
+				"ClusterQueueB": {"eng-beta/b1-pending"},
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"eng-alpha/a1-admitted": *utiltestingapi.MakeAdmission("ClusterQueueA").
@@ -5479,7 +5473,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 4 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -5535,7 +5529,7 @@ func TestSchedule(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"best-effort": {"eng-alpha/best-effort"},
 			},
 		},
@@ -7185,7 +7179,7 @@ func TestLastSchedulingContext(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "couldn't assign flavors to pod set main: insufficient quota for cpu in flavor spot, previously considered podsets requests (0) + current podset request (20) > maximum capacity (10), insufficient unused quota for cpu in flavor on-demand, 20 more needed",
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 20 more needed, skipping flavor spot as it is not found in the nomination mapping for resource cpu",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
