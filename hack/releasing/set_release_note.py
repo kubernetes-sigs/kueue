@@ -45,15 +45,15 @@ def set_release_note(pr_body: str, release_note: str) -> str:
     """Replace an existing release-note block or append a standard block."""
     starts = list(RELEASE_NOTE_START_RE.finditer(pr_body))
     blocks = list(RELEASE_NOTE_BLOCK_RE.finditer(pr_body))
-    if len(starts) != len(blocks):
-        raise ValueError("The pull request body contains a malformed release-note block.")
-    if len(blocks) > 1:
+    if len(starts) > 1:
         raise ValueError("The pull request body contains multiple release-note blocks.")
 
     new_block = f"```release-note\n{release_note}\n```"
     if blocks:
         block = blocks[0]
         updated_body = f"{pr_body[:block.start()]}{new_block}{pr_body[block.end():]}"
+    elif starts:
+        updated_body = f"{pr_body[:starts[0].start()]}{new_block}\n"
     elif pr_body.strip():
         updated_body = f"{pr_body.rstrip()}\n\n{new_block}\n"
     else:

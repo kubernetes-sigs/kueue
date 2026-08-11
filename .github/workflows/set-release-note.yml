@@ -22,6 +22,21 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install \
+            --no-deps \
+            --only-binary=:all: \
+            --require-hashes \
+            --requirement hack/releasing/requirements.txt
 
       - name: Verify actor authorization
         id: auth
@@ -35,7 +50,8 @@ jobs:
           fi
           if ! python3 hack/releasing/authorize_release_team.py \
             --actor "$ACTOR" \
-            --owners-file "$OWNERS_FILE"; then
+            --owners-file "$OWNERS_FILE" \
+            --alias release-team; then
             echo "error_message=❌ Actor $ACTOR is not authorized." >> "$GITHUB_OUTPUT"
             exit 1
           fi
@@ -49,7 +65,11 @@ jobs:
           TARGET_REPO: ${{ github.repository }}
         run: |
           printf '%s' "$COMMENT_BODY" > comment.md
-          gh pr view "$PR_NUMBER" --repo "$TARGET_REPO" --json body --jq '.body' > pr_body.md
+          if ! gh pr view "$PR_NUMBER" --repo "$TARGET_REPO" \
+            --json body --template '{{.body}}' > pr_body.md; then
+            echo "error_message=❌ Failed to read the pull request body." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
 
           if ! ERROR_MESSAGE=$(python3 hack/releasing/set_release_note.py \
             --comment-file comment.md \

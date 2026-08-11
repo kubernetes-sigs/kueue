@@ -37,6 +37,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install \
+            --no-deps \
+            --only-binary=:all: \
+            --require-hashes \
+            --requirement hack/releasing/requirements.txt
+
       - name: Verify Actor Authorization
         id: auth
         env:
@@ -47,13 +60,11 @@ jobs:
             echo "error_message=❌ $OWNERS_FILE not found." >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          if ! python3 -c "
-          import os, yaml
-
-          aliases = yaml.safe_load(open(os.environ['OWNERS_FILE'])).get('aliases', {})
-          authorized = set(aliases.get('release-team', [])) | set(aliases.get('kueue-approvers', []))
-          raise SystemExit(0 if os.environ['ACTOR'] in authorized else 1)
-          "; then
+          if ! python3 hack/releasing/authorize_release_team.py \
+            --actor "$ACTOR" \
+            --owners-file "$OWNERS_FILE" \
+            --alias release-team \
+            --alias kueue-approvers; then
             echo "error_message=❌ Actor $ACTOR is not authorized." >> "$GITHUB_OUTPUT"
             exit 1
           fi
