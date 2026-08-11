@@ -601,6 +601,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 
 		ginkgo.It("Should preempt all necessary workloads in concurrent scheduling with the same priority", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RecomputeAssignmentUponPreemptionTargetsOverlap, true)
+
 			var betaWls []*kueue.Workload
 			for i := range 3 {
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("beta-%d", i), ns.Name).
@@ -627,14 +629,6 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.MustCreate(ctx, k8sClient, gammaWl)
 
 			var evictedWorkloads []*kueue.Workload
-			gomega.Eventually(func(g gomega.Gomega) {
-				evictedWorkloads = util.FilterEvictedWorkloads(ctx, k8sClient, betaWls...)
-				g.Expect(evictedWorkloads).Should(gomega.HaveLen(1), "Number of evicted workloads")
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("Finishing eviction for first set of preempted workloads")
-			util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
-			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, alphaWl, gammaWl)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				evictedWorkloads = util.FilterEvictedWorkloads(ctx, k8sClient, betaWls...)
