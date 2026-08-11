@@ -72,7 +72,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			).
 			Preemption(kueue.ClusterQueuePreemption{
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				WithinClusterQueue:  kueue.PreemptionPolicyNever,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 			}).Obj(),
 		*utiltestingapi.MakeClusterQueue("cq-noisy").
 			Cohort("parent-cohort-a").
@@ -82,7 +82,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			).
 			Preemption(kueue.ClusterQueuePreemption{
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				WithinClusterQueue:  kueue.PreemptionPolicyNever,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 			}).Obj(),
 		*utiltestingapi.MakeClusterQueue("cq-tiny").
 			Cohort("parent-cohort-b").
@@ -91,7 +91,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 					Resource(corev1.ResourceCPU, "50").Obj()).
 			Preemption(kueue.ClusterQueuePreemption{
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				WithinClusterQueue:  kueue.PreemptionPolicyNever,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 			}).Obj(),
 		*utiltestingapi.MakeClusterQueue("cq-rest").
 			Cohort("parent-cohort-c").
@@ -100,7 +100,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 					Resource(corev1.ResourceCPU, "0").Obj()).
 			Preemption(kueue.ClusterQueuePreemption{
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
-				WithinClusterQueue:  kueue.PreemptionPolicyNever,
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 			}).Obj(),
 	}
 
@@ -315,6 +315,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "6055").Obj()).
 						Obj(), now).
+					Priority(0).
 					AdmittedAt(true, now).
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-hero", "eng-alpha").
@@ -330,6 +331,13 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 					Queue("lq-tiny").
 					Request(corev1.ResourceCPU, "50").
 					Creation(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-rest-pending", "eng-alpha").
+					UID("wl-rest-pending").
+					Queue("lq-rest").
+					Request(corev1.ResourceCPU, "4000").
+					Priority(10).
+					Creation(now.Add(2 * time.Second)).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -364,6 +372,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 					UID("wl-rest-admitted").
 					Queue("lq-rest").
 					Request(corev1.ResourceCPU, "6055").
+					Priority(0).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq-rest").
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 							Assignment(corev1.ResourceCPU, "default", "6055").Obj()).
@@ -384,6 +393,33 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-rest-pending", "eng-alpha").
+					UID("wl-rest-pending").
+					Queue("lq-rest").
+					Request(corev1.ResourceCPU, "4000").
+					Creation(now.Add(2 * time.Second)).
+					Priority(10).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 945 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("4000"),
+						},
+					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-tiny-pending", "eng-alpha").
 					UID("wl-tiny-pending").
@@ -419,6 +455,9 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-hero": {"eng-alpha/wl-hero"},
 				"cq-tiny": {"eng-alpha/wl-tiny-pending"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-rest": {"eng-alpha/wl-rest-pending"},
 			},
 		},
 		"two workloads reclaim nominal quota; RecomputePreemptionTargetsUponOverlap enabled": {
