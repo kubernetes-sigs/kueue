@@ -19,6 +19,7 @@ package dra
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -77,12 +78,31 @@ func TestChargeForPrioritizedList(t *testing.T) {
 		}}},
 	}})
 
+	// The refusal reads the counter and capacity configurations with one or, so
+	// keep a capacity mapping beside the counter one to notice if they part.
+	capacityBacked := NewResourceMapper()
+	_ = capacityBacked.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
+		Name:             "example.com/gpu",
+		DeviceClassNames: []corev1.ResourceName{"fast.example.com"},
+		Sources: []configapi.DeviceClassSourceConfig{{Capacity: &configapi.DeviceClassCapacitySource{
+			Name:           "memory",
+			Driver:         "fast.example.com",
+			DeviceSelector: resourcev1.DeviceSelector{CEL: &resourcev1.CELDeviceSelector{Expression: "true"}},
+		}}},
+	}})
+
+	// The path the request is reported under, which the cases below index into.
+	const base = "devices.requests[0].firstAvailable"
+
 	cases := map[string]struct {
 		req          resourcev1.DeviceRequest
 		mapper       *ResourceMapper
 		wantResource corev1.ResourceName
 		wantCount    int64
 		wantErr      bool
+		wantField    string
+		wantType     field.ErrorType
+		wantDetail   string
 	}{
 		"the largest count among the alternatives is the charge": {
 			req:          faReq("r", alt("fast", "fast.example.com", 1), alt("slow", "slow.example.com", 3)),
@@ -109,19 +129,35 @@ func TestChargeForPrioritizedList(t *testing.T) {
 			wantCount:    4,
 		},
 		"alternatives reaching two logical resources are refused": {
-			req:     faReq("r", alt("fast", "fast.example.com", 1), alt("slow", "slow.example.com", 8)),
-			mapper:  twoResources,
-			wantErr: true,
+			req:        faReq("r", alt("fast", "fast.example.com", 1), alt("slow", "slow.example.com", 8)),
+			mapper:     twoResources,
+			wantErr:    true,
+			wantField:  base + "[1].deviceClassName",
+			wantType:   field.ErrorTypeInvalid,
+			wantDetail: "every alternative must map to",
 		},
 		"an unmapped DeviceClass is refused": {
-			req:     faReq("r", alt("fast", "fast.example.com", 1), alt("unknown", "unknown.example.com", 1)),
-			mapper:  twoClassesOneResource,
-			wantErr: true,
+			req:       faReq("r", alt("fast", "fast.example.com", 1), alt("unknown", "unknown.example.com", 1)),
+			mapper:    twoClassesOneResource,
+			wantErr:   true,
+			wantField: base + "[1].deviceClassName",
+			wantType:  field.ErrorTypeNotFound,
 		},
 		"a counter-backed mapping is refused": {
-			req:     faReq("r", alt("fast", "fast.example.com", 1)),
-			mapper:  counterBacked,
-			wantErr: true,
+			req:        faReq("r", alt("fast", "fast.example.com", 1)),
+			mapper:     counterBacked,
+			wantErr:    true,
+			wantField:  base + "[0].deviceClassName",
+			wantType:   field.ErrorTypeInvalid,
+			wantDetail: "counter-backed or capacity-backed",
+		},
+		"and so is a capacity-backed one": {
+			req:        faReq("r", alt("fast", "fast.example.com", 1)),
+			mapper:     capacityBacked,
+			wantErr:    true,
+			wantField:  base + "[0].deviceClassName",
+			wantType:   field.ErrorTypeInvalid,
+			wantDetail: "counter-backed or capacity-backed",
 		},
 		"allocation mode All is refused": {
 			req: faReq("r", resourcev1.DeviceSubRequest{
@@ -129,8 +165,21 @@ func TestChargeForPrioritizedList(t *testing.T) {
 				DeviceClassName: "fast.example.com",
 				AllocationMode:  resourcev1.DeviceAllocationModeAll,
 			}),
-			mapper:  twoClassesOneResource,
-			wantErr: true,
+			mapper:    twoClassesOneResource,
+			wantErr:   true,
+			wantField: base + "[0].allocationMode",
+			wantType:  field.ErrorTypeNotSupported,
+		},
+		"an unknown allocation mode is refused the same way": {
+			req: faReq("r", resourcev1.DeviceSubRequest{
+				Name:            "fast",
+				DeviceClassName: "fast.example.com",
+				AllocationMode:  resourcev1.DeviceAllocationMode("Some"),
+			}),
+			mapper:    twoClassesOneResource,
+			wantErr:   true,
+			wantField: base + "[0].allocationMode",
+			wantType:  field.ErrorTypeNotSupported,
 		},
 		"an unset mode and count mean one device, as the field documents": {
 			req: faReq("r", resourcev1.DeviceSubRequest{
@@ -150,14 +199,25 @@ func TestChargeForPrioritizedList(t *testing.T) {
 			wantCount:    5,
 		},
 		"a negative count is refused": {
-			req:     faReq("r", alt("fast", "fast.example.com", -1)),
-			mapper:  twoClassesOneResource,
-			wantErr: true,
+			req:        faReq("r", alt("fast", "fast.example.com", -1)),
+			mapper:     twoClassesOneResource,
+			wantErr:    true,
+			wantField:  base + "[0].count",
+			wantType:   field.ErrorTypeInvalid,
+			wantDetail: "greater than zero",
+		},
+		"the largest representable count is still charged": {
+			req:          faReq("r", alt("fast", "fast.example.com", math.MaxInt64)),
+			mapper:       twoClassesOneResource,
+			wantResource: "example.com/gpu",
+			wantCount:    math.MaxInt64,
 		},
 		"an empty DeviceClass name is refused": {
-			req:     faReq("r", alt("empty", "", 1)),
-			mapper:  twoClassesOneResource,
-			wantErr: true,
+			req:       faReq("r", alt("empty", "", 1)),
+			mapper:    twoClassesOneResource,
+			wantErr:   true,
+			wantField: base + "[0].deviceClassName",
+			wantType:  field.ErrorTypeRequired,
 		},
 		"a capacity requirement is refused": {
 			req: faReq("r", func() resourcev1.DeviceSubRequest {
@@ -165,8 +225,10 @@ func TestChargeForPrioritizedList(t *testing.T) {
 				s.Capacity = &resourcev1.CapacityRequirements{}
 				return s
 			}()),
-			mapper:  twoClassesOneResource,
-			wantErr: true,
+			mapper:    twoClassesOneResource,
+			wantErr:   true,
+			wantField: base + "[0].capacity",
+			wantType:  field.ErrorTypeInvalid,
 		},
 		"a selector that does not compile is refused": {
 			req: faReq("r", func() resourcev1.DeviceSubRequest {
@@ -174,18 +236,25 @@ func TestChargeForPrioritizedList(t *testing.T) {
 				s.Selectors = []resourcev1.DeviceSelector{{CEL: &resourcev1.CELDeviceSelector{Expression: "this is not cel("}}}
 				return s
 			}()),
-			mapper:  twoClassesOneResource,
-			wantErr: true,
+			mapper:    twoClassesOneResource,
+			wantErr:   true,
+			wantField: base + "[0].selectors",
+			wantType:  field.ErrorTypeInvalid,
 		},
 		"a nil mapper leaves every alternative unmapped rather than panicking": {
-			req:     faReq("r", alt("fast", "fast.example.com", 1)),
-			mapper:  nil,
-			wantErr: true,
+			req:       faReq("r", alt("fast", "fast.example.com", 1)),
+			mapper:    nil,
+			wantErr:   true,
+			wantField: base + "[0].deviceClassName",
+			wantType:  field.ErrorTypeNotFound,
 		},
 		"an empty list of alternatives is refused": {
-			req:     resourcev1.DeviceRequest{Name: "r", FirstAvailable: []resourcev1.DeviceSubRequest{}},
-			mapper:  twoClassesOneResource,
-			wantErr: true,
+			req:        resourcev1.DeviceRequest{Name: "r", FirstAvailable: []resourcev1.DeviceSubRequest{}},
+			mapper:     twoClassesOneResource,
+			wantErr:    true,
+			wantField:  "devices.requests[0].firstAvailable",
+			wantType:   field.ErrorTypeRequired,
+			wantDetail: "at least one alternative",
 		},
 	}
 
@@ -193,8 +262,15 @@ func TestChargeForPrioritizedList(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gotResource, gotCount, errs := chargeForPrioritizedList(&tc.req, tc.mapper, field.NewPath("devices", "requests").Index(0))
 			if tc.wantErr {
-				if len(errs) == 0 {
-					t.Fatalf("want an error, got %s=%d", gotResource, gotCount)
+				if len(errs) != 1 {
+					t.Fatalf("want one error, got %v (charge %s=%d)", errs, gotResource, gotCount)
+				}
+				got := errs[0]
+				if got.Field != tc.wantField || got.Type != tc.wantType {
+					t.Errorf("got %s on %s, want %s on %s", got.Type, got.Field, tc.wantType, tc.wantField)
+				}
+				if tc.wantDetail != "" && !strings.Contains(got.Detail, tc.wantDetail) {
+					t.Errorf("detail %q does not mention %q", got.Detail, tc.wantDetail)
 				}
 				return
 			}
