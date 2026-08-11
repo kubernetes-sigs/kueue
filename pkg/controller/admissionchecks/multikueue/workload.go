@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -1192,11 +1193,27 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod})
 
+	c, err := builder.
+		WithEventFilter(w).
+		WithOptions(controller.Options{
+			LogConstructor: roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload"),
+		}).
+		Build(w)
+	if err != nil {
+		return err
+	}
+
 	// Watch the local (manager) job objects of adapters that forward spec changes
 	// after admission. Such an edit (e.g. RayService serveConfigV2) does not alter the
 	// workload CR, so it does not reconcile this controller through the usual path;
 	// watching the job directly lets it promptly trigger a sync instead of waiting for
 	// the next periodic requeue.
+	//
+	// The watch is added on the built controller (not the builder) and only once the
+	// job's CRD is served (jobframework.WaitForAPI). A job CRD may be installed after
+	// Kueue starts (e.g. KubeRay), so adding it to the builder would make this
+	// controller's cache sync fail and crash-loop the manager; deferring degrades
+	// gracefully and picks the watch up when the CRD appears.
 	if features.Enabled(features.MultiKueueRemoteSpecSync) {
 		for _, adapter := range w.adapters {
 			lw, ok := adapter.(jobframework.MultiKueueLocalJobWatcher)
@@ -1207,20 +1224,23 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 			if emptyJob == nil {
 				continue
 			}
-			builder = builder.Watches(emptyJob, &localJobHandler{
-				client:            w.client,
-				gvk:               adapter.GVK(),
-				eventsBatchPeriod: w.eventsBatchPeriod,
-			})
+			gvk := adapter.GVK()
+			h := &localJobHandler{client: w.client, gvk: gvk, eventsBatchPeriod: w.eventsBatchPeriod}
+			if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+				log := ctrl.LoggerFrom(ctx).WithName("multikueue-workload")
+				jobframework.WaitForAPI(ctx, mgr, log, gvk, func() {
+					if err := c.Watch(source.Kind(mgr.GetCache(), emptyJob, h)); err != nil {
+						log.Error(err, "Unable to watch local job for MultiKueue spec sync", "gvk", gvk)
+					}
+				})
+				return nil
+			})); err != nil {
+				return err
+			}
 		}
 	}
 
-	return builder.
-		WithEventFilter(w).
-		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload"),
-		}).
-		Complete(w)
+	return nil
 }
 
 func findPodSetAssignment(assignments []kueue.PodSetAssignment, name kueue.PodSetReference) *kueue.PodSetAssignment {
