@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/metrics/testutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,6 +37,23 @@ import (
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 )
+
+// The configuration names the labels to copy in more than one place, and
+// validation refuses the MultiKueue marker in each. Refuse it here too, so a
+// copy source added later cannot quietly hand a local Workload that identity.
+func TestNewWorkloadLeavesTheMultiKueueMarkerBehind(t *testing.T) {
+	job := testingjob.MakeJob("job", "ns").
+		Label("team", "physics").
+		Label(kueue.MultiKueueOriginLabel, "multikueue").
+		Obj()
+
+	wl := jobframework.NewWorkload("wl", job, nil,
+		sets.New("team", kueue.MultiKueueOriginLabel), nil)
+
+	if diff := cmp.Diff(map[string]string{"team": "physics"}, wl.Labels); diff != "" {
+		t.Errorf("workload labels (-want +got):\n%s", diff)
+	}
+}
 
 func TestSanitizePodSets(t *testing.T) {
 	testCases := map[string]struct {

@@ -35,6 +35,7 @@ import (
 	"k8s.io/component-base/featuregate"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -3355,4 +3356,77 @@ func TestValidateCustomLabels(t *testing.T) {
 			t.Errorf("unexpected error details (-want,+got):\n%s", diff)
 		}
 	})
+}
+
+func TestValidateRejectsCopyingOwnershipLabels(t *testing.T) {
+	testScheme := runtime.NewScheme()
+	if err := configapi.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientgoscheme.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+
+	integrations := func(keys ...string) *configapi.Configuration {
+		return &configapi.Configuration{
+			Integrations: &configapi.Integrations{
+				Frameworks:      []string{"batch/job"},
+				LabelKeysToCopy: keys,
+			},
+		}
+	}
+	// A Workload-scoped custom metric label joins labelKeysToCopy in the set the
+	// job framework copies from; the other kinds are read off their own object.
+	customLabel := func(kind configapi.SourceKind, sourceLabelKey string) *configapi.Configuration {
+		cfg := integrations()
+		cfg.Metrics = configapi.ControllerMetrics{
+			CustomLabels: []configapi.ControllerMetricsCustomLabel{{
+				Name:           "mk_origin",
+				SourceKind:     &kind,
+				SourceLabelKey: sourceLabelKey,
+				TrackedValues:  []string{"multikueue"},
+			}},
+		}
+		return cfg
+	}
+
+	cases := map[string]struct {
+		cfg        *configapi.Configuration
+		wantFields []string
+	}{
+		"an ordinary label is copied as before": {
+			cfg: integrations("team", "cost-centre"),
+		},
+		"the MultiKueue origin label is refused": {
+			cfg:        integrations(kueueapi.MultiKueueOriginLabel),
+			wantFields: []string{"integrations.labelKeysToCopy[0]"},
+		},
+		"and refused wherever it sits in the list": {
+			cfg:        integrations("team", kueueapi.MultiKueueOriginLabel),
+			wantFields: []string{"integrations.labelKeysToCopy[1]"},
+		},
+		"a Workload custom metric label reaches the same copy set": {
+			cfg:        customLabel(configapi.SourceKindWorkload, kueueapi.MultiKueueOriginLabel),
+			wantFields: []string{"metrics.customLabels[0].sourceLabelKey"},
+		},
+		"a ClusterQueue one never lands on a Workload, so it stands": {
+			cfg: customLabel(configapi.SourceKindClusterQueue, kueueapi.MultiKueueOriginLabel),
+		},
+		"an ordinary Workload custom metric label still passes": {
+			cfg: customLabel(configapi.SourceKindWorkload, "team"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var got []string
+			for _, err := range Validate(tc.cfg, testScheme, jobs.NewIntegrationManager()) {
+				if strings.Contains(err.Detail, "reserved for MultiKueue") {
+					got = append(got, err.Field)
+				}
+			}
+			if diff := cmp.Diff(tc.wantFields, got); diff != "" {
+				t.Errorf("refused fields (-want +got):\n%s", diff)
+			}
+		})
+	}
 }
