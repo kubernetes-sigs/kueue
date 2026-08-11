@@ -467,6 +467,7 @@ func managerAndMultiKueueSetup(
 		multikueue.WithEventsBatchPeriod(250*time.Millisecond),
 		multikueue.WithAdapters(adapters),
 		multikueue.WithDispatcherName(dispatcherName),
+		multikueue.WithPreemptionMode(config.MultiKueuePreemptionModeConcurrent),
 	)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
