@@ -490,7 +490,7 @@ func chargeableRequests(input corev1.ResourceList) corev1.ResourceList {
 // under the same name, and the aggregation hides that the sum ever went there.
 func chargeablePodRequests(spec *corev1.PodSpec) corev1.ResourceList {
 	if hasNegativeRequest(spec) {
-		spec = zeroNegativeRequests(spec)
+		spec = chargeableSpec(spec)
 	}
 	return resourcehelpers.PodRequests(&corev1.Pod{Spec: *spec}, resourcehelpers.PodResourcesOptions{})
 }
@@ -517,9 +517,9 @@ func hasNegativeRequest(spec *corev1.PodSpec) bool {
 	return negative(spec.Overhead)
 }
 
-// zeroNegativeRequests copies the spec rather than editing the one the Workload
+// chargeableSpec copies the spec rather than editing the one the Workload
 // holds, which the caller is only borrowing.
-func zeroNegativeRequests(spec *corev1.PodSpec) *corev1.PodSpec {
+func chargeableSpec(spec *corev1.PodSpec) *corev1.PodSpec {
 	out := spec.DeepCopy()
 	for i := range out.InitContainers {
 		out.InitContainers[i].Resources.Requests = chargeableRequests(out.InitContainers[i].Resources.Requests)
@@ -528,9 +528,21 @@ func zeroNegativeRequests(spec *corev1.PodSpec) *corev1.PodSpec {
 		out.Containers[i].Resources.Requests = chargeableRequests(out.Containers[i].Resources.Requests)
 	}
 	if out.Resources != nil {
-		out.Resources.Requests = chargeableRequests(out.Resources.Requests)
+		// A pod-level request replaces the container total instead of adding to it,
+		// so a zero left here would spend what the containers asked for.
+		out.Resources.Requests = dropNegativeRequests(out.Resources.Requests)
 	}
 	out.Overhead = chargeableRequests(out.Overhead)
+	return out
+}
+
+func dropNegativeRequests(requests corev1.ResourceList) corev1.ResourceList {
+	out := make(corev1.ResourceList, len(requests))
+	for name, quantity := range requests {
+		if quantity.Sign() >= 0 {
+			out[name] = quantity
+		}
+	}
 	return out
 }
 

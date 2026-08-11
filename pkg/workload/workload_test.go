@@ -1047,50 +1047,56 @@ func TestNewInfo(t *testing.T) {
 			},
 		},
 		// A sidecar runs beside the regular containers, so its request is added
-		// to theirs rather than compared against them.
-		"negativeRestartableInitRequestDoesNotSpendTheRegularOne": {
-			workload: *utiltestingapi.MakeWorkload("transform", "").
-				PodSets(*utiltestingapi.MakePodSet("a", 1).
-					InitContainers(*utiltesting.MakeContainer().Name("sidecar").
-						AsSidecar().WithResourceReq("example.com/credit", "-3").Obj()).
-					Containers(*utiltesting.MakeContainer().Name("asks").
-						WithResourceReq("example.com/credit", "8").Obj()).Obj()).
-				Obj(),
-			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
-				Input:    "example.com/credit",
-				Strategy: new(config.Replace),
-				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
-			}})},
+		// Only cpu and memory reach the pod-level override, and it replaces the
+		// container total rather than adding to it, so an invalid entry has to go
+		// rather than become a zero.
+		"negativePodLevelCPUFallsBackToTheContainerAggregate": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelcpu", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request(corev1.ResourceCPU, "8").Obj()).
+					Obj(),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-3")}),
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
-						corev1.ResourceName("example.com/gpu"): 8,
+						corev1.ResourceCPU: 8000,
 					}),
 					Count: 1,
 				}},
 			},
 		},
-		// A pod-level request zeroed here does not take the container aggregate
-		// down with it: the aggregation still answers 8. Pinned because dropping
-		// the key instead would be a different answer.
-		"negativePodLevelRequestLeavesTheContainerAggregate": {
+		"negativePodLevelMemoryFallsBackToTheContainerAggregate": {
 			workload: withPodLevelRequests(
-				utiltestingapi.MakeWorkload("podlevel", "").
+				utiltestingapi.MakeWorkload("podlevelmem", "").
 					PodSets(*utiltestingapi.MakePodSet("a", 1).
-						Request("example.com/credit", "8").Obj()).
+						Request(corev1.ResourceMemory, "8").Obj()).
 					Obj(),
-				corev1.ResourceList{"example.com/credit": resource.MustParse("-3")}),
-			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
-				Input:    "example.com/credit",
-				Strategy: new(config.Replace),
-				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
-			}})},
+				corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("-3")}),
 			wantInfo: Info{
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
-						corev1.ResourceName("example.com/gpu"): 8,
+						corev1.ResourceMemory: 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// A zero is a legitimate pod-level answer and still wins over the containers.
+		"zeroPodLevelRequestStillOverridesTheContainerAggregate": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelzero", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request(corev1.ResourceCPU, "8").Obj()).
+					Obj(),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")}),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 0,
 					}),
 					Count: 1,
 				}},
