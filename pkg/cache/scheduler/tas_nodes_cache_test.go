@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 )
 
@@ -269,5 +270,23 @@ func TestNodesCacheGeneration(t *testing.T) {
 				t.Errorf("unexpected generation delta: got %d, want %d", delta, tc.wantDelta)
 			}
 		})
+	}
+}
+
+func TestNodesCacheWithSchedulerLibraryIntegration(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
+
+	nc := newNodesCache()
+	unreadyNode := node.MakeNode("unready-node").DeepCopy()
+	unschedNode := node.MakeNode("unsched-node").Unschedulable().Obj()
+
+	nc.sync(unreadyNode)
+	nc.sync(unschedNode)
+
+	if _, found := nc.nodes["unready-node"]; !found {
+		t.Errorf("expected unready-node to be cached when SchedulerLibraryIntegration is enabled")
+	}
+	if _, found := nc.nodes["unsched-node"]; !found {
+		t.Errorf("expected unsched-node to be cached when SchedulerLibraryIntegration is enabled")
 	}
 }

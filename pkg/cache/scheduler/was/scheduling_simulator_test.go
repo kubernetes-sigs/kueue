@@ -203,3 +203,46 @@ func TestNodePortsFeasibility(t *testing.T) {
 		})
 	}
 }
+
+func TestNodeUnschedulableFeasibility(t *testing.T) {
+	ctx := t.Context()
+
+	node1 := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1", Labels: map[string]string{corev1.LabelHostname: "node1"}},
+		Spec:       corev1.NodeSpec{Unschedulable: true},
+	}
+	node2 := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node2", Labels: map[string]string{corev1.LabelHostname: "node2"}},
+		Spec:       corev1.NodeSpec{Unschedulable: false},
+	}
+	nodes := []*corev1.Node{node1, node2}
+
+	sim, err := NewWASSimulatorForTest(ctx)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorForTest failed: %v", err)
+	}
+
+	candidates := func(yield func(simulator.Candidate) bool) {
+		for _, n := range nodes {
+			if !yield(&testCandidate{node: n, id: utiltas.TopologyDomainID(n.Name)}) {
+				return
+			}
+		}
+	}
+
+	checker, err := sim.NewFeasibilityChecker(ctx, nodes)
+	if err != nil {
+		t.Fatalf("NewFeasibilityChecker failed: %v", err)
+	}
+
+	results, err := checker.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+		PodTemplate: &corev1.PodTemplateSpec{},
+	}, &simulator.NodeExclusionStats{})
+	if err != nil {
+		t.Fatalf("FindFeasibleNodes failed: %v", err)
+	}
+
+	if len(results) != 1 || results[0].GetNode().Name != "node2" {
+		t.Errorf("expected only node2 to be feasible, got %v", results)
+	}
+}

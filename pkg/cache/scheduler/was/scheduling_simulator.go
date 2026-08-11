@@ -18,6 +18,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,6 +59,7 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 					},
 					Filter: schedulerconfig.PluginSet{
 						Enabled: []schedulerconfig.Plugin{
+							{Name: nodeunschedulable.Name},
 							{Name: tainttoleration.Name},
 							{Name: nodeaffinity.Name},
 							{Name: nodeports.Name},
