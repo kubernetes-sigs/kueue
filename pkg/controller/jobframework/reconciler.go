@@ -449,7 +449,27 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// 2. handle job is finished.
+	// 2. handle job is on hold.
+	if jobOnHold, ok := job.(JobWithOnHold); ok && jobOnHold.IsOnHold() {
+		if wl != nil && workload.HasQuotaReservation(wl) {
+			log.V(2).Info("Job is on hold, releasing quota reservation")
+			err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				changed := workload.UnsetQuotaReservationWithCondition(
+					wl,
+					kueue.WorkloadOnHold,
+					"Job is on hold",
+					r.clock.Now(),
+				)
+				return changed, nil
+			})
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("putting workload on hold: %w", err)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// 3. handle job is finished.
 	if message, success, finished := job.Finished(ctx); finished {
 		log.V(3).Info("The workload is already finished")
 		if wl != nil && !workload.IsFinished(wl) {
