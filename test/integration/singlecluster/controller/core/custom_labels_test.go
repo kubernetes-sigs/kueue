@@ -1234,7 +1234,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			cq = utiltestingapi.MakeClusterQueue("cq-lq-pending").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
-						Resource(corev1.ResourceCPU, "5").
+						Resource(corev1.ResourceCPU, "0").
 						Obj(),
 				).Label("team", "ml-team").Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
@@ -1265,7 +1265,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			cq = utiltestingapi.MakeClusterQueue("cq-lq-pending-update").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
-						Resource(corev1.ResourceCPU, "5").
+						Resource(corev1.ResourceCPU, "0").
 						Obj(),
 				).Label("team", "ml-team").Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
