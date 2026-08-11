@@ -245,12 +245,6 @@ const (
 	// Enabled failure recovery of pods stuck in terminating state.
 	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
 
-	// owner: @mbobrovskyi
-	//
-	// issue: https://github.com/kubernetes-sigs/kueue/issues/5298
-	// Enabled skip adding finalizers for serving workloads.
-	SkipFinalizersForPodsSuspendedByParent featuregate.Feature = "SkipFinalizersForPodsSuspendedByParent"
-
 	// owner: @kannon92
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8190
@@ -287,19 +281,6 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/9694
 	// Skip equivalent inadmissible workloads in BestEffortFIFO scheduling.
 	SchedulingEquivalenceHashing featuregate.Feature = "SchedulingEquivalenceHashing"
-
-	// owner: @mbobrovskyi
-	//
-	// issue: https://github.com/kubernetes-sigs/kueue/issues/9799
-	// Use 10s interval for scheduler requeuing.
-	SchedulerLongRequeueInterval featuregate.Feature = "SchedulerLongRequeueInterval"
-
-	// owner: @mbobrovskyi
-	//
-	// issue: https://github.com/kubernetes-sigs/kueue/issues/9799
-	// Use a 5min buffer so that workloads with scheduling timestamps within this
-	// buffer do not preempt each other based on LowerOrNewerEqualPriority.
-	SchedulerTimestampPreemptionBuffer featuregate.Feature = "SchedulerTimestampPreemptionBuffer"
 
 	// owner: @IrvingMg
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7066-custom-metric-labels
@@ -517,12 +498,17 @@ const (
 	// the size, or disable this gate to accept the previous behavior.
 	LWSImmutableGroupSize featuregate.Feature = "LWSImmutableGroupSize"
 
-	// owner: @vladikkuzn
+	// owner: @varunsyal
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
 	//
-	// issue: https://github.com/kubernetes-sigs/kueue/pull/13014
-	// Refuse to adopt an existing Workload by pod-group name when it was not created
-	// by the pod-group framework (missing is-group-workload annotation).
-	PodIntegrationValidateGroupOwner featuregate.Feature = "PodIntegrationValidateGroupOwner"
+	// Keeps the flavor scan progress recorded in LastTriedFlavorIdx usable in the next
+	// scheduling cycle. Without this the progress is discarded whenever the ClusterQueue's
+	// AllocatableResourceGeneration advances, which happens on every admission or eviction
+	// in the Cohort, and whenever a Workload is skipped because another Workload processed
+	// earlier in the cycle took the capacity or the preemption targets it had been assigned.
+	// Under sustained load either can happen every cycle, leaving the scan to restart from
+	// the first flavor indefinitely.
+	FlavorFungibilityPreserveScanProgress featuregate.Feature = "FlavorFungibilityPreserveScanProgress"
 
 	// owner: @iaalm
 	//
@@ -541,6 +527,13 @@ const (
 	// begun, and suspend defaulting only ever adds suspend, so no path exists to
 	// unsuspend an object or bypass quota via create-then-delete.
 	SkipAncestorCheckForDeletedWorkloads featuregate.Feature = "SkipAncestorCheckForDeletedWorkloads"
+
+	// owner: @kevin85421
+	//
+	// Enables MultiKueue to forward manager-side spec changes (currently a RayService
+	// serveConfigV2 edit) onto the worker copy after admission, and to watch the manager
+	// job so such a change is forwarded promptly instead of on the next periodic requeue.
+	MultiKueueRemoteSpecSync featuregate.Feature = "MultiKueueRemoteSpecSync"
 
 	// owner: @pajakd
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/13320
@@ -576,6 +569,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	KueueDRAIntegrationExtendedResource:      {KueueDRAIntegration},
 	KueueDRAIntegrationPartitionableDevices:  {KueueDRAIntegration},
 	KueueDRAIntegrationConsumableCapacity:    {KueueDRAIntegration},
+	FlavorFungibilityPreserveScanProgress:    {FlavorFungibility},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -706,10 +700,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	FailureRecoveryPolicy: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
-	SkipFinalizersForPodsSuspendedByParent: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
-		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
-	},
 	TLSOptions: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.20
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.22
@@ -730,12 +720,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	SchedulingEquivalenceHashing: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
-	},
-	SchedulerLongRequeueInterval: {
-		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
-	},
-	SchedulerTimestampPreemptionBuffer: {
-		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
 	},
 	CustomMetricLabels: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
@@ -792,6 +776,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	WorkloadPriorityClassDefaulting: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MetricsForCohorts: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
@@ -850,11 +835,15 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
-	PodIntegrationValidateGroupOwner: {
+	FlavorFungibilityPreserveScanProgress: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	SkipAncestorCheckForDeletedWorkloads: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	MultiKueueRemoteSpecSync: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 

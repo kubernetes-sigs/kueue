@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -323,7 +322,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 												Operator:          corev1.TolerationOpEqual,
 												Value:             "t1v",
 												Effect:            corev1.TaintEffectNoExecute,
-												TolerationSeconds: ptr.To[int64](5),
+												TolerationSeconds: new(int64(5)),
 											},
 										},
 										NodeSelector: map[string]string{"type": "first"},
@@ -338,7 +337,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 												Operator:          corev1.TolerationOpEqual,
 												Value:             "t2v",
 												Effect:            corev1.TaintEffectNoExecute,
-												TolerationSeconds: ptr.To[int64](10),
+												TolerationSeconds: new(int64(10)),
 											},
 										},
 										NodeSelector: map[string]string{"type": "second"},
@@ -592,6 +591,23 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
 		})
 
+		ginkgo.It("Should refuse a status update reserving quota with no admission", func() {
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Status.Conditions = append(wl.Status.Conditions, metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Admitted",
+					Message:            "admitted",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				})
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(utiltesting.BeForbiddenError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.DescribeTable("Validate Workload on update",
 			func(w func() *kueue.Workload, setQuotaReservation bool, updateWl func(newWL *kueue.Workload), matcher gomegatypes.GomegaMatcher) {
 				ginkgo.By("Creating a new Workload")
@@ -820,7 +836,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				false,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.MaximumExecutionTimeSeconds = ptr.To[int32](1)
+					newWL.Spec.MaximumExecutionTimeSeconds = new(int32(1))
 				},
 				gomega.Succeed(),
 			),
@@ -842,7 +858,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				true,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.MaximumExecutionTimeSeconds = ptr.To[int32](1)
+					newWL.Spec.MaximumExecutionTimeSeconds = new(int32(1))
 				},
 				utiltesting.BeInvalidError(),
 			),
@@ -864,7 +880,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				false,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.Priority = ptr.To[int32](10)
+					newWL.Spec.Priority = new(int32(10))
 				},
 				gomega.Succeed(),
 			),
@@ -874,7 +890,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				false,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.Priority = ptr.To[int32](10)
+					newWL.Spec.Priority = new(int32(10))
 				},
 				gomega.Succeed(),
 			),
@@ -887,7 +903,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				false,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.Priority = ptr.To[int32](10)
+					newWL.Spec.Priority = new(int32(10))
 				},
 				gomega.Succeed(),
 			),
@@ -900,7 +916,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				false,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.Priority = ptr.To[int32](10)
+					newWL.Spec.Priority = new(int32(10))
 				},
 				gomega.Succeed(),
 			),
@@ -911,7 +927,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				false,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef = kueue.NewWorkloadPriorityClassRef("low")
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				gomega.Succeed(),
 			),
@@ -922,7 +938,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef = kueue.NewWorkloadPriorityClassRef("low")
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				utiltesting.BeInvalidError(),
 			),
@@ -936,7 +952,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				false,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef.Name = "low"
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				gomega.Succeed(),
 			),
@@ -950,7 +966,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef.Name = "low"
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				gomega.Succeed(),
 			),
@@ -989,7 +1005,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				false,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef = kueue.NewPodPriorityClassRef("low")
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				gomega.Succeed(),
 			),
@@ -1000,7 +1016,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef = kueue.NewPodPriorityClassRef("low")
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				utiltesting.BeInvalidError(),
 			),
@@ -1014,7 +1030,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				false,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef.Name = "low"
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				gomega.Succeed(),
 			),
@@ -1028,7 +1044,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef.Name = "low"
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				utiltesting.BeInvalidError(),
 			),

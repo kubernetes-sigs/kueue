@@ -19,6 +19,7 @@ package metrics
 import (
 	"iter"
 	"slices"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
@@ -30,11 +31,14 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 )
 
+const MaxCustomLabelsForSourceKind = 6
+
 // CustomLabels holds mutable state for custom metric labels.
 type CustomLabels struct {
 	m map[configapi.SourceKind]*SourceKindLabelStore
 }
 
+// Stores metadata and values for a set of custom labels defined for a source kind.
 type SourceKindLabelStore struct {
 	labelNames []string
 	labelSpecs []configapi.ControllerMetricsCustomLabel
@@ -95,6 +99,36 @@ func (cl *CustomLabels) LabelNames(srcs ...configapi.SourceKind) []string {
 		return nil
 	}
 	return labels
+}
+
+func (cl *CustomLabels) KindConfigured(kind configapi.SourceKind) (isConfigured bool) {
+	if !cl.enabled() {
+		return
+	}
+	_, isConfigured = cl.m[kind]
+	return
+}
+
+func (cl *CustomLabels) MakeValsSet(kind configapi.SourceKind, labels, annotations map[string]string) (ls labelValsSet) {
+	if !cl.enabled() || cl.m[kind] == nil {
+		return EmptyValsSet()
+	}
+	vals := cl.m[kind].extractValues(labels, annotations)
+	ls.size = copy(ls.vals[:], vals)
+	return
+}
+
+// CombineLabelValues returns a combined list of label values from the provided map,
+// appended in SourceKind order.
+func (cl *CustomLabels) CombineLabelValues(valuesPerSrc map[configapi.SourceKind][]string) (combined []string) {
+	if !cl.enabled() || len(valuesPerSrc) == 0 {
+		return
+	}
+
+	for _, kind := range cl.labelStoreIter(sets.KeySet(valuesPerSrc).UnsortedList()) {
+		combined = append(combined, valuesPerSrc[kind]...)
+	}
+	return
 }
 
 func (cl *CustomLabels) UpdateRequired(kind configapi.SourceKind, ref string, labels, annotations map[string]string) bool {
@@ -179,7 +213,7 @@ func parseLabels(targetKind configapi.SourceKind, labelSpecs []configapi.Control
 	specs = make([]configapi.ControllerMetricsCustomLabel, 0)
 	for _, spec := range labelSpecs {
 		if spec.SourceKind == nil {
-			spec.SourceKind = ptr.To(configapi.DefaultCustomMetricLabelSourceKind)
+			spec.SourceKind = new(configapi.DefaultCustomMetricLabelSourceKind)
 		}
 		if *spec.SourceKind == targetKind {
 			names = append(names, "custom_"+spec.Name)
@@ -267,4 +301,106 @@ func (cl *CustomLabels) CohortGet(key kueue.CohortReference) []string {
 
 func (cl *CustomLabels) CohortDelete(key kueue.CohortReference) {
 	cl.Delete(configapi.SourceKindCohort, string(key))
+}
+
+type LabelValsTracker struct {
+	sync.RWMutex
+	counts map[labelValsSet]int
+	total  int
+}
+
+// Wrapper for a list representing values of a custom labels set.
+type labelValsSet struct {
+	vals [MaxCustomLabelsForSourceKind]string
+	size int
+}
+
+func NewLabelValsTracker() *LabelValsTracker {
+	return &LabelValsTracker{
+		counts: make(map[labelValsSet]int, 0),
+		total:  0,
+	}
+}
+
+func MergedTracker(a, b *LabelValsTracker) *LabelValsTracker {
+	return NewLabelValsTracker().merge(a).merge(b)
+}
+
+func Copy(t *LabelValsTracker) *LabelValsTracker {
+	return NewLabelValsTracker().merge(t)
+}
+
+func (c *LabelValsTracker) PopZeroCounts() iter.Seq[*labelValsSet] {
+	return func(yield func(*labelValsSet) bool) {
+		c.Lock()
+		defer c.Unlock()
+		for lv, count := range c.counts {
+			if count == 0 {
+				delete(c.counts, lv)
+				if !yield(&lv) {
+					return
+				}
+			}
+		}
+	}
+}
+
+func (c *LabelValsTracker) Incr(ls labelValsSet) {
+	c.Add(ls, 1)
+}
+
+func (c *LabelValsTracker) Decr(ls labelValsSet) {
+	c.Add(ls, -1)
+}
+
+func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
+	c.Lock()
+	defer c.Unlock()
+	oldCount := c.counts[ls]
+	newCount := max(0, oldCount+incr)
+	c.counts[ls] = newCount
+	c.total += newCount - oldCount
+}
+
+func (c *LabelValsTracker) Iter() iter.Seq2[labelValsSet, int] {
+	return func(yield func(labelValsSet, int) bool) {
+		c.RLock()
+		defer c.RUnlock()
+		for ls, count := range c.counts {
+			if !yield(ls, count) {
+				return
+			}
+		}
+	}
+}
+
+func (c *LabelValsTracker) Total() int {
+	c.RLock()
+	defer c.RUnlock()
+	return c.total
+}
+
+func (c *LabelValsTracker) merge(other *LabelValsTracker) *LabelValsTracker {
+	c.Lock()
+	defer c.Unlock()
+
+	if other == nil {
+		return c
+	}
+	other.RLock()
+	defer other.RUnlock()
+
+	for k, v := range other.counts {
+		c.counts[k] += v
+	}
+	c.total += other.total
+	return c
+}
+
+func EmptyValsSet() labelValsSet {
+	return labelValsSet{}
+}
+
+func (s *labelValsSet) OrderedList() []string {
+	return s.vals[:s.size]
 }

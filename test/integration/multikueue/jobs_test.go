@@ -58,6 +58,7 @@ import (
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -72,6 +73,7 @@ import (
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
+	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	testingxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
@@ -83,7 +85,7 @@ import (
 )
 
 var defaultEnabledIntegrations = sets.New(
-	"batch/job", "kubeflow.org/mpijob", "ray.io/rayjob", "ray.io/raycluster",
+	"batch/job", "kubeflow.org/mpijob", "ray.io/rayjob", "ray.io/raycluster", "ray.io/rayservice",
 	"jobset.x-k8s.io/jobset", "kubeflow.org/paddlejob",
 	"kubeflow.org/pytorchjob", "kubeflow.org/tfjob", "kubeflow.org/xgboostjob", "kubeflow.org/jaxjob",
 	"pod", "workload.codeflare.dev/appwrapper", "trainer.kubeflow.org/trainjob")
@@ -424,7 +426,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
 				createdJob.Status.StartTime = &startTime
 				createdJob.Status.Active = 1
-				createdJob.Status.Ready = ptr.To[int32](1)
+				createdJob.Status.Ready = new(int32(1))
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -463,7 +465,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 						Message:            reachedPodsReason,
 					}, completedJobCondition)
 				createdJob.Status.Active = 0
-				createdJob.Status.Ready = ptr.To[int32](0)
+				createdJob.Status.Ready = new(int32(0))
 				createdJob.Status.Succeeded = 1
 				createdJob.Status.CompletionTime = new(now)
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
@@ -1789,6 +1791,45 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				g.Expect(createdRayCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(1)))
 				g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(1)))
 				g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should forward a serveConfigV2 update to the RayService on the worker if admitted", func() {
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(
+			utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+			utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+		)
+		rayService := testingrayservice.MakeService("rayservice1", managerNs.Name).
+			Queue(managerLq.Name).
+			WithServeConfigV2("serve-config-v1").
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayService)
+		wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: managerNs.Name}
+		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
+
+		admitWorkloadAndCheckWorkerCopies(multiKueueAC.Name, wlLookupKey, admission)
+
+		ginkgo.By("checking the remote RayService is created with the initial serveConfigV2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayService := rayv1.RayService{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayService), &createdRayService)).To(gomega.Succeed())
+				g.Expect(createdRayService.Spec.ServeConfigV2).To(gomega.Equal("serve-config-v1"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("updating serveConfigV2 on the manager, the change is forwarded to the remote RayService", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayService := rayv1.RayService{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(rayService), &createdRayService)).To(gomega.Succeed())
+				createdRayService.Spec.ServeConfigV2 = "serve-config-v2"
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, &createdRayService)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayService := rayv1.RayService{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayService), &createdRayService)).To(gomega.Succeed())
+				g.Expect(createdRayService.Spec.ServeConfigV2).To(gomega.Equal("serve-config-v2"))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

@@ -383,7 +383,7 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 	if features.Enabled(features.TopologyAwareScheduling) {
 		builder := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy())
 		if podIndexLabel != nil {
-			builder.PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey))
+			builder.PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey))
 		}
 		topologyRequest, err := builder.Build()
 		if err != nil {
@@ -416,7 +416,7 @@ func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 		defaultPodSetName,
 		defaultPodSetCount,
 		&lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
-		ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
+		new(leaderworkersetv1.WorkerIndexLabelKey),
 	)
 	if err != nil {
 		return nil, err
@@ -431,19 +431,27 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
 	log.V(3).Info("Update LeaderWorkerSet Workload")
 
+	var shouldUpdate bool
 	if queueName := jobframework.QueueNameForObject(lws); wl.Spec.QueueName != queueName {
 		log.V(2).Info("LeaderWorkerSet changed queue, updating workload")
 		wl.Spec.QueueName = queueName
+		shouldUpdate = true
+	}
+
+	var admissionGatedByUpdated bool
+	if features.Enabled(features.AdmissionGatedBy) {
+		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(lws, wl)
+		shouldUpdate = admissionGatedByUpdated || shouldUpdate
+	}
+
+	if shouldUpdate {
 		if err := r.client.Update(ctx, wl); err != nil {
-			log.Error(err, "Updating workload queue name")
+			log.Error(err, "Updating workload")
 			return err
 		}
 	}
-	if features.Enabled(features.AdmissionGatedBy) {
-		if err := jobframework.UpdateAdmissionGatedBy(ctx, r.client, r.record, lws, wl); err != nil {
-			log.Error(err, "Failed to update AdmissionGatedBy")
-			return err
-		}
+	if admissionGatedByUpdated {
+		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, lws)
 	}
 
 	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)

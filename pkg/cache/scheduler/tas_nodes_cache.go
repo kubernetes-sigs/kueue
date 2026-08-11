@@ -17,17 +17,29 @@ limitations under the License.
 package scheduler
 
 import (
+	"maps"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 type nodesCache struct {
-	lock  sync.RWMutex
+	lock sync.RWMutex
+
+	// nodes stores stripped Node views that nodesCache treats as immutable. sync
+	// replaces an entry rather than mutating it. The views share Labels, Taints,
+	// and Allocatable with the input Node, so callers must not mutate those fields
+	// after sync.
 	nodes map[string]*corev1.Node
+
+	// generation counts changes to scheduling-relevant node data. It increments
+	// when a node is added or removed, or when its labels, taints, or allocatable
+	// resources change - not on every Node update event.
+	generation int64
 }
 
 func newNodesCache() *nodesCache {
@@ -43,11 +55,16 @@ func (t *nodesCache) sync(node *corev1.Node) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
-	if schedulableAndReady {
-		t.nodes[node.Name] = copyAndStripNode(node)
-	} else {
+	if !schedulableAndReady {
 		t.deleteWithoutLock(node.Name)
+		return
 	}
+	stripped := copyAndStripNode(node)
+	if existing, found := t.nodes[node.Name]; found && strippedNodesEqual(existing, stripped) {
+		return
+	}
+	t.nodes[node.Name] = stripped
+	t.generation++
 }
 
 func (t *nodesCache) delete(nodeName string) {
@@ -57,10 +74,16 @@ func (t *nodesCache) delete(nodeName string) {
 }
 
 func (t *nodesCache) deleteWithoutLock(nodeName string) {
-	delete(t.nodes, nodeName)
+	if _, found := t.nodes[nodeName]; found {
+		delete(t.nodes, nodeName)
+		t.generation++
+	}
 }
 
-func (t *nodesCache) find(nodeLabels map[string]string, levels []string) []*corev1.Node {
+// find returns the nodes matching the flavor along with the generation at
+// which they were read, so that structures derived from the result can later
+// be revalidated against currentGeneration.
+func (t *nodesCache) find(nodeLabels map[string]string, levels []string) ([]*corev1.Node, int64) {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 	filteredNodes := make([]*corev1.Node, 0, len(t.nodes))
@@ -69,7 +92,13 @@ func (t *nodesCache) find(nodeLabels map[string]string, levels []string) []*core
 			filteredNodes = append(filteredNodes, node)
 		}
 	}
-	return filteredNodes
+	return filteredNodes, t.generation
+}
+
+func (t *nodesCache) currentGeneration() int64 {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+	return t.generation
 }
 
 // copyAndStripNode creates a minimal copy of the Node object containing only the
@@ -90,4 +119,14 @@ func copyAndStripNode(node *corev1.Node) *corev1.Node {
 			Allocatable: node.Status.Allocatable,
 		},
 	}
+}
+
+// strippedNodesEqual reports whether two stripped nodes carry semantically
+// identical scheduling-relevant information. It is used to avoid bumping the
+// nodesCache generation for Node updates that do not affect TAS scheduling,
+// such as kubelet heartbeats.
+func strippedNodesEqual(a, b *corev1.Node) bool {
+	return maps.Equal(a.Labels, b.Labels) &&
+		equality.Semantic.DeepEqual(a.Spec.Taints, b.Spec.Taints) &&
+		equality.Semantic.DeepEqual(a.Status.Allocatable, b.Status.Allocatable)
 }

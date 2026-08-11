@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -343,7 +342,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 			// The MPIJob wrapper only pre-populates Launcher/Worker entries, so unknown replica types must be set on the spec map directly
 			delete(mpijob.Spec.MPIReplicaSpecs, kfmpi.MPIReplicaTypeLauncher)
 			mpijob.Spec.MPIReplicaSpecs[unknownReplicaType] = &kfmpi.ReplicaSpec{
-				Replicas: ptr.To[int32](1),
+				Replicas: new(int32(1)),
 				Template: corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{

@@ -125,8 +125,7 @@ func (w *KubeConfigFSWatcher) set(cluster, kcPath string) error {
 
 	dir := path.Dir(kcPath)
 	if _, found := w.parentDirToFiles[dir]; !found {
-		err := w.watcher.Add(dir)
-		if err != nil {
+		if err := w.watcher.Add(dir); err != nil {
 			return err
 		}
 	}
@@ -141,7 +140,6 @@ func (w *KubeConfigFSWatcher) set(cluster, kcPath string) error {
 		w.parentDirToFiles[dir].Insert(kcPath)
 	} else {
 		w.parentDirToFiles[dir] = set.New(kcPath)
-		return w.watcher.Add(dir)
 	}
 	return nil
 }

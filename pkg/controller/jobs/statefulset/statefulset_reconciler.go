@@ -250,15 +250,19 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = true
 	}
 
+	var admissionGatedByUpdated bool
 	if features.Enabled(features.AdmissionGatedBy) {
-		gateUpdated := jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
-		shouldUpdate = gateUpdated || shouldUpdate
+		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
+		shouldUpdate = admissionGatedByUpdated || shouldUpdate
 	}
 
 	if shouldUpdate {
 		if err := r.client.Update(ctx, wl); err != nil {
 			return err
 		}
+	}
+	if admissionGatedByUpdated {
+		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
 	}
 
 	if shouldReleaseReservation {
@@ -348,7 +352,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(sts.Spec.Template.ObjectMeta.DeepCopy()).
-			PodIndexLabel(ptr.To(appsv1.PodIndexLabel)).
+			PodIndexLabel(new(appsv1.PodIndexLabel)).
 			Build()
 		if err != nil {
 			return nil, err

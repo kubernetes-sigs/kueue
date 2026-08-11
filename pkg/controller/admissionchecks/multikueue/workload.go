@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
@@ -1124,6 +1125,57 @@ func multiKueueConfigName(ac *kueue.AdmissionCheck) string {
 	return ac.Spec.Parameters.Name
 }
 
+// localJobHandler enqueues the workload(s) owned by a manager-side job when the
+// job's spec changes.
+//
+// Normally a job spec edit makes the job controller update the workload, which in
+// turn reconciles this admission-check controller. But a spec change that does not
+// alter the workload's PodSets (e.g. a RayService serveConfigV2 edit) leaves the
+// workload untouched, so that path never fires and this controller would only
+// reconcile on the next periodic requeue. This handler bridges that gap by watching
+// the job directly, so such a change promptly re-runs SyncJob.
+type localJobHandler struct {
+	client            client.Client
+	gvk               schema.GroupVersionKind
+	eventsBatchPeriod time.Duration
+}
+
+var _ handler.EventHandler = (*localJobHandler)(nil)
+
+func (h *localJobHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *localJobHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	// React to spec changes only; a status-only update (e.g. status synced back
+	// from the worker) neither needs nor should re-trigger a sync.
+	//
+	// TODO: generation bumps only on spec changes, so metadata-only edits (labels,
+	// annotations) are filtered out here. Revisit if a future adapter needs to forward
+	// such metadata to the worker.
+	if e.ObjectOld.GetGeneration() == e.ObjectNew.GetGeneration() {
+		return
+	}
+	h.queue(ctx, e.ObjectNew, q)
+}
+
+func (h *localJobHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *localJobHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	wls := &kueue.WorkloadList{}
+	if err := h.client.List(ctx, wls, client.InNamespace(obj.GetNamespace()),
+		client.MatchingFields{indexer.OwnerReferenceIndexKey(h.gvk): obj.GetName()}); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Listing workloads for manager job", "job", klog.KObj(obj))
+		return
+	}
+	for i := range wls.Items {
+		q.AddAfter(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&wls.Items[i])}, h.eventsBatchPeriod)
+	}
+}
+
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -1134,17 +1186,61 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		},
 	}
 
-	return ctrl.NewControllerManagedBy(mgr).
+	builder := ctrl.NewControllerManagedBy(mgr).
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
-		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
+		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod})
+
+	c, err := builder.
 		WithEventFilter(w).
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(w.roleTracker, "multikueue-workload"),
 		}).
-		Complete(w)
+		Build(w)
+	if err != nil {
+		return err
+	}
+
+	// Watch the local (manager) job objects of adapters that forward spec changes
+	// after admission. Such an edit (e.g. RayService serveConfigV2) does not alter the
+	// workload CR, so it does not reconcile this controller through the usual path;
+	// watching the job directly lets it promptly trigger a sync instead of waiting for
+	// the next periodic requeue.
+	//
+	// The watch is added on the built controller (not the builder) and only once the
+	// job's CRD is served (jobframework.WaitForAPI). A job CRD may be installed after
+	// Kueue starts (e.g. KubeRay), so adding it to the builder would make this
+	// controller's cache sync fail and crash-loop the manager; deferring degrades
+	// gracefully and picks the watch up when the CRD appears.
+	if features.Enabled(features.MultiKueueRemoteSpecSync) {
+		for _, adapter := range w.adapters {
+			lw, ok := adapter.(jobframework.MultiKueueLocalJobWatcher)
+			if !ok {
+				continue
+			}
+			emptyJob := lw.NewEmptyLocalJob()
+			if emptyJob == nil {
+				continue
+			}
+			gvk := adapter.GVK()
+			h := &localJobHandler{client: w.client, gvk: gvk, eventsBatchPeriod: w.eventsBatchPeriod}
+			if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+				log := ctrl.LoggerFrom(ctx).WithName("multikueue-workload")
+				jobframework.WaitForAPI(ctx, mgr, log, gvk, func() {
+					if err := c.Watch(source.Kind(mgr.GetCache(), emptyJob, h)); err != nil {
+						log.Error(err, "Unable to watch local job for MultiKueue spec sync", "gvk", gvk)
+					}
+				})
+				return nil
+			})); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func findPodSetAssignment(assignments []kueue.PodSetAssignment, name kueue.PodSetReference) *kueue.PodSetAssignment {
@@ -1248,7 +1344,7 @@ func updateDelayedTopologyRequest(local, remote *kueue.Workload) {
 
 		if localPSA.DelayedTopologyRequest != nil &&
 			*localPSA.DelayedTopologyRequest == kueue.DelayedTopologyRequestStatePending {
-			localPSA.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStateReady)
+			localPSA.DelayedTopologyRequest = new(kueue.DelayedTopologyRequestStateReady)
 		}
 	}
 }

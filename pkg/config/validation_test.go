@@ -33,7 +33,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -242,7 +241,7 @@ func TestValidate(t *testing.T) {
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						Timestamp: ptr.To[configapi.RequeuingTimestamp]("NoSupported"),
+						Timestamp: new(configapi.RequeuingTimestamp("NoSupported")),
 					},
 				},
 			},
@@ -312,10 +311,10 @@ func TestValidate(t *testing.T) {
 					},
 					BlockAdmission: new(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						Timestamp:          ptr.To(configapi.CreationTimestamp),
-						BackoffLimitCount:  ptr.To[int32](10),
-						BackoffBaseSeconds: ptr.To[int32](30),
-						BackoffMaxSeconds:  ptr.To[int32](1800),
+						Timestamp:          new(configapi.CreationTimestamp),
+						BackoffLimitCount:  new(int32(10)),
+						BackoffBaseSeconds: new(int32(30)),
+						BackoffMaxSeconds:  new(int32(1800)),
 					},
 				},
 			},
@@ -326,7 +325,7 @@ func TestValidate(t *testing.T) {
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						BackoffLimitCount: ptr.To[int32](-1),
+						BackoffLimitCount: new(int32(-1)),
 					},
 				},
 			},
@@ -343,7 +342,7 @@ func TestValidate(t *testing.T) {
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						BackoffBaseSeconds: ptr.To[int32](-1),
+						BackoffBaseSeconds: new(int32(-1)),
 					},
 				},
 			},
@@ -360,7 +359,7 @@ func TestValidate(t *testing.T) {
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						BackoffMaxSeconds: ptr.To[int32](-1),
+						BackoffMaxSeconds: new(int32(-1)),
 					},
 				},
 			},
@@ -435,7 +434,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					DispatcherName: ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					DispatcherName: new(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(2)),
 					},
@@ -446,7 +445,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					DispatcherName: ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName: new(configapi.MultiKueueDispatcherModeAllAtOnce),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(2)),
 					},
@@ -463,7 +462,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					DispatcherName: ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					DispatcherName: new(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(0)),
 					},
@@ -882,7 +881,7 @@ func TestValidate(t *testing.T) {
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: ptr.To(configapi.ResourceTransformationStrategy("invalid")),
+							Strategy: new(configapi.ResourceTransformationStrategy("invalid")),
 						},
 					},
 				},
@@ -902,15 +901,15 @@ func TestValidate(t *testing.T) {
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: ptr.To(configapi.Retain),
+							Strategy: new(configapi.Retain),
 						},
 						{
 							Input:    corev1.ResourceMemory,
-							Strategy: ptr.To(configapi.Retain),
+							Strategy: new(configapi.Retain),
 						},
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: ptr.To(configapi.Retain),
+							Strategy: new(configapi.Retain),
 						},
 					},
 				},
@@ -930,11 +929,11 @@ func TestValidate(t *testing.T) {
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: ptr.To(configapi.Retain),
+							Strategy: new(configapi.Retain),
 						},
 						{
 							Input:    corev1.ResourceMemory,
-							Strategy: ptr.To(configapi.Replace),
+							Strategy: new(configapi.Replace),
 						},
 					},
 				},
@@ -1146,7 +1145,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				VisibilityServer: &configapi.VisibilityServerConfiguration{
-					BindPort: ptr.To[int32](0),
+					BindPort: new(int32(0)),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -1160,7 +1159,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				VisibilityServer: &configapi.VisibilityServerConfiguration{
-					BindPort: ptr.To[int32](8080),
+					BindPort: new(int32(8080)),
 				},
 			},
 		},
@@ -1168,7 +1167,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
-					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+					QuotaCheckStrategy:      new(configapi.QuotaCheckIgnoreUndeclared),
 					ExcludeResourcePrefixes: []string{"foo.com/device"},
 				},
 			},
@@ -1184,7 +1183,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
-					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+					QuotaCheckStrategy: new(configapi.QuotaCheckIgnoreUndeclared),
 				},
 			},
 		},
@@ -1192,7 +1191,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
-					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckBlockUndeclared),
+					QuotaCheckStrategy:      new(configapi.QuotaCheckBlockUndeclared),
 					ExcludeResourcePrefixes: []string{"foo.com/device"},
 				},
 			},
@@ -1201,7 +1200,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
-					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+					QuotaCheckStrategy: new(configapi.QuotaCheckStrategy("test")),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -1215,7 +1214,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
-					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+					QuotaCheckStrategy: new(configapi.QuotaCheckStrategy("test")),
 				},
 			},
 			featureGates: map[featuregate.Feature]bool{
@@ -2898,7 +2897,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:          "team",
-								SourceKind:    ptr.To(configapi.SourceKindWorkload),
+								SourceKind:    new(configapi.SourceKindWorkload),
 								TrackedValues: []string{"a"},
 							},
 						},
@@ -2913,7 +2912,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:          "team",
-								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								SourceKind:    new(configapi.SourceKindCohort),
 								TrackedValues: []string{"a"},
 							},
 						},
@@ -3059,7 +3058,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:       "team",
-								SourceKind: ptr.To(configapi.SourceKind("Unknown")),
+								SourceKind: new(configapi.SourceKind("Unknown")),
 							},
 						},
 					},
@@ -3105,15 +3104,15 @@ func TestValidateCustomLabels(t *testing.T) {
 				ControllerManager: configapi.ControllerManager{
 					Metrics: configapi.ControllerMetrics{
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "c1", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c2", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c3", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c4", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c5", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c6", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c7", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c8", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c9", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c1", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c2", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c3", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c4", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c5", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c6", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c7", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c8", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c9", SourceKind: new(configapi.SourceKindCohort)},
 						},
 					},
 				},
@@ -3133,7 +3132,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:       "team",
-								SourceKind: ptr.To(configapi.SourceKindWorkload),
+								SourceKind: new(configapi.SourceKindWorkload),
 							},
 						},
 					},
@@ -3154,7 +3153,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:          "team",
-								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								SourceKind:    new(configapi.SourceKindCohort),
 								TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"},
 							},
 						},
@@ -3176,7 +3175,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:          "team",
-								SourceKind:    ptr.To(configapi.SourceKindWorkload),
+								SourceKind:    new(configapi.SourceKindWorkload),
 								TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"},
 							},
 						},
@@ -3198,7 +3197,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:          "team",
-								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								SourceKind:    new(configapi.SourceKindCohort),
 								TrackedValues: []string{"a", "b", "a"},
 							},
 						},
@@ -3229,30 +3228,30 @@ func TestValidateCustomLabels(t *testing.T) {
 			ControllerManager: configapi.ControllerManager{
 				Metrics: configapi.ControllerMetrics{
 					CustomLabels: []configapi.ControllerMetricsCustomLabel{
-						{Name: "c1", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c2", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c3", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c4", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c5", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c6", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c7", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c8", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c9", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "l1", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l2", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l3", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l4", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l5", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l6", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l7", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l8", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l9", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l10", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "w1", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-						{Name: "w2", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-						{Name: "w3", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-						{Name: "w4", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-						{Name: "w5", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "c1", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c2", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c3", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c4", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c5", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c6", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c7", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c8", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c9", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "l1", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l2", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l3", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l4", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l5", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l6", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l7", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l8", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l9", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l10", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "w1", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w2", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w3", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w4", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w5", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
 					},
 				},
 			},

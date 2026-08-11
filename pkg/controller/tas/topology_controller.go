@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -146,7 +147,25 @@ func (r *topologyReconciler) Create(e event.TypedCreateEvent[*kueue.Topology]) b
 	return true
 }
 
-func (r *topologyReconciler) Update(event.TypedUpdateEvent[*kueue.Topology]) bool {
+func (r *topologyReconciler) Update(e event.TypedUpdateEvent[*kueue.Topology]) bool {
+	if equality.Semantic.DeepEqual(e.ObjectOld.Spec.Levels, e.ObjectNew.Spec.Levels) {
+		return true
+	}
+	log := r.logger().WithValues("topology", klog.KObj(e.ObjectNew))
+	log.V(3).Info("Topology levels updated",
+		"oldLevels", e.ObjectOld.Spec.Levels, "newLevels", e.ObjectNew.Spec.Levels)
+
+	cqNames := r.cache.AddOrUpdateTopology(log, e.ObjectNew)
+	// AddOrUpdateTopology only reports ClusterQueues that transitioned from
+	// pending to active. A levels change keeps the ClusterQueues active but
+	// changes which workloads the topology can accommodate, so the workloads
+	// left inadmissible under the previous levels would otherwise never be
+	// retried. Retry the inadmissible workloads in the ClusterQueues that use
+	// this topology.
+	cqNames.Insert(r.cache.ClusterQueuesUsingTopology(kueue.TopologyReference(e.ObjectNew.Name))...)
+	if len(cqNames) > 0 {
+		qcache.NotifyRetryInadmissible(r.queues, cqNames)
+	}
 	return true
 }
 

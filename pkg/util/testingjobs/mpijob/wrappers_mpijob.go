@@ -23,7 +23,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -79,7 +78,7 @@ func (j *MPIJobWrapper) MPIJobReplicaSpecs(replicaSpecs ...MPIJobReplicaSpecRequ
 func (j *MPIJobWrapper) GenericLauncherAndWorker() *MPIJobWrapper {
 	j.GenericLauncher()
 	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker] = &kfmpi.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
+		Replicas: new(int32(1)),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: corev1.RestartPolicyNever,
@@ -104,7 +103,7 @@ func (j *MPIJobWrapper) GenericLauncherAndWorker() *MPIJobWrapper {
 
 func (j *MPIJobWrapper) GenericLauncher() *MPIJobWrapper {
 	j.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeLauncher] = &kfmpi.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
+		Replicas: new(int32(1)),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: corev1.RestartPolicyNever,

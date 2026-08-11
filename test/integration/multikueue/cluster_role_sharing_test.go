@@ -284,7 +284,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(jobMk), &createdJob)).To(gomega.Succeed())
 				createdJob.Status.StartTime = &startTime
 				createdJob.Status.Active = 1
-				createdJob.Status.Ready = ptr.To[int32](1)
+				createdJob.Status.Ready = new(int32(1))
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -303,7 +303,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(jobNonMk), &createdJob)).To(gomega.Succeed())
 				createdJob.Status.StartTime = &startTime
 				createdJob.Status.Active = 1
-				createdJob.Status.Ready = ptr.To[int32](1)
+				createdJob.Status.Ready = new(int32(1))
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -334,7 +334,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 						Message:            reachedPodsReason,
 					}, completedJobCondition)
 				createdJob.Status.Active = 0
-				createdJob.Status.Ready = ptr.To[int32](0)
+				createdJob.Status.Ready = new(int32(0))
 				createdJob.Status.Succeeded = 1
 				createdJob.Status.CompletionTime = new(now)
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
@@ -366,7 +366,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 						Message:            reachedPodsReason,
 					}, completedJobCondition)
 				createdJob.Status.Active = 0
-				createdJob.Status.Ready = ptr.To[int32](0)
+				createdJob.Status.Ready = new(int32(0))
 				createdJob.Status.Succeeded = 1
 				createdJob.Status.CompletionTime = new(now)
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
@@ -467,7 +467,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(jobMk), &createdJob)).To(gomega.Succeed())
 				createdJob.Status.StartTime = &startTime
 				createdJob.Status.Active = 1
-				createdJob.Status.Ready = ptr.To[int32](1)
+				createdJob.Status.Ready = new(int32(1))
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -486,7 +486,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(jobNonMk), &createdJob)).To(gomega.Succeed())
 				createdJob.Status.StartTime = &startTime
 				createdJob.Status.Active = 1
-				createdJob.Status.Ready = ptr.To[int32](1)
+				createdJob.Status.Ready = new(int32(1))
 				g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, &createdJob)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -517,7 +517,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 						Message:            reachedPodsReason,
 					}, completedJobCondition)
 				createdJob.Status.Active = 0
-				createdJob.Status.Ready = ptr.To[int32](0)
+				createdJob.Status.Ready = new(int32(0))
 				createdJob.Status.Succeeded = 1
 				createdJob.Status.CompletionTime = new(now)
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
@@ -549,7 +549,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 						Message:            reachedPodsReason,
 					}, completedJobCondition)
 				createdJob.Status.Active = 0
-				createdJob.Status.Ready = ptr.To[int32](0)
+				createdJob.Status.Ready = new(int32(0))
 				createdJob.Status.Succeeded = 1
 				createdJob.Status.CompletionTime = new(now)
 				g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, &createdJob)).To(gomega.Succeed())

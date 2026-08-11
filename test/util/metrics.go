@@ -100,10 +100,22 @@ func ExpectLQByStatusMetric(lq *kueue.LocalQueue, status metav1.ConditionStatus)
 
 func ExpectPendingWorkloadsMetric(cq *kueue.ClusterQueue, active, inadmissible int, customLabels ...string) {
 	ginkgo.GinkgoHelper()
+	if active > 0 || len(customLabels) == 0 {
+		lvs := append([]string{cq.Name, metrics.PendingStatusActive, roletracker.RoleStandalone}, customLabels...)
+		expectGaugeMetric(metrics.PendingWorkloads, lvs, gomega.Equal(float64(active)), "pending_workloads with status=active")
+	}
+	if inadmissible > 0 || len(customLabels) == 0 {
+		lvs := append([]string{cq.Name, metrics.PendingStatusInadmissible, roletracker.RoleStandalone}, customLabels...)
+		expectGaugeMetric(metrics.PendingWorkloads, lvs, gomega.Equal(float64(inadmissible)), "pending_workloads with status=inadmissible")
+	}
+}
+
+func ExpectPendingSchedulingHashesMetric(cq *kueue.ClusterQueue, active, inadmissible int, customLabels ...string) {
+	ginkgo.GinkgoHelper()
 	vals := []int{active, inadmissible}
 	for i, status := range pendingStatuses {
 		lvs := append([]string{cq.Name, status, roletracker.RoleStandalone}, customLabels...)
-		expectGaugeMetric(metrics.PendingWorkloads, lvs, gomega.Equal(float64(vals[i])), "pending_workloads with status=%s", status)
+		expectGaugeMetric(metrics.PendingSchedulingHashes, lvs, gomega.Equal(float64(vals[i])), "pending_scheduling_hashes with status=%s", status)
 	}
 }
 

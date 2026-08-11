@@ -106,15 +106,20 @@ func (t *tasCache) AddTopology(topology *kueue.Topology) {
 	t.Lock()
 	defer t.Unlock()
 	name := kueue.TopologyReference(topology.Name)
-	if _, ok := t.topologies[name]; !ok {
-		tInfo := topologyInformation{
-			Levels: utiltas.Levels(topology),
+	tInfo := topologyInformation{
+		Levels: utiltas.Levels(topology),
+	}
+	t.topologies[name] = tInfo
+	for fName, flavorInfo := range t.flavors {
+		if flavorInfo.TopologyName != name {
+			continue
 		}
-		t.topologies[name] = tInfo
-		for fName, flavorInfo := range t.flavors {
-			if flavorInfo.TopologyName == name {
-				t.flavorCache[fName] = t.NewTASFlavorCache(tInfo, flavorInfo)
-			}
+		if c, ok := t.flavorCache[fName]; ok {
+			// Update the levels in place: rebuilding the cache entry would drop
+			// the usage accumulated from admitted workloads.
+			c.updateTopology(tInfo)
+		} else {
+			t.flavorCache[fName] = t.NewTASFlavorCache(tInfo, flavorInfo)
 		}
 	}
 }

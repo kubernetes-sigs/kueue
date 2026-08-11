@@ -23,7 +23,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -106,7 +105,7 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	if cq.HasMultiKueueAdmissionCheck() || (!workload.HasQuotaReservation(wl.Obj) && cq.HasProvRequestAdmissionCheck(*tasFlvr)) {
 		// Delay TAS when MultiKueue is used (topology always assigned on worker cluster).
 		// For ProvisioningRequest, delay TAS on first scheduling pass only (topology assigned after provisioning).
-		psAssignment.DelayedTopologyRequest = ptr.To(kueue.DelayedTopologyRequestStatePending)
+		psAssignment.DelayedTopologyRequest = new(kueue.DelayedTopologyRequestStatePending)
 		return nil, nil
 	}
 	podSet := &wl.Obj.Spec.PodSets[podSetIndex]

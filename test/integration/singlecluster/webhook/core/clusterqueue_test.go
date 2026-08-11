@@ -26,7 +26,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -79,7 +78,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy:  kueue.BestEffortFIFO,
-						StopPolicy:        ptr.To(kueue.None),
+						StopPolicy:        new(kueue.None),
 						FlavorFungibility: defaultFlavorFungibility,
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyNever,
@@ -103,7 +102,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 							BorrowWithinCohort: &kueue.BorrowWithinCohort{
 								Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-								MaxPriorityThreshold: ptr.To[int32](100),
+								MaxPriorityThreshold: new(int32(100)),
 							},
 						},
 					},
@@ -115,14 +114,14 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy:  kueue.BestEffortFIFO,
-						StopPolicy:        ptr.To(kueue.None),
+						StopPolicy:        new(kueue.None),
 						FlavorFungibility: defaultFlavorFungibility,
 						Preemption: &kueue.ClusterQueuePreemption{
 							WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 							ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 							BorrowWithinCohort: &kueue.BorrowWithinCohort{
 								Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-								MaxPriorityThreshold: ptr.To[int32](100),
+								MaxPriorityThreshold: new(int32(100)),
 							},
 						},
 					},
@@ -144,7 +143,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy:  kueue.BestEffortFIFO,
-						StopPolicy:        ptr.To(kueue.None),
+						StopPolicy:        new(kueue.None),
 						FlavorFungibility: defaultFlavorFungibility,
 						Preemption: &kueue.ClusterQueuePreemption{
 							ReclaimWithinCohort: kueue.PreemptionPolicyNever,
@@ -532,7 +531,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 							ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 							BorrowWithinCohort: &kueue.BorrowWithinCohort{
 								Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-								MaxPriorityThreshold: ptr.To[int32](10),
+								MaxPriorityThreshold: new(int32(10)),
 							},
 						},
 					},

@@ -21,7 +21,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -103,10 +102,10 @@ func TestCustomLabels(t *testing.T) {
 		},
 		"entries with specified source kinds": {
 			entries: []configapi.ControllerMetricsCustomLabel{
-				{Name: "cohort", SourceAnnotationKey: "cohort", SourceKind: ptr.To(configapi.SourceKindCohort)},
-				{Name: "team", SourceKind: ptr.To(configapi.SourceKindClusterQueue)},
-				{Name: "env", SourceLabelKey: "environment", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-				{Name: "cost", SourceAnnotationKey: "billing/cost", SourceKind: ptr.To(configapi.SourceKindClusterQueue)},
+				{Name: "cohort", SourceAnnotationKey: "cohort", SourceKind: new(configapi.SourceKindCohort)},
+				{Name: "team", SourceKind: new(configapi.SourceKindClusterQueue)},
+				{Name: "env", SourceLabelKey: "environment", SourceKind: new(configapi.SourceKindLocalQueue)},
+				{Name: "cost", SourceAnnotationKey: "billing/cost", SourceKind: new(configapi.SourceKindClusterQueue)},
 			},
 			labels:      map[string]string{"team": "ml", "environment": "prod"},
 			annotations: map[string]string{"billing/cost": "high", "cohort": "c1"},
@@ -236,9 +235,9 @@ func TestStoreCustomLabels(t *testing.T) {
 			},
 			entries: []configapi.ControllerMetricsCustomLabel{
 				{Name: "cq-label"},
-				{Name: "wl-label", SourceKind: ptr.To(configapi.SourceKindWorkload)},
+				{Name: "wl-label", SourceKind: new(configapi.SourceKindWorkload)},
 				{Name: "cq-annotation", SourceAnnotationKey: "cq-annotation"},
-				{Name: "wl-annotation", SourceAnnotationKey: "wl-annotation", SourceKind: ptr.To(configapi.SourceKindWorkload)},
+				{Name: "wl-annotation", SourceAnnotationKey: "wl-annotation", SourceKind: new(configapi.SourceKindWorkload)},
 			},
 			initialLabels: map[string]string{
 				"cq-label":    "cq-label-value",
@@ -323,7 +322,7 @@ func TestUpdateRequired(t *testing.T) {
 			nilReceiver: true,
 		},
 		"unsupported kind": {
-			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: ptr.To(configapi.SourceKindClusterQueue)}},
+			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: new(configapi.SourceKindClusterQueue)}},
 			kind:       configapi.SourceKindLocalQueue,
 			ref:        "lq1",
 			testLabels: map[string]string{"team": "infra"},
@@ -434,4 +433,171 @@ func TestCustomLabelsDisabled(t *testing.T) {
 		t.Errorf("expected nil CohortGet, got %v", got)
 	}
 	nilCl.CohortDelete(kueue.CohortReference("cohort"))
+}
+
+func TestLabelValsTracker(t *testing.T) {
+	k1 := labelValsSet{
+		vals: [MaxCustomLabelsForSourceKind]string{"v1", "v2"},
+		size: 2,
+	}
+	k2 := labelValsSet{
+		vals: [MaxCustomLabelsForSourceKind]string{"v3", "v4"},
+		size: 2,
+	}
+	k3 := labelValsSet{
+		vals: [MaxCustomLabelsForSourceKind]string{"v5"},
+		size: 1,
+	}
+	cases := map[string]struct {
+		op             func(*LabelValsTracker)
+		expectedCounts map[labelValsSet]int
+		expectedTotal  int
+	}{
+		"empty tracker": {
+			op:             func(t *LabelValsTracker) {},
+			expectedCounts: map[labelValsSet]int{},
+			expectedTotal:  0,
+		},
+		"increment": {
+			op: func(t *LabelValsTracker) {
+				for range 5 {
+					t.Incr(k1)
+				}
+				t.Incr(k2)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 5,
+				k2: 1,
+			},
+			expectedTotal: 6,
+		},
+		"decrement": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 10)
+				for range 5 {
+					t.Decr(k1)
+				}
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 5,
+			},
+		},
+		"decrement to 0": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				for range 5 {
+					t.Decr(k1)
+				}
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 0,
+			},
+			expectedTotal: 0,
+		},
+		"trying to decrement 0 does not affect total": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Add(k2, 5)
+				for range 5 {
+					t.Decr(k1)
+				}
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 0,
+				k2: 5,
+			},
+			expectedTotal: 5,
+		},
+		"add new": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Add(k2, 5)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 2,
+				k2: 5,
+			},
+			expectedTotal: 7,
+		},
+		"add to existing": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Add(k1, 5)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 7,
+			},
+			expectedTotal: 7,
+		},
+		"add negative": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 5)
+				t.Add(k1, -2)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 3,
+			},
+			expectedTotal: 3,
+		},
+		"add negative beyond 0": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 5)
+				t.Add(k1, -10)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 0,
+			},
+			expectedTotal: 0,
+		},
+		"add negative beyond 0 does not affect total": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 5)
+				t.Add(k2, 7)
+				t.Add(k2, -10)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 5,
+				k2: 0,
+			},
+			expectedTotal: 5,
+		},
+		"merge": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Add(k2, 7)
+				other := NewLabelValsTracker()
+				other.Add(k2, 5)
+				other.Add(k3, 10)
+				*t = *MergedTracker(t, other)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 2,
+				k2: 12,
+				k3: 10,
+			},
+			expectedTotal: 24,
+		},
+		"merge nil": {
+			op: func(t *LabelValsTracker) {
+				t.Add(k1, 2)
+				t.Add(k2, 7)
+				*t = *MergedTracker(t, nil)
+			},
+			expectedCounts: map[labelValsSet]int{
+				k1: 2,
+				k2: 7,
+			},
+			expectedTotal: 14,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			lvt := NewLabelValsTracker()
+			tc.op(lvt)
+			if diff := cmp.Diff(tc.expectedCounts, lvt.counts); diff != "" {
+				t.Errorf("unexpected counts: %s", diff)
+			}
+		})
+	}
 }
