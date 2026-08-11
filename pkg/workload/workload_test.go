@@ -972,6 +972,155 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// What a transformation generated under the replaced name is not the request
+		// the DRA charge stands in for. Charging both is not new: an output on any
+		// other name is already charged beside the device, and this shape only stops
+		// losing the output along with the request. Issue 14160 has the question of
+		// whether the device belongs on that bill at all.
+		"replaceOutputOnItsOwnInputSurvivesTheDRASubtraction": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:    "example.com/gpu",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("5")},
+				}}),
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("1")}},
+					map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+				),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 5,
+						"gpu":             1,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The excluded prefix removed the request the charge replaces, so an output
+		// that recreates the name later belongs to the transformation, not to it.
+		"outputRecreatingAnExcludedNameSurvivesTheDRASubtraction": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("vendor.example/gpu", "2").
+					Request("quota.example/credit", "1").Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{
+				WithExcludedResourcePrefixes([]string{"vendor.example/"}),
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:    "quota.example/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"vendor.example/gpu": resource.MustParse("1")},
+				}}),
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("2")}},
+					map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("vendor.example/gpu")},
+				),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"vendor.example/gpu": 1,
+						"gpu":                2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// With the integration off nothing is taken back and nothing is added, so the
+		// PodSet keeps the extended resource it asked for and no logical name appears.
+		"withTheDRAGateOffTheExtendedResourceIsLeftAlone": {
+			workload: func() kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("dra", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).Request("example.com/gpu", "1").Obj()).Obj()
+				wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("1"),
+				}
+				return *wl
+			}(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
+			infoOptions: []InfoOption{WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("1")}},
+				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+			)},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The DRA charge replaces what the containers asked for, so an overhead on
+		// the same name is not part of it and has to survive the replacement.
+		"overheadOnAReplacedKeySurvives": {
+			workload: func() kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("dra", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).Request("example.com/gpu", "1").Obj()).Obj()
+				wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
+					"example.com/gpu": resource.MustParse("1"),
+				}
+				return *wl
+			}(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("1")}},
+				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+			)},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 1,
+						"gpu":             1,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// A transformation output landing on the replaced name is not the container
+		// request either, so only the container's share is taken back.
+		"transformOutputOnAReplacedKeySurvives": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/credit", "1").
+					Request("example.com/gpu", "1").Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:    "example.com/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				}}),
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("1")}},
+					map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+				),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 1,
+						"gpu":             1,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		// A transformation product past the range must not arrive negative and
 		// be floored away.
 		"transformProductPastTheRangeIsNotFlooredAway": {
