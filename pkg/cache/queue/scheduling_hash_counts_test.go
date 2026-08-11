@@ -175,11 +175,11 @@ func TestPendingSchedulingHashes(t *testing.T) {
 	}
 
 	inadmissibleDuplicate := makeSchedulingHashInfo(now, "inadmissible-b", "hash-b", "1")
-	cq.insertInadmissible(workloadKey(inadmissibleDuplicate), inadmissibleDuplicate)
+	cq.workloads.InsertInadmissible(workloadKey(inadmissibleDuplicate), inadmissibleDuplicate)
 	inadmissibleC := makeSchedulingHashInfo(now, "inadmissible-c", "hash-c", "1")
-	cq.insertInadmissible(workloadKey(inadmissibleC), inadmissibleC)
+	cq.workloads.InsertInadmissible(workloadKey(inadmissibleC), inadmissibleC)
 	inadmissibleUnknown := makeSchedulingHashInfo(now, "inadmissible-unknown", workload.SchedulingHashUnknown, "1")
-	cq.insertInadmissible(workloadKey(inadmissibleUnknown), inadmissibleUnknown)
+	cq.workloads.InsertInadmissible(workloadKey(inadmissibleUnknown), inadmissibleUnknown)
 
 	active, inadmissible := cq.PendingSchedulingHashes()
 	if active != 2 || inadmissible != 2 {
@@ -236,7 +236,7 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 		"updates inadmissible hash counts when workload hash changes in place": {
 			mutate: func(t *testing.T, cq *ClusterQueue) {
 				oldInfo := makeSchedulingHashInfo(now, "inadmissible", "old-hash", "1")
-				cq.insertInadmissible(workloadKey(oldInfo), oldInfo)
+				cq.workloads.InsertInadmissible(workloadKey(oldInfo), oldInfo)
 				cq.PushOrUpdate(makeSchedulingHashInfo(now, "inadmissible", "new-hash", "1"))
 			},
 			wantInadmissibleCounts: map[workload.EquivalenceHash]int{"new-hash": 1},
@@ -249,7 +249,7 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 				cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-b", "shared-hash", "1"))
 				cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-c", "other-hash", "1"))
 				cq.Delete(log, "default/active-a")
-				if got := cq.schedulingHashes.active["shared-hash"]; got != 1 {
+				if got := cq.workloads.schedulingHashes.active["shared-hash"]; got != 1 {
 					t.Fatalf("shared-hash count after first delete = %d, want 1", got)
 				}
 				cq.Delete(log, "default/active-b")
@@ -281,7 +281,7 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 					t.Fatal("expected one workload to be inflight")
 				}
 				inadmissibleWl := makeSchedulingHashInfo(now, "inadmissible", "shared-hash", "1")
-				cq.insertInadmissible(workloadKey(inadmissibleWl), inadmissibleWl)
+				cq.workloads.InsertInadmissible(workloadKey(inadmissibleWl), inadmissibleWl)
 			},
 			wantInadmissibleCounts: map[workload.EquivalenceHash]int{"shared-hash": 1},
 			wantActive:             1,
@@ -305,10 +305,10 @@ func TestPendingSchedulingHashesTracksMutations(t *testing.T) {
 			cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
 			tc.mutate(t, cq)
 
-			if diff := cmp.Diff(tc.wantActiveCounts, cq.schedulingHashes.active, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantActiveCounts, cq.workloads.schedulingHashes.active, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("active hash counts (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantInadmissibleCounts, cq.schedulingHashes.inadmissible, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantInadmissibleCounts, cq.workloads.schedulingHashes.inadmissible, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("inadmissible hash counts (-want,+got):\n%s", diff)
 			}
 			active, inadmissible := cq.PendingSchedulingHashes()
@@ -337,9 +337,9 @@ func TestReportCQPendingSchedulingHashesInactiveClusterQueue(t *testing.T) {
 	}
 	cq.PushOrUpdate(makeSchedulingHashInfo(now, "active-only", "active-hash", "1"))
 	inadmissibleShared := makeSchedulingHashInfo(now, "inadmissible-shared", "shared-hash", "1")
-	cq.insertInadmissible(workloadKey(inadmissibleShared), inadmissibleShared)
+	cq.workloads.InsertInadmissible(workloadKey(inadmissibleShared), inadmissibleShared)
 	inadmissibleOnly := makeSchedulingHashInfo(now, "inadmissible-only", "inadmissible-hash", "1")
-	cq.insertInadmissible(workloadKey(inadmissibleOnly), inadmissibleOnly)
+	cq.workloads.InsertInadmissible(workloadKey(inadmissibleOnly), inadmissibleOnly)
 
 	m := NewManagerForUnitTests(nil, &fakeStatusChecker{}, WithCustomLabels(kueuemetrics.NewCustomLabels(nil)))
 	kueuemetrics.ClearClusterQueueMetrics(cq.name)
@@ -410,14 +410,14 @@ func TestSchedulingHashCountsInadmissibleTransitions(t *testing.T) {
 			cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
 			storedInfo := makeSchedulingHashInfo(now, "workload", "stored-hash", "1")
 			resyncInfo := makeSchedulingHashInfo(now, "workload", "resync-hash", "2")
-			cq.insertInadmissible(workloadKey(storedInfo), storedInfo)
+			cq.workloads.InsertInadmissible(workloadKey(storedInfo), storedInfo)
 			lq := &LocalQueue{items: map[workload.Reference]*workload.Info{
 				workloadKey(resyncInfo): resyncInfo,
 			}}
 			if added := cq.AddFromLocalQueue(lq, nil, kueuemetrics.NewCustomLabels(nil)); added {
 				t.Fatal("AddFromLocalQueue() = true, want false for a workload already tracked as inadmissible")
 			}
-			if diff := cmp.Diff(map[workload.EquivalenceHash]int{"stored-hash": 1}, cq.schedulingHashes.inadmissible); diff != "" {
+			if diff := cmp.Diff(map[workload.EquivalenceHash]int{"stored-hash": 1}, cq.workloads.schedulingHashes.inadmissible); diff != "" {
 				t.Fatalf("inadmissible hash counts after resync (-want,+got):\n%s", diff)
 			}
 
@@ -427,10 +427,10 @@ func TestSchedulingHashCountsInadmissibleTransitions(t *testing.T) {
 			if active != tc.wantActive || inadmissible != tc.wantInadmissible {
 				t.Errorf("Pending() active=%d inadmissible=%d, want active=%d inadmissible=%d", active, inadmissible, tc.wantActive, tc.wantInadmissible)
 			}
-			if diff := cmp.Diff(tc.wantActiveCounts, cq.schedulingHashes.active, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantActiveCounts, cq.workloads.schedulingHashes.active, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("active hash counts (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantInadmissibleCounts, cq.schedulingHashes.inadmissible, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantInadmissibleCounts, cq.workloads.schedulingHashes.inadmissible, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("inadmissible hash counts (-want,+got):\n%s", diff)
 			}
 			active, inadmissible = cq.PendingSchedulingHashes()
