@@ -1148,3 +1148,49 @@ func TestReconcilePodFailureLeavesTheOtherPodsAlone(t *testing.T) {
 		t.Errorf("got %d Workloads, want the Workload branch to still finish", len(wls.Items))
 	}
 }
+
+// Wait hands back whichever error arrives first, so a failure on one branch
+// used to hide the other on every retry.
+func TestReconcileReportsBothBranchFailures(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	group := GetWorkloadName("sts-uid", "sts")
+	sts := statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Replicas(1).Queue("lq").Obj()
+	pod := testingjobspod.MakePod("pod", "ns").GroupNameLabel(group).Queue("old-lq").Obj()
+
+	// Held by value: apierrors.IsForbidden and friends run errors.As against the
+	// APIStatus interface, which stops at whichever error the join holds first.
+	wantPodErr := apierrors.NewConflict(schema.GroupResource{Resource: "pods"}, "pod", nil)
+	wantWorkloadErr := apierrors.NewForbidden(schema.GroupResource{Resource: "workloads"}, "wl", errors.New("denied by a webhook"))
+
+	builder := utiltesting.NewClientBuilder().WithObjects(sts, pod).WithStatusSubresource(sts)
+	indexer := utiltesting.AsIndexer(builder)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
+		t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
+	}
+	kClient := builder.WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if _, ok := obj.(*corev1.Pod); ok {
+				return wantPodErr
+			}
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if _, ok := obj.(*kueue.Workload); ok {
+				return wantWorkloadErr
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	}).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("NewReconciler() error: %v", err)
+	}
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "sts"}})
+	if !errors.Is(err, wantPodErr) {
+		t.Errorf("Reconcile() lost the Pod conflict: %v", err)
+	}
+	if !errors.Is(err, wantWorkloadErr) {
+		t.Errorf("Reconcile() lost the Workload refusal: %v", err)
+	}
+}
