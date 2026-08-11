@@ -65,11 +65,11 @@ type claimCharges struct {
 	perLogicalResource map[corev1.ResourceName]int64
 }
 
-// countDevicesPerClass classifies every request in the provided ResourceClaimSpec
+// chargesForClaimSpec classifies every request in the provided ResourceClaimSpec
 // and returns what it costs. Returns field errors for unsupported request features
 // (AllocationMode All, and FirstAvailable unless the prioritized-list gate is on).
 // AdminAccess requests are skipped (zero quota).
-func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec, mapper *ResourceMapper) (claimCharges, field.ErrorList) {
+func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *ResourceMapper) (claimCharges, field.ErrorList) {
 	charges := claimCharges{
 		perDeviceClass:     resources.NewRequests(),
 		perLogicalResource: map[corev1.ResourceName]int64{},
@@ -197,7 +197,7 @@ func chargeForPrioritizedList(req *resourcev1.DeviceRequest, mapper *ResourceMap
 		// What a capacity requirement consumes is not the device count this charges,
 		// which is the same reason a capacity-backed mapping is refused below.
 		if sub.Capacity != nil {
-			return "", 0, field.ErrorList{field.Invalid(subPath.Child("capacity"), nil,
+			return "", 0, field.ErrorList{field.Invalid(subPath.Child("capacity"), sub.Capacity.Requests,
 				"capacity requirements are not supported for firstAvailable")}
 		}
 		if err := validateCELSelectors(sub.Selectors, subPath.Child("selectors")); err != nil {
@@ -273,6 +273,10 @@ func mulExactCount(a, b int64) (int64, bool) {
 // saturate rather than fail, and math.MaxInt64 is the value the quota code
 // reads as unlimited, so a count that reaches either is refused here while the
 // number that was asked for is still known.
+//
+// The bound covers the charges this function is given. A Pod requesting the
+// same logical resource by name, and the counter and capacity charges merged in
+// after this returns, are added later and are not bounded here.
 func chargeFitsCanonicalUnits(podSets []kueue.PodSet, perPodSet map[kueue.PodSetReference]corev1.ResourceList) field.ErrorList {
 	var errs field.ErrorList
 	totals := map[corev1.ResourceName]int64{}
@@ -280,7 +284,14 @@ func chargeFitsCanonicalUnits(podSets []kueue.PodSet, perPodSet map[kueue.PodSet
 		ps := &podSets[i]
 		psPath := field.NewPath("spec", "podSets").Index(i)
 		for name, qty := range perPodSet[ps.Name] {
-			count := qty.Value()
+			// The charge is accumulated with Quantity.Add and can leave int64
+			// behind, where Value wraps and reads back as an ordinary count.
+			count := utilmath.SafeValue(qty)
+			if count < 0 || count == math.MaxInt64 {
+				errs = append(errs, field.Invalid(psPath, qty.String(),
+					fmt.Sprintf("device count charged to logical resource %s is not a bounded quota amount", name)))
+				continue
+			}
 			canonical, ok := canonicalUnits(name, count)
 			if !ok {
 				errs = append(errs, field.Invalid(psPath, count,
@@ -359,7 +370,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 				continue
 			}
 
-			charges, fieldErrs := countDevicesPerClass(spec, mapper)
+			charges, fieldErrs := chargesForClaimSpec(spec, mapper)
 			if len(fieldErrs) > 0 {
 				// Prefix the field paths with the podset and resource claim context
 				for _, fieldErr := range fieldErrs {

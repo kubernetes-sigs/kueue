@@ -779,7 +779,7 @@ func exactReq(name, deviceClass string, count int64) resourcev1.DeviceRequest {
 	}
 }
 
-func Test_countDevicesPerClass_overflow(t *testing.T) {
+func Test_chargesForClaimSpec_overflow(t *testing.T) {
 	cases := map[string]struct {
 		requests  []resourcev1.DeviceRequest
 		wantCount int64
@@ -796,7 +796,7 @@ func Test_countDevicesPerClass_overflow(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			spec := &resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: tc.requests}}
-			out, errs := countDevicesPerClass(spec, NewResourceMapper())
+			out, errs := chargesForClaimSpec(spec, NewResourceMapper())
 			if len(errs) != 0 {
 				t.Fatalf("unexpected errors: %v", errs)
 			}
