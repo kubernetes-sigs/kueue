@@ -678,6 +678,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 					Obj(),
 			},
 			job: testingjob.MakeJob(childJobName, jobNamespace).
+				UID(childJobName).
 				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
 				Obj(),
 			wantErr: ErrCyclicOwnership,
@@ -884,6 +885,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "cronjob",
 						Namespace: jobNamespace,
+						UID:       "cronjob",
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "aw",
 							APIVersion: awv1beta2.GroupVersion.String(),
@@ -907,6 +909,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "rs",
 						Namespace: jobNamespace,
+						UID:       "rs",
 						OwnerReferences: []metav1.OwnerReference{{
 							Name:       "deploy",
 							APIVersion: appsv1.SchemeGroupVersion.String(),
@@ -946,7 +949,7 @@ func TestFindAncestorJobManagedByKueue(t *testing.T) {
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected events (-want/+got):\n%s", diff)
 			}
 		})

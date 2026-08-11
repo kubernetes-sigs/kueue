@@ -18,6 +18,7 @@ package pod
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -50,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -320,6 +323,296 @@ func TestPodSets(t *testing.T) {
 	}
 }
 
+func TestConstructGroupPodSets(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
+
+	podSetRole := kueue.NewPodSetReference("role-a")
+	basePod := testingpod.MakePod("pod", "ns").
+		Image("", nil).
+		Request(corev1.ResourceCPU, "1").
+		RoleHash(string(podSetRole)).
+		Obj()
+	higherRequestPod := testingpod.MakePod("pod-2", "ns").
+		Image("", nil).
+		Request(corev1.ResourceCPU, "2").
+		RoleHash(string(podSetRole)).
+		Obj()
+
+	testCases := map[string]struct {
+		pods        []corev1.Pod
+		wantPodSets []kueue.PodSet
+		wantErr     error
+	}{
+		"folds pods with matching role hash": {
+			pods: []corev1.Pod{
+				*basePod.DeepCopy(),
+				*testingpod.MakePod("pod-2", "ns").
+					Image("", nil).
+					Request(corev1.ResourceCPU, "500m").
+					RoleHash(string(podSetRole)).
+					Obj(),
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(podSetRole, 2).
+					PodSpec(*basePod.Spec.DeepCopy()).
+					Obj(),
+			},
+		},
+		"folds pods with matching role hash regardless of pod order": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-2", "ns").
+					Image("", nil).
+					Request(corev1.ResourceCPU, "500m").
+					RoleHash(string(podSetRole)).
+					Obj(),
+				*basePod.DeepCopy(),
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(podSetRole, 2).
+					PodSpec(*basePod.Spec.DeepCopy()).
+					Obj(),
+			},
+		},
+		"uses max requests across pods with matching role hash": {
+			pods: []corev1.Pod{
+				*basePod.DeepCopy(),
+				*higherRequestPod.DeepCopy(),
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(podSetRole, 2).
+					PodSpec(*higherRequestPod.Spec.DeepCopy()).
+					Obj(),
+			},
+		},
+		"uses element-wise max for incomparable pod requests": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-cpu", "ns").
+					Image("", nil).
+					Request(corev1.ResourceCPU, "2").
+					RoleHash(string(podSetRole)).
+					Obj(),
+				*testingpod.MakePod("pod-mixed", "ns").
+					Image("", nil).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Gi").
+					RoleHash(string(podSetRole)).
+					Obj(),
+			},
+			wantPodSets: func() []kueue.PodSet {
+				wantPod := testingpod.MakePod("pod", "ns").
+					Image("", nil).
+					Request(corev1.ResourceCPU, "2").
+					Request(corev1.ResourceMemory, "1Gi").
+					RoleHash(string(podSetRole)).
+					Obj()
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(podSetRole, 2).
+						PodSpec(wantPod.Spec).
+						Obj(),
+				}
+			}(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotPodSets, gotErr := constructGroupPodSets(tc.pods)
+			if tc.wantErr != nil {
+				if !errors.Is(gotErr, tc.wantErr) {
+					t.Fatalf("error = %v, want %v", gotErr, tc.wantErr)
+				}
+				if !jobframework.IsUnretryableError(gotErr) {
+					t.Fatalf("error = %v, want unretryable error", gotErr)
+				}
+				return
+			}
+			if gotErr != nil {
+				t.Fatalf("unexpected error: %v", gotErr)
+			}
+			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestConstructGroupPodSetsFast(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.TopologyAwareScheduling: false})
+
+	podSetRole := kueue.NewPodSetReference("role-a")
+	basePod := testingpod.MakePod("pod", "ns").
+		Image("", nil).
+		Request(corev1.ResourceCPU, "1").
+		RoleHash(string(podSetRole)).
+		Obj()
+
+	testCases := map[string]struct {
+		pods            []corev1.Pod
+		groupTotalCount int
+		wantPodSets     []kueue.PodSet
+		wantErr         error
+		wantErrMessage  string
+	}{
+		"builds pod set from matching pods": {
+			pods: []corev1.Pod{
+				*basePod.DeepCopy(),
+				*testingpod.MakePod("pod-2", "ns").
+					Image("", nil).
+					Request(corev1.ResourceCPU, "500m").
+					RoleHash(string(podSetRole)).
+					Obj(),
+			},
+			groupTotalCount: 2,
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(podSetRole, 2).
+					PodSpec(*basePod.Spec.DeepCopy()).
+					Obj(),
+			},
+		},
+		"builds pod set regardless of pod order": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-2", "ns").
+					Image("", nil).
+					Request(corev1.ResourceCPU, "500m").
+					RoleHash(string(podSetRole)).
+					Obj(),
+				*basePod.DeepCopy(),
+			},
+			groupTotalCount: 2,
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(podSetRole, 2).
+					PodSpec(*basePod.Spec.DeepCopy()).
+					Obj(),
+			},
+		},
+		"uses element-wise max for incomparable pod requests": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-cpu", "ns").
+					Image("", nil).
+					Request(corev1.ResourceCPU, "2").
+					RoleHash(string(podSetRole)).
+					Obj(),
+				*testingpod.MakePod("pod-mixed", "ns").
+					Image("", nil).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Gi").
+					RoleHash(string(podSetRole)).
+					Obj(),
+			},
+			groupTotalCount: 2,
+			wantPodSets: func() []kueue.PodSet {
+				wantPod := testingpod.MakePod("pod", "ns").
+					Image("", nil).
+					Request(corev1.ResourceCPU, "2").
+					Request(corev1.ResourceMemory, "1Gi").
+					RoleHash(string(podSetRole)).
+					Obj()
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(podSetRole, 2).
+						PodSpec(wantPod.Spec).
+						Obj(),
+				}
+			}(),
+		},
+		"rejects pods with diverging roles": {
+			pods: []corev1.Pod{
+				*basePod.DeepCopy(),
+				*testingpod.MakePod("pod-2", "ns").
+					Image("", nil).
+					Request(corev1.ResourceCPU, "1").
+					RoleHash("role-b").
+					Obj(),
+			},
+			groupTotalCount: 2,
+			wantErrMessage:  errFastAdmissionRoleMismatch("pod-2", "role-b", "role-a").Error(),
+		},
+		"uses per-container element-wise max for multi-container pods": {
+			pods: func() []corev1.Pod {
+				podA := testingpod.MakePod("pod-a", "ns").
+					Image("", nil).
+					RoleHash(string(podSetRole)).
+					Obj()
+				podA.Spec.Containers = append(podA.Spec.Containers, corev1.Container{
+					Name:  "sidecar",
+					Image: podA.Spec.Containers[0].Image,
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{},
+					},
+				})
+				podA.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("2")
+				podA.Spec.Containers[1].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("500m")
+
+				podB := testingpod.MakePod("pod-b", "ns").
+					Image("", nil).
+					RoleHash(string(podSetRole)).
+					Obj()
+				podB.Spec.Containers = append(podB.Spec.Containers, corev1.Container{
+					Name:  "sidecar",
+					Image: podB.Spec.Containers[0].Image,
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{},
+					},
+				})
+				podB.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("1")
+				podB.Spec.Containers[1].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("1")
+
+				return []corev1.Pod{*podA, *podB}
+			}(),
+			groupTotalCount: 2,
+			wantPodSets: func() []kueue.PodSet {
+				wantPod := testingpod.MakePod("pod", "ns").
+					Image("", nil).
+					RoleHash(string(podSetRole)).
+					Obj()
+				wantPod.Spec.Containers = append(wantPod.Spec.Containers, corev1.Container{
+					Name:  "sidecar",
+					Image: wantPod.Spec.Containers[0].Image,
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{},
+					},
+				})
+				wantPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("2")
+				wantPod.Spec.Containers[1].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("1")
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(podSetRole, 2).
+						PodSpec(wantPod.Spec).
+						Obj(),
+				}
+			}(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			gotPodSets, gotErr := constructGroupPodSetsFast(tc.pods, tc.groupTotalCount)
+			if tc.wantErr != nil || tc.wantErrMessage != "" {
+				if gotErr == nil {
+					t.Fatalf("got nil error, want error")
+				}
+				if tc.wantErr != nil && !errors.Is(gotErr, tc.wantErr) {
+					t.Fatalf("error = %v, want %v", gotErr, tc.wantErr)
+				}
+				if tc.wantErrMessage != "" && gotErr.Error() != tc.wantErrMessage {
+					t.Fatalf("error = %q, want %q", gotErr.Error(), tc.wantErrMessage)
+				}
+				if !jobframework.IsUnretryableError(gotErr) {
+					t.Fatalf("error = %v, want unretryable error", gotErr)
+				}
+				if gotPodSets != nil {
+					t.Fatalf("podSets = %v, want nil", gotPodSets)
+				}
+				return
+			}
+			if gotErr != nil {
+				t.Fatalf("unexpected error: %v", gotErr)
+			}
+			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 var (
 	podCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
@@ -360,7 +653,16 @@ func TestReconciler(t *testing.T) {
 		Request(corev1.ResourceCPU, "1").
 		Image("", nil)
 
-	podUID := "dc85db45"
+	legitRoleHash, err := utilpod.GenerateRoleHash(&basePodWrapper.Obj().Spec)
+	if err != nil {
+		t.Fatalf("failed to generate legit role hash: %v", err)
+	}
+	// forgedRoleHash is an attacker-chosen value matching a pre-created workload PodSet
+	// name, NOT derived from the pod spec.
+	forgedRoleHash := "dc85db45"
+	if legitRoleHash != forgedRoleHash {
+		t.Fatalf("test setup: legitRoleHash %q != forgedRoleHash %q for base pod", legitRoleHash, forgedRoleHash)
+	}
 
 	testCases := map[string]struct {
 		reconcileKey           *types.NamespacedName
@@ -621,7 +923,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -639,7 +941,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -707,7 +1009,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -725,7 +1027,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -1054,7 +1356,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -1122,7 +1424,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -1179,7 +1481,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 3).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -1406,7 +1708,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
@@ -1420,7 +1722,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
@@ -1432,6 +1734,135 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"pod group does not adopt a workload when a pod requests more than its role reserved": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					// Forge role hash to match the reserved role while requesting more than reserved.
+					RoleHash(forgedRoleHash).
+					Request(corev1.ResourceCPU, "100").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					RoleHash(forgedRoleHash).
+					Request(corev1.ResourceCPU, "100").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					Condition(metav1.Condition{
+						Type:    WorkloadComposeRejected,
+						Status:  metav1.ConditionTrue,
+						Reason:  jobframework.ReasonErrWorkloadCompose,
+						Message: fmt.Sprintf(`Pod requests exceed the resources reserved for role %q in workload "test-group"; this pod group cannot be admitted`, forgedRoleHash),
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    jobframework.ReasonErrWorkloadCompose,
+					Message: fmt.Sprintf(
+						`Pod requests exceed the resources reserved for role %q in workload "test-group"; this pod group cannot be admitted`,
+						forgedRoleHash),
+				},
+			},
+		},
+		"pod group adopts a workload when a pod requests more than its role reserved and PodIntegrationRecomputeRoleHash is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations:   false,
+				features.PodIntegrationRecomputeRoleHash: false,
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					RoleHash(forgedRoleHash).
+					Request(corev1.ResourceCPU, "100").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					RoleHash(forgedRoleHash).
+					Request(corev1.ResourceCPU, "100").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Queue(localUserQueueName).
+					Priority(0).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "test-group", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "OwnerReferencesAdded",
+					Message:   "Added 1 owner reference(s)",
+				},
+			},
 		},
 		"scheduling gate is removed for all pods in the group if workload is admitted": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -1465,7 +1896,7 @@ func TestReconciler(t *testing.T) {
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					NodeSelector(corev1.LabelArchStable, "arm64").
-					Label(constants.PodSetLabel, podUID).
+					Label(constants.PodSetLabel, forgedRoleHash).
 					Label(constants.LocalQueueLabel, localUserQueueName).
 					Label(constants.ClusterQueueLabel, clusterQueueName).
 					Annotation(kueue.WorkloadAnnotation, "test-group").
@@ -1478,7 +1909,7 @@ func TestReconciler(t *testing.T) {
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					NodeSelector(corev1.LabelArchStable, "arm64").
-					Label(constants.PodSetLabel, podUID).
+					Label(constants.PodSetLabel, forgedRoleHash).
 					Label(constants.LocalQueueLabel, localUserQueueName).
 					Label(constants.ClusterQueueLabel, clusterQueueName).
 					Annotation(kueue.WorkloadAnnotation, "test-group").
@@ -1487,12 +1918,12 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue(localUserQueueName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission(clusterQueueName).
-							PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 								Count(2).
 								Obj()).
@@ -1506,7 +1937,7 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					Queue(localUserQueueName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1514,7 +1945,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission(clusterQueueName).
-							PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).
 								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
 								Count(2).
 								Obj()).
@@ -1582,7 +2013,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1596,7 +2027,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1605,7 +2036,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					AdmittedAt(true, now).
-					ReclaimablePods(kueue.ReclaimablePod{Name: kueue.NewPodSetReference(podUID), Count: 1}).
+					ReclaimablePods(kueue.ReclaimablePod{Name: kueue.NewPodSetReference(forgedRoleHash), Count: 1}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -1651,7 +2082,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1665,7 +2096,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1711,7 +2142,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1730,7 +2161,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1794,7 +2225,7 @@ func TestReconciler(t *testing.T) {
 			},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localTestQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -1809,7 +2240,7 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localTestQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -1849,7 +2280,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1874,7 +2305,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -1980,7 +2411,7 @@ func TestReconciler(t *testing.T) {
 			wantPods: []corev1.Pod{},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).Request(corev1.ResourceCPU, "1").Obj()).
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Queue(localTestQueueName).
@@ -2050,7 +2481,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					GroupNameLabel("test-group").
 					GroupTotalCount("1").
-					Label(constants.PodSetLabel, podUID).
+					Label(constants.PodSetLabel, forgedRoleHash).
 					Label(constants.LocalQueueLabel, localUserQueueName).
 					Label(constants.ClusterQueueLabel, clusterQueueName).
 					Annotation(kueue.WorkloadAnnotation, "test-group").
@@ -2059,14 +2490,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -2079,14 +2510,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -2115,7 +2546,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					GroupNameLabel("test-group").
 					GroupTotalCount("3").
-					Label(constants.PodSetLabel, podUID).
+					Label(constants.PodSetLabel, forgedRoleHash).
 					Label(constants.LocalQueueLabel, localUserQueueName).
 					Label(constants.ClusterQueueLabel, clusterQueueName).
 					StatusPhase(corev1.PodRunning).
@@ -2151,17 +2582,17 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(3).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(3).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReclaimablePods(kueue.ReclaimablePod{Name: kueue.NewPodSetReference(podUID), Count: 1}).
+					ReclaimablePods(kueue.ReclaimablePod{Name: kueue.NewPodSetReference(forgedRoleHash), Count: 1}).
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
@@ -2171,7 +2602,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					GroupNameLabel("test-group").
 					GroupTotalCount("3").
-					Label(constants.PodSetLabel, podUID).
+					Label(constants.PodSetLabel, forgedRoleHash).
 					Label(constants.LocalQueueLabel, localUserQueueName).
 					Label(constants.ClusterQueueLabel, clusterQueueName).
 					StatusPhase(corev1.PodRunning).
@@ -2200,7 +2631,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					GroupNameLabel("test-group").
 					GroupTotalCount("3").
-					Label(constants.PodSetLabel, podUID).
+					Label(constants.PodSetLabel, forgedRoleHash).
 					Label(constants.LocalQueueLabel, localUserQueueName).
 					Label(constants.ClusterQueueLabel, clusterQueueName).
 					Annotation(kueue.WorkloadAnnotation, "test-group").
@@ -2209,14 +2640,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(3).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(3).Obj()).Obj(), now).
 					ReclaimablePods(kueue.ReclaimablePod{
-						Name:  kueue.NewPodSetReference(podUID),
+						Name:  kueue.NewPodSetReference(forgedRoleHash),
 						Count: 1,
 					}).
 					AdmittedAt(true, now).
@@ -2224,7 +2655,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "test-uid").
-					ReclaimablePods(kueue.ReclaimablePod{Name: kueue.NewPodSetReference(podUID), Count: 1}).
+					ReclaimablePods(kueue.ReclaimablePod{Name: kueue.NewPodSetReference(forgedRoleHash), Count: 1}).
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -2301,7 +2732,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2316,7 +2747,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2371,7 +2802,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2398,7 +2829,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2451,7 +2882,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2479,7 +2910,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2594,7 +3025,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).Request(corev1.ResourceCPU, "1").
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).Request(corev1.ResourceCPU, "1").
 							NodeName("test-node").
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 							Obj(),
@@ -2660,7 +3091,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2680,7 +3111,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2727,7 +3158,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("absent-pod-role", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2749,7 +3180,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("absent-pod-role", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -2853,7 +3284,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Request(corev1.ResourceCPU, "1").
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -2993,7 +3424,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3018,7 +3449,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3119,7 +3550,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3144,7 +3575,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3238,7 +3669,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3263,7 +3694,7 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Request(corev1.ResourceMemory, "1Gi").
 							Obj(),
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3321,7 +3752,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -3406,7 +3837,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3419,7 +3850,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3479,7 +3910,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("aaf269e6", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3501,7 +3932,7 @@ func TestReconciler(t *testing.T) {
 						*utiltestingapi.MakePodSet("aaf269e6", 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3598,7 +4029,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3610,7 +4041,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3680,7 +4111,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3695,7 +4126,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3769,7 +4200,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -3926,7 +4357,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -3946,7 +4377,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4045,7 +4476,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4072,7 +4503,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4143,7 +4574,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4167,7 +4598,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 3).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 3).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4330,7 +4761,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 4).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 4).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4352,7 +4783,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 4).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 4).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4454,7 +4885,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4468,7 +4899,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4568,7 +4999,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 4).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 4).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4588,7 +5019,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 4).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 4).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -4694,7 +5125,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -4870,7 +5301,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -4935,7 +5366,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -5033,7 +5464,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
@@ -5172,7 +5603,7 @@ func TestReconciler(t *testing.T) {
 						Message: "Not admitted, ETA: 2024-02-22T10:36:40Z.",
 					}).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
@@ -5199,7 +5630,7 @@ func TestReconciler(t *testing.T) {
 						Message: "Not admitted, ETA: 2024-02-22T10:36:40Z.",
 					}).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
 							Obj(),
@@ -5239,7 +5670,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodRunning).
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					Label(constants.PodSetLabel, podUID).
+					Label(constants.PodSetLabel, forgedRoleHash).
 					Label(constants.LocalQueueLabel, localUserQueueName).
 					Label(constants.ClusterQueueLabel, clusterQueueName).
 					CreationTimestamp(now.Add(-time.Hour)).
@@ -5272,7 +5703,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -5280,7 +5711,7 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -5293,7 +5724,7 @@ func TestReconciler(t *testing.T) {
 					StatusPhase(corev1.PodRunning).
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					Label(constants.PodSetLabel, podUID).
+					Label(constants.PodSetLabel, forgedRoleHash).
 					Label(constants.LocalQueueLabel, localUserQueueName).
 					Label(constants.ClusterQueueLabel, clusterQueueName).
 					CreationTimestamp(now.Add(-time.Hour)).
@@ -5305,7 +5736,7 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
-					Label(constants.PodSetLabel, podUID).
+					Label(constants.PodSetLabel, forgedRoleHash).
 					Label(constants.LocalQueueLabel, localUserQueueName).
 					Label(constants.ClusterQueueLabel, clusterQueueName).
 					Annotation(kueue.WorkloadAnnotation, "test-group").
@@ -5315,7 +5746,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -5324,7 +5755,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -5371,14 +5802,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -5407,14 +5838,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -5447,14 +5878,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -5483,14 +5914,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -5530,14 +5961,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -5567,14 +5998,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -5614,14 +6045,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -5657,14 +6088,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -5712,14 +6143,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
@@ -5760,14 +6191,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
@@ -5812,14 +6243,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -5862,14 +6293,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
@@ -5916,14 +6347,14 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -5958,14 +6389,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(forgedRoleHash)).Count(2).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -6289,7 +6720,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -6310,7 +6741,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 1).
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
@@ -6370,6 +6801,7 @@ func TestReconciler(t *testing.T) {
 				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
 				ctx, log := utiltesting.ContextWithLog(t)
+
 				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 				indexer := utiltesting.AsIndexer(clientBuilder)
 				if err := SetupIndexes(ctx, indexer); err != nil {
@@ -6975,13 +7407,61 @@ func TestGetWorkloadNameForPod(t *testing.T) {
 	}
 }
 
+func TestPodExceedsRequests(t *testing.T) {
+	testCases := map[string]struct {
+		pod      *corev1.Pod
+		reserved *corev1.Pod
+		want     bool
+	}{
+		"equal requests do not exceed": {
+			pod:      testingpod.MakePod("p", "ns").Request(corev1.ResourceCPU, "1").Obj(),
+			reserved: testingpod.MakePod("r", "ns").Request(corev1.ResourceCPU, "1").Obj(),
+			want:     false,
+		},
+		"fewer requests do not exceed": {
+			pod:      testingpod.MakePod("p", "ns").Request(corev1.ResourceCPU, "500m").Obj(),
+			reserved: testingpod.MakePod("r", "ns").Request(corev1.ResourceCPU, "1").Obj(),
+			want:     false,
+		},
+		"more of a reserved resource exceeds": {
+			pod:      testingpod.MakePod("p", "ns").Request(corev1.ResourceCPU, "100").Obj(),
+			reserved: testingpod.MakePod("r", "ns").Request(corev1.ResourceCPU, "1").Obj(),
+			want:     true,
+		},
+		"requesting an unreserved resource exceeds": {
+			pod:      testingpod.MakePod("p", "ns").Request(corev1.ResourceCPU, "1").Request(corev1.ResourceMemory, "1Gi").Obj(),
+			reserved: testingpod.MakePod("r", "ns").Request(corev1.ResourceCPU, "1").Obj(),
+			want:     true,
+		},
+		"empty pod and empty reserved do not exceed": {
+			pod:      testingpod.MakePod("p", "ns").Obj(),
+			reserved: testingpod.MakePod("r", "ns").Obj(),
+			want:     false,
+		},
+		"empty reserved treats missing resources as zero": {
+			pod:      testingpod.MakePod("p", "ns").Request(corev1.ResourceCPU, "1").Obj(),
+			reserved: testingpod.MakePod("r", "ns").Obj(),
+			want:     true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			reserved := resources.NewRequestsFromPodSpec(&tc.reserved.Spec)
+			if got := podExceedsRequests(tc.pod, reserved); got != tc.want {
+				t.Errorf("podExceedsRequests() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	connRefusedErrMock := fmt.Errorf("connection refused: %w", syscall.ECONNREFUSED)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	var triggerUpdateErr, triggerDeleteErr bool
 
-	podUID := "dc85db45"
+	// forgedRoleHash is a pod-forged RoleHash matching the workload PodSet name.
+	forgedRoleHash := "dc85db45"
 
 	basePodWrapper := testingpod.MakePod("pod", "ns").
 		UID("test-uid").
@@ -7020,7 +7500,7 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 
 	wl := *utiltestingapi.MakeWorkload("test-group", "ns").
 		PodSets(
-			*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+			*utiltestingapi.MakePodSet(kueue.NewPodSetReference(forgedRoleHash), 2).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
 		).
