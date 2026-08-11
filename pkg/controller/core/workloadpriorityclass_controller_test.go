@@ -318,3 +318,41 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 		})
 	}
 }
+
+func TestOwnsPriority(t *testing.T) {
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		want bool
+	}{
+		"a local Workload referencing a WorkloadPriorityClass": {
+			wl:   utiltestingapi.MakeWorkload("wl", "default").WorkloadPriorityClassRef("high").Obj(),
+			want: true,
+		},
+		"a Workload MultiKueue created here carries the manager's resolution": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				WorkloadPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").
+				Obj(),
+		},
+		"a PodPriorityClass of the same name is a different class": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").PodPriorityClassRef("high").Obj(),
+		},
+		"and one on a Workload MultiKueue created here is refused for both reasons": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				PodPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").
+				Obj(),
+		},
+		"no reference at all": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").Obj(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := ownsPriority(tc.wl); got != tc.want {
+				t.Errorf("ownsPriority() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
