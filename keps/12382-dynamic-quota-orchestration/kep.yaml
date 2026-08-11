@@ -5,7 +5,7 @@ authors:
 status: provisional
 creation-date: 2026-08-09
 reviewers:
-  - "TBD"
+  - "olekzabl"
 approvers:
   - "@tenzen-y"
 
@@ -27,5 +27,6 @@ milestone:
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
   - name: DynamicQuotaOrchestration
+    components: kueue-controller-manager
 disable-supported: true
 
