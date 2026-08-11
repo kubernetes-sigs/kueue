@@ -489,10 +489,24 @@ func chargeableRequests(input corev1.ResourceList) corev1.ResourceList {
 // would let a negative request in one container spend what another asked for
 // under the same name, and the aggregation hides that the sum ever went there.
 func chargeablePodRequests(spec *corev1.PodSpec) corev1.ResourceList {
-	if hasNegativeRequest(spec) {
-		spec = chargeableSpec(spec)
+	if !hasNegativeRequest(spec) {
+		return resourcehelpers.PodRequests(&corev1.Pod{Spec: *spec}, resourcehelpers.PodResourcesOptions{})
 	}
-	return resourcehelpers.PodRequests(&corev1.Pod{Spec: *spec}, resourcehelpers.PodResourcesOptions{})
+	requests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *chargeableSpec(spec)}, resourcehelpers.PodResourcesOptions{})
+	// A dropped pod-level override with no container total to fall back to leaves
+	// the name unset, which a multiplyBy that reads it treats as one. Put it back
+	// at zero so it still overrides at zero.
+	if spec.Resources != nil {
+		for name, q := range spec.Resources.Requests {
+			if q.Sign() >= 0 || !resourcehelpers.IsSupportedPodLevelResource(name) {
+				continue
+			}
+			if _, found := requests[name]; !found {
+				requests[name] = resource.Quantity{}
+			}
+		}
+	}
+	return requests
 }
 
 func hasNegativeRequest(spec *corev1.PodSpec) bool {
