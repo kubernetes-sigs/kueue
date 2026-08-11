@@ -4724,6 +4724,68 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("Should keep chain pods gated when the origin slice is deleted and no active slice survives", framework.SlowSpec, func() {
+		// Negative companion to the deleted-origin recovery test: when the origin
+		// slice is gone AND no admitted, non-finished slice remains, there is no
+		// granted count to ungate against, so the pod must stay gated rather than
+		// be let through against stale capacity.
+		jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+		testJob := testingjob.MakeJob("deleted-origin-no-active", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "100m").
+			Parallelism(1).
+			Completions(1).
+			Obj()
+
+		ginkgo.By("creating and admitting the job's only workload slice")
+		util.MustCreate(ctx, k8sClient, testJob)
+		var originSlice *kueue.Workload
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
+			originSlice = &workloads.Items[0]
+			g.Expect(workload.IsAdmitted(originSlice)).Should(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		originSliceName := originSlice.Name
+
+		ginkgo.By("deleting the only slice so the chain has no eligible active slice")
+		gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, originSlice)).To(gomega.Succeed())
+		gomega.Expect(k8sClient.Delete(ctx, originSlice)).To(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl := &kueue.Workload{}
+			err := k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, wl)
+			if apierrors.IsNotFound(err) {
+				return
+			}
+			g.Expect(err).To(gomega.Succeed())
+			// Strip the finalizer so the pending delete completes.
+			wl.Finalizers = nil
+			g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, wl))).To(gomega.Succeed())
+			g.Expect(apierrors.IsNotFound(k8sClient.Get(ctx, types.NamespacedName{Namespace: ns.Name, Name: originSliceName}, wl))).To(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("creating a gated pod that points at the deleted origin, owned by the Job")
+		gatedPod := testingpod.MakePod("worker-0", ns.Name).
+			Annotation(kueue.WorkloadAnnotation, originSliceName).
+			Annotation(kueue.WorkloadSliceNameAnnotation, originSliceName).
+			Label(pkgconstants.PodSetLabel, string(kueue.DefaultPodSetName)).
+			OwnerReference(testJob.Name, jobGVK).
+			Gate(kueue.ElasticJobSchedulingGate).
+			Obj()
+		gatedPod.OwnerReferences[0].UID = testJob.UID
+		util.MustCreate(ctx, k8sClient, gatedPod)
+
+		ginkgo.By("the pod keeps its elastic scheduling gate, since no active slice grants capacity")
+		gomega.Consistently(func(g gomega.Gomega) {
+			var got corev1.Pod
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(gatedPod), &got)).To(gomega.Succeed())
+			g.Expect(got.Spec.SchedulingGates).Should(gomega.ContainElement(
+				corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("Should not wedge the reconciler when scaling down below the accumulated succeeded count", framework.SlowSpec, func() {
 		// Regression for kueue#12670: with job-completions-equal-parallelism,
 		// the workload's reclaimablePods count mirrors the Job's
