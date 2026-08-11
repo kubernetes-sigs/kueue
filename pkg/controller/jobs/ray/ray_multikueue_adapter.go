@@ -55,6 +55,22 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 	// on the worker cluster. It is left unset for job types that do not support
 	// this (see ElasticReplicaSync).
 	elastic *ElasticReplicaSync[PtrT, T]
+	// remoteSpecSync is optional. When set, the adapter forwards manager-side spec
+	// changes onto the remote copy on the worker cluster after admission (see
+	// RemoteSpecSyncer).
+	remoteSpecSync RemoteSpecSyncer[PtrT]
+}
+
+// RemoteSpecSyncer lets a job type forward selected spec changes from the manager
+// copy to its worker copy after the job is admitted, via an in-place patch of the
+// remote. Each job type decides which fields to forward and when a sync is needed.
+type RemoteSpecSyncer[PtrT any] interface {
+	// NeedsSync reports whether a manager-side change must be forwarded to the
+	// worker copy. It must be side-effect free.
+	NeedsSync(remote, local PtrT) bool
+	// Apply copies the safe fields from local onto remote. It is invoked only when
+	// NeedsSync returned true, and must be idempotent.
+	Apply(remote, local PtrT)
 }
 
 // ElasticReplicaSync carries the type-specific hooks that let the MultiKueue
@@ -96,9 +112,18 @@ func WithElasticReplicaSync[PtrT objAsPtr[T], T any](e *ElasticReplicaSync[PtrT,
 	}
 }
 
+// WithRemoteSpecSync enables forwarding manager-side spec changes to the worker copy
+// for job types that support it (see RemoteSpecSyncer).
+func WithRemoteSpecSync[PtrT objAsPtr[T], T any](s RemoteSpecSyncer[PtrT]) Option[PtrT, T] {
+	return func(a *adapter[PtrT, T]) {
+		a.remoteSpecSync = s
+	}
+}
+
 type fullInterface interface {
 	jobframework.MultiKueueAdapter
 	jobframework.MultiKueueWatcher
+	jobframework.MultiKueueLocalJobWatcher
 }
 
 // NewMKAdapter creates a generic MultiKueue adapter for Ray job types.
@@ -177,6 +202,9 @@ func (a *adapter[PtrT, T]) SyncJob(
 		if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
 			return false, a.syncElastic(ctx, remoteClient, workloadName, localJob, remoteJob)
 		}
+		if a.remoteSpecSync != nil && features.Enabled(features.MultiKueueRemoteSpecSync) && a.remoteSpecSync.NeedsSync(remoteJob, localJob) {
+			return false, a.syncRemoteSpec(ctx, remoteClient, localJob, remoteJob)
+		}
 		return false, nil
 	}
 
@@ -239,6 +267,22 @@ func (a *adapter[PtrT, T]) syncElastic(ctx context.Context, remoteClient client.
 	return nil
 }
 
+// syncRemoteSpec patches the remote object's spec fields to match the local
+// (manager) object via the configured RemoteSpecSyncer. It should only be called
+// when the syncer's NeedsSync returns true.
+func (a *adapter[PtrT, T]) syncRemoteSpec(ctx context.Context, remoteClient client.Client, localJob, remoteJob PtrT) error {
+	if err := clientutil.Patch(ctx, remoteClient, remoteJob, func() (bool, error) {
+		if !a.remoteSpecSync.NeedsSync(remoteJob, localJob) {
+			return false, nil
+		}
+		a.remoteSpecSync.Apply(remoteJob, localJob)
+		return true, nil
+	}); err != nil {
+		return fmt.Errorf("failed to sync remote %s spec: %w", a.gvk.Kind, err)
+	}
+	return nil
+}
+
 func totalReplicas(counts map[kueue.PodSetReference]int32) int32 {
 	var total int32
 	for _, c := range counts {
@@ -256,6 +300,17 @@ func (a *adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, _ client.Clie
 
 func (a *adapter[PtrT, T]) GetEmptyList() client.ObjectList {
 	return a.emptyList()
+}
+
+// NewEmptyLocalJob lets the MultiKueue controller watch the manager job so a spec
+// change promptly triggers a sync. It is wired only for types that forward spec
+// changes after admission (remoteSpecSync); create-once types return nil and are
+// not watched.
+func (a *adapter[PtrT, T]) NewEmptyLocalJob() client.Object {
+	if a.remoteSpecSync == nil {
+		return nil
+	}
+	return PtrT(new(T))
 }
 
 func (a *adapter[PtrT, T]) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedName, error) {
