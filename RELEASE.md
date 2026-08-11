@@ -21,10 +21,10 @@ Each minor release normally uses an eight-week cycle. The public release is plan
 | --- | --- | --- |
 | **D1 — Planning opens** | W1–W2 | Scope is preferably discussed during a WG Batch meeting or a dedicated planning meeting, but may also be discussed asynchronously in the issue. |
 | **D2 — Larger KEP review** | W1–W4 | Larger KEPs should become visible early and discussed. |
-| **D3 — Scope cooldown** | W5 | Maintainers finalize the scope for the release in terms of larger KEPs. Small KEPs or KEP updates remain eligible unilt D4. |
+| **D3 — Scope cooldown** | W5 | Maintainers finalize the scope for the release in terms of larger KEPs. Small KEPs or KEP updates remain eligible until D4. |
 | **D4 — KEP publication** | W6 | Publish accepted KEPs for the release. |
 | **C1 — Code cooldown** | W6 | All big feature PRs must be open, substantially complete, and reviewable. |
-| **C2 — Code freeze** | W7 | Feature PRs are merged or deferred. Focus on bug or explicitly approved exceptions. |
+| **C2 — Code freeze** | W7 | Feature PRs are merged or deferred. Focus on bug fixes or explicitly approved exceptions. |
 | **R — Public release** | W8 | Release is published. |
 
 ### Tentative timelines
@@ -34,7 +34,7 @@ You can find the tentative release timelines in the  [`release-timelines`](./rel
 ## Exceptions
 
 Exceptions are possible, and should be discussed between maintainers and feature owners.
-A dedicated Slack channel will be open per exception request. The decision is recorded in the feature tracking issue.
+A dedicated Slack group will be open per exception request. The decision is recorded in the feature tracking issue.
 
 ## Clarifications
 
@@ -87,8 +87,9 @@ No manual infrastructure steps are required.
 
 When working on the next N-th minor version of Kueue we continue to maintain
 N-1 and N-2 releases. The release branches corresponding to the next patch
-releases are regularly tested by CI. Patch releases are released on as-needed
-basis.
+releases are regularly tested by CI.
+
+Patch releases are published as needed, generally targeting a weekly cadence.
 
 We follow the Kubernetes cherry-pick [principles](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-release/cherry-picks.md#what-kind-of-prs-are-good-for-cherry-picks), but the choice of cherry-picks
 is more relaxed, e.g. we allow to cherry-pick minor improvements for [alpha Kueue features](https://kueue.sigs.k8s.io/docs/installation/#change-the-feature-gates-configuration).
