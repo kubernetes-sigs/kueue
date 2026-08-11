@@ -426,6 +426,7 @@ const (
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
 	// Enable re-computing the assignment within the same scheduling cycle when a TAS workload doesn't fit.
+	// Requires TopologyAwareScheduling to be enabled.
 	TASRecomputeAssignmentWithinSchedulingCycle featuregate.Feature = "TASRecomputeAssignmentWithinSchedulingCycle"
 
 	// owner: @j-skiba
@@ -554,22 +555,23 @@ func init() {
 }
 
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
-	TASFailedNodeReplacement:                 {TopologyAwareScheduling},
-	TASFailedNodeReplacementFailFast:         {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeOnPodTermination:           {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeDueToNotReadyOverFixedTime: {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASBalancedPlacement:                     {TopologyAwareScheduling},
-	TASReplaceNodeOnNodeTaints:               {TopologyAwareScheduling},
-	TASMultiLayerTopology:                    {TopologyAwareScheduling},
-	TASRespectNodeAffinityPreferred:          {TopologyAwareScheduling},
-	UnadmittedWorkloadsExplicitStatus:        {UnadmittedWorkloadsObservability},
-	TASHandleOverlappingFlavors:              {TopologyAwareScheduling},
-	TASProfileMixed:                          {TopologyAwareScheduling},
-	ElasticJobsViaWorkloadSlicesWithTAS:      {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
-	KueueDRAIntegrationExtendedResource:      {KueueDRAIntegration},
-	KueueDRAIntegrationPartitionableDevices:  {KueueDRAIntegration},
-	KueueDRAIntegrationConsumableCapacity:    {KueueDRAIntegration},
-	FlavorFungibilityPreserveScanProgress:    {FlavorFungibility},
+	TASFailedNodeReplacement:                    {TopologyAwareScheduling},
+	TASFailedNodeReplacementFailFast:            {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeOnPodTermination:              {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeDueToNotReadyOverFixedTime:    {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASBalancedPlacement:                        {TopologyAwareScheduling},
+	TASReplaceNodeOnNodeTaints:                  {TopologyAwareScheduling},
+	TASMultiLayerTopology:                       {TopologyAwareScheduling},
+	TASRespectNodeAffinityPreferred:             {TopologyAwareScheduling},
+	UnadmittedWorkloadsExplicitStatus:           {UnadmittedWorkloadsObservability},
+	TASHandleOverlappingFlavors:                 {TopologyAwareScheduling},
+	TASProfileMixed:                             {TopologyAwareScheduling},
+	TASRecomputeAssignmentWithinSchedulingCycle: {TopologyAwareScheduling},
+	ElasticJobsViaWorkloadSlicesWithTAS:         {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
+	KueueDRAIntegrationExtendedResource:         {KueueDRAIntegration},
+	KueueDRAIntegrationPartitionableDevices:     {KueueDRAIntegration},
+	KueueDRAIntegrationConsumableCapacity:       {KueueDRAIntegration},
+	FlavorFungibilityPreserveScanProgress:       {FlavorFungibility},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
