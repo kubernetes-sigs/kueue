@@ -489,7 +489,7 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 		},
 		{
-			name: "init containers use max, regular containers use sum",
+			name: "ordinary init containers use max, regular containers use sum",
 			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
 				Spec: kueue.WorkloadSpec{
@@ -547,6 +547,115 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			want: map[kueue.PodSetReference]corev1.ResourceList{
 				"main": {
 					"example.com/gpu": resource.MustParse("5"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		},
+		{
+			// The scheduler keeps a sidecar's devices for as long as the regular
+			// containers hold theirs, so the two are held at once.
+			name: "a restartable init container adds to the total rather than being maxed against it",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								InitContainers: []corev1.Container{
+									{
+										Name:          "sidecar",
+										Image:         "pause",
+										RestartPolicy: new(corev1.ContainerRestartPolicyAlways),
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("1"),
+											},
+										},
+									},
+								},
+								Containers: []corev1.Container{
+									{
+										Name:  "c1",
+										Image: "pause",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("1"),
+											},
+										},
+									},
+								},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"example.com/gpu": resource.MustParse("2"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		},
+		{
+			// The init container runs with the sidecar declared before it already up,
+			// so 5 and 2 together beat the 1 and 2 that follow.
+			name: "an ordinary init container is measured with the sidecar already running",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								InitContainers: []corev1.Container{
+									{
+										Name:          "sidecar",
+										Image:         "pause",
+										RestartPolicy: new(corev1.ContainerRestartPolicyAlways),
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("2"),
+											},
+										},
+									},
+									{
+										Name:  "init1",
+										Image: "pause",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("5"),
+											},
+										},
+									},
+								},
+								Containers: []corev1.Container{
+									{
+										Name:  "c1",
+										Image: "pause",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("1"),
+											},
+										},
+									},
+								},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"example.com/gpu": resource.MustParse("7"),
 				},
 			},
 			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{

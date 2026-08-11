@@ -927,18 +927,33 @@ The two DRA paths resolve quota independently:
 5. If the mapping has counter sources configured, the workload is marked inadmissible.
    Extended resources do not carry profile-level information for counter-based charging.
    Otherwise charges device count.
-6. Removes original extended resource from the workload's effective resource requests
-   (tracked internally per PodSet) to avoid double-counting
+6. Subtracts what the containers asked for on that extended resource from the workload's
+   effective resource requests (tracked internally per PodSet) to avoid double-counting.
+   Pod overhead and resource transformation outputs carried under the same name are not
+   what the charge stands in for, so they are left intact
 7. Admits workload against the resolved quota key
 
 The extended resource translation reads directly from the workload spec before
 `excludeResourcePrefixes` filtering is applied. The processing order:
 1. Extended resource translation runs first, reading the original spec
 2. `excludeResourcePrefixes` filters the pod's `resources.requests`
-3. Original extended resource is removed from the workload's effective resource requests
-4. Translated resource is added through `preprocessedDRAResources`
+3. Resource transformations run
+4. What the containers asked for on each translated extended resource is subtracted from
+   the effective requests, so the pod overhead and anything a transformation added under
+   the same name are left alone
+5. Translated resource is added through `preprocessedDRAResources`
 
-This ensures no overlap or double-counting between the two mechanisms.
+The container contribution is aggregated the way a Pod's own requests are, so a restartable
+init container adds to it rather than being compared against it. For an extended resource
+name whose DeviceClass resolution holds for the length of preprocessing, the amount
+subtracted is the amount charged. Each name is aggregated under its own name before any
+mapping, so two names reaching one logical resource are charged and subtracted alike.
+
+This keeps the extended resource from being counted twice under its own name. It does not
+reach a resource transformation naming the same resource: a `Replace` consuming a DRA-backed
+input is still charged the device as well as whatever the transformation emits, and an output
+written to a `deviceClassMappings[].name` is added to the charge under that name. Both are
+tracked in [#14160](https://github.com/kubernetes-sigs/kueue/issues/14160).
 
 #### Same Hardware with Both Paths
 
