@@ -557,13 +557,13 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 		})
 		ginkgo.It("leaves a Workload MultiKueue created here alone", func() {
 			ginkgo.By("creating a local workload and one MultiKueue created here")
-			local := utiltestingapi.MakeWorkload("local", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+			local := utiltestingapi.MakeWorkload("z-local", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
 				WorkloadPriorityClassRef("workload-priority-class").
 				Priority(200).
 				Obj()
 			util.MustCreate(ctx, k8sClient, local)
 
-			remote := utiltestingapi.MakeWorkload("remote", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
+			remote := utiltestingapi.MakeWorkload("a-remote", ns.Name).Queue("lq").Request(corev1.ResourceCPU, "1").
 				WorkloadPriorityClassRef("workload-priority-class").
 				Label(kueue.MultiKueueOriginLabel, "manager").
 				Priority(200).
