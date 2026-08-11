@@ -75,11 +75,11 @@ func IsElasticWorkload(workload *kueue.Workload) bool {
 	return Enabled(workload)
 }
 
-const (
-	// WorkloadSliceReplacementFor is the annotation key set on a new workload slice to indicate
-	// the key of the workload slice it is intended to replace (i.e., the "old" slice being preempted).
-	WorkloadSliceReplacementFor = "kueue.x-k8s.io/workload-slice-replacement-for"
-)
+// WorkloadSliceReplacementFor is the annotation key set on a new workload slice to indicate
+// the key of the workload slice it is intended to replace (i.e., the "old" slice being preempted).
+// Defined in the kueue API package so packages that cannot import workloadslicing (e.g. workload,
+// to avoid an import cycle) can still check for it.
+const WorkloadSliceReplacementFor = kueue.WorkloadSliceReplacementForAnnotation
 
 // ReplacementForKey returns a value for workload "WorkloadSliceReplacementFor" annotation
 func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
