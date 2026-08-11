@@ -243,6 +243,68 @@ func addExactCount(a, b int64) (int64, error) {
 // getClaimSpec resolves the ResourceClaim(Template) referenced by the PodResourceClaim
 // and returns its *ResourceClaimSpec. A nil spec and nil error mean the reference is
 // empty (both name pointers are nil) and should be skipped.
+// canonicalUnits converts a device count to the unit the queue accounts the
+// logical resource in: milli for CPU, whole ones for everything else. The
+// conversion is where a count that reads as bounded stops being one.
+func canonicalUnits(name corev1.ResourceName, count int64) (int64, bool) {
+	if name != corev1.ResourceCPU {
+		return count, true
+	}
+	if count > (math.MaxInt64-1)/1000 {
+		return 0, false
+	}
+	return count * 1000, true
+}
+
+// mulExactCount is addExactCount's counterpart for the PodSet count.
+func mulExactCount(a, b int64) (int64, bool) {
+	if a < 0 || b < 0 {
+		return 0, false
+	}
+	if a != 0 && b > (math.MaxInt64-1)/a {
+		return 0, false
+	}
+	return a * b, true
+}
+
+// chargeFitsCanonicalUnits reports the charges that cannot reach the queue
+// intact. Each PodSet's charge is multiplied by its count and the results are
+// summed across PodSets, in the resource's canonical unit. Both of those steps
+// saturate rather than fail, and math.MaxInt64 is the value the quota code
+// reads as unlimited, so a count that reaches either is refused here while the
+// number that was asked for is still known.
+func chargeFitsCanonicalUnits(podSets []kueue.PodSet, perPodSet map[kueue.PodSetReference]corev1.ResourceList) field.ErrorList {
+	var errs field.ErrorList
+	totals := map[corev1.ResourceName]int64{}
+	for i := range podSets {
+		ps := &podSets[i]
+		psPath := field.NewPath("spec", "podSets").Index(i)
+		for name, qty := range perPodSet[ps.Name] {
+			count := qty.Value()
+			canonical, ok := canonicalUnits(name, count)
+			if !ok {
+				errs = append(errs, field.Invalid(psPath, count,
+					fmt.Sprintf("device count charged to logical resource %s is not representable in the units it is accounted in", name)))
+				continue
+			}
+			scaled, ok := mulExactCount(canonical, int64(ps.Count))
+			if !ok {
+				errs = append(errs, field.Invalid(psPath.Child("count"), ps.Count,
+					fmt.Sprintf("device count charged to logical resource %s is not representable once multiplied by the podSet count", name)))
+				continue
+			}
+			total, err := addExactCount(totals[name], scaled)
+			if err != nil {
+				errs = append(errs, field.Invalid(field.NewPath("spec", "podSets"), name,
+					fmt.Sprintf("total charged to logical resource %s across podSets is not representable as a bounded quota amount", name)))
+				continue
+			}
+			totals[name] = total
+		}
+	}
+	return errs
+}
+
 func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc corev1.PodResourceClaim) (*resourcev1.ResourceClaimSpec, error) {
 	switch {
 	case prc.ResourceClaimTemplateName != nil:
@@ -353,6 +415,10 @@ func GetResourceRequestsForResourceClaimTemplates(
 		if len(aggregated) > 0 {
 			perPodSet[ps.Name] = aggregated
 		}
+	}
+
+	if errs := chargeFitsCanonicalUnits(wl.Spec.PodSets, perPodSet); len(errs) > 0 {
+		return nil, append(allErrs, errs...)
 	}
 
 	return perPodSet, nil
