@@ -151,9 +151,6 @@ type TASFlavorSnapshot struct {
 	// roots maps domainID to domains that are at the highest level of topology structure
 	roots domainByID
 
-	// domains maps domainID to every domain available in the topology structure
-	domains domainByID
-
 	// domainsPerLevel stores the static tree information
 	domainsPerLevel []domainByID
 
@@ -224,7 +221,6 @@ func newTASFlavorSnapshot(
 		levelKeys:          slices.Clone(levels),
 		leaves:             make(leafDomainByID),
 		tolerations:        slices.Clone(tolerations),
-		domains:            make(domainByID),
 		roots:              make(domainByID),
 		domainsPerLevel:    domainsPerLevel,
 		isLowestLevelNode:  len(levels) > 0 && levels[len(levels)-1] == corev1.LabelHostname,
@@ -283,7 +279,6 @@ func (s *TASFlavorSnapshot) highestLevel() string {
 func (s *TASFlavorSnapshot) initialize() {
 	for _, leafDomain := range s.leaves {
 		domain := &leafDomain.domain
-		s.domains[domain.id] = domain
 		s.domainsPerLevel[len(domain.levelValues)-1][domain.id] = domain
 		s.initializeHelper(domain)
 	}
@@ -297,13 +292,12 @@ func (s *TASFlavorSnapshot) initializeHelper(dom *domain) {
 	}
 	parentValues := dom.levelValues[:len(dom.levelValues)-1]
 	parentID := utiltas.DomainID(parentValues)
-	parent, parentFound := s.domains[parentID]
+	parent, parentFound := s.domainsPerLevel[len(parentValues)-1][parentID]
 	if !parentFound {
 		// create parent
 		parent = &domain{id: parentID, levelValues: parentValues}
 
 		s.domainsPerLevel[len(parentValues)-1][parentID] = parent
-		s.domains[parentID] = parent
 		s.initializeHelper(parent)
 	}
 	// connect parent and child
@@ -851,7 +845,7 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 // in Node's NodeReady condition
 func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *utiltas.TopologyAssignment) (bool, string) {
 	for _, domain := range ta.Domains {
-		if _, found := s.domains[utiltas.DomainID(domain.Values)]; !found {
+		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
 			return true, domain.Values[0]
 		}
 	}
@@ -1788,15 +1782,17 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 // fillInCounts computes per-domain pod, slice, and leader capacities from the
 // pod requirements, then rolls those capacities up the topology tree.
 func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState) error {
-	for _, domain := range s.domains {
-		// cleanup the state in case some remaining values are present from computing
-		// assignments for previous PodSets.
-		domain.state = 0
-		domain.stateWithLeader = 0
-		domain.sliceState = 0
-		domain.sliceStateWithLeader = 0
-		domain.leaderState = 0
-		domain.affinityScore = 0
+	for _, domainsAtLevel := range s.domainsPerLevel {
+		for _, domain := range domainsAtLevel {
+			// cleanup the state in case some remaining values are present from computing
+			// assignments for previous PodSets.
+			domain.state = 0
+			domain.stateWithLeader = 0
+			domain.sliceState = 0
+			domain.sliceStateWithLeader = 0
+			domain.leaderState = 0
+			domain.affinityScore = 0
+		}
 	}
 	cachingRemainingResourcesEnabled := features.Enabled(features.TASCachingRemainingResources)
 	if features.Enabled(features.TASCacheNodeMatchResults) {
