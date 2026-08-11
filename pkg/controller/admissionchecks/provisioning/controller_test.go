@@ -147,7 +147,7 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, err := mergePodSets(tc.workload, &kueue.ProvisioningRequestConfigSpec{
+			got, err := mergePodSets(t.Context(), tc.workload, &kueue.ProvisioningRequestConfigSpec{
 				PodSetMergePolicy: tc.mergePolicy,
 			})
 			if err != nil {
@@ -212,7 +212,7 @@ func TestReqIsNeeded(t *testing.T) {
 			workload: makeWorkload(1, nil, false),
 			wantErr:  errInconsistentPodSetAssignments,
 		},
-		"needed podset does not short circuit later missing assignment": {
+		"needed podset short circuits later missing assignment": {
 			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 1).
@@ -229,7 +229,7 @@ func TestReqIsNeeded(t *testing.T) {
 					time.Now(),
 				).
 				Obj(),
-			wantErr: errInconsistentPodSetAssignments,
+			want: true,
 		},
 	}
 

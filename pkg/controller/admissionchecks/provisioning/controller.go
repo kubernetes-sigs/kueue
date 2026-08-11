@@ -314,7 +314,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			}
 			passProvReqParams(wl, req)
 
-			mergedPodSets, err := mergePodSets(wl, &prc.Spec)
+			mergedPodSets, err := mergePodSets(ctx, wl, &prc.Spec)
 			if err != nil {
 				return err
 			}
@@ -477,9 +477,6 @@ func reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) (bool
 		return psa.Name
 	})
 	managedResources := sets.New(prc.Spec.ManagedResources...)
-	needed := false
-	// Each managed PodSet checked. An assignment missing for a single PodSet
-	// indicates the Workloads admission data is inconsistent regardless of other PodSets.
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]
 		if ps.Count <= 0 || (managedResources.Len() > 0 && !podUses(&ps.Template.Spec, managedResources)) {
@@ -490,10 +487,10 @@ func reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) (bool
 			return false, fmt.Errorf("%w: missing assignment for PodSet %q", errInconsistentPodSetAssignments, ps.Name)
 		}
 		if ptr.Deref(psa.Count, ps.Count) > 0 {
-			needed = true
+			return true, nil
 		}
 	}
-	return needed, nil
+	return false, nil
 }
 
 func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []kueue.PodSetReference {
@@ -934,9 +931,11 @@ type MergedPodSet struct {
 }
 
 func mergePodSets(
+	ctx context.Context,
 	wl *kueue.Workload,
 	prcSpec *kueue.ProvisioningRequestConfigSpec,
 ) ([]MergedPodSet, error) {
+	log := ctrl.LoggerFrom(ctx)
 	expectedPodSets := requiredPodSets(wl.Spec.PodSets, prcSpec.ManagedResources)
 	psaMap := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(p *kueue.PodSetAssignment) kueue.PodSetReference { return p.Name })
 	podSetMap := slices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
@@ -952,6 +951,7 @@ func mergePodSets(
 
 		count := ptr.Deref(psa.Count, ps.Count)
 		if count <= 0 {
+			log.V(4).Info("Skipping non-positive PodSet", "workload", klog.KObj(wl), "podSet", psName, "count", count)
 			continue
 		}
 
