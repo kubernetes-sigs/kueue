@@ -73,6 +73,10 @@ var (
 	AdmissionAttemptsTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=health
+	// +metricsdoc:labels=replica_role="one of `leader`, `follower`, or `standalone`"
+	LookAheadInterruptsTotal *prometheus.CounterVec
+
+	// +metricsdoc:group=health
 	// +metricsdoc:labels=result="possible values are `success` or `inadmissible`",replica_role="one of `leader`, `follower`, or `standalone`"
 	admissionAttemptDuration *prometheus.HistogramVec
 
@@ -370,6 +374,17 @@ The label 'result' can have the following values:
 - 'success' means that at least one workload was admitted.,
 - 'inadmissible' means that no workload was admitted.`,
 		}, []string{"result", "replica_role"},
+	)
+
+	LookAheadInterruptsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "look_ahead_interrupts_total",
+			Help: `The total number of scheduling-cycle interrupts triggered by Fair Sharing
+look-ahead, i.e. events in which a top-level cohort subtree reached the
+look-ahead depth and the remaining entries of its root cohort were requeued
+for the next scheduling cycle.`,
+		}, []string{"replica_role"},
 	)
 
 	admissionAttemptDuration = prometheus.NewHistogramVec(
@@ -1025,6 +1040,10 @@ func AdmissionAttempt(result AdmissionResult, duration time.Duration, tracker *r
 	admissionAttemptDuration.WithLabelValues(string(result), role).Observe(duration.Seconds())
 }
 
+func LookAheadInterrupt(tracker *roletracker.RoleTracker) {
+	LookAheadInterruptsTotal.WithLabelValues(roletracker.GetRole(tracker)).Inc()
+}
+
 func ReportMultiKueueWorkloadDispatched(cqName kueue.ClusterQueueReference, cluster string, tracker *roletracker.RoleTracker) {
 	MultiKueueWorkloadsDispatchedTotal.WithLabelValues(string(cqName), cluster, roletracker.GetRole(tracker)).Inc()
 }
@@ -1528,6 +1547,7 @@ func Register() {
 	metrics.Registry.MustRegister(
 		buildInfo,
 		AdmissionAttemptsTotal,
+		LookAheadInterruptsTotal,
 		admissionAttemptDuration,
 		MultiKueueWorkloadsDispatchedTotal,
 		MultiKueueWorkloadsAdmittedTotal,
