@@ -1249,9 +1249,7 @@ func ReportLocalQueuePendingWorkloadsByWorkload(lq LocalQueueReference, status s
 	LocalQueuePendingWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
-// ClearLocalQueuePendingWorkloadsSeries removes all LocalQueuePendingWorkloads
-// series for the given LocalQueue so stale workload label combinations are
-// cleaned up before a full re-report.
+// ClearLocalQueuePendingWorkloadsSeries removes all pending workload series for lq.
 func ClearLocalQueuePendingWorkloadsSeries(lq LocalQueueReference) {
 	LocalQueuePendingWorkloads.DeletePartialMatch(prometheus.Labels{
 		"name":      string(lq.Name),

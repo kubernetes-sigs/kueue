@@ -128,8 +128,7 @@ func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 			inadmissible = metrics.MergedTracker(inadmissible, active)
 			active = metrics.NewLabelValsTracker()
 		}
-		// Wipe all existing series for this LQ before re-reporting so that stale
-		// workload label combinations (e.g. after a label change) are cleared.
+		// Clear all existing series before re-reporting to remove stale label combinations.
 		metrics.ClearLocalQueuePendingWorkloadsSeries(lqRef)
 		lqCustomLabels := m.customLabels.LQGet(lq.Key)
 		reportLQPendingWorkloadCounts(m, lqRef, lqCustomLabels, active, metrics.PendingStatusActive)
