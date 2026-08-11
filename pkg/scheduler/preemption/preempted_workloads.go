@@ -36,3 +36,9 @@ func (p PreemptedWorkloads) Insert(newTargets []*Target) {
 		p[workload.Key(target.WorkloadInfo.Obj)] = target.WorkloadInfo
 	}
 }
+
+func (p PreemptedWorkloads) Delete(targets []*Target) {
+	for _, target := range targets {
+		delete(p, workload.Key(target.WorkloadInfo.Obj))
+	}
+}
