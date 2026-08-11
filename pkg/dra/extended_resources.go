@@ -292,9 +292,18 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 				continue
 			}
 
-			// Safe: every container quantity contributing to this aggregate
-			// just passed the integer check above.
-			intQty, _ := quantity.AsInt64()
+			// Each container's quantity passed the integer check above, but their
+			// sum can still overflow int64 (e.g. two containers requesting 9e18
+			// each), so the aggregate needs its own check rather than assuming ok.
+			intQty, ok := quantity.AsInt64()
+			if !ok {
+				allErrs = append(allErrs, field.Invalid(
+					firstPath[resourceName].Child("resources", "requests", string(resourceName)),
+					quantity.String(),
+					"total extended resource quantity must be an integer",
+				))
+				continue
+			}
 			replaced.Insert(resourceName)
 			aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{quotaKey: *resource.NewQuantity(intQty, resource.DecimalSI)})
 		}

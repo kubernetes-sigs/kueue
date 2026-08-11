@@ -623,6 +623,55 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 		},
 		{
+			// Each container's quantity fits int64 on its own, but their sum
+			// overflows it. Charging the aggregate without re-checking would
+			// silently charge nothing instead of rejecting the request.
+			name: "workload with per-container integer quantities that overflow int64 when summed",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name:  "c1",
+										Image: "pause",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("9e18"),
+											},
+										},
+									},
+									{
+										Name:  "c2",
+										Image: "pause",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("9e18"),
+											},
+										},
+									},
+								},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).
+						Child("template", "spec", "containers").Index(0).
+						Child("resources", "requests", "example.com/gpu"),
+					"",
+					"",
+				),
+			},
+		},
+		{
 			name: "extended resource uses deviceClassMappings logical name when DeviceClass is mapped",
 			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
