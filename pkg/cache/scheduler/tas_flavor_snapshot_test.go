@@ -1095,3 +1095,129 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 		})
 	}
 }
+
+func newTestSnapshot(t *testing.T, levels []string, nodes ...*corev1.Node) *TASFlavorSnapshot {
+	t.Helper()
+	_, log := utiltesting.ContextWithLog(t)
+	s := newTASFlavorSnapshot(log, "dummy", levels, nil)
+	for _, n := range nodes {
+		s.addNode(n)
+	}
+	s.initialize()
+	return s
+}
+
+func TestInitializeDomainIDCollision(t *testing.T) {
+	const blockLabel = "cloud.provider.com/topology-block"
+
+	s := newTestSnapshot(t, []string{blockLabel, corev1.LabelHostname},
+		node.MakeNode("b1").
+			Label(blockLabel, "b1").
+			Label(corev1.LabelHostname, "b1").
+			Obj(),
+	)
+
+	leaf, found := s.leaves["b1"]
+	if !found {
+		t.Fatalf("leaf domain %q not found", "b1")
+	}
+	if leaf.parent == nil {
+		t.Fatalf("leaf domain %q has no parent", leaf.id)
+	}
+	if leaf.parent == &leaf.domain {
+		t.Errorf("leaf domain %q is its own parent", leaf.id)
+	}
+	if diff := cmp.Diff([]string{"b1"}, leaf.parent.levelValues); diff != "" {
+		t.Errorf("unexpected parent level values (-want,+got): %s", diff)
+	}
+	if got := len(s.domainsPerLevel[0]); got != 1 {
+		t.Errorf("len(domainsPerLevel[0]) = %d, want 1", got)
+	}
+	if got := len(s.domainsPerLevel[1]); got != 1 {
+		t.Errorf("len(domainsPerLevel[1]) = %d, want 1", got)
+	}
+	if got := len(s.roots); got != 1 {
+		t.Fatalf("len(roots) = %d, want 1", got)
+	}
+	if _, isRoot := s.roots[leaf.parent.id]; !isRoot {
+		t.Errorf("parent of leaf %q is not registered as a root", leaf.id)
+	}
+}
+
+func TestIsTopologyAssignmentStale(t *testing.T) {
+	const blockLabel = "cloud.provider.com/topology-block"
+	const rackLabel = "cloud.provider.com/topology-rack"
+
+	hostnameLowest := func(t *testing.T) *TASFlavorSnapshot {
+		return newTestSnapshot(t, []string{blockLabel, corev1.LabelHostname},
+			node.MakeNode("n1").
+				Label(blockLabel, "b1").
+				Label(corev1.LabelHostname, "n1").
+				Obj(),
+		)
+	}
+	rackLowest := func(t *testing.T) *TASFlavorSnapshot {
+		return newTestSnapshot(t, []string{blockLabel, rackLabel},
+			node.MakeNode("n1").
+				Label(blockLabel, "b1").
+				Label(rackLabel, "r1").
+				Obj(),
+		)
+	}
+
+	cases := map[string]struct {
+		snapshot        func(t *testing.T) *TASFlavorSnapshot
+		assignment      *tas.TopologyAssignment
+		wantStale       bool
+		wantStaleDomain string
+	}{
+		"existing hostname leaf is not stale": {
+			snapshot: hostnameLowest,
+			assignment: &tas.TopologyAssignment{
+				Domains: []tas.TopologyDomainAssignment{{Values: []string{"n1"}}},
+			},
+		},
+		"missing hostname leaf is stale": {
+			snapshot: hostnameLowest,
+			assignment: &tas.TopologyAssignment{
+				Domains: []tas.TopologyDomainAssignment{{Values: []string{"n2"}}},
+			},
+			wantStale:       true,
+			wantStaleDomain: "n2",
+		},
+		"deleted node is stale even when its hostname matches an existing root domain ID": {
+			snapshot: hostnameLowest,
+			assignment: &tas.TopologyAssignment{
+				Domains: []tas.TopologyDomainAssignment{{Values: []string{"b1"}}},
+			},
+			wantStale:       true,
+			wantStaleDomain: "b1",
+		},
+		"existing non-hostname leaf is not stale": {
+			snapshot: rackLowest,
+			assignment: &tas.TopologyAssignment{
+				Domains: []tas.TopologyDomainAssignment{{Values: []string{"b1", "r1"}}},
+			},
+		},
+		"missing non-hostname leaf is stale": {
+			snapshot: rackLowest,
+			assignment: &tas.TopologyAssignment{
+				Domains: []tas.TopologyDomainAssignment{{Values: []string{"b1", "r2"}}},
+			},
+			wantStale:       true,
+			wantStaleDomain: "b1",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			gotStale, gotStaleDomain := tc.snapshot(t).IsTopologyAssignmentStale(tc.assignment)
+			if gotStale != tc.wantStale {
+				t.Errorf("IsTopologyAssignmentStale() stale = %t, want %t", gotStale, tc.wantStale)
+			}
+			if gotStaleDomain != tc.wantStaleDomain {
+				t.Errorf("IsTopologyAssignmentStale() stale domain = %q, want %q", gotStaleDomain, tc.wantStaleDomain)
+			}
+		})
+	}
+}
