@@ -71,11 +71,11 @@ func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq.AddUsage(wl.Usage())
 }
 
-// SimulateWorkloadRemoval modifies the snapshot by removing the usage
+// SimulateWorkloadUsageRemoval modifies the snapshot by removing the usage
 // corresponding to the list of workloads from workloads' respective
 // ClusterQueues. It returns a function which can be used to restore
 // this usage.
-func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
+func (s *Snapshot) SimulateWorkloadUsageRemoval(workloads []*workload.Info) func() {
 	type cqUsage struct {
 		cq    kueue.ClusterQueueReference
 		usage workload.Usage
@@ -90,6 +90,20 @@ func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
 	return func() {
 		for _, cqUsage := range cqUsages {
 			s.ClusterQueue(cqUsage.cq).AddUsage(cqUsage.usage)
+		}
+	}
+}
+
+// SimulateWorkloadRemoval modifies the snapshot by removing the list
+// of workloads from workloads' respective ClusterQueues. It returns a
+// function which can be used to restore these workloads.
+func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
+	for _, w := range workloads {
+		s.RemoveWorkload(w)
+	}
+	return func() {
+		for _, w := range workloads {
+			s.AddWorkload(w)
 		}
 	}
 }
