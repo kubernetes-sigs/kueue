@@ -19,6 +19,7 @@ package dra
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -240,9 +241,6 @@ func addExactCount(a, b int64) (int64, error) {
 	return a + b, nil
 }
 
-// getClaimSpec resolves the ResourceClaim(Template) referenced by the PodResourceClaim
-// and returns its *ResourceClaimSpec. A nil spec and nil error mean the reference is
-// empty (both name pointers are nil) and should be skipped.
 // canonicalUnits converts a device count to the unit the queue accounts the
 // logical resource in: milli for CPU, whole ones for everything else. The
 // conversion is where a count that reads as bounded stops being one.
@@ -283,7 +281,11 @@ func chargeFitsCanonicalUnits(podSets []kueue.PodSet, perPodSet map[kueue.PodSet
 	for i := range podSets {
 		ps := &podSets[i]
 		psPath := field.NewPath("spec", "podSets").Index(i)
-		for name, qty := range perPodSet[ps.Name] {
+		// Sorted so a PodSet with more than one bad charge reports them in the
+		// same order every time, rather than whichever the map hands over first.
+		charged := perPodSet[ps.Name]
+		for _, name := range slices.Sorted(maps.Keys(charged)) {
+			qty := charged[name]
 			// The charge is accumulated with Quantity.Add and can leave int64
 			// behind, where Value wraps and reads back as an ordinary count.
 			count := utilmath.SafeValue(qty)
@@ -316,6 +318,9 @@ func chargeFitsCanonicalUnits(podSets []kueue.PodSet, perPodSet map[kueue.PodSet
 	return errs
 }
 
+// getClaimSpec resolves the ResourceClaim(Template) referenced by the PodResourceClaim
+// and returns its *ResourceClaimSpec. A nil spec and nil error mean the reference is
+// empty (both name pointers are nil) and should be skipped.
 func getClaimSpec(ctx context.Context, cl client.Client, namespace string, prc corev1.PodResourceClaim) (*resourcev1.ResourceClaimSpec, error) {
 	switch {
 	case prc.ResourceClaimTemplateName != nil:
