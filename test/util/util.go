@@ -1455,6 +1455,29 @@ func FindNonFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
 	return active
 }
 
+// DeleteWorkloadSliceAndAwaitDeletion deletes the named workload slice and waits
+// until it is gone, stripping the resource-in-use finalizer if it blocks removal.
+// Used by elastic-job tests to emulate a rollout garbage-collecting an origin
+// (root) slice while later slices and their pods still point at its name.
+func DeleteWorkloadSliceAndAwaitDeletion(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
+	ginkgo.GinkgoHelper()
+	slice := &kueue.Workload{}
+	gomega.Expect(k8sClient.Get(ctx, key, slice)).To(gomega.Succeed())
+	gomega.Expect(k8sClient.Delete(ctx, slice)).To(gomega.Succeed())
+	gomega.Eventually(func(g gomega.Gomega) {
+		wl := &kueue.Workload{}
+		err := k8sClient.Get(ctx, key, wl)
+		if apierrors.IsNotFound(err) {
+			return
+		}
+		g.Expect(err).To(gomega.Succeed())
+		if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
+			g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, wl))).To(gomega.Succeed())
+		}
+		g.Expect(apierrors.IsNotFound(k8sClient.Get(ctx, key, wl))).To(gomega.BeTrue())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 // ExpectWorkloadSliceAdmittedBeforeOldFinished watches workload events and asserts
 // that the old workload slice is not marked Finished before the new slice is Admitted.
 // The watcher must be started before the scale-up that triggers the replacement.

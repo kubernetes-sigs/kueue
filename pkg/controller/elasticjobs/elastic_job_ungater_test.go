@@ -1002,17 +1002,24 @@ func TestReconcile(t *testing.T) {
 				return
 			}
 
-			// The ungater reconciles by the stable slice-chain key, not by an
-			// individual workload name, so derive the request key from the chain.
-			key := types.NamespacedName{
-				Namespace: tc.workloads[0].Namespace,
-				Name:      workloadslicing.SliceName(&tc.workloads[0]),
+			// The ungater now reconciles by the chain's ACTIVE slice: the enqueue
+			// handlers resolve it via activeSlice, so mirror that here to pick the
+			// request key. Expectations stay keyed by the stable chain key (the
+			// active slice's origin name).
+			active, err := ungater.activeSlice(ctx, &tc.workloads[0])
+			if err != nil {
+				t.Fatalf("resolving active slice: %v", err)
 			}
+			if active == nil {
+				active = &tc.workloads[0]
+			}
+			key := types.NamespacedName{Namespace: active.Namespace, Name: active.Name}
+			sliceKey := types.NamespacedName{Namespace: active.Namespace, Name: workloadslicing.SliceName(active)}
 			if len(tc.expectUIDs) > 0 {
-				ungater.expectationsStore.ExpectUIDs(log, key, tc.expectUIDs)
+				ungater.expectationsStore.ExpectUIDs(log, sliceKey, tc.expectUIDs)
 			}
 
-			_, err := ungater.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			_, err = ungater.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 			if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
