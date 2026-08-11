@@ -1665,14 +1665,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		remainingPrimary -= dom.state
 		result = append(result, dom)
 	}
-	// The error below is not gated by the verbosity level, so log a summary of
-	// the snapshot instead of the leaf domains themselves. There is one leaf per
-	// node when the lowest topology level is the hostname, so dumping them here
-	// grows the log line with the size of the cluster.
-	var lastDomainID utiltas.TopologyDomainID
-	if len(domains) > 0 {
-		lastDomainID = domains[len(domains)-1].id
-	}
+	// Error logs are not verbosity-gated; dumping leaves scales with cluster size.
 	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
 		"remainingCount", remainingPrimary,
 		"remainingLeaderCount", remainingLeaderCount,
@@ -1680,10 +1673,8 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		"leaderCount", leaderCount,
 		"sliceSize", sliceSize,
 		"unconstrained", unconstrained,
-		"slices", slices,
 		"topologyName", s.topologyName,
 		"domainCount", len(domains),
-		"lastDomainID", lastDomainID,
 		"leafCount", len(s.leaves))
 	s.logLeafDomainsIfVerbose()
 	return nil

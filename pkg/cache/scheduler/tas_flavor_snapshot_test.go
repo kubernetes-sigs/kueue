@@ -1273,10 +1273,8 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 		"leaderCount":          int32(0),
 		"sliceSize":            int32(1),
 		"unconstrained":        false,
-		"slices":               false,
 		"topologyName":         kueue.TopologyReference("tas-topology"),
 		"domainCount":          int64(1),
-		"lastDomainID":         tas.TopologyDomainID("rack-1"),
 		"leafCount":            int64(2),
 	}
 
