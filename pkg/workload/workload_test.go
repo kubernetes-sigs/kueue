@@ -1022,6 +1022,39 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// A negative reaching multiplyBy flips the sign of every output its input
+		// generates, which then comes off what another input generated.
+		"transformNegativeMultiplierDoesNotSpendAGeneratedOutput": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/credit", "8").
+					Request("example.com/slot", "3").
+					Request("example.com/node", "-2").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:    "example.com/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				},
+				{
+					Input:      "example.com/slot",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "example.com/node",
+					Outputs:    corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"):  8,
+						corev1.ResourceName("example.com/node"): 0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		// The Pod aggregation adds the containers together, so a negative left
 		// until after it is spent before anything can see it.
 		"negativeRequestInAnotherContainerDoesNotSpendTheFirst": {
