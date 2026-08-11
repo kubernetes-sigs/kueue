@@ -2538,6 +2538,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 	// crafts a Workload with owner annotations pointing to a different Job
 	// to trigger unauthorized deletion of that Job's remote workload.
 	ginkgo.It("Should reject a workload with spoofed owner annotations without deleting the victim Job's remote workload", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueStrictValidation, true)
 		// Step 1: Create the legitimate victim Job and let it get a remote workload.
 		victimJob := testingjob.MakeJob("victim-job", managerNs.Name).
 			ManagedBy(kueue.MultiKueueControllerName).

@@ -280,7 +280,10 @@ func TestWlReconcile(t *testing.T) {
 			},
 		},
 		"unmanaged wl (spoofed owner annotation) is rejected": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations: false,
+				features.MultiKueueStrictValidation:    true,
+			},
 			reconcileFor: "wl1",
 			managersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().PrebuiltWorkloadLabel("different-wl").Obj(),
