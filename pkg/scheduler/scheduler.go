@@ -755,16 +755,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
 	newTargets []*preemption.Target) schdcache.FitsCheck {
-	// Dedup by workload.Key so a victim present in both preemptedWorkloads and
-	// newTargets is only subtracted once (see kubernetes-sigs/kueue#14155).
-	toRemove := maps.Clone(preemptedWorkloads)
-	if toRemove == nil {
-		toRemove = make(preemption.PreemptedWorkloads, len(newTargets))
-	}
-	for _, target := range newTargets {
-		toRemove[workload.Key(target.WorkloadInfo.Obj)] = target.WorkloadInfo
-	}
-	workloads := slices.Collect(maps.Values(toRemove))
+	workloads := preemptedWorkloads.WorkloadsToRemove(newTargets)
 	revertUsage := snapshot.SimulateWorkloadUsageRemoval(workloads)
 	defer revertUsage()
 	return cq.Fits(*usage)
