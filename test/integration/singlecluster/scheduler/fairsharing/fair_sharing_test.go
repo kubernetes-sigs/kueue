@@ -430,6 +430,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		)
 
 		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RecomputeAssignmentUponPreemptionTargetsOverlap, true)
+
 			createCohort(utiltestingapi.MakeCohort("cohort-a").Obj())
 
 			cqHero = createQueue(utiltestingapi.MakeClusterQueue("cq-hero").
