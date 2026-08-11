@@ -1499,8 +1499,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 	}
 }
 
-// newObservedLogger returns a logger discarding its output, together with the
-// entries it observed, so that a test can assert on what was logged.
+// newObservedLogger returns a logger that discards output and an observer of its entries.
 func newObservedLogger(level zapcore.Level) (logr.Logger, *observer.ObservedLogs) {
 	logsObserver, observedLogs := observer.New(level)
 	logger := crzap.New(
@@ -1516,24 +1515,23 @@ func newObservedLogger(level zapcore.Level) (logr.Logger, *observer.ObservedLogs
 }
 
 func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
-	// The leaf domains are keyed by hostname, so the snapshot holds one leaf per
-	// node. Their identifiers must not end up in the error entry, which is not
-	// gated by the verbosity level.
+	// Error entries are not verbosity-gated, so leaf IDs must stay out of them.
 	newSnapshot := func(log logr.Logger) *TASFlavorSnapshot {
-		snapshot := newTASFlavorSnapshot(log, "tas-topology", []string{corev1.LabelHostname}, nil, &defaultChecker{})
+		nodes := make([]*corev1.Node, 0, 2)
 		for _, name := range []string{"node-a", "node-b"} {
-			snapshot.addNode(node.MakeNode(name).
+			nodes = append(nodes, node.MakeNode(name).
 				Label(corev1.LabelHostname, name).
 				StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")}).
 				Ready().
 				Obj())
 		}
-		return snapshot
+		return newTASFlavorSnapshot(log, "tas-topology", newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), nil, &defaultChecker{})
 	}
-	// A single domain with room for one pod cannot accommodate the ten requested
-	// ones, which violates the assumptions of the algorithm.
+	// One domain with capacity 1 cannot satisfy count 10.
 	callWithViolatedAssumptions := func(snapshot *TASFlavorSnapshot) []*domain {
-		return snapshot.updateCountsToMinimumGeneric([]*domain{{id: "rack-1", state: 1}}, 10, 0, 1, false, false)
+		dom := &domain{id: "rack-1", idx: 0}
+		snapshot.stateOf(dom).state = 1
+		return snapshot.updateCountsToMinimumGeneric([]*domain{dom}, 10, 0, 1, false, false)
 	}
 	wantErrorFields := map[string]any{
 		"error":                "code assumptions violated",
@@ -1569,7 +1567,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 		if diff := cmp.Diff(wantErrorFields, fields); diff != "" {
 			t.Errorf("Observed error fields mismatch (-want +got):\n%s", diff)
 		}
-		// Guard against the leaf domains reaching the entry under any other key.
+		// Leaf IDs must not appear under any error field.
 		for _, leafDomainID := range []string{"node-a", "node-b"} {
 			if rendered := fmt.Sprint(fields); strings.Contains(rendered, leafDomainID) {
 				t.Errorf("Observed error entry mentions leaf domain %q: %s", leafDomainID, rendered)

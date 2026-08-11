@@ -1616,10 +1616,7 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		remainingPrimary -= domState.state
 		result = append(result, dom)
 	}
-	// The error below is not gated by the verbosity level, so log a summary of
-	// the snapshot instead of the leaf domains themselves. There is one leaf per
-	// node when the lowest topology level is the hostname, so dumping them here
-	// grows the log line with the size of the cluster.
+	// Error logs are not verbosity-gated; dumping leaves scales with cluster size.
 	var lastDomainID utiltas.TopologyDomainID
 	if len(domains) > 0 {
 		lastDomainID = domains[len(domains)-1].id
@@ -1640,9 +1637,8 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 	return nil
 }
 
-// logLeafDomainsIfVerbose logs the identifiers of the snapshot's leaf domains.
-// The line grows with the number of nodes in the topology, so it is emitted at
-// the same verbosity the scheduler dumps the whole snapshot at.
+// logLeafDomainsIfVerbose logs leaf domain IDs at V(6).
+// The list scales with node count, so it stays off the Error path.
 func (s *TASFlavorSnapshot) logLeafDomainsIfVerbose() {
 	logV := s.log.V(6)
 	if !logV.Enabled() {
