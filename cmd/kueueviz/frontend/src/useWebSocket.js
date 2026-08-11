@@ -61,13 +61,11 @@ const useWebSocket = (url) => {
     ws.onopen = () => {
       handledErrorEvent = false;
       setError(null);
-      console.log(`Connected to WebSocket: ${fullUrl}`);
     };
 
     ws.onmessage = (event) => {
       const result = parseWebSocketMessage(event.data);
       if (result.error) {
-        console.error('Failed to parse WebSocket message:', event.data);
         setError(result.error);
       } else {
         setData(result.data);
@@ -75,7 +73,6 @@ const useWebSocket = (url) => {
     };
 
     ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
       handledErrorEvent = true;
       if (ws.readyState === WebSocket.CONNECTING) {
         setError('Failed to connect to WebSocket.');
@@ -86,7 +83,6 @@ const useWebSocket = (url) => {
     };
 
     ws.onclose = (event) => {
-      console.log('WebSocket connection closed', 'code:', event.code, 'reason:', event.reason);
       if (handledErrorEvent) {
         return;
       }

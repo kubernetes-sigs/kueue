@@ -91,6 +91,11 @@ func (w *WorkloadWebhook) ValidateCreate(ctx context.Context, wl *kueue.Workload
 func (w *WorkloadWebhook) ValidateUpdate(ctx context.Context, oldWL, newWL *kueue.Workload) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Validating update")
+	if reservesQuotaWithoutAdmission(oldWL) && reservesQuotaWithoutAdmission(newWL) {
+		// An update that introduces this is refused and says so, so the one
+		// worth a trace is the one that was already like this and goes through.
+		log.V(3).Info("Workload already reserves quota with no admission recorded, letting the update through so it can converge")
+	}
 	return nil, ValidateWorkloadUpdate(newWL, oldWL).ToAggregate()
 }
 
@@ -125,7 +130,7 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 
 	statusPath := field.NewPath("status")
 	if workload.HasQuotaReservation(obj) {
-		allErrs = append(allErrs, validateAdmission(obj, statusPath.Child("admission"))...)
+		allErrs = append(allErrs, validateAdmission(obj, oldObj, statusPath.Child("admission"))...)
 	}
 
 	allErrs = append(allErrs, metav1validation.ValidateConditions(obj.Status.Conditions, statusPath.Child("conditions"))...)
@@ -267,8 +272,24 @@ func validateTolerations(tolerations []corev1.Toleration, fldPath *field.Path) f
 	return allErrors
 }
 
-func validateAdmission(obj *kueue.Workload, path *field.Path) field.ErrorList {
+// reservesQuotaWithoutAdmission reports a Workload carrying the QuotaReserved
+// condition with no status.admission.
+func reservesQuotaWithoutAdmission(wl *kueue.Workload) bool {
+	return wl != nil && workload.HasQuotaReservation(wl) && wl.Status.Admission == nil
+}
+
+// validateAdmission is reached on the QuotaReserved condition rather than on the
+// field, so it has to answer for a Workload that carries one without the other.
+func validateAdmission(obj, oldObj *kueue.Workload, path *field.Path) field.ErrorList {
 	admission := obj.Status.Admission
+	if admission == nil {
+		// One that was already like this goes through, so it can converge and be
+		// removed, the way validateReclaimablePods lets a stale count through.
+		if reservesQuotaWithoutAdmission(oldObj) {
+			return nil
+		}
+		return field.ErrorList{field.Required(path, "must be set while the QuotaReserved condition is true")}
+	}
 	var allErrs field.ErrorList
 
 	names := sets.New[kueue.PodSetReference]()

@@ -27,6 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -132,6 +133,41 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Obj(),
+			},
+		},
+		"keep pod gated while admission check is pending": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "1").
+								Obj()).
+							Obj(), now,
+					).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 			},
 		},
@@ -631,6 +667,20 @@ func TestReconcile(t *testing.T) {
 							Obj(), now,
 					).
 					AdmittedAt(true, now).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "provisioning",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{{
+							Name: kueue.DefaultPodSetName,
+							Annotations: map[string]string{
+								autoscaling.ProvisioningRequestPodAnnotationKey: "wl-slice-1-provisioning-1",
+								autoscaling.ProvisioningClassPodAnnotationKey:   "atomic",
+							},
+							NodeSelector: map[string]string{
+								"autoscaling.gke.io/provisioning-request": "current-booking",
+							},
+						}},
+					}).
 					Obj(),
 				// Root slice, now Finished by the replacement. It is the chain key
 				// (reconcile target) and persists for the life of the job, so the
@@ -655,6 +705,8 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod-from-parent", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-provisioning-1").
+					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
 					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 				*testingpod.MakePod("pod-from-scale-up", "ns").
@@ -664,13 +716,23 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
+				// A stale immutable consume value must keep the pod gated and
+				// must not consume capacity from the replacement request.
 				*testingpod.MakePod("pod-from-parent", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-provisioning-1").
+					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
+					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
+				// A compatible gated pod receives the current request identity
+				// and selector before its elastic gate is removed.
 				*testingpod.MakePod("pod-from-scale-up", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-slice-1-provisioning-1").
+					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
+					NodeSelector("autoscaling.gke.io/provisioning-request", "current-booking").
 					Obj(),
 			},
 		},
@@ -970,6 +1032,55 @@ func TestReconcile(t *testing.T) {
 			}
 			if diff := gocmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" {
 				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestShouldUngate(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	now := time.Now().Truncate(time.Second)
+
+	admittedElasticWorkload := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+			AdmittedAt(true, now)
+	}
+
+	testCases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"fully admitted elastic workload": {
+			workload: admittedElasticWorkload().Obj(),
+			want:     true,
+		},
+		"quota reserved with pending admission check": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "provisioning",
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+		},
+		"finished admitted elastic workload": {
+			workload: admittedElasticWorkload().FinishedAt(now).Obj(),
+		},
+		"admitted non-elastic workload": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				AdmittedAt(true, now).
+				Obj(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := shouldUngate(tc.workload); got != tc.want {
+				t.Errorf("shouldUngate() = %v, want %v", got, tc.want)
 			}
 		})
 	}

@@ -187,7 +187,7 @@ func Test_PushOrUpdate(t *testing.T) {
 			if diff := cmp.Diff(tc.wantWorkload, newWl, cmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected workloads in heap (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantInAdmissibleWorkloads, cq.inadmissibleWorkloads, cmpOpts...); len(diff) != 0 {
+			if diff := cmp.Diff(tc.wantInAdmissibleWorkloads, cq.workloads.inadmissible, cmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected inadmissibleWorkloads (-want,+got):\n%s", diff)
 			}
 		})
@@ -888,14 +888,14 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 	}{
 		"the workload stays tracked as inadmissible": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
-				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+				cq.workloads.InsertInadmissible(workloadKey(wInfo), wInfo)
 			},
 			wantInInadmissible: true,
 			wantCPU:            singleWorkloadCPU,
 		},
 		"requeuing all inadmissible workloads moves it to the heap": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
-				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+				cq.workloads.InsertInadmissible(workloadKey(wInfo), wInfo)
 			},
 			afterResync: func(cq *ClusterQueue, _ *workload.Info) {
 				cq.namespaceSelector = labels.Everything()
@@ -907,7 +907,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 		},
 		"deleting the workload removes it and its resources": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
-				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+				cq.workloads.InsertInadmissible(workloadKey(wInfo), wInfo)
 			},
 			afterResync: func(cq *ClusterQueue, wInfo *workload.Info) {
 				cq.Delete(log, workloadKey(wInfo))
@@ -949,9 +949,9 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 				tc.afterResync(cq, wInfo)
 			}
 
-			inHeap := cq.heap.GetByKey(key) != nil
-			inInadmissible := cq.inadmissibleWorkloads.hasKey(key)
-			inInflight := cq.inflight != nil && workloadKey(cq.inflight) == key
+			inHeap := cq.workloads.active.GetByKey(key) != nil
+			inInadmissible := cq.workloads.inadmissible.hasKey(key)
+			inInflight := cq.workloads.inflight != nil && workloadKey(cq.workloads.inflight) == key
 			if inHeap != tc.wantInHeap {
 				t.Errorf("in heap = %v, want %v", inHeap, tc.wantInHeap)
 			}
@@ -961,7 +961,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 			if inInflight != tc.wantInInflight {
 				t.Errorf("in inflight = %v, want %v", inInflight, tc.wantInInflight)
 			}
-			if got := cq.pendingActive(); got.Total() != tc.wantPendingActive {
+			if got := cq.workloads.pendingActive(); got.Total() != tc.wantPendingActive {
 				t.Errorf("pending active workloads = %d, want %d", got.Total(), tc.wantPendingActive)
 			}
 			if gotCPU, wantCPU := cq.pendingResources()[corev1.ResourceCPU], tc.wantCPU(wInfo); gotCPU != wantCPU {
@@ -1038,8 +1038,8 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 	if cq.PendingTotal() != wantPending {
 		t.Errorf("clusterQueue's workload number not right, want %v, got %v", wantPending, cq.PendingTotal())
 	}
-	if cq.inadmissibleWorkloads.len() != len(inadmissibleWorkloads) {
-		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), cq.inadmissibleWorkloads.len())
+	if cq.workloads.inadmissible.len() != len(inadmissibleWorkloads) {
+		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), cq.workloads.inadmissible.len())
 	}
 
 	cq.DeleteFromLocalQueue(log, qImpl, nil, nil)
@@ -1426,7 +1426,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
-			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
+			gotInadmissible := cq.workloads.inadmissible.hasKey(workload.Key(wl))
 			if diff := cmp.Diff(tc.wantInadmissible, gotInadmissible); diff != "" {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
 			}
@@ -1660,7 +1660,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
-			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
+			gotInadmissible := cq.workloads.inadmissible.hasKey(workload.Key(wl))
 			if test.wantInadmissible != gotInadmissible {
 				t.Errorf("Got inadmissible after requeue %t, want %t", gotInadmissible, test.wantInadmissible)
 			}
@@ -2124,7 +2124,7 @@ func TestGetNoFitReason(t *testing.T) {
 			wlKey := workload.Key(wl)
 			if tc.deleteFromInadmissible {
 				cq.rwm.Lock()
-				cq.inadmissibleWorkloads.delete(wlKey)
+				cq.workloads.inadmissible.delete(wlKey)
 				cq.rwm.Unlock()
 			}
 

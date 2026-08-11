@@ -32,44 +32,86 @@ func domainIDs(domains []*domain) []string {
 	return utilslices.Map(domains, func(d **domain) string { return string((*d).id) })
 }
 
+func addDomainWithState(s *TASFlavorSnapshot, d *domain, st domainState) *domain {
+	d.idx = len(s.state)
+	s.state = append(s.state, st)
+	return d
+}
+
 func TestSelectOptimalDomainSetToFit(t *testing.T) {
-	d1 := &domain{id: "d1", levelValues: []string{"d1"}, state: 9, sliceState: 9, leaderState: 1, stateWithLeader: 8, sliceStateWithLeader: 8}
-	d2 := &domain{id: "d2", levelValues: []string{"d2"}, state: 6, sliceState: 6, leaderState: 0, stateWithLeader: 6, sliceStateWithLeader: 6}
-	d3 := &domain{id: "d3", levelValues: []string{"d3"}, state: 4, sliceState: 4, leaderState: 1, stateWithLeader: 3, sliceStateWithLeader: 3}
-	d4 := &domain{id: "d4", levelValues: []string{"d4"}, state: 2, sliceState: 2, leaderState: 0, stateWithLeader: 2, sliceStateWithLeader: 2}
+	d1 := testDomainSpec{
+		domain: domain{id: "d1", levelValues: []string{"d1"}},
+		state: domainState{
+			state:                9,
+			sliceState:           9,
+			leaderState:          1,
+			stateWithLeader:      8,
+			sliceStateWithLeader: 8,
+		},
+	}
+	d2 := testDomainSpec{
+		domain: domain{id: "d2", levelValues: []string{"d2"}},
+		state: domainState{
+			state:                6,
+			sliceState:           6,
+			leaderState:          0,
+			stateWithLeader:      6,
+			sliceStateWithLeader: 6,
+		},
+	}
+	d3 := testDomainSpec{
+		domain: domain{id: "d3", levelValues: []string{"d3"}},
+		state: domainState{
+			state:                4,
+			sliceState:           4,
+			leaderState:          1,
+			stateWithLeader:      3,
+			sliceStateWithLeader: 3,
+		},
+	}
+	d4 := testDomainSpec{
+		domain: domain{id: "d4", levelValues: []string{"d4"}},
+		state: domainState{
+			state:                2,
+			sliceState:           2,
+			leaderState:          0,
+			stateWithLeader:      2,
+			sliceStateWithLeader: 2,
+		},
+	}
 
 	testCases := map[string]struct {
-		domains     []*domain
+		domains     []testDomainSpec
 		workerCount int32
 		leaderCount int32
 		want        []string
 	}{
 		"no fit": {
-			domains:     []*domain{d1, d2, d3, d4},
+			domains:     []testDomainSpec{d1, d2, d3, d4},
 			workerCount: 22,
 			leaderCount: 0,
 			want:        []string{},
 		},
 		"simple fit one domain": {
-			domains:     []*domain{d1, d2, d3, d4},
+			domains:     []testDomainSpec{d1, d2, d3, d4},
 			workerCount: 5,
 			leaderCount: 1,
 			want:        []string{"d1"},
 		},
 		"perfect fit with two domains": {
-			domains:     []*domain{d1, d2, d3, d4},
+			domains:     []testDomainSpec{d1, d2, d3, d4},
 			workerCount: 9,
 			leaderCount: 1,
 			want:        []string{"d2", "d3"},
 		},
 		"perfect fit with two domains 2": {
-			domains:     []*domain{d1, d2, d3, d4},
+			domains:     []testDomainSpec{d1, d2, d3, d4},
 			workerCount: 10,
 			leaderCount: 1,
 			want:        []string{"d1", "d4"},
 		},
 		"best fit, single domain": {
-			domains:     []*domain{d1, d2, d3, d4},
+			domains:     []testDomainSpec{d1, d2, d3, d4},
 			workerCount: 5,
 			leaderCount: 0,
 			want:        []string{"d2"},
@@ -79,8 +121,9 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
-			got := selectOptimalDomainSetToFit(s, tc.domains, tc.workerCount, tc.leaderCount, 1, true)
+			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), nil, &defaultChecker{})
+			domains := addDomainsWithState(s, tc.domains)
+			got := selectOptimalDomainSetToFit(s, domains, tc.workerCount, tc.leaderCount, 1, true)
 			gotIDs := make([]string, len(got))
 			for i, d := range got {
 				gotIDs[i] = string(d.id)
@@ -107,12 +150,13 @@ func TestSelectOptimalDomainSetToFitStableTieBreak(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
+			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), nil, &defaultChecker{})
+			equalState := domainState{state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3}
 			domains := []*domain{
-				{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
-				{id: "leaf-m", levelValues: []string{"block-b", "host-m"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
-				{id: "leaf-z", levelValues: []string{"block-a", "host-z"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
-				{id: "leaf-zz", levelValues: []string{"block-a", "host-zz"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+				addDomainWithState(s, &domain{id: "leaf-a", levelValues: []string{"block-b", "host-a"}}, equalState),
+				addDomainWithState(s, &domain{id: "leaf-m", levelValues: []string{"block-b", "host-m"}}, equalState),
+				addDomainWithState(s, &domain{id: "leaf-z", levelValues: []string{"block-a", "host-z"}}, equalState),
+				addDomainWithState(s, &domain{id: "leaf-zz", levelValues: []string{"block-a", "host-zz"}}, equalState),
 			}
 
 			got := selectOptimalDomainSetToFit(s, domains, 1, 0, 1, tc.prioritizeByEntropy)
@@ -126,23 +170,43 @@ func TestSelectOptimalDomainSetToFitStableTieBreak(t *testing.T) {
 
 func TestCompareDomainCapacityAndEntropy(t *testing.T) {
 	testCases := map[string]struct {
-		domains []*domain
+		domains func(s *TASFlavorSnapshot) []*domain
 		want    []string
 	}{
 		"tie-breaking on level values when capacity and entropy are equal": {
-			domains: []*domain{
-				{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
-				{id: "leaf-m", levelValues: []string{"block-b", "host-m"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
-				{id: "leaf-z", levelValues: []string{"block-a", "host-z"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
+			domains: func(s *TASFlavorSnapshot) []*domain {
+				leaderState := domainState{leaderState: 1, sliceStateWithLeader: 5}
+				childState := domainState{state: 2}
+				return []*domain{
+					addDomainWithState(s, &domain{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, children: []*domain{
+						addDomainWithState(s, &domain{}, childState), addDomainWithState(s, &domain{}, childState),
+					}}, leaderState),
+					addDomainWithState(s, &domain{id: "leaf-m", levelValues: []string{"block-b", "host-m"}, children: []*domain{
+						addDomainWithState(s, &domain{}, childState), addDomainWithState(s, &domain{}, childState),
+					}}, leaderState),
+					addDomainWithState(s, &domain{id: "leaf-z", levelValues: []string{"block-a", "host-z"}, children: []*domain{
+						addDomainWithState(s, &domain{}, childState), addDomainWithState(s, &domain{}, childState),
+					}}, leaderState),
+				}
 			},
 			want: []string{"leaf-z", "leaf-a", "leaf-m"},
 		},
 		"capacity overrides entropy, and higher entropy overrides level values": {
-			domains: []*domain{
-				{id: "lower-leader", levelValues: []string{"a"}, leaderState: 0, sliceStateWithLeader: 100, children: []*domain{{state: 50}, {state: 50}}},
-				{id: "lower-capacity", levelValues: []string{"b"}, leaderState: 1, sliceStateWithLeader: 4, children: []*domain{{state: 2}, {state: 2}}},
-				{id: "low-entropy", levelValues: []string{"c"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 4}, {state: 0}}},
-				{id: "high-entropy", levelValues: []string{"d"}, leaderState: 1, sliceStateWithLeader: 5, children: []*domain{{state: 2}, {state: 2}}},
+			domains: func(s *TASFlavorSnapshot) []*domain {
+				return []*domain{
+					addDomainWithState(s, &domain{id: "lower-leader", levelValues: []string{"a"}, children: []*domain{
+						addDomainWithState(s, &domain{}, domainState{state: 50}), addDomainWithState(s, &domain{}, domainState{state: 50}),
+					}}, domainState{leaderState: 0, sliceStateWithLeader: 100}),
+					addDomainWithState(s, &domain{id: "lower-capacity", levelValues: []string{"b"}, children: []*domain{
+						addDomainWithState(s, &domain{}, domainState{state: 2}), addDomainWithState(s, &domain{}, domainState{state: 2}),
+					}}, domainState{leaderState: 1, sliceStateWithLeader: 4}),
+					addDomainWithState(s, &domain{id: "low-entropy", levelValues: []string{"c"}, children: []*domain{
+						addDomainWithState(s, &domain{}, domainState{state: 4}), addDomainWithState(s, &domain{}, domainState{state: 0}),
+					}}, domainState{leaderState: 1, sliceStateWithLeader: 5}),
+					addDomainWithState(s, &domain{id: "high-entropy", levelValues: []string{"d"}, children: []*domain{
+						addDomainWithState(s, &domain{}, domainState{state: 2}), addDomainWithState(s, &domain{}, domainState{state: 2}),
+					}}, domainState{leaderState: 1, sliceStateWithLeader: 5}),
+				}
 			},
 			want: []string{"high-entropy", "low-entropy", "lower-capacity", "lower-leader"},
 		},
@@ -150,9 +214,12 @@ func TestCompareDomainCapacityAndEntropy(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			slices.SortFunc(tc.domains, compareDomainCapacityAndEntropy)
+			_, log := utiltesting.ContextWithLog(t)
+			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), nil, &defaultChecker{})
+			got := tc.domains(s)
+			slices.SortFunc(got, s.compareDomainCapacityAndEntropy)
 
-			if diff := cmp.Diff(tc.want, domainIDs(tc.domains)); diff != "" {
+			if diff := cmp.Diff(tc.want, domainIDs(got)); diff != "" {
 				t.Errorf("unexpected domain order (-want,+got): %s", diff)
 			}
 		})
@@ -160,85 +227,124 @@ func TestCompareDomainCapacityAndEntropy(t *testing.T) {
 }
 
 func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
-	d1 := &domain{id: "d1", levelValues: []string{"d1"}, state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
-	d2 := &domain{id: "d2", levelValues: []string{"d2"}, state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
-	d3 := &domain{id: "d3", levelValues: []string{"d3"}, state: 18, sliceState: 18, stateWithLeader: 18, leaderState: 0, sliceStateWithLeader: 18}
-	d4 := &domain{id: "d4", levelValues: []string{"d4"}, state: 10, sliceState: 10, stateWithLeader: 10, leaderState: 0, sliceStateWithLeader: 10}
-	d5 := &domain{id: "d5", levelValues: []string{"d5"}, state: 2, sliceState: 2, stateWithLeader: 2, leaderState: 0, sliceStateWithLeader: 2}
+	d1 := testDomainSpec{
+		domain: domain{id: "d1", levelValues: []string{"d1"}},
+		state: domainState{
+			state:                18,
+			sliceState:           18,
+			stateWithLeader:      18,
+			leaderState:          0,
+			sliceStateWithLeader: 18,
+		},
+	}
+	d2 := testDomainSpec{
+		domain: domain{id: "d2", levelValues: []string{"d2"}},
+		state: domainState{
+			state:                18,
+			sliceState:           18,
+			stateWithLeader:      18,
+			leaderState:          0,
+			sliceStateWithLeader: 18,
+		},
+	}
+	d3 := testDomainSpec{
+		domain: domain{id: "d3", levelValues: []string{"d3"}},
+		state: domainState{
+			state:                18,
+			sliceState:           18,
+			stateWithLeader:      18,
+			leaderState:          0,
+			sliceStateWithLeader: 18,
+		},
+	}
+	d4 := testDomainSpec{
+		domain: domain{id: "d4", levelValues: []string{"d4"}},
+		state: domainState{
+			state:                10,
+			sliceState:           10,
+			stateWithLeader:      10,
+			leaderState:          0,
+			sliceStateWithLeader: 10,
+		},
+	}
+	d5 := testDomainSpec{
+		domain: domain{id: "d5", levelValues: []string{"d5"}},
+		state: domainState{
+			state:                2,
+			sliceState:           2,
+			stateWithLeader:      2,
+			leaderState:          0,
+			sliceStateWithLeader: 2,
+		},
+	}
 
 	testCases := map[string]struct {
-		domains     []*domain
+		domains     []testDomainSpec
 		sliceCount  int32
 		leaderCount int32
 		sliceSize   int32
 		threshold   int32
-		want        []*domain
+		want        map[string]domainState
 	}{
 		"simple balanced placement on two domains": {
-			domains:     []*domain{d1, d2, d3},
+			domains:     []testDomainSpec{d1, d2, d3},
 			sliceCount:  20,
 			leaderCount: 0,
 			sliceSize:   1,
 			threshold:   10,
-			want: []*domain{
-				{id: "d1", sliceState: 10, state: 10, stateWithLeader: 10, sliceStateWithLeader: 10, leaderState: 0},
-				{id: "d2", sliceState: 10, state: 10, stateWithLeader: 10, sliceStateWithLeader: 10, leaderState: 0},
+			want: map[string]domainState{
+				"d1": {sliceState: 10, state: 10, stateWithLeader: 10, sliceStateWithLeader: 10, leaderState: 0},
+				"d2": {sliceState: 10, state: 10, stateWithLeader: 10, sliceStateWithLeader: 10, leaderState: 0},
 			},
 		},
 		"simple placement on three domains": {
-			domains:     []*domain{d1, d2, d3},
+			domains:     []testDomainSpec{d1, d2, d3},
 			sliceCount:  40,
 			leaderCount: 0,
 			sliceSize:   1,
 			threshold:   13,
-			want: []*domain{
-				{id: "d1", sliceState: 14, state: 14, stateWithLeader: 14, sliceStateWithLeader: 14, leaderState: 0},
-				{id: "d2", sliceState: 13, state: 13, stateWithLeader: 13, sliceStateWithLeader: 13, leaderState: 0},
-				{id: "d3", sliceState: 13, state: 13, stateWithLeader: 13, sliceStateWithLeader: 13, leaderState: 0},
+			want: map[string]domainState{
+				"d1": {sliceState: 14, state: 14, stateWithLeader: 14, sliceStateWithLeader: 14, leaderState: 0},
+				"d2": {sliceState: 13, state: 13, stateWithLeader: 13, sliceStateWithLeader: 13, leaderState: 0},
+				"d3": {sliceState: 13, state: 13, stateWithLeader: 13, sliceStateWithLeader: 13, leaderState: 0},
 			},
 		},
 		"find smallest domain that fits": {
-			domains:     []*domain{d1, d2, d3, d4, d5},
+			domains:     []testDomainSpec{d1, d2, d3, d4, d5},
 			sliceCount:  2,
 			leaderCount: 0,
 			sliceSize:   1,
 			threshold:   2,
-			want: []*domain{
-				{id: "d5", sliceState: 2, state: 2, stateWithLeader: 2, sliceStateWithLeader: 2, leaderState: 0},
+			want: map[string]domainState{
+				"d5": {sliceState: 2, state: 2, stateWithLeader: 2, sliceStateWithLeader: 2, leaderState: 0},
 			},
 		},
 		"correctly select domains": {
-			domains:     []*domain{d1, d2, d3, d4, d5},
+			domains:     []testDomainSpec{d1, d2, d3, d4, d5},
 			sliceCount:  25,
 			leaderCount: 0,
 			sliceSize:   1,
 			threshold:   10,
-			want: []*domain{
-				{id: "d1", sliceState: 15, state: 15, stateWithLeader: 15, sliceStateWithLeader: 15, leaderState: 0},
-				{id: "d4", sliceState: 10, state: 10, stateWithLeader: 10, sliceStateWithLeader: 10, leaderState: 0},
+			want: map[string]domainState{
+				"d1": {sliceState: 15, state: 15, stateWithLeader: 15, sliceStateWithLeader: 15, leaderState: 0},
+				"d4": {sliceState: 10, state: 10, stateWithLeader: 10, sliceStateWithLeader: 10, leaderState: 0},
 			},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			domains := make([]*domain, len(tc.domains))
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
-			for i, d := range tc.domains {
-				clone := *d
-				domains[i] = &clone
-			}
+			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), nil, &defaultChecker{})
+			domains := addDomainsWithState(s, tc.domains)
 
 			got, _ := placeSlicesOnDomainsBalanced(s, domains, tc.sliceCount, tc.leaderCount, tc.sliceSize, tc.threshold)
 
-			if diff := cmp.Diff(
-				tc.want,
-				got,
-				cmp.AllowUnexported(domain{}),
-				cmpopts.IgnoreFields(domain{}, "parent", "children", "levelValues"),
-				cmpopts.SortSlices(func(a, b *domain) bool { return a.id < b.id }),
-			); diff != "" {
+			gotStates := make(map[string]domainState, len(got))
+			for _, d := range got {
+				gotStates[string(d.id)] = *s.stateOf(d)
+			}
+			if diff := cmp.Diff(tc.want, gotStates, cmp.AllowUnexported(domainState{})); diff != "" {
 				t.Errorf("Unexpected domains (-want,+got):\n%s", diff)
 			}
 		})
@@ -247,10 +353,11 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 
 func TestPlaceSlicesOnDomainsBalancedStableTieBreak(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
-	s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
+	s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), nil, &defaultChecker{})
+	equalState := domainState{state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3}
 	domains := []*domain{
-		{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
-		{id: "leaf-z", levelValues: []string{"block-a", "host-z"}, state: 3, sliceState: 3, stateWithLeader: 3, sliceStateWithLeader: 3},
+		addDomainWithState(s, &domain{id: "leaf-a", levelValues: []string{"block-b", "host-a"}}, equalState),
+		addDomainWithState(s, &domain{id: "leaf-z", levelValues: []string{"block-a", "host-z"}}, equalState),
 	}
 
 	got, reason := placeSlicesOnDomainsBalanced(s, domains, 1, 0, 1, 1)
@@ -264,12 +371,13 @@ func TestPlaceSlicesOnDomainsBalancedStableTieBreak(t *testing.T) {
 }
 
 func TestPruneDomainsBelowThreshold(t *testing.T) {
-	domainState := func(d *domain) [5]int32 {
-		return [5]int32{d.state, d.sliceState, d.stateWithLeader, d.sliceStateWithLeader, d.leaderState}
+	domainStateValues := func(s *TASFlavorSnapshot, d *domain) [5]int32 {
+		st := s.stateOf(d)
+		return [5]int32{st.state, st.sliceState, st.stateWithLeader, st.sliceStateWithLeader, st.leaderState}
 	}
 
 	testCases := map[string]struct {
-		domains        func() ([]*domain, map[string]*domain)
+		domains        func(s *TASFlavorSnapshot) ([]*domain, map[string]*domain)
 		threshold      int32
 		sliceSize      int32
 		sliceLevelIdx  int
@@ -278,47 +386,51 @@ func TestPruneDomainsBelowThreshold(t *testing.T) {
 		want           map[string][5]int32
 	}{
 		"keeps worker only domain": {
-			domains: func() ([]*domain, map[string]*domain) {
-				leaderLeaf := &domain{
-					id:                   "leader-leaf",
+			domains: func(s *TASFlavorSnapshot) ([]*domain, map[string]*domain) {
+				leaderLeaf := addDomainWithState(s, &domain{
+					id: "leader-leaf",
+				}, domainState{
 					state:                6,
 					sliceState:           6,
 					leaderState:          1,
 					stateWithLeader:      5,
 					sliceStateWithLeader: 5,
-				}
-				leaderDomain := &domain{
-					id:                   "leader-domain",
+				})
+				leaderDomain := addDomainWithState(s, &domain{
+					id:       "leader-domain",
+					children: []*domain{leaderLeaf},
+				}, domainState{
 					state:                6,
 					sliceState:           6,
 					leaderState:          1,
 					stateWithLeader:      5,
 					sliceStateWithLeader: 5,
-					children:             []*domain{leaderLeaf},
-				}
+				})
 				leaderLeaf.parent = leaderDomain
-				workerOnlyLeaf := &domain{
-					id:                   "worker-only-leaf",
+				workerOnlyLeaf := addDomainWithState(s, &domain{
+					id: "worker-only-leaf",
+				}, domainState{
 					state:                5,
 					sliceState:           5,
 					leaderState:          1,
 					stateWithLeader:      4,
 					sliceStateWithLeader: 4,
-				}
-				workerOnlyDomain := &domain{
-					id:                   "worker-only-domain",
+				})
+				workerOnlyDomain := addDomainWithState(s, &domain{
+					id:       "worker-only-domain",
+					children: []*domain{workerOnlyLeaf},
+				}, domainState{
 					state:                5,
 					sliceState:           5,
 					leaderState:          1,
 					stateWithLeader:      4,
 					sliceStateWithLeader: 4,
-					children:             []*domain{workerOnlyLeaf},
-				}
+				})
 				workerOnlyLeaf.parent = workerOnlyDomain
-				parentDomain := &domain{
+				parentDomain := addDomainWithState(s, &domain{
 					id:       "parent-domain",
 					children: []*domain{leaderDomain, workerOnlyDomain},
-				}
+				}, domainState{})
 				leaderDomain.parent = parentDomain
 				workerOnlyDomain.parent = parentDomain
 				return []*domain{parentDomain}, map[string]*domain{
@@ -344,20 +456,50 @@ func TestPruneDomainsBelowThreshold(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			domains, domainsByName := tc.domains()
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{}, nil, &defaultChecker{})
+			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), nil, &defaultChecker{})
+			domains, domainsByName := tc.domains(s)
 
 			s.pruneDomainsBelowThreshold(domains, tc.threshold, tc.sliceSize, tc.sliceLevelIdx, tc.level, tc.leaderRequired)
 
 			got := make(map[string][5]int32, len(tc.want))
 			for name := range tc.want {
-				got[name] = domainState(domainsByName[name])
+				got[name] = domainStateValues(s, domainsByName[name])
 			}
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected domain state (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestPruneDomainsBelowThresholdPreservesAffinityScore(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
+	s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), nil, &defaultChecker{})
+	prunedLeaf := addDomainWithState(s, &domain{id: "pruned-leaf"}, domainState{
+		sliceState:    1,
+		affinityScore: 100,
+	})
+	keptLeaf := addDomainWithState(s, &domain{id: "kept-leaf"}, domainState{
+		state:           4,
+		sliceState:      4,
+		stateWithLeader: 4,
+		affinityScore:   10,
+	})
+	parent := addDomainWithState(s, &domain{
+		id:       "parent",
+		children: []*domain{prunedLeaf, keptLeaf},
+	}, domainState{})
+	prunedLeaf.parent = parent
+	keptLeaf.parent = parent
+
+	s.pruneDomainsBelowThreshold([]*domain{parent}, 2, 1, 1, 0, false)
+
+	if got, want := s.stateOf(prunedLeaf).affinityScore, int64(100); got != want {
+		t.Errorf("Unexpected pruned leaf affinity score: got %d, want %d", got, want)
+	}
+	if got, want := s.stateOf(parent).affinityScore, int64(110); got != want {
+		t.Errorf("Unexpected parent affinity score: got %d, want %d", got, want)
 	}
 }
 
@@ -422,18 +564,19 @@ func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", []string{"block", "rack"}, nil, &defaultChecker{})
+			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{"block", "rack"}, nil, 0), nil, &defaultChecker{})
 			domainsByID := make(map[string]*domain, len(tc.domains))
 			for _, spec := range tc.domains {
-				d := &domain{
-					id:                   utiltas.TopologyDomainID(spec.id),
-					levelValues:          spec.levelValues,
+				d := addDomainWithState(s, &domain{
+					id:          utiltas.TopologyDomainID(spec.id),
+					levelValues: spec.levelValues,
+				}, domainState{
 					state:                spec.state,
 					sliceState:           spec.sliceState,
 					stateWithLeader:      spec.stateWithLeader,
 					sliceStateWithLeader: spec.sliceStateWithLeader,
 					leaderState:          spec.leaderState,
-				}
+				})
 				if len(spec.parentID) == 0 {
 					s.domainsPerLevel[0][d.id] = d
 				} else {
