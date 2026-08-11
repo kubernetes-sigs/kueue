@@ -17,6 +17,7 @@ limitations under the License.
 package dra
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -28,9 +29,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
-func alt(deviceClass string, count int64) resourcev1.DeviceSubRequest {
+// The subrequest name has to be a DNS label, so it cannot be the class name.
+func alt(name, deviceClass string, count int64) resourcev1.DeviceSubRequest {
 	return resourcev1.DeviceSubRequest{
-		Name:            deviceClass,
+		Name:            name,
 		DeviceClassName: deviceClass,
 		AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
 		Count:           count,
@@ -83,41 +85,41 @@ func TestChargeForPrioritizedList(t *testing.T) {
 		wantErr      bool
 	}{
 		"the largest count among the alternatives is the charge": {
-			req:          faReq("r", alt("fast.example.com", 1), alt("slow.example.com", 3)),
+			req:          faReq("r", alt("fast", "fast.example.com", 1), alt("slow", "slow.example.com", 3)),
 			mapper:       twoClassesOneResource,
 			wantResource: "example.com/gpu",
 			wantCount:    3,
 		},
 		"and the order of the alternatives does not decide it": {
-			req:          faReq("r", alt("slow.example.com", 3), alt("fast.example.com", 1)),
+			req:          faReq("r", alt("slow", "slow.example.com", 3), alt("fast", "fast.example.com", 1)),
 			mapper:       twoClassesOneResource,
 			wantResource: "example.com/gpu",
 			wantCount:    3,
 		},
 		"equal counts charge once rather than twice": {
-			req:          faReq("r", alt("fast.example.com", 2), alt("slow.example.com", 2)),
+			req:          faReq("r", alt("fast", "fast.example.com", 2), alt("slow", "slow.example.com", 2)),
 			mapper:       twoClassesOneResource,
 			wantResource: "example.com/gpu",
 			wantCount:    2,
 		},
 		"one alternative is still a prioritized list": {
-			req:          faReq("r", alt("fast.example.com", 4)),
+			req:          faReq("r", alt("fast", "fast.example.com", 4)),
 			mapper:       twoClassesOneResource,
 			wantResource: "example.com/gpu",
 			wantCount:    4,
 		},
 		"alternatives reaching two logical resources are refused": {
-			req:     faReq("r", alt("fast.example.com", 1), alt("slow.example.com", 8)),
+			req:     faReq("r", alt("fast", "fast.example.com", 1), alt("slow", "slow.example.com", 8)),
 			mapper:  twoResources,
 			wantErr: true,
 		},
 		"an unmapped DeviceClass is refused": {
-			req:     faReq("r", alt("fast.example.com", 1), alt("unknown.example.com", 1)),
+			req:     faReq("r", alt("fast", "fast.example.com", 1), alt("unknown", "unknown.example.com", 1)),
 			mapper:  twoClassesOneResource,
 			wantErr: true,
 		},
 		"a counter-backed mapping is refused": {
-			req:     faReq("r", alt("fast.example.com", 1)),
+			req:     faReq("r", alt("fast", "fast.example.com", 1)),
 			mapper:  counterBacked,
 			wantErr: true,
 		},
@@ -142,24 +144,24 @@ func TestChargeForPrioritizedList(t *testing.T) {
 		"an unset count does not lose to a larger sibling": {
 			req: faReq("r",
 				resourcev1.DeviceSubRequest{Name: "a", DeviceClassName: "fast.example.com"},
-				alt("slow.example.com", 5)),
+				alt("slow", "slow.example.com", 5)),
 			mapper:       twoClassesOneResource,
 			wantResource: "example.com/gpu",
 			wantCount:    5,
 		},
 		"a negative count is refused": {
-			req:     faReq("r", alt("fast.example.com", -1)),
+			req:     faReq("r", alt("fast", "fast.example.com", -1)),
 			mapper:  twoClassesOneResource,
 			wantErr: true,
 		},
 		"an empty DeviceClass name is refused": {
-			req:     faReq("r", alt("", 1)),
+			req:     faReq("r", alt("empty", "", 1)),
 			mapper:  twoClassesOneResource,
 			wantErr: true,
 		},
 		"a capacity requirement is refused": {
 			req: faReq("r", func() resourcev1.DeviceSubRequest {
-				s := alt("fast.example.com", 1)
+				s := alt("fast", "fast.example.com", 1)
 				s.Capacity = &resourcev1.CapacityRequirements{}
 				return s
 			}()),
@@ -168,7 +170,7 @@ func TestChargeForPrioritizedList(t *testing.T) {
 		},
 		"a selector that does not compile is refused": {
 			req: faReq("r", func() resourcev1.DeviceSubRequest {
-				s := alt("fast.example.com", 1)
+				s := alt("fast", "fast.example.com", 1)
 				s.Selectors = []resourcev1.DeviceSelector{{CEL: &resourcev1.CELDeviceSelector{Expression: "this is not cel("}}}
 				return s
 			}()),
@@ -176,7 +178,7 @@ func TestChargeForPrioritizedList(t *testing.T) {
 			wantErr: true,
 		},
 		"a nil mapper leaves every alternative unmapped rather than panicking": {
-			req:     faReq("r", alt("fast.example.com", 1)),
+			req:     faReq("r", alt("fast", "fast.example.com", 1)),
 			mapper:  nil,
 			wantErr: true,
 		},
@@ -221,13 +223,13 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 		wantErrType  field.ErrorType
 	}{
 		"with the gate off a prioritized list is still refused": {
-			spec:    specOf(faReq("r", alt("fast.example.com", 1))),
+			spec:    specOf(faReq("r", alt("fast", "fast.example.com", 1))),
 			wantErr: true,
 		},
 		"independent requests add their own maxima": {
 			spec: specOf(
-				faReq("r0", alt("fast.example.com", 1), alt("slow.example.com", 3)),
-				faReq("r1", alt("fast.example.com", 2), alt("slow.example.com", 5)),
+				faReq("r0", alt("fast", "fast.example.com", 1), alt("slow", "slow.example.com", 3)),
+				faReq("r1", alt("fast", "fast.example.com", 2), alt("slow", "slow.example.com", 5)),
 			),
 			gateEnabled: true,
 			wantLogical: map[corev1.ResourceName]int64{"example.com/gpu": 8},
@@ -235,7 +237,7 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 		"an Exactly request beside a prioritized list is counted once each": {
 			spec: specOf(
 				exactReq("r0", "fast.example.com", 2),
-				faReq("r1", alt("fast.example.com", 1), alt("slow.example.com", 4)),
+				faReq("r1", alt("fast", "fast.example.com", 1), alt("slow", "slow.example.com", 4)),
 			),
 			gateEnabled: true,
 			wantClasses: map[corev1.ResourceName]int64{"fast.example.com": 2},
@@ -245,23 +247,23 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 			spec: specOf(resourcev1.DeviceRequest{
 				Name:           "r",
 				Exactly:        &resourcev1.ExactDeviceRequest{DeviceClassName: "fast.example.com", AllocationMode: resourcev1.DeviceAllocationModeExactCount, Count: 1},
-				FirstAvailable: []resourcev1.DeviceSubRequest{alt("fast.example.com", 1)},
+				FirstAvailable: []resourcev1.DeviceSubRequest{alt("fast", "fast.example.com", 1)},
 			}),
 			gateEnabled: true,
 			wantErr:     true,
 		},
 		"a sum that reaches the unlimited sentinel is refused rather than saturated": {
 			spec: specOf(
-				faReq("r0", alt("fast.example.com", math.MaxInt64-1)),
-				faReq("r1", alt("fast.example.com", 1)),
+				faReq("r0", alt("fast", "fast.example.com", math.MaxInt64-1)),
+				faReq("r1", alt("fast", "fast.example.com", 1)),
 			),
 			gateEnabled: true,
 			wantErr:     true,
 		},
 		"a sum one below the sentinel is still charged": {
 			spec: specOf(
-				faReq("r0", alt("fast.example.com", math.MaxInt64-2)),
-				faReq("r1", alt("fast.example.com", 1)),
+				faReq("r0", alt("fast", "fast.example.com", math.MaxInt64-2)),
+				faReq("r1", alt("fast", "fast.example.com", 1)),
 			),
 			gateEnabled: true,
 			wantLogical: map[corev1.ResourceName]int64{"example.com/gpu": math.MaxInt64 - 1},
@@ -342,7 +344,8 @@ func TestEnvelopeBoundsEverySelection(t *testing.T) {
 	for i, counts := range requestCounts {
 		alternatives := make([]resourcev1.DeviceSubRequest, 0, len(counts))
 		for j, c := range counts {
-			alternatives = append(alternatives, alt(classes[j%len(classes)], c))
+			// Indexed, so reusing a class does not repeat a subrequest name.
+			alternatives = append(alternatives, alt(fmt.Sprintf("alt%d", j), classes[j%len(classes)], c))
 		}
 		requests = append(requests, faReq(string(rune('a'+i)), alternatives...))
 	}
