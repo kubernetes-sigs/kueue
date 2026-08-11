@@ -3312,7 +3312,6 @@ func TestCohortCycles(t *testing.T) {
 		{
 			name: "clusterqueue add and update return error when cohort has cycle",
 			setup: func(cache *Cache) error {
-				// Setup cycle
 				cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
 				if err := cache.AddOrUpdateCohort(cohortA); err != nil {
 					return err
@@ -3350,7 +3349,6 @@ func TestCohortCycles(t *testing.T) {
 		{
 			name: "clusterqueue leaving cohort with cycle successfully updates new cohort",
 			setup: func(cache *Cache) error {
-				// Attempt to create cycle (will fail)
 				cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
 				_ = cache.AddOrUpdateCohort(cycleCohort) // Expected to fail
 
@@ -3376,7 +3374,6 @@ func TestCohortCycles(t *testing.T) {
 			},
 			wantErr: false,
 			validateFunc: func(t *testing.T, cache *Cache) {
-				// Verify cohort's SubtreeQuota contains resources from cq
 				gotResource := cache.hm.Cohort("cohort").getResourceNode()
 				wantResource := resourceNode{
 					Quotas: map[resources.FlavorResource]ResourceQuota{
@@ -3395,7 +3392,6 @@ func TestCohortCycles(t *testing.T) {
 		{
 			name: "clusterqueue joining cohort with cycle successfully updates old cohort",
 			setup: func(cache *Cache) error {
-				// Attempt to create cycle (will fail)
 				cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
 				_ = cache.AddOrUpdateCohort(cycleCohort) // Expected to fail
 
@@ -3405,7 +3401,6 @@ func TestCohortCycles(t *testing.T) {
 					return err
 				}
 
-				// Add CQ to cohort
 				cq := utiltestingapi.MakeClusterQueue("cq").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "5").Obj()).Cohort("cohort").Obj()
 				return cache.AddClusterQueue(ctx, cq)
@@ -3414,13 +3409,15 @@ func TestCohortCycles(t *testing.T) {
 				cq := utiltestingapi.MakeClusterQueue("cq").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "5").Obj()).Cohort("cohort").Obj()
 
-				// Updated to cycle
 				cq.Spec.CohortName = "cycle"
-				return cache.UpdateClusterQueue(log, cq)
+				err := cache.UpdateClusterQueue(log, cq)
+				if err == nil {
+					t.Error("Expected error when updating cq to cohort with cycle")
+				}
+				return err
 			},
 			wantErr: true,
 			validateFunc: func(t *testing.T, cache *Cache) {
-				// Cohort's SubtreeQuota no longer contains resources from CQ
 				gotResource := cache.hm.Cohort("cohort").getResourceNode()
 				wantResource := resourceNode{
 					Quotas: map[resources.FlavorResource]ResourceQuota{
@@ -3453,14 +3450,12 @@ func TestCohortCycles(t *testing.T) {
 				return cache.AddOrUpdateCohort(cohort)
 			},
 			operation: func(cache *Cache, t *testing.T) error {
-				// Get cohort and move it to root2
 				cohort := utiltestingapi.MakeCohort("cohort").Parent("root2").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
 				return cache.AddOrUpdateCohort(cohort)
 			},
 			wantErr: false,
 			validateFunc: func(t *testing.T, cache *Cache) {
-				// After move, root1 should have no subtree quota
 				wantRoot1 := resourceNode{
 					Quotas:       map[resources.FlavorResource]ResourceQuota{},
 					SubtreeQuota: resources.FlavorResourceQuantities{},
@@ -3470,7 +3465,6 @@ func TestCohortCycles(t *testing.T) {
 					t.Errorf("Unexpected root1 resource (-want,+got):\n%s", diff)
 				}
 
-				// root2 should have the subtree quota
 				wantRoot2 := resourceNode{
 					Quotas: map[resources.FlavorResource]ResourceQuota{},
 					SubtreeQuota: resources.FlavorResourceQuantities{
@@ -3486,7 +3480,6 @@ func TestCohortCycles(t *testing.T) {
 		{
 			name: "cohort leaving cohort with cycle successfully updates new cohort",
 			setup: func(cache *Cache) error {
-				// Attempt to create cycle (will fail)
 				cycleRoot := utiltestingapi.MakeCohort("cycle-root").Parent("cycle-root").Obj()
 				_ = cache.AddOrUpdateCohort(cycleRoot)
 
@@ -3520,7 +3513,6 @@ func TestCohortCycles(t *testing.T) {
 		{
 			name: "cohort joining cohort with cycle successfully updates old cohort",
 			setup: func(cache *Cache) error {
-				// Attempt to create cycle (will fail)
 				cycleRoot := utiltestingapi.MakeCohort("cycle-root").Parent("cycle-root").Obj()
 				_ = cache.AddOrUpdateCohort(cycleRoot)
 
@@ -3540,11 +3532,14 @@ func TestCohortCycles(t *testing.T) {
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
 					).Obj()
-				return cache.AddOrUpdateCohort(cohort)
+				err := cache.AddOrUpdateCohort(cohort)
+				if err == nil {
+					t.Error("Expected error when moving cohort to cycle parent")
+				}
+				return err
 			},
 			wantErr: true,
 			validateFunc: func(t *testing.T, cache *Cache) {
-				// After failed move, root should have no subtree quota
 				wantRoot := resourceNode{
 					Quotas:       map[resources.FlavorResource]ResourceQuota{},
 					SubtreeQuota: resources.FlavorResourceQuantities{},
@@ -3562,8 +3557,6 @@ func TestCohortCycles(t *testing.T) {
 				if err := cache.AddOrUpdateCohort(cohortA); err != nil {
 					return err
 				}
-				// cohort-b -> cohort-a creates the cycle; AddOrUpdateCohort returns an error
-				// but cohort-b's parent edge pointing to cohort-a is already persisted.
 				_ = cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj())
 				return nil
 			},
@@ -3582,19 +3575,7 @@ func TestCohortCycles(t *testing.T) {
 
 			// Run setup
 			if tc.setup != nil {
-				err := tc.setup(cache)
-				if tc.wantErr {
-					if err == nil {
-						t.Errorf("Expected error but got none")
-					}
-					// If we expected an error, we might still want to run validation
-					if tc.validateFunc != nil && err != nil {
-						// Some tests might still have valid state to check even with error
-						tc.validateFunc(t, cache)
-					}
-					return
-				}
-				if err != nil {
+				if err := tc.setup(cache); err != nil && !tc.wantErr {
 					t.Fatalf("Setup failed: %v", err)
 				}
 			}
@@ -3602,11 +3583,10 @@ func TestCohortCycles(t *testing.T) {
 			// Run operation
 			if tc.operation != nil {
 				err := tc.operation(cache, t)
-				if tc.wantErr {
-					if err == nil {
-						t.Errorf("Expected error but got none")
-					}
-				} else if err != nil {
+				if tc.wantErr && err == nil {
+					t.Errorf("Expected error but got none")
+				}
+				if !tc.wantErr && err != nil {
 					t.Errorf("Unexpected error: %v", err)
 				}
 			}
