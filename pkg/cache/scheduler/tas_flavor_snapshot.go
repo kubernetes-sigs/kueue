@@ -791,7 +791,7 @@ func (s *TASFlavorSnapshot) requiredReplacementDomain(tr *TASPodSetRequests, ta 
 // in Node's NodeReady condition
 func (s *TASFlavorSnapshot) IsTopologyAssignmentStale(ta *utiltas.TopologyAssignment) (bool, string) {
 	for _, domain := range ta.Domains {
-		if _, found := s.domains[utiltas.DomainID(domain.Values)]; !found {
+		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
 			return true, domain.Values[0]
 		}
 	}
