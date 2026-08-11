@@ -247,6 +247,7 @@
   default: true
   stage: GA
   from: "0.18"
+  to: "0.19"
 - feature: SchedulerLongRequeueInterval
   default: false
   stage: Alpha
