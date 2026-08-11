@@ -1427,6 +1427,21 @@ func TestFindLatestActiveWorkload(t *testing.T) {
 			},
 			want: "newer",
 		},
+		// A pending AdmissionCheck does not disqualify a slice from being the
+		// chain's active one: FindLatestActiveWorkload only tracks quota
+		// reservation. Callers that must wait for full admission apply their
+		// own additional check on the result.
+		"quota reservation is active even with a pending admission check": {
+			workloads: []kueue.Workload{
+				*live("reserved", now).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			want: "reserved",
+		},
 		// Eviction sets its condition before the reservation is released, so a
 		// slice can still report one while its capacity is on the way out. The
 		// older slice is the one still holding capacity.
