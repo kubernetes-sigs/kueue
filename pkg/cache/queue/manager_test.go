@@ -2925,13 +2925,8 @@ func TestLQPendingWorkloads_WorkloadCustomLabels(t *testing.T) {
 	}
 }
 
-// TestLQPendingWorkloads_InadmissibleAndDelete verifies that workloads in the
-// inadmissible bucket are counted per workload-label value in
-// kueue_local_queue_pending_workloads, and that deleting a workload removes its
-// contribution from the metric.
-//
-// This complements TestLQPendingWorkloads_WorkloadCustomLabels which covers active
-// workloads and label changes.
+// TestLQPendingWorkloads_InadmissibleAndDelete verifies that inadmissible workloads
+// are counted per workload-label value, and that deleting a workload removes its series.
 func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
@@ -2968,7 +2963,6 @@ func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
 		if err := fakeClient.Create(ctx, wl); err != nil {
 			t.Fatalf("Create %s: %v", wl.Name, err)
 		}
-		// RequeueWorkload with popCycle > queueInadmissibleCycle goes to inadmissible.
 		manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric, "")
 	}
 
@@ -2997,12 +2991,11 @@ func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
 		t.Errorf("initial silver/inadmissible = %v, want 1", got)
 	}
 
-	// Deleting silver must zero out its inadmissible series immediately.
+	// Deleting silver must zero out its series immediately.
 	manager.DeleteWorkload(log, workload.Key(wlSilver))
 	if got := pendingVal("silver", metrics.PendingStatusInadmissible); got != 0 {
 		t.Errorf("after delete silver: inadmissible = %v, want 0", got)
 	}
-	// Gold inadmissible is unaffected by deleting silver.
 	if got := pendingVal("gold", metrics.PendingStatusInadmissible); got != 1 {
 		t.Errorf("after delete silver: gold/inadmissible = %v, want 1", got)
 	}
