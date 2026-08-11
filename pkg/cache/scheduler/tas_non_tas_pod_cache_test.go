@@ -19,15 +19,117 @@ package scheduler
 import (
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
+
+func TestNonTasUsageCacheRemovedNode(t *testing.T) {
+	testCases := map[string]struct {
+		setup    func(cache *nonTasUsageCache, log logr.Logger)
+		action   func(cache *nonTasUsageCache, log logr.Logger) string
+		wantNode string
+	}{
+		"update with succeeded pod returns node": {
+			setup: func(cache *nonTasUsageCache, log logr.Logger) {
+				cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				pod := makePod("pod1", "ns", "node-a", "2")
+				pod.Status.Phase = corev1.PodSucceeded
+				return cache.update(pod, log)
+			},
+			wantNode: "node-a",
+		},
+		"update with failed pod returns node": {
+			setup: func(cache *nonTasUsageCache, log logr.Logger) {
+				cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				pod := makePod("pod1", "ns", "node-a", "2")
+				pod.Status.Phase = corev1.PodFailed
+				return cache.update(pod, log)
+			},
+			wantNode: "node-a",
+		},
+		"update with terminated pod not in cache returns empty": {
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				pod := makePod("pod1", "ns", "node-a", "2")
+				pod.Status.Phase = corev1.PodSucceeded
+				return cache.update(pod, log)
+			},
+		},
+		"update with new running pod returns empty": {
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				return cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+		},
+		"update existing running pod with decreased requests returns old node": {
+			setup: func(cache *nonTasUsageCache, log logr.Logger) {
+				cache.update(makePod("pod1", "ns", "node-a", "4"), log)
+			},
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				return cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+			wantNode: "node-a",
+		},
+		"update existing running pod with increased requests returns empty": {
+			setup: func(cache *nonTasUsageCache, log logr.Logger) {
+				cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				return cache.update(makePod("pod1", "ns", "node-a", "4"), log)
+			},
+		},
+		"update existing running pod moved to new node returns old node": {
+			setup: func(cache *nonTasUsageCache, log logr.Logger) {
+				cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				return cache.update(makePod("pod1", "ns", "node-b", "2"), log)
+			},
+			wantNode: "node-a",
+		},
+		"delete existing pod returns node": {
+			setup: func(cache *nonTasUsageCache, log logr.Logger) {
+				cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				return cache.delete(types.NamespacedName{Namespace: "ns", Name: "pod1"}, log)
+			},
+			wantNode: "node-a",
+		},
+		"delete non-existent pod returns empty": {
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				return cache.delete(types.NamespacedName{Namespace: "ns", Name: "ghost"}, log)
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			cache := &nonTasUsageCache{
+				podUsage:  make(map[types.NamespacedName]podUsageValue),
+				nodeUsage: make(map[string]resources.Requests),
+			}
+			if tc.setup != nil {
+				tc.setup(cache, log)
+			}
+			got := tc.action(cache, log)
+			if got != tc.wantNode {
+				t.Errorf("got removedNode=%q, want %q", got, tc.wantNode)
+			}
+		})
+	}
+}
 
 // verifyNodeUsageConsistency recomputes usage from podUsage (old O(pods) algorithm)
 // and verifies it matches the incremental nodeUsage.
@@ -36,13 +138,13 @@ func verifyNodeUsageConsistency(t *testing.T, cache *nonTasUsageCache) {
 	expected := make(map[string]resources.Requests)
 	for _, pv := range cache.podUsage {
 		if _, found := expected[pv.node]; !found {
-			expected[pv.node] = resources.MapRequests{}
+			expected[pv.node] = resources.CreateEmpty()
 		}
 		expected[pv.node].Add(pv.usage)
 		expected[pv.node].Add(resources.OnePodRequest)
 	}
 	got := collectNodeUsage(cache)
-	if diff := cmp.Diff(expected, got); diff != "" {
+	if diff := cmp.Diff(expected, got, cmp.Comparer(resources.Equal)); diff != "" {
 		t.Errorf("nodeUsage inconsistent with podUsage (-recomputed +nodeUsage):\n%s", diff)
 	}
 }
@@ -94,7 +196,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 				makePod("pod2", "ns", "node-a", "2"),
 			},
 			wantNodeUsage: map[string]resources.Requests{
-				"node-a": resources.MapRequests{corev1.ResourceCPU: 3000, corev1.ResourcePods: 2},
+				"node-a": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 3000, corev1.ResourcePods: 2}),
 			},
 		},
 		"pod moves between nodes cleans up source node": {
@@ -103,7 +205,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 				pods[0].Spec.NodeName = "node-b"
 			},
 			wantNodeUsage: map[string]resources.Requests{
-				"node-b": resources.MapRequests{corev1.ResourceCPU: 4000, corev1.ResourcePods: 1},
+				"node-b": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 4000, corev1.ResourcePods: 1}),
 			},
 		},
 		"pod resize on same node updates usage to new requests": {
@@ -112,7 +214,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 				pods[0].Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("4")
 			},
 			wantNodeUsage: map[string]resources.Requests{
-				"node-a": resources.MapRequests{corev1.ResourceCPU: 4000, corev1.ResourcePods: 1},
+				"node-a": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 4000, corev1.ResourcePods: 1}),
 			},
 		},
 		"resize one of two pods on same node updates only that pod's contribution": {
@@ -124,7 +226,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 				pods[0].Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("3")
 			},
 			wantNodeUsage: map[string]resources.Requests{
-				"node-a": resources.MapRequests{corev1.ResourceCPU: 5000, corev1.ResourcePods: 2},
+				"node-a": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 5000, corev1.ResourcePods: 2}),
 			},
 		},
 		"terminated pod removes usage": {
@@ -143,7 +245,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 			},
 			podsDelete: []client.ObjectKey{{Namespace: "ns", Name: "pod1"}},
 			wantNodeUsage: map[string]resources.Requests{
-				"node-a": resources.MapRequests{corev1.ResourceCPU: 1000, corev1.ResourcePods: 1},
+				"node-a": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, corev1.ResourcePods: 1}),
 			},
 		},
 		"removing last pod cleans up node entry": {
@@ -185,7 +287,7 @@ func TestNonTasUsageCacheIncrementalUpdates(t *testing.T) {
 			if wantUsage == nil {
 				wantUsage = map[string]resources.Requests{}
 			}
-			if diff := cmp.Diff(wantUsage, collectNodeUsage(cache)); diff != "" {
+			if diff := cmp.Diff(wantUsage, collectNodeUsage(cache), cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("collectNodeUsage() mismatch (-want +got):\n%s", diff)
 			}
 

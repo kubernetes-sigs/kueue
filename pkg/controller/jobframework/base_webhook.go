@@ -35,6 +35,7 @@ import (
 
 // BaseWebhook applies basic defaulting and validation for jobs.
 type BaseWebhook[T any] struct {
+	IntegrationManager           *IntegrationManager
 	Client                       client.Client
 	ManageJobsWithoutQueueName   bool
 	ManagedJobsNamespaceSelector labels.Selector
@@ -47,6 +48,7 @@ func BaseWebhookFactory[T runtime.Object](obj T, fromObject func(T) GenericJob) 
 	return func(mgr ctrl.Manager, opts ...Option) error {
 		options := ProcessOptions(opts...)
 		wh := &BaseWebhook[T]{
+			IntegrationManager:           options.IntegrationManager,
 			Client:                       mgr.GetClient(),
 			ManageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 			ManagedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
@@ -70,10 +72,14 @@ func (w *BaseWebhook[T]) Default(ctx context.Context, obj T) error {
 	job := w.FromObject(obj)
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Applying defaults")
-	ApplyDefaultLocalQueue(job.Object(), w.Queues.DefaultLocalQueueExist)
-	ApplyDefaultWorkloadPriorityClass(ctx, w.Client, job.Object())
-	if err := ApplyDefaultForSuspend(ctx, job, w.Client, w.ManageJobsWithoutQueueName, w.ManagedJobsNamespaceSelector); err != nil {
-		return err
+	if w.IntegrationManager != nil {
+		if err := w.IntegrationManager.ApplyDefaultLocalQueue(ctx, w.Client, job.Object(), w.Queues.DefaultLocalQueueExist, w.ManagedJobsNamespaceSelector); err != nil {
+			return err
+		}
+		w.IntegrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.Client, job.Object())
+		if err := w.IntegrationManager.ApplyDefaultForSuspend(ctx, job, w.Client, w.ManageJobsWithoutQueueName, w.ManagedJobsNamespaceSelector); err != nil {
+			return err
+		}
 	}
 	ApplyDefaultForManagedBy(job, w.Queues, w.Cache, log)
 	return nil

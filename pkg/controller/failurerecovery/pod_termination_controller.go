@@ -190,7 +190,7 @@ func (r *TerminatingPodReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	}
 
 	r.recorder.Eventf(pod, nil, corev1.EventTypeWarning, KueueForcefulTerminationReason, "ForcefulTermination", "%s", eventMessage)
-	log.V(4).Info(eventMessage)
+	log.V(4).Info("Forcefully terminating pod", "pod", klog.KObj(pod), "message", eventMessage)
 
 	// Forcefully delete the pod object
 	if err = r.client.Delete(ctx, pod, &client.DeleteOptions{GracePeriodSeconds: new(int64(0))}); err != nil {

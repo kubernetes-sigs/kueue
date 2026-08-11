@@ -78,6 +78,7 @@ type workloadToCreate struct {
 }
 
 type Reconciler struct {
+	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
 	logName                      string
 	record                       events.EventRecorder
@@ -95,6 +96,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
+		integrationManager:           options.IntegrationManager,
 		client:                       client,
 		logName:                      "leaderworkerset-reconciler",
 		record:                       eventRecorder,
@@ -381,7 +383,7 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 	if features.Enabled(features.TopologyAwareScheduling) {
 		builder := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy())
 		if podIndexLabel != nil {
-			builder.PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey))
+			builder.PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey))
 		}
 		topologyRequest, err := builder.Build()
 		if err != nil {
@@ -414,7 +416,7 @@ func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 		defaultPodSetName,
 		defaultPodSetCount,
 		&lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
-		ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
+		new(leaderworkersetv1.WorkerIndexLabelKey),
 	)
 	if err != nil {
 		return nil, err
@@ -429,22 +431,30 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
 	log.V(3).Info("Update LeaderWorkerSet Workload")
 
+	var shouldUpdate bool
 	if queueName := jobframework.QueueNameForObject(lws); wl.Spec.QueueName != queueName {
 		log.V(2).Info("LeaderWorkerSet changed queue, updating workload")
 		wl.Spec.QueueName = queueName
-		if err := r.client.Update(ctx, wl); err != nil {
-			log.Error(err, "Updating workload queue name")
-			return err
-		}
-	}
-	if features.Enabled(features.AdmissionGatedBy) {
-		if err := jobframework.UpdateAdmissionGatedBy(ctx, r.client, r.record, lws, wl); err != nil {
-			log.Error(err, "Failed to update AdmissionGatedBy")
-			return err
-		}
+		shouldUpdate = true
 	}
 
-	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, wl, nil)
+	var admissionGatedByUpdated bool
+	if features.Enabled(features.AdmissionGatedBy) {
+		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(lws, wl)
+		shouldUpdate = admissionGatedByUpdated || shouldUpdate
+	}
+
+	if shouldUpdate {
+		if err := r.client.Update(ctx, wl); err != nil {
+			log.Error(err, "Updating workload")
+			return err
+		}
+	}
+	if admissionGatedByUpdated {
+		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, lws)
+	}
+
+	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)
 	if err != nil {
 		log.Error(err, "Failed to update workload priority")
 		return err
@@ -585,7 +595,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	ctx := ctrl.LoggerInto(context.Background(), log)
 
 	// Handle only leaderworkerset managed by kueue.
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, lws, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
+	suspend, err := r.integrationManager.WorkloadShouldBeSuspended(ctx, lws, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
 	if err != nil {
 		log.Error(err, "Failed to determine if the LeaderWorkerSet should be managed by Kueue")
 	}

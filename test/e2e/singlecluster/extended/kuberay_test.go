@@ -17,17 +17,16 @@ limitations under the License.
 package extended
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
-	"net/http"
 	"strconv"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -43,6 +42,7 @@ import (
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
 	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
@@ -51,24 +51,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
-
-// parsePodSetReplicaCount parses the PodsetReplicaSizesAnnotation JSON and
-// returns the count for the given group name.
-func parsePodSetReplicaCount(annotationValue, groupName string) (int32, error) {
-	var podSets []struct {
-		Name  string `json:"name"`
-		Count int32  `json:"count"`
-	}
-	if err := json.Unmarshal([]byte(annotationValue), &podSets); err != nil {
-		return 0, fmt.Errorf("failed to parse annotation: %w", err)
-	}
-	for _, ps := range podSets {
-		if ps.Name == groupName {
-			return ps.Count, nil
-		}
-	}
-	return 0, fmt.Errorf("group %q not found in annotation", groupName)
-}
 
 // findContainer returns the container with the given name, or nil if absent.
 func findContainer(containers []corev1.Container, name string) *corev1.Container {
@@ -86,6 +68,34 @@ const (
 	objectStoreMemory = "100000000"
 )
 
+func rayServeCurlCmd(rayServiceName, query string) []string {
+	serveSvcName := rayutils.GenerateServeServiceName(rayServiceName)
+	return []string{"curl", "-sS", "--fail", "--max-time", "60", "--retry", "5", "--retry-connrefused", "--retry-delay", "2", fmt.Sprintf("http://%s:8000/%s", serveSvcName, query)}
+}
+
+func waitForRayServiceReadyToServe(rayService *rayv1.RayService) *rayv1.RayService {
+	createdRayService := &rayv1.RayService{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
+		g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
+		g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
+	}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayService did not become ready to serve", createdRayService))
+	return createdRayService
+}
+
+func startServeClientPod(ns string) *corev1.Pod {
+	pod := testingpod.MakePod("serve-client", ns).
+		Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+		TerminationGracePeriod(1).
+		Obj()
+	gomega.Expect(k8sClient.Create(ctx, pod)).To(gomega.Succeed())
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+		g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+	}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+	return pod
+}
+
 var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:kuberay"), func() {
 	var (
 		ns                 *corev1.Namespace
@@ -96,35 +106,6 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 		clusterQueueName   string
 		localQueueName     string
 	)
-
-	getRunningRayWorkerPodNames := func(g gomega.Gomega) []string {
-		pods := &corev1.PodList{}
-		g.Expect(k8sClient.List(ctx, pods,
-			client.InNamespace(ns.Name),
-			client.MatchingLabels{
-				"ray.io/node-type": "worker",
-			},
-		)).To(gomega.Succeed())
-		var podNames []string
-		for _, pod := range pods.Items {
-			if strings.Contains(pod.Name, "workers") && pod.Status.Phase == corev1.PodRunning {
-				podNames = append(podNames, pod.Name)
-			}
-		}
-		return podNames
-	}
-
-	getRayHeadPod := func(g gomega.Gomega) corev1.Pod {
-		pods := &corev1.PodList{}
-		g.Expect(k8sClient.List(ctx, pods,
-			client.InNamespace(ns.Name),
-			client.MatchingLabels{
-				"ray.io/node-type": "head",
-			},
-		)).To(gomega.Succeed())
-		g.Expect(pods.Items).NotTo(gomega.BeEmpty())
-		return pods.Items[0]
-	}
 
 	ginkgo.BeforeEach(func() {
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-e2e-")
@@ -353,14 +334,15 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("No admitted workload found in namespace", workloadList))
 		})
 
+		createdRayJob := &rayv1.RayJob{}
 		ginkgo.By("Waiting for the RayJob cluster become ready", func() {
-			createdRayJob := &rayv1.RayJob{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
 				g.Expect(createdRayJob.Spec.Suspend).To(gomega.BeFalse())
 				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusRunning))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayJob cluster did not become ready", createdRayJob))
 		})
+		rayClusterKey := client.ObjectKey{Namespace: createdRayJob.Namespace, Name: createdRayJob.Status.RayClusterName}
 
 		ginkgo.By("Waiting for 3 pods in rayjob namespace", func() {
 			// 3 rayjob pods: head, worker, submitter job
@@ -374,8 +356,9 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 		ginkgo.By("Waiting for exactly 1 worker pod", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				workerPodNames := getRunningRayWorkerPodNames(g)
-				g.Expect(workerPodNames).To(gomega.HaveLen(1), "Expected exactly 1 pod with 'workers' in the name")
+				workerPods, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(workerPods).To(gomega.HaveLen(1), "Expected exactly 1 running worker Pod")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Expected exactly 1 worker pod", podList))
 		})
 
@@ -392,32 +375,30 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 		ginkgo.By("Waiting for all 2 worker pods to be running", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers := getRunningRayWorkerPodNames(g)
+				runningWorkers, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(runningWorkers).To(gomega.HaveLen(2), "Expected 2 running worker pods")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Did not observe 2 running worker pods", podList))
 		})
 
 		var deletedPodName string
 		ginkgo.By("Deleting one worker pod", func() {
-			runningWorkers := getRunningRayWorkerPodNames(gomega.Default)
+			runningWorkers, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(runningWorkers).NotTo(gomega.BeEmpty())
-			deletedPodName = runningWorkers[0]
-			pod := &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      deletedPodName,
-					Namespace: ns.Name,
-				},
-			}
-			gomega.Expect(k8sClient.Delete(ctx, pod)).To(gomega.Succeed())
+			deletedPodName = runningWorkers[0].Name
+			gomega.Expect(k8sClient.Delete(ctx, &runningWorkers[0])).To(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for a new worker pod to replace the deleted one", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers := getRunningRayWorkerPodNames(g)
+				runningWorkers, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(runningWorkers).To(gomega.HaveLen(2), "Expected 2 running worker pods after replacement")
-				g.Expect(runningWorkers).NotTo(gomega.ContainElement(deletedPodName),
-					"Deleted pod should not be present among running workers")
+				for _, pod := range runningWorkers {
+					g.Expect(pod.Name).NotTo(gomega.Equal(deletedPodName), "Deleted pod should not be present among running workers")
+				}
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList(fmt.Sprintf("Replacement worker pod did not appear after deleting %q", deletedPodName), podList))
 		})
 
@@ -553,14 +534,15 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("No admitted workload found in namespace", workloadList))
 		})
 
+		createdRayJob := &rayv1.RayJob{}
 		ginkgo.By("Waiting for the RayJob cluster become ready", func() {
-			createdRayJob := &rayv1.RayJob{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
 				g.Expect(createdRayJob.Spec.Suspend).To(gomega.BeFalse())
 				g.Expect(createdRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusRunning))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayJob cluster did not become ready", createdRayJob))
 		})
+		rayClusterKey := client.ObjectKey{Namespace: createdRayJob.Namespace, Name: createdRayJob.Status.RayClusterName}
 
 		// The Ray autoscaler can scale workers past minReplicas before the RayJob
 		// transitions to JobDeploymentStatusRunning, so the initial pod and worker
@@ -576,8 +558,9 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 
 		ginkgo.By("Waiting for at least 1 worker pod", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				workerPodNames := getRunningRayWorkerPodNames(g)
-				g.Expect(workerPodNames).ToNot(gomega.BeEmpty(), "Expected at least 1 pod with 'workers' in the name")
+				workerPods, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(workerPods).ToNot(gomega.BeEmpty(), "Expected at least 1 running worker Pod")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), "Expected at least 1 worker pod")
 		})
 
@@ -593,22 +576,10 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 
 		ginkgo.By("Waiting for second scale-up to 5 workers due to high parallelism tasks", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				currentPodNames := getRunningRayWorkerPodNames(g)
-				g.Expect(currentPodNames).To(gomega.HaveLen(5), "Expected exactly 5 pods with 'workers' in the name after second scale-up")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), "Did not scale up to 5 worker pods")
-		})
-
-		ginkgo.By("Checking podset-replica-sizes annotation is set on the RayJob after second scale-up", func() {
-			createdRayJob := &rayv1.RayJob{}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
-				g.Expect(createdRayJob.Annotations).To(gomega.HaveKey(workloadraycluster.RayClusterPodsetReplicaSizesAnnotation),
-					"Expected podset-replica-sizes annotation on RayJob after second scale-up")
-				count, err := parsePodSetReplicaCount(createdRayJob.Annotations[workloadraycluster.RayClusterPodsetReplicaSizesAnnotation], "workers-group-0")
+				workerPods, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
-				g.Expect(count).To(gomega.Equal(int32(5)),
-					"Expected workers-group-0 count = 5 after second scale-up")
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("podset-replica-sizes annotation not updated after second scale-up", createdRayJob))
+				g.Expect(workerPods).To(gomega.HaveLen(5), "Expected exactly 5 running worker Pods after second scale-up")
+			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), "Did not scale up to 5 worker pods")
 		})
 
 		ginkgo.By("Waiting for at least 3 total workloads due to multiple scale-ups", func() {
@@ -618,19 +589,6 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())
 				g.Expect(len(workloadList.Items)).To(gomega.BeNumerically(">=", 3), "Expected at least 3 workloads due to multiple scale-ups")
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgObjList("Did not observe >=3 workloads from multiple scale-ups", workloadList))
-		})
-
-		ginkgo.By("Checking podset-replica-sizes annotation updated after scaling down", func() {
-			createdRayJob := &rayv1.RayJob{}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
-				g.Expect(createdRayJob.Annotations).To(gomega.HaveKey(workloadraycluster.RayClusterPodsetReplicaSizesAnnotation),
-					"Expected podset-replica-sizes annotation on RayJob after scaling down")
-				count, err := parsePodSetReplicaCount(createdRayJob.Annotations[workloadraycluster.RayClusterPodsetReplicaSizesAnnotation], "workers-group-0")
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				g.Expect(count).To(gomega.Equal(int32(1)),
-					"Expected workers-group-0 count = 1 after scaling down")
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("podset-replica-sizes annotation not updated after scaling down", createdRayJob))
 		})
 
 		ginkgo.By("Waiting for the RayJob to finish", func() {
@@ -688,7 +646,13 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		// container KubeRay actually injects into the head Pod.
 		ginkgo.By("Checking the accounted submitter resources match the real head Pod", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				headPod := getRayHeadPod(g)
+				createdRayJob := &rayv1.RayJob{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
+				headPod, err := util.GetRayClusterHeadPod(ctx, k8sClient, client.ObjectKey{
+					Namespace: ns.Name,
+					Name:      createdRayJob.Status.RayClusterName,
+				})
+				g.Expect(err).NotTo(gomega.HaveOccurred())
 				submitter := findContainer(headPod.Spec.Containers, "ray-job-submitter")
 				g.Expect(submitter).NotTo(gomega.BeNil(), "KubeRay should inject the submitter container into the head Pod")
 				g.Expect(kueueSubmitterRequests.Cpu().Cmp(*submitter.Resources.Requests.Cpu())).To(gomega.Equal(0),
@@ -803,7 +767,8 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		// container that KubeRay actually injects into the head Pod.
 		ginkgo.By("Checking the accounted autoscaler resources match the real head Pod", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				headPod := getRayHeadPod(g)
+				headPod, err := util.GetRayClusterHeadPod(ctx, k8sClient, client.ObjectKeyFromObject(raycluster))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
 				var autoscaler *corev1.Container
 				for i := range headPod.Spec.Containers {
 					if headPod.Spec.Containers[i].Name == "autoscaler" {
@@ -922,35 +887,16 @@ app = HelloWorld.bind()`,
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
 		})
 
-		ginkgo.By("Checking the RayService is running", func() {
-			createdRayService := &rayv1.RayService{}
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-				g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
-				g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayService did not become ready", createdRayService))
+		ginkgo.By("Waiting for the RayService to be ready to serve traffic", func() {
+			waitForRayServiceReadyToServe(rayService)
 		})
 
-		ginkgo.By("Verifying the RayService responds to HTTP requests via port-forward", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				headPodName := getRayHeadPod(g).Name
-
-				// Port-forward to the head pod on port 8000 (Ray Serve default)
-				localPort, stopChan, err := util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				defer close(stopChan)
-
-				// Send HTTP GET to the Ray Serve endpoint
-				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/", localPort))
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				defer resp.Body.Close()
-
-				g.Expect(resp.StatusCode).To(gomega.Equal(http.StatusOK))
-
-				body, err := io.ReadAll(resp.Body)
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				g.Expect(strings.TrimSpace(string(body))).To(gomega.ContainSubstring("Hello, World!"))
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		ginkgo.By("Verifying the RayService responds to HTTP requests via the serve service", func() {
+			clientPod := startServeClientPod(ns.Name)
+			cmd := rayServeCurlCmd(rayService.Name, "")
+			stdout, stderr, err := util.KExecute(ctx, cfg, restClient, ns.Name, clientPod.Name, clientPod.Spec.Containers[0].Name, cmd)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
+			gomega.Expect(string(stdout)).To(gomega.ContainSubstring("Hello, World!"))
 		})
 	})
 
@@ -1181,41 +1127,27 @@ app = HelloWorld.bind()`,
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("Checking the RayService is running", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdRayService := &rayv1.RayService{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-				g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
-				g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		var rayClusterKey client.ObjectKey
+		ginkgo.By("Waiting for the RayService to be ready to serve traffic", func() {
+			createdRayService := waitForRayServiceReadyToServe(rayService)
+			rayClusterKey = client.ObjectKey{
+				Namespace: createdRayService.Namespace,
+				Name:      createdRayService.Status.ActiveServiceStatus.RayClusterName,
+			}
 		})
 
-		// Set up port-forwarding to the head pod for sending HTTP requests
-		var localPort int
-		var stopChan chan struct{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			headPodName := getRayHeadPod(g).Name
-			var err error
-			localPort, stopChan, err = util.KPortForward(cfg, restClient, ns.Name, headPodName, 8000)
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
-		defer close(stopChan)
-
-		ginkgo.By("Verifying the RayService responds to HTTP requests via port-forward", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				resp, err := http.Get(fmt.Sprintf("http://localhost:%d/", localPort))
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				defer resp.Body.Close()
-				g.Expect(resp.StatusCode).To(gomega.Equal(http.StatusOK))
-				body, err := io.ReadAll(resp.Body)
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				g.Expect(strings.TrimSpace(string(body))).To(gomega.ContainSubstring("Hello, World!"))
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		clientPod := startServeClientPod(ns.Name)
+		ginkgo.By("Verifying the RayService responds to HTTP requests via the serve service", func() {
+			cmd := rayServeCurlCmd(rayService.Name, "")
+			stdout, stderr, err := util.KExecute(ctx, cfg, restClient, ns.Name, clientPod.Name, clientPod.Spec.Containers[0].Name, cmd)
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
+			gomega.Expect(string(stdout)).To(gomega.ContainSubstring("Hello, World!"))
 		})
 
 		ginkgo.By("Waiting for worker count to be zero due to autoscaling", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers := getRunningRayWorkerPodNames(g)
+				runningWorkers, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(runningWorkers).To(gomega.BeEmpty(), "Expected 0 running worker pod before sending load")
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -1225,20 +1157,26 @@ app = HelloWorld.bind()`,
 			// the target_ongoing_requests=1 threshold, triggering Ray Serve autoscaling.
 			// With max_replicas_per_node=1, new serve replicas require new Ray worker
 			// nodes, which triggers the RayCluster autoscaler to add workers.
+			cmd := rayServeCurlCmd(rayService.Name, "?delay=10")
+			loadCtx, cancelLoad := context.WithCancel(ctx)
+			var wg sync.WaitGroup
 			for range 10 {
-				go func() {
-					reqClient := &http.Client{Timeout: 60 * time.Second}
-					resp, err := reqClient.Get(fmt.Sprintf("http://localhost:%d/?delay=10", localPort))
-					if err == nil && resp != nil {
-						resp.Body.Close()
-					}
-				}()
+				wg.Go(func() {
+					// Each exec blocks until its slow request completes; errors are
+					// ignored — the assertion below observes the resulting scale-up.
+					_, _, _ = util.KExecute(loadCtx, cfg, restClient, ns.Name, clientPod.Name, clientPod.Spec.Containers[0].Name, cmd)
+				})
 			}
+			ginkgo.DeferCleanup(func() {
+				cancelLoad()
+				wg.Wait()
+			})
 		})
 
 		ginkgo.By("Waiting for worker count to increase due to autoscaling", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers := getRunningRayWorkerPodNames(g)
+				runningWorkers, err := util.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(len(runningWorkers)).To(gomega.BeNumerically(">", 1),
 					fmt.Sprintf("Expected more than %d running worker pods after autoscaling", 1))
 			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())

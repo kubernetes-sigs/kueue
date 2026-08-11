@@ -24,10 +24,11 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -162,6 +163,70 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(firstPodSetSpecPath.Child("initContainers").Index(0).Child("resources", "requests").Key(string(corev1.ResourceCPU)), nil, ""),
 			}.ToAggregate(),
 		},
+		"should accept invalid podSet template metadata when WorkloadValidationForPodSetMetadata is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidationForPodSetMetadata: false},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					kueue.PodSet{
+						Name:  "bad-metadata",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Labels: map[string]string{
+									"valid": "invalid value with spaces, test-wec1",
+								},
+								Annotations: map[string]string{
+									"invalid/annotation/key/too/long/invalid": "val",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"should reject invalid podSet template label value": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidationForPodSetMetadata: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					kueue.PodSet{
+						Name:  "bad-metadata",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Labels: map[string]string{
+									"valid": "invalid value with spaces",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: metav1validation.ValidateLabels(map[string]string{
+				"valid": "invalid value with spaces",
+			}, podSetsPath.Index(0).Child("template", "metadata", "labels")).ToAggregate(),
+		},
+		"should reject invalid podSet template annotation key": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidationForPodSetMetadata: true},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					kueue.PodSet{
+						Name:  "bad-metadata",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									"invalid/annotation/key/too/long/invalid": "val",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: apivalidation.ValidateAnnotations(map[string]string{
+				"invalid/annotation/key/too/long/invalid": "val",
+			}, podSetsPath.Index(0).Child("template", "metadata", "annotations")).ToAggregate(),
+		},
 		"should reject negative container resource limit": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
@@ -255,6 +320,57 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"should reject non-positive podSetSliceSize when TASValidateWorkloadSliceSize is enabled": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(0).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podSetSliceSize"), nil, ""),
+			}.ToAggregate(),
+		},
+		"should reject podSetSliceSize without podSetSliceRequiredTopology when TASValidateWorkloadSliceSize is enabled": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						SliceSizeTopologyRequest(1).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "podSetSliceSize"), ""),
+			}.ToAggregate(),
+		},
+		"should reject non-positive podsetSliceRequiredTopologyConstraints size when TASValidateWorkloadSliceSize is enabled": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{Topology: "kubernetes.io/hostname", Size: 0}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podsetSliceRequiredTopologyConstraints").Index(0).Child("size"), nil, ""),
+			}.ToAggregate(),
+		},
+		"should accept non-positive podSetSliceSize when TASValidateWorkloadSliceSize is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASValidateWorkloadSliceSize: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 1).
+						SliceRequiredTopologyRequest("kubernetes.io/hostname").
+						SliceSizeTopologyRequest(0).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
 		"empty podSetUpdates": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).AdmissionChecks(kueue.AdmissionCheckState{}).Obj(),
 			wantErr:  nil,
@@ -296,7 +412,7 @@ func TestValidateWorkload(t *testing.T) {
 									Operator:          corev1.TolerationOpEqual,
 									Value:             "t1v",
 									Effect:            corev1.TaintEffectNoExecute,
-									TolerationSeconds: ptr.To[int64](5),
+									TolerationSeconds: new(int64(5)),
 								},
 							},
 							NodeSelector: map[string]string{"type": "first"},
@@ -311,7 +427,7 @@ func TestValidateWorkload(t *testing.T) {
 									Operator:          corev1.TolerationOpEqual,
 									Value:             "t2v",
 									Effect:            corev1.TaintEffectNoExecute,
-									TolerationSeconds: ptr.To[int64](10),
+									TolerationSeconds: new(int64(10)),
 								},
 							},
 							NodeSelector: map[string]string{"type": "second"},
@@ -573,14 +689,6 @@ func TestValidateWorkload(t *testing.T) {
 				*utiltestingapi.MakePodSet("main", 1).SubGroupCount(new(int32(0))).Obj(),
 			).Obj(),
 		},
-		"negative subGroupCount is accepted with a warning": {
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
-				*utiltestingapi.MakePodSet("main", 1).SubGroupCount(new(int32(-1))).Obj(),
-			).Obj(),
-			wantWarnings: admission.Warnings{
-				"spec.podSets[0].topologyRequest.subGroupCount: negative value -1 is deprecated and will be rejected in a future release",
-			},
-		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -598,6 +706,8 @@ func TestValidateWorkload(t *testing.T) {
 
 func TestValidateWorkloadUpdate(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
+	specPath := field.NewPath("spec")
+	podSetsPath := specPath.Child("podSets")
 	testCases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
 
@@ -636,6 +746,55 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				).
 				Obj(),
 			wantErr: nil,
+		},
+		"should accept invalid podSet template metadata on update when WorkloadValidationForPodSetMetadata is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidationForPodSetMetadata: false},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("driver", 1).Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					kueue.PodSet{
+						Name:  "driver",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Labels: map[string]string{
+									"valid": "invalid value with spaces, test-wec1",
+								},
+								Annotations: map[string]string{
+									"invalid/annotation/key/too/long/invalid": "val",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"should reject invalid podSet template label value on update": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadValidationForPodSetMetadata: true},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("driver", 1).Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					kueue.PodSet{
+						Name:  "driver",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Labels: map[string]string{
+									"valid": "invalid value with spaces",
+								},
+							},
+						},
+					},
+				).
+				Obj(),
+			wantErr: metav1validation.ValidateLabels(map[string]string{
+				"valid": "invalid value with spaces",
+			}, podSetsPath.Index(0).Child("template", "metadata", "labels")).ToAggregate(),
 		},
 		"reclaimable pod count cannot change down": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -737,7 +896,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(8))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -749,7 +908,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(8))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -769,7 +928,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 10).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](20)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(20))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -781,7 +940,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 10).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](20)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(20))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -827,7 +986,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(8))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -839,7 +998,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 1).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(8))}).
 						Obj(), now,
 				).
 				Obj(),
@@ -1234,17 +1393,6 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 				Obj(),
 			wantErr: nil,
-		},
-		"negative subGroupCount is accepted with a warning": {
-			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
-				*utiltestingapi.MakePodSet("main", 1).Obj(),
-			).Obj(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
-				*utiltestingapi.MakePodSet("main", 1).SubGroupCount(new(int32(-1))).Obj(),
-			).Obj(),
-			wantWarnings: admission.Warnings{
-				"spec.podSets[0].topologyRequest.subGroupCount: negative value -1 is deprecated and will be rejected in a future release",
-			},
 		},
 	}
 	for name, tc := range testCases {

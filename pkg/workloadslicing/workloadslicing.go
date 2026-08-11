@@ -124,17 +124,21 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 	}), nil
 }
 
-// FindLatestActiveWorkload returns the newest non-finished workload slice owned
-// by the provided job object/gvk that holds a quota reservation, or nil if none
-// qualifies. This is the chain's "active" slice: its granted PodSet counts
-// define the admitted capacity.
+// FindLatestActiveWorkload returns the newest non-finished, non-evicted workload
+// slice owned by the provided job object/gvk that holds a quota reservation, or
+// nil if none qualifies. This is the chain's "active" slice: its granted PodSet
+// counts define the admitted capacity.
+//
+// Eviction is two writes: the condition is set first, and the reservation is
+// released after. A slice in between still reports a reservation while its
+// capacity is on the way out, so it is not the one to measure against.
 func FindLatestActiveWorkload(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, error) {
 	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
 	if err != nil {
 		return nil, err
 	}
 	for i := range slices.Backward(workloads) {
-		if workload.HasQuotaReservation(&workloads[i]) {
+		if workload.HasQuotaReservation(&workloads[i]) && !workloadevict.IsEvicted(&workloads[i]) {
 			return &workloads[i], nil
 		}
 	}
@@ -277,9 +281,10 @@ func normalizeActiveSlices(
 		if workloadevict.IsEvicted(wl) {
 			continue
 		}
-		if latestNonEvicted == nil || wl.CreationTimestamp.After(latestNonEvicted.CreationTimestamp.Time) {
-			latestNonEvicted = wl
-		}
+		// The input is already sorted oldest-first with a UID tie-break, so the
+		// last one seen is the latest. Comparing timestamps here would keep the
+		// first of two created in the same second instead.
+		latestNonEvicted = wl
 		if !workload.HasQuotaReservation(wl) {
 			continue
 		}
@@ -319,9 +324,12 @@ func normalizeActiveSlices(
 		if wl == selectedWorkload || wl == latestWithQuotaReservation {
 			continue
 		}
-		log.V(2).Info("Finishing out-of-sync workload slice", "workload", workload.Key(wl))
-		if err := workloadfinish.Finish(ctx, clnt, wl, kueue.WorkloadFinishedReasonOutOfSync,
-			"The workload slice is out of sync with its parent job", clk); err != nil {
+		reason, message := kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"
+		if _, replaced := replacements[workload.Key(wl)]; replaced {
+			reason, message = kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice"
+		}
+		log.V(2).Info("Finishing workload slice", "workload", workload.Key(wl), "reason", reason)
+		if err := workloadfinish.Finish(ctx, clnt, wl, reason, message, clk); err != nil {
 			return nil, err
 		}
 	}

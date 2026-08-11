@@ -199,7 +199,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	var cq kueue.ClusterQueue
 	if err := r.client.Get(ctx, client.ObjectKey{Name: string(queueObj.Spec.ClusterQueue)}, &cq); err != nil {
 		if apierrors.IsNotFound(err) {
-			err = r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionFalse, "ClusterQueueDoesNotExist", clusterQueueIsInactiveMsg)
+			err = r.updateStatusIfChanged(ctx, &queueObj, &schdcache.LocalQueueUsageStats{}, metav1.ConditionFalse, "ClusterQueueDoesNotExist", clusterQueueIsInactiveMsg)
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -226,7 +226,7 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		if err := r.reconcileConsumedUsage(ctx, &queueObj); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
-		if err := r.queues.RebuildClusterQueue(&cq, queueObj.Name); err != nil {
+		if err := r.queues.RebuildClusterQueue(log, &cq, queueObj.Name); err != nil {
 			return ctrl.Result{}, err
 		}
 		return ctrl.Result{RequeueAfter: r.admissionFSConfig.UsageSamplingInterval.Duration}, nil
@@ -646,6 +646,16 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
 ) error {
+	return r.updateStatusIfChanged(ctx, queue, nil, conditionStatus, reason, msg)
+}
+
+func (r *LocalQueueReconciler) updateStatusIfChanged(
+	ctx context.Context,
+	queue *kueue.LocalQueue,
+	usage *schdcache.LocalQueueUsageStats,
+	conditionStatus metav1.ConditionStatus,
+	reason, msg string,
+) error {
 	log := r.logger()
 	oldStatus := queue.Status.DeepCopy()
 	var (
@@ -659,10 +669,13 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 			return err
 		}
 	}
-	stats, err := r.cache.LocalQueueUsage(queue)
-	if err != nil {
-		log.Error(err, failedUpdateLqStatusMsg)
-		return err
+	stats := usage
+	if stats == nil {
+		stats, err = r.cache.LocalQueueUsage(queue)
+		if err != nil {
+			log.Error(err, failedUpdateLqStatusMsg)
+			return err
+		}
 	}
 	queue.Status.PendingWorkloads = pendingWls
 	queue.Status.ReservingWorkloads = int32(stats.ReservingWorkloads)

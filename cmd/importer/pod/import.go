@@ -29,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -85,11 +84,16 @@ func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache
 			wl.Spec.Priority = &pc.Value
 		}
 
+		cq, ok := importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]
+		if !ok {
+			return false, fmt.Errorf("cluster queue not found in cache: %s: %w", lq.Spec.ClusterQueue, cache.ErrCQNotFound)
+		}
+
 		if err := createWorkload(ctx, c, wl); err != nil {
 			return false, fmt.Errorf("creating workload: %w", err)
 		}
 
-		if err := admitWorkload(ctx, c, wl, importCache.ClusterQueues[string(lq.Spec.ClusterQueue)]); err != nil {
+		if err := admitWorkload(ctx, c, wl, cq); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
@@ -187,13 +191,15 @@ func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq 
 					Name:          info.TotalRequests[0].Name,
 					Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
 					ResourceUsage: info.TotalRequests[0].Requests.ToResourceList(resourceFormatter),
-					Count:         ptr.To[int32](1),
+					Count:         new(int32(1)),
 				},
 			},
 		}
 		flv := cq.Spec.ResourceGroups[0].Flavors[0].Name
-		for r := range info.TotalRequests[0].Requests {
-			admission.PodSetAssignments[0].Flavors[r] = flv
+		if info.TotalRequests[0].Requests != nil {
+			info.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, val int64) {
+				admission.PodSetAssignments[0].Flavors[name] = flv
+			})
 		}
 
 		wl.Status.Admission = &admission

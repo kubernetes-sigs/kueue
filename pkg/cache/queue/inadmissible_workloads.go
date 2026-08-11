@@ -30,21 +30,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const (
-	requeueBatchPeriod     = 1 * time.Second
-	requeueLongBatchPeriod = 10 * time.Second
-)
-
-func getRequeueBatchPeriod() time.Duration {
-	if features.Enabled(features.SchedulerLongRequeueInterval) {
-		return requeueLongBatchPeriod
-	}
-	return requeueBatchPeriod
-}
+const requeueBatchPeriod = time.Second
 
 type requeuerOptions struct {
 	batchPeriod time.Duration
@@ -92,11 +81,6 @@ func (iw inadmissibleWorkloads) empty() bool {
 func (iw inadmissibleWorkloads) hasKey(key workload.Reference) bool {
 	_, ok := iw[key]
 	return ok
-}
-
-// replaceAll replaces all inadmissible workloads with the provided map.
-func (iw *inadmissibleWorkloads) replaceAll(newMap inadmissibleWorkloads) {
-	*iw = newMap
 }
 
 // requeueWorkloadsCQ moves all workloads in this ClusterQueue
@@ -176,20 +160,18 @@ func queueInadmissibleWorkloads(ctx context.Context, c *ClusterQueue, client cli
 		return 0
 	}
 	log.V(2).Info("Resetting the head of the ClusterQueue", "clusterQueue", c.name)
-	newInadmissibleWorkloads := make(inadmissibleWorkloads)
 	moved := 0
 	for key, wInfo := range c.inadmissibleWorkloads {
 		ns := corev1.Namespace{}
 		err := client.Get(ctx, types.NamespacedName{Name: wInfo.Obj.Namespace}, &ns)
 		if err != nil || !c.namespaceSelector.Matches(labels.Set(ns.Labels)) || !c.backoffWaitingTimeExpired(wInfo) {
-			newInadmissibleWorkloads.insert(key, wInfo)
-		} else if c.heap.PushIfNotPresent(wInfo) {
+			continue
+		}
+		if c.moveInadmissibleToHeap(key, wInfo) {
 			moved++
 		}
 	}
-
-	c.inadmissibleWorkloads.replaceAll(newInadmissibleWorkloads)
-	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", len(c.inadmissibleWorkloads))
+	log.V(5).Info("Moved workloads from inadmissibleWorkloads back to heap", "clusterQueue", c.name, "workloadsMoved", moved, "workloadsNotMoved", c.inadmissibleWorkloads.len())
 	return moved
 }
 
@@ -248,7 +230,7 @@ type workqueueRequeuer struct {
 
 func NewRequeuer(opts ...RequeuerOption) *workqueueRequeuer {
 	options := requeuerOptions{
-		batchPeriod: getRequeueBatchPeriod(),
+		batchPeriod: requeueBatchPeriod,
 	}
 	for _, opt := range opts {
 		opt(&options)

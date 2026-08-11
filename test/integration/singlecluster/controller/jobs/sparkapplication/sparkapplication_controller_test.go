@@ -148,7 +148,7 @@ var _ = ginkgo.Describe("SparkApplication controller when waitForPodsReady enabl
 			},
 		}),
 		ginkgo.Entry("SparkApplication suspended; PodsReady=True before", PodsReadyTestSpec{
-			BeforeAppState: ptr.To(sparkv1beta2.ApplicationStateRunning),
+			BeforeAppState: new(sparkv1beta2.ApplicationStateRunning),
 			BeforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
 				Status:  metav1.ConditionTrue,
@@ -337,14 +337,14 @@ var _ = ginkgo.Describe("SparkApplication controller with TopologyAwareSchedulin
 						Name:  kueue.NewPodSetReference("driver"),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required: ptr.To(utiltesting.DefaultRackTopologyLevel),
+							Required: new(utiltesting.DefaultRackTopologyLevel),
 						},
 					},
 					{
 						Name:  kueue.NewPodSetReference("executor"),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred: ptr.To(utiltesting.DefaultBlockTopologyLevel),
+							Preferred: new(utiltesting.DefaultBlockTopologyLevel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))

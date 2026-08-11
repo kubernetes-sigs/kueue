@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -51,7 +52,7 @@ const (
 
 type ClusterQueueSnapshot struct {
 	Name                      kueue.ClusterQueueReference
-	ResourceGroups            []ResourceGroup
+	ResourceGroups            []resourcegroups.ResourceGroup
 	Workloads                 map[workload.Reference]*workload.Info
 	WorkloadsNotReady         sets.Set[workload.Reference]
 	NamespaceSelector         labels.Selector
@@ -81,13 +82,8 @@ type ClusterQueueSnapshot struct {
 
 // RGByResource returns the ResourceGroup which contains capacity
 // for the resource, or nil if the CQ doesn't provide this resource.
-func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *ResourceGroup {
-	for i := range c.ResourceGroups {
-		if c.ResourceGroups[i].CoveredResources.Has(resource) {
-			return &c.ResourceGroups[i]
-		}
-	}
-	return nil
+func (c *ClusterQueueSnapshot) RGByResource(resource corev1.ResourceName) *resourcegroups.ResourceGroup {
+	return resourcegroups.RGByResource(c.ResourceGroups, resource)
 }
 
 // SimulateUsageAddition modifies the snapshot by adding usage, and
@@ -109,14 +105,14 @@ func (c *ClusterQueueSnapshot) SimulateUsageRemoval(usage workload.Usage) func()
 }
 
 func (c *ClusterQueueSnapshot) AddUsage(usage workload.Usage) {
-	for fr, q := range usage.Quota {
+	for fr, q := range usage.Quota.Assigned {
 		addUsage(c, fr, q)
 	}
 	c.updateTASUsage(usage.TAS, add)
 }
 
 func (c *ClusterQueueSnapshot) RemoveUsage(usage workload.Usage) {
-	for fr, q := range usage.Quota {
+	for fr, q := range usage.Quota.Assigned {
 		removeUsage(c, fr, q)
 	}
 	c.updateTASUsage(usage.TAS, subtract)
@@ -136,7 +132,7 @@ func (c *ClusterQueueSnapshot) updateTASUsage(usage workload.TASUsage, op usageO
 }
 
 func (c *ClusterQueueSnapshot) Fits(usage workload.Usage) FitsCheck {
-	for fr, q := range usage.Quota {
+	for fr, q := range usage.Quota.Assigned {
 		if c.Available(fr).Cmp(q) < 0 {
 			return FitsCheckNoQuota
 		}

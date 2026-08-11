@@ -239,7 +239,7 @@ func RestorePodSpec(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetIn
 }
 
 func BadPodSetsInfoLenError(want, got int) error {
-	return fmt.Errorf("%w: expecting %d podset, got %d", ErrInvalidPodsetInfo, got, want)
+	return fmt.Errorf("%w: expecting %d podset, got %d", ErrInvalidPodsetInfo, want, got)
 }
 
 func BadPodSetsUpdateError(update string, err error) error {

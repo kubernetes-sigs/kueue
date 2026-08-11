@@ -438,7 +438,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				createdDeployment := &appsv1.Deployment{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
-					createdDeployment.Spec.Replicas = ptr.To[int32](4)
+					createdDeployment.Spec.Replicas = new(int32(4))
 					g.Expect(k8sManagerClient.Update(ctx, createdDeployment)).To(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
@@ -459,7 +459,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				createdDeployment := &appsv1.Deployment{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
-					createdDeployment.Spec.Replicas = ptr.To[int32](2)
+					createdDeployment.Spec.Replicas = new(int32(2))
 					g.Expect(k8sManagerClient.Update(ctx, createdDeployment)).To(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
@@ -1326,7 +1326,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					cfg := &kueue.MultiKueueConfig{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(multiKueueConfig), cfg)).To(gomega.Succeed())
-					cfg.Spec.QuotaManagement = ptr.To(kueue.QuotaManagementAutomated)
+					cfg.Spec.QuotaManagement = new(kueue.QuotaManagementAutomated)
 					g.Expect(k8sManagerClient.Update(ctx, cfg)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

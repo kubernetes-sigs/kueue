@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -60,6 +59,7 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreFields(schdcache.CohortSnapshot{}, "Cohort"),
 	cmp.AllowUnexported(schdcache.ClusterQueueSnapshot{}),
 	cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "ClusterQueue"),
+	cmp.Comparer(resources.Equal),
 }
 
 func TestPreemption(t *testing.T) {
@@ -168,7 +168,7 @@ func TestPreemption(t *testing.T) {
 				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 				BorrowWithinCohort: &kueue.BorrowWithinCohort{
 					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
+					MaxPriorityThreshold: new(int32(0)),
 				},
 			}).
 			Obj(),
@@ -184,7 +184,7 @@ func TestPreemption(t *testing.T) {
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 				BorrowWithinCohort: &kueue.BorrowWithinCohort{
 					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
+					MaxPriorityThreshold: new(int32(0)),
 				},
 			}).
 			Obj(),
@@ -199,7 +199,7 @@ func TestPreemption(t *testing.T) {
 				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 				BorrowWithinCohort: &kueue.BorrowWithinCohort{
 					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
+					MaxPriorityThreshold: new(int32(0)),
 				},
 			}).
 			Obj(),
@@ -214,7 +214,7 @@ func TestPreemption(t *testing.T) {
 				ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
 				BorrowWithinCohort: &kueue.BorrowWithinCohort{
 					Policy:               kueue.BorrowWithinCohortPolicyLowerPriority,
-					MaxPriorityThreshold: ptr.To[int32](0),
+					MaxPriorityThreshold: new(int32(0)),
 				},
 			}).
 			Obj(),
@@ -4841,7 +4841,7 @@ func TestPriorityInfo(t *testing.T) {
 		},
 		{
 			name:          "workload with priority only",
-			wl:            &kueue.Workload{Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](100)}},
+			wl:            &kueue.Workload{Spec: kueue.WorkloadSpec{Priority: new(int32(100))}},
 			wantEffective: 100,
 			wantBase:      100,
 			wantBoost:     0,
@@ -4853,7 +4853,7 @@ func TestPriorityInfo(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
 				},
-				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](200)},
+				Spec: kueue.WorkloadSpec{Priority: new(int32(200))},
 			},
 			wantEffective: 250,
 			wantBase:      200,
@@ -4866,7 +4866,7 @@ func TestPriorityInfo(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "-30"},
 				},
-				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](100)},
+				Spec: kueue.WorkloadSpec{Priority: new(int32(100))},
 			},
 			wantEffective: 70,
 			wantBase:      100,
@@ -4879,7 +4879,7 @@ func TestPriorityInfo(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "not-a-number"},
 				},
-				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](100)},
+				Spec: kueue.WorkloadSpec{Priority: new(int32(100))},
 			},
 			wantEffective: 100,
 			wantBase:      100,
@@ -4892,7 +4892,7 @@ func TestPriorityInfo(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "1"},
 				},
-				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](math.MaxInt32)},
+				Spec: kueue.WorkloadSpec{Priority: new(int32(math.MaxInt32))},
 			},
 			wantEffective: int64(math.MaxInt32) + 1,
 			wantBase:      math.MaxInt32,
@@ -4905,7 +4905,7 @@ func TestPriorityInfo(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{controllerconstants.PriorityBoostAnnotationKey: "50"},
 				},
-				Spec: kueue.WorkloadSpec{Priority: ptr.To[int32](100)},
+				Spec: kueue.WorkloadSpec{Priority: new(int32(100))},
 			},
 			wantEffective: 100,
 			wantBase:      100,

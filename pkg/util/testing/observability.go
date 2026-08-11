@@ -22,6 +22,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // AdjustConditionsForDisabledObservabilityInWorkloadController adjusts a slice of workload status conditions
@@ -45,7 +46,8 @@ func AdjustConditionsForDisabledObservabilityInWorkloadController(conditions []m
 		if cond.Type == kueue.WorkloadQuotaReserved && cond.Status == metav1.ConditionFalse {
 			switch cond.Reason {
 			case kueue.WorkloadQuotaReservedReasonWaitingForPodsReady:
-				cond.Reason = kueue.WorkloadWaiting //nolint:staticcheck // SA1019: legacy reason
+				//nolint:staticcheck // SA1019: intentional deprecated legacy reason
+				cond.Reason = kueue.WorkloadWaiting
 			case kueue.WorkloadAdmissionGated:
 				// Keep as is
 			case kueue.WorkloadQuotaReservedReasonMisconfigured,
@@ -53,7 +55,8 @@ func AdjustConditionsForDisabledObservabilityInWorkloadController(conditions []m
 				kueue.WorkloadInadmissible:
 				cond.Reason = kueue.WorkloadInadmissible
 			default:
-				cond.Reason = kueue.WorkloadPending //nolint:staticcheck // SA1019: legacy reason
+				//nolint:staticcheck // SA1019: intentional deprecated legacy reason
+				cond.Reason = kueue.WorkloadPending
 			}
 		}
 		filtered = append(filtered, cond)
@@ -97,9 +100,11 @@ func AdjustConditionsForDisabledObservabilityInScheduler(conditions []metav1.Con
 		if cond.Type == kueue.WorkloadQuotaReserved && cond.Status == metav1.ConditionFalse {
 			switch cond.Reason {
 			case kueue.WorkloadQuotaReservedReasonWaitingForPodsReady:
-				cond.Reason = kueue.WorkloadWaiting //nolint:staticcheck // SA1019: legacy reason
+				//nolint:staticcheck // SA1019: intentional deprecated legacy reason
+				cond.Reason = kueue.WorkloadWaiting
 			default:
-				cond.Reason = kueue.WorkloadPending //nolint:staticcheck // SA1019: legacy reason
+				//nolint:staticcheck // SA1019: intentional deprecated legacy reason
+				cond.Reason = kueue.WorkloadPending
 			}
 		}
 		filtered = append(filtered, cond)
@@ -125,12 +130,44 @@ func AdjustEventsForDisabledObservabilityInScheduler(events []EventRecord) {
 		if events[i].EventType == corev1.EventTypeWarning {
 			switch events[i].Reason {
 			case kueue.WorkloadQuotaReservedReasonWaitingForPodsReady:
-				events[i].Reason = kueue.WorkloadWaiting //nolint:staticcheck // SA1019: legacy reason
+				//nolint:staticcheck // SA1019: intentional deprecated legacy reason
+				events[i].Reason = kueue.WorkloadWaiting
 			case kueue.WorkloadAdmissionGated, "SecondPassFailed", "DeprecatedPathUsage", "FailedCreate", "ErrWorkloadCompose", "JobNestingTooDeep":
 				// Keep warning events that are not related to QuotaReserved=False unadmitted reasons
 			default:
-				events[i].Reason = kueue.WorkloadPending //nolint:staticcheck // SA1019: legacy reason
+				//nolint:staticcheck // SA1019: intentional deprecated legacy reason
+				events[i].Reason = kueue.WorkloadPending
 			}
 		}
 	}
+}
+
+// UnadmittedConditions returns the conditions if the UnadmittedWorkloadsObservability
+// feature gate is enabled, otherwise it returns nil.
+func UnadmittedConditions(conds ...metav1.Condition) []metav1.Condition {
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		return conds
+	}
+	return nil
+}
+
+// ExplicitStatusConditions returns the conditions if both UnadmittedWorkloadsObservability
+// and UnadmittedWorkloadsExplicitStatus feature gates are enabled, otherwise it returns nil.
+func ExplicitStatusConditions(conds ...metav1.Condition) []metav1.Condition {
+	if features.Enabled(features.UnadmittedWorkloadsObservability) && features.Enabled(features.UnadmittedWorkloadsExplicitStatus) {
+		return conds
+	}
+	return nil
+}
+
+// WantChangeWithObservability returns true if defaultWantChange is true or if
+// the UnadmittedWorkloadsObservability feature gate is enabled.
+func WantChangeWithObservability(defaultWantChange bool) bool {
+	return defaultWantChange || features.Enabled(features.UnadmittedWorkloadsObservability)
+}
+
+// WantChangeWithExplicitStatus returns true if defaultWantChange is true or if both
+// UnadmittedWorkloadsObservability and UnadmittedWorkloadsExplicitStatus feature gates are enabled.
+func WantChangeWithExplicitStatus(defaultWantChange bool) bool {
+	return defaultWantChange || (features.Enabled(features.UnadmittedWorkloadsObservability) && features.Enabled(features.UnadmittedWorkloadsExplicitStatus))
 }

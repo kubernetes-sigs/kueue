@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -73,9 +72,9 @@ func MakeCluster(name, ns string) *ClusterWrapper {
 			WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 				{
 					GroupName:      "workers-group-0",
-					Replicas:       ptr.To[int32](1),
-					MinReplicas:    ptr.To[int32](0),
-					MaxReplicas:    ptr.To[int32](10),
+					Replicas:       new(int32(1)),
+					MinReplicas:    new(int32(0)),
+					MaxReplicas:    new(int32(10)),
 					RayStartParams: map[string]string{},
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -170,6 +169,22 @@ func (j *ClusterWrapper) Clone() *ClusterWrapper {
 
 func (j *ClusterWrapper) WithEnableAutoscaling(value *bool) *ClusterWrapper {
 	j.Spec.EnableInTreeAutoscaling = value
+	return j
+}
+
+// SchedulingGate adds a scheduling gate to the head group and every worker group template.
+func (j *ClusterWrapper) SchedulingGate(name string) *ClusterWrapper {
+	gate := corev1.PodSchedulingGate{Name: name}
+	j.Spec.HeadGroupSpec.Template.Spec.SchedulingGates = append(j.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, gate)
+	for i := range j.Spec.WorkerGroupSpecs {
+		wgs := &j.Spec.WorkerGroupSpecs[i]
+		wgs.Template.Spec.SchedulingGates = append(wgs.Template.Spec.SchedulingGates, gate)
+	}
+	return j
+}
+
+func (j *ClusterWrapper) WithAutoscalerOptions(value *rayv1.AutoscalerOptions) *ClusterWrapper {
+	j.Spec.AutoscalerOptions = value
 	return j
 }
 

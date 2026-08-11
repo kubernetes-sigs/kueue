@@ -661,9 +661,16 @@ as high as possible.</li>
 with the incoming workload is strictly less than the share of the preemptee CQ.
 This strategy doesn't depend on the share usage of the workload being preempted.
 As a result, the strategy chooses to preempt workloads with the lowest priority and
-newest start time first.
-The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;].</li>
+newest start time first.</li>
 </ul>
+<p>Only the following lists are supported:</p>
+<ul>
+<li>[&quot;LessThanOrEqualToFinalShare&quot;]</li>
+<li>[&quot;LessThanInitialShare&quot;]</li>
+<li>[&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;]</li>
+</ul>
+<p>Any other combination or ordering fails configuration validation.
+The default strategy is [&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;].</p>
 </td>
 </tr>
 </tbody>
@@ -1142,7 +1149,9 @@ Defaults to Retain</p>
    <p>MultiplyBy indicates the resource name requested by a workload, if
 specified.
 The requested amount of the resource is used to multiply the requested
-amount of the resource indicated by the &quot;input&quot; field.</p>
+amount of the resource indicated by the &quot;input&quot; field when computing
+&quot;outputs&quot;. It does not change the quantity retained under &quot;input&quot; when
+&quot;strategy&quot; is Retain.</p>
 </td>
 </tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
@@ -1296,8 +1305,9 @@ Defaults to 30min.</p>
 <code>bool</code>
 </td>
 <td>
-   <p>BlockAdmission when true, cluster queue will block admissions for all
-subsequent jobs until the jobs reach the PodsReady=true condition.
+   <p>BlockAdmission when true, Kueue blocks admission of all workloads across
+all ClusterQueues until every previously-admitted workload reaches the
+PodsReady=true condition.
 This setting is only honored when <code>Enable</code> is set to true.</p>
 </td>
 </tr>

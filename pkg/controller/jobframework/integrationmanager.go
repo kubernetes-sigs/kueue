@@ -103,7 +103,8 @@ func (i *IntegrationCallbacks) matchingOwnerReference(ownerRef *metav1.OwnerRefe
 	return ownerReferenceMatchingGVK(ownerRef, i.getGVK())
 }
 
-type integrationManager struct {
+// IntegrationManager stores the integrations configured for one Kueue manager.
+type IntegrationManager struct {
 	names                         []string
 	integrations                  map[string]IntegrationCallbacks
 	enabledIntegrations           set.Set[string]
@@ -113,9 +114,124 @@ type integrationManager struct {
 	mu                            sync.RWMutex
 }
 
-var manager integrationManager
+// NewIntegrationManager creates an empty integration manager.
+func NewIntegrationManager() *IntegrationManager {
+	return &IntegrationManager{}
+}
 
-func (m *integrationManager) register(name string, cb IntegrationCallbacks) error {
+// RegisterIntegration registers a framework with this manager.
+func (m *IntegrationManager) RegisterIntegration(name string, cb IntegrationCallbacks) error {
+	return m.register(name, cb)
+}
+
+// RegisterExternalJobType registers an externally managed job type with this manager.
+func (m *IntegrationManager) RegisterExternalJobType(kindArg string) error {
+	return m.registerExternal(kindArg)
+}
+
+// ForEachIntegration calls f for each framework registered with this manager.
+func (m *IntegrationManager) ForEachIntegration(f func(name string, cb IntegrationCallbacks) error) error {
+	return m.forEach(f)
+}
+
+// EnableIntegration marks a registered integration as enabled for this manager.
+func (m *IntegrationManager) EnableIntegration(name string) {
+	m.enableIntegration(name)
+}
+
+// EnableIntegrationsForTest enables integrations and restores the previous state when the test finishes.
+func (m *IntegrationManager) EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
+	tb.Helper()
+	old := m.getEnabledIntegrations()
+	for _, name := range names {
+		m.enableIntegration(name)
+	}
+	return func() {
+		m.mu.Lock()
+		m.enabledIntegrations = old
+		m.mu.Unlock()
+	}
+}
+
+// EnableExternalIntegrationsForTest registers external job types and restores the previous state when the test finishes.
+func (m *IntegrationManager) EnableExternalIntegrationsForTest(tb testing.TB, names ...string) func() {
+	tb.Helper()
+	old := maps.Clone(m.externalIntegrations)
+	for _, name := range names {
+		if err := m.registerExternal(name); err != nil {
+			tb.Fatalf("failed to register external framework: %q", name)
+		}
+	}
+	return func() {
+		m.mu.Lock()
+		m.externalIntegrations = old
+		m.mu.Unlock()
+	}
+}
+
+// GetIntegration returns the callbacks registered for name.
+func (m *IntegrationManager) GetIntegration(name string) (IntegrationCallbacks, bool) {
+	return m.get(name)
+}
+
+// GetIntegrationByGVK returns the callbacks registered for gvk.
+func (m *IntegrationManager) GetIntegrationByGVK(gvk schema.GroupVersionKind) (IntegrationCallbacks, bool) {
+	for _, name := range m.getList() {
+		integration, ok := m.get(name)
+		if ok && integration.matchingGVK(gvk) {
+			return integration, true
+		}
+	}
+	return IntegrationCallbacks{}, false
+}
+
+// GetIntegrationsList returns the frameworks registered with this manager.
+func (m *IntegrationManager) GetIntegrationsList() []string {
+	return m.getList()
+}
+
+// HasImplicitlyEnabledFramework returns whether gvk maps to an implicitly enabled framework.
+func (m *IntegrationManager) HasImplicitlyEnabledFramework(gvk schema.GroupVersionKind) bool {
+	name, found := m.gvkToName[gvk]
+	return found && m.implicitlyEnabledIntegrations.Has(name)
+}
+
+// IsOwnerManagedByKueueForObject returns true if the provided object's owner
+// can be managed by Kueue through this manager.
+func (m *IntegrationManager) IsOwnerManagedByKueueForObject(obj client.Object) bool {
+	if owner := metav1.GetControllerOf(obj); owner != nil {
+		return m.getJobTypeForOwner(owner) != nil
+	}
+	return false
+}
+
+// GetEmptyOwnerObject returns an empty object for owner when this manager can manage it.
+func (m *IntegrationManager) GetEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
+	if jt := m.getJobTypeForOwner(owner); jt != nil {
+		return jt.DeepCopyObject().(client.Object)
+	}
+	return nil
+}
+
+// GetMultiKueueAdapters returns adapters for enabled integrations registered with this manager.
+func (m *IntegrationManager) GetMultiKueueAdapters(enabledIntegrations sets.Set[string]) (map[string]MultiKueueAdapter, error) {
+	ret := map[string]MultiKueueAdapter{}
+	if err := m.forEach(func(intName string, cb IntegrationCallbacks) error {
+		if cb.MultiKueueAdapter != nil && enabledIntegrations.Has(intName) {
+			gvk := cb.MultiKueueAdapter.GVK().String()
+			if _, found := ret[gvk]; found {
+				return fmt.Errorf("multiple adapters for GVK: %q", gvk)
+			}
+			ret[gvk] = cb.MultiKueueAdapter
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return ret, nil
+}
+
+func (m *IntegrationManager) register(name string, cb IntegrationCallbacks) error {
 	if m.integrations == nil {
 		m.integrations = make(map[string]IntegrationCallbacks)
 	}
@@ -146,7 +262,7 @@ func (m *integrationManager) register(name string, cb IntegrationCallbacks) erro
 	return nil
 }
 
-func (m *integrationManager) registerExternal(kindArg string) error {
+func (m *IntegrationManager) registerExternal(kindArg string) error {
 	if m.externalIntegrations == nil {
 		m.externalIntegrations = make(map[string]runtime.Object)
 	}
@@ -168,7 +284,7 @@ func (m *integrationManager) registerExternal(kindArg string) error {
 	return nil
 }
 
-func (m *integrationManager) forEach(f func(name string, cb IntegrationCallbacks) error) error {
+func (m *IntegrationManager) forEach(f func(name string, cb IntegrationCallbacks) error) error {
 	for _, name := range m.names {
 		if err := f(name, m.integrations[name]); err != nil {
 			return err
@@ -177,23 +293,23 @@ func (m *integrationManager) forEach(f func(name string, cb IntegrationCallbacks
 	return nil
 }
 
-func (m *integrationManager) get(name string) (IntegrationCallbacks, bool) {
+func (m *IntegrationManager) get(name string) (IntegrationCallbacks, bool) {
 	cb, f := m.integrations[name]
 	return cb, f
 }
 
-func (m *integrationManager) getExternal(kindArg string) (runtime.Object, bool) {
+func (m *IntegrationManager) getExternal(kindArg string) (runtime.Object, bool) {
 	jt, f := m.externalIntegrations[kindArg]
 	return jt, f
 }
 
-func (m *integrationManager) getEnabledIntegrations() set.Set[string] {
+func (m *IntegrationManager) getEnabledIntegrations() set.Set[string] {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.enabledIntegrations.Clone()
 }
 
-func (m *integrationManager) enableIntegration(name string) {
+func (m *IntegrationManager) enableIntegration(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.enabledIntegrations == nil {
@@ -203,14 +319,14 @@ func (m *integrationManager) enableIntegration(name string) {
 	}
 }
 
-func (m *integrationManager) getList() []string {
+func (m *IntegrationManager) getList() []string {
 	ret := make([]string, len(m.names))
 	copy(ret, m.names)
 	slices.Sort(ret)
 	return ret
 }
 
-func (m *integrationManager) isKnownOwner(ownerRef *metav1.OwnerReference) bool {
+func (m *IntegrationManager) isKnownOwner(ownerRef *metav1.OwnerReference) bool {
 	for _, cbs := range m.integrations {
 		if cbs.matchingOwnerReference(ownerRef) {
 			return true
@@ -227,7 +343,7 @@ func (m *integrationManager) isKnownOwner(ownerRef *metav1.OwnerReference) bool 
 	return ownerRef.Kind == "ReplicaSet" && ownerRef.APIVersion == appsv1.SchemeGroupVersion.String()
 }
 
-func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference) runtime.Object {
+func (m *IntegrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference) runtime.Object {
 	for jobKey := range m.getEnabledIntegrations() {
 		cbs, found := m.integrations[jobKey]
 		if found && cbs.matchingOwnerReference(ownerRef) {
@@ -243,7 +359,7 @@ func (m *integrationManager) getJobTypeForOwner(ownerRef *metav1.OwnerReference)
 	return nil
 }
 
-func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[string]) error {
+func (m *IntegrationManager) checkEnabledListDependencies(enabledSet sets.Set[string]) error {
 	enabled := enabledSet.UnsortedList()
 	slices.Sort(enabled)
 	for _, integration := range enabled {
@@ -260,138 +376,12 @@ func (m *integrationManager) checkEnabledListDependencies(enabledSet sets.Set[st
 	return nil
 }
 
-// RegisterIntegration registers a new framework, returns an error when
-// attempting to register multiple frameworks with the same name or if a
-// mandatory callback is missing.
-func RegisterIntegration(name string, cb IntegrationCallbacks) error {
-	return manager.register(name, cb)
-}
-
-// RegisterExternalJobType registers a new externally-managed Kind, returns an error
-// if kindArg cannot be parsed as a Kind.version.group.
-func RegisterExternalJobType(kindArg string) error {
-	return manager.registerExternal(kindArg)
-}
-
-// ForEachIntegration loops through the registered list of frameworks calling f,
-// if at any point f returns an error the loop is stopped and that error is returned.
-func ForEachIntegration(f func(name string, cb IntegrationCallbacks) error) error {
-	return manager.forEach(f)
-}
-
-// EnableIntegration marks the integration identified by name as enabled.
-func EnableIntegration(name string) {
-	manager.enableIntegration(name)
-}
-
-// EnableIntegrationsForTest - should be used only in tests
-// Mark the frameworks identified by names and return a revert function.
-func EnableIntegrationsForTest(tb testing.TB, names ...string) func() {
-	tb.Helper()
-	old := manager.getEnabledIntegrations()
-	for _, name := range names {
-		manager.enableIntegration(name)
-	}
-	return func() {
-		manager.mu.Lock()
-		manager.enabledIntegrations = old
-		manager.mu.Unlock()
-	}
-}
-
-// EnableExternalIntegrationsForTest - should be used only in tests
-// Mark the frameworks identified by names and return a revert function.
-func EnableExternalIntegrationsForTest(tb testing.TB, names ...string) func() {
-	tb.Helper()
-	old := maps.Clone(manager.externalIntegrations)
-	for _, name := range names {
-		if err := manager.registerExternal(name); err != nil {
-			tb.Fatalf("failed to register external framework: %q", name)
-		}
-	}
-	return func() {
-		manager.mu.Lock()
-		manager.externalIntegrations = old
-		manager.mu.Unlock()
-	}
-}
-
-// GetIntegration looks-up the framework identified by name in the currently registered
-// list of frameworks returning its callbacks and true if found.
-func GetIntegration(name string) (IntegrationCallbacks, bool) {
-	return manager.get(name)
-}
-
-// GetIntegrationByGVK looks-up the framework identified by GroupVersionKind in the currently
-// registered list of frameworks returning its callbacks and true if found.
-func GetIntegrationByGVK(gvk schema.GroupVersionKind) (IntegrationCallbacks, bool) {
-	for _, name := range manager.getList() {
-		integration, ok := GetIntegration(name)
-		if ok && integration.matchingGVK(gvk) {
-			return integration, true
-		}
-	}
-	return IntegrationCallbacks{}, false
-}
-
-// HasImplicitlyEnabledFramework returns true if the given GVK maps to an implicitly enabled framework.
-func HasImplicitlyEnabledFramework(gvk schema.GroupVersionKind) bool {
-	name, found := manager.gvkToName[gvk]
-	if !found {
-		return false
-	}
-	return manager.implicitlyEnabledIntegrations.Has(name)
-}
-
 func ownerReferenceMatchingGVK(ownerRef *metav1.OwnerReference, gvk schema.GroupVersionKind) bool {
 	apiVersion, kind := gvk.ToAPIVersionAndKind()
 	return ownerRef.APIVersion == apiVersion && ownerRef.Kind == kind
 }
 
-// GetIntegrationsList returns the list of currently registered frameworks.
-func GetIntegrationsList() []string {
-	return manager.getList()
-}
-
-// IsOwnerManagedByKueueForObject returns true if the provided object has an owner,
-// and this owner can be managed by Kueue.
-func IsOwnerManagedByKueueForObject(obj client.Object) bool {
-	if owner := metav1.GetControllerOf(obj); owner != nil {
-		return manager.getJobTypeForOwner(owner) != nil
-	}
-	return false
-}
-
-// GetEmptyOwnerObject returns an empty object of the owner's type,
-// returns nil if the owner is not manageable by kueue.
-func GetEmptyOwnerObject(owner *metav1.OwnerReference) client.Object {
-	if jt := manager.getJobTypeForOwner(owner); jt != nil {
-		return jt.DeepCopyObject().(client.Object)
-	}
-	return nil
-}
-
-// GetMultiKueueAdapters returns the map containing the MultiKueue adapters for the
-// registered and enabled integrations.
-// An error is returned if more then one adapter is registers for one object type.
-func GetMultiKueueAdapters(enabledIntegrations sets.Set[string]) (map[string]MultiKueueAdapter, error) {
-	ret := map[string]MultiKueueAdapter{}
-	if err := manager.forEach(func(intName string, cb IntegrationCallbacks) error {
-		if cb.MultiKueueAdapter != nil && enabledIntegrations.Has(intName) {
-			gvk := cb.MultiKueueAdapter.GVK().String()
-			if _, found := ret[gvk]; found {
-				return fmt.Errorf("multiple adapters for GVK: %q", gvk)
-			}
-			ret[gvk] = cb.MultiKueueAdapter
-		}
-		return nil
-	}); err != nil {
-		return nil, err
-	}
-	return ret, nil
-}
-
-func (m *integrationManager) collectImplicitlyEnabledIntegrations(enabledFrameworks sets.Set[string]) sets.Set[string] {
+func (m *IntegrationManager) collectImplicitlyEnabledIntegrations(enabledFrameworks sets.Set[string]) sets.Set[string] {
 	result := sets.New[string]()
 	for frameworkName := range enabledFrameworks {
 		callbacks, found := m.get(frameworkName)
@@ -408,6 +398,6 @@ func (m *integrationManager) collectImplicitlyEnabledIntegrations(enabledFramewo
 	return result
 }
 
-func (m *integrationManager) setImplicitlyEnabledIntegrations(implicitlyIntegrations sets.Set[string]) {
+func (m *IntegrationManager) setImplicitlyEnabledIntegrations(implicitlyIntegrations sets.Set[string]) {
 	m.implicitlyEnabledIntegrations = implicitlyIntegrations
 }

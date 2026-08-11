@@ -58,6 +58,16 @@ files:
       - type: UPDATE
         key: .subjects.[].namespace
         value: '"{{ .Release.Namespace }}"'
+      # Webhook configurations are named after the release, so the names the manager role
+      # grants must be prefixed to match; CRD names must not be, hence onItemCondition.
+      # addKeyIfMissing bypasses a precheck that cannot parse the trailing []; onFileCondition
+      # then stops that bypass adding an empty rules list to the bindings and service account.
+      - type: APPEND
+        key: .rules.[].resourceNames.[]
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.rules != null'
+        onItemCondition: '.resourceNames != null and (.resources.[0] == "mutatingwebhookconfigurations" or .resources.[0] == "validatingwebhookconfigurations")'
+        addKeyIfMissing: true
     postOperations:
       - type: INSERT_TEXT
         key: .metadata.labels
@@ -492,22 +502,36 @@ files:
       - type: INSERT_TEXT
         key: .spec
         value: |
-          {{- if .Values.kueueViz.backend.ingress.tlsSecretName }}
+          {{- $tlsEnabled := .Values.kueueViz.backend.ingress.tlsEnabled }}
+          {{- $tlsEnabledUnset := and (empty $tlsEnabled) (ne $tlsEnabled false) }}
+          {{- $tlsSecretName := .Values.kueueViz.backend.ingress.tlsSecretName }}
+          {{- $tlsSecretNameSet := empty $tlsSecretName | not }}
+          {{- $hasTls := or $tlsEnabled (and $tlsEnabledUnset $tlsSecretNameSet) }}
+          {{- if $hasTls }}
           tls:
             - hosts:
                 - '{{ .Values.kueueViz.backend.ingress.host | default "backend.kueueviz.local" }}'
-              secretName: '{{ .Values.kueueViz.backend.ingress.tlsSecretName }}'
+              {{- with $tlsSecretName }}
+              secretName: '{{ . }}'
+              {{- end }}
           {{- end }}
         indentation: 2
         onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("backend")'
       - type: INSERT_TEXT
         key: .spec
         value: |
-          {{- if .Values.kueueViz.frontend.ingress.tlsSecretName }}
+          {{- $tlsEnabled := .Values.kueueViz.frontend.ingress.tlsEnabled }}
+          {{- $tlsEnabledUnset := and (empty $tlsEnabled) (ne $tlsEnabled false) }}
+          {{- $tlsSecretName := .Values.kueueViz.frontend.ingress.tlsSecretName }}
+          {{- $tlsSecretNameSet := empty $tlsSecretName | not }}
+          {{- $hasTls := or $tlsEnabled (and $tlsEnabledUnset $tlsSecretNameSet) }}
+          {{- if $hasTls }}
           tls:
             - hosts:
                 - '{{ .Values.kueueViz.frontend.ingress.host | default "frontend.kueueviz.local" }}'
-              secretName: '{{ .Values.kueueViz.frontend.ingress.tlsSecretName }}'
+              {{- with $tlsSecretName }}
+              secretName: '{{ . }}'
+              {{- end }}
           {{- end }}
         indentation: 2
         onFileCondition: '.kind == "Ingress" and  .metadata.name | contains("frontend")'

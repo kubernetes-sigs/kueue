@@ -51,6 +51,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -273,6 +274,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := deleteWorkloadsInNamespace(ctx, c, ns, 2); err != nil {
 		return err
 	}
+	if err := DeleteAllEventsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
 	err := c.DeleteAllOf(ctx, &corev1.LimitRange{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
@@ -339,6 +343,10 @@ func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 	return deleteAllPodsInNamespace(ctx, c, ns, 2)
 }
 
+func DeleteAllEventsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &eventsv1.Event{})
+}
+
 func deleteAllObjectsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace, obj client.Object) error {
 	err := c.DeleteAllOf(ctx, obj, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
 	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
@@ -400,7 +408,7 @@ func UnholdClusterQueue(ctx context.Context, k8sClient client.Client, cq *kueue.
 		if ptr.Deref(cqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
 			return
 		}
-		cqCopy.Spec.StopPolicy = ptr.To(kueue.None)
+		cqCopy.Spec.StopPolicy = new(kueue.None)
 		g.Expect(k8sClient.Update(ctx, &cqCopy)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold cluster queue", &cqCopy))
 }
@@ -412,7 +420,7 @@ func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.Lo
 		if ptr.Deref(lqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
 			return
 		}
-		lqCopy.Spec.StopPolicy = ptr.To(kueue.None)
+		lqCopy.Spec.StopPolicy = new(kueue.None)
 		g.Expect(k8sClient.Update(ctx, &lqCopy)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold local queue", &lqCopy))
 }
@@ -481,8 +489,6 @@ func ExpectWorkloadsToBePending(ctx context.Context, k8sClient client.Client, wl
 }
 
 var pendingQuotaReservedReasons = sets.New(
-	kueue.WorkloadPending, //nolint:staticcheck // SA1019: legacy reason
-	kueue.WorkloadWaiting, //nolint:staticcheck // SA1019: legacy reason
 	kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 	kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 	kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
@@ -511,6 +517,12 @@ func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Clie
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are pending", wlObjects...))
 }
 
+func ExpectWorkloadsToBeInadmissible(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	ginkgo.GinkgoHelper()
+	wlKeys := workloadKeys(wls)
+	ExpectWorkloadsToBeInadmissibleByKeys(ctx, k8sClient, wlKeys...)
+}
+
 func ExpectWorkloadsToBeInadmissibleByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
 	wlKeys = uniqueKeys(wlKeys)
@@ -521,7 +533,7 @@ func ExpectWorkloadsToBeInadmissibleByKeys(ctx context.Context, k8sClient client
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" {
+			if cond != nil && cond.Status == metav1.ConditionFalse && (cond.Reason == kueue.WorkloadInadmissible || cond.Reason == kueue.WorkloadQuotaReservedReasonMisconfigured) {
 				inadmissible = append(inadmissible, wlKey)
 			}
 			wlObjects[i] = wl
@@ -739,7 +751,8 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadWaiting { //nolint:staticcheck // SA1019: legacy reason
+			if cond != nil && cond.Status == metav1.ConditionFalse &&
+				(cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPodsReady || cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads || cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForQuota) {
 				waiting = append(waiting, wlKey)
 			}
 			wlObjects[i] = wl
@@ -758,7 +771,7 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 			msg := fmt.Sprintf("ClusterQueue %s is inactive", cq)
-			if cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == "Inadmissible" && cond.Message == msg {
+			if cond != nil && cond.Status == metav1.ConditionFalse && (cond.Reason == kueue.WorkloadInadmissible || cond.Reason == kueue.WorkloadQuotaReservedReasonSuspended) && cond.Message == msg {
 				frozen = append(frozen, wlKey)
 			}
 			wlObjects[i] = wl
@@ -894,7 +907,7 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 			if workload.HasQuotaReservation(wl) {
 				g.Expect(
 					workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, RealClock, func(wl *kueue.Workload) (bool, error) {
-						return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadPending, "By test", time.Now()), nil //nolint:staticcheck // SA1019: legacy reason
+						return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadQuotaReservedReasonPendingEvaluation, "By test", time.Now()), nil
 					}),
 				).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset quota reservation for %q", key))
 			}
@@ -1671,7 +1684,7 @@ func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node 
 			SuccessPolicy(&batchv1.SuccessPolicy{
 				Rules: []batchv1.SuccessPolicyRule{
 					{
-						SucceededCount: ptr.To[int32](1),
+						SucceededCount: new(int32(1)),
 					},
 				},
 			}).

@@ -286,8 +286,9 @@ type WaitForPodsReady struct {
 	// +optional
 	Timeout *metav1.Duration `json:"timeout,omitempty"`
 
-	// BlockAdmission when true, cluster queue will block admissions for all
-	// subsequent jobs until the jobs reach the PodsReady=true condition.
+	// BlockAdmission when true, Kueue blocks admission of all workloads across
+	// all ClusterQueues until every previously-admitted workload reaches the
+	// PodsReady=true condition.
 	// This setting is only honored when `Enable` is set to true.
 	BlockAdmission *bool `json:"blockAdmission,omitempty"`
 
@@ -568,7 +569,9 @@ type ResourceTransformation struct {
 	// MultiplyBy indicates the resource name requested by a workload, if
 	// specified.
 	// The requested amount of the resource is used to multiply the requested
-	// amount of the resource indicated by the "input" field.
+	// amount of the resource indicated by the "input" field when computing
+	// "outputs". It does not change the quantity retained under "input" when
+	// "strategy" is Retain.
 	// +optional
 	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 
@@ -626,6 +629,13 @@ type FairSharing struct {
 	//   This strategy doesn't depend on the share usage of the workload being preempted.
 	//   As a result, the strategy chooses to preempt workloads with the lowest priority and
 	//   newest start time first.
+	//
+	// Only the following lists are supported:
+	// - ["LessThanOrEqualToFinalShare"]
+	// - ["LessThanInitialShare"]
+	// - ["LessThanOrEqualToFinalShare", "LessThanInitialShare"]
+	//
+	// Any other combination or ordering fails configuration validation.
 	// The default strategy is ["LessThanOrEqualToFinalShare", "LessThanInitialShare"].
 	PreemptionStrategies []PreemptionStrategy `json:"preemptionStrategies,omitempty"`
 }

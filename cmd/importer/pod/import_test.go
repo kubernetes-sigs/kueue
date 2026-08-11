@@ -24,7 +24,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -52,7 +51,7 @@ func TestImportNamespace(t *testing.T) {
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 			Image("img").
 			Request(corev1.ResourceCPU, "1").
-			PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+			PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
 			Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").
 			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -171,6 +170,34 @@ func TestImportNamespace(t *testing.T) {
 					Label("new.lbl", "val").
 					Obj(),
 			},
+		},
+		"missing cluster queue": {
+			pods: []corev1.Pod{
+				*basePodWrapper.DeepCopy(),
+			},
+			mapping: mapping.Rules{
+				mapping.Rule{
+					Match: mapping.Match{
+						PriorityClassName: "",
+						Labels: map[string]string{
+							testingQueueLabel: "q1",
+						},
+					},
+					ToLocalQueue: "lq1",
+				},
+			},
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: nil, // intentionally omit cluster queues to trigger ErrCQNotFound
+
+			wantPods: []corev1.Pod{
+				*basePodWrapper.Clone().
+					Label(controllerconstants.QueueLabel, "lq1").
+					ManagedByKueueLabel().
+					Obj(),
+			},
+			wantError: cache.ErrCQNotFound,
 		},
 	}
 

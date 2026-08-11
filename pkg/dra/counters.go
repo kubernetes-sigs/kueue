@@ -68,7 +68,7 @@ func GetCounterResourcesForWorkload(
 			}
 
 			for reqIdx, req := range spec.Devices.Requests {
-				if req.Exactly == nil {
+				if req.Exactly == nil || isAdminAccessRequest(req.Exactly) {
 					continue
 				}
 				deviceClass := corev1.ResourceName(req.Exactly.DeviceClassName)
@@ -77,9 +77,10 @@ func GetCounterResourcesForWorkload(
 					continue
 				}
 
-				reqPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j).Child("devices", "requests").Index(reqIdx)
+				claimPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec", "resourceClaims").Index(j)
+				reqPath := claimPath.Child("devices", "requests").Index(reqIdx)
 
-				classSelectors, requestSelectors, errs := prepareCounterCharge(ctx, cl, req.Exactly.DeviceClassName, req.Exactly.Selectors, classCache, reqPath)
+				classSelectors, requestSelectors, errs := prepareDeviceSelectors(ctx, cl, req.Exactly.DeviceClassName, req.Exactly.Selectors, classCache, claimPath, reqIdx)
 				if len(errs) > 0 {
 					allErrs = append(allErrs, errs...)
 					return nil, allErrs
@@ -112,19 +113,21 @@ func GetCounterResourcesForWorkload(
 	return perPodSet, nil
 }
 
-func prepareCounterCharge(
+func prepareDeviceSelectors(
 	ctx context.Context,
 	cl client.Client,
 	deviceClassName string,
 	selectors []resourcev1.DeviceSelector,
 	classCache map[string]*resourcev1.DeviceClass,
-	reqPath *field.Path,
+	claimPath *field.Path,
+	reqIdx int,
 ) ([]dracel.CompilationResult, []dracel.CompilationResult, field.ErrorList) {
-	classSelectors, classErr := resolveAndCompileDeviceClass(ctx, cl, deviceClassName, classCache, reqPath, 0)
+	classSelectors, classErr := resolveAndCompileDeviceClass(ctx, cl, deviceClassName, classCache, claimPath, reqIdx)
 	if classErr != nil {
 		return nil, nil, field.ErrorList{classErr}
 	}
 
+	reqPath := claimPath.Child("devices", "requests").Index(reqIdx)
 	requestSelectors, compErrs := compileCELSelectors(selectors, reqPath.Child("exactly", "selectors"), "CEL compilation failed")
 	if len(compErrs) > 0 {
 		return nil, nil, compErrs

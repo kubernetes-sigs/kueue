@@ -122,6 +122,16 @@ func (h *Heap[T, K]) PushOrUpdate(obj *T) {
 	}
 }
 
+// Init re-establishes the heap invariant across all items in O(n). Use it after
+// the ordering keys of several items change at once (for example when a
+// LocalQueue fair-sharing weight changes and all its workloads are reordered
+// together), where fixing the affected items one by one with PushOrUpdate is
+// unsafe: each heap.Fix assumes only a single item moved, so a batch of changes
+// can leave the heap invalid.
+func (h *Heap[T, K]) Init() {
+	heap.Init(&h.data)
+}
+
 // PushIfNotPresent inserts an item to the queue. If an item with
 // the key is present in the map, no changes is made to the item.
 func (h *Heap[T, K]) PushIfNotPresent(obj *T) (added bool) {

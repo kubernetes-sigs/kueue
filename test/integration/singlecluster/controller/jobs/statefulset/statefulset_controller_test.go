@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -178,7 +177,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		ginkgo.By("Scaling the StatefulSet to zero")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
-			createdSTS.Spec.Replicas = ptr.To[int32](0)
+			createdSTS.Spec.Replicas = new(int32(0))
 			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -204,7 +203,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		ginkgo.By("Scaling the StatefulSet back up to 1")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
-			createdSTS.Spec.Replicas = ptr.To[int32](1)
+			createdSTS.Spec.Replicas = new(int32(1))
 			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
 		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 

@@ -946,7 +946,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-							return assertStatusConditionPatch(t, subResourceName, obj, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync)
+							return assertStatusConditionPatch(t, subResourceName, obj, testJobObject.Name+"-1", kueue.WorkloadFinished, kueue.WorkloadSliceReplaced)
 						},
 					}).
 					Build(),
@@ -1138,6 +1138,18 @@ func TestNormalizeActiveSlices(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
 			},
 			want: want{survivor: "wl-d", keptAdmitted: "wl-c"},
+		},
+		// Neither holds a reservation, so the survivor is the latest one. The
+		// caller passes these already sorted with a UID tie-break, so the last
+		// is the latest even when both were created in the same second.
+		"two pending slices created in the same second": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			want: want{survivor: "wl-b"},
 		},
 	}
 	for name, tc := range tests {
@@ -1386,6 +1398,70 @@ func TestScaledDown(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if got := ScaledDown(tt.args.oldCounts, tt.args.newCounts); got != tt.want {
 				t.Errorf("ScaledDown() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFindLatestActiveWorkload(t *testing.T) {
+	now := time.Now()
+	admission := utiltestingapi.MakeAdmission("cq").Obj()
+
+	live := func(name string, created time.Time) *utiltestingapi.WorkloadWrapper {
+		return testWorkload(name, testJobObject.Name, testJobObject.UID, created).
+			ReserveQuotaAt(admission, created)
+	}
+
+	cases := map[string]struct {
+		workloads []kueue.Workload
+		want      string
+	}{
+		"none": {},
+		"the only reserved one": {
+			workloads: []kueue.Workload{*live("only", now).Obj()},
+			want:      "only",
+		},
+		"the newest reserved one": {
+			workloads: []kueue.Workload{
+				*live("older", now.Add(-time.Minute)).Obj(),
+				*live("newer", now).Obj(),
+			},
+			want: "newer",
+		},
+		// Eviction sets its condition before the reservation is released, so a
+		// slice can still report one while its capacity is on the way out. The
+		// older slice is the one still holding capacity.
+		"a newer slice that is being evicted": {
+			workloads: []kueue.Workload{
+				*live("older", now.Add(-time.Minute)).Obj(),
+				*live("evicting", now).EvictedAt(now).Obj(),
+			},
+			want: "older",
+		},
+		"every slice is being evicted": {
+			workloads: []kueue.Workload{
+				*live("one", now.Add(-time.Minute)).EvictedAt(now).Obj(),
+				*live("two", now).EvictedAt(now).Obj(),
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cl := testWorkloadClientBuilder().
+				WithLists(&kueue.WorkloadList{Items: tc.workloads}).Build()
+
+			got, err := FindLatestActiveWorkload(ctx, cl, testJobObject, testJobGVK)
+			if err != nil {
+				t.Fatalf("FindLatestActiveWorkload() error = %v", err)
+			}
+			var gotName string
+			if got != nil {
+				gotName = got.Name
+			}
+			if gotName != tc.want {
+				t.Errorf("FindLatestActiveWorkload() = %q, want %q", gotName, tc.want)
 			}
 		})
 	}

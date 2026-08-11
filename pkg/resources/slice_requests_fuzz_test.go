@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -40,16 +41,17 @@ var fuzzResourceNames = []corev1.ResourceName{
 //  1. Header (1 byte): data[0] is returned as opChoice to select the test operation (opAdd, opSub, opScaledUp, opCountIn).
 //  2. Map 1 parsing:
 //     - The next byte (data[0] % 5) defines len1, the number of resource entries to populate in m1 (0 to 4).
-//     - Each entry consumes 5 bytes:
+//     - Each entry consumes 9 bytes:
 //     - Byte 0: Resource name index into fuzzResourceNames array (data[0] % len(fuzzResourceNames)).
-//     - Bytes 1..4: 32-bit unsigned little-endian integer value for the resource quantity.
+//     - Bytes 1..8: 64-bit little-endian value for the resource quantity, taken as
+//     int64, so negative values and the saturation boundary are both reachable.
 //  3. Map 2 parsing:
 //     - If bytes remain, the next byte (data[0] % 5) defines len2 (0 to 4).
-//     - Up to len2 entries are parsed using 5 bytes each, exactly as in m1.
+//     - Up to len2 entries are parsed using 9 bytes each, exactly as in m1.
 //
 // Example:
 //
-//	Input data: []byte{0, 2, 0, 100, 0, 0, 0, 1, 50, 0, 0, 0}
+//	Input data: []byte{0, 2, 0, 100, 0, 0, 0, 0, 0, 0, 0, 1, 50, 0, 0, 0, 0, 0, 0, 0}
 //	- opChoice = 0 (opAdd)
 //	- m1 length = 2 % 5 = 2 entries
 //	  - Entry 1: index 0 -> fuzzResourceNames[0] ("cpu"), val = 100 -> m1["cpu"] = 100
@@ -75,13 +77,17 @@ func parseFuzzMap(data []byte) (MapRequests, []byte) {
 	m := make(MapRequests)
 	count := int(data[0] % 5)
 	data = data[1:]
-	for i := 0; i < count && len(data) >= 5; i++ {
+	for i := 0; i < count && len(data) >= 9; i++ {
 		res := fuzzResourceNames[int(data[0])%len(fuzzResourceNames)]
-		val := int64(data[1]) | int64(data[2])<<8 | int64(data[3])<<16 | int64(data[4])<<24
+		// Eight bytes rather than four: the values this fuzzer compares are int64,
+		// and a four-byte value can only reach 2^32 and is never negative, so the
+		// boundary where the two implementations could disagree was unreachable.
+		val := int64(uint64(data[1]) | uint64(data[2])<<8 | uint64(data[3])<<16 | uint64(data[4])<<24 |
+			uint64(data[5])<<32 | uint64(data[6])<<40 | uint64(data[7])<<48 | uint64(data[8])<<56)
 		if val != 0 {
 			m[res] = val
 		}
-		data = data[5:]
+		data = data[9:]
 	}
 	return m, data
 }
@@ -108,12 +114,12 @@ func checkRequestsEquivalence(t *testing.T, opName string, mapRes Requests, slic
 		if m, ok := mapRes.(MapRequests); ok {
 			mapM = normalizeMap(m)
 		} else if s, ok := mapRes.(*SliceRequests); ok {
-			mapM = normalizeMap(s.ToMapRequests())
+			mapM = normalizeMap(MapRequests(s.ToMap()))
 		}
 	}
 	if sliceRes != nil {
 		if s, ok := sliceRes.(*SliceRequests); ok {
-			sliceM = normalizeMap(s.ToMapRequests())
+			sliceM = normalizeMap(MapRequests(s.ToMap()))
 		} else if m, ok := sliceRes.(MapRequests); ok {
 			sliceM = normalizeMap(m)
 		}
@@ -136,7 +142,17 @@ const (
 	opAdd byte = iota
 	opSub
 	opScaledUp
+	opScaledDown
+	opDivide
+	opMul
 	opCountIn
+	opSet
+	opGetValue
+	opLenAndIsEmpty
+	opToResourceList
+	opGreaterKeysRL
+	opGreaterKeys
+	opNumOps
 )
 
 type fuzzSeed struct {
@@ -149,12 +165,16 @@ func (s fuzzSeed) encode() []byte {
 	buf := []byte{s.opChoice, byte(len(s.m1))}
 	for res, val := range s.m1 {
 		idx := resourceIndex(res)
-		buf = append(buf, idx, byte(val), byte(val>>8), byte(val>>16), byte(val>>24))
+		buf = append(buf, idx,
+			byte(val), byte(val>>8), byte(val>>16), byte(val>>24),
+			byte(val>>32), byte(val>>40), byte(val>>48), byte(val>>56))
 	}
 	buf = append(buf, byte(len(s.m2)))
 	for res, val := range s.m2 {
 		idx := resourceIndex(res)
-		buf = append(buf, idx, byte(val), byte(val>>8), byte(val>>16), byte(val>>24))
+		buf = append(buf, idx,
+			byte(val), byte(val>>8), byte(val>>16), byte(val>>24),
+			byte(val>>32), byte(val>>40), byte(val>>48), byte(val>>56))
 	}
 	return buf
 }
@@ -177,6 +197,21 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 			m2:       MapRequests{corev1.ResourcePods: 20},
 		},
 		{
+			opChoice: opScaledDown,
+			m1:       MapRequests{corev1.ResourceCPU: 300, corev1.ResourceMemory: 600},
+			m2:       MapRequests{},
+		},
+		{
+			opChoice: opDivide,
+			m1:       MapRequests{corev1.ResourceCPU: 200, corev1.ResourceMemory: 400},
+			m2:       MapRequests{},
+		},
+		{
+			opChoice: opMul,
+			m1:       MapRequests{corev1.ResourceCPU: 100, corev1.ResourceMemory: 200},
+			m2:       MapRequests{},
+		},
+		{
 			opChoice: opCountIn,
 			m1:       MapRequests{corev1.ResourceCPU: 100, corev1.ResourceMemory: 200},
 			m2:       MapRequests{corev1.ResourceMemory: 50, corev1.ResourcePods: 100},
@@ -191,6 +226,49 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 			m1:       MapRequests{},
 			m2:       MapRequests{corev1.ResourceCPU: 100},
 		},
+		{
+			opChoice: opCountIn,
+			m1:       MapRequests{corev1.ResourceMemory: 1},
+			m2:       MapRequests{corev1.ResourceMemory: math.MaxInt32 + 1},
+		},
+		// The int64 boundary, which the corpus could not encode while a value
+		// was four bytes wide. Both implementations saturate, so they have to
+		// saturate to the same place.
+		{
+			opChoice: opAdd,
+			m1:       MapRequests{corev1.ResourceCPU: math.MaxInt64},
+			m2:       MapRequests{corev1.ResourceCPU: 1},
+		},
+		{
+			opChoice: opSub,
+			m1:       MapRequests{corev1.ResourceCPU: math.MinInt64},
+			m2:       MapRequests{corev1.ResourceCPU: 1},
+		},
+		{
+			opChoice: opSub,
+			m1:       MapRequests{},
+			m2:       MapRequests{corev1.ResourceCPU: math.MinInt64},
+		},
+		{
+			opChoice: opSet,
+			m1:       MapRequests{corev1.ResourceCPU: 100},
+			m2:       MapRequests{corev1.ResourceMemory: 200},
+		},
+		{
+			opChoice: opGetValue,
+			m1:       MapRequests{corev1.ResourceCPU: 100, corev1.ResourceMemory: 200},
+			m2:       MapRequests{},
+		},
+		{
+			opChoice: opLenAndIsEmpty,
+			m1:       MapRequests{corev1.ResourceCPU: 100},
+			m2:       MapRequests{},
+		},
+		{
+			opChoice: opToResourceList,
+			m1:       MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048},
+			m2:       MapRequests{},
+		},
 	}
 
 	for _, s := range seeds {
@@ -203,41 +281,110 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 		s1 := NewSliceRequests(m1)
 		s2 := NewSliceRequests(m2)
 
-		switch opChoice % 4 {
+		switch opChoice % opNumOps {
 		case opAdd:
 			m1Copy := m1.Clone()
 			m1Copy.Add(m2)
-
 			s1Copy := s1.Clone()
 			s1Copy.Add(s2)
-
 			checkRequestsEquivalence(t, "Add", m1Copy, s1Copy)
-
 		case opSub:
 			m1Copy := m1.Clone()
 			m1Copy.Sub(m2)
-
 			s1Copy := s1.Clone()
 			s1Copy.Sub(s2)
-
 			checkRequestsEquivalence(t, "Sub", m1Copy, s1Copy)
-
 		case opScaledUp:
 			factor := int64(opChoice%5 + 1)
 			mScaled := m1.ScaledUp(factor)
 			sScaled := s1.ScaledUp(factor)
-
 			checkRequestsEquivalence(t, "ScaledUp", mScaled, sScaled)
-
+		case opScaledDown:
+			factor := int64(opChoice%5 + 1)
+			mScaled := m1.ScaledDown(factor)
+			sScaled := s1.ScaledDown(factor)
+			checkRequestsEquivalence(t, "ScaledDown", mScaled, sScaled)
+		case opDivide:
+			factor := int64(opChoice%5 + 1)
+			m1Copy := m1.Clone()
+			m1Copy.Divide(factor)
+			s1Copy := s1.Clone()
+			s1Copy.Divide(factor)
+			checkRequestsEquivalence(t, "Divide", m1Copy, s1Copy)
+		case opMul:
+			factor := int64(opChoice%5 + 1)
+			m1Copy := m1.Clone()
+			m1Copy.Mul(factor)
+			s1Copy := s1.Clone()
+			s1Copy.Mul(factor)
+			checkRequestsEquivalence(t, "Mul", m1Copy, s1Copy)
 		case opCountIn:
 			mCnt, mRes := m1.CountInWithLimitingResource(m2)
 			sCnt, sRes := s1.CountInWithLimitingResource(s2)
-
 			if mCnt != sCnt {
-				t.Errorf("CountIn count mismatch: Map got %d, Slice got %d", mCnt, sCnt)
+				t.Errorf("CountInWithLimitingResource count mismatch: Map got %d, Slice got %d", mCnt, sCnt)
 			}
 			if mRes != sRes {
-				t.Errorf("CountIn limiting resource mismatch: Map got %s, Slice got %s", mRes, sRes)
+				t.Errorf("CountInWithLimitingResource limiting resource mismatch: Map got %s, Slice got %s", mRes, sRes)
+			}
+			// Test direct CountIn calls
+			mDirectCnt := m1.CountIn(m2)
+			sDirectCnt := s1.CountIn(s2)
+			if mDirectCnt != sDirectCnt {
+				t.Errorf("CountIn count mismatch: Map got %d, Slice got %d", mDirectCnt, sDirectCnt)
+			}
+
+			// Test cross-type capacity calls (MapRequests with Slice capacity, SliceRequests with Map capacity)
+			mWithSliceCapCnt, mWithSliceCapRes := m1.CountInWithLimitingResource(s2)
+			sWithMapCapCnt, sWithMapCapRes := s1.CountInWithLimitingResource(m2)
+			if mWithSliceCapCnt != sWithMapCapCnt {
+				t.Errorf("Cross-type CountIn count mismatch: Map+SliceCap got %d, Slice+MapCap got %d", mWithSliceCapCnt, sWithMapCapCnt)
+			}
+			if mWithSliceCapRes != sWithMapCapRes {
+				t.Errorf("Cross-type CountIn limiting resource mismatch: Map+SliceCap got %s, Slice+MapCap got %s", mWithSliceCapRes, sWithMapCapRes)
+			}
+		case opSet:
+			res := fuzzResourceNames[int(opChoice)%len(fuzzResourceNames)]
+			val := int64(opChoice%100 + 1)
+			m1Copy := m1.Clone()
+			m1Copy.Set(res, val)
+			s1Copy := s1.Clone()
+			s1Copy.Set(res, val)
+			checkRequestsEquivalence(t, "Set", m1Copy, s1Copy)
+		case opGetValue:
+			res := fuzzResourceNames[int(opChoice)%len(fuzzResourceNames)]
+			mVal := m1.GetValue(res)
+			sVal := s1.GetValue(res)
+			if mVal != sVal {
+				t.Errorf("GetValue mismatch for %s: Map got %d, Slice got %d", res, mVal, sVal)
+			}
+		case opLenAndIsEmpty:
+			if m1.Len() != s1.Len() {
+				t.Errorf("Len mismatch: Map got %d, Slice got %d", m1.Len(), s1.Len())
+			}
+			if m1.IsEmpty() != s1.IsEmpty() {
+				t.Errorf("IsEmpty mismatch: Map got %t, Slice got %t", m1.IsEmpty(), s1.IsEmpty())
+			}
+		case opToResourceList:
+			formatter := NewResourceFormatter()
+			mRL := m1.ToResourceList(formatter)
+			sRL := s1.ToResourceList(formatter)
+			if diff := cmp.Diff(mRL, sRL); diff != "" {
+				t.Errorf("ToResourceList mismatch (-want Map +got Slice):\n%s", diff)
+			}
+		case opGreaterKeysRL:
+			formatter := NewResourceFormatter()
+			mRL := m2.ToResourceList(formatter)
+			mKeys := m1.GreaterKeysRL(mRL)
+			sKeys := s1.GreaterKeysRL(mRL)
+			if diff := cmp.Diff(mKeys, sKeys); diff != "" {
+				t.Errorf("GreaterKeysRL mismatch (-want Map +got Slice):\n%s", diff)
+			}
+		case opGreaterKeys:
+			mKeys := m1.GreaterKeys(m2)
+			sKeys := s1.GreaterKeys(s2)
+			if diff := cmp.Diff(mKeys, sKeys); diff != "" {
+				t.Errorf("GreaterKeys mismatch (-want Map +got Slice):\n%s", diff)
 			}
 		}
 	})

@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -41,6 +40,7 @@ import (
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -49,9 +49,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	testutil "sigs.k8s.io/kueue/test/util"
-
-	// without this only the job framework is registered
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 )
 
 var (
@@ -137,8 +134,8 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(
 					field.NewPath("spec", "completions"),
-					ptr.To[int32](6),
-					fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation),
+					new(int32(6)),
+					fmt.Sprintf("should be equal to parallelism when %s annotation is true", JobCompletionsEqualParallelismAnnotation),
 				),
 			},
 		},
@@ -1157,15 +1154,15 @@ func TestDefault(t *testing.T) {
 		},
 		"default lq is created, job has queue label": {
 			defaultLqExist: true,
-			job:            testingutil.MakeJob("test-job", "").Queue("test-queue").Obj(),
-			want: testingutil.MakeJob("test-job", "").
+			job:            testingutil.MakeJob("test-job", "default").Queue("test-queue").Obj(),
+			want: testingutil.MakeJob("test-job", "default").
 				Queue("test-queue").
 				Obj(),
 		},
 		"default lq isn't created, job doesn't have queue label": {
 			defaultLqExist: false,
-			job:            testingutil.MakeJob("test-job", "").Obj(),
-			want: testingutil.MakeJob("test-job", "").
+			job:            testingutil.MakeJob("test-job", "default").Obj(),
+			want: testingutil.MakeJob("test-job", "default").
 				Obj(),
 		},
 		"job is managed by Kueue managed owner, job doesn't have queue label": {
@@ -1228,8 +1225,10 @@ func TestDefault(t *testing.T) {
 					}
 				}
 			}
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, tc.enableIntegrations...))
+			integrationManager := newTestIntegrationManager(t)
+			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			w := &JobWebhook{
+				integrationManager:           integrationManager,
 				client:                       cl,
 				manageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
 				managedJobsNamespaceSelector: labels.Everything(),
@@ -1245,6 +1244,17 @@ func TestDefault(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newTestIntegrationManager(t *testing.T) *jobframework.IntegrationManager {
+	t.Helper()
+	manager := jobframework.NewIntegrationManager()
+	for _, registerIntegration := range []func(*jobframework.IntegrationManager) error{RegisterIntegration, mpijob.RegisterIntegration} {
+		if err := registerIntegration(manager); err != nil {
+			t.Fatalf("RegisterIntegration() error = %v", err)
+		}
+	}
+	return manager
 }
 
 func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {

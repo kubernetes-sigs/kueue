@@ -10,9 +10,7 @@ GO_FMT ?= gofmt
 
 ROOT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))/../../..
 BIN_DIR := $(ROOT_DIR)/bin
-
-# Use go.mod go version as a single source of truth of GO version.
-GO_VERSION := $(shell awk '/^go /{split($$2, v, "."); print v[1] "." v[2]}' $(ROOT_DIR)/go.mod|head -n1)
+HACK_DIR := $(ROOT_DIR)/hack
 
 ENVTEST := $(BIN_DIR)/setup-envtest
 GINKGO := $(BIN_DIR)/ginkgo
@@ -40,9 +38,9 @@ IMAGE_REPO := $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMAGE_TAG := $(IMAGE_REPO):$(GIT_TAG)
 
 # Use distroless as minimal base image to package the manager binary
-BASE_IMAGE ?= gcr.io/distroless/static:nonroot
-BASE_BUILDER_IMAGE ?= golang
-BUILDER_IMAGE ?= $(BASE_BUILDER_IMAGE):$(GO_VERSION)
+# Refer to https://github.com/GoogleContainerTools/distroless for more details
+BASE_IMAGE ?= $(shell grep '^FROM' "${HACK_DIR}/images/distroless/Dockerfile" | awk '{print $$2}')
+BUILDER_IMAGE ?= $(shell grep '^FROM' "${HACK_DIR}/images/golang/Dockerfile" | awk '{print $$2}')
 CGO_ENABLED ?= 0
 
 $(GOTESTSUM):

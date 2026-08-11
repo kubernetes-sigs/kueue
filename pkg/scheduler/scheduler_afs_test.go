@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestScheduleForAFS(t *testing.T) {
@@ -73,6 +74,10 @@ func TestScheduleForAFS(t *testing.T) {
 			Obj(),
 		*utiltestingapi.MakeLocalQueue("lq-c", "default").
 			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).
+			ClusterQueue("cq1").
+			Obj(),
+		*utiltestingapi.MakeLocalQueue("lq-zero", "default").
+			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("0"))}).
 			ClusterQueue("cq1").
 			Obj(),
 	}
@@ -164,6 +169,94 @@ func TestScheduleForAFS(t *testing.T) {
 							).
 							Obj(),
 					).
+					Obj(),
+			},
+		},
+		// A LocalQueue with weight 0 must be the most disadvantaged, so its
+		// workload loses admission to a normal-weight queue even though it was
+		// submitted first. Both queues start idle on purpose: only 0 usage over
+		// 0 weight yields NaN, which sorts ahead of every real value; any
+		// non-zero usage already yields +Inf and sorts last.
+		"does not prioritize a zero-weight localqueue": {
+			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
+			initialUsage: map[string]corev1.ResourceList{
+				"lq-a":    {corev1.ResourceCPU: resource.MustParse("0")},
+				"lq-zero": {corev1.ResourceCPU: resource.MustParse("0")},
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-z1", "default").
+					Queue("lq-zero").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "8").
+						Obj()).
+					Creation(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "8").
+						Obj()).
+					Creation(now.Add(1 * time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "8").
+						Obj()).
+					Creation(now.Add(1 * time.Second)).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue cq1",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(
+						utiltestingapi.MakeAdmission("cq1").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "default", "8").
+									Count(1).
+									Obj(),
+							).
+							Obj(),
+					).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-z1", "default").
+					Queue("lq-zero").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "8").
+						Obj()).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 8 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("8"),
+						},
+					}).
 					Obj(),
 			},
 		},
@@ -855,5 +948,72 @@ func TestScheduleForAFS(t *testing.T) {
 				},
 			)
 		}
+	}
+}
+
+func TestShouldApplyEntryPenalty(t *testing.T) {
+	// shouldApplyEntryPenalty reads the AdmissionFairSharing gate through
+	// afs.Enabled; pin it so the cases below turn on the config and the
+	// ClusterQueue mode rather than on the process-global default.
+	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
+	now := time.Now().Truncate(time.Second)
+	afsConfig := &config.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: 10 * time.Second},
+		UsageSamplingInterval: metav1.Duration{Duration: 1 * time.Second},
+	}
+
+	pendingWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "4").
+		Obj()
+	reservedWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "4").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+		Obj()
+
+	cases := map[string]struct {
+		afsConfig     *config.AdmissionFairSharing
+		admissionMode kueue.AdmissionMode
+		wl            *kueue.Workload
+		want          bool
+	}{
+		"pushes for a first-pass workload on a usage-based ClusterQueue": {
+			afsConfig:     afsConfig,
+			admissionMode: kueue.UsageBasedAdmissionFairSharing,
+			wl:            pendingWl,
+			want:          true,
+		},
+		"skips when no AdmissionFairSharing config is set": {
+			admissionMode: kueue.UsageBasedAdmissionFairSharing,
+			wl:            pendingWl,
+			want:          false,
+		},
+		"skips for a ClusterQueue without usage-based admission mode": {
+			afsConfig: afsConfig,
+			wl:        pendingWl,
+			want:      false,
+		},
+		"skips a second-pass workload that already holds a quota reservation": {
+			afsConfig:     afsConfig,
+			admissionMode: kueue.UsageBasedAdmissionFairSharing,
+			wl:            reservedWl,
+			want:          false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := &Scheduler{admissionFairSharing: tc.afsConfig}
+			e := &entry{
+				Info: *workload.NewInfo(tc.wl),
+				clusterQueueSnapshot: &schdcache.ClusterQueueSnapshot{
+					AdmissionScope: kueue.AdmissionScope{AdmissionMode: tc.admissionMode},
+				},
+			}
+
+			if got := s.shouldApplyEntryPenalty(e); got != tc.want {
+				t.Errorf("shouldApplyEntryPenalty() = %t, want %t", got, tc.want)
+			}
+		})
 	}
 }

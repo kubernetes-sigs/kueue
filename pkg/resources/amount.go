@@ -70,9 +70,9 @@ var maxNonCPUQuantityForAmount = *resource.NewQuantity(math.MaxInt64, resource.D
 // Unlimited when the canonical value would overflow int64.
 //
 // This is the safe constructor that all quota-side conversion (Nominal,
-// BorrowingLimit, LendingLimit) must use. ResourceValue is preserved for
-// non-quota call sites (workload requests) where the historical
-// truncate-on-overflow behavior is what existing tests document.
+// BorrowingLimit, LendingLimit) must use. ResourceValue is the equivalent for
+// workload requests, clamping to math.MinInt64 or math.MaxInt64 rather than
+// returning Unlimited.
 func AmountFromQuantity(name corev1.ResourceName, q resource.Quantity) Amount {
 	if name == corev1.ResourceCPU {
 		if q.Cmp(maxCPUQuantityForAmount) >= 0 {
@@ -95,6 +95,18 @@ func (a Amount) isUnlimited() bool { return a.value == math.MaxInt64 }
 // - use the Amount methods instead.
 func (a Amount) Int64() int64 {
 	return a.value
+}
+
+// AsApproximateFloat64 returns the amount in the resource's standard unit,
+// converting milliCPU to CPU and mapping Unlimited to +Inf.
+func (a Amount) AsApproximateFloat64(name corev1.ResourceName) float64 {
+	if a.isUnlimited() {
+		return math.Inf(1)
+	}
+	if name == corev1.ResourceCPU {
+		return float64(a.value) / 1000
+	}
+	return float64(a.value)
 }
 
 // Add returns a + b, propagating Unlimited and saturating bounded overflow at

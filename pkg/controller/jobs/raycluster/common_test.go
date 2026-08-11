@@ -32,7 +32,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -66,7 +65,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "workers",
-						Replicas:  ptr.To[int32](3),
+						Replicas:  new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker"}},
@@ -100,7 +99,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "group1",
-						Replicas:  ptr.To[int32](2),
+						Replicas:  new(int32(2)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker1"}},
@@ -109,7 +108,7 @@ func TestBuildPodSets(t *testing.T) {
 					},
 					{
 						GroupName: "group2",
-						Replicas:  ptr.To[int32](5),
+						Replicas:  new(int32(5)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker2"}},
@@ -181,7 +180,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName:  "workers",
-						Replicas:   ptr.To[int32](3),
+						Replicas:   new(int32(3)),
 						NumOfHosts: 2,
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
@@ -230,7 +229,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "workers",
-						Replicas:  ptr.To[int32](1),
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker"}},
@@ -321,7 +320,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "workers",
-						Replicas:  ptr.To[int32](1),
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker"}},
@@ -1284,43 +1283,6 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 	}
 }
 
-func TestSerializePodSetCounts(t *testing.T) {
-	testCases := map[string]struct {
-		podSets  []kueue.PodSet
-		wantJSON string
-	}{
-		"single podset": {
-			podSets: []kueue.PodSet{
-				{Name: "head", Count: 1},
-			},
-			wantJSON: `[{"name":"head","count":1}]`,
-		},
-		"multiple podsets": {
-			podSets: []kueue.PodSet{
-				{Name: "head", Count: 1},
-				{Name: "worker", Count: 5},
-			},
-			wantJSON: `[{"name":"head","count":1},{"name":"worker","count":5}]`,
-		},
-		"empty podsets": {
-			podSets:  []kueue.PodSet{},
-			wantJSON: `[]`,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			got, err := SerializePodSetCounts(tc.podSets)
-			if err != nil {
-				t.Fatalf("SerializePodSetCounts() unexpected error: %v", err)
-			}
-			if string(got) != tc.wantJSON {
-				t.Errorf("SerializePodSetCounts() = %s, want %s", string(got), tc.wantJSON)
-			}
-		})
-	}
-}
-
 func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 	testCases := map[string]struct {
 		annotations      map[string]string
@@ -1354,8 +1316,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			registerRayType:  true,
 			createRayCluster: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "0",
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				RayClusterGenerationAnnotation: "0",
 			},
 		},
 		"standalone raycluster does not track its own generation": {
@@ -1370,14 +1331,11 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			registerRayType:  true,
 			createRayCluster: true,
 			standalone:       true,
-			wantAnnotation: map[string]string{
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
-			},
+			wantAnnotation:   nil,
 		},
 		"returns annotations even when counts match existing annotation": {
 			annotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 			},
 			podSets: []kueue.PodSet{
 				{Name: "head", Count: 1},
@@ -1387,14 +1345,12 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			registerRayType:  true,
 			createRayCluster: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "0",
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				RayClusterGenerationAnnotation: "0",
 			},
 		},
 		"updated when counts differ": {
 			annotations: map[string]string{
-				workloadslicing.EnabledAnnotationKey:   workloadslicing.EnabledAnnotationValue,
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 			},
 			podSets: []kueue.PodSet{
 				{Name: "head", Count: 1},
@@ -1404,8 +1360,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			registerRayType:  true,
 			createRayCluster: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "0",
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":5}]`,
+				RayClusterGenerationAnnotation: "0",
 			},
 		},
 		"raycluster not found returns annotations with empty generation": {
@@ -1419,8 +1374,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			rayClusterName:  "nonexistent-raycluster",
 			registerRayType: true,
 			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation:         "",
-				RayClusterPodsetReplicaSizesAnnotation: `[{"name":"head","count":1},{"name":"worker","count":3}]`,
+				RayClusterGenerationAnnotation: "",
 			},
 		},
 		"other get error returns error": {
@@ -1470,7 +1424,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				jobObject = &corev1.ConfigMap{ObjectMeta: *obj}
 			}
 
-			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, jobObject, tc.podSets, tc.rayClusterName)
+			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, jobObject, tc.rayClusterName)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("GetWorkloadslicingCustomAnnotations() expected error but got nil")

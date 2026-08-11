@@ -237,8 +237,8 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
 
 ### Non-Goals
 
-- Quota-aware handling of DRAAdminAccess and DRAPrioritizedLists (beta, default enabled in K8s 1.35)
-  is not included in Kueue's alpha. See [Risks and Mitigations](#risks-and-mitigations) for the
+- Quota-aware handling of DRAPrioritizedLists (beta, default enabled in K8s 1.35)
+  is not included. See [Risks and Mitigations](#risks-and-mitigations) for the
   planned approach.
 - Support for DRA features like DRADeviceTaints is not included.
 - Multi-host partitionable devices (e.g., NVLink fabrics spanning multiple nodes) are not
@@ -304,13 +304,14 @@ GPU memory quota, while a team requesting a 7g.80gb profile should consume 80Gi.
 - The `ResourceClaims` and `ResourceClaimTemplates` APIs for DRA in k8s are immutable.
 - ResourceClaims are not supported in alpha - workloads must use ResourceClaimTemplates.
   Direct ResourceClaim references will result in inadmissible workloads.
-- Device class uniqueness is enforced - each device class can only map to one resource name to prevent quota ambiguity.
+- Device class uniqueness is enforced. Each device class can only map to one resource name to prevent quota ambiguity. Counter-based mappings relax this when counter names differ.
 - Configuration-based approach - device class mappings are configured through the Kueue Configuration API
 - This design does not work with Kueue's Topology Aware Scheduling feature and will be addressed in future work.
 - DRA resource preprocessing is not scoped by ResourceFlavor node constraints. Counter
   charges and device matching are computed globally before flavor assignment.
-- Quota-aware handling of DRAAdminAccess and DRAPrioritizedLists (beta in K8s 1.35) is deferred
-  to beta graduation. DRADeviceTaints is not supported in alpha.
+- AdminAccess requests are skipped in quota counting (zero charge) since they provide
+  shared read-only access to already-allocated devices. DRAPrioritizedLists support is
+  deferred. DRADeviceTaints is not supported.
 - **Single-node partitionable devices (e.g., MIG) are supported** via counter-based
   quota. See [Partitionable Devices](#partitionable-devices). Multi-host partitionable
   devices are not supported.
@@ -356,16 +357,14 @@ unlimited GPU consumption outside Kueue's control. The `KueueDRARejectWorkloadsW
 (default: enabled, Beta) mitigates this by rejecting DRA workloads when the DRA feature is off.
 See [Workload Rejection When DRA Is Disabled](#workload-rejection-when-dra-is-disabled).
 
-With DRAAdminAccess and DRAPrioritizedLists (both beta, default enabled in K8s 1.35), there is a
-risk that effective tallying of resources will not be available until after allocation of these
-resources by kube-scheduler. Support for these is deferred to Beta but the mitigation approach
+With DRAPrioritizedLists (beta, default enabled in K8s 1.35), there is a risk that effective
+tallying of resources will not be available until after allocation. The mitigation approach
 is documented here:
 1. For DRAPrioritizedLists: all the mentioned device classes in the request will be counted against the quota
-2. For DRAAdminAccess: This feature can only be enabled in admin namespace, therefore it should be skipped for being
-   counted against ClusterQuota. This is a different stance than Kubernetes ResourceQuota because kubernetes
-   ResourceQuota is namespace scoped. As a result, admin users can account for quota independent of user workloads.
-   On the contrary, with Kueue, since quota is part of ClusterQuota a cluster scoped object, admin workloads using
-   devices in admin namespace if counted against quota, will eat up quota meant for user workloads.
+2. AdminAccess requests are skipped in quota counting. This feature can only be enabled in
+   admin namespaces (gated by the `resource.kubernetes.io/admin-access` label), and provides
+   shared read-only access to already-allocated devices. Charging quota would double-count the
+   device. This matches the Kubernetes scheduler which excludes AdminAccess from `allocatedDevices`.
 3. For ResourceClaims with allocation mode `All`: worst-case scenario of the max number of devices that could be
    allocated to a single claim will be used against quota.
 4. For Extended Resources: if a DeviceClass is created or updated between Kueue admitting a
@@ -576,7 +575,8 @@ complex runtime resolution logic, ensuring predictable and efficient workload ad
 **Note**: A single mapping can have multiple capacity sources that sum into one quota
 resource, which does not violate this constraint. Tracking independent capacity
 dimensions as separate quota resources (same DeviceClass, different resource names)
-requires relaxing this uniqueness constraint and is deferred to beta.
+remains deferred to beta, while counter-based mappings already relax this constraint
+for distinct counter names.
 
 ### RBAC Requirements
 
@@ -910,11 +910,13 @@ The two DRA paths resolve quota independently:
 #### Processing Flow
 
 1. Kueue detects extended resources in `resources.requests`
-2. Looks up DeviceClass by `extendedResourceName` by field indexer
+2. Looks up DeviceClasses by `extendedResourceName` by field indexer
 3. If no matching DeviceClass is found, the resource is not DRA-backed and Kueue
    processes it through the standard resource quota path (counted via `node.Status.Allocatable`)
-4. If a matching DeviceClass is found, resolves the quota key. If the DeviceClass is also
-   in `deviceClassMappings`, uses the mapped logical name. Otherwise uses `extendedResourceName`.
+4. If one or more DeviceClasses match, picks the one the scheduler would use: the latest
+   creation time wins, and the name breaks ties when they were created in the same second.
+   Uses that class's `deviceClassMappings` entry as the quota key, or falls back to
+   `extendedResourceName` when the selected class is not mapped.
 5. If the mapping has counter sources configured, the workload is marked inadmissible.
    Extended resources do not carry profile-level information for counter-based charging.
    Otherwise charges device count.
@@ -984,8 +986,9 @@ dependencies on non-staging k8s repos.
 
 Even when multiple DeviceClasses share the same `extendedResourceName` (which K8s
 [permits with deterministic tiebreaking](https://github.com/kubernetes/kubernetes/blob/v1.35.0/staging/src/k8s.io/api/resource/v1/types.go#L1816-L1820)),
-Kueue still treats the resource as DRA-backed. The quota key is the `extendedResourceName`
-itself, not the DeviceClass name, so multiple matching DeviceClasses do not affect quota accounting.
+Kueue still treats the resource as DRA-backed, and the selected class determines the charge.
+Kueue picks the class the scheduler would use and reads the quota key from it, so the charge
+follows the allocation rather than whichever class the lookup happened to return first.
 
 #### DeviceClass Lifecycle Scenarios
 
@@ -1640,8 +1643,7 @@ capacity sources cannot be mixed within the same mapping. This means a unified
 quota pool across both device types (e.g., partitioned and time-sliced GPUs both
 charging `gpu.memory`) is not supported. Relaxing the resource name uniqueness
 to allow separate counter and capacity mappings to share a quota resource is to
-be evaluated for [Beta](#beta). The same DeviceClass cannot appear in two different
-mappings due to the DeviceClass uniqueness constraint across mappings.
+be evaluated for [Beta](#beta). For counter-based mappings, the same DeviceClass can appear in different mappings when the counter names differ. For device-count and capacity-based mappings, DeviceClass uniqueness remains enforced. 
 
 **Extended resources and capacity sources are not supported together:**
 

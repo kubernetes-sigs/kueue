@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -509,7 +508,7 @@ func TestReconcileEviction(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                    3 * time.Second,
-					requeuingBackoffLimitCount: ptr.To[int32](1),
+					requeuingBackoffLimitCount: new(int32(1)),
 					requeuingBackoffJitter:     0,
 				}),
 			},
@@ -527,7 +526,7 @@ func TestReconcileEviction(t *testing.T) {
 					Message:            "Admitted by ClusterQueue q1",
 				}).
 				AdmittedAt(true, now).
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(-1*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(-1*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
@@ -542,7 +541,7 @@ func TestReconcileEviction(t *testing.T) {
 					Reason:  kueue.WorkloadRequeuingLimitExceeded,
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(1*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(1*time.Second).Truncate(time.Second)))).
 				Obj(),
 		},
 		"should set the Evicted condition with Deactivated reason when the .spec.active=False": {
@@ -652,7 +651,7 @@ func TestReconcileEviction(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
-					requeuingBackoffLimitCount:  ptr.To[int32](0),
+					requeuingBackoffLimitCount:  new(int32(0)),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
 				}),
@@ -743,7 +742,7 @@ func TestReconcileEviction(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
-					requeuingBackoffLimitCount:  ptr.To[int32](0),
+					requeuingBackoffLimitCount:  new(int32(0)),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
 				}),
@@ -834,7 +833,7 @@ func TestReconcileEviction(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
-					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffLimitCount:  new(int32(100)),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
 				}),
@@ -855,7 +854,7 @@ func TestReconcileEviction(t *testing.T) {
 					Reason:  kueue.WorkloadRequeuingLimitExceeded,
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
-				RequeueState(ptr.To[int32](100), nil).
+				RequeueState(new(int32(100)), nil).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
@@ -881,7 +880,7 @@ func TestReconcileEviction(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
-				RequeueState(ptr.To[int32](100), nil).
+				RequeueState(new(int32(100)), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          "Deactivated",
@@ -928,7 +927,7 @@ func TestReconcileEviction(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
-					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffLimitCount:  new(int32(100)),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
 				}),
@@ -949,7 +948,7 @@ func TestReconcileEviction(t *testing.T) {
 					Reason:  kueue.WorkloadRequeuingLimitExceeded,
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
-				RequeueState(ptr.To[int32](100), nil).
+				RequeueState(new(int32(100)), nil).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
@@ -975,7 +974,7 @@ func TestReconcileEviction(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
-				RequeueState(ptr.To[int32](100), nil).
+				RequeueState(new(int32(100)), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          "Deactivated",

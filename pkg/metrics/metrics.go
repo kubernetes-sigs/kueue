@@ -98,6 +98,10 @@ var (
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="status label (varies by metric)",replica_role="one of `leader`, `follower`, or `standalone`"
 	PendingWorkloads *prometheus.GaugeVec
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",status="one of `active` or `inadmissible`",replica_role="one of `leader`, `follower`, or `standalone`"
+	PendingSchedulingHashes *prometheus.GaugeVec
+
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",status="status label (varies by metric)",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueuePendingWorkloads *prometheus.GaugeVec
@@ -125,6 +129,14 @@ var (
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueueFinishedWorkloadsTotal *prometheus.CounterVec
+
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
+	ExecutionTimeSeconds *prometheus.HistogramVec
+
+	// +metricsdoc:group=localqueue
+	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
+	LocalQueueExecutionTimeSeconds *prometheus.HistogramVec
 
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
@@ -416,9 +428,21 @@ The label 'result' can have the following values:
 'status' can have the following values:
 - "active" means that the workloads are in the admission queue.
 - "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change`,
-		}, append([]string{"cluster_queue", "status", "replica_role"}, clusterQueueMetricsLabels...),
+		}, append([]string{"cluster_queue", "status", "replica_role"}, cl.LabelNames(configapi.SourceKindClusterQueue, configapi.SourceKindWorkload)...),
 	)
 	trackGaugeVec(PendingWorkloads, gaugeCleanupScopeClusterQueue)
+
+	PendingSchedulingHashes = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "pending_scheduling_hashes",
+			Help: `The number of unique pending scheduling equivalence hashes, per 'cluster_queue' and 'status'. Reported only when SchedulingEquivalenceHashing is enabled.
+'status' can have the following values:
+- "active" means that the workloads are in the admission queue.
+- "inadmissible" means there was a failed admission attempt for these workloads and they won't be retried until cluster conditions, which could make this workload admissible, change`,
+		}, append([]string{"cluster_queue", "status", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+	trackGaugeVec(PendingSchedulingHashes, gaugeCleanupScopeClusterQueue)
 
 	LocalQueuePendingWorkloads = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -482,6 +506,24 @@ The label 'result' can have the following values:
 		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, localQueueMetricsLabels...),
 	)
 
+	ExecutionTimeSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "execution_time_seconds",
+			Help:      "The total execution time of a finished admitted workload (from first admission to completion, including time across evict/readmit cycles), per 'cluster_queue'",
+			Buckets:   generateExponentialBuckets(16),
+		}, append([]string{"cluster_queue", "priority_class", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+
+	LocalQueueExecutionTimeSeconds = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: constants.KueueName,
+			Name:      "local_queue_execution_time_seconds",
+			Help:      "The total execution time of a finished admitted workload (from first admission to completion, including time across evict/readmit cycles), per 'local_queue'",
+			Buckets:   generateExponentialBuckets(16),
+		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, localQueueMetricsLabels...),
+	)
+
 	QuotaReservedWaitTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -535,7 +577,7 @@ The label 'underlying_cause' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admitted_workloads_total",
 			Help:      "The total number of admitted workloads per 'local_queue'",
-		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, localQueueMetricsLabels...),
+		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, cl.LabelNames(configapi.SourceKindLocalQueue, configapi.SourceKindWorkload)...),
 	)
 
 	AdmissionWaitTime = prometheus.NewHistogramVec(
@@ -571,7 +613,7 @@ The label 'underlying_cause' can have the following values:
 			Name:      "local_queue_admission_wait_time_seconds",
 			Help:      "The time between a workload was created or requeued until admission, per 'local_queue'",
 			Buckets:   generateExponentialBuckets(14),
-		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, localQueueMetricsLabels...),
+		}, append([]string{"name", "namespace", "priority_class", "replica_role"}, cl.LabelNames(configapi.SourceKindLocalQueue, configapi.SourceKindWorkload)...),
 	)
 
 	AdmissionChecksWaitTime = prometheus.NewHistogramVec(
@@ -765,7 +807,7 @@ The label 'reason' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "local_queue_admitted_active_workloads",
 			Help:      "The number of admitted Workloads that are active, per 'localQueue'",
-		}, append([]string{"name", "namespace", "replica_role"}, localQueueMetricsLabels...),
+		}, append([]string{"name", "namespace", "replica_role"}, cl.LabelNames(configapi.SourceKindLocalQueue, configapi.SourceKindWorkload)...),
 	)
 	trackGaugeVec(LocalQueueAdmittedActiveWorkloads, gaugeCleanupScopeLocalQueueCache)
 
@@ -1026,6 +1068,22 @@ func IncrementLocalQueueFinishedWorkloadTotal(lq LocalQueueReference, priorityCl
 	LocalQueueFinishedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
+// ReportExecutionTime records the total execution time of a finished workload
+// for the given ClusterQueue, priority class, and workload role.
+func ReportExecutionTime(cqName kueue.ClusterQueueReference, priorityClass string, duration time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	seconds := max(0, duration.Seconds())
+	ExecutionTimeSeconds.WithLabelValues(labels...).Observe(seconds)
+}
+
+// ReportLocalQueueExecutionTime records the total execution time of a finished workload
+// for the given LocalQueue, priority class, and workload role.
+func ReportLocalQueueExecutionTime(lq LocalQueueReference, priorityClass string, duration time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	seconds := max(0, duration.Seconds())
+	LocalQueueExecutionTimeSeconds.WithLabelValues(labels...).Observe(seconds)
+}
+
 // ReportFinishedWorkloads sets the current total number of finished workloads
 // for the given ClusterQueue and workload role (gauge).
 func ReportFinishedWorkloads(cqName kueue.ClusterQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1082,12 +1140,21 @@ func ReportLocalQueueAdmittedUntilReadyWaitTime(lq LocalQueueReference, priority
 	LocalQueueAdmittedUntilReadyWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
 }
 
-func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, pendingStatus string, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
+	labels := append([]string{string(cqName), pendingStatus, role}, customLabelValues...)
+	PendingWorkloads.WithLabelValues(labels...).Set(float64(count))
+}
+
+func ReportPendingSchedulingHashes(cqName kueue.ClusterQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	if !features.Enabled(features.SchedulingEquivalenceHashing) {
+		return
+	}
 	role := roletracker.GetRole(tracker)
 	activeLabels := append([]string{string(cqName), PendingStatusActive, role}, customLabelValues...)
 	inadmissibleLabels := append([]string{string(cqName), PendingStatusInadmissible, role}, customLabelValues...)
-	PendingWorkloads.WithLabelValues(activeLabels...).Set(float64(active))
-	PendingWorkloads.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
+	PendingSchedulingHashes.WithLabelValues(activeLabels...).Set(float64(active))
+	PendingSchedulingHashes.WithLabelValues(inadmissibleLabels...).Set(float64(inadmissible))
 }
 
 // ReportWorkloadEvictionLatency records latency from eviction (WorkloadEvicted True) until the workload returns to Pending (quota released).
@@ -1140,6 +1207,12 @@ func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	}
 }
 
+func ClearPendingWorkloads(cqName kueue.ClusterQueueReference, pendingStatus string, customLabelVals []string, tracker *roletracker.RoleTracker) {
+	role := roletracker.GetRole(tracker)
+	labels := append([]string{string(cqName), pendingStatus, role}, customLabelVals...)
+	PendingWorkloads.DeleteLabelValues(labels...)
+}
+
 func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	cqName := string(cq)
 	// Clears all cluster_queue-scoped gauges for cqName.
@@ -1147,6 +1220,7 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	FinishedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	ExecutionTimeSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PodsReadyToEvictedTimeSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmittedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	AdmissionWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -1173,6 +1247,7 @@ func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	LocalQueueQuotaReservedWorkloadsTotal.DeletePartialMatch(lbls)
 	LocalQueueQuotaReservedWaitTime.DeletePartialMatch(lbls)
 	LocalQueueFinishedWorkloadsTotal.DeletePartialMatch(lbls)
+	LocalQueueExecutionTimeSeconds.DeletePartialMatch(lbls)
 	LocalQueueAdmittedWorkloadsTotal.DeletePartialMatch(lbls)
 	LocalQueueAdmissionWaitTime.DeletePartialMatch(lbls)
 	LocalQueueAdmissionChecksWaitTime.DeletePartialMatch(lbls)
@@ -1364,9 +1439,9 @@ func ReportReservingActiveWorkloads(cqName kueue.ClusterQueueReference, count in
 	ReservingActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
-func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
+func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, incr int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)}, customLabelValues...)
-	LocalQueueAdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
+	LocalQueueAdmittedActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
 }
 
 func ReportLocalQueueReservingActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1458,6 +1533,7 @@ func Register() {
 		MultiKueueWorkloadsAdmittedTotal,
 		AdmissionCyclePreemptionSkips,
 		PendingWorkloads,
+		PendingSchedulingHashes,
 		FinishedWorkloads,
 		QuotaReservedWorkloadsTotal,
 		FinishedWorkloadsTotal,
@@ -1491,6 +1567,7 @@ func Register() {
 		CohortSubtreeAdmittedActiveWorkloads,
 		PodSchedulingGateRemovalSeconds,
 		UnadmittedWorkloads,
+		ExecutionTimeSeconds,
 	)
 	if features.Enabled(features.MetricForWorkloadCreationLatency) {
 		metrics.Registry.MustRegister(WorkloadCreationLatency)
@@ -1520,6 +1597,7 @@ func RegisterLQMetrics() {
 		LocalQueueResourceUsage,
 		LocalQueueAdmissionFairSharingUsage,
 		LocalQueueUnadmittedWorkloads,
+		LocalQueueExecutionTimeSeconds,
 	)
 }
 
@@ -1591,4 +1669,20 @@ func ClearLocalQueueUnadmittedWorkloadLabelValues(
 		customLabelValues...,
 	)
 	LocalQueueUnadmittedWorkloads.DeleteLabelValues(labels...)
+}
+
+func TrackWorkload(cl *CustomLabels, tracker *LabelValsTracker, w *kueue.Workload) {
+	if cl.KindConfigured(configapi.SourceKindWorkload) {
+		tracker.Incr(cl.MakeValsSet(configapi.SourceKindWorkload, w.Labels, w.Annotations))
+	} else {
+		tracker.Incr(EmptyValsSet())
+	}
+}
+
+func UntrackWorkload(cl *CustomLabels, tracker *LabelValsTracker, w *kueue.Workload) {
+	if cl.KindConfigured(configapi.SourceKindWorkload) {
+		tracker.Decr(cl.MakeValsSet(configapi.SourceKindWorkload, w.Labels, w.Annotations))
+	} else {
+		tracker.Decr(EmptyValsSet())
+	}
 }
