@@ -601,6 +601,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 
 		ginkgo.It("Should preempt all necessary workloads in concurrent scheduling with the same priority", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RecomputeAssignmentUponPreemptionTargetsOverlap, true)
+
 			var betaWls []*kueue.Workload
 			for i := range 3 {
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("beta-%d", i), ns.Name).

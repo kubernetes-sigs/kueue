@@ -365,9 +365,9 @@
     version: "0.15"
 - name: RecomputeAssignmentUponPreemptionTargetsOverlap
   versionedSpecs:
-  - default: true
+  - default: false
     lockToDefault: false
-    preRelease: Beta
+    preRelease: Alpha
     version: "0.19"
 - name: RejectUpdatesToCQWithInvalidOnFlavors
   versionedSpecs:
