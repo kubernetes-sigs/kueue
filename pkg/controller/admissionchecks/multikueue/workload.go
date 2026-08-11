@@ -351,7 +351,14 @@ func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAd
 	return nil, nil
 }
 
-func (w *wlReconciler) readGroup(ctx context.Context, cl client.Client, local *kueue.Workload, acName kueue.AdmissionCheckReference, adapter jobframework.MultiKueueAdapter, controllerName string) (*wlGroup, error) {
+func (w *wlReconciler) readGroup(
+	ctx context.Context,
+	cl client.Client,
+	local *kueue.Workload,
+	acName kueue.AdmissionCheckReference,
+	adapter jobframework.MultiKueueAdapter,
+	controllerName string,
+) (*wlGroup, error) {
 	rClients, unavailable, err := w.remoteClientsForAC(ctx, acName)
 	if err != nil {
 		return nil, fmt.Errorf("admission check %q: %w", acName, err)
