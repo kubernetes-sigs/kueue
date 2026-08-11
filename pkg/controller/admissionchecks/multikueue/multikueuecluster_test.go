@@ -995,7 +995,7 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 
 	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").Obj()
 	managerClient := getClientBuilder(ctx).WithObjects(cluster).WithStatusSubresource(cluster).Build()
-	adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 	recorder := &utiltesting.EventRecorder{}
 	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, &NoOpClusterProfileAccessProvider{}, nil, recorder)
 
