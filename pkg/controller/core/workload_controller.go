@@ -799,8 +799,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					quotaReservedWaitTime.Seconds(),
 				)
 				priorityClassName := workloadpatching.PriorityClassName(&wl)
+				// The workload label values are derived on the fly instead of being stored in
+				// the custom labels storage, since these metrics are not gauges and nothing
+				// would clear the stored entry afterwards.
+				wlLabelVals := r.customLabels.MakeValsSet(config.SourceKindWorkload, wl.Labels, wl.Annotations)
+				cqWlCustomLabels := r.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+					config.SourceKindClusterQueue: r.customLabels.CQGet(cqName),
+					config.SourceKindWorkload:     wlLabelVals.OrderedList(),
+				})
 				r.cache.ReportCohortSubtreeAdmittedWorkload(log, &wl)
-				metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
+				metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, cqWlCustomLabels, r.roleTracker)
 				metrics.ReportAdmissionChecksWaitTime(cqName, priorityClassName, quotaReservedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
 				if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, &wl) {
 					lqRef := metrics.LQRefFromWorkload(&wl)
@@ -810,9 +818,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 						lqRef,
 						priorityClassName,
 						queuedWaitTime,
-						r.customLabels.GetFor(map[config.SourceKind]string{
-							config.SourceKindLocalQueue: string(lqKey),
-							config.SourceKindWorkload:   string(workload.Key(&wl)),
+						r.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+							config.SourceKindLocalQueue: r.customLabels.LQGet(lqKey),
+							config.SourceKindWorkload:   wlLabelVals.OrderedList(),
 						}),
 						r.roleTracker,
 					)
