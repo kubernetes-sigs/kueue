@@ -18,13 +18,20 @@ package scheduler
 
 import (
 	"fmt"
+	"io"
+	"strings"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/gomega"
+	zaplog "go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -1490,4 +1497,106 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 			g.Expect(snapshot.Fits(flavorUsage)).To(gomega.BeTrue())
 		})
 	}
+}
+
+// newObservedLogger returns a logger that discards output and an observer of its entries.
+func newObservedLogger(level zapcore.Level) (logr.Logger, *observer.ObservedLogs) {
+	logsObserver, observedLogs := observer.New(level)
+	logger := crzap.New(
+		crzap.WriteTo(io.Discard),
+		crzap.Level(level),
+		func(o *crzap.Options) {
+			o.ZapOpts = append(o.ZapOpts, zaplog.WrapCore(func(zapcore.Core) zapcore.Core {
+				return logsObserver
+			}))
+		},
+	)
+	return logger, observedLogs
+}
+
+func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
+	// Error entries are not verbosity-gated, so leaf IDs must stay out of them.
+	newSnapshot := func(log logr.Logger) *TASFlavorSnapshot {
+		nodes := make([]*corev1.Node, 0, 2)
+		for _, name := range []string{"node-a", "node-b"} {
+			nodes = append(nodes, node.MakeNode(name).
+				Label(corev1.LabelHostname, name).
+				StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")}).
+				Ready().
+				Obj())
+		}
+		return newTASFlavorSnapshot(log, "tas-topology", newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), nil, &defaultChecker{})
+	}
+	// One domain with capacity 1 cannot satisfy count 10.
+	callWithViolatedAssumptions := func(snapshot *TASFlavorSnapshot) []*domain {
+		dom := &domain{id: "rack-1", idx: 0}
+		snapshot.stateOf(dom).state = 1
+		return snapshot.updateCountsToMinimumGeneric([]*domain{dom}, 10, 0, 1, false, false)
+	}
+	wantErrorFields := map[string]any{
+		"error":                "code assumptions violated",
+		"remainingCount":       int32(9),
+		"remainingLeaderCount": int32(0),
+		"count":                int32(10),
+		"leaderCount":          int32(0),
+		"sliceSize":            int32(1),
+		"unconstrained":        false,
+		"topologyName":         kueue.TopologyReference("tas-topology"),
+		"domainCount":          int64(1),
+		"leafCount":            int64(2),
+	}
+
+	t.Run("the error entry summarizes the leaf domains instead of dumping them", func(t *testing.T) {
+		log, observedLogs := newObservedLogger(zapcore.InfoLevel)
+		snapshot := newSnapshot(log)
+
+		if got := callWithViolatedAssumptions(snapshot); got != nil {
+			t.Fatalf("updateCountsToMinimumGeneric() = %v, want nil", got)
+		}
+
+		logs := observedLogs.TakeAll()
+		if len(logs) != 1 {
+			t.Fatalf("Observed %d log entries, want 1: %v", len(logs), logs)
+		}
+		if logs[0].Level != zapcore.ErrorLevel {
+			t.Errorf("Observed log level %v, want %v", logs[0].Level, zapcore.ErrorLevel)
+		}
+		fields := logs[0].ContextMap()
+		if diff := cmp.Diff(wantErrorFields, fields); diff != "" {
+			t.Errorf("Observed error fields mismatch (-want +got):\n%s", diff)
+		}
+		// Leaf IDs must not appear under any error field.
+		for _, leafDomainID := range []string{"node-a", "node-b"} {
+			if rendered := fmt.Sprint(fields); strings.Contains(rendered, leafDomainID) {
+				t.Errorf("Observed error entry mentions leaf domain %q: %s", leafDomainID, rendered)
+			}
+		}
+	})
+
+	t.Run("the leaf domains are logged at high verbosity", func(t *testing.T) {
+		log, observedLogs := newObservedLogger(zapcore.Level(-6))
+		snapshot := newSnapshot(log)
+
+		if got := callWithViolatedAssumptions(snapshot); got != nil {
+			t.Fatalf("updateCountsToMinimumGeneric() = %v, want nil", got)
+		}
+
+		logs := observedLogs.TakeAll()
+		if len(logs) != 2 {
+			t.Fatalf("Observed %d log entries, want 2: %v", len(logs), logs)
+		}
+		if diff := cmp.Diff(wantErrorFields, logs[0].ContextMap()); diff != "" {
+			t.Errorf("Observed error fields mismatch (-want +got):\n%s", diff)
+		}
+		if logs[1].Level != zapcore.Level(-6) {
+			t.Errorf("Observed log level %v, want %v", logs[1].Level, zapcore.Level(-6))
+		}
+		wantLeafFields := map[string]any{
+			"topologyName": kueue.TopologyReference("tas-topology"),
+			"leafDomains":  []tas.TopologyDomainID{"node-a", "node-b"},
+		}
+		if diff := cmp.Diff(wantLeafFields, logs[1].ContextMap()); diff != "" {
+			t.Errorf("Observed leaf domain fields mismatch (-want +got):\n%s", diff)
+		}
+	})
 }

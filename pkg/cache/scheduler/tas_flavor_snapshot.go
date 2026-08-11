@@ -1616,13 +1616,31 @@ func (s *TASFlavorSnapshot) updateCountsToMinimumGeneric(domains []*domain, coun
 		remainingPrimary -= domState.state
 		result = append(result, dom)
 	}
+	// Error logs are not verbosity-gated; dumping leaves scales with cluster size.
 	s.log.Error(errCodeAssumptionsViolated, "unexpected remainingCount",
 		"remainingCount", remainingPrimary,
 		"remainingLeaderCount", remainingLeaderCount,
 		"count", count,
+		"leaderCount", leaderCount,
 		"sliceSize", sliceSize,
-		"leaves", s.leaves)
+		"unconstrained", unconstrained,
+		"topologyName", s.topologyName,
+		"domainCount", len(domains),
+		"leafCount", len(s.leaves))
+	s.logLeafDomainsIfVerbose()
 	return nil
+}
+
+// logLeafDomainsIfVerbose logs leaf domain IDs at V(6).
+// The list scales with node count, so it stays off the Error path.
+func (s *TASFlavorSnapshot) logLeafDomainsIfVerbose() {
+	logV := s.log.V(6)
+	if !logV.Enabled() {
+		return
+	}
+	logV.Info("TAS flavor snapshot leaf domains",
+		"topologyName", s.topologyName,
+		"leafDomains", slices.Sorted(maps.Keys(s.leaves)))
 }
 
 // buildTopologyAssignmentForLevels build TopologyAssignment for levels starting from levelIdx
