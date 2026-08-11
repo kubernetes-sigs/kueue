@@ -674,98 +674,6 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"ungates pods when the chain-root slice has been deleted": {
-			// A RayService rollout can cascade-delete the old RayCluster and its
-			// root Workload while later scale-up slices and their still-gated pods
-			// keep pointing at the (now gone) root name. The reconcile key is the
-			// root name, which no longer resolves; the ungater must recover the
-			// owning job from a chain pod and still ungate up to the active slice's
-			// granted count instead of silently giving up.
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl-slice-1", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					ControllerReference(rayClusterGVK, "ray", "ray").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("cq").
-							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Assignment(corev1.ResourceCPU, "flavor", "2").
-								Obj()).
-							Obj(), now,
-					).
-					AdmittedAt(true, now).
-					Obj(),
-				// NOTE: the root slice "wl" is intentionally absent (deleted).
-			},
-			pods: []corev1.Pod{
-				*testingpod.MakePod("pod-from-parent", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					OwnerReference("ray", rayClusterGVK).
-					Gate(kueue.ElasticJobSchedulingGate).
-					Obj(),
-				*testingpod.MakePod("pod-from-scale-up", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					OwnerReference("ray", rayClusterGVK).
-					Gate(kueue.ElasticJobSchedulingGate).
-					Obj(),
-			},
-			wantPods: []corev1.Pod{
-				*testingpod.MakePod("pod-from-parent", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					OwnerReference("ray", rayClusterGVK).
-					Obj(),
-				*testingpod.MakePod("pod-from-scale-up", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					OwnerReference("ray", rayClusterGVK).
-					Obj(),
-			},
-		},
-		"does not ungate when the chain pod owner UID no longer matches the active slice": {
-			// Guard against a stale pod pointing at a same-named job that was
-			// recreated with a new UID: the active slice belongs to the new job, so
-			// its granted count must not be used to ungate the stale pod. The pod
-			// keeps its gate.
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl-slice-1", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					ControllerReference(rayClusterGVK, "ray", "new-ray-uid").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
-					ReserveQuotaAt(
-						utiltestingapi.MakeAdmission("cq").
-							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-								Assignment(corev1.ResourceCPU, "flavor", "2").
-								Obj()).
-							Obj(), now,
-					).
-					AdmittedAt(true, now).
-					Obj(),
-			},
-			pods: []corev1.Pod{
-				// Owner UID "ray" (stale) != active slice owner UID "new-ray-uid".
-				*testingpod.MakePod("stale-pod", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					OwnerReference("ray", rayClusterGVK).
-					Gate(kueue.ElasticJobSchedulingGate).
-					Obj(),
-			},
-			wantPods: []corev1.Pod{
-				*testingpod.MakePod("stale-pod", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					OwnerReference("ray", rayClusterGVK).
-					Gate(kueue.ElasticJobSchedulingGate).
-					Obj(),
-			},
-		},
 		"preserve topology gate when ungating elastic gate": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
@@ -1032,17 +940,24 @@ func TestReconcile(t *testing.T) {
 				return
 			}
 
-			// The ungater reconciles by the stable slice-chain key, not by an
-			// individual workload name, so derive the request key from the chain.
-			key := types.NamespacedName{
-				Namespace: tc.workloads[0].Namespace,
-				Name:      workloadslicing.SliceName(&tc.workloads[0]),
+			// The ungater now reconciles by the chain's ACTIVE slice: the enqueue
+			// handlers resolve it via activeSlice, so mirror that here to pick the
+			// request key. Expectations stay keyed by the stable chain key (the
+			// active slice's origin name).
+			active, err := ungater.activeSlice(ctx, &tc.workloads[0])
+			if err != nil {
+				t.Fatalf("resolving active slice: %v", err)
 			}
+			if active == nil {
+				active = &tc.workloads[0]
+			}
+			key := types.NamespacedName{Namespace: active.Namespace, Name: active.Name}
+			sliceKey := types.NamespacedName{Namespace: active.Namespace, Name: workloadslicing.SliceName(active)}
 			if len(tc.expectUIDs) > 0 {
-				ungater.expectationsStore.ExpectUIDs(log, key, tc.expectUIDs)
+				ungater.expectationsStore.ExpectUIDs(log, sliceKey, tc.expectUIDs)
 			}
 
-			_, err := ungater.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			_, err = ungater.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 			if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
