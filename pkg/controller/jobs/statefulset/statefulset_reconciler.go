@@ -106,6 +106,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	// cancel it, and its own lookups would then fail as cancelled rather than
 	// for the reason they were about to find. The reconcile context still
 	// carries shutdown and any deadline.
+
+	// The branches share nothing they can write to. Nothing on the Workload
+	// side changes the StatefulSet today, and a copy keeps it that way.
+	workloadSts := sts.DeepCopy()
+
 	var eg errgroup.Group
 
 	// Both patch the same Pods, so they stay in order on one branch.
@@ -117,7 +122,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	})
 
 	eg.Go(func() error {
-		return r.reconcileWorkload(ctx, sts)
+		return r.reconcileWorkload(ctx, workloadSts)
 	})
 
 	return ctrl.Result{}, eg.Wait()
