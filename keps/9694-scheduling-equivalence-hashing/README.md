@@ -11,10 +11,6 @@
     - [Deep mixed-resource queue](#deep-mixed-resource-queue)
   - [Overview](#overview)
   - [Notes, Constraints, and Caveats](#notes-constraints-and-caveats)
-    - [Queueing strategy](#queueing-strategy)
-    - [ClusterQueue scope](#clusterqueue-scope)
-    - [Disabled Feature gate](#disabled-feature-gate)
-    - [Concurrent Admission](#concurrent-admission)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Incomplete scheduling shape](#incomplete-scheduling-shape)
       - [ElasticJobsViaWorkloadSlices](#elasticjobsviaworkloadslices)
@@ -30,10 +26,6 @@
   - [Recording and Bulk Movement](#recording-and-bulk-movement)
   - [Observability](#observability)
   - [Notable Changes by Version](#notable-changes-by-version)
-    - [v0.15.6, v0.15.7, v0.16.3, v0.16.4, and v0.17.0](#v0156-v0157-v0163-v0164-and-v0170)
-    - [v0.18.0](#v0180)
-    - [v0.19.0](#v0190)
-    - [v0.20.0](#v0200)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration Tests](#integration-tests)
@@ -46,12 +38,17 @@
 
 ## Summary
 
-Scheduling Equivalence Hashing reduces repeated scheduling work in deep
-BestEffortFIFO ClusterQueues. Kueue hashes selected scheduling-relevant Workload
-properties to form equivalence classes. After one representative Workload is
-fully evaluated and cannot be admitted for an allowlisted failure reason, the
-other Workloads in the same equivalence class can be moved to the inadmissible
-pool without repeating the same expensive evaluation.
+A BestEffortFIFO ClusterQueue can contain 5,000 identical pending GPU Workloads
+ahead of one small CPU Workload. Instead of re-evaluating all 5,000 each cycle,
+the scheduler evaluates one representative, determines that it does not fit,
+and sets the rest aside so it can reach the CPU Workload.
+
+Scheduling Equivalence Hashing enables this optimization by hashing selected
+scheduling-relevant Workload properties to form equivalence classes. After one
+representative Workload is fully evaluated and cannot be admitted for an
+allowlisted failure reason, the other Workloads in the same equivalence class
+can be moved to the inadmissible pool without repeating the same expensive
+evaluation.
 
 The optimization allows the scheduler to reach Workloads deeper in the queue
 when many earlier Workloads have identical requirements. It is most effective
@@ -74,11 +71,11 @@ farther down the queue. Repeated evaluations also require repeated scheduler
 snapshot construction. For Topology Aware Scheduling, the snapshot and
 placement work can be more expensive than the quota decision itself.
 
-The number of distinct scheduling shapes is commonly much smaller than the
-number of pending Workloads. Treating one fully evaluated Workload as the
-representative of its equivalence class changes repeated scheduling work from
-being proportional to the number of Workloads toward being proportional to the
-number of distinct scheduling shapes.
+Pending Workloads commonly share a small number of distinct scheduling shapes.
+A queue holding 10,000 Workloads may contain only a few dozen shapes. When one
+fully evaluated Workload serves as the representative of its equivalence class,
+the scheduler pays the evaluation cost once per shape instead of once per
+Workload.
 
 ### Goals
 
@@ -127,163 +124,170 @@ Workloads that can use other available resources.
 
 ### Overview
 
-Kueue leverages a deterministic identifier for each pending Workload to group
-Workloads by selected inputs used by flavor assignment and placement.
-
-In BestEffortFIFO, a NoFit or PreemptionNoCandidates result for one
-representative can defer redundant evaluations of the other Workloads in the
-group. When relevant scheduling conditions change, the previous conclusion is
-invalidated so affected Workloads can be considered again.
+1. Kueue groups pending Workloads that look identical to the scheduler based on
+   selected inputs such as requests, constraints, and effective priority. Each
+   group is an equivalence class with a deterministic identifier.
+2. The scheduler fully evaluates one member of the class as its representative.
+3. In BestEffortFIFO, if the representative receives NoFit or
+   PreemptionNoCandidates, Kueue records the failed class and moves its remaining
+   Workloads to the inadmissible pool without evaluating them.
+4. When the inadmissible Workloads are retried, Kueue discards the failed-class
+   record and returns the Workloads to active consideration. A newly evaluated
+   representative can then establish the result for the current scheduling
+   state.
 
 ### Notes, Constraints, and Caveats
 
-#### Queueing strategy
+Class-wide handling applies only when all of the following hold:
 
-The optimization applies only to BestEffortFIFO ClusterQueues.
-
-StrictFIFO intentionally retains its normal head-of-line behavior. Skipping a
-StrictFIFO head based on another Workload's result could weaken strict ordering
-and alter when later Workloads become eligible.
-
-Workloads kept sticky while preemption or migration is in progress remain on
-the existing sticky path. The class-wide shortcut is not applied to
-PendingPreemption or PendingMigration, so it does not bypass a Workload with a
-viable assignment, preemption plan, or migration plan.
-
-#### ClusterQueue scope
-
-The equivalence cache is scoped to a ClusterQueue. Workloads in different
-ClusterQueues are not compared, even if their scheduling shapes are identical.
-This avoids sharing conclusions across different quota, flavor, cohort, and
-policy contexts.
-
-#### Disabled Feature gate
-
-Disabling the feature gate causes Workloads to use the unknown class and makes
-all equivalence optimizations no-ops after the controller restarts with the new
-setting.
-
-#### Concurrent Admission
-
-When Concurrent Admission is enabled, allowed Resource Flavor restrictions are
-included in the scheduling shape. Workloads restricted to different flavor sets
-therefore remain in separate equivalence classes.
+- The ClusterQueue uses BestEffortFIFO. StrictFIFO retains its normal
+  head-of-line behavior because skipping its head based on another Workload's
+  result could weaken strict ordering.
+- The feature gate is enabled and the Workload has a known equivalence
+  identifier. When the gate is disabled or identifier construction fails, the
+  unknown class is evaluated individually and the optimization is a no-op.
+- The Workload is not sticky through PendingPreemption or PendingMigration.
+  Keeping these Workloads on the existing sticky path avoids bypassing a viable
+  assignment, preemption plan, or migration plan.
+- Matching Workloads belong to the same ClusterQueue. This prevents conclusions
+  from being shared across different quota, flavor, cohort, and policy contexts.
 
 ### Risks and Mitigations
 
+The safety invariant for this entire section is that equivalence handling never
+grants quota or reuses an assignment. A defect can delay a Workload, reduce
+diagnostics, or add overhead, but cannot admit a Workload incorrectly.
+
+| Risk | Worst case | Mitigation | Status |
+|---|---|---|---|
+| [ElasticJobsViaWorkloadSlices shape gap](#elasticjobsviaworkloadslices) | A schedulable replacement is repeatedly deferred | Model replacement state or exclude replacements | **Open** |
+| [UsageBasedAdmissionFairSharing timestamp gap](#usagebasedadmissionfairsharing) | A Workload that can preempt is repeatedly deferred | Include the timestamp or exclude the combination | **Open** |
+| [Overly broad failure classification](#overly-broad-failure-classification) | Valid class members are deferred | Allowlist class-wide requeue reasons | Mitigated |
+| [Stale failed-class records](#stale-failed-class-records) | A class remains deferred after conditions change | Clear failed records on retry or restart | Mitigated |
+| [Identifier collision](#identifier-collision) | A colliding shape is repeatedly delayed or starved | Use a 64-bit SHA-256 prefix | Accepted |
+| [Latency for very large Workloads](#latency-for-very-large-workloads) | Large Workloads wait for a batched retry | Periodic retry and feature-gate rollback | Accepted |
+| [Reduced diagnostics for bypassed Workloads](#reduced-diagnostics-for-bypassed-workloads) | A bypassed Workload lacks a detailed diagnosis | Preserve the representative's reason | Mitigated |
+| [Additional memory and queue work](#additional-memory-and-queue-work) | Pending state and heap scans add overhead | Bound records to classes between retries | Accepted |
+
+Only the two scheduling-shape gaps are open. The subsections below provide the
+trigger, user impact, mitigation, and residual risk for each row.
+
 #### Incomplete scheduling shape
 
-The identifier is only as complete as the scheduling inputs included in its
-shape. If an input used by flavor assignment or placement is omitted, Workloads
-with different scheduling outcomes can share a class. An allowlisted failure
-from the representative can then defer a schedulable member without evaluating
-it, and retries can repeat the same incorrect deferral. Including an irrelevant
-input has the less severe effect of splitting equivalent Workloads and reducing
-optimization opportunities.
-
-The current scheduling shape includes the Pod placement shape and effective
-resource requests, but it does not model every input used by all scheduling
-paths. The following independent cases depend on additional inputs.
+1. **Triggering scenario:** A scheduling input used by flavor assignment or
+   placement is omitted from the scheduling shape, or an irrelevant input is
+   included.
+2. **User impact:** An omitted input can place Workloads with different outcomes
+   in the same class, allowing a representative failure to defer a schedulable
+   member. An irrelevant input has the less severe effect of splitting
+   equivalent Workloads and reducing optimization opportunities.
+3. **Mitigation:** Every new scheduling input must either be represented in the
+   shape or cause the affected outcome to be excluded from class-wide handling.
+4. **Residual risk:** The current shape includes Pod placement and effective
+   requests, but does not model every input used by all scheduling paths. Two
+   known cases remain.
 
 ##### ElasticJobsViaWorkloadSlices
 
-When a Workload is a scale-up replacement, the scheduler evaluates it relative
-to the admitted Workload Slice it replaces. The additional quota needed is the
-difference between the new and replaced slices, and the replacement must retain
-the ResourceFlavor assignments of the replaced slice.
+1. **Triggering scenario:** A scale-up Workload replaces an admitted Workload
+   Slice. The scheduler evaluates the additional quota relative to the replaced
+   slice and requires the replacement to retain its ResourceFlavor assignments.
+2. **User impact:** The shape includes the new Workload's effective requests,
+   but not the replacement target or its state. Workloads with the same total
+   request can therefore need different additional quota while sharing an
+   identifier:
 
-The scheduling shape includes the new Workload's effective requests, but not
-the replacement target or its state. For example, suppose a ClusterQueue has
-2 CPUs available and two new Workloads each request a total of 10 CPUs. A
-Workload replacing a slice that already reserves 8 CPUs needs 2 additional CPUs
-and can fit. A Workload replacing a slice that reserves 4 CPUs needs 6 additional
-CPUs and cannot fit. The two new Workloads can have the same identifier even
-though only one can be admitted. A NoFit result from the latter can therefore
-defer the former without evaluating it.
+   | Workload | Total request | Replaced slice reserves | Additional quota needed | Fits? |
+   |---|---|---|---|---|
+   | W1 | 10 CPUs | 8 CPUs | 2 CPUs | yes |
+   | W2 | 10 CPUs | 4 CPUs | 6 CPUs | no |
+
+3. **Mitigation:** Before stable, either add the replacement target and relevant
+   state to the scheduling shape or exclude replacement Workloads from
+   class-wide handling.
+4. **Residual risk:** Until then, a NoFit result from W2 can defer W1 without
+   evaluating it even though W1 fits.
 
 ##### UsageBasedAdmissionFairSharing
 
-When UsageBasedAdmissionFairSharing is combined with
-LowerOrNewerEqualPriority, queue selection and preemption eligibility use
-different ordering rules. LowerOrNewerEqualPriority permits an equal-priority
-Workload to be preempted only when it is newer than the pending Workload. The
-scheduling shape includes the effective priority, but not the queue-order
-timestamp used by this policy.
+1. **Triggering scenario:** UsageBasedAdmissionFairSharing is combined with
+   LowerOrNewerEqualPriority. Queue selection orders Workloads by LocalQueue
+   usage before timestamp, while the preemption policy permits an equal-priority
+   victim only when it is newer than the pending Workload.
+2. **User impact:** The scheduling shape includes effective priority but not the
+   queue-order timestamp. A newer member of a class can be evaluated before an
+   older member even though only the older member can preempt the victim:
 
-UsageBasedAdmissionFairSharing orders Workloads by LocalQueue usage before
-their timestamps. It can therefore evaluate a newer member of an equivalence
-class before an older member. For example, consider an older pending Workload A,
-an equal-priority admitted Workload V created after A, and a newer pending
-Workload B created after V. If B belongs to a lower-usage LocalQueue, B can be
-evaluated first. B cannot preempt the older V and can receive
-PreemptionNoCandidates, while A can preempt V because V is newer than A. If B is
-the representative, the same identifier can cause A to be deferred without
-evaluating it.
+   | Workload | Created | State | Role |
+   |----------|---------|-------|------|
+   | A | t0 | pending | can preempt V because V is newer than A |
+   | V | t1 | admitted | preemption target |
+   | B | t2 | pending, evaluated first because it belongs to a lower-usage LocalQueue | cannot preempt V because V is older than B |
 
-Until these inputs are modeled or the affected paths are excluded from
-class-wide decisions, a matching identifier is not proof that all members have
-the same outcome.
-
-Every new scheduling input must undergo the same review: represent it in the
-scheduling shape or exclude the affected outcome from class-wide handling.
+3. **Mitigation:** Before stable, either include the queue-order timestamp in
+   the scheduling shape or exclude this feature combination from class-wide
+   handling.
+4. **Residual risk:** Until then, B can record PreemptionNoCandidates and defer
+   A despite A being able to preempt V.
 
 #### Overly broad failure classification
 
-Some failures depend on namespace, admission-check state, transient preemption
-state, or a single Workload's lifecycle. Applying those outcomes to a whole
-class can incorrectly defer valid Workloads.
-
-Queue handling therefore receives an explicit requeue reason, and only NoFit
-and PreemptionNoCandidates create failed-class records. NamespaceMismatch,
-PreemptionGated, Generic, FailedAfterNomination, and other reasons retain their
-normal individual handling. In particular, a preemption-gated Workload must be
-processed individually so the scheduler can maintain its gate condition. This
-includes gates used by ConcurrentAdmission and MultiKueueOrchestratedPreemption.
-
-Encoding gate state or a per-Workload identifier in the scheduling shape was
-considered during Beta graduation. Excluding unsafe outcomes by requeue reason
-was chosen instead, so new scheduler outcomes must explicitly opt in to
-class-wide handling.
+1. **Triggering scenario:** A scheduling failure depends on namespace,
+   admission-check state, transient preemption state, or one Workload's
+   lifecycle rather than on the shared scheduling shape.
+2. **User impact:** Applying that failure to the entire class can incorrectly
+   defer otherwise valid Workloads.
+3. **Mitigation:** Queue handling uses an explicit requeue reason. Only NoFit and
+   PreemptionNoCandidates create failed-class records. NamespaceMismatch,
+   PreemptionGated, Generic, FailedAfterNomination, and other reasons retain
+   individual handling. This keeps gates used by ConcurrentAdmission and
+   MultiKueueOrchestratedPreemption on their required per-Workload paths.
+4. **Residual risk:** New scheduler outcomes must explicitly opt in to
+   class-wide handling. Encoding gate state or a per-Workload identifier in the
+   shape was considered during Beta graduation, but excluding unsafe outcomes
+   by reason remains the chosen boundary.
 
 #### Stale failed-class records
 
-Stale cached Workload information can affect scheduling even when equivalence
-hashing is disabled, so that risk is not specific to this feature. Equivalence
-hashing adds a failed-class record, which can become stale after quota, flavor,
-topology, node, admission-check, or Workload state changes.
-
-Failed-class records are discarded whenever the affected inadmissible pool is
-retried. A process restart also discards them. Workload changes refresh the
-cached information and recompute that Workload's class membership.
+1. **Triggering scenario:** Quota, flavor, topology, node, admission-check, or
+   Workload state changes after a failed-class record is created.
+2. **User impact:** The previous class-wide failure conclusion can remain in
+   effect after the scheduling conditions that produced it have changed.
+3. **Mitigation:** Kueue discards failed-class records whenever the affected
+   inadmissible pool is retried and also on process restart. Workload updates
+   refresh cached information and recompute that Workload's class membership.
+4. **Residual risk:** Correct recovery depends on relevant state changes
+   triggering a retry of the affected pool. Stale cached Workload information
+   can also affect scheduling when equivalence hashing is disabled and is not
+   specific to this feature.
 
 #### Identifier collision
 
-The internal identifier is the first 16 hexadecimal characters, or 64 bits, of
-a SHA-256 digest. Assuming digest prefixes are uniformly distributed, the
-birthday-bound probability of at least one accidental collision among `n`
-distinct scheduling shapes in one ClusterQueue is approximately
-`n(n-1)/(2 * 2^64)`. The relevant count is the number of distinct shapes, not
-the number of pending Workloads. At 50,000 distinct shapes, the probability is
-about 6.8e-11, or 1 in 15 billion. Even at 1 million distinct shapes, it is about
-2.7e-8, or 1 in 37 million. These estimates cover accidental collisions rather
-than a deliberate search for colliding inputs.
-
-A collision cannot cause an incorrect admission because the optimization never
-grants quota or reuses an assignment. It can, however, cause repeated delay or
-starvation: retry invalidation clears the failed-class record but does not
-separate two shapes with the same deterministic identifier. The same
-representative can fail again and defer the other shape on every retry.
+1. **Triggering scenario:** Two distinct scheduling shapes produce the same
+   64-bit identifier, which is the first 16 hexadecimal characters of a SHA-256
+   digest.
+2. **User impact:** One shape's representative failure can repeatedly delay or
+   starve the other shape.
+3. **Mitigation:** Assuming digest prefixes are uniformly distributed, the
+   birthday-bound probability among `n` distinct shapes in one ClusterQueue is
+   approximately `n(n-1)/(2 * 2^64)`. It is about 6.8e-11, or 1 in 15 billion,
+   at 50,000 shapes and about 2.7e-8, or 1 in 37 million, at 1 million shapes.
+4. **Residual risk:** These estimates cover accidental collisions, not a
+   deliberate search. Retry invalidation clears the failed-class record but
+   does not separate colliding shapes, so the same incorrect deferral can recur.
 
 #### Latency for very large Workloads
 
-Bulk movement exchanges repeated scheduling cost for queue scanning and batched
-retry latency. When many equivalent Workloads each consume nearly all
-ClusterQueue capacity, bulk movement can make them wait for the batched
-inadmissible retry. Their individual admission latency can increase even while
-total queue throughput improves.
-
-The scheduler performance runs shared during v0.18 graduation illustrated this
-tradeoff:
+1. **Triggering scenario:** Many equivalent Workloads each consume nearly all
+   ClusterQueue capacity and are bulk-moved to the inadmissible pool.
+2. **User impact:** Individual admission latency can increase while those
+   Workloads wait for a batched retry, even when total queue throughput improves.
+3. **Mitigation:** The periodic inadmissible retry bounds the delay. Operators
+   can disable the feature gate to restore per-Workload evaluation when this
+   tradeoff is unacceptable for their workload mix.
+4. **Residual risk:** The balance between aggregate throughput and individual
+   latency is workload-shape dependent. Performance runs shared during v0.18
+   graduation illustrated the tradeoff:
 
 **Baseline (15,000 Workloads)**
 
@@ -318,29 +322,31 @@ than performance guarantees.
 
 #### Reduced diagnostics for bypassed Workloads
 
-A bypassed Workload does not run a scheduling attempt and therefore cannot
-produce the same detailed resource or placement diagnosis as an individually
-evaluated Workload. The `kueue_pending_scheduling_hashes` metric reports
-aggregate class counts and does not provide a per-Workload diagnosis.
-
-The failed-class record retains the representative's high-level reason. The
-controller applies that reason to a bypassed Workload only when it has no more
-specific active scheduler diagnosis, so an existing detailed message is
-preserved.
+1. **Triggering scenario:** A Workload is bypassed because another member of its
+   equivalence class established a failed-class record.
+2. **User impact:** The bypassed Workload does not run a scheduling attempt and
+   cannot produce the same detailed resource or placement diagnosis as an
+   individually evaluated Workload.
+3. **Mitigation:** The failed-class record retains the representative's
+   high-level reason. The controller applies it only when the bypassed Workload
+   has no more specific active diagnosis, preserving existing detailed messages.
+4. **Residual risk:** The propagated reason remains less specific than a full
+   evaluation. The `kueue_pending_scheduling_hashes` metric reports aggregate
+   class counts and cannot provide a per-Workload diagnosis.
 
 #### Additional memory and queue work
 
-Each pending Workload retains an equivalence identifier, and each recently
-failed class retains a small record. Bulk movement scans active-heap entries
-to find matching members.
-
-The scheduler and queue manager gain another form of shared in-memory state and
-must keep it synchronized with queue membership, Workload updates, retry
-notifications, and observability.
-
-The failed-class state is bounded by the number of distinct classes observed
-between retries and is discarded with the retry cycle. The queue scan replaces
-multiple substantially more expensive scheduling evaluations.
+1. **Triggering scenario:** Pending Workloads retain equivalence identifiers,
+   failed classes retain records, and bulk movement scans the active heap for
+   matching members.
+2. **User impact:** The scheduler uses additional memory and queue work, while
+   the queue manager must synchronize another form of shared state with
+   membership, Workload updates, retry notifications, and observability.
+3. **Mitigation:** Failed-class state is bounded by the number of distinct
+   classes observed between retries and is discarded with the retry cycle. A
+   queue scan replaces multiple substantially more expensive evaluations.
+4. **Residual risk:** One identifier remains stored per pending Workload, and
+   scan cost grows with the number of active-heap entries.
 
 ## Design Details
 
@@ -384,11 +390,18 @@ transformations, Dynamic Resource Allocation preprocessing, defaulting, or
 other Kueue-side calculations. The class must reflect the values actually used
 for admission decisions.
 
-Kueue serializes the scheduling shape as JSON. The encoder sorts map keys while
-PodSets and other slices retain their order. Kueue computes SHA-256 over that
-JSON, encodes the digest in hexadecimal, and uses the first 16 characters, or
-64 bits, as the identifier. If serialization fails, Kueue uses the unknown
-class, which is evaluated individually and never participates in bulk movement.
+When Concurrent Admission is enabled, allowed ResourceFlavor restrictions are
+also included in the scheduling shape. Workloads restricted to different flavor
+sets therefore receive different equivalence identifiers.
+
+1. Kueue serializes the scheduling shape as JSON. The encoder sorts map keys,
+   while PodSets and other slices retain their order.
+2. Kueue computes SHA-256 over the JSON.
+3. Kueue takes the first 16 hexadecimal characters, or 64 bits, as the
+   identifier.
+4. If serialization fails, the Workload falls back to the unknown class.
+   Workloads in the unknown class are always evaluated individually and are
+   never bulk-moved.
 
 Kueue computes the identifier when it creates cached scheduling information for
 a Workload and recomputes it whenever a relevant Workload update refreshes that
@@ -400,15 +413,29 @@ ClusterQueue's failed-class records.
 ### Recording and Bulk Movement
 
 Equivalence hashing adds a ClusterQueue-scoped in-memory record containing the
-failed class identifier and high-level reason. Creating the record bulk-moves
-matching active Workloads to the inadmissible pool. Matching Workloads added or
-updated while the record exists are placed there directly.
+failed class identifier and high-level reason. The record controls these queue
+transitions:
+
+```mermaid
+stateDiagram-v2
+    state "Active heap" as Heap
+    state "Evaluation" as Eval
+    state "Admitted" as Admitted
+    state "Inadmissible pool" as Pool
+
+    Heap --> Eval: (1) pop head
+    Eval --> Admitted: (2a) fits
+    Eval --> Pool: (2b) NoFit / PreemptionNoCandidates, failed class recorded
+    Heap --> Pool: (3) bulk move, same hash, no evaluation
+    Pool --> Heap: (4) retry clears all records
+```
 
 The record is created when the representative is requeued, rather than waiting
-for each equivalent Workload to be popped. Because the scheduler normally
-nominates one head Workload per ClusterQueue in a cycle, the record remains
-useful across cycles and avoids later heap pops and scheduling snapshot
-construction for the rest of the class.
+for each equivalent Workload to be popped. Matching Workloads added or updated
+while the record exists are placed in the inadmissible pool directly. Because
+the scheduler normally nominates one head Workload per ClusterQueue in a cycle,
+the record remains useful across cycles and avoids later heap pops and
+scheduling snapshot construction for the rest of the class.
 
 ### Observability
 
@@ -433,44 +460,17 @@ move an entire class without evaluating its remaining Workloads.
 
 ### Notable Changes by Version
 
-#### v0.15.6, v0.15.7, v0.16.3, v0.16.4, and v0.17.0
-
-Scheduling Equivalence Hashing was introduced in v0.15.6 and v0.16.3. In
-BestEffortFIFO ClusterQueues, a NoFit result recorded the failed equivalence
-class and bulk-moved matching Workloads to the inadmissible pool.
-
-PreemptionNoCandidates began participating in class-wide handling in v0.15.7,
-v0.16.4, and v0.17.0. At that point, failed-class recording was driven by the
-broader non-immediate requeue signal rather than explicit outcomes. In v0.17.0,
-the priority input in the scheduling shape changed from the raw Workload
-priority to the effective priority, including priority adjustments when that
-behavior is enabled.
-
-#### v0.18.0
-
-Failed-class recording changed from the broad non-immediate requeue signal to
-an explicit allowlist containing NoFit and PreemptionNoCandidates. This retained
-class-wide handling for those two outcomes while excluding other requeue paths.
-
-Allowed Resource Flavor restrictions and effective resource requests were added
-to the scheduling shape.
-
-The Beta feature gate became enabled by default.
-
-#### v0.19.0
-
-Failed-class records began retaining the representative's high-level reason so
-bypassed Workloads could expose it without replacing an existing detailed
-diagnosis.
-
-The equivalence identifier was corrected to include Pod-level resource requests
-when the Pod-level resources field is set.
-
-#### v0.20.0
-
-Observability was extended with the `kueue_pending_scheduling_hashes` gauge,
-which reports unique active and inadmissible equivalence classes per
-ClusterQueue when the feature is enabled.
+| Version | Change | Kind |
+|---|---|---|
+| v0.15.6, v0.16.3 | Introduced: in BestEffortFIFO ClusterQueues, a NoFit result recorded the failed equivalence class and bulk-moved matching Workloads to the inadmissible pool | behavior |
+| v0.15.7, v0.16.4, v0.17.0 | PreemptionNoCandidates began participating in class-wide handling; failed-class recording was driven by the broader non-immediate requeue signal | behavior |
+| v0.17.0 | Priority input in the scheduling shape changed from raw Workload priority to effective priority | behavior |
+| v0.18.0 | Failed-class recording changed to an explicit allowlist containing NoFit and PreemptionNoCandidates | behavior |
+| v0.18.0 | Allowed Resource Flavor restrictions and effective resource requests added to the scheduling shape | behavior |
+| v0.18.0 | Beta feature gate became enabled by default | gate |
+| v0.19.0 | Failed-class records began retaining the representative's high-level reason for bypassed Workloads | observability |
+| v0.19.0 | Equivalence identifier corrected to include Pod-level resource requests when the field is set | bugfix |
+| v0.20.0 | Added the `kueue_pending_scheduling_hashes` gauge, reporting unique active and inadmissible classes per ClusterQueue | observability |
 
 ### Test Plan
 
