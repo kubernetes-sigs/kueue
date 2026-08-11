@@ -335,6 +335,33 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			want:          nil,
 		},
 		{
+			name: "workload with fractional quantity for extended resource not backed by DRA (no matching DeviceClass)",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name:  "c",
+									Image: "pause",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"other.vendor.io/resource": resource.MustParse("1500m"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			want:          nil,
+		},
+		{
 			name: "workload with no extended resources",
 			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},

@@ -93,34 +93,23 @@ func selectedDeviceClass(items []resourceapi.DeviceClass) *resourceapi.DeviceCla
 	return selected
 }
 
-// extendedResourceRequests extracts a container's extended resource requests, keyed by
-// their original (unmapped) resource name, validating that each quantity is an integer.
-// The DeviceClass mapping is resolved later, once per original name for the whole
-// PodSet, rather than per container here: mapping before aggregating across containers
-// would let two different resource names that share a quota key collapse into each
-// other's contribution, since max(map(A), map(B)) != map(max(A, B)) once A and B differ.
-func extendedResourceRequests(container corev1.Container, containerPath *field.Path) (corev1.ResourceList, field.ErrorList) {
+// extendedResourceRequests extracts a container's non-zero extended resource requests,
+// keyed by their original (unmapped) resource name. Quantities are not validated here:
+// the integer-only rule only applies to resources that turn out to be DRA-backed, which
+// isn't known until a DeviceClass is resolved for the name later in
+// ResolveExtendedResourceQuota. Validating here would reject fractional requests for
+// extended resources that aren't DRA-backed at all, which the standard (non-DRA) quota
+// path accepts.
+func extendedResourceRequests(container corev1.Container) corev1.ResourceList {
 	result := corev1.ResourceList{}
-	var errs field.ErrorList
 
 	for resourceName, quantity := range container.Resources.Requests {
 		if quantity.IsZero() || !utilresource.IsExtendedResourceName(resourceName) {
 			continue
 		}
-
-		qty, ok := quantity.AsInt64()
-		if !ok {
-			errs = append(errs, field.Invalid(
-				containerPath.Child("resources", "requests", string(resourceName)),
-				quantity.String(),
-				"extended resource quantity must be an integer",
-			))
-			continue
-		}
-
-		result[resourceName] = *resource.NewQuantity(qty, resource.DecimalSI)
+		result[resourceName] = quantity
 	}
-	return result, errs
+	return result
 }
 
 // resolveQuotaKey looks up the DeviceClasses backing resourceName by
@@ -194,6 +183,14 @@ func resolveQuotaKey(
 	return quotaKey, nil
 }
 
+// containerExtendedResourceRequests pairs a container's non-zero extended resource
+// requests, keyed by original (unmapped) resource name, with the field path used to
+// report errors against that container.
+type containerExtendedResourceRequests struct {
+	path      *field.Path
+	resources corev1.ResourceList
+}
+
 // ResolveExtendedResourceQuota converts extended resource requests across all PodSets
 // into DRA logical quota resources. Per PodSet, init containers are aggregated with
 // max (sequential) and regular containers with sum (concurrent), then combined with
@@ -218,28 +215,44 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 		ps := &wl.Spec.PodSets[i]
 		podSetPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec")
 
+		collect := func(containers []corev1.Container, pathSegment string) []containerExtendedResourceRequests {
+			var entries []containerExtendedResourceRequests
+			for j, container := range containers {
+				res := extendedResourceRequests(container)
+				if len(res) == 0 {
+					continue
+				}
+				entries = append(entries, containerExtendedResourceRequests{
+					path:      podSetPath.Child(pathSegment).Index(j),
+					resources: res,
+				})
+			}
+			return entries
+		}
+
+		initEntries := collect(ps.Template.Spec.InitContainers, "initContainers")
+		regularEntries := collect(ps.Template.Spec.Containers, "containers")
+
 		// The field path of the first container an original resource name is seen in,
 		// for error reporting once that name is resolved below.
 		firstPath := map[corev1.ResourceName]*field.Path{}
-
-		extract := func(containers []corev1.Container, pathSegment string, merge func(a, b corev1.ResourceList) corev1.ResourceList) corev1.ResourceList {
-			var result corev1.ResourceList
-			for j, container := range containers {
-				containerPath := podSetPath.Child(pathSegment).Index(j)
-				res, errs := extendedResourceRequests(container, containerPath)
-				allErrs = append(allErrs, errs...)
-				for name := range res {
-					if _, ok := firstPath[name]; !ok {
-						firstPath[name] = containerPath
-					}
+		var maxInitResources, sumRegularResources corev1.ResourceList
+		for _, e := range initEntries {
+			for name := range e.resources {
+				if _, ok := firstPath[name]; !ok {
+					firstPath[name] = e.path
 				}
-				result = merge(result, res)
 			}
-			return result
+			maxInitResources = utilresource.MergeResourceListKeepMax(maxInitResources, e.resources)
 		}
-
-		maxInitResources := extract(ps.Template.Spec.InitContainers, "initContainers", utilresource.MergeResourceListKeepMax)
-		sumRegularResources := extract(ps.Template.Spec.Containers, "containers", utilresource.MergeResourceListKeepSum)
+		for _, e := range regularEntries {
+			for name := range e.resources {
+				if _, ok := firstPath[name]; !ok {
+					firstPath[name] = e.path
+				}
+			}
+			sumRegularResources = utilresource.MergeResourceListKeepSum(sumRegularResources, e.resources)
+		}
 		podRequests := utilresource.MergeResourceListKeepMax(maxInitResources, sumRegularResources)
 
 		aggregated := corev1.ResourceList{}
@@ -253,8 +266,37 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 			if quotaKey == "" {
 				continue
 			}
+
+			// resourceName is confirmed DRA-backed: now hold it to the
+			// integer-only rule, checked per container rather than on the
+			// aggregate above, so two invalid fractional requests (e.g. two
+			// 500m requests summing to a valid 1) can't hide each other.
+			var intErrs field.ErrorList
+			for _, entries := range [][]containerExtendedResourceRequests{initEntries, regularEntries} {
+				for _, e := range entries {
+					qty, ok := e.resources[resourceName]
+					if !ok {
+						continue
+					}
+					if _, ok := qty.AsInt64(); !ok {
+						intErrs = append(intErrs, field.Invalid(
+							e.path.Child("resources", "requests", string(resourceName)),
+							qty.String(),
+							"extended resource quantity must be an integer",
+						))
+					}
+				}
+			}
+			if len(intErrs) > 0 {
+				allErrs = append(allErrs, intErrs...)
+				continue
+			}
+
+			// Safe: every container quantity contributing to this aggregate
+			// just passed the integer check above.
+			intQty, _ := quantity.AsInt64()
 			replaced.Insert(resourceName)
-			aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{quotaKey: quantity})
+			aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{quotaKey: *resource.NewQuantity(intQty, resource.DecimalSI)})
 		}
 
 		if len(aggregated) > 0 {
