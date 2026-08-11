@@ -856,6 +856,31 @@ func (c *ClusterQueue) PendingInLocalQueue(lqRef utilqueue.LocalQueueReference) 
 	return c.pendingActiveInLocalQueue(lqRef), c.pendingInadmissibleInLocalQueue(lqRef)
 }
 
+// PendingBreakdownInLocalQueue returns LabelValsTrackers for active and inadmissible
+// pending workloads in the given LocalQueue, keyed by workload custom label values.
+func (c *ClusterQueue) PendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueReference) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+
+	active := metrics.NewLabelValsTracker()
+	for _, wl := range c.heap.List() {
+		if utilqueue.KeyFromWorkload(wl.Obj) == lqRef {
+			metrics.TrackWorkload(c.customLabels, active, wl.Obj)
+		}
+	}
+	if c.inflight != nil && utilqueue.KeyFromWorkload(c.inflight.Obj) == lqRef {
+		metrics.TrackWorkload(c.customLabels, active, c.inflight.Obj)
+	}
+
+	inadmissible := metrics.NewLabelValsTracker()
+	for _, wl := range c.inadmissibleWorkloads {
+		if utilqueue.KeyFromWorkload(wl.Obj) == lqRef {
+			metrics.TrackWorkload(c.customLabels, inadmissible, wl.Obj)
+		}
+	}
+	return active, inadmissible
+}
+
 // pendingActiveInLocalQueue returns the number of active pending workloads in LocalQueue,
 // workloads that are in the admission queue.
 func (c *ClusterQueue) pendingActiveInLocalQueue(lqRef utilqueue.LocalQueueReference) (active int) {

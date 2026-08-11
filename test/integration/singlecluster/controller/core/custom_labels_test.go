@@ -1227,6 +1227,75 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "lq-val", "kind1", "anno1")
 			util.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1, "lq-val", "kind1", "anno1")
 		})
+
+		// Custom label order for LQ pending metrics: lq_label, wl_kind, wl_anno
+		// (SourceKind strings sorted alphabetically: LocalQueue < Workload).
+		ginkgo.It("LQ pending workloads metric should track workloads by custom WL and LQ labels", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-lq-pending").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-pending", ns.Name).
+				Label("lq-label", "lq-val").
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl1 := utiltestingapi.MakeWorkload("wl1-pending", ns.Name).
+				Label("workload-kind", "kind1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			wl2 := utiltestingapi.MakeWorkload("wl2-pending", ns.Name).
+				Label("workload-kind", "kind2").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
+
+			ginkgo.By("verifying LQ pending workloads metric includes custom WL and LQ label values")
+			util.ExpectLQPendingWorkloadsMetric(lq, 1, 0, "lq-val", "kind1", "")
+			util.ExpectLQPendingWorkloadsMetric(lq, 1, 0, "lq-val", "kind2", "")
+		})
+
+		ginkgo.It("LQ pending workloads metric should update when workload label changes", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-lq-pending-update").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-pending-update", ns.Name).
+				Label("lq-label", "lq-val").
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl1 := utiltestingapi.MakeWorkload("wl1-pending-update", ns.Name).
+				Label("workload-kind", "kind1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			ginkgo.By("verifying initial LQ pending metric for kind1")
+			util.ExpectLQPendingWorkloadsMetric(lq, 1, 0, "lq-val", "kind1", "")
+
+			ginkgo.By("updating workload label from kind1 to kind2")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var fetchedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &fetchedWl)).To(gomega.Succeed())
+				fetchedWl.Labels["workload-kind"] = "kind2"
+				g.Expect(k8sClient.Update(ctx, &fetchedWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying LQ pending metric moves from kind1 to kind2")
+			util.ExpectLQPendingWorkloadsMetric(lq, 0, 0, "lq-val", "kind1", "")
+			util.ExpectLQPendingWorkloadsMetric(lq, 1, 0, "lq-val", "kind2", "")
+		})
 	})
 
 	ginkgo.When("PendingWorkloads metric when CustomMetricLabels is enabled with workload custom labels", func() {
@@ -1236,6 +1305,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
+			// LocalQueueMetrics must be enabled for reportLQPendingWorkloads to be called.
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
 				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
