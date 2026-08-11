@@ -943,11 +943,18 @@ This ensures no overlap or double-counting between the two mechanisms.
 Step 4 runs after step 2, so an `excludeResourcePrefixes` entry does not apply to a logical
 resource name, whether that name comes from `deviceClassMappings[].name` or from a
 DeviceClass's `extendedResourceName`. A transformation's output name is added after the same
-filter and behaves the same way. Kueue does not refuse the overlap: a logical resource name is
-not a name a Pod requests, and one task guide uses `excludeResourcePrefixes: ["example.com"]`
-while another names a mapping `example.com/gpu`, so an admin following both would be refused a
-configuration that works today. An admin who wants a device class left out of quota omits the
-mapping instead.
+filter and behaves the same way. The classifier is never handed the excluded prefixes, so what
+the code does today is charge such a name rather than refuse it.
+
+Whether it should refuse is still open in
+[#13601](https://github.com/kubernetes-sigs/kueue/pull/13601), which currently says it does.
+Refusing has a cost worth weighing first: one task guide uses
+`excludeResourcePrefixes: ["example.com"]` while another names a mapping `example.com/gpu`, so
+an admin following both would be refused a configuration that works today. Dropping the mapping
+isn't the way out either, since an unmapped DeviceClass makes a claim-template Workload
+inadmissible with a `NotFound`, and the extended-resource path is discovered from the
+DeviceClass rather than from the mapping. The policy belongs in the parent KEP, and this
+paragraph follows it once it is settled.
 
 #### Same Hardware with Both Paths
 

@@ -125,7 +125,7 @@ func TestChargeForPrioritizedList(t *testing.T) {
 		},
 		"allocation mode All is refused": {
 			req: faReq("r", resourcev1.DeviceSubRequest{
-				Name:            "fast.example.com",
+				Name:            "fast",
 				DeviceClassName: "fast.example.com",
 				AllocationMode:  resourcev1.DeviceAllocationModeAll,
 			}),
@@ -134,7 +134,7 @@ func TestChargeForPrioritizedList(t *testing.T) {
 		},
 		"an unset mode and count mean one device, as the field documents": {
 			req: faReq("r", resourcev1.DeviceSubRequest{
-				Name:            "fast.example.com",
+				Name:            "fast",
 				DeviceClassName: "fast.example.com",
 			}),
 			mapper:       twoClassesOneResource,
