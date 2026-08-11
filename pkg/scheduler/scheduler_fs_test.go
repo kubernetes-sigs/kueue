@@ -241,7 +241,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 1 more needed, skipping flavor spot as it is not found in the nomination mapping for resource cpu",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -386,7 +386,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 5 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -419,7 +419,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 				"eng-beta/light-usage": *utiltestingapi.MakeAdmission("fs-nom-b").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "5").Count(5).Obj()).Obj(),
 				"eng-alpha/nom-wl":     *utiltestingapi.MakeAdmission("fs-nom-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "45").Count(45).Obj()).Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"fs-nom-b": {"eng-beta/borrow-wl"},
 			},
 		},
@@ -546,7 +546,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 5 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -568,7 +568,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 				"eng-alpha/c0":   *utiltestingapi.MakeAdmission("cq-c").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()).Obj(),
 				"eng-alpha/wl-a": *utiltestingapi.MakeAdmission("cq-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "5").Count(1).Obj()).Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-b": {"eng-alpha/wl-b"},
 			},
 		},
@@ -698,7 +698,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 5 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -720,7 +720,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 				"eng-alpha/c0":   *utiltestingapi.MakeAdmission("cq-c").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "10").Obj()).Obj(),
 				"eng-alpha/wl-a": *utiltestingapi.MakeAdmission("cq-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "5").Count(1).Obj()).Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-b": {"eng-alpha/wl-b"},
 			},
 		},
@@ -881,7 +881,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -904,7 +904,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 				"eng-alpha/c-admitted":  *utiltestingapi.MakeAdmission("cq-c").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "20").Obj()).Obj(),
 				"eng-alpha/wl-a1":       *utiltestingapi.MakeAdmission("cq-a1").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "7").Count(1).Obj()).Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-b": {"eng-alpha/wl-b"},
 			},
 		},
@@ -1063,7 +1063,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 1 more needed, skipping flavor spot as it is not found in the nomination mapping for resource cpu",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1086,7 +1086,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 				"eng-alpha/od-admitted":   *utiltestingapi.MakeAdmission("cq-b").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "8").Obj()).Obj(),
 				"eng-alpha/wl-a":          *utiltestingapi.MakeAdmission("cq-a").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "on-demand", "4").Count(1).Obj()).Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-b": {"eng-alpha/wl-b"},
 			},
 		},
@@ -1284,7 +1284,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 61 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1310,7 +1310,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1347,7 +1347,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1387,7 +1387,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"e": {"eng-alpha/e1"},
 				"g": {"eng-alpha/g1"},
 				"f": {"eng-alpha/f1"},
@@ -1501,7 +1501,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 35 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1531,7 +1531,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"c": {"eng-alpha/c1"},
 			},
 		},
@@ -1627,8 +1627,8 @@ func TestScheduleForFairSharing(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "WaitingForQuota",
-						Message:            "Workload no longer fits after processing another workload",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 4 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1689,7 +1689,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"b": {"eng-alpha/b1"},
 			},
 		},
@@ -1784,7 +1784,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 4 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1845,7 +1845,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"b": {"eng-alpha/b1"},
 			},
 		},
@@ -2083,7 +2083,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 10 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -2139,7 +2139,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"b": {"eng-alpha/b1"},
 			},
 		},
@@ -2201,7 +2201,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload no longer fits after processing another workload",
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor on-demand, 10 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -2258,7 +2258,7 @@ func TestScheduleForFairSharing(t *testing.T) {
 						Obj()).
 					Obj(),
 			},
-			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"b": {"eng-alpha/b1"},
 			},
 		},
