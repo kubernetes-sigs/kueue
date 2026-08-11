@@ -206,7 +206,7 @@ func TestChargeForPrioritizedList(t *testing.T) {
 	}
 }
 
-func TestCountDevicesPerClassWithPrioritizedList(t *testing.T) {
+func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 	mapper := mapperFor("example.com/gpu", "fast.example.com", "slow.example.com")
 
 	cases := map[string]struct {
@@ -215,6 +215,10 @@ func TestCountDevicesPerClassWithPrioritizedList(t *testing.T) {
 		wantLogical map[corev1.ResourceName]int64
 		wantClasses map[corev1.ResourceName]int64
 		wantErr     bool
+		// Set these when which error comes back is the point of the case, since
+		// several guards on this path reject the same spec for different reasons.
+		wantErrField string
+		wantErrType  field.ErrorType
 	}{
 		"with the gate off a prioritized list is still refused": {
 			spec:    specOf(faReq("r", alt("fast.example.com", 1))),
@@ -262,6 +266,16 @@ func TestCountDevicesPerClassWithPrioritizedList(t *testing.T) {
 			gateEnabled: true,
 			wantLogical: map[corev1.ResourceName]int64{"example.com/gpu": math.MaxInt64 - 1},
 		},
+		"an empty firstAvailable is reported against firstAvailable, not as a missing exactly": {
+			spec: specOf(resourcev1.DeviceRequest{
+				Name:           "r",
+				FirstAvailable: []resourcev1.DeviceSubRequest{},
+			}),
+			gateEnabled:  true,
+			wantErr:      true,
+			wantErrField: "devices.requests[0].firstAvailable",
+			wantErrType:  field.ErrorTypeRequired,
+		},
 	}
 
 	for name, tc := range cases {
@@ -269,10 +283,18 @@ func TestCountDevicesPerClassWithPrioritizedList(t *testing.T) {
 			if tc.gateEnabled {
 				features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationPrioritizedList, true)
 			}
-			got, errs := countDevicesPerClass(tc.spec, mapper)
+			got, errs := chargesForClaimSpec(tc.spec, mapper)
 			if tc.wantErr {
 				if len(errs) == 0 {
 					t.Fatalf("want an error, got %v", got.perLogicalResource)
+				}
+				if tc.wantErrField != "" {
+					if len(errs) != 1 {
+						t.Fatalf("want one error, got %v", errs)
+					}
+					if errs[0].Field != tc.wantErrField || errs[0].Type != tc.wantErrType {
+						t.Errorf("got %v on %s, want %v on %s", errs[0].Type, errs[0].Field, tc.wantErrType, tc.wantErrField)
+					}
 				}
 				return
 			}
@@ -325,7 +347,7 @@ func TestEnvelopeBoundsEverySelection(t *testing.T) {
 		requests = append(requests, faReq(string(rune('a'+i)), alternatives...))
 	}
 
-	charges, errs := countDevicesPerClass(specOf(requests...), mapper)
+	charges, errs := chargesForClaimSpec(specOf(requests...), mapper)
 	if len(errs) != 0 {
 		t.Fatalf("unexpected errors: %v", errs)
 	}
