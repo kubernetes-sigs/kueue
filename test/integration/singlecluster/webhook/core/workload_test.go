@@ -590,6 +590,23 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
 		})
 
+		ginkgo.It("Should refuse a status update reserving quota with no admission", func() {
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				wl.Status.Conditions = append(wl.Status.Conditions, metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Admitted",
+					Message:            "admitted",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				})
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(utiltesting.BeForbiddenError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.DescribeTable("Validate Workload on update",
 			func(w func() *kueue.Workload, setQuotaReservation bool, updateWl func(newWL *kueue.Workload), matcher gomegatypes.GomegaMatcher) {
 				ginkgo.By("Creating a new Workload")
