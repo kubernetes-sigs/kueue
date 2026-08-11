@@ -3050,7 +3050,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			ginkgo.By("no new best-effort workloads admitted as foundation workload is trying to schedule")
 			util.ExpectReservingActiveWorkloadsMetric(cq2, 1)
-			util.ExpectPendingWorkloadsMetric(cq2, 1, 0)
+			util.ExpectPendingWorkloadsMetric(cq2, 0, 1)
 
 			ginkgo.By("second foundation workload reclaims capacity from a best-effort workload")
 			util.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 1)
@@ -3097,7 +3097,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			createWorkloadWithPriority("best-effort-queue", "1", 0)
 			createWorkloadWithPriority("best-effort-queue", "1", 0)
 			util.ExpectReservingActiveWorkloadsMetric(cq2, 0)
-			util.ExpectPendingWorkloadsMetric(cq2, 2, 0)
+			util.ExpectPendingWorkloadsMetric(cq2, 0, 2)
 
 			ginkgo.By("finish first foundation workload")
 			util.FinishRunningWorkloadsInCQ(ctx, k8sClient, cq1, 1)
