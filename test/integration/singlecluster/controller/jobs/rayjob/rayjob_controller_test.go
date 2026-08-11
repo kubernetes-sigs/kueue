@@ -845,11 +845,11 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 
 		ginkgo.By("marking the RayJob as validation failed", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).
 					Should(gomega.Succeed())
 				createdJob.Status.JobDeploymentStatus =
 					rayv1.JobDeploymentStatusValidationFailed
-				gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).
+				g.Expect(k8sClient.Status().Update(ctx, createdJob)).
 					Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
