@@ -1109,9 +1109,9 @@ func TestFairPreemptions(t *testing.T) {
 			),
 		},
 		// The case when workloads from preemptor's CQ have lower priority, so all the other
-		// workloads are processed first, but none are considered fair by DPS.
+		// workloads are processed first, but none are considered fair by DRS.
 		// Later, once the preemptor's workloads are preempted, now workloads from
-		// other CQs are considered fair to be preempted by DPS.
+		// other CQs are considered fair to be preempted by DRS.
 		"can admit after preempting workloads from the preemptor's CQ with lower processing priority": {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("left-a").
