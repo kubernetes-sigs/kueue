@@ -1234,7 +1234,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			cq = utiltestingapi.MakeClusterQueue("cq-lq-pending").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
-						Resource(corev1.ResourceCPU, "5").
+						Resource(corev1.ResourceCPU, "0").
 						Obj(),
 				).Label("team", "ml-team").Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
@@ -1244,12 +1244,15 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				ClusterQueue(cq.Name).Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 
+			// wl1: kind1 with tracked annotation — exercises the positive annotation path.
 			wl1 := utiltestingapi.MakeWorkload("wl1-pending", ns.Name).
 				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Request(corev1.ResourceCPU, "1").Obj()
 			util.MustCreate(ctx, k8sClient, wl1)
 
+			// wl2: kind2 with no annotation — exercises the untracked annotation path.
 			wl2 := utiltestingapi.MakeWorkload("wl2-pending", ns.Name).
 				Label("workload-kind", "kind2").
 				Queue(kueue.LocalQueueName(lq.Name)).
@@ -1257,15 +1260,15 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.MustCreate(ctx, k8sClient, wl2)
 
 			ginkgo.By("verifying LQ pending workloads metric includes custom WL and LQ label values")
-			util.ExpectLQPendingWorkloadsMetric(lq, 1, 0, "lq-val", "kind1", "")
-			util.ExpectLQPendingWorkloadsMetric(lq, 1, 0, "lq-val", "kind2", "")
+			util.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "lq-val", "kind1", "anno1")
+			util.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "lq-val", "kind2", config.UntrackedCustomLabelValue)
 		})
 
 		ginkgo.It("LQ pending workloads metric should update when workload label changes", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq-lq-pending-update").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
-						Resource(corev1.ResourceCPU, "5").
+						Resource(corev1.ResourceCPU, "0").
 						Obj(),
 				).Label("team", "ml-team").Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
@@ -1275,14 +1278,16 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				ClusterQueue(cq.Name).Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 
+			// wl1: kind1 with tracked annotation anno1.
 			wl1 := utiltestingapi.MakeWorkload("wl1-pending-update", ns.Name).
 				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Request(corev1.ResourceCPU, "1").Obj()
 			util.MustCreate(ctx, k8sClient, wl1)
 
-			ginkgo.By("verifying initial LQ pending metric for kind1")
-			util.ExpectLQPendingWorkloadsMetric(lq, 1, 0, "lq-val", "kind1", "")
+			ginkgo.By("verifying initial LQ pending metric for kind1/anno1")
+			util.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "lq-val", "kind1", "anno1")
 
 			ginkgo.By("updating workload label from kind1 to kind2")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1292,9 +1297,9 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				g.Expect(k8sClient.Update(ctx, &fetchedWl)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("verifying LQ pending metric moves from kind1 to kind2")
-			util.ExpectLQPendingWorkloadsMetric(lq, 0, 0, "lq-val", "kind1", "")
-			util.ExpectLQPendingWorkloadsMetric(lq, 1, 0, "lq-val", "kind2", "")
+			ginkgo.By("verifying LQ pending metric moves from kind1/anno1 to kind2/anno1")
+			util.ExpectLQPendingWorkloadsMetric(lq, 0, 0, "lq-val", "kind1", "anno1")
+			util.ExpectLQPendingWorkloadsMetric(lq, 0, 1, "lq-val", "kind2", "anno1")
 		})
 	})
 
