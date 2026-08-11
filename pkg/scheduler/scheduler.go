@@ -725,7 +725,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(log logr.Logger,
 	}
 	usage = e.assignmentUsage(log)
 	fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
-	log.V(2).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
+	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
 	// clear the assignment flavors as they are only used within a single scheduling cycle
 	e.NominationMapping = nil
 
