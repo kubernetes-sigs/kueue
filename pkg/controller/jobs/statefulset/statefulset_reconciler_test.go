@@ -32,6 +32,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1124,5 +1125,58 @@ func TestReconcileUpdatesTheWorkloadWhenTheQueueLabelPatchFails(t *testing.T) {
 	}
 	if got.Spec.QueueName != "lq" {
 		t.Errorf("Workload queue = %q, want lq: the queue label patch failed and the Workload branch never ran", got.Spec.QueueName)
+	}
+}
+
+// A Pod whose queue label cannot be patched used to take the whole slice with
+// it, since the sync ran over every Pod before any of them was ungated.
+func TestReconcilePodFailureLeavesTheOtherPodsAlone(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	group := GetWorkloadName("sts-uid", "sts")
+	sts := statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Replicas(2).Queue("lq").Obj()
+
+	conflicting := testingjobspod.MakePod("conflicting", "ns").GroupNameLabel(group).Queue("old-lq").Obj()
+	// This one already carries the queue, so the sync never touches it.
+	unrelated := testingjobspod.MakePod("unrelated", "ns").GroupNameLabel(group).Queue("lq").
+		KueueFinalizer().StatusPhase(corev1.PodSucceeded).Obj()
+
+	builder := utiltesting.NewClientBuilder().WithObjects(sts, conflicting, unrelated).WithStatusSubresource(sts)
+	indexer := utiltesting.AsIndexer(builder)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
+		t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
+	}
+	wantErr := apierrors.NewConflict(schema.GroupResource{Resource: "pods"}, "conflicting", nil)
+	kClient := builder.WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if obj.GetName() == "conflicting" {
+				return wantErr
+			}
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	}).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("NewReconciler() error: %v", err)
+	}
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "sts"}})
+	if !apierrors.IsConflict(err) {
+		t.Errorf("Reconcile() error = %v, want the Pod conflict", err)
+	}
+
+	var gotPod corev1.Pod
+	if err := kClient.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "unrelated"}, &gotPod); err != nil {
+		t.Fatalf("failed to get the unrelated Pod: %v", err)
+	}
+	if len(gotPod.Finalizers) != 0 {
+		t.Errorf("unrelated Pod finalizers = %v, want none: one Pod's failure held back another", gotPod.Finalizers)
+	}
+
+	var wls kueue.WorkloadList
+	if err := kClient.List(ctx, &wls, client.InNamespace("ns")); err != nil {
+		t.Fatalf("failed to list workloads: %v", err)
+	}
+	if len(wls.Items) != 1 {
+		t.Errorf("got %d Workloads, want the Workload branch to still finish", len(wls.Items))
 	}
 }
