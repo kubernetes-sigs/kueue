@@ -48,6 +48,21 @@ const (
 	testWorkloadNamespace = "test-ns"
 )
 
+// quotaReservedWithoutAdmission builds a Workload with the QuotaReserved
+// condition and no status.admission.
+func quotaReservedWithoutAdmission(now time.Time) *kueue.Workload {
+	wl := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+		PodSets(*utiltestingapi.MakePodSet("driver", 1).Obj()).Obj()
+	wl.Status.Conditions = []metav1.Condition{{
+		Type:               kueue.WorkloadQuotaReserved,
+		Status:             metav1.ConditionTrue,
+		Reason:             "AdmittedByTest",
+		Message:            "admitted",
+		LastTransitionTime: metav1.NewTime(now),
+	}}
+	return wl
+}
+
 func TestValidateWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	specPath := field.NewPath("spec")
@@ -67,6 +82,12 @@ func TestValidateWorkload(t *testing.T) {
 				*utiltestingapi.MakePodSet("driver", 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 100).Obj(),
 			).Obj(),
+		},
+		"quota reserved without an admission is refused, not a panic": {
+			workload: quotaReservedWithoutAdmission(now),
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeRequired, Field: "status.admission"},
+			}.ToAggregate(),
 		},
 		"should have a valid podSet name in status assignment": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -724,6 +745,18 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		wantErr       error
 		wantWarnings  admission.Warnings
 	}{
+		"an update may not put a workload in quota reserved with no admission": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("driver", 1).Obj()).Obj(),
+			after: quotaReservedWithoutAdmission(now),
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeRequired, Field: "status.admission"},
+			}.ToAggregate(),
+		},
+		"a workload already in that state stays updatable so it can be removed": {
+			before: quotaReservedWithoutAdmission(now),
+			after:  quotaReservedWithoutAdmission(now),
+		},
 		"reclaimable pod count can change up": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
@@ -1413,6 +1446,16 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			wantWarnings: admission.Warnings{
 				"spec.podSets[0].topologyRequest.subGroupCount: negative value -1 is deprecated and will be rejected in a future release",
 			},
+		},
+		// Refusing this update would leave the object undeletable.
+		"a workload whose quota reservation lost its admission can still drop its finalizer": {
+			before: func() *kueue.Workload {
+				wl := quotaReservedWithoutAdmission(now)
+				wl.Finalizers = []string{kueue.ResourceInUseFinalizerName}
+				return wl
+			}(),
+			after:   quotaReservedWithoutAdmission(now),
+			wantErr: nil,
 		},
 	}
 	for name, tc := range testCases {
