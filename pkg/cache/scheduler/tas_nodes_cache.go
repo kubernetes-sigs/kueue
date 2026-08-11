@@ -17,11 +17,15 @@ limitations under the License.
 package scheduler
 
 import (
+	"maps"
+	"slices"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -37,17 +41,25 @@ func newNodesCache() *nodesCache {
 }
 
 func (t *nodesCache) sync(node *corev1.Node) {
-	schedulableAndReady := !node.Spec.Unschedulable &&
-		utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)
-
 	t.lock.Lock()
 	defer t.lock.Unlock()
+	if !features.Enabled(features.SchedulerLibraryIntegration) {
+		schedulableAndReady := !node.Spec.Unschedulable &&
+			utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)
 
-	if schedulableAndReady {
-		t.nodes[node.Name] = copyAndStripNode(node)
-	} else {
-		t.deleteWithoutLock(node.Name)
+		if !schedulableAndReady {
+			t.deleteWithoutLock(node.Name)
+			return
+		}
 	}
+
+	stripped := copyAndStripNode(node)
+	if existing, found := t.nodes[node.Name]; found && strippedNodesEqual(existing, stripped) {
+		return
+	}
+
+	t.nodes[node.Name] = stripped
+	t.generation++
 }
 
 func (t *nodesCache) delete(nodeName string) {
@@ -84,10 +96,28 @@ func copyAndStripNode(node *corev1.Node) *corev1.Node {
 			Labels: node.Labels,
 		},
 		Spec: corev1.NodeSpec{
-			Taints: node.Spec.Taints,
+			Unschedulable: node.Spec.Unschedulable,
+			Taints:        node.Spec.Taints,
 		},
 		Status: corev1.NodeStatus{
 			Allocatable: node.Status.Allocatable,
 		},
 	}
+}
+
+func (t *nodesCache) getAllNodes() []*corev1.Node {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+	return slices.Collect(maps.Values(t.nodes))
+}
+
+// strippedNodesEqual reports whether two stripped nodes carry semantically
+// identical scheduling-relevant information. It is used to avoid bumping the
+// nodesCache generation for Node updates that do not affect TAS scheduling,
+// such as kubelet heartbeats.
+func strippedNodesEqual(a, b *corev1.Node) bool {
+	return maps.Equal(a.Labels, b.Labels) &&
+		a.Spec.Unschedulable == b.Spec.Unschedulable &&
+		equality.Semantic.DeepEqual(a.Spec.Taints, b.Spec.Taints) &&
+		equality.Semantic.DeepEqual(a.Status.Allocatable, b.Status.Allocatable)
 }
