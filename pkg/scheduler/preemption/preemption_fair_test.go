@@ -1159,6 +1159,7 @@ func TestFairPreemptions(t *testing.T) {
 						Resource(corev1.ResourceCPU, "0").Obj()).
 					Obj(),
 			},
+			strategies: []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare},
 			admitted: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("a1", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("left-a", "default", now).Obj(),
 				*utiltestingapi.MakeWorkload("a2", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("left-a", "default", now).Obj(),
@@ -1173,6 +1174,16 @@ func TestFairPreemptions(t *testing.T) {
 			},
 			incoming: utiltestingapi.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "10").Obj(),
 			targetCQ: "left-a",
+			// Detailed scenario:
+			// * Workloads from CQs "right-b" and "right-c" are processed first because of fairWeights.
+			// * Initially workloads from "right" cohort doesn't satisfy the strategy because
+			//   DRS of preemptor's is large (because of fairWright).
+			// * The fair preemption algorithm removes workloads from preemptor's CQ "left-a" without
+			//   considering the strategy (because they are from the same CQ), so preemptor's DRS decreases.
+			//   (preempted: a1, a2, a3)
+			// * Now, workloads from CQs "right-b" and "right-c" satisfy the fairness condition by the strategy.
+			// * Workloads from the "right-b" CQ are preempted because they had larger DRS than workloads from "right-c" CQ.
+			//   (preempted: b1, b2)
 			wantPreempted: sets.New(
 				targetKeyReason("/a1", kueue.InClusterQueueReason),
 				targetKeyReason("/a2", kueue.InClusterQueueReason),
