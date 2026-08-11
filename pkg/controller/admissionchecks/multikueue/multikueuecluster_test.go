@@ -721,7 +721,11 @@ func TestUpdateConfig(t *testing.T) {
 			}
 
 			cancelCalledCount = 0
-			res, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}}, c)
+			res, gotErr := reconciler.Reconcile(
+				ctx,
+				reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}},
+				c,
+			)
 			if diff := cmp.Diff(gotErr, tc.wantErr, cmp.Comparer(func(a, b error) bool {
 				if a == nil || b == nil {
 					return a == b
@@ -1514,7 +1518,8 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	slowDone := make(chan struct{})
 	go func() {
 		defer close(slowDone)
-		_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-slow"}}, localClient)
+		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-slow"}}
+		_, _ = reconciler.Reconcile(ctx, req, localClient)
 	}()
 
 	select {
@@ -1525,7 +1530,8 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 
 	fastDone := make(chan error, 1)
 	go func() {
-		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-fast"}}, localClient)
+		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-fast"}}
+		_, err := reconciler.Reconcile(ctx, req, localClient)
 		fastDone <- err
 	}()
 
