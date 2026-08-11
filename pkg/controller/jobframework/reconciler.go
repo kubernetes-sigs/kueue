@@ -453,7 +453,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	if jobOnHold, ok := job.(JobWithOnHold); ok && jobOnHold.IsOnHold() {
 		if wl != nil && workload.HasQuotaReservation(wl) {
 			log.V(2).Info("Job is on hold, releasing quota reservation")
-			err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			err := workload.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 				changed := workload.UnsetQuotaReservationWithCondition(
 					wl,
 					kueue.WorkloadOnHold,
