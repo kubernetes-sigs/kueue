@@ -148,6 +148,89 @@ func TestFreeCapacityPerDomain(t *testing.T) {
 	}
 }
 
+func TestIsTopologyAssignmentStale(t *testing.T) {
+	const blockLabel = "cloud.provider.com/topology-block"
+	const rackLabel = "cloud.provider.com/topology-rack"
+
+	hostnameLowest := newTopologyTree(
+		[]string{blockLabel, corev1.LabelHostname},
+		[]*corev1.Node{
+			node.MakeNode("n1").
+				Label(blockLabel, "b1").
+				Label(corev1.LabelHostname, "n1").
+				Obj(),
+		},
+		0,
+	)
+	rackLowest := newTopologyTree(
+		[]string{blockLabel, rackLabel},
+		[]*corev1.Node{
+			node.MakeNode("n1").
+				Label(blockLabel, "b1").
+				Label(rackLabel, "r1").
+				Obj(),
+		},
+		0,
+	)
+
+	cases := map[string]struct {
+		tree            *topologyTree
+		assignment      *tas.TopologyAssignment
+		wantStale       bool
+		wantStaleDomain string
+	}{
+		"existing hostname leaf is not stale": {
+			tree: hostnameLowest,
+			assignment: &tas.TopologyAssignment{
+				Domains: []tas.TopologyDomainAssignment{{Values: []string{"n1"}}},
+			},
+		},
+		"missing hostname leaf is stale": {
+			tree: hostnameLowest,
+			assignment: &tas.TopologyAssignment{
+				Domains: []tas.TopologyDomainAssignment{{Values: []string{"n2"}}},
+			},
+			wantStale:       true,
+			wantStaleDomain: "n2",
+		},
+		"deleted node is stale even when its hostname matches an existing root domain ID": {
+			tree: hostnameLowest,
+			assignment: &tas.TopologyAssignment{
+				Domains: []tas.TopologyDomainAssignment{{Values: []string{"b1"}}},
+			},
+			wantStale:       true,
+			wantStaleDomain: "b1",
+		},
+		"existing non-hostname leaf is not stale": {
+			tree: rackLowest,
+			assignment: &tas.TopologyAssignment{
+				Domains: []tas.TopologyDomainAssignment{{Values: []string{"b1", "r1"}}},
+			},
+		},
+		"missing non-hostname leaf is stale": {
+			tree: rackLowest,
+			assignment: &tas.TopologyAssignment{
+				Domains: []tas.TopologyDomainAssignment{{Values: []string{"b1", "r2"}}},
+			},
+			wantStale:       true,
+			wantStaleDomain: "b1",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			snapshot := &TASFlavorSnapshot{topologyTree: tc.tree}
+			gotStale, gotStaleDomain := snapshot.IsTopologyAssignmentStale(tc.assignment)
+			if gotStale != tc.wantStale {
+				t.Errorf("IsTopologyAssignmentStale() stale = %t, want %t", gotStale, tc.wantStale)
+			}
+			if gotStaleDomain != tc.wantStaleDomain {
+				t.Errorf("IsTopologyAssignmentStale() stale domain = %q, want %q", gotStaleDomain, tc.wantStaleDomain)
+			}
+		})
+	}
+}
+
 func TestMergeTopologyAssignments(t *testing.T) {
 	nodes := []*corev1.Node{
 		node.MakeNode("x").Label("level-1", "a").Label("level-2", "b").Obj(),

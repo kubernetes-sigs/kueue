@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -83,12 +84,30 @@ func TestNewTopologyTreeCopiesAndRightSizesNodeSlice(t *testing.T) {
 	}
 }
 
+// domainKey identifies a domain in the dumps below. A leaf and root can share
+// an ID, so the level is part of the key.
+type domainKey struct {
+	Level int
+	ID    utiltas.TopologyDomainID
+}
+
+func domainKeyOf(dom *domain) domainKey {
+	return domainKey{Level: len(dom.levelValues) - 1, ID: dom.id}
+}
+
+func (k domainKey) compare(other domainKey) int {
+	if k.Level != other.Level {
+		return k.Level - other.Level
+	}
+	return strings.Compare(string(k.ID), string(other.ID))
+}
+
 // snapshotDomainDump is a comparison representation of one domain of a
 // TASFlavorSnapshot, used to verify that snapshots sharing a cached topology
 // tree behave exactly like snapshots built from scratch.
 type snapshotDomainDump struct {
-	Parent       utiltas.TopologyDomainID
-	Children     []utiltas.TopologyDomainID
+	Parent       domainKey
+	Children     []domainKey
 	LevelValues  []string
 	Root         bool
 	Leaf         bool
@@ -97,42 +116,44 @@ type snapshotDomainDump struct {
 	TASUsage     resources.Requests
 }
 
-func dumpSnapshotTree(t *testing.T, s *TASFlavorSnapshot) map[utiltas.TopologyDomainID]snapshotDomainDump {
+func dumpSnapshotTree(t *testing.T, s *TASFlavorSnapshot) map[domainKey]snapshotDomainDump {
 	t.Helper()
 	perLevelCount := 0
 	for _, level := range s.domainsPerLevel {
 		perLevelCount += len(level)
 	}
-	if perLevelCount != len(s.domains) {
-		t.Errorf("domainsPerLevel holds %d domains, want %d", perLevelCount, len(s.domains))
+	if perLevelCount != s.domainCount {
+		t.Errorf("domainsPerLevel holds %d domains, want %d", perLevelCount, s.domainCount)
 	}
-	dump := make(map[utiltas.TopologyDomainID]snapshotDomainDump, len(s.domains))
-	for id, dom := range s.domains {
-		d := snapshotDomainDump{
-			LevelValues: dom.levelValues,
-			Root:        s.roots[id] == dom,
-		}
-		if dom.parent != nil {
-			d.Parent = dom.parent.id
-		}
-		for _, child := range dom.children {
-			d.Children = append(d.Children, child.id)
-		}
-		slices.Sort(d.Children)
-		if leaf, found := s.leaves[id]; found {
-			d.Leaf = true
-			leafState := s.leafStateOf(leaf)
-			if leafState.freeCapacity != nil {
-				d.FreeCapacity = leafState.freeCapacity.Clone()
+	dump := make(map[domainKey]snapshotDomainDump, perLevelCount)
+	for _, level := range s.domainsPerLevel {
+		for id, dom := range level {
+			d := snapshotDomainDump{
+				LevelValues: dom.levelValues,
+				Root:        s.roots[id] == dom,
 			}
-			if leafState.tasUsage != nil {
-				d.TASUsage = leafState.tasUsage.Clone()
+			if dom.parent != nil {
+				d.Parent = domainKeyOf(dom.parent)
 			}
-			if leaf.node != nil {
-				d.NodeName = leaf.node.Name
+			for _, child := range dom.children {
+				d.Children = append(d.Children, domainKeyOf(child))
 			}
+			slices.SortFunc(d.Children, domainKey.compare)
+			if leaf, found := s.leaves[id]; found && &leaf.domain == dom {
+				d.Leaf = true
+				leafState := s.leafStateOf(leaf)
+				if leafState.freeCapacity != nil {
+					d.FreeCapacity = leafState.freeCapacity.Clone()
+				}
+				if leafState.tasUsage != nil {
+					d.TASUsage = leafState.tasUsage.Clone()
+				}
+				if leaf.node != nil {
+					d.NodeName = leaf.node.Name
+				}
+			}
+			dump[domainKeyOf(dom)] = d
 		}
-		dump[id] = d
 	}
 	return dump
 }
@@ -260,8 +281,8 @@ func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 	if failure := first.Failure(); failure != nil {
 		t.Fatalf("first assignment failed: %s", failure.Reason)
 	}
-	if len(snapshot.state) <= len(snapshot.domains) {
-		t.Fatalf("balanced placement created %d state slots for %d base domains, want clone state", len(snapshot.state), len(snapshot.domains))
+	if len(snapshot.state) <= snapshot.domainCount {
+		t.Fatalf("balanced placement created %d state slots for %d base domains, want clone state", len(snapshot.state), snapshot.domainCount)
 	}
 
 	second := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests)
@@ -360,7 +381,7 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 				tasCache.SyncNode(makeTreeTestNode("n3", "b3", "r3"))
 			},
 			validate: func(t *testing.T, snapshot *TASFlavorSnapshot) {
-				if _, found := snapshot.domains[utiltas.DomainID([]string{"b3"})]; !found {
+				if _, found := snapshot.domainsPerLevel[0][utiltas.DomainID([]string{"b3"})]; !found {
 					t.Error("snapshot does not contain the added node's block domain")
 				}
 			},
@@ -370,7 +391,7 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 				tasCache.DeleteNodeByName("n2")
 			},
 			validate: func(t *testing.T, snapshot *TASFlavorSnapshot) {
-				if _, found := snapshot.domains[utiltas.DomainID([]string{"b2"})]; found {
+				if _, found := snapshot.domainsPerLevel[0][utiltas.DomainID([]string{"b2"})]; found {
 					t.Error("snapshot still contains the deleted node's block domain")
 				}
 			},
@@ -425,20 +446,49 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 	}
 }
 
-func makeTopologyTreeWithCollidingLeafAndRootIDs() *topologyTree {
-	return newTopologyTree(
-		[]string{treeTestBlockLabel, corev1.LabelHostname},
-		[]*corev1.Node{
-			makeTreeTestNode("block-a", "block-b", "r1"),
-			makeTreeTestNode("block-b", "block-a", "r1"),
-		},
-		0,
-	)
+type topologyTreeDomainDump struct {
+	LevelValues []string
+	Parent      domainKey
+	Children    []domainKey
+	Root        bool
+	Leaf        bool
+	NodeName    string
+	CPUCapacity int64
 }
 
-func TestTopologyTreeStateIndexesWhenDomainIDsCollide(t *testing.T) {
+func dumpTopologyTree(tree *topologyTree) map[domainKey]topologyTreeDomainDump {
+	dump := make(map[domainKey]topologyTreeDomainDump, tree.domainCount)
+	for _, levelDomains := range tree.domainsPerLevel {
+		for id, dom := range levelDomains {
+			d := topologyTreeDomainDump{
+				LevelValues: dom.levelValues,
+				Root:        tree.roots[id] == dom,
+			}
+			if dom.parent != nil {
+				d.Parent = domainKeyOf(dom.parent)
+			}
+			for _, child := range dom.children {
+				d.Children = append(d.Children, domainKeyOf(child))
+			}
+			slices.SortFunc(d.Children, domainKey.compare)
+			if leaf, found := tree.leaves[id]; found && &leaf.domain == dom {
+				d.Leaf = true
+				d.CPUCapacity = leaf.capacity.GetValue(corev1.ResourceCPU)
+				if leaf.node != nil {
+					d.NodeName = leaf.node.Name
+				}
+			}
+			dump[domainKeyOf(dom)] = d
+		}
+	}
+	return dump
+}
+
+func validateTopologyTreeStateIndexes(t *testing.T, tree *topologyTree) {
+	t.Helper()
 	_, log := utiltesting.ContextWithLog(t)
-	tree := makeTopologyTreeWithCollidingLeafAndRootIDs()
+	// Validate each domain's index against the per-snapshot domain state addressed
+	// by domain.idx.
 	snapshot := newTASFlavorSnapshot(log, "default", tree, nil, &defaultChecker{})
 	seen := make(map[int]*domain, tree.domainCount)
 	for _, levelDomains := range tree.domainsPerLevel {
@@ -455,5 +505,117 @@ func TestTopologyTreeStateIndexesWhenDomainIDsCollide(t *testing.T) {
 	}
 	if got := len(seen); got != tree.domainCount {
 		t.Errorf("domains with state indexes = %d, want %d", got, tree.domainCount)
+	}
+}
+
+func TestNewTopologyTree(t *testing.T) {
+	tests := map[string]struct {
+		levels []string
+		nodes  []*corev1.Node
+		want   map[domainKey]topologyTreeDomainDump
+	}{
+		"lowest level is hostname": {
+			levels: []string{treeTestBlockLabel, treeTestRackLabel, corev1.LabelHostname},
+			nodes: []*corev1.Node{
+				makeTreeTestNode("n1", "b1", "r1"),
+				makeTreeTestNode("n2", "b1", "r1"),
+				makeTreeTestNode("n3", "b1", "r2"),
+			},
+			want: map[domainKey]topologyTreeDomainDump{
+				{Level: 0, ID: "b1"}: {
+					LevelValues: []string{"b1"},
+					Children:    []domainKey{{Level: 1, ID: "b1,r1"}, {Level: 1, ID: "b1,r2"}},
+					Root:        true,
+				},
+				{Level: 1, ID: "b1,r1"}: {
+					LevelValues: []string{"b1", "r1"},
+					Parent:      domainKey{Level: 0, ID: "b1"},
+					Children:    []domainKey{{Level: 2, ID: "n1"}, {Level: 2, ID: "n2"}},
+				},
+				{Level: 1, ID: "b1,r2"}: {
+					LevelValues: []string{"b1", "r2"},
+					Parent:      domainKey{Level: 0, ID: "b1"},
+					Children:    []domainKey{{Level: 2, ID: "n3"}},
+				},
+				{Level: 2, ID: "n1"}: {
+					LevelValues: []string{"b1", "r1", "n1"},
+					Parent:      domainKey{Level: 1, ID: "b1,r1"},
+					Leaf:        true,
+					NodeName:    "n1",
+					CPUCapacity: 4000,
+				},
+				{Level: 2, ID: "n2"}: {
+					LevelValues: []string{"b1", "r1", "n2"},
+					Parent:      domainKey{Level: 1, ID: "b1,r1"},
+					Leaf:        true,
+					NodeName:    "n2",
+					CPUCapacity: 4000,
+				},
+				{Level: 2, ID: "n3"}: {
+					LevelValues: []string{"b1", "r2", "n3"},
+					Parent:      domainKey{Level: 1, ID: "b1,r2"},
+					Leaf:        true,
+					NodeName:    "n3",
+					CPUCapacity: 4000,
+				},
+			},
+		},
+		"lowest level is not hostname": {
+			levels: []string{treeTestBlockLabel, treeTestRackLabel},
+			nodes: []*corev1.Node{
+				makeTreeTestNode("n1", "b1", "r1"),
+				makeTreeTestNode("n2", "b1", "r1"),
+				makeTreeTestNode("n3", "b1", "r2"),
+			},
+			want: map[domainKey]topologyTreeDomainDump{
+				{Level: 0, ID: "b1"}: {
+					LevelValues: []string{"b1"},
+					Children:    []domainKey{{Level: 1, ID: "b1,r1"}, {Level: 1, ID: "b1,r2"}},
+					Root:        true,
+				},
+				{Level: 1, ID: "b1,r1"}: {
+					LevelValues: []string{"b1", "r1"},
+					Parent:      domainKey{Level: 0, ID: "b1"},
+					Leaf:        true,
+					CPUCapacity: 8000,
+				},
+				{Level: 1, ID: "b1,r2"}: {
+					LevelValues: []string{"b1", "r2"},
+					Parent:      domainKey{Level: 0, ID: "b1"},
+					Leaf:        true,
+					CPUCapacity: 4000,
+				},
+			},
+		},
+		"leaf and root IDs collide": {
+			levels: []string{treeTestBlockLabel, corev1.LabelHostname},
+			nodes: []*corev1.Node{
+				makeTreeTestNode("b1", "b1", "r1"),
+			},
+			want: map[domainKey]topologyTreeDomainDump{
+				{Level: 0, ID: "b1"}: {
+					LevelValues: []string{"b1"},
+					Children:    []domainKey{{Level: 1, ID: "b1"}},
+					Root:        true,
+				},
+				{Level: 1, ID: "b1"}: {
+					LevelValues: []string{"b1", "b1"},
+					Parent:      domainKey{Level: 0, ID: "b1"},
+					Leaf:        true,
+					NodeName:    "b1",
+					CPUCapacity: 4000,
+				},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			tree := newTopologyTree(tc.levels, tc.nodes, 0)
+			validateTopologyTreeStateIndexes(t, tree)
+			if diff := cmp.Diff(tc.want, dumpTopologyTree(tree)); diff != "" {
+				t.Errorf("unexpected topology tree (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }

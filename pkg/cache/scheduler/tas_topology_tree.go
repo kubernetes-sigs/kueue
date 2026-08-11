@@ -30,7 +30,7 @@ import (
 // Its per-snapshot mutable state lives in TASFlavorSnapshot.state,
 // addressed by idx.
 type domain struct {
-	// id is the globally unique id of the domain
+	// id identifies the domain within its topology level
 	id utiltas.TopologyDomainID
 
 	// idx is the dense index of the domain within its topologyTree, used to
@@ -89,11 +89,8 @@ type topologyTree struct {
 	// roots maps domainID to domains that are at the highest level of topology structure
 	roots domainByID
 
-	// domains maps domainID to every domain available in the topology structure
-	domains domainByID
-
-	// domainCount is the number of allocated domains. It can exceed len(domains)
-	// when domains at different topology levels have colliding IDs.
+	// domainCount is the number of allocated domains. Domain IDs are not unique
+	// across levels, so it counts domains rather than distinct IDs.
 	domainCount int
 
 	// domainsPerLevel stores the static tree information
@@ -123,7 +120,6 @@ func newTopologyTree(levels []string, nodes []*corev1.Node, generation int64) *t
 		generation:        generation,
 		levelKeys:         slices.Clone(levels),
 		leaves:            make(leafDomainByID),
-		domains:           make(domainByID),
 		roots:             make(domainByID),
 		domainsPerLevel:   domainsPerLevel,
 		isLowestLevelNode: len(levels) > 0 && levels[len(levels)-1] == corev1.LabelHostname,
@@ -196,7 +192,6 @@ func (t *topologyTree) initialize() {
 	for _, leafDomain := range t.leaves {
 		domain := &leafDomain.domain
 		t.indexDomain(domain)
-		t.domains[domain.id] = domain
 		t.domainsPerLevel[len(domain.levelValues)-1][domain.id] = domain
 		t.initializeHelper(domain)
 	}
@@ -210,14 +205,13 @@ func (t *topologyTree) initializeHelper(dom *domain) {
 	}
 	parentValues := dom.levelValues[:len(dom.levelValues)-1]
 	parentID := utiltas.DomainID(parentValues)
-	parent, parentFound := t.domains[parentID]
+	parent, parentFound := t.domainsPerLevel[len(parentValues)-1][parentID]
 	if !parentFound {
 		// create parent
 		parent = &domain{id: parentID, levelValues: parentValues}
 		t.indexDomain(parent)
 
 		t.domainsPerLevel[len(parentValues)-1][parentID] = parent
-		t.domains[parentID] = parent
 		t.initializeHelper(parent)
 	}
 	// connect parent and child
