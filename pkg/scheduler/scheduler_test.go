@@ -9167,10 +9167,8 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 	// Freeing victim once leaves usage 2 → 8 free → 9 does not fit.
 	// Double-subtracting victim would leave usage -4 and wrongly report Ok.
 	incomingUsage := workload.Usage{
-		Quota: workload.ResourceUsage{
-			Assigned: resources.FlavorResourceQuantities{
-				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(9000),
-			},
+		Quota: resources.FlavorResourceQuantities{
+			{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(9000),
 		},
 	}
 	preempted := preemption.PreemptedWorkloads{
