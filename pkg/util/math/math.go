@@ -105,3 +105,28 @@ func SaturatingMul(a, b int64) int64 {
 	}
 	return res
 }
+
+// ExactAdd is SaturatingAdd for a quota amount, which cannot saturate: the
+// quota code reads math.MaxInt64 as unlimited, so a sum that reaches it would
+// report no limit at all rather than a conservative one. Negative operands are
+// refused for the same reason, since a count is never one.
+func ExactAdd(a, b int64) (int64, bool) {
+	if a < 0 || b < 0 {
+		return 0, false
+	}
+	if a > stdmath.MaxInt64-1-b {
+		return 0, false
+	}
+	return a + b, true
+}
+
+// ExactMul is ExactAdd's counterpart, under the same bound.
+func ExactMul(a, b int64) (int64, bool) {
+	if a < 0 || b < 0 {
+		return 0, false
+	}
+	if a != 0 && b > (stdmath.MaxInt64-1)/a {
+		return 0, false
+	}
+	return a * b, true
+}
