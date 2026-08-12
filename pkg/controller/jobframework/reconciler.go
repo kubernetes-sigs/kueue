@@ -1002,7 +1002,7 @@ func updateWorkloadSliceMaximumExecutionTime(ctx context.Context, c client.Clien
 			if workload.IsAdmitted(wl) || ptr.Equal(wl.Spec.MaximumExecutionTimeSeconds, desired) {
 				return false, nil
 			}
-			wl.Spec.MaximumExecutionTimeSeconds = ptr.To(*desired)
+			wl.Spec.MaximumExecutionTimeSeconds = new(*desired)
 			return true, nil
 		}, clientutil.WithRetryOnConflict()); err != nil {
 			return fmt.Errorf("updating maximum execution time of workload slice %s: %w", workload.Key(wl), err)
