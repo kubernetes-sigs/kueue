@@ -639,8 +639,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaWl, gammaWl)
 			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, betaWls...)
-		},
-		)
+		})
 
 		ginkgo.It("Should preempt all necessary workloads in concurrent scheduling with the same priority (RecomputeAssignmentUponPreemptionTargetsOverlap=false)", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RecomputeAssignmentUponPreemptionTargetsOverlap, false)
@@ -689,8 +688,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaWl, gammaWl)
 			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, betaWls...)
-		},
-		)
+		})
 	})
 
 	ginkgo.Context("In a cohort with StrictFIFO", func() {
