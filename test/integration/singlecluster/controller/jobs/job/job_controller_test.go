@@ -4410,7 +4410,10 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 	cpuNominalQuota := 5
 
 	ginkgo.BeforeAll(func() {
-		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.ElasticJobsViaWorkloadSlices): true})).Should(gomega.Succeed())
+		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
+			string(features.AdmissionGatedBy):             true,
+			string(features.ElasticJobsViaWorkloadSlices): true,
+		})).Should(gomega.Succeed())
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
 	})
 	ginkgo.AfterAll(func() {
@@ -5423,6 +5426,291 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 
 		ginkgo.By("checking the admitted slice follows the label", func() {
 			util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, highPriorityClass.Name, highPriorityClass.Value, sliceKey)
+		})
+	})
+
+	ginkgo.It("Should synchronize priority before atomically updating the admission gate and timeout", func() {
+		const initialAdmissionGate = "example.com/gate"
+		workloadPriorityClass := utiltestingapi.MakeWorkloadPriorityClass("slice-field-sync-high").
+			PriorityValue(highPriorityValue).
+			Obj()
+		util.MustCreate(ctx, k8sClient, workloadPriorityClass)
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, workloadPriorityClass)).To(gomega.Succeed())
+		})
+
+		job := testingjob.MakeJob("job-slice-field-sync", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(pkgconstants.AdmissionGatedByAnnotation, initialAdmissionGate).
+			Label(constants.MaxExecTimeSecondsLabel, "5").
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1000m").
+			Parallelism(1).
+			Suspend(true).
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		var originalSlice *kueue.Workload
+		ginkgo.By("waiting for the admission gate to keep the slice pending", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloads.Items).To(gomega.HaveLen(1))
+				wl := &workloads.Items[0]
+				g.Expect(wl.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(new(int32(5))))
+				g.Expect(wl.Annotations).To(gomega.HaveKeyWithValue(pkgconstants.AdmissionGatedByAnnotation, initialAdmissionGate))
+				g.Expect(wl.Spec.PriorityClassRef).To(gomega.BeNil())
+				g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(0))))
+				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeFalse())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+				originalSlice = wl.DeepCopy()
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("watching the slice before changing priority, the admission gate, and the timeout", func() {
+			watchClient, ok := k8sClient.(client.WithWatch)
+			gomega.Expect(ok).Should(gomega.BeTrue(), "k8sClient must implement client.WithWatch")
+			watcher, err := watchClient.Watch(ctx, &kueue.WorkloadList{}, &client.ListOptions{
+				Namespace: ns.Name,
+				Raw: &metav1.ListOptions{
+					ResourceVersion: originalSlice.ResourceVersion,
+				},
+			})
+			gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+			defer watcher.Stop()
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Labels[constants.MaxExecTimeSecondsLabel] = "10"
+				job.Labels[constants.WorkloadPriorityClassLabel] = workloadPriorityClass.Name
+				delete(job.Annotations, pkgconstants.AdmissionGatedByAnnotation)
+				g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			var updatedSlice *kueue.Workload
+			timeout := time.After(util.Timeout)
+			for updatedSlice == nil {
+				select {
+				case event, ok := <-watcher.ResultChan():
+					gomega.Expect(ok).Should(gomega.BeTrue(), "workload watch closed before observing the update")
+					wl, ok := event.Object.(*kueue.Workload)
+					gomega.Expect(ok).Should(gomega.BeTrue(), "unexpected workload watch object: %T", event.Object)
+					if wl.Name != originalSlice.Name {
+						continue
+					}
+
+					maximumExecutionTime := ptr.Deref(wl.Spec.MaximumExecutionTimeSeconds, int32(-1))
+					admissionGatedBy, hasAdmissionGate := wl.Annotations[pkgconstants.AdmissionGatedByAnnotation]
+					expectedPriorityClassRef := kueue.NewWorkloadPriorityClassRef(workloadPriorityClass.Name)
+					prioritySynchronized := wl.Spec.PriorityClassRef != nil && *wl.Spec.PriorityClassRef == *expectedPriorityClassRef &&
+						ptr.Deref(wl.Spec.Priority, int32(0)) == highPriorityValue
+					switch {
+					case maximumExecutionTime == 5 && hasAdmissionGate && admissionGatedBy == initialAdmissionGate:
+						// Ignore events before the atomic gate-and-timeout patch; priority
+						// is deliberately allowed to arrive first.
+					case maximumExecutionTime == 10 && !hasAdmissionGate && prioritySynchronized:
+						updatedSlice = wl.DeepCopy()
+					default:
+						ginkgo.Fail(fmt.Sprintf("observed an out-of-order workload-slice update: maximumExecutionTimeSeconds=%d, AdmissionGatedBy=%q, priorityClassRef=%v, priority=%v", maximumExecutionTime, admissionGatedBy, wl.Spec.PriorityClassRef, wl.Spec.Priority))
+					}
+				case <-timeout:
+					ginkgo.Fail("timed out waiting for the workload slice to synchronize its mutable fields")
+				}
+			}
+
+			gomega.Expect(updatedSlice.UID).To(gomega.Equal(originalSlice.UID))
+			gomega.Expect(updatedSlice.Spec.PodSets[0].Count).To(gomega.Equal(originalSlice.Spec.PodSets[0].Count))
+		})
+
+		ginkgo.By("checking the same slice remains the only live slice", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloads.Items).To(gomega.HaveLen(1))
+				wl := &workloads.Items[0]
+				g.Expect(wl.UID).To(gomega.Equal(originalSlice.UID))
+				g.Expect(wl.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(new(int32(10))))
+				g.Expect(wl.Annotations).NotTo(gomega.HaveKey(pkgconstants.AdmissionGatedByAnnotation))
+				g.Expect(wl.Spec.PriorityClassRef).To(gomega.Equal(kueue.NewWorkloadPriorityClassRef(workloadPriorityClass.Name)))
+				g.Expect(wl.Spec.Priority).To(gomega.Equal(new(int32(highPriorityValue))))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should update the timeout on a quota-reserved workload slice before admission", func() {
+		admissionCheck := utiltestingapi.MakeAdmissionCheck("slice-timeout-check").
+			ControllerName("example.com/slice-timeout-check").
+			Obj()
+		util.MustCreate(ctx, k8sClient, admissionCheck)
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
+		})
+		util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
+
+		ginkgo.By("configuring an admission check that keeps the reserved slice from admission", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
+				clusterQueue.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{{
+						Name: kueue.AdmissionCheckReference(admissionCheck.Name),
+					}},
+				}
+				g.Expect(k8sClient.Update(ctx, clusterQueue)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
+				active := apimeta.FindStatusCondition(clusterQueue.Status.Conditions, kueue.ClusterQueueActive)
+				g.Expect(active).NotTo(gomega.BeNil())
+				g.Expect(active.Status).To(gomega.Equal(metav1.ConditionTrue))
+				g.Expect(active.ObservedGeneration).To(gomega.Equal(clusterQueue.Generation))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		job := testingjob.MakeJob("job-reserved-slice-timeout", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Label(constants.MaxExecTimeSecondsLabel, "5").
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1000m").
+			Parallelism(1).
+			Suspend(true).
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		var originalSlice *kueue.Workload
+		ginkgo.By("waiting for the admission check to hold the quota-reserved slice", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloads.Items).To(gomega.HaveLen(1))
+				wl := &workloads.Items[0]
+				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+				g.Expect(wl.Status.AdmissionChecks).To(gomega.HaveLen(1))
+				g.Expect(wl.Status.AdmissionChecks[0].Name).To(gomega.Equal(kueue.AdmissionCheckReference(admissionCheck.Name)))
+				g.Expect(wl.Status.AdmissionChecks[0].State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(wl.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(new(int32(5))))
+				originalSlice = wl.DeepCopy()
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("changing the explicit timeout while the slice remains unadmitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Labels[constants.MaxExecTimeSecondsLabel] = "10"
+				g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("keeping the same reservation while updating the timeout through the API server", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(originalSlice), wl)).To(gomega.Succeed())
+				g.Expect(wl.UID).To(gomega.Equal(originalSlice.UID))
+				g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(originalSlice.Spec.PodSets[0].Count))
+				g.Expect(wl.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(new(int32(10))))
+				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should keep an admitted slice timeout and apply the new timeout on a pending replacement", func() {
+		const (
+			oldAdmissionGate = "example.com/old-gate"
+			newAdmissionGate = "example.com/new-gate"
+		)
+
+		job := testingjob.MakeJob("job-admitted-slice-timeout", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(pkgconstants.AdmissionGatedByAnnotation, oldAdmissionGate).
+			Label(constants.MaxExecTimeSecondsLabel, "5").
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1000m").
+			Parallelism(int32(cpuNominalQuota)).
+			Completions(int32(cpuNominalQuota)).
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		var admittedSlice *kueue.Workload
+		ginkgo.By("waiting for the elastic job's slice to be admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloads.Items).To(gomega.HaveLen(1))
+				wl := &workloads.Items[0]
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+				g.Expect(wl.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(new(int32(5))))
+				g.Expect(wl.Annotations).To(gomega.HaveKeyWithValue(pkgconstants.AdmissionGatedByAnnotation, oldAdmissionGate))
+				admittedSlice = wl.DeepCopy()
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("scaling up so a pending replacement waits behind the admitted slice", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Spec.Parallelism = ptr.To(int32(cpuNominalQuota + 1))
+				job.Spec.Completions = ptr.To(int32(cpuNominalQuota + 1))
+				g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloads.Items).To(gomega.HaveLen(2))
+
+				var retained, replacement *kueue.Workload
+				for i := range workloads.Items {
+					wl := &workloads.Items[i]
+					switch {
+					case wl.UID == admittedSlice.UID:
+						retained = wl
+					default:
+						replacement = wl
+					}
+				}
+				g.Expect(retained).NotTo(gomega.BeNil())
+				g.Expect(replacement).NotTo(gomega.BeNil())
+				g.Expect(workload.IsAdmitted(retained)).To(gomega.BeTrue())
+				g.Expect(workload.IsAdmitted(replacement)).To(gomega.BeFalse())
+				g.Expect(retained.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(new(int32(5))))
+				g.Expect(replacement.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(new(int32(5))))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("changing the timeout and admission gate without changing the pod-set shape further", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Labels[constants.MaxExecTimeSecondsLabel] = "10"
+				job.Annotations[pkgconstants.AdmissionGatedByAnnotation] = newAdmissionGate
+				g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("keeping the admitted timeout while updating both live annotations and the pending replacement timeout", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloads.Items).To(gomega.HaveLen(2))
+
+				var retained, replacement *kueue.Workload
+				for i := range workloads.Items {
+					wl := &workloads.Items[i]
+					switch {
+					case wl.UID == admittedSlice.UID:
+						retained = wl
+					default:
+						replacement = wl
+					}
+				}
+				g.Expect(retained).NotTo(gomega.BeNil())
+				g.Expect(replacement).NotTo(gomega.BeNil())
+				g.Expect(workload.IsAdmitted(retained)).To(gomega.BeTrue())
+				g.Expect(workload.IsAdmitted(replacement)).To(gomega.BeFalse())
+				g.Expect(retained.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(new(int32(5))))
+				g.Expect(replacement.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(new(int32(10))))
+				g.Expect(retained.Annotations).To(gomega.HaveKeyWithValue(pkgconstants.AdmissionGatedByAnnotation, newAdmissionGate))
+				g.Expect(replacement.Annotations).To(gomega.HaveKeyWithValue(pkgconstants.AdmissionGatedByAnnotation, newAdmissionGate))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

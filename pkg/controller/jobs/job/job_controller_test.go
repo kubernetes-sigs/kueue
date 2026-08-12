@@ -3288,9 +3288,11 @@ func TestReconciler(t *testing.T) {
 		},
 		// A scale-up waiting for quota keeps the admitted slice alongside its
 		// pending replacement, and normalizeActiveSlices returns only the
-		// replacement. Both are live, so both have to follow the label.
-		"the workload slice and its retained admitted slice both follow the label": {
+		// replacement. Both are live, so mutable owner fields must be synchronized
+		// across the pair where the API allows.
+		"the workload slice and its retained admitted slice synchronize fields where allowed": {
 			featureGates: map[featuregate.Feature]bool{
+				features.AdmissionGatedBy:             true,
 				features.TopologyAwareScheduling:      false,
 				features.AssignQueueLabelsForPods:     true,
 				features.ElasticJobsViaWorkloadSlices: true,
@@ -3299,6 +3301,8 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				Suspend(true).
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.AdmissionGatedByAnnotation, "example.com/new-gate").
+				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 				WorkloadPriorityClass(highWPCWrapper.Name).
 				UID("test-uid").
 				Obj(),
@@ -3306,6 +3310,8 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				Suspend(true).
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.AdmissionGatedByAnnotation, "example.com/new-gate").
+				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 				WorkloadPriorityClass(highWPCWrapper.Name).
 				UID("test-uid").
 				Obj(),
@@ -3315,17 +3321,22 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("admitted", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(constants.AdmissionGatedByAnnotation, "example.com/new-gate,example.com/old-gate").
+					MaximumExecutionTimeSeconds(5).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localQueueName).
 					Priority(baseWPCWrapper.Value).
 					WorkloadPriorityClassRef(baseWPCWrapper.Name).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					AdmittedAt(true, now).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("replacement", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(constants.AdmissionGatedByAnnotation, "example.com/new-gate,example.com/old-gate").
+					MaximumExecutionTimeSeconds(5).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localQueueName).
 					Priority(baseWPCWrapper.Value).
@@ -3339,17 +3350,22 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("admitted", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(constants.AdmissionGatedByAnnotation, "example.com/new-gate").
+					MaximumExecutionTimeSeconds(5).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localQueueName).
 					Priority(highWPCWrapper.Value).
 					WorkloadPriorityClassRef(highWPCWrapper.Name).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					AdmittedAt(true, now).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("replacement", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(constants.AdmissionGatedByAnnotation, "example.com/new-gate").
+					MaximumExecutionTimeSeconds(10).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localQueueName).
 					Priority(highWPCWrapper.Value).
@@ -3375,12 +3391,18 @@ func TestReconciler(t *testing.T) {
 					Reason:    "UpdatedWorkload",
 					Message:   "Updated workload priority class: ns/admitted",
 				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   `Updated workload AdmissionGatedBy to "example.com/new-gate"`,
+				},
 			},
 		},
-		// Scaling up an admitted slice returns no slice at all, because a new one
-		// is about to be created. The admitted slice is still live and still has to
-		// follow the label.
-		"the admitted slice follows the label when a scale-up replaces it": {
+		// Scaling up a quota-reserved slice returns no slice at all, because a new
+		// one is about to be created. The retained slice is still live and must
+		// synchronize mutable owner fields that remain updatable.
+		"the quota-reserved slice synchronizes mutable owner fields when a scale-up replaces it": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:      false,
 				features.AssignQueueLabelsForPods:     true,
@@ -3390,6 +3412,7 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				Suspend(true).
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 				WorkloadPriorityClass(highWPCWrapper.Name).
 				UID("test-uid").
 				Obj(),
@@ -3397,6 +3420,7 @@ func TestReconciler(t *testing.T) {
 				Clone().
 				Suspend(true).
 				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				Label(controllerconsts.MaxExecTimeSecondsLabel, "10").
 				WorkloadPriorityClass(highWPCWrapper.Name).
 				UID("test-uid").
 				Obj(),
@@ -3406,6 +3430,7 @@ func TestReconciler(t *testing.T) {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("admitted", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
+					MaximumExecutionTimeSeconds(5).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localQueueName).
 					Priority(baseWPCWrapper.Value).
@@ -3419,6 +3444,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("admitted", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
+					MaximumExecutionTimeSeconds(10).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localQueueName).
 					Priority(highWPCWrapper.Value).
@@ -3430,6 +3456,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakeWorkload("job-job-2e122", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
+					MaximumExecutionTimeSeconds(10).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localQueueName).
 					Priority(highWPCWrapper.Value).

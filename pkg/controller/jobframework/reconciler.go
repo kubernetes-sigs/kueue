@@ -946,16 +946,16 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 	}
 }
 
-// syncWorkloadSlicePriority applies a priority-class label change to the slices
-// a compatible scale decision leaves live. Slice compatibility only considers
-// the pod set shape, so the label change arrives here with the old priority
-// still on the slice.
+// syncWorkloadSliceFields applies mutable owner fields to the slices a
+// compatible scale decision leaves live. Slice compatibility only considers
+// the pod set shape, so changes to these fields arrive here with the old values
+// still on the slices.
 //
-// While a scale-up waits for quota the admitted slice is kept alongside its
-// pending replacement and only the replacement is returned, but both are
-// ordered against other Workloads during preemption, so updating one alone
-// would split the Job's priority. wl is nil when a new slice is to be created.
-func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
+// While a scale-up waits for quota the quota-reserved slice is kept alongside
+// its pending replacement and only the replacement is returned, but both are
+// live and must follow mutable owner fields where the Workload API allows it.
+// wl is nil when a new slice is to be created.
+func (r *JobReconciler) syncWorkloadSliceFields(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	// Quota-reserved rather than admitted: FindLatestActiveWorkload selects on
@@ -966,14 +966,61 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 	}
 	live := []*kueue.Workload{wl}
 	if retained != nil && (wl == nil || retained.Name != wl.Name) {
-		log.V(4).Info("Workload slice priority applies to the replacement and to the quota-reserved slice it is waiting behind",
+		log.V(4).Info("Workload slice mutable fields apply to the replacement and to the quota-reserved slice it is waiting behind",
 			"replacement", klog.KObj(wl), "retained", klog.KObj(retained))
 		live = append(live, retained)
 	}
 	// The quota-reserved/no-priorityClassRef legality check lives in
 	// UpdateWorkloadPriority so the ordinary Job and LeaderWorkerSet paths, which
 	// reach the shared helper without this caller's filtering, get the same guard.
-	return UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), live...)
+	// Apply priority before removing an admission gate, so the Workload cannot
+	// reserve quota between those updates.
+	if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), live...); err != nil {
+		return err
+	}
+	return updateWorkloadSliceMutableFields(ctx, r.client, r.record, object, live...)
+}
+
+// updateWorkloadSliceMutableFields synchronizes fields that do not affect slice
+// compatibility. AdmissionGatedBy and maximumExecutionTimeSeconds are patched
+// together so removing an admission gate cannot admit a Workload between two
+// writes and make the timeout update fail validation.
+func updateWorkloadSliceMutableFields(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wls ...*kueue.Workload) error {
+	// A missing label is not an instruction to clear a value that may have come
+	// from another source, such as a Workload default.
+	maximumExecutionTimeToSync := MaximumExecutionTimeSecondsForObject(obj)
+	admissionGatedByUpdated := false
+	for _, wl := range wls {
+		if wl == nil {
+			continue
+		}
+
+		// WithRetryOnConflict only re-Gets after a 409; refresh first so IsAdmitted
+		// reflects current status before we decide whether the timeout is mutable.
+		if err := c.Get(ctx, client.ObjectKeyFromObject(wl), wl); err != nil {
+			return fmt.Errorf("getting workload slice %s before mutable field sync: %w", workload.Key(wl), err)
+		}
+
+		var wlAdmissionGatedByUpdated bool
+		if err := clientutil.Patch(ctx, c, wl, func() (bool, error) {
+			wlAdmissionGatedByUpdated = PropagateAdmissionGatedByAnnotation(obj, wl)
+			maximumExecutionTimeUpdated := false
+			if maximumExecutionTimeToSync != nil && !workload.IsAdmitted(wl) &&
+				(wl.Spec.MaximumExecutionTimeSeconds == nil || *wl.Spec.MaximumExecutionTimeSeconds != *maximumExecutionTimeToSync) {
+				wl.Spec.MaximumExecutionTimeSeconds = ptr.To(*maximumExecutionTimeToSync)
+				maximumExecutionTimeUpdated = true
+			}
+			return wlAdmissionGatedByUpdated || maximumExecutionTimeUpdated, nil
+		}, clientutil.WithRetryOnConflict()); err != nil {
+			return fmt.Errorf("updating mutable fields of workload slice %s: %w", workload.Key(wl), err)
+		}
+		admissionGatedByUpdated = admissionGatedByUpdated || wlAdmissionGatedByUpdated
+	}
+
+	if admissionGatedByUpdated {
+		RecordAdmissionGatedByUpdateEvent(r, obj)
+	}
+	return nil
 }
 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
@@ -1043,15 +1090,13 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			}
 		}
 
-		// Workload slices allow modifications only to PodSet.Count.
-		// Any other changes will result in the slice being marked as incompatible,
-		// and the workload will fall back to being processed by the original ensureOneWorkload function.
+		// Workload slice compatibility is limited to the PodSet shape and counts.
 		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.clock, podSets, object, job.GVK())
 		if err != nil {
 			return nil, err
 		}
 		if compatible {
-			if err := r.syncWorkloadSlicePriority(ctx, job, object, wl); err != nil {
+			if err := r.syncWorkloadSliceFields(ctx, job, object, wl); err != nil {
 				return nil, err
 			}
 			return wl, nil
