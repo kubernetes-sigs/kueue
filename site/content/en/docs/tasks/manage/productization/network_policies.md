@@ -26,9 +26,14 @@ Make sure the following conditions are met:
 
 ## What the policies allow
 
-Selecting a pod with a NetworkPolicy denies all ingress to it except what the policy
-allows. The rules below therefore make every port not listed unreachable, while each
+Selecting a pod with a NetworkPolicy isolates it, so ingress is denied unless a rule
+allows it. The rules below therefore leave every port not listed unreachable, while each
 listed port stays reachable from any source.
+
+Two limits are worth knowing. Enforcement is entirely up to your CNI plugin, and
+Kubernetes allows traffic whose source is the pod's own node regardless of any policy, so
+these rules cannot isolate a port from something running on the same node. Use node-level
+controls if you need that.
 
 | Component | Port | Purpose | Peer |
 | --------- | ---- | ------- | ---- |
@@ -156,7 +161,16 @@ built-in rule continues to allow it from every source.
 ## Restricting a port to specific peers
 
 The chart does not expose the built-in rules for editing, so narrowing one means
-replacing it. With Kustomize, patch the generated policy:
+replacing it. With Kustomize, write a patch and apply it over the overlay from your own
+kustomization:
+
+```yaml
+# kustomization.yaml
+resources:
+  - <your Kueue checkout>/config/networkpolicy
+patches:
+  - path: metrics-peers-patch.yaml
+```
 
 ```yaml
 # metrics-peers-patch.yaml
