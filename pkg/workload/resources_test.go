@@ -96,12 +96,13 @@ func TestAdjustResources(t *testing.T) {
 						Obj(),
 					*utiltestingapi.MakePodSet("b", 1).
 						Obj(),
+					// Larger than the class defines, so it is what the Pods carry.
 					*utiltestingapi.MakePodSet("c", 1).
 						RuntimeClass("runtime-a").
 						PodOverHead(
 							corev1.ResourceList{
-								corev1.ResourceCPU:    defaultResourceQuantity(corev1.ResourceCPU, 1),
-								corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 1024),
+								corev1.ResourceCPU:    defaultResourceQuantity(corev1.ResourceCPU, 2),
+								corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 2048),
 							}).
 						Obj(),
 					*utiltestingapi.MakePodSet("d", 1).
@@ -158,8 +159,14 @@ func TestAdjustResources(t *testing.T) {
 						Obj(),
 					*utiltestingapi.MakePodSet("b", 1).
 						Obj(),
+					// The class defines none, so there is nothing to raise this to.
 					*utiltestingapi.MakePodSet("c", 1).
 						RuntimeClass("runtime-a").
+						PodOverHead(
+							corev1.ResourceList{
+								corev1.ResourceCPU:    defaultResourceQuantity(corev1.ResourceCPU, 1),
+								corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 1024),
+							}).
 						Obj(),
 					*utiltestingapi.MakePodSet("d", 1).
 						RuntimeClass("runtime-d").
@@ -748,70 +755,70 @@ func TestValidateLimitRange(t *testing.T) {
 	}
 }
 
-// owners describes what built the Workload: the controller Pod a single Pod
-// sets, the plain references a group's members each add, or a Job.
-type owners int
+// podOwners is what the pod controller adds to a group's Workload: a plain
+// reference per member, none of them the controller.
+var podOwners = []metav1.OwnerReference{
+	{APIVersion: "v1", Kind: "Pod", Name: "p0", UID: "pod-0"},
+	{APIVersion: "v1", Kind: "Pod", Name: "p1", UID: "pod-1"},
+}
 
-const (
-	noOwner owners = iota
-	singlePod
-	podGroup
-	job
-)
-
-func provWorkload(class, overhead string, built owners) *kueue.Workload {
+func overheadWorkload(class string, overhead corev1.ResourceList, owners []metav1.OwnerReference) *kueue.Workload {
 	wl := utiltestingapi.MakeWorkload("w", "ns").
 		PodSets(*utiltestingapi.MakePodSet("a", 1).RuntimeClass(class).Obj()).Obj()
-	wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(overhead)}
-	switch built {
-	case singlePod:
-		wl.OwnerReferences = []metav1.OwnerReference{{
-			APIVersion: "v1", Kind: "Pod", Name: "p", UID: "pod-uid",
-			Controller: new(true), BlockOwnerDeletion: new(true),
-		}}
-	case podGroup:
-		// SetOwnerReference, which is what the pod controller uses for a group,
-		// leaves Controller unset.
-		wl.OwnerReferences = []metav1.OwnerReference{
-			{APIVersion: "v1", Kind: "Pod", Name: "p0", UID: "pod-0"},
-			{APIVersion: "v1", Kind: "Pod", Name: "p1", UID: "pod-1"},
-		}
-	case job:
-		wl.OwnerReferences = []metav1.OwnerReference{{
-			APIVersion: "batch/v1", Kind: "Job", Name: "j", UID: "job-uid",
-			Controller: new(true), BlockOwnerDeletion: new(true),
-		}}
-	}
+	wl.Spec.PodSets[0].Template.Spec.Overhead = overhead
+	wl.OwnerReferences = owners
 	return wl
 }
 
-func TestProvenance(t *testing.T) {
+func TestHandlePodOverhead(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	rc := utiltesting.MakeRuntimeClass("rc", "h").
-		PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1m")}).RuntimeClass
+	cpu := func(s string) corev1.ResourceList {
+		return corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(s)}
+	}
+	rc := utiltesting.MakeRuntimeClass("rc", "h").PodOverhead(cpu("250m")).RuntimeClass
+	bare := utiltesting.MakeRuntimeClass("bare", "h").RuntimeClass
 
 	cases := map[string]struct {
 		wl      *kueue.Workload
-		want    string
+		want    corev1.ResourceList
 		wantErr bool
 	}{
-		// The class said 250m when these Pods were admitted, and they still carry it.
-		"a Pod keeps what it was admitted with": {wl: provWorkload("rc", "250m", singlePod), want: "250m"},
-		// A group's members own it without any of them being the controller, so
-		// looking only at the controller reference would rewrite the whole group.
-		"a Pod group keeps it too": {wl: provWorkload("rc", "250m", podGroup), want: "250m"},
-		// No Pod exists yet, so the class answers for the ones that will.
-		"a Job is a template":           {wl: provWorkload("rc", "250m", job), want: "1m"},
-		"no owner at all is a template": {wl: provWorkload("rc", "250m", noOwner), want: "1m"},
+		"a PodSet carrying less than its class is raised to it": {
+			wl: overheadWorkload("rc", cpu("1m"), nil), want: cpu("250m"),
+		},
+		"a PodSet carrying none is given the class overhead": {
+			wl: overheadWorkload("rc", nil, nil), want: cpu("250m"),
+		},
+		// A StatefulSet builds its Workload from the parent template, which never
+		// passed the admission that writes overhead, and the pod controller adds
+		// the created Pods as owners afterwards. Neither costs it the class value.
+		"owning Pods do not stop the class from applying": {
+			wl: overheadWorkload("rc", nil, podOwners), want: cpu("250m"),
+		},
+		// Only handler is immutable, so a class can be lowered after a Pod was
+		// admitted under it, and that Pod still carries the older, larger value.
+		"a PodSet carrying more than its class keeps what it has": {
+			wl: overheadWorkload("rc", cpu("500m"), podOwners), want: cpu("500m"),
+		},
+		"a key the class does not define survives": {
+			wl: overheadWorkload("rc", corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")}, nil),
+			want: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("250m"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			},
+		},
+		"a class defining no overhead leaves the PodSet alone": {
+			wl: overheadWorkload("bare", cpu("250m"), nil), want: cpu("250m"),
+		},
 		// AdjustResources only logs these, so the caller that can act on one has to see it here.
 		"a class that does not resolve is reported and changes nothing": {
-			wl: provWorkload("gone", "250m", noOwner), want: "250m", wantErr: true,
+			wl: overheadWorkload("gone", cpu("250m"), nil), want: cpu("250m"), wantErr: true,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
-				WithLists(&nodev1.RuntimeClassList{Items: []nodev1.RuntimeClass{rc}}).
+				WithLists(&nodev1.RuntimeClassList{Items: []nodev1.RuntimeClass{rc, bare}}).
 				Build()
 			errs := handlePodOverhead(ctx, cl, tc.wl)
 			if gotErr := len(errs) > 0; gotErr != tc.wantErr {
@@ -822,9 +829,8 @@ func TestProvenance(t *testing.T) {
 					t.Errorf("error does not name the podSet and the missing class: %v", err)
 				}
 			}
-			got := tc.wl.Spec.PodSets[0].Template.Spec.Overhead[corev1.ResourceCPU]
-			if got.String() != tc.want {
-				t.Errorf("overhead = %s, want %s", got.String(), tc.want)
+			if diff := cmp.Diff(tc.want, tc.wl.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+				t.Errorf("Unexpected overhead (-want,+got):\n%s", diff)
 			}
 		})
 	}
