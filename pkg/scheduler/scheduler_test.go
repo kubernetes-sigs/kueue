@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -9103,5 +9104,80 @@ func TestLastAssignmentOutdated(t *testing.T) {
 				t.Errorf("LastAssignmentOutdated() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestFitsDedupsOverlappingVictims ensures fits() subtracts a victim only once when
+// it appears in both preemptedWorkloads and the entry's targets (kueue#14155).
+func TestFitsDedupsOverlappingVictims(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+
+	cqObj := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+			Resource(corev1.ResourceCPU, "10").
+			Obj()).
+		Obj()
+	flavor := utiltestingapi.MakeResourceFlavor("default").Obj()
+
+	victimWL := utiltestingapi.MakeWorkload("victim", "ns").
+		Request(corev1.ResourceCPU, "6").
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "6").
+					Obj()).
+				Obj(),
+			now,
+		).
+		Obj()
+	otherWL := utiltestingapi.MakeWorkload("other", "ns").
+		Request(corev1.ResourceCPU, "2").
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "2").
+					Obj()).
+				Obj(),
+			now,
+		).
+		Obj()
+
+	cache := schdcache.New(utiltesting.NewFakeClient())
+	cache.AddOrUpdateResourceFlavor(log, flavor)
+	if err := cache.AddClusterQueue(ctx, cqObj); err != nil {
+		t.Fatalf("Failed to add ClusterQueue: %v", err)
+	}
+
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to build snapshot: %v", err)
+	}
+	cq := snapshot.ClusterQueue("cq")
+	if cq == nil {
+		t.Fatal("ClusterQueue snapshot missing")
+	}
+
+	victimInfo := workload.NewInfo(victimWL)
+	otherInfo := workload.NewInfo(otherWL)
+	snapshot.AddWorkload(victimInfo)
+	snapshot.AddWorkload(otherInfo)
+
+	// CQ usage is 8 CPU (victim 6 + other 2). Incoming needs 9.
+	// Freeing victim once leaves usage 2 → 8 free → 9 does not fit.
+	// Double-subtracting victim would leave usage -4 and wrongly report Ok.
+	incomingUsage := workload.Usage{
+		Quota: resources.FlavorResourceQuantities{
+			{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(9000),
+		},
+	}
+	preempted := preemption.PreemptedWorkloads{
+		workload.Key(victimWL): victimInfo,
+	}
+	targets := []*preemption.Target{{WorkloadInfo: victimInfo}}
+
+	got := fits(snapshot, cq, &incomingUsage, preempted, targets)
+	if got != schdcache.FitsCheckNoQuota {
+		t.Fatalf("fits() = %v, want %v (overlapping victim must be subtracted once)", got, schdcache.FitsCheckNoQuota)
 	}
 }
