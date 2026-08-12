@@ -224,6 +224,40 @@ func TestReconcileDRA(t *testing.T) {
 				Obj(),
 			wantEvents: nil,
 		},
+		"reconcile DRA workload waiting for backoff should preprocess but not queue": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			wantWorkloadsInQueue: new(0),
+			wantResult:           reconcile.Result{RequeueAfter: time.Hour},
+			workload: utiltestingapi.MakeWorkload("wlDRAWaitingForBackoff", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				RequeueState(new(int32(1)), new(metav1.NewTime(fakeClock.Now().Add(time.Hour)))).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlDRAWaitingForBackoff", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				RequeueState(new(int32(1)), new(metav1.NewTime(fakeClock.Now().Add(time.Hour)))).
+				Obj(),
+			wantEvents: nil,
+		},
 		"reconcile DRA ResourceClaimTemplate requeued after backoff should keep DRA resources in queue": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              true,
