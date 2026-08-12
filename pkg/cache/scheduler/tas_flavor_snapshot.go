@@ -292,7 +292,7 @@ func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage
 	}
 	leafState := s.leafStateOf(s.leaves[domainID])
 	if leafState.tasUsage == nil {
-		leafState.tasUsage = resources.CreateEmpty()
+		leafState.tasUsage = resources.NewRequests()
 	}
 	leafState.tasUsage.Add(usage)
 	leafState.cachedRemainingCapacity = resources.LazyRequests{}
@@ -308,7 +308,7 @@ func (s *TASFlavorSnapshot) removeTASUsage(domainID utiltas.TopologyDomainID, us
 	}
 	leafState := s.leafStateOf(s.leaves[domainID])
 	if leafState.tasUsage == nil {
-		leafState.tasUsage = resources.CreateEmpty()
+		leafState.tasUsage = resources.NewRequests()
 	}
 	leafState.tasUsage.Sub(usage)
 	leafState.cachedRemainingCapacity = resources.LazyRequests{}
@@ -712,7 +712,7 @@ func addAssumedUsage(assumedUsage map[utiltas.TopologyDomainID]resources.Request
 func addUsagePerDomain(assumedUsage map[utiltas.TopologyDomainID]resources.Requests, usagePerDomain map[utiltas.TopologyDomainID]resources.Requests) {
 	for domainID, usage := range usagePerDomain {
 		if assumedUsage[domainID] == nil {
-			assumedUsage[domainID] = resources.CreateEmpty()
+			assumedUsage[domainID] = resources.NewRequests()
 		}
 		assumedUsage[domainID].Add(usage)
 	}

@@ -221,7 +221,7 @@ func (t *topologyTree) initializeHelper(dom *domain) {
 
 func (t *topologyTree) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.Requests) {
 	if t.leaves[domainID].capacity == nil {
-		t.leaves[domainID].capacity = resources.CreateEmpty()
+		t.leaves[domainID].capacity = resources.NewRequests()
 	}
 	t.leaves[domainID].capacity.Add(capacity)
 }
