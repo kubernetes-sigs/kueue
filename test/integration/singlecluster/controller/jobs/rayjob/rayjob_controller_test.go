@@ -645,6 +645,25 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
 	})
 
+	admitWorkload := func(wlLookupKey types.NamespacedName, createdWorkload *kueue.Workload) {
+		assignments := make([]kueue.PodSetAssignment, len(createdWorkload.Spec.PodSets))
+		for i, podSet := range createdWorkload.Spec.PodSets {
+			assignments[i] = kueue.PodSetAssignment{
+				Name: podSet.Name,
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+				},
+			}
+		}
+
+		admission := utiltestingapi.MakeAdmission(
+			kueue.ClusterQueueReference(clusterQueue.Name),
+		).PodSets(assignments...).Obj()
+
+		util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+	}
+
 	ginkgo.It("Should preempt lower priority rayJobs when resource insufficient", framework.SlowSpec, func() {
 		ginkgo.By("Create a low priority rayJob")
 		lowPriorityJob := testingrayjob.MakeJob("rayjob-with-low-priority", ns.Name).Queue(localQueue.Name).
@@ -740,43 +759,13 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 	})
 
 	ginkgo.It("Should put the workload on hold when RayJob validation fails", func() {
-		ginkgo.By("creating the resource flavor")
-
-		onDemandFlavor := utiltestingapi.MakeResourceFlavor("rayjob-on-demand").
-			NodeLabel(instanceKey, "rayjob-on-demand").
-			Obj()
-		util.MustCreate(ctx, k8sClient, onDemandFlavor)
-		ginkgo.By("creating the ClusterQueue")
-
-		clusterQueue := utiltestingapi.MakeClusterQueue("rayjob-cluster-queue").
-			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas("rayjob-on-demand").
-					Resource(corev1.ResourceCPU, "5").
-					Obj(),
-			).
-			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-
-		ginkgo.By("creating the LocalQueue")
-
-		localQueue := utiltestingapi.MakeLocalQueue("rayjob-queue", ns.Name).
-			ClusterQueue(clusterQueue.Name).
-			Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
-		defer func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		}()
-
-		ginkgo.By("creating a RayJob")
+		ginkgo.By("creating an invalid RayJob")
 		job := testingrayjob.MakeJob(jobName, ns.Name).
-			Label(constants.QueueLabel, localQueue.Name).
-			Suspend(false).
+			Queue(localQueue.Name).
+			Suspend(true).
 			Obj()
+		job.Spec.RuntimeEnvYAML = "working_dir: ["
 		util.MustCreate(ctx, k8sClient, job)
-
-		setInitStatus(jobName, ns.Name)
 
 		lookupKey := types.NamespacedName{
 			Name:      jobName,
@@ -784,13 +773,6 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		}
 
 		createdJob := &rayv1.RayJob{}
-
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).
-				Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).
-				Should(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is created")
 
@@ -806,32 +788,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("admitting the workload")
-
-		admission := utiltestingapi.MakeAdmission(
-			kueue.ClusterQueueReference(clusterQueue.Name),
-		).PodSets(
-			kueue.PodSetAssignment{
-				Name: createdWorkload.Spec.PodSets[0].Name,
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
-				},
-			},
-			kueue.PodSetAssignment{
-				Name: createdWorkload.Spec.PodSets[1].Name,
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
-				},
-			},
-			kueue.PodSetAssignment{
-				Name: createdWorkload.Spec.PodSets[2].Name,
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
-				},
-			},
-		).Obj()
-
-		util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+		admitWorkload(wlLookupKey, createdWorkload)
 
 		ginkgo.By("checking the workload has a quota reservation")
 
@@ -843,16 +800,16 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 				Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("marking the RayJob as validation failed", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).
-					Should(gomega.Succeed())
-				createdJob.Status.JobDeploymentStatus =
-					rayv1.JobDeploymentStatusValidationFailed
-				g.Expect(k8sClient.Status().Update(ctx, createdJob)).
-					Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
+		ginkgo.By("marking the RayJob as validation failed")
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).
+				Should(gomega.Succeed())
+			createdJob.Status.JobDeploymentStatus =
+				rayv1.JobDeploymentStatusValidationFailed
+			g.Expect(k8sClient.Status().Update(ctx, createdJob)).
+				Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is put on hold")
 
