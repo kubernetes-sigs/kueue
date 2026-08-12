@@ -42,7 +42,25 @@ def parse_release_note(comment: str) -> str:
 
 
 def set_release_note(pr_body: str, release_note: str) -> str:
-    """Replace an existing release-note block or append a standard block."""
+    """Replace an existing release-note block or append a standard block.
+
+    A well-formed block is replaced while the surrounding text is preserved:
+
+    >>> set_release_note(
+    ...     "Summary\\n\\n```release-note\\nold note\\n```\\n\\nDetails\\n",
+    ...     "new note",
+    ... )
+    'Summary\\n\\n```release-note\\nnew note\\n```\\n\\nDetails\\n'
+
+    For an unclosed block, only the opening fence is replaced. The text below
+    the fence is preserved outside the new block rather than being discarded:
+
+    >>> set_release_note(
+    ...     "Summary\\n\\n```release-note\\nold note\\n\\nDetails\\n",
+    ...     "new note",
+    ... )
+    'Summary\\n\\n```release-note\\nnew note\\n```\\nold note\\n\\nDetails\\n'
+    """
     starts = list(RELEASE_NOTE_START_RE.finditer(pr_body))
     blocks = list(RELEASE_NOTE_BLOCK_RE.finditer(pr_body))
     if len(starts) > 1:
@@ -53,7 +71,8 @@ def set_release_note(pr_body: str, release_note: str) -> str:
         block = blocks[0]
         updated_body = f"{pr_body[:block.start()]}{new_block}{pr_body[block.end():]}"
     elif starts:
-        updated_body = f"{pr_body[:starts[0].start()]}{new_block}\n"
+        start = starts[0]
+        updated_body = f"{pr_body[:start.start()]}{new_block}{pr_body[start.end():]}"
     elif pr_body.strip():
         updated_body = f"{pr_body.rstrip()}\n\n{new_block}\n"
     else:
