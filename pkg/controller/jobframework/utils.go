@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 // PodSetReplicaSize is a minimal representation of a PodSet for the
@@ -272,16 +273,28 @@ func CopyableLabelKeys(keys sets.Set[string]) sets.Set[string] {
 	return safe
 }
 
-// CopyableAnnotationKeys is CopyableLabelKeys for annotations. MultiKueue reads
-// the job-owner pair to decide which remote object a Workload speaks for, and
-// reads it ahead of the Workload's own owner reference, so a Job naming a job it
-// does not own would be answered rather than questioned.
+// reservedAnnotations are the annotations a Workload must not inherit, because
+// something downstream reads them to decide what it may act on.
+//
+// MultiKueue reads the job-owner pair to decide which remote object a Workload
+// speaks for, ahead of the Workload's own owner reference, so a Job naming a job
+// it does not own would be answered rather than questioned. The scheduler reads
+// the slice replacement key to pick which of its preemption targets to finish
+// rather than preempt, and prepareWorkloadSlice writes the real one from the
+// slices it finds, so a value that came up with the job is never the right one.
+var reservedAnnotations = []string{
+	controllerconstants.JobOwnerGVKAnnotation,
+	controllerconstants.JobOwnerNameAnnotation,
+	workloadslicing.WorkloadSliceReplacementFor,
+}
+
+// CopyableAnnotationKeys is CopyableLabelKeys for annotations.
 func CopyableAnnotationKeys(keys sets.Set[string]) sets.Set[string] {
-	if !keys.HasAny(controllerconstants.JobOwnerGVKAnnotation, controllerconstants.JobOwnerNameAnnotation) {
+	if !keys.HasAny(reservedAnnotations...) {
 		return keys
 	}
 	safe := keys.Clone()
-	safe.Delete(controllerconstants.JobOwnerGVKAnnotation, controllerconstants.JobOwnerNameAnnotation)
+	safe.Delete(reservedAnnotations...)
 	return safe
 }
 
