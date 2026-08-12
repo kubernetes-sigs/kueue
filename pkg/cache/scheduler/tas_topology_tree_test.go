@@ -576,13 +576,64 @@ func TestNewTopologyTree(t *testing.T) {
 				{Level: 1, ID: "b1,r1"}: {
 					LevelValues: []string{"b1", "r1"},
 					Parent:      domainKey{Level: 0, ID: "b1"},
-					Leaf:        true,
-					CPUCapacity: 8000,
+					Children:    []domainKey{{Level: 2, ID: "n1"}, {Level: 2, ID: "n2"}},
 				},
 				{Level: 1, ID: "b1,r2"}: {
 					LevelValues: []string{"b1", "r2"},
 					Parent:      domainKey{Level: 0, ID: "b1"},
+					Children:    []domainKey{{Level: 2, ID: "n3"}},
+				},
+				{Level: 2, ID: "n1"}: {
+					LevelValues: []string{"b1", "r1", "n1"},
+					Parent:      domainKey{Level: 1, ID: "b1,r1"},
 					Leaf:        true,
+					NodeName:    "n1",
+					CPUCapacity: 4000,
+				},
+				{Level: 2, ID: "n2"}: {
+					LevelValues: []string{"b1", "r1", "n2"},
+					Parent:      domainKey{Level: 1, ID: "b1,r1"},
+					Leaf:        true,
+					NodeName:    "n2",
+					CPUCapacity: 4000,
+				},
+				{Level: 2, ID: "n3"}: {
+					LevelValues: []string{"b1", "r2", "n3"},
+					Parent:      domainKey{Level: 1, ID: "b1,r2"},
+					Leaf:        true,
+					NodeName:    "n3",
+					CPUCapacity: 4000,
+				},
+			},
+		},
+		"node without hostname label on a non-hostname topology falls back to node name": {
+			levels: []string{treeTestBlockLabel, treeTestRackLabel},
+			nodes: []*corev1.Node{
+				testingnode.MakeNode("n1").
+					Label(treeTestBlockLabel, "b1").
+					Label(treeTestRackLabel, "r1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("4"),
+					}).
+					Ready().
+					Obj(),
+			},
+			want: map[domainKey]topologyTreeDomainDump{
+				{Level: 0, ID: "b1"}: {
+					LevelValues: []string{"b1"},
+					Children:    []domainKey{{Level: 1, ID: "b1,r1"}},
+					Root:        true,
+				},
+				{Level: 1, ID: "b1,r1"}: {
+					LevelValues: []string{"b1", "r1"},
+					Parent:      domainKey{Level: 0, ID: "b1"},
+					Children:    []domainKey{{Level: 2, ID: "n1"}},
+				},
+				{Level: 2, ID: "n1"}: {
+					LevelValues: []string{"b1", "r1", "n1"},
+					Parent:      domainKey{Level: 1, ID: "b1,r1"},
+					Leaf:        true,
+					NodeName:    "n1",
 					CPUCapacity: 4000,
 				},
 			},

@@ -189,12 +189,14 @@ func TestIsTopologyAssignmentStale(t *testing.T) {
 		"existing hostname leaf is not stale": {
 			tree: hostnameLowest,
 			assignment: &tas.TopologyAssignment{
+				Levels:  []string{corev1.LabelHostname},
 				Domains: []tas.TopologyDomainAssignment{{Values: []string{"n1"}}},
 			},
 		},
 		"missing hostname leaf is stale": {
 			tree: hostnameLowest,
 			assignment: &tas.TopologyAssignment{
+				Levels:  []string{corev1.LabelHostname},
 				Domains: []tas.TopologyDomainAssignment{{Values: []string{"n2"}}},
 			},
 			wantStale:       true,
@@ -203,6 +205,7 @@ func TestIsTopologyAssignmentStale(t *testing.T) {
 		"deleted node is stale even when its hostname matches an existing root domain ID": {
 			tree: hostnameLowest,
 			assignment: &tas.TopologyAssignment{
+				Levels:  []string{corev1.LabelHostname},
 				Domains: []tas.TopologyDomainAssignment{{Values: []string{"b1"}}},
 			},
 			wantStale:       true,
@@ -211,12 +214,14 @@ func TestIsTopologyAssignmentStale(t *testing.T) {
 		"existing non-hostname leaf is not stale": {
 			tree: rackLowest,
 			assignment: &tas.TopologyAssignment{
+				Levels:  []string{blockLabel, rackLabel},
 				Domains: []tas.TopologyDomainAssignment{{Values: []string{"b1", "r1"}}},
 			},
 		},
 		"missing non-hostname leaf is stale": {
 			tree: rackLowest,
 			assignment: &tas.TopologyAssignment{
+				Levels:  []string{blockLabel, rackLabel},
 				Domains: []tas.TopologyDomainAssignment{{Values: []string{"b1", "r2"}}},
 			},
 			wantStale:       true,
@@ -1495,6 +1500,56 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 
 			// Fits should now return true again after cache invalidation / re-evaluation
 			g.Expect(snapshot.Fits(flavorUsage)).To(gomega.BeTrue())
+		})
+	}
+}
+
+func TestFitsNonHostnameLowestLevel(t *testing.T) {
+	const blockLabel = "cloud.provider.com/topology-block"
+	const rackLabel = "cloud.provider.com/topology-rack"
+
+	makeRackNode := func(name string) *corev1.Node {
+		return node.MakeNode(name).
+			Label(blockLabel, "b1").
+			Label(rackLabel, "r1").
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("8"),
+			}).
+			Ready().
+			Obj()
+	}
+
+	cases := map[string]struct {
+		count int32
+		want  bool
+	}{
+		"pods fit across the rack's nodes": {
+			count: 2,
+			want:  true,
+		},
+		// The rack aggregates 16 CPU, but each node fits only one 5-CPU pod.
+		"pods fit in the rack's aggregate but not per node": {
+			count: 3,
+			want:  false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			g := gomega.NewWithT(t)
+			_, log := utiltesting.ContextWithLog(t)
+			tree := newTopologyTree([]string{blockLabel, rackLabel}, []*corev1.Node{makeRackNode("n1"), makeRackNode("n2")}, 0)
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, &defaultChecker{})
+
+			flavorUsage := workload.TASFlavorUsage{{
+				Values: []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 5000,
+				}),
+				Count: tc.count,
+			}}
+			g.Expect(snapshot.Fits(flavorUsage)).To(gomega.Equal(tc.want))
 		})
 	}
 }

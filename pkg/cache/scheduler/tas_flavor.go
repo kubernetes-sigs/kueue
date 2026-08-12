@@ -208,11 +208,25 @@ func (c *TASFlavorCache) snapshot(
 
 	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, tree, c.flavor.Tolerations, feasibilityChecker, withResourceFormatter(c.resourceFormatter))
 
-	tasDomainUsages := c.usage
-	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
-		tasDomainUsages = aggregatedDomainUsages
+	if utiltas.IsLowestLevelHostname(c.topology.Levels) {
+		// Domains are single leaves, so the aggregate equals the sum of
+		// the per-Workload shares. Cross-flavor aggregates only exist for
+		// hostname-lowest flavors.
+		tasDomainUsages := c.usage
+		if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
+			tasDomainUsages = aggregatedDomainUsages
+		}
+		snapshot.addTASUsageForHeldDomains(tasDomainUsages)
+	} else {
+		// Usage domains span multiple leaves. Charge usage per Workload so
+		// that removing one Workload cancels exactly its share; ceil shares
+		// are not additive (see uniformShare).
+		for _, topologyRequests := range c.wlUsage {
+			for _, tr := range topologyRequests {
+				snapshot.updateTASUsage(utiltas.DomainID(tr.Values), tr.TotalRequests(), add, tr.Count)
+			}
+		}
 	}
-	snapshot.addTASUsageForHeldDomains(tasDomainUsages)
 	c.nonTasUsageCache.forEachNodeUsage(func(nodeName string, usage resources.Requests) {
 		if domainID, ok := tree.nodeToDomain[nodeName]; ok {
 			snapshot.addNonTASUsage(domainID, usage)
