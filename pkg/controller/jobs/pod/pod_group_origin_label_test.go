@@ -67,17 +67,20 @@ func TestConstructComposableWorkloadDropsTheOriginLabel(t *testing.T) {
 }
 
 // The group compares its members before it settles on one set of metadata, so a
-// reserved key has to be gone by then: two Pods disagreeing about a value
+// non-inheritable key has to be gone by then: two Pods disagreeing about a value
 // neither of them may pass on must not be read as two different groups.
-func TestConstructComposableWorkloadDropsReservedAnnotations(t *testing.T) {
+func TestConstructComposableWorkloadDropsNonInheritableAnnotations(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 
-	reserved := []string{
+	// The group marker is spoofed alongside these, but NewGroupWorkload writes
+	// the real one back afterwards, so it is the one checked by value below.
+	dropped := []string{
 		controllerconstants.JobOwnerNameAnnotation,
+		controllerconstants.PriorityBoostAnnotationKey,
 		kueue.WorkloadSliceNameAnnotation,
-		podconstants.IsGroupWorkloadAnnotationKey,
 	}
+	reserved := append([]string{podconstants.IsGroupWorkloadAnnotationKey}, dropped...)
 	mk := func(name, spoofed string) corev1.Pod {
 		p := testingpod.MakePod(name, "test-ns").GroupNameLabel("test-group").GroupTotalCount("2").Obj()
 		p.Annotations["team"] = "alpha"
@@ -95,8 +98,8 @@ func TestConstructComposableWorkloadDropsReservedAnnotations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ConstructComposableWorkload() error = %v", err)
 	}
-	for _, key := range reserved {
-		if got := wl.Annotations[key]; got == "from-driver" || got == "from-worker" {
+	for _, key := range dropped {
+		if got, found := wl.Annotations[key]; found {
 			t.Errorf("Workload carries %s from a Pod: %q", key, got)
 		}
 	}
