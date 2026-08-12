@@ -475,8 +475,8 @@ const (
 
 	// owner: @vladikkuzn
 	//
-	// Rejects Workloads with negative container, pod-level, or PodSpec overhead
-	// resource requests/limits.
+	// Rejects negative container and pod-level resource requests or limits, and
+	// negative PodSpec overhead quantities.
 	WorkloadValidateResourcesAreNonNegative featuregate.Feature = "WorkloadValidateResourcesAreNonNegative"
 
 	// owner: mszadkow
