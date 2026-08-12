@@ -80,6 +80,10 @@ type scheduleTestCase struct {
 	objects        []client.Object
 	admissionError error
 
+	additionalResourceFlavors []kueue.ResourceFlavor
+	topologies                []kueue.Topology
+	nodes                     []corev1.Node
+
 	// additional*Queues can hold any extra queues needed by the tc
 	additionalClusterQueues []kueue.ClusterQueue
 	additionalLocalQueues   []kueue.LocalQueue
@@ -220,6 +224,15 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					}
 					for i := range cfg.resourceFlavors {
 						cqCache.AddOrUpdateResourceFlavor(log, cfg.resourceFlavors[i])
+					}
+					for i := range tc.additionalResourceFlavors {
+						cqCache.AddOrUpdateResourceFlavor(log, &tc.additionalResourceFlavors[i])
+					}
+					for i := range tc.topologies {
+						cqCache.AddOrUpdateTopology(log, &tc.topologies[i])
+					}
+					for i := range tc.nodes {
+						cqCache.TASCache().SyncNode(&tc.nodes[i])
 					}
 					for _, cq := range allClusterQueues {
 						if err := cqCache.AddClusterQueue(ctx, &cq); err != nil {
