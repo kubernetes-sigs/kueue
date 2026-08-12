@@ -1226,3 +1226,54 @@ func TestReconcileReportsBothBranchFailures(t *testing.T) {
 		t.Errorf("Reconcile() lost the Workload refusal: %v", err)
 	}
 }
+
+// The queue has to land on a Pod before that Pod is let go, or it is scheduled
+// carrying a queue nothing will match it on.
+func TestReconcileQueueLabelFailureKeepsTheSamePodGated(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	sts := statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Replicas(1).Queue("lq").
+		CurrentRevision("1").UpdateRevision("2").Obj()
+	// Old revision during a rollout, so it is eligible to be ungated, and its
+	// queue is the one the sync has to correct first.
+	pod := testingjobspod.MakePod("pod1", "ns").
+		GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+		Queue("old-lq").
+		Label(appsv1.ControllerRevisionHashLabelKey, "1").
+		Gate(podconstants.SchedulingGateName).
+		Obj()
+
+	wantErr := apierrors.NewConflict(schema.GroupResource{Resource: "pods"}, pod.Name, nil)
+	builder := utiltesting.NewClientBuilder().WithObjects(sts, pod).WithStatusSubresource(sts)
+	indexer := utiltesting.AsIndexer(builder)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
+		t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
+	}
+	kClient := builder.WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			// Only the queue write, so an ungate that ran first would go through.
+			if p, ok := obj.(*corev1.Pod); ok && p.Labels[controllerconstants.QueueLabel] == "lq" {
+				return wantErr
+			}
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+	}).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("NewReconciler() error: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "sts"}}); !apierrors.IsConflict(err) {
+		t.Errorf("Reconcile() error = %v, want the queue conflict", err)
+	}
+
+	var got corev1.Pod
+	if err := kClient.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "pod1"}, &got); err != nil {
+		t.Fatalf("failed to get the Pod: %v", err)
+	}
+	if len(got.Spec.SchedulingGates) == 0 {
+		t.Error("the Pod was ungated even though its queue never landed")
+	}
+	if q := got.Labels[controllerconstants.QueueLabel]; q != "old-lq" {
+		t.Errorf("Pod queue = %q, want it left at old-lq", q)
+	}
+}
