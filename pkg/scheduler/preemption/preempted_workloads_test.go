@@ -33,10 +33,10 @@ func TestWorkloadsToRemove(t *testing.T) {
 	additionalKey := workload.Key(additional.Obj)
 
 	preempted := PreemptedWorkloads{originalKey: original}
-	got := preempted.WorkloadsToRemove([]*Target{
+	got := preempted.MergeWithTargets([]*Target{
 		{WorkloadInfo: replacement},
 		{WorkloadInfo: additional},
-	})
+	}).Workloads()
 
 	if len(got) != 2 {
 		t.Fatalf("WorkloadsToRemove() returned %d workloads, want 2", len(got))
@@ -60,7 +60,7 @@ func TestWorkloadsToRemoveNilReceiver(t *testing.T) {
 	target := workloadInfoForTest("ns", "victim")
 	var preempted PreemptedWorkloads
 
-	got := preempted.WorkloadsToRemove([]*Target{{WorkloadInfo: target}})
+	got := preempted.MergeWithTargets([]*Target{{WorkloadInfo: target}}).Workloads()
 	if len(got) != 1 || workload.Key(got[0].Obj) != workload.Key(target.Obj) {
 		t.Fatalf("WorkloadsToRemove() = %#v, want the target workload", got)
 	}

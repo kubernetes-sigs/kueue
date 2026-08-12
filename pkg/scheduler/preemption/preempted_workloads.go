@@ -40,14 +40,18 @@ func (p PreemptedWorkloads) Insert(newTargets []*Target) {
 	}
 }
 
-// WorkloadsToRemove returns the union of workloads already preempted in this
-// scheduling cycle and the new preemption targets, deduplicated by workload key.
+// MergeWithTargets returns the union of workloads already preempted and
+// the new preemption targets, deduplicated by workload key.
 // The receiver is not mutated.
-func (p PreemptedWorkloads) WorkloadsToRemove(newTargets []*Target) []*workload.Info {
+func (p PreemptedWorkloads) MergeWithTargets(targets []*Target) PreemptedWorkloads {
 	merged := maps.Clone(p)
 	if merged == nil {
-		merged = make(PreemptedWorkloads, len(newTargets))
+		merged = make(PreemptedWorkloads, len(targets))
 	}
-	merged.Insert(newTargets)
-	return slices.Collect(maps.Values(merged))
+	merged.Insert(targets)
+	return merged
+}
+
+func (p PreemptedWorkloads) Workloads() []*workload.Info {
+	return slices.Collect(maps.Values(p))
 }
