@@ -976,7 +976,7 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 		// podSets that already have quota reserved in the old slice.
 		var requestAmount int64
 		if requests != nil {
-			requestAmount = requests.GetValue(resource)
+			requestAmount = requests.ResourceValue(resource)
 		}
 		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
 			oldRequest := a.findOldPodSetRequest(psAssignment.Name, resource)
@@ -998,7 +998,7 @@ func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource
 
 	for _, oldPS := range a.replaceWorkloadSlice.TotalRequests {
 		if oldPS.Name == psName && oldPS.Requests != nil {
-			return oldPS.Requests.GetValue(resource)
+			return oldPS.Requests.ResourceValue(resource)
 		}
 	}
 
@@ -1087,7 +1087,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 					// Subtract the resource usage of the preempted slice to request only the delta needed.
 					if preemptWorkloadRequests.Requests != nil {
-						val -= preemptWorkloadRequests.Requests.GetValue(rName)
+						val -= preemptWorkloadRequests.Requests.ResourceValue(rName)
 					}
 				}
 			}

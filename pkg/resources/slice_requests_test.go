@@ -372,7 +372,7 @@ func TestSliceRequests_GetValue(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := tc.req.GetValue(tc.res)
+			got := tc.req.ResourceValue(tc.res)
 			if got != tc.want {
 				t.Errorf("GetValue(%s) = %d, want %d", tc.res, got, tc.want)
 			}

@@ -136,7 +136,7 @@ func (n *nonTasUsageCache) removeNodeUsage(node string, usage resources.Requests
 	}
 	existing.Sub(usage)
 	existing.Sub(resources.OnePodRequest)
-	if pods := existing.GetValue(corev1.ResourcePods); pods <= 0 {
+	if pods := existing.ResourceValue(corev1.ResourcePods); pods <= 0 {
 		if pods < 0 {
 			log.V(0).Info("Unexpected negative pod count in nodeUsage", "node", node, "podCount", pods)
 		}

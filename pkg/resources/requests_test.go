@@ -775,7 +775,7 @@ func TestMapRequestsGetValue(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := tc.req.GetValue(tc.resource); got != tc.want {
+			if got := tc.req.ResourceValue(tc.resource); got != tc.want {
 				t.Errorf("unexpected GetValue(), want=%d, got=%d", tc.want, got)
 			}
 		})
@@ -837,7 +837,7 @@ func TestMapRequestsClone(t *testing.T) {
 			t.Errorf("cloned map mismatch (-want +got):\n%s", cmp.Diff(m, cloned))
 		}
 		cloned.Add(MapRequests{corev1.ResourceMemory: 1024})
-		if m.GetValue(corev1.ResourceMemory) != 0 {
+		if m.ResourceValue(corev1.ResourceMemory) != 0 {
 			t.Errorf("original map was mutated after modifying clone")
 		}
 	})
