@@ -94,25 +94,30 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
-	podList := &corev1.PodList{}
-	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingFields{
-		podcontroller.PodGroupNameCacheKey: wlName,
-	}); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if err := r.syncQueueLabel(ctx, sts, podList.Items); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	// Finalizing pods and reconciling the Workload touch different objects, so
 	// one failing is no reason to abandon the other. A derived context would
 	// cancel it, and its own lookups would then fail as cancelled rather than
 	// for the reason they were about to find. The reconcile context still
 	// carries shutdown and any deadline.
+	//
+	// The Pod list is only needed by the pod branch (queue-label sync and
+	// finalization), so it is fetched inside that branch: a failure there
+	// must not keep the Workload branch, which resolves its own workload
+	// name, from running.
 	var eg errgroup.Group
 
 	eg.Go(func() error {
+		podList := &corev1.PodList{}
+		if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingFields{
+			podcontroller.PodGroupNameCacheKey: wlName,
+		}); err != nil {
+			return err
+		}
+
+		if err := r.syncQueueLabel(ctx, sts, podList.Items); err != nil {
+			return err
+		}
+
 		return r.ungatePods(ctx, sts, podList.Items)
 	})
 

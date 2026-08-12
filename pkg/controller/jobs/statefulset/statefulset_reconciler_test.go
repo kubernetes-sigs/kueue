@@ -1016,3 +1016,46 @@ func TestReconcileDoesNotCancelTheWorkloadBranch(t *testing.T) {
 		t.Errorf("created Workload priority = %v, want the class value 100", created.Spec.Priority)
 	}
 }
+
+// TestReconcileCreatesWorkloadDespitePodListFailure pins that a failed Pod
+// list, which only the pod branch (queue-label sync and finalization) needs,
+// does not keep the Workload branch from running: it resolves the workload
+// name itself and does not depend on the Pod list.
+func TestReconcileCreatesWorkloadDespitePodListFailure(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	sts := statefulsettesting.MakeStatefulSet("sts", "ns").
+		UID("sts-uid").
+		Queue("lq").
+		Obj()
+
+	errPodList := errors.New("pod list failed")
+
+	clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, isPodList := list.(*corev1.PodList); isPodList {
+				return errPodList
+			}
+			return c.List(ctx, list, opts...)
+		},
+	})
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
+		t.Fatalf("Indexing the pod group name: %v", err)
+	}
+	kClient := clientBuilder.WithObjects(sts).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sts)})
+	if !errors.Is(err, errPodList) {
+		t.Fatalf("Reconcile() error = %v, want %v", err, errPodList)
+	}
+
+	created := &kueue.Workload{}
+	if err := kClient.Get(ctx, client.ObjectKey{Name: GetWorkloadName("sts-uid", "sts"), Namespace: "ns"}, created); err != nil {
+		t.Fatalf("Getting the Workload the reconcileWorkload branch should have created despite the Pod list failure: %v", err)
+	}
+}
