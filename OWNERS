@@ -24,8 +24,7 @@ filters:
     approvers:
       - dependency-approvers
 
-  # Any directory depth: Makefile-deps.mk
-  "Makefile-deps\\.mk$":
+  "^Makefile-deps\\.mk$":
     approvers:
       - dependency-approvers
 
@@ -48,8 +47,7 @@ filters:
     approvers:
       - test-approvers
 
-  # Any directory depth: Makefile-test.mk
-  "Makefile-(verify|test)\\.mk$":
+  "^Makefile-(verify|test)\\.mk$":
     approvers:
       - test-approvers
 
