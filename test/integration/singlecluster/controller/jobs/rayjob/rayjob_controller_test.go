@@ -764,6 +764,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 			Queue(localQueue.Name).
 			Suspend(true).
 			Obj()
+		// Use malformed YAML to make the RayJob invalid at creation time.
 		job.Spec.RuntimeEnvYAML = "working_dir: ["
 		util.MustCreate(ctx, k8sClient, job)
 
