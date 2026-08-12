@@ -902,7 +902,7 @@ kind: ResourceFlavor
 metadata:
   name: webhook-probe
 EOF
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 10 --delay 5 --stream -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
         kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create --dry-run=server -f "${probe_manifest}"
 }
 
