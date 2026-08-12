@@ -220,6 +220,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.ConcurrentAdmissionMigrationApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("ConcurrentAdmissionPolicy"):
 		return &kueuev1beta2.ConcurrentAdmissionPolicyApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("EffectiveQuotaStatus"):
+		return &kueuev1beta2.EffectiveQuotaStatusApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("EffectiveQuotaStatusManagerRef"):
+		return &kueuev1beta2.EffectiveQuotaStatusManagerRefApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("FairSharing"):
 		return &kueuev1beta2.FairSharingApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("FairSharingStatus"):
