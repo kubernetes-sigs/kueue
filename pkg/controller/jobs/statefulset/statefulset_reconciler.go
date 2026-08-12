@@ -105,7 +105,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
-	eg, ctx := errgroup.WithContext(ctx)
+	// Finalizing pods and reconciling the Workload touch different objects, so
+	// one failing is no reason to abandon the other. A derived context would
+	// cancel it, and its own lookups would then fail as cancelled rather than
+	// for the reason they were about to find. The reconcile context still
+	// carries shutdown and any deadline.
+	var eg errgroup.Group
 
 	eg.Go(func() error {
 		return r.finalizePods(ctx, sts, podList.Items)
@@ -250,15 +255,19 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = true
 	}
 
+	var admissionGatedByUpdated bool
 	if features.Enabled(features.AdmissionGatedBy) {
-		gateUpdated := jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
-		shouldUpdate = gateUpdated || shouldUpdate
+		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
+		shouldUpdate = admissionGatedByUpdated || shouldUpdate
 	}
 
 	if shouldUpdate {
 		if err := r.client.Update(ctx, wl); err != nil {
 			return err
 		}
+	}
+	if admissionGatedByUpdated {
+		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
 	}
 
 	if shouldReleaseReservation {

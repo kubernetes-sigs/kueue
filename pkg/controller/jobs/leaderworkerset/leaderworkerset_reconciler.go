@@ -224,7 +224,12 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 
 	toCreate, toUpdate, toDelete := r.filterWorkloads(lws, wlList.Items)
 
-	eg, ctx := errgroup.WithContext(ctx)
+	// The branches hold disjoint sets of Workloads, so one failing is no reason
+	// to abandon the others. A derived context would cancel them, and
+	// parallelize.Until checks for cancellation before each item, so a delete
+	// that failed first could stop the other branches before they ran at all.
+	// The reconcile context still carries shutdown and any deadline.
+	var eg errgroup.Group
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toCreate), func(i int) error {
@@ -431,19 +436,27 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
 	log.V(3).Info("Update LeaderWorkerSet Workload")
 
+	var shouldUpdate bool
 	if queueName := jobframework.QueueNameForObject(lws); wl.Spec.QueueName != queueName {
 		log.V(2).Info("LeaderWorkerSet changed queue, updating workload")
 		wl.Spec.QueueName = queueName
+		shouldUpdate = true
+	}
+
+	var admissionGatedByUpdated bool
+	if features.Enabled(features.AdmissionGatedBy) {
+		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(lws, wl)
+		shouldUpdate = admissionGatedByUpdated || shouldUpdate
+	}
+
+	if shouldUpdate {
 		if err := r.client.Update(ctx, wl); err != nil {
-			log.Error(err, "Updating workload queue name")
+			log.Error(err, "Updating workload")
 			return err
 		}
 	}
-	if features.Enabled(features.AdmissionGatedBy) {
-		if err := jobframework.UpdateAdmissionGatedBy(ctx, r.client, r.record, lws, wl); err != nil {
-			log.Error(err, "Failed to update AdmissionGatedBy")
-			return err
-		}
+	if admissionGatedByUpdated {
+		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, lws)
 	}
 
 	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)

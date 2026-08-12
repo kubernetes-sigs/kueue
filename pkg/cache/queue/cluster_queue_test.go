@@ -187,7 +187,7 @@ func Test_PushOrUpdate(t *testing.T) {
 			if diff := cmp.Diff(tc.wantWorkload, newWl, cmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected workloads in heap (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantInAdmissibleWorkloads, cq.inadmissibleWorkloads, cmpOpts...); len(diff) != 0 {
+			if diff := cmp.Diff(tc.wantInAdmissibleWorkloads, cq.workloads.inadmissible, cmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected inadmissibleWorkloads (-want,+got):\n%s", diff)
 			}
 		})
@@ -586,6 +586,83 @@ func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 	}
 }
 
+// TestHeapOrderingStableOnLocalQueueLookupError is a regression test for Kueue#13476.
+// The two workloads have fair-sharing order opposite to their priority order: wlHigh is
+// high priority in a high-usage queue, wlLow is low priority in a low-usage queue. With a
+// client that fails every LocalQueue lookup, the old comparator fell back to priority
+// ordering and popped wlHigh first. Now it reads the cached weight and stays on
+// fair-sharing ordering, popping wlLow first, consistently across repeated comparisons.
+func TestHeapOrderingStableOnLocalQueueLookupError(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	failingClient := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, ok := obj.(*kueue.LocalQueue); ok {
+				return errors.New("transient LocalQueue lookup error")
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}).Build()
+
+	// lq1 high usage (10 GPU), lq2 low usage (1 GPU); both weight 1.0.
+	afsConsumedResources := queueafs.NewAfsConsumedResources()
+	afsConsumedResources.Set("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsConsumedResources.Set("default/lq2", corev1.ResourceList{resourceGPU: resource.MustParse("1")}, now)
+
+	penaltyMap := queueafs.NewPenaltyMap()
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, failingClient,
+		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
+		nil, defaultOrdering,
+		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1.0}},
+		penaltyMap, afsConsumedResources)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	// Seed the cached weights the way the manager's LocalQueue hooks do.
+	cq.addLocalQueue("default/lq1", 1.0)
+	cq.addLocalQueue("default/lq2", 1.0)
+
+	wlHigh := utiltestingapi.MakeWorkload("wl-high", defaultNamespace).
+		Queue("lq1").Priority(highPriority).Creation(now).UID("uid-high").Obj()
+	wlLow := utiltestingapi.MakeWorkload("wl-low", defaultNamespace).
+		Queue("lq2").Priority(lowPriority).Creation(now).UID("uid-low").Obj()
+
+	cq.PushOrUpdate(workload.NewInfo(wlHigh))
+	cq.PushOrUpdate(workload.NewInfo(wlLow))
+
+	// wlLow (lower usage) must pop first despite the failing client.
+	wantOrder := []workload.Reference{workload.Key(wlLow), workload.Key(wlHigh)}
+	var gotOrder []workload.Reference
+	for {
+		head := cq.Pop()
+		if head == nil {
+			break
+		}
+		gotOrder = append(gotOrder, workload.Key(head.Obj))
+	}
+	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
+		t.Errorf("unexpected pop order with failing LocalQueue client (-want,+got):\n%s", diff)
+	}
+
+	// The comparator must stay consistent and antisymmetric across repeated calls.
+	a := workload.NewInfo(wlHigh)
+	b := workload.NewInfo(wlLow)
+	first := cq.compareFunc(a, b)
+	if first <= 0 {
+		t.Fatalf("expected wlLow (lower usage) to sort before wlHigh, got compare(high,low)=%d", first)
+	}
+	for i := range 100 {
+		if got := cq.compareFunc(a, b); got != first {
+			t.Fatalf("comparator inconsistent on call %d: got %d, want %d", i+1, got, first)
+		}
+		if got := cq.compareFunc(b, a); got != -first {
+			t.Fatalf("comparator not antisymmetric on call %d: compare(low,high)=%d, want %d", i+1, got, -first)
+		}
+	}
+}
+
 // TestSnapshotConcurrentWithRequeueNoDataRace guards against a data race on the
 // sticky workload: Snapshot sorts a copy of the pending workloads through the
 // comparator (which reads stickyWorkload.workloadName) without holding the
@@ -811,14 +888,14 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 	}{
 		"the workload stays tracked as inadmissible": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
-				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+				cq.workloads.InsertInadmissible(workloadKey(wInfo), wInfo)
 			},
 			wantInInadmissible: true,
 			wantCPU:            singleWorkloadCPU,
 		},
 		"requeuing all inadmissible workloads moves it to the heap": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
-				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+				cq.workloads.InsertInadmissible(workloadKey(wInfo), wInfo)
 			},
 			afterResync: func(cq *ClusterQueue, _ *workload.Info) {
 				cq.namespaceSelector = labels.Everything()
@@ -830,7 +907,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 		},
 		"deleting the workload removes it and its resources": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
-				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+				cq.workloads.InsertInadmissible(workloadKey(wInfo), wInfo)
 			},
 			afterResync: func(cq *ClusterQueue, wInfo *workload.Info) {
 				cq.Delete(log, workloadKey(wInfo))
@@ -872,9 +949,9 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 				tc.afterResync(cq, wInfo)
 			}
 
-			inHeap := cq.heap.GetByKey(key) != nil
-			inInadmissible := cq.inadmissibleWorkloads.hasKey(key)
-			inInflight := cq.inflight != nil && workloadKey(cq.inflight) == key
+			inHeap := cq.workloads.active.GetByKey(key) != nil
+			inInadmissible := cq.workloads.inadmissible.hasKey(key)
+			inInflight := cq.workloads.inflight != nil && workloadKey(cq.workloads.inflight) == key
 			if inHeap != tc.wantInHeap {
 				t.Errorf("in heap = %v, want %v", inHeap, tc.wantInHeap)
 			}
@@ -884,7 +961,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 			if inInflight != tc.wantInInflight {
 				t.Errorf("in inflight = %v, want %v", inInflight, tc.wantInInflight)
 			}
-			if got := cq.pendingActive(); got.Total() != tc.wantPendingActive {
+			if got := cq.workloads.pendingActive(); got.Total() != tc.wantPendingActive {
 				t.Errorf("pending active workloads = %d, want %d", got.Total(), tc.wantPendingActive)
 			}
 			if gotCPU, wantCPU := cq.pendingResources()[corev1.ResourceCPU], tc.wantCPU(wInfo); gotCPU != wantCPU {
@@ -961,8 +1038,8 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 	if cq.PendingTotal() != wantPending {
 		t.Errorf("clusterQueue's workload number not right, want %v, got %v", wantPending, cq.PendingTotal())
 	}
-	if cq.inadmissibleWorkloads.len() != len(inadmissibleWorkloads) {
-		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), cq.inadmissibleWorkloads.len())
+	if cq.workloads.inadmissible.len() != len(inadmissibleWorkloads) {
+		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), cq.workloads.inadmissible.len())
 	}
 
 	cq.DeleteFromLocalQueue(log, qImpl, nil, nil)
@@ -1349,7 +1426,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
-			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
+			gotInadmissible := cq.workloads.inadmissible.hasKey(workload.Key(wl))
 			if diff := cmp.Diff(tc.wantInadmissible, gotInadmissible); diff != "" {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
 			}
@@ -1583,7 +1660,7 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
-			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
+			gotInadmissible := cq.workloads.inadmissible.hasKey(workload.Key(wl))
 			if test.wantInadmissible != gotInadmissible {
 				t.Errorf("Got inadmissible after requeue %t, want %t", gotInadmissible, test.wantInadmissible)
 			}
@@ -2047,7 +2124,7 @@ func TestGetNoFitReason(t *testing.T) {
 			wlKey := workload.Key(wl)
 			if tc.deleteFromInadmissible {
 				cq.rwm.Lock()
-				cq.inadmissibleWorkloads.delete(wlKey)
+				cq.workloads.inadmissible.delete(wlKey)
 				cq.rwm.Unlock()
 			}
 

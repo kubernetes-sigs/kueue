@@ -8384,12 +8384,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 					aggregatedDomainUsage = tc.aggregatedDomainUsages
 				}
-				snapshot, err := tasFlavorCache.snapshot(
-					ctx,
-					log,
-					tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
-					aggregatedDomainUsage,
-				)
+				snapshot, err := tasFlavorCache.snapshot(ctx, log, aggregatedDomainUsage)
 				if err != nil {
 					t.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 				}
@@ -8861,12 +8856,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 				aggregatedDomainUsages = tc.aggregatedDomainUsages
 			}
-			snapshot, err := tasFlavorCache.snapshot(
-				ctx,
-				log,
-				tasCache.nodesCache.find(tasFlavorCache.flavor.NodeLabels, tasFlavorCache.topology.Levels),
-				aggregatedDomainUsages,
-			)
+			snapshot, err := tasFlavorCache.snapshot(ctx, log, aggregatedDomainUsages)
 			if err != nil {
 				t.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 			}

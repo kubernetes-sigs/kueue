@@ -735,13 +735,20 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 			flavorSpot = utiltestingapi.MakeResourceFlavor("spot").Obj()
 			util.MustCreate(ctx, k8sClient, flavorSpot)
 
-			// Both flavors have real quota so the parent admits on the preferred
-			// (first) flavor, reservation.
+			// Only reservation has quota, so only its variant can admit.
+			// Giving spot quota, or a cohort it can borrow spot quota from, makes the
+			// spot variant schedulable again: either variant can then be the ClusterQueue
+			// head first, since the tie on priority and creation timestamp is broken by
+			// UID, and admitting on spot would need a flavor migration that this spec
+			// never completes.
+			//
+			// The removal step later releases quota on spot, which the final re-admission
+			// assertion needs.
 			cq = utiltestingapi.MakeClusterQueue("cq-evict").
 				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(flavorReservation.Name).Resource(corev1.ResourceCPU, "5").Obj(),
-					*utiltestingapi.MakeFlavorQuotas(flavorSpot.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavorSpot.Name).Resource(corev1.ResourceCPU, "0").Obj(),
 				).Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
@@ -776,18 +783,13 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Removing the reservation flavor (the one the parent is admitted on)", func() {
+			ginkgo.By("Removing the admitted reservation flavor and releasing quota on spot", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					var updatedCq kueue.ClusterQueue
 					g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: cq.Name}, &updatedCq)).To(gomega.Succeed())
-					flavors := updatedCq.Spec.ResourceGroups[0].Flavors
-					kept := flavors[:0]
-					for _, f := range flavors {
-						if f.Name != kueue.ResourceFlavorReference(flavorReservation.Name) {
-							kept = append(kept, f)
-						}
+					updatedCq.Spec.ResourceGroups[0].Flavors = []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas(flavorSpot.Name).Resource(corev1.ResourceCPU, "5").Obj(),
 					}
-					updatedCq.Spec.ResourceGroups[0].Flavors = kept
 					g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

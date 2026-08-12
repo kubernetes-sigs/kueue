@@ -91,7 +91,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 			}
 		})
 
-		curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+		curlPod = testingjobspod.MakePod("curl-metrics", util.GetKueueNamespace()).
 			ServiceAccountName(serviceAccountName).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
@@ -224,7 +224,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 				{
 					Kind:      "ServiceAccount",
 					Name:      serviceAccountName,
-					Namespace: configapi.DefaultNamespace,
+					Namespace: kueueNS,
 				},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -250,7 +250,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 			}
 		})
 
-		curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+		curlPod = testingjobspod.MakePod("curl-metrics", util.GetKueueNamespace()).
 			ServiceAccountName(serviceAccountName).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
@@ -371,7 +371,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 				{
 					Kind:      "ServiceAccount",
 					Name:      serviceAccountName,
-					Namespace: configapi.DefaultNamespace,
+					Namespace: kueueNS,
 				},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -395,7 +395,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 			}
 		})
 
-		curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+		curlPod = testingjobspod.MakePod("curl-metrics", util.GetKueueNamespace()).
 			ServiceAccountName(serviceAccountName).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).

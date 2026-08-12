@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -966,6 +967,28 @@ func TestNewInfo(t *testing.T) {
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("example.com/gpu"):  3,
 						corev1.ResourceName("example.com/node"): 2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// A transformation product past the range must not arrive negative and
+		// be floored away.
+		"transformProductPastTheRangeIsNotFlooredAway": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/credit", "10000000000").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("10000000000")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): math.MaxInt64,
 					}),
 					Count: 1,
 				}},

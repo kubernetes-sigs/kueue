@@ -66,6 +66,18 @@ type MultiKueueWatcher interface {
 	WorkloadKeysFor(runtime.Object) ([]types.NamespacedName, error)
 }
 
+// MultiKueueLocalJobWatcher is an optional interface for MultiKueue adapters that
+// forward manager-side spec changes to the worker after admission (see the Ray
+// adapter's RemoteSpecSyncer). Watching the local (manager) job lets a spec change
+// promptly trigger a workload reconcile (and thus SyncJob) instead of waiting for
+// the next periodic requeue. Adapters that don't forward spec changes simply do not
+// implement it.
+type MultiKueueLocalJobWatcher interface {
+	// NewEmptyLocalJob returns an empty job object of the adapter's type to watch,
+	// or nil when this adapter does not currently need a local watch.
+	NewEmptyLocalJob() client.Object
+}
+
 // MultiKueueMultiWorkloadAdapter is an optional interface for MultiKueue adapters
 // whose jobs create multiple workloads (e.g., LeaderWorkerSet creates one workload per replica).
 type MultiKueueMultiWorkloadAdapter interface {

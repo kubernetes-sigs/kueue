@@ -416,6 +416,7 @@ func (s *Scheduler) processEntry(
 	// The assignment was computed during nomination, but it may need to be refreshed.
 	// For example, TAS nominations for workloads from different CQs are computed
 	// independently, making them likely to choose conflicting topology domains.
+	// We may also recompute in case of overlapping preemption targets with another workload.
 	// Recompute when needed so CQs considered later in the cycle don't repeatedly
 	// lose to earlier CQs and starve for prolonged periods.
 	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
@@ -449,7 +450,23 @@ func (s *Scheduler) processEntry(
 		}
 	}
 
-	// We skip multiple-preemptions per cohort if any of the targets are overlapping
+	// If the workload only fits because of other preemptions in this cycle,
+	// we must wait for those preemptions to complete.
+	if mode == flavorassigner.DeferredFit {
+		e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+		e.requeueReason = qcache.RequeueReasonPendingPreemption
+		// Clear LastAssignment to force a full re-evaluation of all flavors in the next cycle.
+		// Since we are deferring admission until in-flight preemptions complete, the cluster
+		// state will change. Retaining the current assignment could lock the workload into a
+		// suboptimal flavor, preventing it from claiming a more preferred flavor that might
+		// become available.
+		e.LastAssignment = nil
+		cq.AddUsage(usage)
+		return
+	}
+
+	// We skip multiple-preemptions per cohort if any of the targets are overlapping.
 	if preemptedWorkloads.HasAny(e.preemptionTargets) {
 		e.markSkipped("Workload has overlapping preemption targets with another workload")
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
@@ -695,30 +712,51 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	preemptedWorkloads preemption.PreemptedWorkloads) (workload.Usage, bool) {
 	usage := e.assignmentUsage(log)
 	fitsCheck := fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
-	if fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle) {
+
+	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
+	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
+
+	var revertRemoval func()
+	switch {
+	case needsOverlapRecompute:
+		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
+		// To get the projected cluster state after other preemptions complete,
+		// we simulate the removal of their victims.
+		victimsOfOtherPreemptions := slices.Collect(maps.Values(preemptedWorkloads))
+		revertRemoval = snapshot.SimulateWorkloadRemoval(victimsOfOtherPreemptions)
+	case needsTASRecompute:
 		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
-		// Clear the last assignment so that we can start from the first flavor again and
-		// reach all flavors from the nomination.
-		e.LastAssignment = nil
-		e.NominationMapping = e.readResourceToFlavorMapping()
-		newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
-		e.recordAssignment(newAssignment, newTargets)
-		usage = e.assignmentUsage(log)
-		fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
-		log.V(2).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
-		// clear the assignment flavors as they are only used within a single scheduling cycle
-		e.NominationMapping = nil
+	default:
+		// Short-circuit, nothing to recompute.
+		return usage, schdcache.FitsCheckOk == fitsCheck
 	}
+	// Clear the last assignment so that we can start from the first flavor again and
+	// reach all flavors from the nomination.
+	e.LastAssignment = nil
+	e.NominationMapping = e.readResourceToFlavorMapping()
+	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
+	e.recordAssignment(newAssignment, newTargets)
+	if needsOverlapRecompute {
+		if revertRemoval != nil {
+			revertRemoval()
+		}
+		if e.assignment.RepresentativeMode() == flavorassigner.Fit {
+			e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
+		}
+	}
+	usage = e.assignmentUsage(log)
+	fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
+	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
+	// clear the assignment flavors as they are only used within a single scheduling cycle
+	e.NominationMapping = nil
+
 	return usage, schdcache.FitsCheckOk == fitsCheck
 }
 
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
 	newTargets []*preemption.Target) schdcache.FitsCheck {
-	workloads := slices.Collect(maps.Values(preemptedWorkloads))
-	for _, target := range newTargets {
-		workloads = append(workloads, target.WorkloadInfo)
-	}
-	revertUsage := snapshot.SimulateWorkloadRemoval(workloads)
+	merged := preemptedWorkloads.MergeWithTargets(newTargets)
+	revertUsage := snapshot.SimulateWorkloadUsageRemoval(merged.Workloads())
 	defer revertUsage()
 	return cq.Fits(*usage)
 }
@@ -906,7 +944,7 @@ func updateAssignmentForTAS(
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
+			revertUsage := snapshot.SimulateWorkloadUsageRemoval(targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
 				tasRequests,
