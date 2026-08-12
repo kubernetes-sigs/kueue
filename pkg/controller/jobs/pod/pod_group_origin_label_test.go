@@ -23,6 +23,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
@@ -59,6 +62,54 @@ func TestConstructComposableWorkloadDropsTheOriginLabel(t *testing.T) {
 		}
 		if !keys.Has(kueue.MultiKueueOriginLabel) {
 			t.Errorf("%s: the caller's key set was modified", tc.label)
+		}
+	}
+}
+
+// The group compares its members before it settles on one set of metadata, so a
+// reserved key has to be gone by then: two Pods disagreeing about a value
+// neither of them may pass on must not be read as two different groups.
+func TestConstructComposableWorkloadDropsReservedAnnotations(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	reserved := []string{
+		controllerconstants.JobOwnerNameAnnotation,
+		kueue.WorkloadSliceNameAnnotation,
+		podconstants.IsGroupWorkloadAnnotationKey,
+	}
+	mk := func(name, spoofed string) corev1.Pod {
+		p := testingpod.MakePod(name, "test-ns").GroupNameLabel("test-group").GroupTotalCount("2").Obj()
+		p.Annotations["team"] = "alpha"
+		for _, key := range reserved {
+			p.Annotations[key] = spoofed
+		}
+		return *p
+	}
+	pods := []corev1.Pod{mk("driver", "from-driver"), mk("worker", "from-worker")}
+	p := &Pod{pod: pods[0], isGroup: true, list: corev1.PodList{Items: pods}}
+	keys := sets.New(append([]string{"team"}, reserved...)...)
+	cl := utiltesting.NewClientBuilder().WithObjects(&pods[0], &pods[1]).Build()
+
+	wl, err := p.ConstructComposableWorkload(ctx, cl, &utiltesting.EventRecorder{}, nil, keys)
+	if err != nil {
+		t.Fatalf("ConstructComposableWorkload() error = %v", err)
+	}
+	for _, key := range reserved {
+		if got := wl.Annotations[key]; got == "from-driver" || got == "from-worker" {
+			t.Errorf("Workload carries %s from a Pod: %q", key, got)
+		}
+	}
+	if got := wl.Annotations["team"]; got != "alpha" {
+		t.Errorf("ordinary annotation = %q, want alpha", got)
+	}
+	// Written after the filtering, so the group still says what it is.
+	if got := wl.Annotations[podconstants.IsGroupWorkloadAnnotationKey]; got != podconstants.IsGroupWorkloadAnnotationValue {
+		t.Errorf("group marker = %q, want %q", got, podconstants.IsGroupWorkloadAnnotationValue)
+	}
+	for _, key := range reserved {
+		if !keys.Has(key) {
+			t.Errorf("the caller's key set lost %s", key)
 		}
 	}
 }

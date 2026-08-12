@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +36,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
@@ -259,17 +261,33 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 	SetPrebuiltWorkloadName(obj, workloadName)
 }
 
+// reservedLabels are the labels a Workload must not inherit, because a
+// controller reads them to decide what it may act on.
+//
+// Whether a Workload is one MultiKueue placed here is ours to say. The variant
+// controller creates variants for whatever carries the parent label, without
+// repeating the eligibility the Workload controller checks before writing it.
+var reservedLabels = []string{
+	kueue.MultiKueueOriginLabel,
+	controllerconstants.ConcurrentAdmissionParentLabelKey,
+}
+
+// IsReservedWorkloadLabel reports whether a configuration may name key as one
+// to copy onto a Workload.
+func IsReservedWorkloadLabel(key string) bool {
+	return slices.Contains(reservedLabels, key)
+}
+
 // CopyableLabelKeys returns the label keys a Workload may inherit from the
-// object below it. Whether a Workload is one MultiKueue placed here is ours to
-// say, so that marker never travels with the rest, however the configuration
-// came to ask for it. The caller's set is left alone: the reconciler options
-// hold it for every reconcile.
+// object below it, however the configuration came to ask for the rest. The
+// caller's set is left alone: the reconciler options hold it for every
+// reconcile.
 func CopyableLabelKeys(keys sets.Set[string]) sets.Set[string] {
-	if !keys.Has(kueue.MultiKueueOriginLabel) {
+	if !keys.HasAny(reservedLabels...) {
 		return keys
 	}
 	safe := keys.Clone()
-	safe.Delete(kueue.MultiKueueOriginLabel)
+	safe.Delete(reservedLabels...)
 	return safe
 }
 
@@ -282,10 +300,21 @@ func CopyableLabelKeys(keys sets.Set[string]) sets.Set[string] {
 // the slice replacement key to pick which of its preemption targets to finish
 // rather than preempt, and prepareWorkloadSlice writes the real one from the
 // slices it finds, so a value that came up with the job is never the right one.
+// SliceName answers with the slice name over the Workload's own, and the
+// topology ungater lists Pods by it, so one taken from a job points a reconcile
+// at another Workload's Pods. OwnedBySinglePod reads the group marker to leave a
+// Workload no future Pod can consume out of reassignment, and the flavor
+// assigner honours the allowed flavors on any Workload carrying them.
+//
+// The priority boost key is deliberately absent: its API says external
+// controllers may set it, so it is not ours alone to write.
 var reservedAnnotations = []string{
 	controllerconstants.JobOwnerGVKAnnotation,
 	controllerconstants.JobOwnerNameAnnotation,
+	controllerconstants.WorkloadAllowedResourceFlavorAnnotation,
+	kueue.WorkloadSliceNameAnnotation,
 	workloadslicing.WorkloadSliceReplacementFor,
+	podconstants.IsGroupWorkloadAnnotationKey,
 }
 
 // CopyableAnnotationKeys is CopyableLabelKeys for annotations.

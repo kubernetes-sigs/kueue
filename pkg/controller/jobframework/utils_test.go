@@ -31,6 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -87,10 +88,52 @@ func TestNewWorkloadLeavesReservedMetadataBehind(t *testing.T) {
 			annotationKeys:  sets.New("team", workloadslicing.WorkloadSliceReplacementFor),
 			wantAnnotations: map[string]string{"team": "physics"},
 		},
+		// The variant controller creates variants for whatever carries this,
+		// without repeating the eligibility checked before it was written.
+		"the concurrent-admission parent label": {
+			job: testingjob.MakeJob("job", "ns").
+				Label("team", "physics").
+				Label(controllerconstants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			labelKeys:  sets.New("team", controllerconstants.ConcurrentAdmissionParentLabelKey),
+			wantLabels: map[string]string{"team": "physics"},
+		},
+		// SliceName answers with this over the Workload's own name, and the
+		// topology ungater lists Pods by it.
+		"the slice name": {
+			job: testingjob.MakeJob("job", "ns").
+				SetAnnotation("team", "physics").
+				SetAnnotation(kueue.WorkloadSliceNameAnnotation, "someone-elses-workload").
+				Obj(),
+			annotationKeys:  sets.New("team", kueue.WorkloadSliceNameAnnotation),
+			wantAnnotations: map[string]string{"team": "physics"},
+		},
+		// OwnedBySinglePod reads this to leave a Workload no future Pod can
+		// consume out of reassignment.
+		"the pod-group marker": {
+			job: testingjob.MakeJob("job", "ns").
+				SetAnnotation("team", "physics").
+				SetAnnotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+				Obj(),
+			annotationKeys:  sets.New("team", podconstants.IsGroupWorkloadAnnotationKey),
+			wantAnnotations: map[string]string{"team": "physics"},
+		},
+		// The flavor assigner honours these on any Workload carrying them.
+		"the allowed flavors": {
+			job: testingjob.MakeJob("job", "ns").
+				SetAnnotation("team", "physics").
+				SetAnnotation(controllerconstants.WorkloadAllowedResourceFlavorAnnotation, "expensive").
+				Obj(),
+			annotationKeys:  sets.New("team", controllerconstants.WorkloadAllowedResourceFlavorAnnotation),
+			wantAnnotations: map[string]string{"team": "physics"},
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			// The reconciler options hold these for every reconcile.
+			labelKeys, annotationKeys := tc.labelKeys.Clone(), tc.annotationKeys.Clone()
+
 			wl := jobframework.NewWorkload("wl", tc.job, nil, tc.labelKeys, tc.annotationKeys)
 
 			if tc.wantLabels != nil {
@@ -102,6 +145,12 @@ func TestNewWorkloadLeavesReservedMetadataBehind(t *testing.T) {
 				if diff := cmp.Diff(tc.wantAnnotations, wl.Annotations); diff != "" {
 					t.Errorf("workload annotations (-want +got):\n%s", diff)
 				}
+			}
+			if diff := cmp.Diff(labelKeys, tc.labelKeys); diff != "" {
+				t.Errorf("caller's label keys (-before +after):\n%s", diff)
+			}
+			if diff := cmp.Diff(annotationKeys, tc.annotationKeys); diff != "" {
+				t.Errorf("caller's annotation keys (-before +after):\n%s", diff)
 			}
 		})
 	}
