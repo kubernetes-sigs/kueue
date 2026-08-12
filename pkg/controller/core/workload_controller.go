@@ -131,6 +131,8 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 // Returns done=true when reconciliation should stop (error or terminal DRA outcome).
 // When done=false, queueOptions holds the InfoOptions the caller must pass to any
 // subsequent AddOrUpdateWorkload in the same reconcile (e.g. the backoff-requeue path).
+// Queueing is skipped when RequeueAt is set so the backoff path can queue once with
+// queueOptions, but preprocessing still runs and queueOptions are always returned.
 func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, queueOptions []workload.InfoOption, err error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -217,17 +219,24 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
 	}
 
+	waitingForBackoff := wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil
+
 	if workload.IsAdmissible(wl) {
-		if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
-			log.V(2).Info("Failed to add DRA workload to queue", "error", err)
-			return true, ctrl.Result{}, nil, err
+		if !waitingForBackoff {
+			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
+				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
+				return true, ctrl.Result{}, nil, err
+			}
+			log.V(3).Info("Successfully pre-processed and queued DRA workload in scheduler")
+		} else {
+			log.V(3).Info("Successfully pre-processed DRA workload; queueing deferred until backoff elapses")
 		}
 	} else {
 		if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
+		log.V(3).Info("Successfully pre-processed DRA workload for cache")
 	}
-	log.V(3).Info("Successfully pre-processed and queued DRA workload in scheduler")
 	return false, ctrl.Result{}, queueOptions, nil
 }
 
