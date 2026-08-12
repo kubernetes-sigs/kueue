@@ -422,6 +422,82 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 	})
 
+	ginkgo.When("RecomputeAssignmentUponPreemptionTargetsOverlap with multiple flavors", func() {
+		var (
+			cqHero *kueue.ClusterQueue
+			cqTiny *kueue.ClusterQueue
+			cqRest *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RecomputeAssignmentUponPreemptionTargetsOverlap, true)
+
+			createCohort(utiltestingapi.MakeCohort("cohort-a").Obj())
+
+			cqHero = createQueue(utiltestingapi.MakeClusterQueue("cq-hero").
+				Cohort("cohort-a").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+						Resource(corev1.ResourceCPU, "100").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavor2.Name).
+						Resource(corev1.ResourceCPU, "100").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).Obj())
+
+			cqTiny = createQueue(utiltestingapi.MakeClusterQueue("cq-tiny").
+				Cohort("cohort-a").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+						Resource(corev1.ResourceCPU, "50").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavor2.Name).
+						Resource(corev1.ResourceCPU, "50").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).Obj())
+			cqRest = createQueue(utiltestingapi.MakeClusterQueue("cq-rest").
+				Cohort("cohort-a").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+						Resource(corev1.ResourceCPU, "0").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavor2.Name).
+						Resource(corev1.ResourceCPU, "0").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).Obj())
+		})
+
+		ginkgo.It("hero workload sticks to preferred flavor if overlap resolved", framework.SlowSpec, func() {
+			ginkgo.By("Admitting initial workloads")
+			wlA := createWorkloadWithPriority(cqRest.Name, "150", 10) // flavor1
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+
+			wlB := createWorkloadWithPriority(cqRest.Name, "150", 10) // flavor2
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
+
+			ginkgo.By("Creating competing workloads")
+			wlHero := createWorkloadWithPriority(cqHero.Name, "100", 100)
+			wlTiny := createWorkloadWithPriority(cqTiny.Name, "50", 50)
+
+			ginkgo.By("Waiting for preemption and eviction")
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlA)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+
+			ginkgo.By("Hero and Tiny workloads are admitted in preferred flavor")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlHero, wlTiny)
+
+			// Verify that wlB was NOT preempted (flavor2 untouched)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlB), wlB)).To(gomega.Succeed())
+			gomega.Expect(wlB.Status.Conditions).NotTo(gomega.ContainElement(gomega.HaveField("Type", kueue.WorkloadPreempted)))
+		})
+	})
+
 	ginkgo.When("using hierarchical cohorts", func() {
 		ginkgo.It("admits workloads respecting fair share", func() {
 			//         root
