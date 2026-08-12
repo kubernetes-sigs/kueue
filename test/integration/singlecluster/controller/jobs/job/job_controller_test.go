@@ -46,8 +46,10 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	pkgconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -6143,6 +6145,12 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		}
 
 		labelKeysToCopy, annotationsToCopy := metrics.WorkloadCustomLabelSources(configuration.Metrics.CustomLabels)
+		// Options can ask for a key a Kueue controller writes: built before it was
+		// reserved, or a copy source added after. The sink answers either way.
+		labelKeysToCopy.Insert(kueue.MultiKueueOriginLabel, controllerconstants.ConcurrentAdmissionParentLabelKey)
+		annotationsToCopy.Insert(controllerconstants.JobOwnerNameAnnotation,
+			controllerconstants.WorkloadAllowedResourceFlavorAnnotation, kueue.WorkloadSliceNameAnnotation,
+			workloadslicing.WorkloadSliceReplacementFor, podconstants.IsGroupWorkloadAnnotationKey)
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, false, configuration,
 			jobframework.WithLabelKeysToCopy(labelKeysToCopy),
 			jobframework.WithAnnotationsToCopy(annotationsToCopy),
@@ -6179,5 +6187,45 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKey("dont-copy-label"))
 		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("job-annotation", "annotation-value"))
 		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("dont-copy-annotation"))
+	})
+
+	// The configuration refuses a reserved label, so this covers the half that
+	// cannot be reached that way: options built before the key was reserved, or
+	// a copy source added later, still do not put one on a Workload.
+	ginkgo.It("should not copy metadata a Kueue controller writes, whatever the options ask for", func() {
+		reservedLabels := map[string]string{
+			kueue.MultiKueueOriginLabel:                           "multikueue",
+			controllerconstants.ConcurrentAdmissionParentLabelKey: "true",
+		}
+		reservedAnnotations := map[string]string{
+			controllerconstants.JobOwnerNameAnnotation:                  "someone-elses-job",
+			controllerconstants.WorkloadAllowedResourceFlavorAnnotation: "expensive",
+			kueue.WorkloadSliceNameAnnotation:                           "someone-elses-workload",
+			workloadslicing.WorkloadSliceReplacementFor:                 "ns/someone-elses-workload",
+			podconstants.IsGroupWorkloadAnnotationKey:                   "true",
+		}
+		job := testingjob.MakeJob("test-job-reserved", ns.Name).Queue("foo").
+			Label("job-label", "label-value").
+			SetAnnotation("job-annotation", "annotation-value").
+			Obj()
+		maps.Copy(job.Labels, reservedLabels)
+		maps.Copy(job.Annotations, reservedAnnotations)
+		util.MustCreate(ctx, k8sClient, job)
+
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		// The ordinary pair still arrives, so nothing passes by copying nothing.
+		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue("job-label", "label-value"))
+		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("job-annotation", "annotation-value"))
+		for key, value := range reservedLabels {
+			gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKeyWithValue(key, value))
+		}
+		for key, value := range reservedAnnotations {
+			gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKeyWithValue(key, value))
+		}
 	})
 })
