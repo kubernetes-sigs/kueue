@@ -141,12 +141,12 @@ func dumpSnapshotTree(t *testing.T, s *TASFlavorSnapshot) map[domainKey]snapshot
 			slices.SortFunc(d.Children, domainKey.compare)
 			if leaf, found := s.leaves[id]; found && &leaf.domain == dom {
 				d.Leaf = true
-				leafState := s.leafStateOf(leaf)
-				if leafState.freeCapacity != nil {
-					d.FreeCapacity = leafState.freeCapacity.Clone()
+				leafCapacity := s.leafCapacityOf(leaf)
+				if leafCapacity.freeCapacity != nil {
+					d.FreeCapacity = leafCapacity.freeCapacity.Clone()
 				}
-				if leafState.tasUsage != nil {
-					d.TASUsage = leafState.tasUsage.Clone()
+				if leafCapacity.tasUsage != nil {
+					d.TASUsage = leafCapacity.tasUsage.Clone()
 				}
 				if leaf.node != nil {
 					d.NodeName = leaf.node.Name
@@ -281,8 +281,8 @@ func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 	if failure := first.Failure(); failure != nil {
 		t.Fatalf("first assignment failed: %s", failure.Reason)
 	}
-	if len(snapshot.state) <= snapshot.domainCount {
-		t.Fatalf("balanced placement created %d state slots for %d base domains, want clone state", len(snapshot.state), snapshot.domainCount)
+	if len(snapshot.domainStates) <= snapshot.domainCount {
+		t.Fatalf("balanced placement created %d state slots for %d base domains, want clone state", len(snapshot.domainStates), snapshot.domainCount)
 	}
 
 	second := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests)
@@ -370,8 +370,8 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 				tasCache.SyncNode(node)
 			},
 			validate: func(t *testing.T, snapshot *TASFlavorSnapshot) {
-				n1State := snapshot.leafStateOf(snapshot.leaves[utiltas.TopologyDomainID("n1")])
-				if gotCapacity := n1State.freeCapacity.ResourceValue(corev1.ResourceCPU); gotCapacity != 8000 {
+				n1Capacity := snapshot.leafCapacityOf(snapshot.leaves[utiltas.TopologyDomainID("n1")])
+				if gotCapacity := n1Capacity.freeCapacity.ResourceValue(corev1.ResourceCPU); gotCapacity != 8000 {
 					t.Errorf("snapshot has cpu capacity %d, want 8000", gotCapacity)
 				}
 			},
@@ -493,8 +493,8 @@ func validateTopologyTreeStateIndexes(t *testing.T, tree *topologyTree) {
 	seen := make(map[int]*domain, tree.domainCount)
 	for _, levelDomains := range tree.domainsPerLevel {
 		for _, dom := range levelDomains {
-			if dom.idx < 0 || dom.idx >= len(snapshot.state) {
-				t.Errorf("domain %q has state index %d, outside [0, %d)", dom.levelValues, dom.idx, len(snapshot.state))
+			if dom.idx < 0 || dom.idx >= len(snapshot.domainStates) {
+				t.Errorf("domain %q has state index %d, outside [0, %d)", dom.levelValues, dom.idx, len(snapshot.domainStates))
 				continue
 			}
 			if other, found := seen[dom.idx]; found {
