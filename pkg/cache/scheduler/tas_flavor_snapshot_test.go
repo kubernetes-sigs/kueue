@@ -484,9 +484,9 @@ func TestHasLevel(t *testing.T) {
 }
 
 // TestSortedDomainsWithLeader verifies the sorting criteria (in order of priority):
-// 1. leaderState - descending (always)
-// 2. sliceStateWithLeader - descending (BestFit) or ascending (LeastFreeCapacity)
-// 3. stateWithLeader - ascending (always, as tiebreaker)
+// 1. leaderCount - descending (always)
+// 2. sliceCountWithLeader - descending (BestFit) or ascending (LeastFreeCapacity)
+// 3. podCountWithLeader - ascending (always, as tiebreaker)
 // 4. levelValues - ascending (always, as final tiebreaker)
 func TestSortedDomainsWithLeader(t *testing.T) {
 	levels := []string{"block"}
@@ -500,8 +500,8 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 		"affinityScore descending: higher affinity score comes first": {
 			enableTASPreferredSchedulingAffinity: true,
 			domains: []*domain{
-				{id: "low-affinity", affinityScore: 10, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"a"}},
-				{id: "high-affinity", affinityScore: 100, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+				{id: "low-affinity", affinityScore: 10, leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"a"}},
+				{id: "high-affinity", affinityScore: 100, leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"high-affinity", "low-affinity"},
@@ -509,16 +509,16 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 		"affinityScore ignored when feature gate is disabled": {
 			enableTASPreferredSchedulingAffinity: false,
 			domains: []*domain{
-				{id: "low-affinity", affinityScore: 10, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"a"}},
-				{id: "high-affinity", affinityScore: 100, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+				{id: "low-affinity", affinityScore: 10, leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"a"}},
+				{id: "high-affinity", affinityScore: 100, leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"low-affinity", "high-affinity"},
 		},
-		"leaderState descending: domains that can host leader come first": {
+		"leaderCount descending: domains that can host leader come first": {
 			domains: []*domain{
-				{id: "no-leader", leaderState: 0, sliceStateWithLeader: 10, stateWithLeader: 10, levelValues: []string{"a"}},
-				{id: "has-leader", leaderState: 1, sliceStateWithLeader: 1, stateWithLeader: 1, levelValues: []string{"b"}},
+				{id: "no-leader", leaderCount: 0, sliceCountWithLeader: 10, podCountWithLeader: 10, levelValues: []string{"a"}},
+				{id: "has-leader", leaderCount: 1, sliceCountWithLeader: 1, podCountWithLeader: 1, levelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"has-leader", "no-leader"},
@@ -526,53 +526,53 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 		"leader capability prioritized over preferred affinity": {
 			enableTASPreferredSchedulingAffinity: true,
 			domains: []*domain{
-				{id: "preferred-no-leader", affinityScore: 100, leaderState: 0, sliceStateWithLeader: 0, stateWithLeader: 0, levelValues: []string{"a"}},
-				{id: "non-preferred-has-leader", affinityScore: 10, leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+				{id: "preferred-no-leader", affinityScore: 100, leaderCount: 0, sliceCountWithLeader: 0, podCountWithLeader: 0, levelValues: []string{"a"}},
+				{id: "non-preferred-has-leader", affinityScore: 10, leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"non-preferred-has-leader", "preferred-no-leader"},
 		},
-		"BestFit: sliceStateWithLeader descending": {
+		"BestFit: sliceCountWithLeader descending": {
 			domains: []*domain{
-				{id: "a", leaderState: 1, sliceStateWithLeader: 3, stateWithLeader: 1, levelValues: []string{"a"}},
-				{id: "b", leaderState: 1, sliceStateWithLeader: 1, stateWithLeader: 1, levelValues: []string{"b"}},
-				{id: "c", leaderState: 1, sliceStateWithLeader: 2, stateWithLeader: 1, levelValues: []string{"c"}},
+				{id: "a", leaderCount: 1, sliceCountWithLeader: 3, podCountWithLeader: 1, levelValues: []string{"a"}},
+				{id: "b", leaderCount: 1, sliceCountWithLeader: 1, podCountWithLeader: 1, levelValues: []string{"b"}},
+				{id: "c", leaderCount: 1, sliceCountWithLeader: 2, podCountWithLeader: 1, levelValues: []string{"c"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "c", "b"},
 		},
-		"LeastFreeCapacity: sliceStateWithLeader ascending": {
+		"LeastFreeCapacity: sliceCountWithLeader ascending": {
 			domains: []*domain{
-				{id: "a", leaderState: 1, sliceStateWithLeader: 3, stateWithLeader: 1, levelValues: []string{"a"}},
-				{id: "b", leaderState: 1, sliceStateWithLeader: 1, stateWithLeader: 1, levelValues: []string{"b"}},
-				{id: "c", leaderState: 1, sliceStateWithLeader: 2, stateWithLeader: 1, levelValues: []string{"c"}},
+				{id: "a", leaderCount: 1, sliceCountWithLeader: 3, podCountWithLeader: 1, levelValues: []string{"a"}},
+				{id: "b", leaderCount: 1, sliceCountWithLeader: 1, podCountWithLeader: 1, levelValues: []string{"b"}},
+				{id: "c", leaderCount: 1, sliceCountWithLeader: 2, podCountWithLeader: 1, levelValues: []string{"c"}},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"b", "c", "a"},
 		},
-		"BestFit: stateWithLeader ascending as tiebreaker": {
+		"BestFit: podCountWithLeader ascending as tiebreaker": {
 			domains: []*domain{
-				{id: "large", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 100, levelValues: []string{"a"}},
-				{id: "small", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
-				{id: "medium", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 50, levelValues: []string{"c"}},
+				{id: "large", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 100, levelValues: []string{"a"}},
+				{id: "small", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"b"}},
+				{id: "medium", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 50, levelValues: []string{"c"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
-		"LeastFreeCapacity: stateWithLeader ascending as tiebreaker": {
+		"LeastFreeCapacity: podCountWithLeader ascending as tiebreaker": {
 			domains: []*domain{
-				{id: "large", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 100, levelValues: []string{"a"}},
-				{id: "small", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
-				{id: "medium", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 50, levelValues: []string{"c"}},
+				{id: "large", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 100, levelValues: []string{"a"}},
+				{id: "small", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"b"}},
+				{id: "medium", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 50, levelValues: []string{"c"}},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
 		"levelValues ascending as final tiebreaker": {
 			domains: []*domain{
-				{id: "c", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"c"}},
-				{id: "a", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"a"}},
-				{id: "b", leaderState: 1, sliceStateWithLeader: 5, stateWithLeader: 10, levelValues: []string{"b"}},
+				{id: "c", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"c"}},
+				{id: "a", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"a"}},
+				{id: "b", leaderCount: 1, sliceCountWithLeader: 5, podCountWithLeader: 10, levelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "b", "c"},
@@ -601,8 +601,8 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 
 // TestSortedDomains verifies the sorting criteria (in order of priority):
 // 1. affinityScore - descending (when TASRespectNodeAffinityPreferred is enabled)
-// 2. sliceState - descending (BestFit) or ascending (LeastFreeCapacity)
-// 3. state - ascending (always, as tiebreaker)
+// 2. sliceCount - descending (BestFit) or ascending (LeastFreeCapacity)
+// 3. podCount - ascending (always, as tiebreaker)
 // 4. levelValues - ascending (always, as final tiebreaker)
 func TestSortedDomains(t *testing.T) {
 	levels := []string{"block"}
@@ -616,8 +616,8 @@ func TestSortedDomains(t *testing.T) {
 		"affinityScore descending: higher affinity score comes first": {
 			enableTASPreferredSchedulingAffinity: true,
 			domains: []*domain{
-				{id: "low-affinity", affinityScore: 10, sliceState: 5, state: 10, levelValues: []string{"a"}},
-				{id: "high-affinity", affinityScore: 100, sliceState: 5, state: 10, levelValues: []string{"b"}},
+				{id: "low-affinity", affinityScore: 10, sliceCount: 5, podCount: 10, levelValues: []string{"a"}},
+				{id: "high-affinity", affinityScore: 100, sliceCount: 5, podCount: 10, levelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"high-affinity", "low-affinity"},
@@ -625,53 +625,53 @@ func TestSortedDomains(t *testing.T) {
 		"affinityScore ignored when feature gate is disabled": {
 			enableTASPreferredSchedulingAffinity: false,
 			domains: []*domain{
-				{id: "low-affinity", affinityScore: 10, sliceState: 5, state: 10, levelValues: []string{"a"}},
-				{id: "high-affinity", affinityScore: 100, sliceState: 5, state: 10, levelValues: []string{"b"}},
+				{id: "low-affinity", affinityScore: 10, sliceCount: 5, podCount: 10, levelValues: []string{"a"}},
+				{id: "high-affinity", affinityScore: 100, sliceCount: 5, podCount: 10, levelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"low-affinity", "high-affinity"},
 		},
-		"BestFit: sliceState descending": {
+		"BestFit: sliceCount descending": {
 			domains: []*domain{
-				{id: "a", sliceState: 3, state: 1, levelValues: []string{"a"}},
-				{id: "b", sliceState: 1, state: 1, levelValues: []string{"b"}},
-				{id: "c", sliceState: 2, state: 1, levelValues: []string{"c"}},
+				{id: "a", sliceCount: 3, podCount: 1, levelValues: []string{"a"}},
+				{id: "b", sliceCount: 1, podCount: 1, levelValues: []string{"b"}},
+				{id: "c", sliceCount: 2, podCount: 1, levelValues: []string{"c"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "c", "b"},
 		},
-		"LeastFreeCapacity: sliceState ascending": {
+		"LeastFreeCapacity: sliceCount ascending": {
 			domains: []*domain{
-				{id: "a", sliceState: 3, state: 1, levelValues: []string{"a"}},
-				{id: "b", sliceState: 1, state: 1, levelValues: []string{"b"}},
-				{id: "c", sliceState: 2, state: 1, levelValues: []string{"c"}},
+				{id: "a", sliceCount: 3, podCount: 1, levelValues: []string{"a"}},
+				{id: "b", sliceCount: 1, podCount: 1, levelValues: []string{"b"}},
+				{id: "c", sliceCount: 2, podCount: 1, levelValues: []string{"c"}},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"b", "c", "a"},
 		},
 		"BestFit: state ascending as tiebreaker": {
 			domains: []*domain{
-				{id: "large", sliceState: 5, state: 100, levelValues: []string{"a"}},
-				{id: "small", sliceState: 5, state: 10, levelValues: []string{"b"}},
-				{id: "medium", sliceState: 5, state: 50, levelValues: []string{"c"}},
+				{id: "large", sliceCount: 5, podCount: 100, levelValues: []string{"a"}},
+				{id: "small", sliceCount: 5, podCount: 10, levelValues: []string{"b"}},
+				{id: "medium", sliceCount: 5, podCount: 50, levelValues: []string{"c"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
 		"LeastFreeCapacity: state ascending as tiebreaker": {
 			domains: []*domain{
-				{id: "large", sliceState: 5, state: 100, levelValues: []string{"a"}},
-				{id: "small", sliceState: 5, state: 10, levelValues: []string{"b"}},
-				{id: "medium", sliceState: 5, state: 50, levelValues: []string{"c"}},
+				{id: "large", sliceCount: 5, podCount: 100, levelValues: []string{"a"}},
+				{id: "small", sliceCount: 5, podCount: 10, levelValues: []string{"b"}},
+				{id: "medium", sliceCount: 5, podCount: 50, levelValues: []string{"c"}},
 			},
 			unconstrained: true,
 			wantOrder:     []string{"small", "medium", "large"},
 		},
 		"levelValues ascending as final tiebreaker": {
 			domains: []*domain{
-				{id: "c", sliceState: 5, state: 10, levelValues: []string{"c"}},
-				{id: "a", sliceState: 5, state: 10, levelValues: []string{"a"}},
-				{id: "b", sliceState: 5, state: 10, levelValues: []string{"b"}},
+				{id: "c", sliceCount: 5, podCount: 10, levelValues: []string{"c"}},
+				{id: "a", sliceCount: 5, podCount: 10, levelValues: []string{"a"}},
+				{id: "b", sliceCount: 5, podCount: 10, levelValues: []string{"b"}},
 			},
 			unconstrained: false,
 			wantOrder:     []string{"a", "b", "c"},
@@ -1263,7 +1263,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 	// A single domain with room for one pod cannot accommodate the ten requested
 	// ones, which violates the assumptions of the algorithm.
 	callWithViolatedAssumptions := func(snapshot *TASFlavorSnapshot) []*domain {
-		return snapshot.updateCountsToMinimumGeneric([]*domain{{id: "rack-1", state: 1}}, 10, 0, 1, false, false)
+		return snapshot.updateCountsToMinimumGeneric([]*domain{{id: "rack-1", podCount: 1}}, 10, 0, 1, false, false)
 	}
 	wantErrorFields := map[string]any{
 		"error":                "code assumptions violated",
