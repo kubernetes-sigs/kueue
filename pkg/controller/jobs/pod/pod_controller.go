@@ -1177,7 +1177,7 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 
 	if features.Enabled(features.CustomMetricLabels) {
 		annotationsToCopyList, err := p.getByKey(
-			annotationsToCopy.UnsortedList(),
+			jobframework.CopyableAnnotationKeys(annotationsToCopy).UnsortedList(),
 			func(pod *corev1.Pod) map[string]string { return pod.Annotations },
 			errPodGroupAnnotationsMismatch,
 		)
