@@ -971,11 +971,13 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		// Parent Workloads are not supposed to have admission checks.
 		return false, nil
 	}
-	if workloadevict.IsEvicted(wl) || (!workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl)) {
+	if !workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl) {
 		return false, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Workload is evicted due to admission checks")
+	// Rejected is terminal, so it applies even mid-eviction: an external controller can set it
+	// after an earlier Retry already evicted the Workload and reset the checks to Pending.
 	if workload.HasRejectedChecks(wl) {
 		rejectedChecks := workload.RejectedChecks(wl)
 		message := buildAdmissionChecksMessage(rejectedChecks, kueue.CheckStateRejected)
@@ -990,6 +992,10 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		return true, nil
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
+	// Retry evicts, so skip it while an eviction is already in flight.
+	if workloadevict.IsEvicted(wl) {
+		return false, nil
+	}
 	retryChecks := workload.RetryChecks(wl)
 	message := fmt.Sprintf("Evicted due to %s", buildAdmissionChecksMessage(retryChecks, kueue.CheckStateRetry))
 	exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
