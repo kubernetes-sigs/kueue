@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -38,42 +39,71 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-// The configuration names the labels to copy in more than one place, and
-// validation refuses the MultiKueue marker in each. Refuse it here too, so a
-// copy source added later cannot quietly hand a local Workload that identity.
-func TestNewWorkloadLeavesTheMultiKueueMarkerBehind(t *testing.T) {
-	job := testingjob.MakeJob("job", "ns").
-		Label("team", "physics").
-		Label(kueue.MultiKueueOriginLabel, "multikueue").
-		Obj()
-
-	wl := jobframework.NewWorkload("wl", job, nil,
-		sets.New("team", kueue.MultiKueueOriginLabel), nil)
-
-	if diff := cmp.Diff(map[string]string{"team": "physics"}, wl.Labels); diff != "" {
-		t.Errorf("workload labels (-want +got):\n%s", diff)
-	}
-}
-
-// MultiKueue reads the job-owner pair before the Workload's own owner
-// reference, so a Job naming a job it does not own has to be refused the ride
-// rather than believed.
-func TestNewWorkloadLeavesTheOwnerAnnotationsBehind(t *testing.T) {
+// A Workload must not inherit a marker that something downstream reads to
+// decide what it may act on, however the configuration came to ask for it. Each
+// case keeps an ordinary key alongside, so a test cannot pass by copying
+// nothing at all.
+func TestNewWorkloadLeavesReservedMetadataBehind(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
-	job := testingjob.MakeJob("job", "ns").
-		SetAnnotation("team", "physics").
-		SetAnnotation(controllerconstants.JobOwnerGVKAnnotation, "batch/v1, Kind=Job").
-		SetAnnotation(controllerconstants.JobOwnerNameAnnotation, "someone-elses-job").
-		Obj()
+	cases := map[string]struct {
+		job             *batchv1.Job
+		labelKeys       sets.Set[string]
+		annotationKeys  sets.Set[string]
+		wantLabels      map[string]string
+		wantAnnotations map[string]string
+	}{
+		// MultiKueue reads this back to decide which Workloads its watches,
+		// garbage collection and ownership checks may act on.
+		"the MultiKueue origin label": {
+			job: testingjob.MakeJob("job", "ns").
+				Label("team", "physics").
+				Label(kueue.MultiKueueOriginLabel, "multikueue").
+				Obj(),
+			labelKeys:  sets.New("team", kueue.MultiKueueOriginLabel),
+			wantLabels: map[string]string{"team": "physics"},
+		},
+		// MultiKueue reads the owner pair ahead of the Workload's own owner
+		// reference, so a Job naming a job it does not own would be answered.
+		"the job-owner annotations": {
+			job: testingjob.MakeJob("job", "ns").
+				SetAnnotation("team", "physics").
+				SetAnnotation(controllerconstants.JobOwnerGVKAnnotation, "batch/v1, Kind=Job").
+				SetAnnotation(controllerconstants.JobOwnerNameAnnotation, "someone-elses-job").
+				Obj(),
+			annotationKeys:  sets.New("team", controllerconstants.JobOwnerGVKAnnotation, controllerconstants.JobOwnerNameAnnotation),
+			wantAnnotations: map[string]string{"team": "physics"},
+		},
+		// The scheduler finishes the slice this names rather than preempting it,
+		// and prepareWorkloadSlice writes the real one from the slices it finds.
+		"the slice replacement key": {
+			job: testingjob.MakeJob("job", "ns").
+				SetAnnotation("team", "physics").
+				SetAnnotation(workloadslicing.WorkloadSliceReplacementFor, "ns/someone-elses-workload").
+				Obj(),
+			annotationKeys:  sets.New("team", workloadslicing.WorkloadSliceReplacementFor),
+			wantAnnotations: map[string]string{"team": "physics"},
+		},
+	}
 
-	wl := jobframework.NewWorkload("wl", job, nil, nil,
-		sets.New("team", controllerconstants.JobOwnerGVKAnnotation, controllerconstants.JobOwnerNameAnnotation))
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wl := jobframework.NewWorkload("wl", tc.job, nil, tc.labelKeys, tc.annotationKeys)
 
-	if diff := cmp.Diff(map[string]string{"team": "physics"}, wl.Annotations); diff != "" {
-		t.Errorf("workload annotations (-want +got):\n%s", diff)
+			if tc.wantLabels != nil {
+				if diff := cmp.Diff(tc.wantLabels, wl.Labels); diff != "" {
+					t.Errorf("workload labels (-want +got):\n%s", diff)
+				}
+			}
+			if tc.wantAnnotations != nil {
+				if diff := cmp.Diff(tc.wantAnnotations, wl.Annotations); diff != "" {
+					t.Errorf("workload annotations (-want +got):\n%s", diff)
+				}
+			}
+		})
 	}
 }
 
