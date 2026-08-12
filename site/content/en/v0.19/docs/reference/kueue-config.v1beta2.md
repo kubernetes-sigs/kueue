@@ -1334,7 +1334,9 @@ Defaults to Retain</p>
    <p>MultiplyBy indicates the resource name requested by a workload, if
 specified.
 The requested amount of the resource is used to multiply the requested
-amount of the resource indicated by the &quot;input&quot; field.</p>
+amount of the resource indicated by the &quot;input&quot; field when computing
+&quot;outputs&quot;. It does not change the quantity retained under &quot;input&quot; when
+&quot;strategy&quot; is Retain.</p>
 </td>
 </tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
