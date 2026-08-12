@@ -51,14 +51,9 @@ const (
 	ErrLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
 )
 
-// handlePodOverhead charges the overhead the named RuntimeClass defines. A Pod
-// carrying any other value is refused by the apiserver, so the class is the only
-// answer worth charging; a Workload is not a Pod and reaches here unchecked.
-// fromAdmittedPod reports whether the PodSets were copied off Pods that have
-// already been through admission. Their overhead is what the class said then,
-// and the class is free to say something else now. An owner that does not
-// resolve is not taken at its word, so a claim of one cannot keep an overhead
-// no Pod ever carried.
+// fromAdmittedPod reports whether the PodSets were copied off a Pod the apiserver
+// already admitted, carrying what the class said then rather than what it says now.
+// An owner that does not resolve is not believed.
 func fromAdmittedPod(ctx context.Context, cl client.Client, wl *kueue.Workload) bool {
 	ref := metav1.GetControllerOf(wl)
 	if ref == nil || ref.Kind != "Pod" || ref.APIVersion != "v1" {
@@ -71,6 +66,9 @@ func fromAdmittedPod(ctx context.Context, cl client.Client, wl *kueue.Workload) 
 	return pod.UID == ref.UID
 }
 
+// handlePodOverhead charges the overhead the named RuntimeClass defines. The
+// apiserver holds a Pod to that value when it creates one; nothing holds a
+// Workload to it at all.
 func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
 	if fromAdmittedPod(ctx, cl, wl) {
 		return nil
