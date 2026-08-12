@@ -118,23 +118,35 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile ElasticJobUngater")
 
-	// req.Name is the chain's active (latest admitted, non-finished) slice: the
-	// enqueue handlers resolve it from whichever slice or pod triggered the event,
-	// so Reconcile always loads a live workload whose granted PodSet counts define
-	// how many pods may be ungated. If it is already gone (just finished/deleted),
-	// there is nothing to ungate.
+	// req.Name is whichever slice the enqueue handlers resolved as active when the
+	// event fired. It is only a snapshot: a requeue (e.g. after a pod-patch
+	// conflict) can re-run this against a slice that has since finished, so the
+	// eligibility check below redirects to the current active slice rather than
+	// trusting req.Name. If nothing in the chain is admitted anymore, there is
+	// nothing to ungate.
 	active := &kueue.Workload{}
 	if err := r.client.Get(ctx, req.NamespacedName, active); err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
-	// The handlers only enqueue active elastic slices, but an enqueue can race a
-	// slice finishing or being evicted; re-check before ungating against its (now
-	// stale) granted counts. Eviction is two writes — the condition is set before
-	// the reservation is released — so an evicted slice still reports a
-	// reservation while its capacity is on the way out; exclude it here, matching
-	// workloadslicing.FindLatestActiveWorkload.
+	// The handlers only enqueue active elastic slices, but req.Name is a snapshot:
+	// by the time this runs (especially on a requeue after a pod-patch conflict),
+	// the enqueued slice may have finished as part of a scale rollover. Bailing
+	// here would strand any pending ungate until the next periodic resync, so
+	// redirect to the chain's current active slice instead. Eviction is two
+	// writes — the condition is set before the reservation is released — so an
+	// evicted slice still reports a reservation while its capacity is on the way
+	// out; treat it as ineligible too, matching workloadslicing.FindLatestActiveWorkload.
 	if !shouldUngate(active) || workload.IsEvicted(active) {
-		return reconcile.Result{}, nil
+		redirected, err := r.activeSlice(ctx, active)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		// No eligible active slice, or it is the same (still-ineligible) object we
+		// just loaded: nothing new to ungate against.
+		if redirected == nil || redirected.Name == active.Name {
+			return reconcile.Result{}, nil
+		}
+		active = redirected
 	}
 
 	// Expectations are keyed by the stable chain key (the origin slice name shared
