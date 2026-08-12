@@ -33,7 +33,7 @@ func Equal(a, b Requests) bool {
 	}
 	equal := true
 	a.ForEach(func(name corev1.ResourceName, val int64) {
-		if equal && b.GetValue(name) != val {
+		if equal && b.ResourceValue(name) != val {
 			equal = false
 		}
 	})
