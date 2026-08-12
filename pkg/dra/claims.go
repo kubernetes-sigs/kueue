@@ -60,7 +60,7 @@ func isAdminAccessRequest(req *resourcev1.ExactDeviceRequest) bool {
 // ResourceClaimSpec. Returns field errors for unsupported request features
 // (FirstAvailable, AllocationMode All). AdminAccess requests are skipped (zero quota).
 func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, field.ErrorList) {
-	out := resources.CreateEmpty()
+	out := resources.NewRequests()
 	if claimSpec == nil {
 		return out, nil
 	}
