@@ -195,7 +195,7 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		domainID := utiltas.DomainID(tr.Values)
 		_, found := c.usage[domainID]
 		if !found {
-			c.usage[domainID] = resources.CreateEmpty()
+			c.usage[domainID] = resources.NewRequests()
 		}
 		if op == subtract {
 			c.usage[domainID].Sub(tr.TotalRequests())

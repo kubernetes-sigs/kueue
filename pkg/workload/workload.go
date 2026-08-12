@@ -546,7 +546,7 @@ func (i *Info) TASUsage() TASUsage {
 }
 
 func (i *Info) SumTotalRequests(formatter *resources.ResourceFormatter) corev1.ResourceList {
-	reqs := resources.CreateEmpty()
+	reqs := resources.NewRequests()
 	for _, psReqs := range i.TotalRequests {
 		if psReqs.Requests != nil {
 			reqs.Add(psReqs.Requests)

@@ -749,7 +749,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 	}
 
 	for _, podSets := range groupedRequests.InOrder {
-		requests := resources.CreateEmpty()
+		requests := resources.NewRequests()
 		psIDs := make([]int, len(podSets))
 		for idx, podset := range podSets {
 			psIDs[idx] = podset.originalIndex
@@ -1350,7 +1350,7 @@ func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {
 }
 
 func filterRequestedResources(req resources.Requests, allowList sets.Set[corev1.ResourceName]) resources.Requests {
-	filtered := resources.CreateEmpty()
+	filtered := resources.NewRequests()
 	req.ForEach(func(resName corev1.ResourceName, quantity int64) {
 		if allowList.Has(resName) {
 			filtered.Set(resName, quantity)
