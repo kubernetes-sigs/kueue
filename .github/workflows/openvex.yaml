@@ -13,20 +13,11 @@ jobs:
       contents: write
     runs-on: ubuntu-latest
     steps:
-      - name: Set tag name
-        shell: bash
-        run: |
-          TAG=${{ github.event.inputs.tag }}
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: openvex/generate-vex@c59881b41451d7ccba5c3b74cd195382b8971fcd
-        name: Run vexctl
         with:
-          product: pkg:golang/sigs.k8s.io/kueue@${{ env.TAG }}
-          file: /tmp/kueue.vex.json
-      - name: Upload openvex data
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release upload $TAG /tmp/kueue.vex.json
+          persist-credentials: false
+      - name: Generate OpenVEX
+        uses: ./.github/actions/generate-openvex
+        with:
+          tag: ${{ inputs.tag }}
