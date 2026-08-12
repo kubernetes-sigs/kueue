@@ -46,7 +46,6 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	pkgconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -6147,9 +6146,9 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		labelKeysToCopy, annotationsToCopy := metrics.WorkloadCustomLabelSources(configuration.Metrics.CustomLabels)
 		// Options can ask for a key a Kueue controller writes: built before it was
 		// reserved, or a copy source added after. The sink answers either way.
-		labelKeysToCopy.Insert(kueue.MultiKueueOriginLabel, controllerconstants.ConcurrentAdmissionParentLabelKey)
-		annotationsToCopy.Insert(controllerconstants.JobOwnerNameAnnotation,
-			controllerconstants.WorkloadAllowedResourceFlavorAnnotation, kueue.WorkloadSliceNameAnnotation,
+		labelKeysToCopy.Insert(kueue.MultiKueueOriginLabel, constants.ConcurrentAdmissionParentLabelKey)
+		annotationsToCopy.Insert(constants.JobOwnerNameAnnotation,
+			constants.WorkloadAllowedResourceFlavorAnnotation, kueue.WorkloadSliceNameAnnotation,
 			workloadslicing.WorkloadSliceReplacementFor, podconstants.IsGroupWorkloadAnnotationKey)
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, false, configuration,
 			jobframework.WithLabelKeysToCopy(labelKeysToCopy),
@@ -6194,15 +6193,15 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 	// a copy source added later, still do not put one on a Workload.
 	ginkgo.It("should not copy metadata a Kueue controller writes, whatever the options ask for", func() {
 		reservedLabels := map[string]string{
-			kueue.MultiKueueOriginLabel:                           "multikueue",
-			controllerconstants.ConcurrentAdmissionParentLabelKey: "true",
+			kueue.MultiKueueOriginLabel:                 "multikueue",
+			constants.ConcurrentAdmissionParentLabelKey: "true",
 		}
 		reservedAnnotations := map[string]string{
-			controllerconstants.JobOwnerNameAnnotation:                  "someone-elses-job",
-			controllerconstants.WorkloadAllowedResourceFlavorAnnotation: "expensive",
-			kueue.WorkloadSliceNameAnnotation:                           "someone-elses-workload",
-			workloadslicing.WorkloadSliceReplacementFor:                 "ns/someone-elses-workload",
-			podconstants.IsGroupWorkloadAnnotationKey:                   "true",
+			constants.JobOwnerNameAnnotation:                  "someone-elses-job",
+			constants.WorkloadAllowedResourceFlavorAnnotation: "expensive",
+			kueue.WorkloadSliceNameAnnotation:                 "someone-elses-workload",
+			workloadslicing.WorkloadSliceReplacementFor:       "ns/someone-elses-workload",
+			podconstants.IsGroupWorkloadAnnotationKey:         "true",
 		}
 		job := testingjob.MakeJob("test-job-reserved", ns.Name).Queue("foo").
 			Label("job-label", "label-value").
