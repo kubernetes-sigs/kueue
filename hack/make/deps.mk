@@ -73,7 +73,11 @@ SPARKOPERATOR_ROOT = $(shell $(GO_CMD) list -m -mod=readonly -f "{{.Dir}}" githu
 
 ##@ Tools
 
-NETWORK_INSTALL_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 --exponential --stream -- env
+HELM_UNITTEST_PLUGIN_URL = https://github.com/helm-unittest/helm-unittest.git
+HELM_UNITTEST_PLUGIN_DIR = $(BIN_DIR)/helm-plugins/$(notdir $(HELM_UNITTEST_PLUGIN_URL))
+
+NETWORK_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh --attempts 7 --delay 2 --exponential --stream
+NETWORK_INSTALL_RETRY = $(NETWORK_RETRY) -- env
 
 .PHONY: golangci-lint
 golangci-lint: gomod-download-tools ## Download golangci-lint locally if necessary.
@@ -118,8 +122,16 @@ helm: gomod-download-tools ## Download helm locally if necessary.
 
 .PHONY: helm-unittest-plugin
 helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
-	@if ! HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) plugin list | grep -q unittest; then \
-		HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) plugin install https://github.com/helm-unittest/helm-unittest.git --version $(HELM_UNITTEST_PLUGIN_VERSION) --verify=false; \
+helm-unittest-plugin: helm ## Download helm-unittest locally if necessary.
+	@# Helm registers the plugin before running its install hook, so plugin list can include an unusable plugin.
+	@if ! HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest --help >/dev/null 2>&1; then \
+		if ! $(NETWORK_RETRY) \
+			--cleanup 'rm -rf "$(HELM_UNITTEST_PLUGIN_DIR)"' \
+			-- env HELM_PLUGINS=$(BIN_DIR)/helm-plugins \
+			$(HELM) plugin install $(HELM_UNITTEST_PLUGIN_URL) --version $(HELM_UNITTEST_PLUGIN_VERSION) --verify=false; then \
+			rm -rf "$(HELM_UNITTEST_PLUGIN_DIR)"; \
+			exit 1; \
+		fi; \
 	fi
 
 .PHONY: genref
