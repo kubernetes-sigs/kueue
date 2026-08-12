@@ -377,6 +377,72 @@ func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
 	return strategies
 }
 
+// fsEvaluationLogEntry is the result of evaluating the first
+// FairSharing strategy against a single candidate workload.
+type fsEvaluationLogEntry struct {
+	TargetWorkload string  `json:"targetWorkload"`
+	TargetNewShare float64 `json:"targetNewShare"`
+	StrategyPassed bool    `json:"strategyPassed"`
+}
+
+// fsStrategyLog accumulates the first FairSharing strategy's
+// evaluations for a single candidate ClusterQueue, so that they can be
+// emitted as one log entry holding an array of results.
+//
+// The preemptor's and the target's shares, and the target ClusterQueue
+// itself, are constant for the whole iteration, so they are logged
+// once. Only the candidate workload and its resulting share vary. This
+// keeps the volume of this log proportional to the number of candidate
+// ClusterQueues rather than to the number of candidate workloads
+// evaluated.
+//
+// Nothing is accumulated when the verbosity level is disabled.
+type fsStrategyLog struct {
+	logV              logr.Logger
+	enabled           bool
+	targetCq          kueue.ClusterQueueReference
+	preemptorNewShare fairsharing.PreemptorNewShare
+	targetOldShare    fairsharing.TargetOldShare
+	entries           []fsEvaluationLogEntry
+}
+
+func newFsStrategyLog(log logr.Logger, candCQ *fairsharing.TargetClusterQueue, preemptorNewShare fairsharing.PreemptorNewShare, targetOldShare fairsharing.TargetOldShare) fsStrategyLog {
+	logV := log.V(4)
+	return fsStrategyLog{
+		logV:              logV,
+		enabled:           logV.Enabled(),
+		targetCq:          candCQ.GetTargetCq().Name,
+		preemptorNewShare: preemptorNewShare,
+		targetOldShare:    targetOldShare,
+	}
+}
+
+func (l *fsStrategyLog) record(candWl *workload.Info, targetNewShare fairsharing.TargetNewShare, passed bool) {
+	if !l.enabled {
+		return
+	}
+	l.entries = append(l.entries, fsEvaluationLogEntry{
+		TargetWorkload: string(workload.Key(candWl.Obj)),
+		TargetNewShare: schdcache.DRS(targetNewShare).PreciseWeightedShare(),
+		StrategyPassed: passed,
+	})
+}
+
+// flush emits the accumulated evaluations as a single log entry. It is
+// a no-op when the verbosity level is disabled or when nothing was
+// recorded, and it is safe to call more than once.
+func (l *fsStrategyLog) flush() {
+	if !l.enabled || len(l.entries) == 0 {
+		return
+	}
+	l.logV.Info("Evaluating FairSharing strategy",
+		"preemptorNewShare", schdcache.DRS(l.preemptorNewShare).PreciseWeightedShare(),
+		"targetClusterQueue", klog.KRef("", string(l.targetCq)),
+		"targetOldShare", schdcache.DRS(l.targetOldShare).PreciseWeightedShare(),
+		"strategyEvaluations", l.entries)
+	l.entries = nil
+}
+
 // runFirstFsStrategy runs the first configured FairSharing strategy,
 // and returns (fits, targets, retryCandidates) retryCandidates may be
 // used if rule S2-b is configured.
@@ -424,19 +490,12 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 		}
 
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
+		strategyLog := newFsStrategyLog(preemptionCtx.log, candCQ, preemptorNewShare, targetOldShare)
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
 			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
 			passed := strategy(preemptorNewShare, targetOldShare, targetNewShare)
-			if logV := preemptionCtx.log.V(4); logV.Enabled() {
-				logV.Info("Evaluating FairSharing strategy",
-					"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
-					"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
-					"targetWorkload", klog.KObj(candWl.Obj),
-					"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
-					"targetNewShare", schdcache.DRS(targetNewShare).PreciseWeightedShare(),
-					"strategyPassed", passed)
-			}
+			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
 				preemptionCtx.snapshot.RemoveWorkload(candWl)
 				targets = append(targets, &Target{
@@ -445,6 +504,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 					WorkloadCq:   candCQ.GetTargetCq(),
 				})
 				if workloadFitsForFairSharing(preemptionCtx) {
+					strategyLog.flush()
 					return true, targets, nil
 				}
 				// Might need to pick a different CQ due to changing values.
@@ -453,6 +513,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 				retryCandidates = append(retryCandidates, candWl)
 			}
 		}
+		strategyLog.flush()
 	}
 	return false, targets, retryCandidates
 }
