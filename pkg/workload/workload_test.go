@@ -4353,12 +4353,12 @@ func TestCalcLocalQueueFSUsage(t *testing.T) {
 
 			resWeights := map[corev1.ResourceName]float64{corev1.ResourceCPU: 5.0}
 
-			afsConsumed := queueafs.NewAfsConsumedResources()
-			afsConsumed.Set(utilqueue.KeyFromWorkload(wl), corev1.ResourceList{
+			afsLedger := queueafs.NewAfsUsageLedger()
+			afsLedger.SetForTest(utilqueue.KeyFromWorkload(wl), corev1.ResourceList{
 				corev1.ResourceCPU: resource.MustParse("10"),
 			}, time.Now())
 
-			usage, err := info.CalcLocalQueueFSUsage(ctx, cl, resWeights, nil, afsConsumed)
+			usage, err := info.CalcLocalQueueFSUsage(ctx, cl, resWeights, afsLedger)
 
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
