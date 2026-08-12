@@ -259,16 +259,26 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 }
 
 // NewWorkload creates a new Workload object with the specified name,
+// CopyableLabelKeys returns the keys a Workload may inherit. Whether a Workload
+// is one MultiKueue placed here is ours to say, so that marker never travels
+// with the rest, however the configuration came to ask for it. The caller's set
+// is left alone: the reconciler options hold it for every reconcile.
+func CopyableLabelKeys(keys sets.Set[string]) sets.Set[string] {
+	if !keys.Has(kueue.MultiKueueOriginLabel) {
+		return keys
+	}
+	safe := keys.Clone()
+	safe.Delete(kueue.MultiKueueOriginLabel)
+	return safe
+}
+
 // associated object, pod sets, and label keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
 	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
 	if features.Enabled(features.CustomMetricLabels) {
 		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
 	}
-	labels := maps.FilterKeys(obj.GetLabels(), labelKeysToCopy.UnsortedList())
-	// Whether a Workload is one MultiKueue placed here is ours to say, so drop
-	// the marker however the configuration came to ask for it.
-	delete(labels, kueue.MultiKueueOriginLabel)
+	labels := maps.FilterKeys(obj.GetLabels(), CopyableLabelKeys(labelKeysToCopy).UnsortedList())
 	return &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
