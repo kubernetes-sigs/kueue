@@ -162,8 +162,7 @@ func (sr *SliceRequests) Clone() Requests {
 	if sr == nil {
 		return (*SliceRequests)(nil)
 	}
-	res := slices.Clone(*sr)
-	return &res
+	return new(slices.Clone(*sr))
 }
 
 func (sr *SliceRequests) ScaledUp(f int64) Requests {
