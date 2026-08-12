@@ -26,7 +26,7 @@ echo "Building linkchecker Docker image..."
 "${DOCKER}" build --load -f "${SOURCE_DIR}/Dockerfile" -t linkchecker "${SOURCE_DIR}"
 
 echo "Running linkchecker..."
-"${ROOT_DIR}/hack/testing/retry.sh" --attempts 5 --delay 5 --stream -- \
+"${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
     "${DOCKER}" run --rm linkchecker --no-warnings --ignore-url='^mailto:' --ignore-url='^tel:' https://kueue.sigs.k8s.io/
 
 echo "Link check completed successfully"
