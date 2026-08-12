@@ -22,37 +22,37 @@ import (
 )
 
 const (
-	// BranchBarrierTimeout bounds a wait for another goroutine to reach its
+	// branchBarrierTimeout bounds a wait for another goroutine to reach its
 	// step. It is generous because a busy CI runner takes far longer to
 	// schedule one than a laptop does, and because reaching it fails the test
 	// rather than letting it pass quietly, so a long wait costs nothing on a
 	// run that was going to succeed.
-	BranchBarrierTimeout = 30 * time.Second
+	branchBarrierTimeout = 30 * time.Second
 
-	// CancellationWindow is how long to watch for a cancellation that would
+	// cancellationWindow is how long to watch for a cancellation that would
 	// arrive within microseconds if it were coming at all: whatever would send
 	// it has already failed by the time this is called. It is an observation
 	// window rather than a deadline, and a short one would let a descheduled
 	// goroutine read as no cancellation.
-	CancellationWindow = time.Second
+	cancellationWindow = time.Second
 )
 
-// AwaitBranch reports whether ch was closed before BranchBarrierTimeout.
+// AwaitBranch reports whether ch was closed before branchBarrierTimeout.
 func AwaitBranch(ch <-chan struct{}) bool {
 	select {
 	case <-ch:
 		return true
-	case <-time.After(BranchBarrierTimeout):
+	case <-time.After(branchBarrierTimeout):
 		return false
 	}
 }
 
-// ObserveCancellation reports whether ctx was cancelled within CancellationWindow.
+// ObserveCancellation reports whether ctx was cancelled within cancellationWindow.
 func ObserveCancellation(ctx context.Context) bool {
 	select {
 	case <-ctx.Done():
 		return true
-	case <-time.After(CancellationWindow):
+	case <-time.After(cancellationWindow):
 		return false
 	}
 }
