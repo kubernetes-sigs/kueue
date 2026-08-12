@@ -6146,8 +6146,10 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		labelKeysToCopy, annotationsToCopy := metrics.WorkloadCustomLabelSources(configuration.Metrics.CustomLabels)
 		// Options can ask for a key a Kueue controller writes: built before it was
 		// reserved, or a copy source added after. The sink answers either way.
-		labelKeysToCopy.Insert(kueue.MultiKueueOriginLabel, constants.ConcurrentAdmissionParentLabelKey)
-		annotationsToCopy.Insert(constants.JobOwnerNameAnnotation,
+		labelKeysToCopy.Insert(kueue.MultiKueueOriginLabel, constants.ConcurrentAdmissionParentLabelKey,
+			constants.JobUIDLabel)
+		annotationsToCopy.Insert(constants.ComponentWorkloadIndexAnnotation, constants.JobOwnerGVKAnnotation,
+			constants.JobOwnerNameAnnotation, constants.PriorityBoostAnnotationKey,
 			constants.WorkloadAllowedResourceFlavorAnnotation, kueue.WorkloadSliceNameAnnotation,
 			workloadslicing.WorkloadSliceReplacementFor, podconstants.IsGroupWorkloadAnnotationKey)
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, false, configuration,
@@ -6192,12 +6194,17 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 	// cannot be reached that way: options built before the key was reserved, or
 	// a copy source added later, still do not put one on a Workload.
 	ginkgo.It("should not copy metadata a Kueue controller writes, whatever the options ask for", func() {
-		reservedLabels := map[string]string{
+		// The job UID is left out: the reconciler writes the real one straight
+		// after building the Workload, so it is checked below rather than here.
+		nonInheritableLabels := map[string]string{
 			kueue.MultiKueueOriginLabel:                 "multikueue",
 			constants.ConcurrentAdmissionParentLabelKey: "true",
 		}
-		reservedAnnotations := map[string]string{
+		nonInheritableAnnotations := map[string]string{
+			constants.ComponentWorkloadIndexAnnotation:        "0",
+			constants.JobOwnerGVKAnnotation:                   "batch/v1, Kind=Job",
 			constants.JobOwnerNameAnnotation:                  "someone-elses-job",
+			constants.PriorityBoostAnnotationKey:              "2147483647",
 			constants.WorkloadAllowedResourceFlavorAnnotation: "expensive",
 			kueue.WorkloadSliceNameAnnotation:                 "someone-elses-workload",
 			workloadslicing.WorkloadSliceReplacementFor:       "ns/someone-elses-workload",
@@ -6205,10 +6212,11 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		}
 		job := testingjob.MakeJob("test-job-reserved", ns.Name).Queue("foo").
 			Label("job-label", "label-value").
+			Label(constants.JobUIDLabel, "someone-elses-uid").
 			SetAnnotation("job-annotation", "annotation-value").
 			Obj()
-		maps.Copy(job.Labels, reservedLabels)
-		maps.Copy(job.Annotations, reservedAnnotations)
+		maps.Copy(job.Labels, nonInheritableLabels)
+		maps.Copy(job.Annotations, nonInheritableAnnotations)
 		util.MustCreate(ctx, k8sClient, job)
 
 		wl := &kueue.Workload{}
@@ -6220,11 +6228,14 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		// The ordinary pair still arrives, so nothing passes by copying nothing.
 		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue("job-label", "label-value"))
 		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("job-annotation", "annotation-value"))
-		for key, value := range reservedLabels {
-			gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKeyWithValue(key, value))
+		// The key itself has to be gone. A value that merely differs from the one
+		// the job asked for would still be a value the job put there.
+		for key := range nonInheritableLabels {
+			gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKey(key))
 		}
-		for key, value := range reservedAnnotations {
-			gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKeyWithValue(key, value))
+		for key := range nonInheritableAnnotations {
+			gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey(key))
 		}
+		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue(constants.JobUIDLabel, string(job.UID)))
 	})
 })

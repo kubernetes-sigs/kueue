@@ -261,21 +261,27 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 	SetPrebuiltWorkloadName(obj, workloadName)
 }
 
-// reservedLabels are the labels a Workload must not inherit, because a
-// controller reads them to decide what it may act on.
+// nonInheritableLabels are the labels a Workload must not inherit from the
+// object below it, because a controller reads them to decide what it may act
+// on. Who else may write one on a Workload is a separate question: what matters
+// here is that the answer never comes up from a Job or a Pod.
 //
 // Whether a Workload is one MultiKueue placed here is ours to say. The variant
 // controller creates variants for whatever carries the parent label, without
 // repeating the eligibility the Workload controller checks before writing it.
-var reservedLabels = []string{
+// The job UID names who a Workload speaks for, in preemption events and in the
+// orphan check, and each integration writes the real one as soon as it has
+// built the Workload.
+var nonInheritableLabels = []string{
 	kueue.MultiKueueOriginLabel,
 	controllerconstants.ConcurrentAdmissionParentLabelKey,
+	controllerconstants.JobUIDLabel,
 }
 
-// IsReservedWorkloadLabel reports whether a configuration may name key as one
-// to copy onto a Workload.
-func IsReservedWorkloadLabel(key string) bool {
-	return slices.Contains(reservedLabels, key)
+// IsNonInheritableWorkloadLabel reports whether a configuration may name key as
+// one to copy onto a Workload.
+func IsNonInheritableWorkloadLabel(key string) bool {
+	return slices.Contains(nonInheritableLabels, key)
 }
 
 // CopyableLabelKeys returns the label keys a Workload may inherit from the
@@ -283,16 +289,15 @@ func IsReservedWorkloadLabel(key string) bool {
 // caller's set is left alone: the reconciler options hold it for every
 // reconcile.
 func CopyableLabelKeys(keys sets.Set[string]) sets.Set[string] {
-	if !keys.HasAny(reservedLabels...) {
+	if !keys.HasAny(nonInheritableLabels...) {
 		return keys
 	}
 	safe := keys.Clone()
-	safe.Delete(reservedLabels...)
+	safe.Delete(nonInheritableLabels...)
 	return safe
 }
 
-// reservedAnnotations are the annotations a Workload must not inherit, because
-// something downstream reads them to decide what it may act on.
+// nonInheritableAnnotations is nonInheritableLabels for annotations.
 //
 // MultiKueue reads the job-owner pair to decide which remote object a Workload
 // speaks for, ahead of the Workload's own owner reference, so a Job naming a job
@@ -304,13 +309,20 @@ func CopyableLabelKeys(keys sets.Set[string]) sets.Set[string] {
 // topology ungater lists Pods by it, so one taken from a job points a reconcile
 // at another Workload's Pods. OwnedBySinglePod reads the group marker to leave a
 // Workload no future Pod can consume out of reassignment, and the flavor
-// assigner honours the allowed flavors on any Workload carrying them.
+// assigner honours the allowed flavors on any Workload carrying them. The
+// LeaderWorkerSet adapter orders component Workloads by the index one, and its
+// reconciler writes the real index once it has built the Workload.
 //
-// The priority boost key is deliberately absent: its API says external
-// controllers may set it, so it is not ours alone to write.
-var reservedAnnotations = []string{
+// The priority boost is here for what it does rather than who writes it. An
+// external controller adding one to a Workload is the feature; the scheduler
+// adds it to the base priority for both admission and preemption, and its own
+// design gives a Job no way to ask for one, which is what this would otherwise
+// hand back to whoever can submit a Job.
+var nonInheritableAnnotations = []string{
+	controllerconstants.ComponentWorkloadIndexAnnotation,
 	controllerconstants.JobOwnerGVKAnnotation,
 	controllerconstants.JobOwnerNameAnnotation,
+	controllerconstants.PriorityBoostAnnotationKey,
 	controllerconstants.WorkloadAllowedResourceFlavorAnnotation,
 	kueue.WorkloadSliceNameAnnotation,
 	workloadslicing.WorkloadSliceReplacementFor,
@@ -319,11 +331,11 @@ var reservedAnnotations = []string{
 
 // CopyableAnnotationKeys is CopyableLabelKeys for annotations.
 func CopyableAnnotationKeys(keys sets.Set[string]) sets.Set[string] {
-	if !keys.HasAny(reservedAnnotations...) {
+	if !keys.HasAny(nonInheritableAnnotations...) {
 		return keys
 	}
 	safe := keys.Clone()
-	safe.Delete(reservedAnnotations...)
+	safe.Delete(nonInheritableAnnotations...)
 	return safe
 }
 

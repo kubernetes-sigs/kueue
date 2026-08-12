@@ -826,7 +826,7 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 // act on later, and a Workload this cluster owns must not arrive already
 // carrying one.
 func validateCopiedLabelKey(fldPath *field.Path, key string) field.ErrorList {
-	if jobframework.IsReservedWorkloadLabel(key) {
+	if jobframework.IsNonInheritableWorkloadLabel(key) {
 		return field.ErrorList{field.Invalid(fldPath, key,
 			"is written by a Kueue controller and must not be copied onto a Workload")}
 	}
