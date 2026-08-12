@@ -36,6 +36,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -3315,24 +3316,34 @@ func TestValidateRejectsCopyingOwnershipLabels(t *testing.T) {
 		return cfg
 	}
 
+	refused := func(index int, key string) *field.Error {
+		return field.Invalid(integrationsLabelKeysToCopyPath.Index(index), key,
+			"is written by a Kueue controller and must not be copied onto a Workload")
+	}
+
 	cases := map[string]struct {
-		cfg        *configapi.Configuration
-		wantFields []string
+		cfg  *configapi.Configuration
+		want field.ErrorList
 	}{
 		"an ordinary label is copied as before": {
 			cfg: integrations("team", "cost-centre"),
 		},
 		"the MultiKueue origin label is refused": {
-			cfg:        integrations(kueueapi.MultiKueueOriginLabel),
-			wantFields: []string{"integrations.labelKeysToCopy[0]"},
+			cfg:  integrations(kueueapi.MultiKueueOriginLabel),
+			want: field.ErrorList{refused(0, kueueapi.MultiKueueOriginLabel)},
 		},
 		"and refused wherever it sits in the list": {
-			cfg:        integrations("team", kueueapi.MultiKueueOriginLabel),
-			wantFields: []string{"integrations.labelKeysToCopy[1]"},
+			cfg:  integrations("team", kueueapi.MultiKueueOriginLabel),
+			want: field.ErrorList{refused(1, kueueapi.MultiKueueOriginLabel)},
 		},
-		"a Workload custom metric label reaches the same copy set": {
-			cfg:        customLabel(configapi.SourceKindWorkload, kueueapi.MultiKueueOriginLabel),
-			wantFields: []string{"metrics.customLabels[0].sourceLabelKey"},
+		"the parent label the variant controller trusts is refused as well": {
+			cfg:  integrations(controllerconstants.ConcurrentAdmissionParentLabelKey),
+			want: field.ErrorList{refused(0, controllerconstants.ConcurrentAdmissionParentLabelKey)},
+		},
+		// A source says what to read off a Workload, not what may travel onto one,
+		// and a Workload MultiKueue really did place here carries the label honestly.
+		"a Workload custom metric may observe what a controller wrote": {
+			cfg: customLabel(configapi.SourceKindWorkload, kueueapi.MultiKueueOriginLabel),
 		},
 		"a ClusterQueue one never lands on a Workload, so it stands": {
 			cfg: customLabel(configapi.SourceKindClusterQueue, kueueapi.MultiKueueOriginLabel),
@@ -3343,14 +3354,9 @@ func TestValidateRejectsCopyingOwnershipLabels(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			var got []string
-			for _, err := range Validate(tc.cfg, testScheme, jobs.NewIntegrationManager()) {
-				if strings.Contains(err.Detail, "reserved for MultiKueue") {
-					got = append(got, err.Field)
-				}
-			}
-			if diff := cmp.Diff(tc.wantFields, got); diff != "" {
-				t.Errorf("refused fields (-want +got):\n%s", diff)
+			got := Validate(tc.cfg, testScheme, jobs.NewIntegrationManager())
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Validate (-want +got):\n%s", diff)
 			}
 		})
 	}

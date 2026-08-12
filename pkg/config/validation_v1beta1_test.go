@@ -23,9 +23,12 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 
+	"github.com/google/go-cmp/cmp"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	configapiv1beta1 "sigs.k8s.io/kueue/apis/config/v1beta1"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
 // The validation is written against the internal shape, so the older API has to
@@ -55,17 +58,11 @@ integrations:
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	errs := Validate(&cfg, scheme, jobframework.NewIntegrationManager())
-	if len(errs) == 0 {
-		t.Fatal("Validate() accepted the reserved key from a v1beta1 configuration")
-	}
-	var found bool
-	for _, e := range errs {
-		if e.Field == "integrations.labelKeysToCopy[1]" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("no error names integrations.labelKeysToCopy[1]; got %v", errs.ToAggregate())
+	want := field.ErrorList{field.Invalid(
+		field.NewPath("integrations").Child("labelKeysToCopy").Index(1),
+		kueueapi.MultiKueueOriginLabel,
+		"is written by a Kueue controller and must not be copied onto a Workload")}
+	if diff := cmp.Diff(want, Validate(&cfg, scheme, jobs.NewIntegrationManager())); diff != "" {
+		t.Errorf("Validate (-want +got):\n%s", diff)
 	}
 }
