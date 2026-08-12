@@ -1161,6 +1161,29 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// Dropping an invalid entry must not take a valid one with it. The
+		// normalization only runs when the spec holds a negative somewhere, so
+		// the negative here is what brings it in; the pod-level request is one
+		// the apiserver would have accepted and has to survive.
+		"normalizationKeepsAPodLevelRequestTheApiserverWouldAccept": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelkeep", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request(corev1.ResourceCPU, "8").
+						Request(corev1.ResourceMemory, "-1").Obj()).
+					Obj(),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("12")}),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    12000,
+						corev1.ResourceMemory: 0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		// An explicit zero is a value, not an absent entry, so it still replaces
 		// the container total. The apiserver would refuse this shape on a Pod,
 		// since a pod-level request may not sit below the containers it covers,
