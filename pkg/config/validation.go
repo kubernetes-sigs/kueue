@@ -43,7 +43,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podworkload "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -782,9 +781,10 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 		sourceKind := ptr.Deref(entry.SourceKind, configapi.DefaultCustomMetricLabelSourceKind)
 		countPerSourceKind[sourceKind]++
 		if sourceKind == configapi.SourceKindWorkload {
-			if entry.SourceLabelKey != "" {
-				allErrs = append(allErrs, validateCopiedLabelKey(fldPath.Child("sourceLabelKey"), entry.SourceLabelKey)...)
-			}
+			// A source names metadata to read off the Workload, and a Workload
+			// MultiKueue really did place here carries the origin label honestly.
+			// What the key must not do is travel here from the object below, and
+			// that is refused where the Workload is built rather than at load.
 			if len(entry.TrackedValues) == 0 {
 				allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues,
 					"must not be empty when sourceKind is 'Workload'"))
@@ -821,15 +821,14 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
-// A configuration can name the labels to copy from a managed object onto the
-// Workload built from it, in more than one place. MultiKueue puts its origin
-// label on the Workloads it creates on a worker and reads it back to decide
-// which ones its watches, garbage collection and ownership checks may act on,
-// so a Workload this cluster owns must not inherit it from the object below.
+// This field asks for a label to travel from a managed object onto the Workload
+// built from it. A Kueue controller writes some of them to decide what it may
+// act on later, and a Workload this cluster owns must not arrive already
+// carrying one.
 func validateCopiedLabelKey(fldPath *field.Path, key string) field.ErrorList {
-	if key == kueue.MultiKueueOriginLabel {
+	if jobframework.IsReservedWorkloadLabel(key) {
 		return field.ErrorList{field.Invalid(fldPath, key,
-			"is reserved for MultiKueue and must not be copied onto a Workload")}
+			"is written by a Kueue controller and must not be copied onto a Workload")}
 	}
 	return nil
 }
