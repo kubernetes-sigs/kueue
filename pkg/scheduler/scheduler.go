@@ -755,11 +755,8 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
 	newTargets []*preemption.Target) schdcache.FitsCheck {
-	workloads := slices.Collect(maps.Values(preemptedWorkloads))
-	for _, target := range newTargets {
-		workloads = append(workloads, target.WorkloadInfo)
-	}
-	revertUsage := snapshot.SimulateWorkloadUsageRemoval(workloads)
+	merged := preemptedWorkloads.MergeWithTargets(newTargets)
+	revertUsage := snapshot.SimulateWorkloadUsageRemoval(merged.Workloads())
 	defer revertUsage()
 	return cq.Fits(*usage)
 }
