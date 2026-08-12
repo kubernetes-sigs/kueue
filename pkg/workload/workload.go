@@ -492,22 +492,18 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 func (i *Info) ComputeLocalQueueFSUsage(
 	weight float64,
 	resWeights map[corev1.ResourceName]float64,
-	afsEntryPenalties *queueafs.AfsEntryPenalties,
-	afsConsumedResources *queueafs.AfsConsumedResources,
+	afsUsageLedger *queueafs.AfsUsageLedger,
 ) float64 {
 	lqKey := queue.KeyFromWorkload(i.Obj)
 
+	// One Get, so the (consumed, penalty) pair is consistent.
 	consumed := corev1.ResourceList{}
-	if afsConsumedResources != nil {
-		entry, found := afsConsumedResources.Get(lqKey)
-		if found {
-			consumed = entry.Resources
-		}
-	}
-
 	penalty := corev1.ResourceList{}
-	if afsEntryPenalties != nil {
-		penalty = afsEntryPenalties.Peek(lqKey)
+	if afsUsageLedger != nil {
+		if entry, found := afsUsageLedger.Get(lqKey); found {
+			consumed = entry.Resources
+			penalty = entry.PendingPenalty()
+		}
 	}
 
 	return afs.CalculateUsage(consumed, penalty, weight, resWeights)
@@ -517,15 +513,14 @@ func (i *Info) CalcLocalQueueFSUsage(
 	ctx context.Context,
 	c client.Client,
 	resWeights map[corev1.ResourceName]float64,
-	afsEntryPenalties *queueafs.AfsEntryPenalties,
-	afsConsumedResources *queueafs.AfsConsumedResources,
+	afsUsageLedger *queueafs.AfsUsageLedger,
 ) (float64, error) {
 	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
 	lqWeight, err := afs.ResolveLQWeight(ctx, c, lqObjKey)
 	if err != nil {
 		return 0, err
 	}
-	return i.ComputeLocalQueueFSUsage(lqWeight, resWeights, afsEntryPenalties, afsConsumedResources), nil
+	return i.ComputeLocalQueueFSUsage(lqWeight, resWeights, afsUsageLedger), nil
 }
 
 // IsUsingTAS returns information if the workload is using TAS
