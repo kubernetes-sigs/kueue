@@ -54,8 +54,7 @@ func NewRequestsFromMap(m map[corev1.ResourceName]int64) Requests {
 		return NewRequests()
 	}
 	if features.Enabled(features.VectorizedResourceRequests) {
-		sr := toSliceRequests(MapRequests(m))
-		return &sr
+		return new(toSliceRequests(MapRequests(m)))
 	}
 	return MapRequests(m)
 }
@@ -63,8 +62,7 @@ func NewRequestsFromMap(m map[corev1.ResourceName]int64) Requests {
 // NewRequestsFromResourceList creates a Requests instance from a corev1.ResourceList based on feature gates.
 func NewRequestsFromResourceList(rl corev1.ResourceList) Requests {
 	if features.Enabled(features.VectorizedResourceRequests) {
-		sr := ResourceListToSliceRequests(rl)
-		return &sr
+		return new(ResourceListToSliceRequests(rl))
 	}
 	return NewMapRequests(rl)
 }
