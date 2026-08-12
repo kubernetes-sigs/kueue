@@ -49,7 +49,7 @@ func makeSchedulingHashInfo(now time.Time, name string, hash workload.Equivalenc
 func totalCPURequest(wInfo *workload.Info) int64 {
 	var result int64
 	for _, ps := range wInfo.TotalRequests {
-		result += ps.Requests.GetValue(corev1.ResourceCPU)
+		result += ps.Requests.ResourceValue(corev1.ResourceCPU)
 	}
 	return result
 }

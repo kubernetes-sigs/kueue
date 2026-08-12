@@ -353,8 +353,8 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 			checkRequestsEquivalence(t, "Set", m1Copy, s1Copy)
 		case opGetValue:
 			res := fuzzResourceNames[int(opChoice)%len(fuzzResourceNames)]
-			mVal := m1.GetValue(res)
-			sVal := s1.GetValue(res)
+			mVal := m1.ResourceValue(res)
+			sVal := s1.ResourceValue(res)
 			if mVal != sVal {
 				t.Errorf("GetValue mismatch for %s: Map got %d, Slice got %d", res, mVal, sVal)
 			}
