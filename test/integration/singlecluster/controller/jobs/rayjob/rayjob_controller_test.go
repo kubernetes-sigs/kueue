@@ -740,43 +740,14 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 	})
 
 	ginkgo.It("Should put the workload on hold when RayJob validation fails", func() {
-		ginkgo.By("creating the resource flavor")
-
-		onDemandFlavor := utiltestingapi.MakeResourceFlavor("rayjob-on-demand").
-			NodeLabel(instanceKey, "rayjob-on-demand").
-			Obj()
-		util.MustCreate(ctx, k8sClient, onDemandFlavor)
-		ginkgo.By("creating the ClusterQueue")
-
-		clusterQueue := utiltestingapi.MakeClusterQueue("rayjob-cluster-queue").
-			ResourceGroup(
-				*utiltestingapi.MakeFlavorQuotas("rayjob-on-demand").
-					Resource(corev1.ResourceCPU, "5").
-					Obj(),
-			).
-			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-
-		ginkgo.By("creating the LocalQueue")
-
-		localQueue := utiltestingapi.MakeLocalQueue("rayjob-queue", ns.Name).
-			ClusterQueue(clusterQueue.Name).
-			Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
-		defer func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		}()
-
-		ginkgo.By("creating a RayJob")
+		ginkgo.By("creating an invalid RayJob")
 		job := testingrayjob.MakeJob(jobName, ns.Name).
-			Label(constants.QueueLabel, localQueue.Name).
-			Suspend(false).
+			Queue(localQueue.Name).
+			Suspend(true).
 			Obj()
+		// Use malformed YAML to make the RayJob invalid at creation time.
+		job.Spec.RuntimeEnvYAML = "working_dir: ["
 		util.MustCreate(ctx, k8sClient, job)
-
-		setInitStatus(jobName, ns.Name)
 
 		lookupKey := types.NamespacedName{
 			Name:      jobName,
@@ -784,13 +755,6 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		}
 
 		createdJob := &rayv1.RayJob{}
-
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).
-				Should(gomega.Succeed())
-			g.Expect(createdJob.Spec.Suspend).
-				Should(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the workload is created")
 
@@ -807,28 +771,19 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 
 		ginkgo.By("admitting the workload")
 
+		assignments := make([]kueue.PodSetAssignment, len(createdWorkload.Spec.PodSets))
+		for i, podSet := range createdWorkload.Spec.PodSets {
+			assignments[i] = kueue.PodSetAssignment{
+				Name: podSet.Name,
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+				},
+			}
+		}
+
 		admission := utiltestingapi.MakeAdmission(
 			kueue.ClusterQueueReference(clusterQueue.Name),
-		).PodSets(
-			kueue.PodSetAssignment{
-				Name: createdWorkload.Spec.PodSets[0].Name,
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
-				},
-			},
-			kueue.PodSetAssignment{
-				Name: createdWorkload.Spec.PodSets[1].Name,
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
-				},
-			},
-			kueue.PodSetAssignment{
-				Name: createdWorkload.Spec.PodSets[2].Name,
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
-				},
-			},
-		).Obj()
+		).PodSets(assignments...).Obj()
 
 		util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
