@@ -245,8 +245,8 @@ networkPolicy:
   # controllerManager.hostNetwork, because most CNI plugins do not apply NetworkPolicy to
   # host-network pods.
   enabled: false
-  # -- Additional ingress rules appended to the ControllerManager's NetworkPolicy. Use this
-  # to restrict the built-in port-scoped rules to specific peers, or to permit extra traffic.
+  # -- Additional ingress rules appended to the ControllerManager's NetworkPolicy. Ingress
+  # rules are additive, so these permit extra traffic and cannot narrow the built-in rules.
   extraIngress: []
   egress:
     # -- Enable the ControllerManager's egress NetworkPolicy. This applies default-deny
