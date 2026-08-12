@@ -505,7 +505,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 			// For elastic workloads detect a scale-down event and propagate changes to the remote.
 			if group.IsElasticWorkload() && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCountsFromWorkload(group.local)) {
-				remWl.Spec = group.local.Spec
+				remWl.Spec = specWithChargeableOverhead(&group.local.Spec)
 				updateRemote = true
 			}
 
@@ -676,6 +676,16 @@ func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
 	local.PodSets = podSetsWithChargeableOverhead(local.PodSets)
 	remote.PodSets = podSetsWithChargeableOverhead(remote.PodSets)
 	return !equality.Semantic.DeepEqual(local, remote)
+}
+
+// specWithChargeableOverhead copies the spec before taking the overhead off it,
+// so the source keeps what it is allowed to carry. A remote weighs anything the
+// manager sends it against what it already holds, and it never held these.
+func specWithChargeableOverhead(src *kueue.WorkloadSpec) kueue.WorkloadSpec {
+	var dst kueue.WorkloadSpec
+	src.DeepCopyInto(&dst)
+	chargeableOverhead(dst.PodSets)
+	return dst
 }
 
 // chargeableOverhead rewrites the overhead in place, for PodSets that are
@@ -1449,10 +1459,7 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 		remoteWl.Labels = make(map[string]string, 1)
 	}
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
-	orig.Spec.DeepCopyInto(&remoteWl.Spec)
-	// The worker sees this as a create, so it has no earlier state to weigh it
-	// against and refuses an overhead entry the manager is only carrying.
-	chargeableOverhead(remoteWl.Spec.PodSets)
+	remoteWl.Spec = specWithChargeableOverhead(&orig.Spec)
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) && preemptionGated {
 		// Preemption gates should be treated independently on the remotes and manager,

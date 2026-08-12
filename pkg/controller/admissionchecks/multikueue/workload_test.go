@@ -3289,3 +3289,36 @@ func TestRemoteCloneNormalizesOverheadWithoutChurn(t *testing.T) {
 		})
 	}
 }
+
+// The remote never held these entries, so it weighs them as newly introduced
+// and refuses them, whatever the manager is allowed to keep carrying.
+func TestSpecWithChargeableOverheadLeavesTheSourceAlone(t *testing.T) {
+	src := kueue.WorkloadSpec{PodSets: []kueue.PodSet{{
+		Name:  "main",
+		Count: 2,
+		Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Overhead: corev1.ResourceList{
+				corev1.ResourcePods: resource.MustParse("1"),
+				corev1.ResourceCPU:  resource.MustParse("-1"),
+				"example.com/keep":  resource.MustParse("2"),
+			},
+		}},
+	}}}
+	want := src.DeepCopy()
+
+	got := specWithChargeableOverhead(&src)
+
+	oh := got.PodSets[0].Template.Spec.Overhead
+	if _, found := oh[corev1.ResourcePods]; found {
+		t.Errorf("the copy kept the pods overhead: %v", oh)
+	}
+	if _, found := oh[corev1.ResourceCPU]; found {
+		t.Errorf("the copy kept the negative overhead: %v", oh)
+	}
+	if q := oh["example.com/keep"]; q.Value() != 2 {
+		t.Errorf("the copy lost the valid overhead: %v", oh)
+	}
+	if diff := cmp.Diff(want.PodSets, src.PodSets); diff != "" {
+		t.Errorf("the source was modified (-want +got):\n%s", diff)
+	}
+}

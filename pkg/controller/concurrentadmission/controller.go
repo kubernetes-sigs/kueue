@@ -19,6 +19,7 @@ package concurrentadmission
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -48,6 +49,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -358,12 +360,19 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 		ObjectMeta: metav1.ObjectMeta{
 			Name:          jobframework.GetWorkloadNameForVariant(parent.Name, parent.UID, parent.GroupVersionKind(), string(flavor)),
 			Namespace:     parent.Namespace,
-			Labels:        parent.Labels,
-			Annotations:   parent.Annotations,
+			Labels:        maps.Clone(parent.Labels),
+			Annotations:   maps.Clone(parent.Annotations),
 			ManagedFields: parent.ManagedFields,
 		},
-		Spec:   parent.Spec,
-		Status: parent.Status,
+	}
+	// A variant is a create, so the webhook has no earlier state to weigh an
+	// overhead entry against and refuses one the parent is only carrying. The
+	// copy also keeps the edits below off the parent's own maps and slices.
+	parent.Spec.DeepCopyInto(&variant.Spec)
+	parent.Status.DeepCopyInto(&variant.Status)
+	for i := range variant.Spec.PodSets {
+		variant.Spec.PodSets[i].Template.Spec.Overhead =
+			resources.ChargeableOverhead(variant.Spec.PodSets[i].Template.Spec.Overhead)
 	}
 	variant.Spec.PreemptionGates = slices.Clone(variant.Spec.PreemptionGates)
 	workload.EnsurePreemptionGateOnSpec(variant, controllerconsts.ConcurrentAdmissionPreemptionGate)
