@@ -50,23 +50,25 @@ const (
 	ErrLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
 )
 
-// We do not verify Pod's RuntimeClass legality here as this will be performed in admission controller.
-// As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
-// `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
-// rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
+// handlePodOverhead charges the overhead the named RuntimeClass defines. A Pod
+// carrying any other value is refused by the apiserver, so the class is the only
+// answer worth charging; a Workload is not a Pod and reaches here unchecked.
 func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
 	var errs []error
 	for i := range wl.Spec.PodSets {
 		podSpec := &wl.Spec.PodSets[i].Template.Spec
-		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
-			var runtimeClass nodev1.RuntimeClass
-			if err := cl.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
-				errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
-				continue
-			}
-			if runtimeClass.Overhead != nil {
-				podSpec.Overhead = runtimeClass.Overhead.PodFixed
-			}
+		if podSpec.RuntimeClassName == nil {
+			continue
+		}
+		var runtimeClass nodev1.RuntimeClass
+		if err := cl.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
+			errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
+			continue
+		}
+		// A class defining none means a Pod may carry none either.
+		podSpec.Overhead = nil
+		if runtimeClass.Overhead != nil {
+			podSpec.Overhead = runtimeClass.Overhead.PodFixed
 		}
 	}
 	return errs
