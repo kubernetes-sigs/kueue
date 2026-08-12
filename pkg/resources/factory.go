@@ -40,8 +40,8 @@ func Equal(a, b Requests) bool {
 	return equal
 }
 
-// CreateEmpty creates an empty Requests instance based on feature gates.
-func CreateEmpty() Requests {
+// NewRequests creates an empty Requests instance based on feature gates.
+func NewRequests() Requests {
 	if features.Enabled(features.VectorizedResourceRequests) {
 		return &SliceRequests{}
 	}
@@ -51,7 +51,7 @@ func CreateEmpty() Requests {
 // NewRequestsFromMap creates a Requests instance from a map based on feature gates.
 func NewRequestsFromMap(m map[corev1.ResourceName]int64) Requests {
 	if len(m) == 0 {
-		return CreateEmpty()
+		return NewRequests()
 	}
 	if features.Enabled(features.VectorizedResourceRequests) {
 		sr := toSliceRequests(MapRequests(m))
@@ -72,7 +72,7 @@ func NewRequestsFromResourceList(rl corev1.ResourceList) Requests {
 // NewRequestsFromPodSpec creates a Requests instance from a PodSpec based on feature gates.
 func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	if podSpec == nil {
-		return CreateEmpty()
+		return NewRequests()
 	}
 	rl := resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
 	return NewRequestsFromResourceList(rl)

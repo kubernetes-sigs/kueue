@@ -47,7 +47,7 @@ func (frq FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
 
 func (frq FlavorResourceQuantities) FlattenFlavors() Requests {
 	if len(frq) == 0 {
-		return CreateEmpty()
+		return NewRequests()
 	}
 	result := map[corev1.ResourceName]int64{}
 	for key, val := range frq {

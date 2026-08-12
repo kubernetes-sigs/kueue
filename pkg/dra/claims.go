@@ -56,7 +56,7 @@ type celDeviceRequest struct {
 // ResourceClaimSpec. Returns field errors for unsupported request features
 // (FirstAvailable, AdminAccess, AllocationMode All).
 func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Requests, field.ErrorList) {
-	out := resources.CreateEmpty()
+	out := resources.NewRequests()
 	if claimSpec == nil {
 		return out, nil
 	}
