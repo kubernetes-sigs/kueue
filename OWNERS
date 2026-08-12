@@ -47,6 +47,14 @@ filters:
     approvers:
       - release-team
 
+  "^site/content/(en|zh-CN)/v*$":
+    approvers:
+      - release-team
+
+  "^site/static/v*$":
+    approvers:
+      - release-team
+
   # Any directory depth: Makefile-deps.mk
   "Makefile-deps\\.mk$":
     approvers:
