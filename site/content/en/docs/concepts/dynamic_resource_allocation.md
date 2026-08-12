@@ -263,10 +263,13 @@ The following limitations apply:
   request is read only with the `KueueDRAIntegrationPrioritizedList` feature
   gate, which is alpha and off by default; see the note below for what it
   covers.
-- **No device constraints or config**: Device `constraints` (MatchAttribute)
-  and per-request `config` are not supported.
-- **No AdminAccess**: Device requests with `adminAccess: true` are not
-  supported.
+- **Device constraints and config do not change the charge**: Device
+  `constraints` (MatchAttribute) and per-request `config` are accepted, but
+  quota is counted from the device count alone, so neither narrows what is
+  reserved.
+- **AdminAccess requests are charged nothing**: a request with
+  `adminAccess: true` is admitted and reserves no quota, rather than being
+  refused.
 - **No DRA + Topology Aware Scheduling (TAS)**: DRA resources are not
   accounted for in TAS capacity calculations. Using both features together
   may result in incorrect topology assignments for DRA devices.
