@@ -308,6 +308,20 @@ func (s *TASFlavorSnapshot) addTASUsageForHeldDomains(usages map[utiltas.Topolog
 	}
 }
 
+// updateTASUsageForHeldDomains applies the requests only to the domains this
+// snapshot has a leaf for. An overlapping flavor holds only some of them, so an
+// unheld domain must not reach the skip report in addTASUsage and
+// removeTASUsage, which means the backing node went away.
+func (s *TASFlavorSnapshot) updateTASUsageForHeldDomains(usage workload.TASFlavorUsage, op usageOp) {
+	for _, tr := range usage {
+		domainID := utiltas.DomainID(tr.Values)
+		if !s.hasDomain(domainID) {
+			continue
+		}
+		s.updateTASUsage(domainID, tr.TotalRequests(), op, tr.Count)
+	}
+}
+
 func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
 	if s.leaves[domainID] == nil {
 		// this can happen if there is an admitted workload for which the
