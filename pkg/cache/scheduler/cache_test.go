@@ -3276,55 +3276,37 @@ func TestClusterQueueReadiness(t *testing.T) {
 }
 
 func TestCohortCycles(t *testing.T) {
-	ctx, log := utiltesting.ContextWithLog(t)
-
-	testCases := []struct {
-		name         string
-		setup        func(*Cache) error
-		operation    func(*Cache, *testing.T) error
-		wantErr      bool
-		validateFunc func(*testing.T, *Cache)
+	testCases := map[string]struct {
+		cohorts       []*kueue.Cohort
+		clusterQueues []*kueue.ClusterQueue
+		operations    func(*Cache, *testing.T) error
+		wantErr       bool
+		validateFunc  func(*testing.T, *Cache)
 	}{
-		{
-			name: "self cycle",
-			setup: func(cache *Cache) error {
-				cohort := utiltestingapi.MakeCohort("cohort").Parent("cohort").Obj()
-				return cache.AddOrUpdateCohort(cohort)
+		"self cycle": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cohort").Parent("cohort").Obj(),
 			},
 			wantErr: true,
 		},
-		{
-			name: "simple cycle",
-			setup: func(cache *Cache) error {
-				cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
-				if err := cache.AddOrUpdateCohort(cohortA); err != nil {
-					return err
-				}
-				cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj()
-				if err := cache.AddOrUpdateCohort(cohortB); err != nil {
-					return err
-				}
-				cohortC := utiltestingapi.MakeCohort("cohort-c").Parent("cohort-a").Obj()
-				return cache.AddOrUpdateCohort(cohortC)
+		"simple cycle": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
+				utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
+				utiltestingapi.MakeCohort("cohort-c").Parent("cohort-a").Obj(),
 			},
 			wantErr: true,
 		},
-		{
-			name: "clusterqueue add and update return error when cohort has cycle",
-			setup: func(cache *Cache) error {
+		"clusterqueue add and update return error when cohort has cycle": {
+			cohorts: func() []*kueue.Cohort {
 				cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
-				if err := cache.AddOrUpdateCohort(cohortA); err != nil {
-					return err
-				}
 				cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj()
-				if err := cache.AddOrUpdateCohort(cohortB); err != nil {
-					return err
-				}
 				cohortC := utiltestingapi.MakeCohort("cohort-c").Parent("cohort-a").Obj()
-				_ = cache.AddOrUpdateCohort(cohortC) // This will fail, but leaves cycle in cache
-				return nil
-			},
-			operation: func(cache *Cache, t *testing.T) error {
+				return []*kueue.Cohort{cohortA, cohortB, cohortC}
+			}(),
+			operations: func(cache *Cache, t *testing.T) error {
+				ctx, log := utiltesting.ContextWithLog(t)
+
 				// Error when creating CQ with parent Cohort-A
 				cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Obj()
 				if err := cache.AddClusterQueue(ctx, cq); err == nil {
@@ -3346,19 +3328,18 @@ func TestCohortCycles(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		{
-			name: "clusterqueue leaving cohort with cycle successfully updates new cohort",
-			setup: func(cache *Cache) error {
+		"clusterqueue leaving cohort with cycle successfully updates new cohort": {
+			cohorts: func() []*kueue.Cohort {
 				cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
-				_ = cache.AddOrUpdateCohort(cycleCohort) // Expected to fail
-
 				cohort := utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
 					).Obj()
-				return cache.AddOrUpdateCohort(cohort)
-			},
-			operation: func(cache *Cache, t *testing.T) error {
+				return []*kueue.Cohort{cycleCohort, cohort}
+			}(),
+			operations: func(cache *Cache, t *testing.T) error {
+				ctx, log := utiltesting.ContextWithLog(t)
+
 				// Error when creating cq with parent that has cycle
 				cq := utiltestingapi.MakeClusterQueue("cq").
 					ResourceGroup(
@@ -3389,23 +3370,21 @@ func TestCohortCycles(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "clusterqueue joining cohort with cycle successfully updates old cohort",
-			setup: func(cache *Cache) error {
+		"clusterqueue joining cohort with cycle successfully updates old cohort": {
+			cohorts: func() []*kueue.Cohort {
 				cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
-				_ = cache.AddOrUpdateCohort(cycleCohort) // Expected to fail
-
 				cohort := utiltestingapi.MakeCohort("cohort").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
-				if err := cache.AddOrUpdateCohort(cohort); err != nil {
-					return err
-				}
-
+				return []*kueue.Cohort{cycleCohort, cohort}
+			}(),
+			clusterQueues: func() []*kueue.ClusterQueue {
 				cq := utiltestingapi.MakeClusterQueue("cq").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "5").Obj()).Cohort("cohort").Obj()
-				return cache.AddClusterQueue(ctx, cq)
-			},
-			operation: func(cache *Cache, t *testing.T) error {
+				return []*kueue.ClusterQueue{cq}
+			}(),
+			operations: func(cache *Cache, t *testing.T) error {
+				log := ctrl.LoggerFrom(t.Context())
+
 				cq := utiltestingapi.MakeClusterQueue("cq").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "5").Obj()).Cohort("cohort").Obj()
 
@@ -3433,23 +3412,15 @@ func TestCohortCycles(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "cohort switching cohorts updates both cohort trees",
-			setup: func(cache *Cache) error {
+		"cohort switching cohorts updates both cohort trees": {
+			cohorts: func() []*kueue.Cohort {
 				root1 := utiltestingapi.MakeCohort("root1").Obj()
-				if err := cache.AddOrUpdateCohort(root1); err != nil {
-					return err
-				}
 				root2 := utiltestingapi.MakeCohort("root2").Obj()
-				if err := cache.AddOrUpdateCohort(root2); err != nil {
-					return err
-				}
-
 				cohort := utiltestingapi.MakeCohort("cohort").Parent("root1").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
-				return cache.AddOrUpdateCohort(cohort)
-			},
-			operation: func(cache *Cache, t *testing.T) error {
+				return []*kueue.Cohort{root1, root2, cohort}
+			}(),
+			operations: func(cache *Cache, t *testing.T) error {
 				cohort := utiltestingapi.MakeCohort("cohort").Parent("root2").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj()).Obj()
 				return cache.AddOrUpdateCohort(cohort)
@@ -3477,16 +3448,13 @@ func TestCohortCycles(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "cohort leaving cohort with cycle successfully updates new cohort",
-			setup: func(cache *Cache) error {
+		"cohort leaving cohort with cycle successfully updates new cohort": {
+			cohorts: func() []*kueue.Cohort {
 				cycleRoot := utiltestingapi.MakeCohort("cycle-root").Parent("cycle-root").Obj()
-				_ = cache.AddOrUpdateCohort(cycleRoot)
-
 				root := utiltestingapi.MakeCohort("root").Obj()
-				return cache.AddOrUpdateCohort(root)
-			},
-			operation: func(cache *Cache, t *testing.T) error {
+				return []*kueue.Cohort{cycleRoot, root}
+			}(),
+			operations: func(cache *Cache, t *testing.T) error {
 				cohort := utiltestingapi.MakeCohort("cohort").Parent("cycle-root").
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
@@ -3510,24 +3478,17 @@ func TestCohortCycles(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "cohort joining cohort with cycle successfully updates old cohort",
-			setup: func(cache *Cache) error {
+		"cohort joining cohort with cycle successfully updates old cohort": {
+			cohorts: func() []*kueue.Cohort {
 				cycleRoot := utiltestingapi.MakeCohort("cycle-root").Parent("cycle-root").Obj()
-				_ = cache.AddOrUpdateCohort(cycleRoot)
-
 				root := utiltestingapi.MakeCohort("root").Obj()
-				if err := cache.AddOrUpdateCohort(root); err != nil {
-					return err
-				}
-
 				cohort := utiltestingapi.MakeCohort("cohort").Parent("root").
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
 					).Obj()
-				return cache.AddOrUpdateCohort(cohort)
-			},
-			operation: func(cache *Cache, t *testing.T) error {
+				return []*kueue.Cohort{cycleRoot, root, cohort}
+			}(),
+			operations: func(cache *Cache, t *testing.T) error {
 				cohort := utiltestingapi.MakeCohort("cohort").Parent("cycle-root").
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("arm").Resource(corev1.ResourceCPU, "10").Obj(),
@@ -3550,17 +3511,14 @@ func TestCohortCycles(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "ResyncGaugeMetrics does not infinitely recurse with cyclic cohorts",
-			setup: func(cache *Cache) error {
+		"ResyncGaugeMetrics does not infinitely recurse with cyclic cohorts": {
+			cohorts: func() []*kueue.Cohort {
 				cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
-				if err := cache.AddOrUpdateCohort(cohortA); err != nil {
-					return err
-				}
-				_ = cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj())
-				return nil
-			},
-			operation: func(cache *Cache, t *testing.T) error {
+				cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()
+				return []*kueue.Cohort{cohortA, cohortB}
+			}(),
+			operations: func(cache *Cache, t *testing.T) error {
+				_, log := utiltesting.ContextWithLog(t)
 				// Must not panic with a goroutine stack overflow
 				cache.ResyncGaugeMetrics(log)
 				return nil
@@ -3569,20 +3527,33 @@ func TestCohortCycles(t *testing.T) {
 		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
 
-			// Run setup
-			if tc.setup != nil {
-				if err := tc.setup(cache); err != nil && !tc.wantErr {
-					t.Fatalf("Setup failed: %v", err)
+			// Add cohorts
+			for _, cohort := range tc.cohorts {
+				err := cache.AddOrUpdateCohort(cohort)
+				// We check the error later based on wantErr after all cohorts are added
+				// because some tests need to add multiple cohorts even if one fails
+				if err != nil && !tc.wantErr {
+					t.Fatalf("Failed to add cohort %s: %v", cohort.Name, err)
 				}
 			}
 
-			// Run operation
-			if tc.operation != nil {
-				err := tc.operation(cache, t)
+			// Add cluster queues if any
+			if len(tc.clusterQueues) > 0 {
+				ctx, _ := utiltesting.ContextWithLog(t)
+				for _, cq := range tc.clusterQueues {
+					if err := cache.AddClusterQueue(ctx, cq); err != nil && !tc.wantErr {
+						t.Fatalf("Failed to add cluster queue %s: %v", cq.Name, err)
+					}
+				}
+			}
+
+			// Run operations
+			if tc.operations != nil {
+				err := tc.operations(cache, t)
 				if tc.wantErr && err == nil {
 					t.Errorf("Expected error but got none")
 				}
