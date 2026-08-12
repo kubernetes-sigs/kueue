@@ -17,7 +17,11 @@ limitations under the License.
 package statefulset
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,12 +29,14 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -893,5 +899,89 @@ func TestReconciler_ClearOnHoldSetsReason(t *testing.T) {
 				t.Errorf("Unexpected QuotaReserved condition status/reason: got %s/%s, want False/%s", cond.Status, cond.Reason, wantReason)
 			}
 		})
+	}
+}
+
+// TestReconcileDoesNotCancelTheWorkloadBranch pins that a failure while
+// finalizing pods leaves the Workload branch's context alone. The two branches
+// touch different objects, and under a derived context the second one's lookups
+// fail as cancelled rather than for whatever they were about to find.
+func TestReconcileDoesNotCancelTheWorkloadBranch(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	sts := statefulsettesting.MakeStatefulSet("sts", "ns").
+		UID("sts-uid").
+		Queue("lq").
+		WorkloadPriorityClass("wpc").
+		CurrentRevision("1").
+		UpdateRevision("2").
+		Obj()
+	pod := testingjobspod.MakePod("pod1", "ns").
+		GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+		Label(appsv1.ControllerRevisionHashLabelKey, "1").
+		Queue("lq").
+		Gate(podconstants.SchedulingGateName).
+		KueueFinalizer().
+		Obj()
+	wpc := utiltestingapi.MakeWorkloadPriorityClass("wpc").PriorityValue(100).Obj()
+
+	var (
+		finalizeFailed = make(chan struct{})
+		once           sync.Once
+		cancelledHere  atomic.Bool
+		errNotOrdered  = errors.New("the finalizing branch never failed")
+		errPodConflict = apierrors.NewConflict(corev1.Resource("pods"), "pod1", errors.New("conflict"))
+	)
+
+	clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if _, isPod := obj.(*corev1.Pod); isPod {
+				once.Do(func() { close(finalizeFailed) })
+				return errPodConflict
+			}
+			return c.Patch(ctx, obj, patch, opts...)
+		},
+		// The class lookup stands in for the whole Workload branch: it waits
+		// for the other branch to fail, so a cancellation would have landed by
+		// the time it looks.
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, isClass := obj.(*kueue.WorkloadPriorityClass); isClass {
+				if !utiltesting.AwaitBranch(finalizeFailed) {
+					return errNotOrdered
+				}
+				if utiltesting.ObserveCancellation(ctx) {
+					cancelledHere.Store(true)
+				}
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
+		t.Fatalf("Indexing the pod group name: %v", err)
+	}
+	kClient := clientBuilder.WithObjects(sts, pod, wpc).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sts)})
+	if errors.Is(err, errNotOrdered) {
+		t.Fatalf("Reconcile() error = %v, so the branches never interleaved and the ordering below was not exercised", err)
+	}
+	if !errors.Is(err, errPodConflict) {
+		t.Fatalf("Reconcile() error = %v, want %v", err, errPodConflict)
+	}
+	if cancelledHere.Load() {
+		t.Error("the Workload branch ran under a context the finalization failure had cancelled")
+	}
+	// An uncancelled context is only half of it: the branch also has to have finished its work.
+	created := &kueue.Workload{}
+	if err := kClient.Get(ctx, client.ObjectKey{Name: GetWorkloadName("sts-uid", "sts"), Namespace: "ns"}, created); err != nil {
+		t.Fatalf("Getting the Workload the branch was to make: %v", err)
+	}
+	if created.Spec.Priority == nil || *created.Spec.Priority != 100 {
+		t.Errorf("created Workload priority = %v, want the class value 100", created.Spec.Priority)
 	}
 }
