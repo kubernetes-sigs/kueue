@@ -126,7 +126,7 @@ func (sr *SliceRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
 	}
 }
 
-func (sr *SliceRequests) GetValue(name corev1.ResourceName) int64 {
+func (sr *SliceRequests) ResourceValue(name corev1.ResourceName) int64 {
 	if sr == nil {
 		return 0
 	}
@@ -366,7 +366,7 @@ func (sr *SliceRequests) CountInWithLimitingResource(capacity Requests) (int32, 
 				capVal = (*capSR)[j].value
 			}
 		} else if capacity != nil {
-			capVal = capacity.GetValue(entry.name)
+			capVal = capacity.ResourceValue(entry.name)
 		}
 
 		count := int32(math.MaxInt32)

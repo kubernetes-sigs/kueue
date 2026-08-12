@@ -850,12 +850,12 @@ func TestPendingResources(t *testing.T) {
 	}
 
 	// Sum should equal wl1 + wl2 + wl3: CPU = 2+1+3 = 6000m, Memory = 1Gi+512Mi+2Gi.
-	wantCPU := wl1.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU) +
-		wl2.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU) +
-		wl3.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU)
-	wantMemory := wl1.TotalRequests[0].Requests.GetValue(corev1.ResourceMemory) +
-		wl2.TotalRequests[0].Requests.GetValue(corev1.ResourceMemory) +
-		wl3.TotalRequests[0].Requests.GetValue(corev1.ResourceMemory)
+	wantCPU := wl1.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU) +
+		wl2.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU) +
+		wl3.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)
+	wantMemory := wl1.TotalRequests[0].Requests.ResourceValue(corev1.ResourceMemory) +
+		wl2.TotalRequests[0].Requests.ResourceValue(corev1.ResourceMemory) +
+		wl3.TotalRequests[0].Requests.ResourceValue(corev1.ResourceMemory)
 	if got[corev1.ResourceCPU] != wantCPU {
 		t.Errorf("CPU mismatch: want %d, got %d", wantCPU, got[corev1.ResourceCPU])
 	}
@@ -968,7 +968,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 }
 
 func singleWorkloadCPU(wInfo *workload.Info) int64 {
-	return wInfo.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU)
+	return wInfo.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)
 }
 
 func TestPendingInLocalQueueCountsInflight(t *testing.T) {

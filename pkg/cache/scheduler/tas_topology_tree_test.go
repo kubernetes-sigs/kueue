@@ -371,7 +371,7 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 			},
 			validate: func(t *testing.T, snapshot *TASFlavorSnapshot) {
 				n1State := snapshot.leafStateOf(snapshot.leaves[utiltas.TopologyDomainID("n1")])
-				if gotCapacity := n1State.freeCapacity.GetValue(corev1.ResourceCPU); gotCapacity != 8000 {
+				if gotCapacity := n1State.freeCapacity.ResourceValue(corev1.ResourceCPU); gotCapacity != 8000 {
 					t.Errorf("snapshot has cpu capacity %d, want 8000", gotCapacity)
 				}
 			},
@@ -473,7 +473,7 @@ func dumpTopologyTree(tree *topologyTree) map[domainKey]topologyTreeDomainDump {
 			slices.SortFunc(d.Children, domainKey.compare)
 			if leaf, found := tree.leaves[id]; found && &leaf.domain == dom {
 				d.Leaf = true
-				d.CPUCapacity = leaf.capacity.GetValue(corev1.ResourceCPU)
+				d.CPUCapacity = leaf.capacity.ResourceValue(corev1.ResourceCPU)
 				if leaf.node != nil {
 					d.NodeName = leaf.node.Name
 				}
