@@ -600,7 +600,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, gammaCQ.Name, gammaMidWl)
 		})
 
-		ginkgo.It("Should preempt all necessary workloads in concurrent scheduling with the same priority", func() {
+		ginkgo.It("Should preempt all necessary workloads in concurrent scheduling with the same priority (RecomputeAssignmentUponPreemptionTargetsOverlap=true)", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RecomputeAssignmentUponPreemptionTargetsOverlap, true)
 
 			var betaWls []*kueue.Workload
