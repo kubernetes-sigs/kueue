@@ -26,7 +26,9 @@ Make sure the following conditions are met:
 
 ## What the policies allow
 
-The policies are deny-by-default: any port not listed below is unreachable.
+Selecting a pod with a NetworkPolicy denies all ingress to it except what the policy
+allows. The rules below therefore make every port not listed unreachable, while each
+listed port stays reachable from any source.
 
 | Component | Port | Purpose | Peer |
 | --------- | ---- | ------- | ---- |
@@ -40,8 +42,8 @@ The policies are deny-by-default: any port not listed below is unreachable.
 These rules are scoped by port rather than by peer. The kube-apiserver and the kubelet
 normally run on the host network, so their traffic cannot be matched by a pod or
 namespace selector, and the address of the Prometheus scraper or the ingress controller
-depends on your cluster. To restrict a port to specific peers, add rules through
-`networkPolicy.extraIngress`, as shown below.
+depends on your cluster. If you need a port restricted to particular peers as well, see
+[Restricting a port to specific peers](#restricting-a-port-to-specific-peers).
 
 ### Ports that are blocked
 
@@ -98,30 +100,38 @@ This is also why the rules above are scoped by port rather than by peer.
 
 The policies are disabled by default. Enable them with:
 
+```bash
+helm upgrade --install kueue oci://registry.k8s.io/kueue/charts/kueue \
+  --namespace kueue-system \
+  --create-namespace \
+  --set networkPolicy.enabled=true
+```
+
+Or set the same value in your own values file:
+
 ```yaml
 networkPolicy:
   enabled: true
 ```
 
-```bash
-helm upgrade --install kueue oci://registry.k8s.io/kueue/charts/kueue \
-  --namespace kueue-system \
-  --create-namespace \
-  -f values.yaml
-```
-
 ### Kustomize
 
-Apply the `networkpolicy` overlay alongside your existing installation:
+Apply the `networkpolicy` overlay alongside your existing installation, from a checkout
+of the Kueue release you are running:
 
 ```bash
 kubectl apply -k config/networkpolicy
 ```
 
-## Restricting a port to specific peers
+The overlay applies the ingress policies only. To restrict egress as well, uncomment
+`manager-egress.yaml` in `config/components/networkpolicy/kustomization.yaml` first, and
+read [Restricting egress](#restricting-egress) before you do.
 
-`networkPolicy.extraIngress` appends rules to the ControllerManager's policy. For
-example, to additionally allow the metrics port only from a `monitoring` namespace:
+## Allowing extra traffic
+
+`networkPolicy.extraIngress` appends rules to the ControllerManager's policy. Use it to
+permit traffic the built-in rules do not cover, for example a scraper that needs a port
+which is not in the table above.
 
 ```yaml
 networkPolicy:
@@ -133,8 +143,57 @@ networkPolicy:
               kubernetes.io/metadata.name: monitoring
       ports:
         - protocol: TCP
+          port: 9090
+```
+
+{{% alert title="Note" color="primary" %}}
+Ingress rules within a NetworkPolicy are additive: traffic is allowed if **any** rule
+matches it. `extraIngress` can therefore only widen what is permitted. Adding a rule that
+names a peer for a port already in the table does not restrict that port, because the
+built-in rule continues to allow it from every source.
+{{% /alert %}}
+
+## Restricting a port to specific peers
+
+The chart does not expose the built-in rules for editing, so narrowing one means
+replacing it. With Kustomize, patch the generated policy:
+
+```yaml
+# metrics-peers-patch.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kueue-controller-manager-ingress
+  namespace: kueue-system
+spec:
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 9443
+        - protocol: TCP
+          port: 8082
+    - ports:
+        - protocol: TCP
+          port: 8081
+    # metrics, now limited to the monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
           port: 8443
 ```
+
+Because a patch on `spec.ingress` replaces the whole list, every rule you still want has
+to be repeated. With Helm, apply the same replacement through a
+[post-renderer](https://helm.sh/docs/topics/advanced/#post-rendering).
+
+Take care when narrowing 9443 and 8082. Those are reached by the kube-apiserver, which
+usually runs on the host network, so a pod or namespace selector will not match it and
+you need an `ipBlock` covering your control-plane node addresses. Getting it wrong makes
+the admission webhook unreachable and stops Job creation across the cluster. 8443 is the
+safer one to narrow, since a mistake only breaks metrics scraping.
 
 ## Restricting egress
 
@@ -166,9 +225,9 @@ dropped and its `MultiKueueCluster` becomes inactive. Add the port to
 
 ## Limitations
 
-- **hostNetwork is not supported.** Most CNI plugins do not apply NetworkPolicy to pods
-  on the host network, so the policy would have no effect. Setting both
-  `networkPolicy.enabled` and `controllerManager.hostNetwork` fails the Helm render
-  rather than giving a false sense of protection. Restrict a host-network deployment at
-  the node firewall instead.
+- **hostNetwork is not supported.** Kubernetes leaves the behaviour of NetworkPolicy for
+  pods on the host network undefined, and most CNI plugins do not apply policies to them,
+  so the policy would likely have no effect. Setting both `networkPolicy.enabled` and
+  `controllerManager.hostNetwork` fails the Helm render rather than giving a false sense
+  of protection. Restrict a host-network deployment at the node firewall instead.
 - The KueueViz policies are inert unless the KueueViz components are also deployed.
