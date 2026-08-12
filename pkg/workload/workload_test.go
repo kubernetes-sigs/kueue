@@ -1212,6 +1212,27 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// The case below never reaches the normalization, since nothing in it is
+		// negative. A zero has to survive the filter that removes the invalid
+		// entries, so bring that filter in with an unrelated negative.
+		"explicitPodLevelZeroSurvivesTheNormalization": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelzeroslow", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/trigger", "-1").Obj()).
+					Obj(),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")}),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:                         0,
+						corev1.ResourceName("example.com/trigger"): 0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		// An explicit zero is a value, not an absent entry, so it still replaces
 		// the container total. The apiserver would refuse this shape on a Pod,
 		// since a pod-level request may not sit below the containers it covers,
