@@ -269,7 +269,9 @@ The following limitations apply:
   reserved.
 - **AdminAccess requests are charged nothing**: a request with
   `adminAccess: true` is admitted and reserves no quota, rather than being
-  refused.
+  refused. This is read before the allocation mode, so such a request is
+  admitted even under `All`, where the count it would otherwise be charged
+  cannot be known.
 - **No DRA + Topology Aware Scheduling (TAS)**: DRA resources are not
   accounted for in TAS capacity calculations. Using both features together
   may result in incorrect topology assignments for DRA devices.
