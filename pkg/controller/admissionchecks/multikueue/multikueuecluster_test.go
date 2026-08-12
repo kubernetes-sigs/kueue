@@ -1114,22 +1114,19 @@ func TestValidateKubeconfig(t *testing.T) {
 	}{
 		"tokenFile not allowed": {
 			cfgFn: func() *clientcmdapi.Config {
-				c := kubeconfigBase.Clone().TokenFileAuthInfo("u", "/tmp/tokenfile").Obj()
-				return &c
+				return new(kubeconfigBase.Clone().TokenFileAuthInfo("u", "/tmp/tokenfile").Obj())
 			},
 			wantErr: true,
 		},
 		"insecure skip-tls": {
 			cfgFn: func() *clientcmdapi.Config {
-				c := kubeconfigBase.Clone().InsecureSkipTLSVerify("test", true).Obj()
-				return &c
+				return new(kubeconfigBase.Clone().InsecureSkipTLSVerify("test", true).Obj())
 			},
 			wantErr: true,
 		},
 		"certificate-authority file disallowed": {
 			cfgFn: func() *clientcmdapi.Config {
-				c := kubeconfigBase.Clone().CAFileCluster("test", "/tmp/ca").Obj()
-				return &c
+				return new(kubeconfigBase.Clone().CAFileCluster("test", "/tmp/ca").Obj())
 			},
 			wantErr: true,
 		},

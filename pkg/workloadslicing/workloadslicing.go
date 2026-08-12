@@ -85,8 +85,7 @@ func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 	if !found {
 		return nil
 	}
-	ref := workload.Reference(key)
-	return &ref
+	return new(workload.Reference(key))
 }
 
 // SliceName returns the workload slice name for the given workload.
