@@ -1161,6 +1161,34 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// component-helpers only reads cpu, memory and hugepages at the pod level,
+		// so an invalid entry under any other name leaves nothing behind for a
+		// multiplyBy to find, and a missing multiplier is read as one.
+		"negativeUnsupportedPodLevelNameIsStillNamedAtZero": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelunsup", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/credit", "8").
+						Request("example.com/slot", "3").Obj()).
+					Obj(),
+				corev1.ResourceList{"example.com/node": resource.MustParse("-2")}),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{Input: "example.com/credit", Strategy: new(config.Replace),
+					Outputs: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}},
+				{Input: "example.com/slot", Strategy: new(config.Replace), MultiplyBy: "example.com/node",
+					Outputs: corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"):  8,
+						corev1.ResourceName("example.com/node"): 0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		// Dropping an invalid entry must not take a valid one with it. The
 		// normalization only runs when the spec holds a negative somewhere, so
 		// the negative here is what brings it in; the pod-level request is one
