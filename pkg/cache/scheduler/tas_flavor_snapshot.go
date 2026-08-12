@@ -1999,8 +1999,7 @@ func belongsToRequiredDomain(leaf *leafDomain, requiredReplacementDomain utiltas
 		return true
 	}
 	// Uses levelValues instead of leaf.id since for topologies with hostname as lowest level it points directly to the hostname
-	// TODO(#5322): Use util function that compare two DomainIDs
-	return strings.HasPrefix(string(utiltas.DomainID(leaf.levelValues)), string(requiredReplacementDomain))
+	return utiltas.HasPrefix(utiltas.DomainID(leaf.levelValues), requiredReplacementDomain)
 }
 
 func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, sliceLevelIdx int, level int, sliceSizeAtLevel map[int]int32, leaderRequired bool) {

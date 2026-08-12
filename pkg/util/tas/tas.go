@@ -26,8 +26,19 @@ import (
 
 type TopologyDomainID string
 
+const topologyDomainIDSeparator = ","
+
 func DomainID(levelValues []string) TopologyDomainID {
-	return TopologyDomainID(strings.Join(levelValues, ","))
+	return TopologyDomainID(strings.Join(levelValues, topologyDomainIDSeparator))
+}
+
+// HasPrefix reports whether prefix identifies the same topology domain as
+// domainID or one of its ancestors.
+func HasPrefix(domainID, prefix TopologyDomainID) bool {
+	if prefix == "" {
+		return true
+	}
+	return domainID == prefix || strings.HasPrefix(string(domainID), string(prefix)+topologyDomainIDSeparator)
 }
 
 // NodeNameFromDomainID returns the node name identified by the domain ID. It
