@@ -47,7 +47,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
-	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -192,7 +191,7 @@ type ClusterQueue struct {
 
 	AdmissionScope *kueue.AdmissionScope
 
-	afsEntryPenalties         *queueafs.AfsEntryPenalties
+	afsUsageLedger            *queueafs.AfsUsageLedger
 	localQueuesInClusterQueue map[utilqueue.LocalQueueReference]bool
 
 	sw *stickyWorkload
@@ -217,10 +216,9 @@ func workloadKey(i *workload.Info) workload.Reference {
 type clusterQueueOption func(*clusterQueueOptions)
 
 type clusterQueueOptions struct {
-	fsResWeights         map[corev1.ResourceName]float64
-	enableAdmissionFs    bool
-	afsEntryPenalties    *queueafs.AfsEntryPenalties
-	afsConsumedResources *queueafs.AfsConsumedResources
+	fsResWeights      map[corev1.ResourceName]float64
+	enableAdmissionFs bool
+	afsUsageLedger    *queueafs.AfsUsageLedger
 }
 
 func withFSResWeights(weights map[corev1.ResourceName]float64) clusterQueueOption {
@@ -235,15 +233,9 @@ func withEnableAdmissionFs(enable bool) clusterQueueOption {
 	}
 }
 
-func withAfsEntryPenalties(penalties *queueafs.AfsEntryPenalties) clusterQueueOption {
+func withAfsUsageLedger(ledger *queueafs.AfsUsageLedger) clusterQueueOption {
 	return func(o *clusterQueueOptions) {
-		o.afsEntryPenalties = penalties
-	}
-}
-
-func withAfsConsumedResources(consumed *queueafs.AfsConsumedResources) clusterQueueOption {
-	return func(o *clusterQueueOptions) {
-		o.afsConsumedResources = consumed
+		o.afsUsageLedger = ledger
 	}
 }
 
@@ -253,8 +245,7 @@ func newClusterQueue(
 	cq *kueue.ClusterQueue,
 	wo workload.Ordering,
 	afsConfig *config.AdmissionFairSharing,
-	afsEntryPenalties *queueafs.AfsEntryPenalties,
-	afsConsumedResources *queueafs.AfsConsumedResources,
+	afsUsageLedger *queueafs.AfsUsageLedger,
 ) (*ClusterQueue, error) {
 	enableAdmissionFs, fsResWeights := afs.ResourceWeights(cq.Spec.AdmissionScope, afsConfig)
 	cqImpl := newClusterQueueImpl(
@@ -264,8 +255,7 @@ func newClusterQueue(
 		realClock,
 		withFSResWeights(fsResWeights),
 		withEnableAdmissionFs(enableAdmissionFs),
-		withAfsEntryPenalties(afsEntryPenalties),
-		withAfsConsumedResources(afsConsumedResources),
+		withAfsUsageLedger(afsUsageLedger),
 	)
 	err := cqImpl.Update(cq)
 	if err != nil {
@@ -282,7 +272,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 	sw := stickyWorkload{}
 	// The heap comparator reads the sticky workload live on every comparison;
 	// this is safe because sticky writes and heap operations both hold rwm.
-	compareFunc := queueOrderingFunc(ctx, client, wo, options.fsResWeights, options.enableAdmissionFs, options.afsEntryPenalties, options.afsConsumedResources, sw.matches)
+	compareFunc := queueOrderingFunc(ctx, client, wo, options.fsResWeights, options.enableAdmissionFs, options.afsUsageLedger, sw.matches)
 	// Derive lessFunc from compareFunc for the heap.
 	lessFunc := func(a, b *workload.Info) bool { return compareFunc(a, b) < 0 }
 	// Snapshot sorts without the lock, so it captures the sticky workload once
@@ -290,7 +280,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 	snapshotSort := buildSnapshotSort(
 		ctx, wo, &sw, client,
 		options.enableAdmissionFs, options.fsResWeights,
-		options.afsEntryPenalties, options.afsConsumedResources,
+		options.afsUsageLedger,
 	)
 	return &ClusterQueue{
 		heap:                      *heap.New(workloadKey, lessFunc),
@@ -302,7 +292,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 		snapshotSort:              snapshotSort,
 		rwm:                       sync.RWMutex{},
 		clock:                     clock,
-		afsEntryPenalties:         options.afsEntryPenalties,
+		afsUsageLedger:            options.afsUsageLedger,
 		localQueuesInClusterQueue: make(map[utilqueue.LocalQueueReference]bool),
 		sw:                        &sw,
 		pendingResourcesTotal:     make(map[corev1.ResourceName]int64),
@@ -834,13 +824,12 @@ func (c *ClusterQueue) rebuildAll() {
 }
 
 func (c *ClusterQueue) hasPendingPenalties() bool {
-	if c.afsEntryPenalties == nil {
+	if c.afsUsageLedger == nil {
 		return false
 	}
 
 	for lqKey := range c.localQueuesInClusterQueue {
-		lqPenalty := c.afsEntryPenalties.Peek(lqKey)
-		if !resource.IsZero(lqPenalty) {
+		if c.afsUsageLedger.HasPendingPenalty(lqKey) {
 			return true
 		}
 	}
@@ -898,8 +887,7 @@ func buildSnapshotSort(
 	cl client.Client,
 	enableAdmissionFs bool,
 	fsResWeights map[corev1.ResourceName]float64,
-	afsEntryPenalties *queueafs.AfsEntryPenalties,
-	afsConsumedResources *queueafs.AfsConsumedResources,
+	afsUsageLedger *queueafs.AfsUsageLedger,
 ) func(elements []*workload.Info) {
 	log := ctrl.LoggerFrom(ctx)
 	if !enableAdmissionFs {
@@ -932,13 +920,11 @@ func buildSnapshotSort(
 				continue
 			}
 			var consumed, penalty corev1.ResourceList
-			if afsConsumedResources != nil {
-				if entry, found := afsConsumedResources.Get(lqKey); found {
+			if afsUsageLedger != nil {
+				if entry, found := afsUsageLedger.Get(lqKey); found {
 					consumed = entry.Resources.DeepCopy()
+					penalty = entry.PendingPenalty().DeepCopy()
 				}
-			}
-			if afsEntryPenalties != nil {
-				penalty = afsEntryPenalties.Peek(lqKey).DeepCopy()
 			}
 			lqWeight, ok := getLQWeight(lqKey)
 			if !ok {
@@ -1088,8 +1074,7 @@ func queueOrderingFunc(
 	wo workload.Ordering,
 	fsResWeights map[corev1.ResourceName]float64,
 	enableAdmissionFs bool,
-	afsEntryPenalties *queueafs.AfsEntryPenalties,
-	afsConsumedResources *queueafs.AfsConsumedResources,
+	afsUsageLedger *queueafs.AfsUsageLedger,
 	stickyMatches func(workload.Reference) bool,
 ) func(a, b *workload.Info) int {
 	log := ctrl.LoggerFrom(ctx)
@@ -1098,8 +1083,8 @@ func queueOrderingFunc(
 		return baseCmp
 	}
 	return func(a, b *workload.Info) int {
-		lqAUsage, errA := a.CalcLocalQueueFSUsage(ctx, cl, fsResWeights, afsEntryPenalties, afsConsumedResources)
-		lqBUsage, errB := b.CalcLocalQueueFSUsage(ctx, cl, fsResWeights, afsEntryPenalties, afsConsumedResources)
+		lqAUsage, errA := a.CalcLocalQueueFSUsage(ctx, cl, fsResWeights, afsUsageLedger)
+		lqBUsage, errB := b.CalcLocalQueueFSUsage(ctx, cl, fsResWeights, afsUsageLedger)
 		switch {
 		case errA != nil:
 			log.V(2).Error(errA, "Error determining LocalQueue usage")

@@ -178,8 +178,7 @@ type Manager struct {
 	admissionFairSharingConfig *config.AdmissionFairSharing
 	secondPassQueue            *secondPassQueue
 
-	AfsEntryPenalties      *queueafs.AfsEntryPenalties
-	AfsConsumedResources   *queueafs.AfsConsumedResources
+	AfsUsageLedger         *queueafs.AfsUsageLedger
 	workloadUpdateWatchers []WorkloadUpdateWatcher
 
 	draReconcileChannel chan<- event.TypedGenericEvent[*kueue.Workload]
@@ -220,8 +219,7 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 
 		topologyUpdateWatchers: make([]TopologyUpdateWatcher, 0),
 		secondPassQueue:        newSecondPassQueue(),
-		AfsEntryPenalties:      queueafs.NewPenaltyMap(),
-		AfsConsumedResources:   queueafs.NewAfsConsumedResources(),
+		AfsUsageLedger:         queueafs.NewAfsUsageLedger(),
 		requeuer:               requeuer,
 		resourceFormatter:      resources.NewResourceFormatter(),
 	}
@@ -329,13 +327,11 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 		return errClusterQueueAlreadyExists
 	}
 
-	var afsEntryPenalties *queueafs.AfsEntryPenalties
-	var afsConsumedResources *queueafs.AfsConsumedResources
+	var afsUsageLedger *queueafs.AfsUsageLedger
 	if afs.Enabled(m.admissionFairSharingConfig) {
-		afsEntryPenalties = m.AfsEntryPenalties
-		afsConsumedResources = m.AfsConsumedResources
+		afsUsageLedger = m.AfsUsageLedger
 	}
-	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig, afsEntryPenalties, afsConsumedResources)
+	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.workloadOrdering, m.admissionFairSharingConfig, afsUsageLedger)
 	if err != nil {
 		return err
 	}
