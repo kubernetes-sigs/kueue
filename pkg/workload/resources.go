@@ -50,31 +50,16 @@ const (
 	ErrLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
 )
 
-// builtFromPods reports whether the PodSets were copied off Pods that already
-// exist. A single Pod owns its Workload as the controller, a group is owned by
-// every member, so any Pod among the owners means the templates describe Pods
-// the apiserver has already held to a class, not ones it has yet to see.
-func builtFromPods(wl *kueue.Workload) bool {
-	for _, ref := range wl.OwnerReferences {
-		if ref.Kind == "Pod" && ref.APIVersion == "v1" {
-			return true
-		}
-	}
-	return false
-}
-
-// handlePodOverhead charges the overhead the named RuntimeClass defines. The
-// apiserver holds a Pod to that value when it creates one; nothing holds a
-// Workload to it at all.
+// handlePodOverhead raises what a PodSet carries to the overhead the RuntimeClass
+// it names defines. The apiserver holds a Pod to that value when it creates one;
+// nothing holds a Workload to it, so one can name a class defining 250m, carry 1m,
+// and be charged the 1m its Pods will never run with.
 //
-// Workloads built from Pods are left alone rather than verified. What those
-// PodSets hold is what their Pods were admitted with, which is not what the
-// class says once it has been edited, and reading it back from each Pod is a
-// larger change than this one.
+// The larger of the two rather than the class outright, because a PodSet copied
+// off a Pod that was already admitted carries what that Pod actually got, and a
+// class is free to be edited afterwards: only its handler is immutable. Taking
+// the maximum can leave the charge too high for such a PodSet, never too low.
 func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
-	if builtFromPods(wl) {
-		return nil
-	}
 	var errs []error
 	for i := range wl.Spec.PodSets {
 		podSpec := &wl.Spec.PodSets[i].Template.Spec
@@ -86,11 +71,10 @@ func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload
 			errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
 			continue
 		}
-		// A class defining none means a Pod may carry none either.
-		podSpec.Overhead = nil
-		if runtimeClass.Overhead != nil {
-			podSpec.Overhead = runtimeClass.Overhead.PodFixed
+		if runtimeClass.Overhead == nil {
+			continue
 		}
+		podSpec.Overhead = resource.MergeResourceListKeepMax(podSpec.Overhead, runtimeClass.Overhead.PodFixed)
 	}
 	return errs
 }
