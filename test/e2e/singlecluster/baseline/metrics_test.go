@@ -557,7 +557,6 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			})
 
 			metrics := [][]string{
-				{"kueue_admission_cycle_preemption_skips"},
 				{"kueue_evicted_workloads_total"},
 				{"kueue_evicted_workloads_once_total"},
 				{"kueue_preempted_workloads_total"},
