@@ -101,9 +101,10 @@ func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resour
 			if len(errs) > 0 {
 				return claimCharges{}, append(allErrs, errs...)
 			}
-			total, err := addExactCount(charges.perLogicalResource[logical], count)
-			if err != nil {
-				allErrs = append(allErrs, field.Invalid(devicesRequestsPath.Index(i), count, err.Error()))
+			total, ok := utilmath.ExactAdd(charges.perLogicalResource[logical], count)
+			if !ok {
+				allErrs = append(allErrs, field.Invalid(devicesRequestsPath.Index(i), count,
+					fmt.Sprintf("the counts charged to logical resource %s do not add up to a bounded quota amount", logical)))
 				return claimCharges{}, allErrs
 			}
 			charges.perLogicalResource[logical] = total
@@ -228,19 +229,6 @@ func chargeForPrioritizedList(req *resourcev1.DeviceRequest, mapper *ResourceMap
 	return logical, maxCount, nil
 }
 
-// addExactCount reports the sum only when it is representable as a bounded quota
-// amount. math.MaxInt64 is the Unlimited sentinel in resources.Amount, so saturating
-// there would report no limit at all rather than a conservative one.
-func addExactCount(a, b int64) (int64, error) {
-	if a < 0 || b < 0 {
-		return 0, fmt.Errorf("negative device count: %d + %d", a, b)
-	}
-	if a > math.MaxInt64-1-b {
-		return 0, fmt.Errorf("device count %d + %d is not representable as a bounded quota amount", a, b)
-	}
-	return a + b, nil
-}
-
 // canonicalUnits converts a device count to the unit the queue accounts the
 // logical resource in: milli for CPU, whole ones for everything else. The
 // conversion is where a count that reads as bounded stops being one.
@@ -252,17 +240,6 @@ func canonicalUnits(name corev1.ResourceName, count int64) (int64, bool) {
 		return 0, false
 	}
 	return count * 1000, true
-}
-
-// mulExactCount is addExactCount's counterpart for the PodSet count.
-func mulExactCount(a, b int64) (int64, bool) {
-	if a < 0 || b < 0 {
-		return 0, false
-	}
-	if a != 0 && b > (math.MaxInt64-1)/a {
-		return 0, false
-	}
-	return a * b, true
 }
 
 // chargeFitsCanonicalUnits reports the charges that cannot reach the queue
@@ -300,14 +277,14 @@ func chargeFitsCanonicalUnits(podSets []kueue.PodSet, perPodSet map[kueue.PodSet
 					fmt.Sprintf("device count charged to logical resource %s is not representable in the units it is accounted in", name)))
 				continue
 			}
-			scaled, ok := mulExactCount(canonical, int64(ps.Count))
+			scaled, ok := utilmath.ExactMul(canonical, int64(ps.Count))
 			if !ok {
 				errs = append(errs, field.Invalid(psPath.Child("count"), ps.Count,
 					fmt.Sprintf("device count charged to logical resource %s is not representable once multiplied by the podSet count", name)))
 				continue
 			}
-			total, err := addExactCount(totals[name], scaled)
-			if err != nil {
+			total, ok := utilmath.ExactAdd(totals[name], scaled)
+			if !ok {
 				errs = append(errs, field.Invalid(field.NewPath("spec", "podSets"), name,
 					fmt.Sprintf("total charged to logical resource %s across podSets is not representable as a bounded quota amount", name)))
 				continue
