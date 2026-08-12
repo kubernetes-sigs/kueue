@@ -77,18 +77,8 @@ func evaluatedForAdmissionCondition(t time.Time) metav1.Condition {
 	return metav1.Condition{
 		Type:               kueue.WorkloadQuotaReserved,
 		Status:             metav1.ConditionFalse,
-		Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+		Reason:             kueue.WorkloadPending, //nolint:staticcheck // SA1019: legacy reason
 		Message:            "Workload does not fit",
-		LastTransitionTime: metav1.NewTime(t),
-	}
-}
-
-func pendingAdmissionEvaluationCondition(t time.Time) metav1.Condition {
-	return metav1.Condition{
-		Type:               kueue.WorkloadQuotaReserved,
-		Status:             metav1.ConditionFalse,
-		Reason:             kueue.WorkloadQuotaReservedReasonPendingEvaluation,
-		Message:            "Workload is pending evaluation in the scheduling queue",
 		LastTransitionTime: metav1.NewTime(t),
 	}
 }
@@ -2313,14 +2303,7 @@ func TestFirstCandidateVariant(t *testing.T) {
 				PreemptionGates(caGate()).
 				Obj(),
 		},
-		"waits when the preferred variant is pending evaluation": {
-			first: utiltestingapi.MakeWorkload("preferred", "default").
-				AllowedFlavors("on-demand").
-				PreemptionGates(caGate()).
-				Condition(pendingAdmissionEvaluationCondition(now)).
-				Obj(),
-		},
-		"skips a preferred variant evaluated without preemption": {
+		"skips a preferred variant with an existing quota reservation condition": {
 			first: utiltestingapi.MakeWorkload("preferred", "default").
 				AllowedFlavors("on-demand").
 				PreemptionGates(caGate()).
