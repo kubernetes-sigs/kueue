@@ -20,4 +20,4 @@ milestone:
   alpha: "v0.20"
 
 feature-gates:
-  - name: PartialScaleUp
+  - name: PartialScaleUpForElasticJob

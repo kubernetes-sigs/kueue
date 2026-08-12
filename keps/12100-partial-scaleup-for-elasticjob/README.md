@@ -74,15 +74,15 @@ Also, a new Workload representing the full job will be created and added to the 
 
 ### Enablement
 
-PartialScaleUp for ElasticJob in Kueue is enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. At the cluster level, the PartialScaleUp feature (disabled by default) must be enabled via the corresponding Kueue feature gate.
+PartialScaleUpForElasticJob for ElasticJob in Kueue is enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. At the cluster level, the PartialScaleUpForElasticJob feature (disabled by default) must be enabled via the corresponding Kueue feature gate.
 
-Once the feature gate is enabled, individual Job objects can opt into partial admission by including the `kueue.x-k8s.io/partial-scale-up="true"` annotation. 
+Once the feature gate is enabled, individual Job objects can opt into partial admission by including the `kueue.x-k8s.io/elastic-job-partial-scale-up="true"` annotation. 
 When both conditions are met, Kueue treats the Workload as eligible for partial scale up. 
 
 #### Features
 ```go
 	// Enables partial scale up for elastic jobs.
-	PartialScaleUp featuregate.Feature = "PartialAdmissionForElasticJobs"
+	PartialScaleUpForElasticJob featuregate.Feature = "PartialScaleUpForElasticJob"
 ```
 
 #### Partial ScaleUp Annotation
@@ -91,9 +91,10 @@ const (
   // EnabledAnnotationKey refers to the annotation key present on Jobs that support
   // partial scale up.
   // This annotation is alpha-level.
-  EnabledPartialScaleUp = "kueue.x-k8s.io/partial-scale-up"
+  EnabledPartialScaleUpForElasticJob = "kueue.x-k8s.io/partial-scale-up-for-elastic-job"
 )
 ```
+The proposal relies on following existing API:
 
 ### Workload API
 
@@ -141,7 +142,7 @@ The newly created workload for opportunistic scale up should have a different na
 
 Consider a scenario where:
 1. The ClusterQueue has a total quota of **7** for the requested resource flavor.
-2. The Job is configured for both `ElasticJobs` and `PartialScaleUp`.
+2. The Job is configured for both `ElasticJobs` and `PartialScaleUpForElasticJob`.
 3. The user performs a two-step scale up of the Job: starting at **5** replicas, scaling up to **10**, and then to **12**.
 
 ##### Step 0: Job Creation (Initial Size: 5)
