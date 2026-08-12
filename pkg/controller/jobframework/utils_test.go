@@ -28,7 +28,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -52,6 +54,26 @@ func TestNewWorkloadLeavesTheMultiKueueMarkerBehind(t *testing.T) {
 
 	if diff := cmp.Diff(map[string]string{"team": "physics"}, wl.Labels); diff != "" {
 		t.Errorf("workload labels (-want +got):\n%s", diff)
+	}
+}
+
+// MultiKueue reads the job-owner pair before the Workload's own owner
+// reference, so a Job naming a job it does not own has to be refused the ride
+// rather than believed.
+func TestNewWorkloadLeavesTheOwnerAnnotationsBehind(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+
+	job := testingjob.MakeJob("job", "ns").
+		SetAnnotation("team", "physics").
+		SetAnnotation(controllerconstants.JobOwnerGVKAnnotation, "batch/v1, Kind=Job").
+		SetAnnotation(controllerconstants.JobOwnerNameAnnotation, "someone-elses-job").
+		Obj()
+
+	wl := jobframework.NewWorkload("wl", job, nil, nil,
+		sets.New("team", controllerconstants.JobOwnerGVKAnnotation, controllerconstants.JobOwnerNameAnnotation))
+
+	if diff := cmp.Diff(map[string]string{"team": "physics"}, wl.Annotations); diff != "" {
+		t.Errorf("workload annotations (-want +got):\n%s", diff)
 	}
 }
 

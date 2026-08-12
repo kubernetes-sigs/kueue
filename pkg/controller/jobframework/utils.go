@@ -258,11 +258,11 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 	SetPrebuiltWorkloadName(obj, workloadName)
 }
 
-// NewWorkload creates a new Workload object with the specified name,
-// CopyableLabelKeys returns the keys a Workload may inherit. Whether a Workload
-// is one MultiKueue placed here is ours to say, so that marker never travels
-// with the rest, however the configuration came to ask for it. The caller's set
-// is left alone: the reconciler options hold it for every reconcile.
+// CopyableLabelKeys returns the label keys a Workload may inherit from the
+// object below it. Whether a Workload is one MultiKueue placed here is ours to
+// say, so that marker never travels with the rest, however the configuration
+// came to ask for it. The caller's set is left alone: the reconciler options
+// hold it for every reconcile.
 func CopyableLabelKeys(keys sets.Set[string]) sets.Set[string] {
 	if !keys.Has(kueue.MultiKueueOriginLabel) {
 		return keys
@@ -272,11 +272,25 @@ func CopyableLabelKeys(keys sets.Set[string]) sets.Set[string] {
 	return safe
 }
 
-// associated object, pod sets, and label keys to copy.
+// CopyableAnnotationKeys is CopyableLabelKeys for annotations. MultiKueue reads
+// the job-owner pair to decide which remote object a Workload speaks for, and
+// reads it ahead of the Workload's own owner reference, so a Job naming a job it
+// does not own would be answered rather than questioned.
+func CopyableAnnotationKeys(keys sets.Set[string]) sets.Set[string] {
+	if !keys.HasAny(controllerconstants.JobOwnerGVKAnnotation, controllerconstants.JobOwnerNameAnnotation) {
+		return keys
+	}
+	safe := keys.Clone()
+	safe.Delete(controllerconstants.JobOwnerGVKAnnotation, controllerconstants.JobOwnerNameAnnotation)
+	return safe
+}
+
+// NewWorkload creates a new Workload object with the specified name,
+// associated object, pod sets, and metadata keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
 	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
 	if features.Enabled(features.CustomMetricLabels) {
-		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
+		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), CopyableAnnotationKeys(annotationsToCopy).UnsortedList()))
 	}
 	labels := maps.FilterKeys(obj.GetLabels(), CopyableLabelKeys(labelKeysToCopy).UnsortedList())
 	return &kueue.Workload{
