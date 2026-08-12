@@ -3329,8 +3329,27 @@ func TestSpecWithChargeableOverheadLeavesTheSourceAlone(t *testing.T) {
 // reads an entry arriving now as one being introduced, with nothing behind it
 // to grandfather it, and refuses the update for as long as the local carries it.
 func TestReconcileGroupScaleDownKeepsRemoteOverheadNormalized(t *testing.T) {
+	// Both kinds of entry the remote was created without: one Kueue never
+	// charges, and one it only tolerates on an object that predates the gate.
+	cases := map[string]struct {
+		key      corev1.ResourceName
+		quantity string
+		nonNeg   bool
+	}{
+		"a reserved name":                  {key: corev1.ResourcePods, quantity: "1"},
+		"a negative one, with the gate on": {key: corev1.ResourceCPU, quantity: "-1", nonNeg: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			runScaleDownOverheadCase(t, tc.key, tc.quantity, tc.nonNeg)
+		})
+	}
+}
+
+func runScaleDownOverheadCase(t *testing.T, key corev1.ResourceName, quantity string, nonNeg bool) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.WorkloadValidateResourcesAreNonNegative, nonNeg)
 	now := time.Now()
 
 	const (
@@ -3359,7 +3378,7 @@ func TestReconcileGroupScaleDownKeepsRemoteOverheadNormalized(t *testing.T) {
 		}).
 		ClusterName(workerName).
 		Obj())
-	local.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}
+	local.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{key: resource.MustParse(quantity)}
 
 	remote := elastic(utiltestingapi.MakeWorkload("wl1", TestNamespace).
 		PodSets(*utiltestingapi.MakePodSet("main", 2).Request(corev1.ResourceCPU, "1").Obj()).
@@ -3406,7 +3425,7 @@ func TestReconcileGroupScaleDownKeepsRemoteOverheadNormalized(t *testing.T) {
 		t.Errorf("remote overhead = %v, want none: the scale-down put back what the create left out",
 			got.Spec.PodSets[0].Template.Spec.Overhead)
 	}
-	if _, ok := local.Spec.PodSets[0].Template.Spec.Overhead[corev1.ResourcePods]; !ok {
+	if _, ok := local.Spec.PodSets[0].Template.Spec.Overhead[key]; !ok {
 		t.Error("the local workload lost its overhead, so the normalization reached the caller's slice")
 	}
 }
