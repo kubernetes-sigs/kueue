@@ -614,43 +614,44 @@ var _ = ginkgo.Describe("Preemption", func() {
 			}
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, betaWls...)
 
-				ginkgo.By("Creating preempting pods")
+					ginkgo.By("Creating preempting pods")
 
-				alphaWl := utiltestingapi.MakeWorkload("alpha", ns.Name).
-					Queue(kueue.LocalQueueName(alphaLQ.Name)).
-					Request(corev1.ResourceCPU, "2").
-					Obj()
-				util.MustCreate(ctx, k8sClient, alphaWl)
+					alphaWl := utiltestingapi.MakeWorkload("alpha", ns.Name).
+						Queue(kueue.LocalQueueName(alphaLQ.Name)).
+						Request(corev1.ResourceCPU, "2").
+						Obj()
+					util.MustCreate(ctx, k8sClient, alphaWl)
 
-				gammaWl := utiltestingapi.MakeWorkload("gamma", ns.Name).
-					Queue(kueue.LocalQueueName(gammaLQ.Name)).
-					Request(corev1.ResourceCPU, "2").
-					Obj()
-				util.MustCreate(ctx, k8sClient, gammaWl)
+					gammaWl := utiltestingapi.MakeWorkload("gamma", ns.Name).
+						Queue(kueue.LocalQueueName(gammaLQ.Name)).
+						Request(corev1.ResourceCPU, "2").
+						Obj()
+					util.MustCreate(ctx, k8sClient, gammaWl)
 
-				var evictedWorkloads []*kueue.Workload
+					var evictedWorkloads []*kueue.Workload
 
-				if !recomputeAssignment {
+					if !recomputeAssignment {
+						gomega.Eventually(func(g gomega.Gomega) {
+							evictedWorkloads = util.FilterEvictedWorkloads(ctx, k8sClient, betaWls...)
+							g.Expect(evictedWorkloads).Should(gomega.HaveLen(1), "Number of evicted workloads")
+						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+						ginkgo.By("Finishing eviction for first set of preempted workloads")
+						util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
+						util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, alphaWl, gammaWl)
+					}
+
 					gomega.Eventually(func(g gomega.Gomega) {
 						evictedWorkloads = util.FilterEvictedWorkloads(ctx, k8sClient, betaWls...)
-						g.Expect(evictedWorkloads).Should(gomega.HaveLen(1), "Number of evicted workloads")
+						g.Expect(evictedWorkloads).Should(gomega.HaveLen(2), "Number of evicted workloads")
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-					ginkgo.By("Finishing eviction for first set of preempted workloads")
+					ginkgo.By("Finishing eviction for second set of preempted workloads")
 					util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
-					util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, alphaWl, gammaWl)
-				}
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					evictedWorkloads = util.FilterEvictedWorkloads(ctx, k8sClient, betaWls...)
-					g.Expect(evictedWorkloads).Should(gomega.HaveLen(2), "Number of evicted workloads")
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-				ginkgo.By("Finishing eviction for second set of preempted workloads")
-				util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaWl, gammaWl)
-				util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, betaWls...)
-			})
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaWl, gammaWl)
+					util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, betaWls...)
+				},
+			)
 		}
 	})
 
