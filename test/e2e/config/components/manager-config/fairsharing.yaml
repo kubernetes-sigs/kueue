@@ -1,0 +1,2 @@
+fairSharing:
+  preemptionStrategies: ["LessThanOrEqualToFinalShare", "LessThanInitialShare"]

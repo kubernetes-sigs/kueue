@@ -1,0 +1,12 @@
+integrations:
+  frameworks:
+  - "batch/job"
+  - "pod"
+resources:
+  deviceClassMappings:
+  - name: gpu
+    deviceClassNames:
+    - gpu.example.com
+  - name: gpu-late-dc
+    deviceClassNames:
+    - gpu-late-dc.example.com

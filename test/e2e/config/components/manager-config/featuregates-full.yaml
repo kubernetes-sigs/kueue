@@ -1,0 +1,5 @@
+featureGates:
+  LocalQueueMetrics: true
+  ElasticJobsViaWorkloadSlices: true
+  ConcurrentAdmission: true
+  MultiKueueManagerQuotaAutomation: true

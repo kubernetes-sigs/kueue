@@ -1,0 +1,8 @@
+integrations:
+  frameworks:
+  - "batch/job"
+  - "pod"
+  - "deployment"
+  - "statefulset"
+featureGates:
+  MultiKueueManagerQuotaAutomation: true

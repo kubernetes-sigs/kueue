@@ -127,6 +127,39 @@ E2E_K8S_FULL_VERSION=1.35.0 make test-e2e-baseline
 
 For running a subset of tests, see [Running subset of tests](#running-subset-of-integration-or-e2e-tests).
 
+### Updating e2e manager configs
+
+Each e2e environment's `test/e2e/config/**/controller_manager_config.yaml` (mounted into
+the `kueue-manager-config` ConfigMap by Kustomize) is a **generated** file. It's produced
+from a small set of shared YAML fragments under
+`test/e2e/config/components/manager-config/`, plus each environment's own local deltas
+(e.g. `test/e2e/config/certmanager/delta.yaml`), as declared in that environment's
+`generate.yaml`.
+
+This exists because Kustomize's `configMapGenerator` can't field-merge YAML content
+inside a single ConfigMap data key — every environment that needed even one different
+field used to require hand-copying the entire file, and any copy that got missed would
+silently drift from the others.
+
+**To change a field shared by two or more environments:** edit the relevant fragment
+under `test/e2e/config/components/manager-config/`, then regenerate:
+```shell
+make generate-e2e-manager-configs
+```
+
+**To change a field specific to one environment:** edit that environment's `delta.yaml`
+(or, for MultiKueue shards, the `frameworks-shard-*.yaml` next to it), then regenerate
+with the same command.
+
+**To add a new e2e environment:** add a `generate.yaml` next to its `kustomization.yaml`
+declaring which fragments (and any local delta file) compose its config, then run
+`make generate-e2e-manager-configs`.
+
+Never hand-edit a `controller_manager_config.yaml` directly — it starts with a
+`# Code generated ... DO NOT EDIT.` header, and `make verify` (via
+`verify-e2e-config-consistency`) fails the build if a generated file no longer matches
+what its fragments and deltas would produce.
+
 ### DEV mode (keep the cluster)
 
 Use `E2E_MODE=dev` to create-or-reuse a kind cluster, rebuild/redeploy Kueue, run tests, and keep the cluster running for fast reruns and post-test investigation:
