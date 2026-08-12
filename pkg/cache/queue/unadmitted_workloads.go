@@ -75,7 +75,7 @@ func (u *unadmittedWorkloads) update(
 	log logr.Logger,
 	wl *kueue.Workload,
 	cqName kueue.ClusterQueueReference,
-	lqExists bool,
+	lqMetricsExposed bool,
 	m *Manager,
 ) {
 	u.rwm.Lock()
@@ -101,12 +101,12 @@ func (u *unadmittedWorkloads) update(
 	log.V(4).Info("Updating unadmitted workload tracking", "oldStatus", oldStatus, "newStatus", status)
 
 	if ok {
-		u.decrementStatusCounts(log, oldStatus, lqExists, m)
+		u.decrementStatusCounts(log, oldStatus, lqMetricsExposed, m)
 		delete(u.statuses, wlKey)
 	}
 	if status != nil {
 		u.statuses[wlKey] = *status
-		u.incrementStatusCounts(log, *status, lqExists, m)
+		u.incrementStatusCounts(log, *status, lqMetricsExposed, m)
 	}
 }
 
@@ -131,26 +131,26 @@ func (u *unadmittedWorkloads) remove(
 func (u *unadmittedWorkloads) incrementStatusCounts(
 	log logr.Logger,
 	status unadmittedWorkloadStatus,
-	lqExists bool,
+	lqMetricsExposed bool,
 	m *Manager,
 ) {
-	u.updateUnadmittedWorkloadMetric(log, status, 1, lqExists, m)
+	u.updateUnadmittedWorkloadMetric(log, status, 1, lqMetricsExposed, m)
 }
 
 func (u *unadmittedWorkloads) decrementStatusCounts(
 	log logr.Logger,
 	status unadmittedWorkloadStatus,
-	lqExists bool,
+	lqMetricsExposed bool,
 	m *Manager,
 ) {
-	u.updateUnadmittedWorkloadMetric(log, status, -1, lqExists, m)
+	u.updateUnadmittedWorkloadMetric(log, status, -1, lqMetricsExposed, m)
 }
 
 func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
 	log logr.Logger,
 	status unadmittedWorkloadStatus,
 	diff int,
-	lqExists bool,
+	lqMetricsExposed bool,
 	m *Manager,
 ) {
 	cqKey := status.ClusterQueueStatus()
@@ -197,7 +197,7 @@ func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
 	}
 
 	lqRefKey := queue.NewLocalQueueReference(status.LocalQueueNamespace, status.LocalQueueName)
-	if lqExists && status.ClusterQueue != "" {
+	if lqMetricsExposed && status.ClusterQueue != "" {
 		lqRef := metrics.LocalQueueReference{Name: status.LocalQueueName, Namespace: status.LocalQueueNamespace}
 		lqCustomLabels := m.customLabels.LQGet(lqRefKey)
 		if countLQ <= 0 {
@@ -223,7 +223,7 @@ func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
 			)
 		}
 	} else {
-		log.V(4).Info("Skipping LQ unadmitted metric report", "status", status, "qExists", lqExists)
+		log.V(4).Info("Skipping LQ unadmitted metric report", "status", status, "metricsExposed", lqMetricsExposed)
 	}
 }
 

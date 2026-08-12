@@ -2373,6 +2373,51 @@ func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
 	}
 }
 
+func TestUpdateUnadmittedWorkload_LocalQueueMetricsSelector(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	metrics.LocalQueueUnadmittedWorkloads.Reset()
+	t.Cleanup(metrics.LocalQueueUnadmittedWorkloads.Reset)
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").Label("team", "excluded").ClusterQueue("cq").Obj()
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
+
+	kClient := utiltesting.NewFakeClient(wl)
+	manager := NewManagerForUnitTests(kClient, nil,
+		WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
+			Enabled:       true,
+			QueueSelector: labels.SelectorFromSet(map[string]string{"team": "included"}),
+		}),
+	)
+
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("failed to add ClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("failed to add LocalQueue: %v", err)
+	}
+
+	manager.UpdateUnadmittedWorkload(log, wl)
+
+	expectGaugeCount(t, metrics.LocalQueueUnadmittedWorkloads, 0, map[string]string{
+		"name":      lq.Name,
+		"namespace": lq.Namespace,
+	})
+
+	updatedLQ := lq.DeepCopy()
+	updatedLQ.Labels["team"] = "included"
+	if err := manager.UpdateLocalQueue(log, updatedLQ); err != nil {
+		t.Fatalf("failed to update LocalQueue: %v", err)
+	}
+	manager.ResyncLocalQueueGaugeMetrics(queue.Key(updatedLQ))
+	expectGaugeValue(t, metrics.LocalQueueUnadmittedWorkloads, map[string]string{
+		"name":      updatedLQ.Name,
+		"namespace": updatedLQ.Namespace,
+	}, 1)
+}
+
 func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 
