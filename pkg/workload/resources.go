@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -51,26 +50,29 @@ const (
 	ErrLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
 )
 
-// fromAdmittedPod reports whether the PodSets were copied off a Pod the apiserver
-// already admitted, carrying what the class said then rather than what it says now.
-// An owner that does not resolve is not believed.
-func fromAdmittedPod(ctx context.Context, cl client.Client, wl *kueue.Workload) bool {
-	ref := metav1.GetControllerOf(wl)
-	if ref == nil || ref.Kind != "Pod" || ref.APIVersion != "v1" {
-		return false
+// builtFromPods reports whether the PodSets were copied off Pods that already
+// exist. A single Pod owns its Workload as the controller, a group is owned by
+// every member, so any Pod among the owners means the templates describe Pods
+// the apiserver has already held to a class, not ones it has yet to see.
+func builtFromPods(wl *kueue.Workload) bool {
+	for _, ref := range wl.OwnerReferences {
+		if ref.Kind == "Pod" && ref.APIVersion == "v1" {
+			return true
+		}
 	}
-	var pod corev1.Pod
-	if err := cl.Get(ctx, types.NamespacedName{Namespace: wl.Namespace, Name: ref.Name}, &pod); err != nil {
-		return false
-	}
-	return pod.UID == ref.UID
+	return false
 }
 
 // handlePodOverhead charges the overhead the named RuntimeClass defines. The
 // apiserver holds a Pod to that value when it creates one; nothing holds a
 // Workload to it at all.
+//
+// Workloads built from Pods are left alone rather than verified. What those
+// PodSets hold is what their Pods were admitted with, which is not what the
+// class says once it has been edited, and reading it back from each Pod is a
+// larger change than this one.
 func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
-	if fromAdmittedPod(ctx, cl, wl) {
+	if builtFromPods(wl) {
 		return nil
 	}
 	var errs []error
