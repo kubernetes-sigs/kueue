@@ -91,6 +91,7 @@ func TestUpdateWorkloadSliceMutableFields(t *testing.T) {
 		admissionGatedByEnabled bool
 		job                     client.Object
 		workloads               []*kueue.Workload
+		workloadsToSync         []*kueue.Workload
 		wantWorkloads           []*kueue.Workload
 		wantEvents              []utiltesting.EventRecord
 	}{
@@ -120,6 +121,19 @@ func TestUpdateWorkloadSliceMutableFields(t *testing.T) {
 			job:                     makeJob(newGates, &timeout10),
 			workloads: []*kueue.Workload{
 				makeWorkload("reserved", newGates, timeout5, quotaReserved, notAdmitted),
+			},
+			wantWorkloads: []*kueue.Workload{
+				makeWorkload("reserved", newGates, timeout10, quotaReserved, notAdmitted),
+			},
+		},
+		"refreshes stale admission status before updating the timeout": {
+			admissionGatedByEnabled: true,
+			job:                     makeJob(newGates, &timeout10),
+			workloads: []*kueue.Workload{
+				makeWorkload("reserved", newGates, timeout5, quotaReserved, notAdmitted),
+			},
+			workloadsToSync: []*kueue.Workload{
+				makeWorkload("reserved", newGates, timeout5, quotaReserved, admitted),
 			},
 			wantWorkloads: []*kueue.Workload{
 				makeWorkload("reserved", newGates, timeout10, quotaReserved, notAdmitted),
@@ -184,11 +198,14 @@ func TestUpdateWorkloadSliceMutableFields(t *testing.T) {
 				WithStatusSubresource(&kueue.Workload{}).
 				Build()
 
-			live := make([]*kueue.Workload, len(tc.workloads))
-			for i := range tc.workloads {
-				live[i] = &kueue.Workload{}
-				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(tc.workloads[i]), live[i]); err != nil {
-					t.Fatalf("getting workload before update: %v", err)
+			live := tc.workloadsToSync
+			if live == nil {
+				live = make([]*kueue.Workload, len(tc.workloads))
+				for i := range tc.workloads {
+					live[i] = &kueue.Workload{}
+					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(tc.workloads[i]), live[i]); err != nil {
+						t.Fatalf("getting workload before update: %v", err)
+					}
 				}
 			}
 
