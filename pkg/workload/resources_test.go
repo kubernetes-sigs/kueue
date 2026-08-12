@@ -19,6 +19,9 @@ package workload
 import (
 	"testing"
 
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
+
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
@@ -741,6 +744,51 @@ func TestValidateLimitRange(t *testing.T) {
 			got := ValidateLimitRange(ctx, cliBuilder.Build(), &Info{Obj: tc.workload})
 			if diff := cmp.Diff(tc.wantError, got); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func provWorkload(overhead string, ownerUID types.UID) *kueue.Workload {
+	wl := utiltestingapi.MakeWorkload("w", "ns").
+		PodSets(*utiltestingapi.MakePodSet("a", 1).RuntimeClass("rc").Obj()).Obj()
+	wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(overhead)}
+	if ownerUID != "" {
+		wl.OwnerReferences = []metav1.OwnerReference{{
+			APIVersion: "v1", Kind: "Pod", Name: "p", UID: ownerUID,
+			Controller: ptr.To(true), BlockOwnerDeletion: ptr.To(true),
+		}}
+	}
+	return wl
+}
+
+func TestProvenance(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	rc := utiltesting.MakeRuntimeClass("rc", "h").
+		PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1m")}).RuntimeClass
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns", UID: "real-uid"}}
+
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		want string
+	}{
+		// The class said 250m when this Pod was admitted, and the Pod still says so.
+		"a verified Pod keeps what it was admitted with": {wl: provWorkload("250m", "real-uid"), want: "250m"},
+		// Nothing backs the claim, so it is a template and the class answers.
+		"an owner nothing resolves to is not a Pod": {wl: provWorkload("250m", "made-up"), want: "1m"},
+		"no owner at all is a template":             {wl: provWorkload("250m", ""), want: "1m"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cl := utiltesting.NewClientBuilder().
+				WithLists(&nodev1.RuntimeClassList{Items: []nodev1.RuntimeClass{rc}}).
+				WithObjects(pod).Build()
+			for _, err := range handlePodOverhead(ctx, cl, tc.wl) {
+				t.Logf("  lookup: %v", err)
+			}
+			got := tc.wl.Spec.PodSets[0].Template.Spec.Overhead[corev1.ResourceCPU]
+			if got.String() != tc.want {
+				t.Errorf("overhead = %s, want %s", got.String(), tc.want)
 			}
 		})
 	}
