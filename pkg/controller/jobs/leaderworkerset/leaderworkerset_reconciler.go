@@ -224,7 +224,12 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 
 	toCreate, toUpdate, toDelete := r.filterWorkloads(lws, wlList.Items)
 
-	eg, ctx := errgroup.WithContext(ctx)
+	// The branches hold disjoint sets of Workloads, so one failing is no reason
+	// to abandon the others. A derived context would cancel them, and
+	// parallelize.Until checks for cancellation before each item, so a delete
+	// that failed first could stop the other branches before they ran at all.
+	// The reconcile context still carries shutdown and any deadline.
+	var eg errgroup.Group
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toCreate), func(i int) error {

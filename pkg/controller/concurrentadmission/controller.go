@@ -771,6 +771,11 @@ func firstCandidateVariant(log logr.Logger, admissibleVariants []*kueue.Workload
 		}
 		wlLog := log.WithValues("candidateVariant", klog.KObj(wl), "flavor", concurrentadmission.GetVariantFlavor(wl))
 		if workload.BlockedOnPreemptionGatesCondition(wl) == nil {
+			quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if quotaReserved == nil {
+				wlLog.V(4).Info("Variant has not been evaluated for admission yet")
+				return nil
+			}
 			wlLog.V(4).Info("Variant does not require preemption")
 			continue
 		}
