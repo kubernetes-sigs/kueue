@@ -645,25 +645,6 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, priorityClass, true)
 	})
 
-	admitWorkload := func(wlLookupKey types.NamespacedName, createdWorkload *kueue.Workload) {
-		assignments := make([]kueue.PodSetAssignment, len(createdWorkload.Spec.PodSets))
-		for i, podSet := range createdWorkload.Spec.PodSets {
-			assignments[i] = kueue.PodSetAssignment{
-				Name: podSet.Name,
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
-				},
-			}
-		}
-
-		admission := utiltestingapi.MakeAdmission(
-			kueue.ClusterQueueReference(clusterQueue.Name),
-		).PodSets(assignments...).Obj()
-
-		util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
-	}
-
 	ginkgo.It("Should preempt lower priority rayJobs when resource insufficient", framework.SlowSpec, func() {
 		ginkgo.By("Create a low priority rayJob")
 		lowPriorityJob := testingrayjob.MakeJob("rayjob-with-low-priority", ns.Name).Queue(localQueue.Name).
@@ -789,7 +770,23 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("admitting the workload")
-		admitWorkload(wlLookupKey, createdWorkload)
+
+		assignments := make([]kueue.PodSetAssignment, len(createdWorkload.Spec.PodSets))
+		for i, podSet := range createdWorkload.Spec.PodSets {
+			assignments[i] = kueue.PodSetAssignment{
+				Name: podSet.Name,
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+				},
+			}
+		}
+
+		admission := utiltestingapi.MakeAdmission(
+			kueue.ClusterQueueReference(clusterQueue.Name),
+		).PodSets(assignments...).Obj()
+
+		util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 		ginkgo.By("checking the workload has a quota reservation")
 
@@ -801,16 +798,16 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 				Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("marking the RayJob as validation failed")
-
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).
-				Should(gomega.Succeed())
-			createdJob.Status.JobDeploymentStatus =
-				rayv1.JobDeploymentStatusValidationFailed
-			g.Expect(k8sClient.Status().Update(ctx, createdJob)).
-				Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		ginkgo.By("marking the RayJob as validation failed", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).
+					Should(gomega.Succeed())
+				createdJob.Status.JobDeploymentStatus =
+					rayv1.JobDeploymentStatusValidationFailed
+				g.Expect(k8sClient.Status().Update(ctx, createdJob)).
+					Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
 
 		ginkgo.By("checking the workload is put on hold")
 
