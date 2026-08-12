@@ -1839,14 +1839,15 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"cannot set TAS profile with TAS disabled": {
 			featureGateMap: map[string]bool{
-				string(features.TASProfileMixed):                  true,
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TASProfileMixed):                             true,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1890,16 +1891,17 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
-				string(features.ElasticJobsViaWorkloadSlices):        true,
-				string(features.TopologyAwareScheduling):             false,
-				string(features.TASHandleOverlappingFlavors):         false,
-				string(features.TASProfileMixed):                     false,
-				string(features.TASFailedNodeReplacement):            false,
-				string(features.TASFailedNodeReplacementFailFast):    false,
-				string(features.TASReplaceNodeOnPodTermination):      false,
-				string(features.TASReplaceNodeOnNodeTaints):          false,
-				string(features.TASMultiLayerTopology):               false,
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS):         true,
+				string(features.ElasticJobsViaWorkloadSlices):                true,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1919,16 +1921,17 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"multiple FG validation errors at once": {
 			featureGateMap: map[string]bool{
-				string(features.TASProfileMixed):                     true,
-				string(features.TopologyAwareScheduling):             false,
-				string(features.TASHandleOverlappingFlavors):         true,
-				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
-				string(features.ElasticJobsViaWorkloadSlices):        false,
-				string(features.TASFailedNodeReplacement):            false,
-				string(features.TASFailedNodeReplacementFailFast):    false,
-				string(features.TASReplaceNodeOnPodTermination):      false,
-				string(features.TASReplaceNodeOnNodeTaints):          false,
-				string(features.TASMultiLayerTopology):               false,
+				string(features.TASProfileMixed):                             true,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASHandleOverlappingFlavors):                 true,
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS):         true,
+				string(features.ElasticJobsViaWorkloadSlices):                false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1939,14 +1942,15 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASHandleOverlappingFlavors requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      true,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 true,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1962,16 +1966,37 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASHandleOverlappingFlavors): true,
 			},
 		},
+		"TASRecomputeAssignmentWithinSchedulingCycle requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): true,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASRecomputeAssignmentWithinSchedulingCycle is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
+				},
+			},
+		},
 		"TASFailedNodeReplacement requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         true,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    true,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1983,15 +2008,16 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASBalancedPlacement requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASBalancedPlacement):             true,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASBalancedPlacement):                        true,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2003,14 +2029,15 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASReplaceNodeOnNodeTaints requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       true,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  true,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2022,14 +2049,15 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASMultiLayerTopology requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            true,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       true,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2041,15 +2069,16 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASRespectNodeAffinityPreferred requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASRespectNodeAffinityPreferred):  true,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASRespectNodeAffinityPreferred):             true,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2092,14 +2121,15 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASFailedNodeReplacementFailFast requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): true,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            true,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2110,14 +2140,15 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASReplaceNodeOnPodTermination requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   true,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              true,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{

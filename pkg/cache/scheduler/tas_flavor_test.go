@@ -177,3 +177,27 @@ func TestTASFlavorCacheNodeLabelsConcurrentAccess(t *testing.T) {
 	wg.Wait()
 	t.Logf("matches per reader: %v", matches)
 }
+
+func TestStoreTreeReturnsNewest(t *testing.T) {
+	cache := &TASFlavorCache{}
+	newer := &topologyTree{generation: 2}
+	if got := cache.storeTree(newer); got != newer {
+		t.Fatal("storeTree did not return the newly stored tree")
+	}
+
+	older := &topologyTree{generation: 1}
+	if got := cache.storeTree(older); got != newer {
+		t.Fatal("storeTree returned an older tree instead of the cached tree")
+	}
+	if got := cache.cachedTree(); got != newer {
+		t.Fatal("storeTree replaced the cached tree with an older tree")
+	}
+
+	equalGeneration := &topologyTree{generation: 2}
+	if got := cache.storeTree(equalGeneration); got != newer {
+		t.Fatal("storeTree did not return the cached tree for an equal generation")
+	}
+	if got := cache.cachedTree(); got != newer {
+		t.Fatal("storeTree replaced the cached tree with an equal-generation tree")
+	}
+}

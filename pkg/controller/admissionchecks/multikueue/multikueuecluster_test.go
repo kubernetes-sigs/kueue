@@ -32,6 +32,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -299,7 +300,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig", 1).
+					Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig; connection attempts: 1", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -378,7 +379,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
+					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch; connection attempts: 1", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -406,7 +407,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
+					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch; connection attempts: 3", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -461,7 +462,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig", 1).
+					Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig; connection attempts: 1", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -744,6 +745,17 @@ func TestUpdateConfig(t *testing.T) {
 				t.Errorf("unexpected list clusters error: %s", gotErr)
 			}
 
+			// The next-retry timestamp in the Active message is derived from the wall
+			// clock, so strip it before comparing; TestActiveConditionSurfacesBackoff
+			// asserts the full message (including the timestamp) deterministically.
+			for i := range lst.Items {
+				if cond := apimeta.FindStatusCondition(lst.Items[i].Status.Conditions, kueue.MultiKueueClusterActive); cond != nil {
+					if idx := strings.Index(cond.Message, ", next connection attempt: "); idx != -1 {
+						cond.Message = cond.Message[:idx]
+					}
+				}
+			}
+
 			if diff := cmp.Diff(tc.wantClusters, lst.Items, cmpopts.EquateEmpty(),
 				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
@@ -975,6 +987,53 @@ func TestConnectionStateTransitions(t *testing.T) {
 	cs.markConnected()
 	if !cs.isConnected() || cs.lostSince() != nil {
 		t.Fatalf("after reconnect want connected with nil disconnectedSince, got connected=%v since=%v", cs.isConnected(), cs.lostSince())
+	}
+}
+
+func TestActiveConditionSurfacesBackoff(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").Obj()
+	managerClient := getClientBuilder(ctx).WithObjects(cluster).WithStatusSubresource(cluster).Build()
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	recorder := &utiltesting.EventRecorder{}
+	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, &NoOpClusterProfileAccessProvider{}, nil, recorder)
+
+	nextRetry := time.Now().Truncate(time.Second).Add(20 * time.Second)
+	rc := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	rc.failedConnAttempts = 3
+	rc.retryConnNextAttempt = metav1.NewTime(nextRetry)
+	cRec.remoteClients["worker1"] = rc
+
+	// Disconnected: the Active message appends the failed reconnect attempts and the
+	// next retry time.
+	if err := cRec.updateStatus(ctx, cluster, false, "ClientConnectionFailed", "client cannot watch"); err != nil {
+		t.Fatalf("updateStatus(disconnected): %v", err)
+	}
+	got := &kueue.MultiKueueCluster{}
+	if err := managerClient.Get(ctx, client.ObjectKeyFromObject(cluster), got); err != nil {
+		t.Fatalf("get cluster: %v", err)
+	}
+	act := apimeta.FindStatusCondition(got.Status.Conditions, kueue.MultiKueueClusterActive)
+	if act == nil || act.Status != metav1.ConditionFalse {
+		t.Fatalf("want Active=False, got %+v", act)
+	}
+	wantMsg := fmt.Sprintf("client cannot watch; connection attempts: 3, next connection attempt: %s", nextRetry.UTC().Format(time.RFC3339))
+	if act.Message != wantMsg {
+		t.Errorf("Active message:\n got: %q\nwant: %q", act.Message, wantMsg)
+	}
+
+	// Reconnected: the Active message is used as-is (no backoff suffix).
+	if err := cRec.updateStatus(ctx, got, true, "Active", "Connected"); err != nil {
+		t.Fatalf("updateStatus(connected): %v", err)
+	}
+	got2 := &kueue.MultiKueueCluster{}
+	if err := managerClient.Get(ctx, client.ObjectKeyFromObject(cluster), got2); err != nil {
+		t.Fatalf("get cluster: %v", err)
+	}
+	if act := apimeta.FindStatusCondition(got2.Status.Conditions, kueue.MultiKueueClusterActive); act == nil ||
+		act.Status != metav1.ConditionTrue || act.Message != "Connected" {
+		t.Fatalf("want Active=True message %q, got %+v", "Connected", act)
 	}
 }
 

@@ -27,6 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -132,6 +133,41 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Obj(),
+			},
+		},
+		"keep pod gated while admission check is pending": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "1").
+								Obj()).
+							Obj(), now,
+					).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 			},
 		},
@@ -631,6 +667,20 @@ func TestReconcile(t *testing.T) {
 							Obj(), now,
 					).
 					AdmittedAt(true, now).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "provisioning",
+						State: kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{{
+							Name: kueue.DefaultPodSetName,
+							Annotations: map[string]string{
+								autoscaling.ProvisioningRequestPodAnnotationKey: "wl-slice-1-provisioning-1",
+								autoscaling.ProvisioningClassPodAnnotationKey:   "atomic",
+							},
+							NodeSelector: map[string]string{
+								"autoscaling.gke.io/provisioning-request": "current-booking",
+							},
+						}},
+					}).
 					Obj(),
 				// Root slice, now Finished by the replacement. It is the chain key
 				// (reconcile target) and persists for the life of the job, so the
@@ -655,6 +705,8 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod-from-parent", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-provisioning-1").
+					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
 					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 				*testingpod.MakePod("pod-from-scale-up", "ns").
@@ -664,13 +716,23 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
+				// A stale immutable consume value must keep the pod gated and
+				// must not consume capacity from the replacement request.
 				*testingpod.MakePod("pod-from-parent", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-provisioning-1").
+					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
+					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
+				// A compatible gated pod receives the current request identity
+				// and selector before its elastic gate is removed.
 				*testingpod.MakePod("pod-from-scale-up", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-slice-1-provisioning-1").
+					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
+					NodeSelector("autoscaling.gke.io/provisioning-request", "current-booking").
 					Obj(),
 			},
 		},
@@ -940,17 +1002,24 @@ func TestReconcile(t *testing.T) {
 				return
 			}
 
-			// The ungater reconciles by the stable slice-chain key, not by an
-			// individual workload name, so derive the request key from the chain.
-			key := types.NamespacedName{
-				Namespace: tc.workloads[0].Namespace,
-				Name:      workloadslicing.SliceName(&tc.workloads[0]),
+			// The ungater now reconciles by the chain's ACTIVE slice: the enqueue
+			// handlers resolve it via activeSlice, so mirror that here to pick the
+			// request key. Expectations stay keyed by the stable chain key (the
+			// active slice's origin name).
+			active, err := ungater.activeSlice(ctx, &tc.workloads[0])
+			if err != nil {
+				t.Fatalf("resolving active slice: %v", err)
 			}
+			if active == nil {
+				active = &tc.workloads[0]
+			}
+			key := types.NamespacedName{Namespace: active.Namespace, Name: active.Name}
+			sliceKey := types.NamespacedName{Namespace: active.Namespace, Name: workloadslicing.SliceName(active)}
 			if len(tc.expectUIDs) > 0 {
-				ungater.expectationsStore.ExpectUIDs(log, key, tc.expectUIDs)
+				ungater.expectationsStore.ExpectUIDs(log, sliceKey, tc.expectUIDs)
 			}
 
-			_, err := ungater.Reconcile(ctx, reconcile.Request{NamespacedName: key})
+			_, err = ungater.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 			if diff := gocmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Reconcile returned error (-want,+got):\n%s", diff)
 			}
@@ -963,6 +1032,148 @@ func TestReconcile(t *testing.T) {
 			}
 			if diff := gocmp.Diff(tc.wantPods, gotPods.Items, podCmpOpts...); diff != "" {
 				t.Errorf("Pods after reconcile (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestReconcileRedirectsFromFinishedSlice reproduces the scale-rollover stall:
+// an enqueued reconcile (e.g. a requeue after a pod-patch conflict lost the race
+// to the TAS ungater) can re-run against the origin slice after it finished as
+// part of the scale-up. Reconcile must redirect to the chain's current active
+// slice and ungate, not bail on the finished slice and wait for a resync.
+func TestReconcileRedirectsFromFinishedSlice(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	now := time.Now().Truncate(time.Second)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	// Origin slice: admitted at parallelism 1, then finished when the scale-up
+	// replacement took over.
+	origin := utiltestingapi.MakeWorkload("wl", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		ControllerReference(rayClusterGVK, "ray", "ray-uid").
+		Creation(now.Add(-time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "flavor", "1").Obj()).
+				Obj(), now.Add(-time.Minute),
+		).
+		AdmittedAt(true, now.Add(-time.Minute)).
+		Finished().
+		Obj()
+	// Active slice: the scale-up replacement, admitted at parallelism 2, still
+	// pointing back at the origin name via the slice annotation.
+	active := utiltestingapi.MakeWorkload("wl-2", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+		ControllerReference(rayClusterGVK, "ray", "ray-uid").
+		Creation(now).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "flavor", "2").Obj()).
+				Obj(), now,
+		).
+		AdmittedAt(true, now).
+		Obj()
+
+	gatedPod := testingpod.MakePod("pod-0", "ns").
+		Annotation(kueue.WorkloadAnnotation, "wl").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+		Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+		Gate(kueue.ElasticJobSchedulingGate).
+		Obj()
+
+	clientBuilder := utiltesting.NewClientBuilder().
+		WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
+		WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayClusterGVK), coreindexer.WorkloadOwnerIndexFunc(rayClusterGVK)).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, clnt client.WithWatch, obj client.Object, _ client.Patch, _ ...client.PatchOption) error {
+				return clnt.Update(ctx, obj)
+			},
+		}).
+		WithObjects(gatedPod).
+		WithStatusSubresource(origin, active)
+	kClient := clientBuilder.Build()
+	for _, wl := range []*kueue.Workload{origin, active} {
+		if err := kClient.Create(ctx, wl); err != nil {
+			t.Fatalf("Could not create workload %s: %v", wl.Name, err)
+		}
+	}
+
+	ungater := &elasticJobUngater{
+		client:            kClient,
+		clock:             testingclock.NewFakeClock(now),
+		expectationsStore: expectations.NewStore(ControllerName),
+	}
+
+	// Reconcile keyed on the FINISHED origin slice, as a conflict-requeue would.
+	if _, err := ungater.Reconcile(ctx, reconcile.Request{
+		NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl"},
+	}); err != nil {
+		t.Fatalf("Reconcile returned error: %v", err)
+	}
+
+	var got corev1.Pod
+	if err := kClient.Get(ctx, client.ObjectKeyFromObject(gatedPod), &got); err != nil {
+		t.Fatalf("Could not get pod after reconcile: %v", err)
+	}
+	for _, g := range got.Spec.SchedulingGates {
+		if g.Name == kueue.ElasticJobSchedulingGate {
+			t.Fatalf("pod still has elastic scheduling gate; expected ungate via redirect to active slice %q", active.Name)
+		}
+	}
+}
+
+func TestShouldUngate(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	now := time.Now().Truncate(time.Second)
+
+	admittedElasticWorkload := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+			AdmittedAt(true, now)
+	}
+
+	testCases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+	}{
+		"fully admitted elastic workload": {
+			workload: admittedElasticWorkload().Obj(),
+			want:     true,
+		},
+		"quota reserved with pending admission check": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "provisioning",
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+		},
+		"finished admitted elastic workload": {
+			workload: admittedElasticWorkload().FinishedAt(now).Obj(),
+		},
+		"admitted non-elastic workload": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				AdmittedAt(true, now).
+				Obj(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			if got := shouldUngate(tc.workload); got != tc.want {
+				t.Errorf("shouldUngate() = %v, want %v", got, tc.want)
 			}
 		})
 	}

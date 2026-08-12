@@ -2536,7 +2536,7 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 				if !cqImpl.requeueIfNotPresent(log, tracked, false, RequeueReasonNoFit, "") {
 					t.Fatal("Requeueing the Workload failed")
 				}
-				if cqImpl.inadmissibleWorkloads.get(key) == nil {
+				if cqImpl.workloads.GetInadmissible(key) == nil {
 					t.Fatal("Workload is not held in inadmissibleWorkloads")
 				}
 			}

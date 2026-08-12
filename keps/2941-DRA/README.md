@@ -378,9 +378,11 @@ is documented here:
      Users deploying DRA with Kueue should enable `waitForPodsReady`.
    - **Quota drift**: the scheduler allocates from a different DeviceClass than Kueue charged
      quota against, but the pod runs successfully. `waitForPodsReady` does not catch this.
-     Since the extended resources path uses `extendedResourceName` directly as the quota key,
-     quota accounting remains correct at the resource name level, though not at the physical
-     DeviceClass level.
+     Since the extended resources path resolves the quota key from the selected DeviceClass,
+     the mapped logical name when that class is in `deviceClassMappings` and the
+     `extendedResourceName` otherwise, a class switch drifts the quota key itself whenever the
+     two classes map to different logical resources, and not only the physical device behind a
+     stable key.
    To mitigate:
    - Kueue uses a controller-runtime field indexer on `DeviceClass` by `spec.extendedResourceName`
      to resolve DeviceClasses deterministically.
@@ -910,11 +912,13 @@ The two DRA paths resolve quota independently:
 #### Processing Flow
 
 1. Kueue detects extended resources in `resources.requests`
-2. Looks up DeviceClass by `extendedResourceName` by field indexer
+2. Looks up DeviceClasses by `extendedResourceName` by field indexer
 3. If no matching DeviceClass is found, the resource is not DRA-backed and Kueue
    processes it through the standard resource quota path (counted via `node.Status.Allocatable`)
-4. If a matching DeviceClass is found, resolves the quota key. If the DeviceClass is also
-   in `deviceClassMappings`, uses the mapped logical name. Otherwise uses `extendedResourceName`.
+4. If one or more DeviceClasses match, picks the one the scheduler would use: the latest
+   creation time wins, and the name breaks ties when they were created in the same second.
+   Uses that class's `deviceClassMappings` entry as the quota key, or falls back to
+   `extendedResourceName` when the selected class is not mapped.
 5. If the mapping has counter sources configured, the workload is marked inadmissible.
    Extended resources do not carry profile-level information for counter-based charging.
    Otherwise charges device count.
@@ -984,8 +988,9 @@ dependencies on non-staging k8s repos.
 
 Even when multiple DeviceClasses share the same `extendedResourceName` (which K8s
 [permits with deterministic tiebreaking](https://github.com/kubernetes/kubernetes/blob/v1.35.0/staging/src/k8s.io/api/resource/v1/types.go#L1816-L1820)),
-Kueue still treats the resource as DRA-backed. The quota key is the `extendedResourceName`
-itself, not the DeviceClass name, so multiple matching DeviceClasses do not affect quota accounting.
+Kueue still treats the resource as DRA-backed, and the selected class determines the charge.
+Kueue picks the class the scheduler would use and reads the quota key from it, so the charge
+follows the allocation rather than whichever class the lookup happened to return first.
 
 #### DeviceClass Lifecycle Scenarios
 
