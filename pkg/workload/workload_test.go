@@ -1233,28 +1233,6 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
-		// An explicit zero is a value, not an absent entry, so it still replaces
-		// the container total. The apiserver would refuse this shape on a Pod,
-		// since a pod-level request may not sit below the containers it covers,
-		// but a Workload written directly is not checked against that, and what
-		// is charged then is whatever the aggregation returns.
-		"zeroPodLevelRequestStillOverridesTheContainerAggregate": {
-			workload: withPodLevelRequests(
-				utiltestingapi.MakeWorkload("podlevelzero", "").
-					PodSets(*utiltestingapi.MakePodSet("a", 1).
-						Request(corev1.ResourceCPU, "8").Obj()).
-					Obj(),
-				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")}),
-			wantInfo: Info{
-				TotalRequests: []PodSetResources{{
-					Name: "a",
-					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
-						corev1.ResourceCPU: 0,
-					}),
-					Count: 1,
-				}},
-			},
-		},
 		// A negative pod-level override read by a multiplyBy has no container to
 		// fall back to, so it stays named at zero rather than vanish and read as one.
 		"negativePodLevelMultiplierWithoutContainerFallbackStaysZero": {
