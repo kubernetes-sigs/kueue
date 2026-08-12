@@ -106,11 +106,12 @@ func SaturatingMul(a, b int64) int64 {
 	return res
 }
 
-// ExactAdd is SaturatingAdd for a quota amount, which cannot saturate: the
-// quota code reads math.MaxInt64 as unlimited, so a sum that reaches it would
-// report no limit at all rather than a conservative one. Negative operands are
-// refused for the same reason, since a count is never one.
-func ExactAdd(a, b int64) (int64, bool) {
+// BoundedAdd is SaturatingAdd for a quota amount, which cannot saturate:
+// resources.Unlimited is math.MaxInt64, so a sum that reaches it would report no
+// limit at all rather than a conservative one. Operands and result must all lie
+// in [0, math.MaxInt64), and a negative one is refused rather than treated as a
+// credit against what was asked for.
+func BoundedAdd(a, b int64) (int64, bool) {
 	if a < 0 || b < 0 {
 		return 0, false
 	}
@@ -120,8 +121,10 @@ func ExactAdd(a, b int64) (int64, bool) {
 	return a + b, true
 }
 
-// ExactMul is ExactAdd's counterpart, under the same bound.
-func ExactMul(a, b int64) (int64, bool) {
+// BoundedMul is BoundedAdd's counterpart, under the same bound on operands and
+// result. Note that only the result is bounded, so multiplying by zero is
+// answered rather than refused.
+func BoundedMul(a, b int64) (int64, bool) {
 	if a < 0 || b < 0 {
 		return 0, false
 	}

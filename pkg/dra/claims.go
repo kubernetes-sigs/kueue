@@ -101,7 +101,7 @@ func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resour
 			if len(errs) > 0 {
 				return claimCharges{}, append(allErrs, errs...)
 			}
-			total, ok := utilmath.ExactAdd(charges.perLogicalResource[logical], count)
+			total, ok := utilmath.BoundedAdd(charges.perLogicalResource[logical], count)
 			if !ok {
 				allErrs = append(allErrs, field.Invalid(devicesRequestsPath.Index(i), count,
 					fmt.Sprintf("the counts charged to logical resource %s do not add up to a bounded quota amount", logical)))
@@ -277,13 +277,13 @@ func chargeFitsCanonicalUnits(podSets []kueue.PodSet, perPodSet map[kueue.PodSet
 					fmt.Sprintf("device count charged to logical resource %s is not representable in the units it is accounted in", name)))
 				continue
 			}
-			scaled, ok := utilmath.ExactMul(canonical, int64(ps.Count))
+			scaled, ok := utilmath.BoundedMul(canonical, int64(ps.Count))
 			if !ok {
 				errs = append(errs, field.Invalid(psPath.Child("count"), ps.Count,
 					fmt.Sprintf("device count charged to logical resource %s is not representable once multiplied by the podSet count", name)))
 				continue
 			}
-			total, ok := utilmath.ExactAdd(totals[name], scaled)
+			total, ok := utilmath.BoundedAdd(totals[name], scaled)
 			if !ok {
 				errs = append(errs, field.Invalid(field.NewPath("spec", "podSets"), name,
 					fmt.Sprintf("total charged to logical resource %s across podSets is not representable as a bounded quota amount", name)))

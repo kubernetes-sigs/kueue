@@ -102,7 +102,7 @@ func TestSaturatingSub(t *testing.T) {
 	}
 }
 
-func TestExactAdd(t *testing.T) {
+func TestBoundedAdd(t *testing.T) {
 	cases := map[string]struct {
 		a, b   int64
 		want   int64
@@ -118,15 +118,15 @@ func TestExactAdd(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, ok := ExactAdd(tc.a, tc.b)
+			got, ok := BoundedAdd(tc.a, tc.b)
 			if got != tc.want || ok != tc.wantOK {
-				t.Errorf("ExactAdd(%d, %d) = %d, %t, want %d, %t", tc.a, tc.b, got, ok, tc.want, tc.wantOK)
+				t.Errorf("BoundedAdd(%d, %d) = %d, %t, want %d, %t", tc.a, tc.b, got, ok, tc.want, tc.wantOK)
 			}
 		})
 	}
 }
 
-func TestExactMul(t *testing.T) {
+func TestBoundedMul(t *testing.T) {
 	cases := map[string]struct {
 		a, b   int64
 		want   int64
@@ -142,9 +142,9 @@ func TestExactMul(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, ok := ExactMul(tc.a, tc.b)
+			got, ok := BoundedMul(tc.a, tc.b)
 			if got != tc.want || ok != tc.wantOK {
-				t.Errorf("ExactMul(%d, %d) = %d, %t, want %d, %t", tc.a, tc.b, got, ok, tc.want, tc.wantOK)
+				t.Errorf("BoundedMul(%d, %d) = %d, %t, want %d, %t", tc.a, tc.b, got, ok, tc.want, tc.wantOK)
 			}
 		})
 	}
