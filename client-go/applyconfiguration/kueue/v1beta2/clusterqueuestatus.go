@@ -51,6 +51,12 @@ type ClusterQueueStatusApplyConfiguration struct {
 	// when participating in Fair Sharing.
 	// This is recorded only when Fair Sharing is enabled in the Kueue configuration.
 	FairSharing *FairSharingStatusApplyConfiguration `json:"fairSharing,omitempty"`
+	// effectiveQuotas is used for scheduling instead of spec.resourceGroups when
+	// present.
+	//
+	// This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
+	// feature gate is disabled.
+	EffectiveQuotas *EffectiveQuotaStatusApplyConfiguration `json:"effectiveQuotas,omitempty"`
 }
 
 // ClusterQueueStatusApplyConfiguration constructs a declarative configuration of the ClusterQueueStatus type for use with
@@ -127,5 +133,13 @@ func (b *ClusterQueueStatusApplyConfiguration) WithAdmittedWorkloads(value int32
 // If called multiple times, the FairSharing field is set to the value of the last call.
 func (b *ClusterQueueStatusApplyConfiguration) WithFairSharing(value *FairSharingStatusApplyConfiguration) *ClusterQueueStatusApplyConfiguration {
 	b.FairSharing = value
+	return b
+}
+
+// WithEffectiveQuotas sets the EffectiveQuotas field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the EffectiveQuotas field is set to the value of the last call.
+func (b *ClusterQueueStatusApplyConfiguration) WithEffectiveQuotas(value *EffectiveQuotaStatusApplyConfiguration) *ClusterQueueStatusApplyConfiguration {
+	b.EffectiveQuotas = value
 	return b
 }
