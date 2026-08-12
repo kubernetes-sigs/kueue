@@ -19,6 +19,7 @@ package resources
 import (
 	corev1 "k8s.io/api/core/v1"
 	resourcehelpers "k8s.io/component-helpers/resource"
+	"maps"
 
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -89,14 +90,19 @@ func PodRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
 
 // ChargeableOverhead drops the overhead entries Kueue will not charge.
 func ChargeableOverhead(overhead corev1.ResourceList) corev1.ResourceList {
-	charged := make(corev1.ResourceList, len(overhead))
+	// Most overhead is chargeable, and this sits on the path every PodSet takes
+	// through quota, TAS and the LimitRange checks, so wait for a reason to copy.
+	var charged corev1.ResourceList
 	for name, quantity := range overhead {
-		if name == corev1.ResourcePods || quantity.Sign() < 0 {
+		if name != corev1.ResourcePods && quantity.Sign() >= 0 {
 			continue
 		}
-		charged[name] = quantity
+		if charged == nil {
+			charged = maps.Clone(overhead)
+		}
+		delete(charged, name)
 	}
-	if len(charged) == len(overhead) {
+	if charged == nil {
 		return overhead
 	}
 	return charged

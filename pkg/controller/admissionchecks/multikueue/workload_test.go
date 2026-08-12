@@ -45,6 +45,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -3320,5 +3321,92 @@ func TestSpecWithChargeableOverheadLeavesTheSourceAlone(t *testing.T) {
 	}
 	if diff := cmp.Diff(want.PodSets, src.PodSets); diff != "" {
 		t.Errorf("the source was modified (-want +got):\n%s", diff)
+	}
+}
+
+// A scale-down writes the local spec over the remote one. The remote was
+// created without the overhead entries Kueue will not charge, so the worker
+// reads an entry arriving now as one being introduced, with nothing behind it
+// to grandfather it, and refuses the update for as long as the local carries it.
+func TestReconcileGroupScaleDownKeepsRemoteOverheadNormalized(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	now := time.Now()
+
+	const (
+		acName     = kueue.AdmissionCheckReference("ac1")
+		workerName = "worker1"
+	)
+
+	elastic := func(wl *kueue.Workload) *kueue.Workload {
+		if wl.Annotations == nil {
+			wl.Annotations = map[string]string{}
+		}
+		wl.Annotations[kueueconstants.ElasticJobAnnotation] = "true"
+		return wl
+	}
+
+	// The manager still carries what it was admitted with, one replica fewer
+	// than the remote now that it has scaled down.
+	local := elastic(utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
+		AdmittedAt(true, now).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:               acName,
+			State:              kueue.CheckStateReady,
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		ClusterName(workerName).
+		Obj())
+	local.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}
+
+	remote := elastic(utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		PodSets(*utiltestingapi.MakePodSet("main", 2).Request(corev1.ResourceCPU, "1").Obj()).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Admitted",
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Obj())
+
+	managerClient := getClientBuilder(ctx).WithObjects(local).WithStatusSubresource(local).Build()
+	workerClient := NewNeverCachingClient(getClientBuilder(ctx).WithObjects(remote).WithStatusSubresource(remote).Build())
+
+	group := &wlGroup{
+		local:       local,
+		localClient: managerClient,
+		remotes:     map[string]*kueue.Workload{workerName: remote},
+		remoteClients: map[string]*remoteClient{
+			workerName: {client: workerClient, origin: defaultOrigin},
+		},
+		acName:        acName,
+		jobAdapter:    &deferredSyncStubAdapter{},
+		controllerKey: types.NamespacedName{Name: "job1", Namespace: TestNamespace},
+	}
+	reconciler := &wlReconciler{
+		client:            managerClient,
+		clock:             testingclock.NewFakeClock(now),
+		origin:            defaultOrigin,
+		workerLostTimeout: defaultWorkerLostTimeout,
+		recorder:          &utiltesting.EventRecorder{},
+		dispatcherName:    config.MultiKueueDispatcherModeAllAtOnce,
+	}
+
+	if _, err := reconciler.reconcileGroup(ctx, group); err != nil {
+		t.Fatalf("reconcileGroup: %v", err)
+	}
+
+	got := &kueue.Workload{}
+	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remote), got); err != nil {
+		t.Fatalf("reading the remote back: %v", err)
+	}
+	if len(got.Spec.PodSets[0].Template.Spec.Overhead) != 0 {
+		t.Errorf("remote overhead = %v, want none: the scale-down put back what the create left out",
+			got.Spec.PodSets[0].Template.Spec.Overhead)
+	}
+	if _, ok := local.Spec.PodSets[0].Template.Spec.Overhead[corev1.ResourcePods]; !ok {
+		t.Error("the local workload lost its overhead, so the normalization reached the caller's slice")
 	}
 }
