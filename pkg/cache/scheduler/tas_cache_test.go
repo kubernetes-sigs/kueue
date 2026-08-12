@@ -1220,7 +1220,86 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 4000,
 				},
 				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 4; excluded: resource "cpu": 4`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 6; excluded: resource "cpu": 6`,
+			}},
+		},
+		"rack required; Pod fits in the rack's aggregated capacity but on no single node; BestFit": {
+			// Rack b1/r2 aggregates 3 CPU, but the largest node has 2 CPU.
+			nodes:  defaultNodes,
+			levels: defaultTwoLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(tasRackLabel),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 2500,
+				},
+				count:      1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 6; excluded: resource "cpu": 6`,
+			}},
+		},
+		"unconstrained; all nodes needed; non-hostname lowest level; BestFit": {
+			// The assignment must be published at the user-specified levels
+			// with per-rack counts summed over the underlying nodes.
+			nodes:  defaultNodes,
+			levels: defaultTwoLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				count: 7,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultTwoLevels,
+					Domains: []tas.TopologyDomainAssignment{
+						{
+							Count:  1,
+							Values: []string{"b1", "r1"},
+						},
+						{
+							Count:  3,
+							Values: []string{"b1", "r2"},
+						},
+						{
+							Count:  1,
+							Values: []string{"b2", "r1"},
+						},
+						{
+							Count:  2,
+							Values: []string{"b2", "r2"},
+						},
+					},
+				},
+			}},
+		},
+		"rack required; usage on a multi-node rack is distributed across its nodes; BestFit": {
+			// The 1.5 CPU rack-level usage leaves 0.5 CPU per node in b1/r2 and
+			// on x4, so no rack fits two 0.75-CPU Pods, only 1 on x3 or x2.
+			nodes:  defaultNodes,
+			levels: defaultTwoLevels,
+			priorOwnUsage: []workload.TopologyDomainRequests{
+				{
+					Values:            []string{"b1", "r2"},
+					SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1500}),
+					Count:             1,
+				},
+				{
+					Values:            []string{"b2", "r2"},
+					SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1500}),
+					Count:             1,
+				},
+			},
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Required: new(tasRackLabel),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 750,
+				},
+				count:      2,
+				wantReason: `topology "default" allows to fit only 1 out of 2 pod(s). Total nodes: 6; excluded: resource "cpu": 4`,
 			}},
 		},
 		"block required; too many Pods to fit requested; BestFit": {
