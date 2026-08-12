@@ -498,7 +498,7 @@ func chargeablePodRequests(spec *corev1.PodSpec) corev1.ResourceList {
 	// at zero so it still overrides at zero.
 	if spec.Resources != nil {
 		for name, q := range spec.Resources.Requests {
-			if q.Sign() >= 0 || !resourcehelpers.IsSupportedPodLevelResource(name) {
+			if q.Sign() >= 0 {
 				continue
 			}
 			if _, found := requests[name]; !found {
