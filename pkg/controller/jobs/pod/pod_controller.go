@@ -1163,8 +1163,10 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		}
 	}
 
+	// Filtered before the comparison, not after: two Pods disagreeing on a key
+	// nothing may inherit would otherwise refuse the whole group.
 	labelsToCopy, err := p.getByKey(
-		labelKeysToCopy.UnsortedList(),
+		jobframework.CopyableLabelKeys(labelKeysToCopy).UnsortedList(),
 		func(pod *corev1.Pod) map[string]string { return pod.Labels },
 		errPodGroupLabelsMismatch,
 	)
