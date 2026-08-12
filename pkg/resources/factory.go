@@ -17,9 +17,10 @@ limitations under the License.
 package resources
 
 import (
+	"maps"
+
 	corev1 "k8s.io/api/core/v1"
 	resourcehelpers "k8s.io/component-helpers/resource"
-	"maps"
 
 	"sigs.k8s.io/kueue/pkg/features"
 )
