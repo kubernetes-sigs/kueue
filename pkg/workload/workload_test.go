@@ -1079,10 +1079,37 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
-		// A sidecar runs beside the regular containers, so its request is added
-		// Only cpu and memory reach the pod-level override, and it replaces the
-		// container total rather than adding to it, so an invalid entry has to go
-		// rather than become a zero.
+		// A sidecar runs beside the regular containers rather than before them, so
+		// its request joins their sum instead of being compared with it. That sum
+		// is where a negative one would be spent.
+		"negativeRestartableInitRequestDoesNotSpendTheRegularOne": {
+			workload: *utiltestingapi.MakeWorkload("sidecar", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(
+						*utiltesting.MakeContainer().Name("asks").WithResourceReq("example.com/credit", "8").Obj(),
+					).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("beside").AsSidecar().WithResourceReq("example.com/credit", "-3").Obj(),
+					).Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// cpu, memory and hugepages are the names a pod-level entry is read for,
+		// and it replaces the container total rather than adding to it, so an
+		// invalid entry has to go rather than become a zero.
 		"negativePodLevelCPUFallsBackToTheContainerAggregate": {
 			workload: withPodLevelRequests(
 				utiltestingapi.MakeWorkload("podlevelcpu", "").
@@ -1117,7 +1144,28 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
-		// A zero is a legitimate pod-level answer and still wins over the containers.
+		"negativePodLevelHugepagesFallsBackToTheContainerAggregate": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelhuge", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request("hugepages-2Mi", "8Mi").Obj()).
+					Obj(),
+				corev1.ResourceList{"hugepages-2Mi": resource.MustParse("-4Mi")}),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"hugepages-2Mi": 8 * 1024 * 1024,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// An explicit zero is a value, not an absent entry, so it still replaces
+		// the container total. The apiserver would refuse this shape on a Pod,
+		// since a pod-level request may not sit below the containers it covers,
+		// but a Workload written directly is not checked against that, and what
+		// is charged then is whatever the aggregation returns.
 		"zeroPodLevelRequestStillOverridesTheContainerAggregate": {
 			workload: withPodLevelRequests(
 				utiltestingapi.MakeWorkload("podlevelzero", "").
