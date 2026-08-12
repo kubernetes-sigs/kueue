@@ -600,61 +600,96 @@ var _ = ginkgo.Describe("Preemption", func() {
 			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, gammaCQ.Name, gammaMidWl)
 		})
 
-		for _, recomputeAssignment := range []bool{false, true} {
-			ginkgo.It(
-				fmt.Sprintf("Should preempt all necessary workloads in concurrent scheduling with the same priority (RecomputeAssignmentUponPreemptionTargetsOverlap=%t)", recomputeAssignment),
-				func() {
-					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RecomputeAssignmentUponPreemptionTargetsOverlap, recomputeAssignment)
-					var betaWls []*kueue.Workload
-					for i := range 3 {
-						wl := utiltestingapi.MakeWorkload(fmt.Sprintf("beta-%d", i), ns.Name).
-							Queue(kueue.LocalQueueName(betaLQ.Name)).
-							Request(corev1.ResourceCPU, "2").
-							Obj()
-						util.MustCreate(ctx, k8sClient, wl)
-						betaWls = append(betaWls, wl)
-					}
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, betaWls...)
+		ginkgo.It("Should preempt all necessary workloads in concurrent scheduling with the same priority (RecomputeAssignmentUponPreemptionTargetsOverlap=true)", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RecomputeAssignmentUponPreemptionTargetsOverlap, true)
+			var betaWls []*kueue.Workload
+			for i := range 3 {
+				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("beta-%d", i), ns.Name).
+					Queue(kueue.LocalQueueName(betaLQ.Name)).
+					Request(corev1.ResourceCPU, "2").
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+				betaWls = append(betaWls, wl)
+			}
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, betaWls...)
 
-					ginkgo.By("Creating preempting pods")
+			ginkgo.By("Creating preempting pods")
 
-					alphaWl := utiltestingapi.MakeWorkload("alpha", ns.Name).
-						Queue(kueue.LocalQueueName(alphaLQ.Name)).
-						Request(corev1.ResourceCPU, "2").
-						Obj()
-					util.MustCreate(ctx, k8sClient, alphaWl)
+			alphaWl := utiltestingapi.MakeWorkload("alpha", ns.Name).
+				Queue(kueue.LocalQueueName(alphaLQ.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, alphaWl)
 
-					gammaWl := utiltestingapi.MakeWorkload("gamma", ns.Name).
-						Queue(kueue.LocalQueueName(gammaLQ.Name)).
-						Request(corev1.ResourceCPU, "2").
-						Obj()
-					util.MustCreate(ctx, k8sClient, gammaWl)
+			gammaWl := utiltestingapi.MakeWorkload("gamma", ns.Name).
+				Queue(kueue.LocalQueueName(gammaLQ.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, gammaWl)
 
-					var evictedWorkloads []*kueue.Workload
+			var evictedWorkloads []*kueue.Workload
 
-					if !recomputeAssignment {
-						gomega.Eventually(func(g gomega.Gomega) {
-							evictedWorkloads = util.FilterEvictedWorkloads(ctx, k8sClient, betaWls...)
-							g.Expect(evictedWorkloads).Should(gomega.HaveLen(1), "Number of evicted workloads")
-						}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				evictedWorkloads = util.FilterEvictedWorkloads(ctx, k8sClient, betaWls...)
+				g.Expect(evictedWorkloads).Should(gomega.HaveLen(2), "Number of evicted workloads")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-						ginkgo.By("Finishing eviction for first set of preempted workloads")
-						util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
-						util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, alphaWl, gammaWl)
-					}
+			ginkgo.By("Finishing eviction for second set of preempted workloads")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaWl, gammaWl)
+			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, betaWls...)
+		},
+		)
 
-					gomega.Eventually(func(g gomega.Gomega) {
-						evictedWorkloads = util.FilterEvictedWorkloads(ctx, k8sClient, betaWls...)
-						g.Expect(evictedWorkloads).Should(gomega.HaveLen(2), "Number of evicted workloads")
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		ginkgo.It("Should preempt all necessary workloads in concurrent scheduling with the same priority (RecomputeAssignmentUponPreemptionTargetsOverlap=false)", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RecomputeAssignmentUponPreemptionTargetsOverlap, false)
+			var betaWls []*kueue.Workload
+			for i := range 3 {
+				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("beta-%d", i), ns.Name).
+					Queue(kueue.LocalQueueName(betaLQ.Name)).
+					Request(corev1.ResourceCPU, "2").
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+				betaWls = append(betaWls, wl)
+			}
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, betaWls...)
 
-					ginkgo.By("Finishing eviction for second set of preempted workloads")
-					util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaWl, gammaWl)
-					util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, betaWls...)
-				},
-			)
-		}
+			ginkgo.By("Creating preempting pods")
+
+			alphaWl := utiltestingapi.MakeWorkload("alpha", ns.Name).
+				Queue(kueue.LocalQueueName(alphaLQ.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, alphaWl)
+
+			gammaWl := utiltestingapi.MakeWorkload("gamma", ns.Name).
+				Queue(kueue.LocalQueueName(gammaLQ.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, gammaWl)
+
+			var evictedWorkloads []*kueue.Workload
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				evictedWorkloads = util.FilterEvictedWorkloads(ctx, k8sClient, betaWls...)
+				g.Expect(evictedWorkloads).Should(gomega.HaveLen(1), "Number of evicted workloads")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing eviction for first set of preempted workloads")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
+			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, alphaWl, gammaWl)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				evictedWorkloads = util.FilterEvictedWorkloads(ctx, k8sClient, betaWls...)
+				g.Expect(evictedWorkloads).Should(gomega.HaveLen(2), "Number of evicted workloads")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing eviction for second set of preempted workloads")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, evictedWorkloads...)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, alphaWl, gammaWl)
+			util.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, betaWls...)
+		},
+		)
 	})
 
 	ginkgo.Context("In a cohort with StrictFIFO", func() {
