@@ -17,6 +17,7 @@ limitations under the License.
 package workload
 
 import (
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -25,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -749,9 +751,9 @@ func TestValidateLimitRange(t *testing.T) {
 	}
 }
 
-func provWorkload(overhead string, ownerUID types.UID) *kueue.Workload {
+func provWorkload(class, overhead string, ownerUID types.UID) *kueue.Workload {
 	wl := utiltestingapi.MakeWorkload("w", "ns").
-		PodSets(*utiltestingapi.MakePodSet("a", 1).RuntimeClass("rc").Obj()).Obj()
+		PodSets(*utiltestingapi.MakePodSet("a", 1).RuntimeClass(class).Obj()).Obj()
 	wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(overhead)}
 	if ownerUID != "" {
 		wl.OwnerReferences = []metav1.OwnerReference{{
@@ -769,22 +771,33 @@ func TestProvenance(t *testing.T) {
 	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "p", Namespace: "ns", UID: "real-uid"}}
 
 	cases := map[string]struct {
-		wl   *kueue.Workload
-		want string
+		wl      *kueue.Workload
+		want    string
+		wantErr bool
 	}{
 		// The class said 250m when this Pod was admitted, and the Pod still says so.
-		"a verified Pod keeps what it was admitted with": {wl: provWorkload("250m", "real-uid"), want: "250m"},
+		"a verified Pod keeps what it was admitted with": {wl: provWorkload("rc", "250m", "real-uid"), want: "250m"},
 		// Nothing backs the claim, so it is a template and the class answers.
-		"an owner nothing resolves to is not a Pod": {wl: provWorkload("250m", "made-up"), want: "1m"},
-		"no owner at all is a template":             {wl: provWorkload("250m", ""), want: "1m"},
+		"an owner nothing resolves to is not a Pod": {wl: provWorkload("rc", "250m", "made-up"), want: "1m"},
+		"no owner at all is a template":             {wl: provWorkload("rc", "250m", ""), want: "1m"},
+		// AdjustResources only logs these, so the caller that can act on one has to see it here.
+		"a class that does not resolve is reported and changes nothing": {
+			wl: provWorkload("gone", "250m", ""), want: "250m", wantErr: true,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&nodev1.RuntimeClassList{Items: []nodev1.RuntimeClass{rc}}).
 				WithObjects(pod).Build()
-			for _, err := range handlePodOverhead(ctx, cl, tc.wl) {
-				t.Logf("  lookup: %v", err)
+			errs := handlePodOverhead(ctx, cl, tc.wl)
+			if gotErr := len(errs) > 0; gotErr != tc.wantErr {
+				t.Errorf("errors = %v, want error %t", errs, tc.wantErr)
+			}
+			for _, err := range errs {
+				if !apierrors.IsNotFound(err) || !strings.Contains(err.Error(), "podSet a") {
+					t.Errorf("error does not name the podSet and the missing class: %v", err)
+				}
 			}
 			got := tc.wl.Spec.PodSets[0].Template.Spec.Overhead[corev1.ResourceCPU]
 			if got.String() != tc.want {

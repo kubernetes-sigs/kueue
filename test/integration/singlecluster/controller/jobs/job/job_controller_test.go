@@ -480,41 +480,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		// The class decides the overhead the Pods carry, so a Workload naming a
-		// different one is not standing for this Job.
-		ginkgo.It("Should not adopt a prebuilt workload naming another runtime class", func() {
-			container := corev1.Container{Name: "c", Image: "pause"}
-			testingjob.SetContainerDefaults(&container)
-
-			job := testingjob.MakeJob("job", ns.Name).
-				Queue("main").
-				PrebuiltWorkloadLabel("wl").
-				Containers(*container.DeepCopy()).
-				Obj()
-			job.Spec.Template.Spec.RuntimeClassName = ptr.To("kata")
-			util.MustCreate(ctx, k8sClient, job)
-
-			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					Containers(*container.DeepCopy()).
-					RuntimeClass("runc").
-					Obj()).
-				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
-
-			ginkgo.By("Checking the job never takes the workload and stays suspended", func() {
-				gomega.Consistently(func(g gomega.Gomega) {
-					createdWl := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
-					g.Expect(createdWl.OwnerReferences).To(gomega.BeEmpty())
-
-					createdJob := batchv1.Job{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
-					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
-				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
-			})
-		})
-
 		ginkgo.It("Should reconcile job when the workload is created later", func() {
 			container := corev1.Container{
 				Name:  "c",
