@@ -945,19 +945,11 @@ func TestReconcileDoesNotCancelTheWorkloadBranch(t *testing.T) {
 		// the time it looks.
 		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 			if _, isClass := obj.(*kueue.WorkloadPriorityClass); isClass {
-				select {
-				case <-finalizeFailed:
-				case <-time.After(30 * time.Second):
+				if !utiltesting.AwaitBranch(finalizeFailed) {
 					return errNotOrdered
 				}
-				// A second rather than the microseconds the cancel would take:
-				// the branch it would come from has already failed, so this is
-				// an observation window, and a short one would let a descheduled
-				// goroutine read as no cancellation at all.
-				select {
-				case <-ctx.Done():
+				if utiltesting.ObserveCancellation(ctx) {
 					cancelledHere.Store(true)
-				case <-time.After(time.Second):
 				}
 			}
 			return c.Get(ctx, key, obj, opts...)
