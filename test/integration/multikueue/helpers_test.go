@@ -235,3 +235,122 @@ func checkingTheWorkloadCreation(wlLookupKey types.NamespacedName, matcher gomeg
 		}, util.Timeout, util.Interval).Should(matcher)
 	})
 }
+
+// multiKueueFixture holds the manager/worker resources that every MultiKueue
+// integration spec needs: namespaces, kubeconfig secrets, MultiKueueClusters,
+// the MultiKueueConfig, the MultiKueue AdmissionCheck, and the ClusterQueue,
+// LocalQueue and ResourceFlavor on the manager and both workers.
+//
+// Per-framework test files create it in BeforeEach via setupMultiKueueFixture
+// and release it in AfterEach via teardown, so the common setup lives in one
+// place instead of being duplicated in every file.
+type multiKueueFixture struct {
+	managerNs *corev1.Namespace
+	worker1Ns *corev1.Namespace
+	worker2Ns *corev1.Namespace
+
+	managerMultiKueueSecret1 *corev1.Secret
+	managerMultiKueueSecret2 *corev1.Secret
+	workerCluster1           *kueue.MultiKueueCluster
+	workerCluster2           *kueue.MultiKueueCluster
+	managerMultiKueueConfig  *kueue.MultiKueueConfig
+	multiKueueAC             *kueue.AdmissionCheck
+	managerCq                *kueue.ClusterQueue
+	managerLq                *kueue.LocalQueue
+	managerFlavor            *kueue.ResourceFlavor
+
+	worker1Cq     *kueue.ClusterQueue
+	worker1Lq     *kueue.LocalQueue
+	worker1Flavor *kueue.ResourceFlavor
+
+	worker2Cq     *kueue.ClusterQueue
+	worker2Lq     *kueue.LocalQueue
+	worker2Flavor *kueue.ResourceFlavor
+}
+
+func setupMultiKueueFixture() *multiKueueFixture {
+	ginkgo.GinkgoHelper()
+	f := &multiKueueFixture{}
+
+	f.managerNs = util.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
+	f.worker1Ns = util.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, f.managerNs.Name)
+	f.worker2Ns = util.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, f.managerNs.Name)
+
+	w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	w2Kubeconfig, err := worker2TestCluster.kubeConfigBytes()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	f.managerMultiKueueSecret1 = utiltesting.MakeSecret("multikueue1", managersConfigNamespace.Name).Data(kueue.MultiKueueConfigSecretKey, w1Kubeconfig).Obj()
+	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, f.managerMultiKueueSecret1)
+
+	f.managerMultiKueueSecret2 = utiltesting.MakeSecret("multikueue2", managersConfigNamespace.Name).Data(kueue.MultiKueueConfigSecretKey, w2Kubeconfig).Obj()
+	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, f.managerMultiKueueSecret2)
+
+	f.workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, f.managerMultiKueueSecret1.Name).Obj()
+	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster1)
+
+	f.workerCluster2 = utiltestingapi.MakeMultiKueueCluster("worker2").KubeConfig(kueue.SecretLocationType, f.managerMultiKueueSecret2.Name).Obj()
+	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster2)
+
+	f.managerMultiKueueConfig = utiltestingapi.MakeMultiKueueConfig("multikueueconfig").Clusters(f.workerCluster1.Name, f.workerCluster2.Name).Obj()
+	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, f.managerMultiKueueConfig)
+
+	f.multiKueueAC = utiltestingapi.MakeAdmissionCheck("ac1").
+		ControllerName(kueue.MultiKueueControllerName).
+		Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", f.managerMultiKueueConfig.Name).
+		Obj()
+	util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, f.multiKueueAC)
+
+	f.managerFlavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
+	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, f.managerFlavor)
+
+	f.managerCq = utiltestingapi.MakeClusterQueue("q1").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
+		AdmissionChecks(kueue.AdmissionCheckReference(f.multiKueueAC.Name)).
+		Obj()
+	util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, f.managerCq)
+
+	f.managerLq = utiltestingapi.MakeLocalQueue(f.managerCq.Name, f.managerNs.Name).ClusterQueue(f.managerCq.Name).Obj()
+	util.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, f.managerLq)
+
+	f.worker1Flavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
+	util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Flavor)
+	f.worker1Cq = utiltestingapi.MakeClusterQueue("q1").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
+		Obj()
+	util.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Cq)
+	f.worker1Lq = utiltestingapi.MakeLocalQueue(f.worker1Cq.Name, f.worker1Ns.Name).ClusterQueue(f.worker1Cq.Name).Obj()
+	util.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Lq)
+
+	f.worker2Flavor = utiltestingapi.MakeResourceFlavor(string(multikueueTestFlavor)).Obj()
+	util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Flavor)
+	f.worker2Cq = utiltestingapi.MakeClusterQueue("q1").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
+		Obj()
+	util.CreateClusterQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Cq)
+	f.worker2Lq = utiltestingapi.MakeLocalQueue(f.worker2Cq.Name, f.worker2Ns.Name).ClusterQueue(f.worker2Cq.Name).Obj()
+	util.CreateLocalQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Lq)
+
+	return f
+}
+
+func (f *multiKueueFixture) teardown() {
+	ginkgo.GinkgoHelper()
+	gomega.Expect(util.DeleteNamespace(managerTestCluster.ctx, managerTestCluster.client, f.managerNs)).To(gomega.Succeed())
+	gomega.Expect(util.DeleteNamespace(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Ns)).To(gomega.Succeed())
+	gomega.Expect(util.DeleteNamespace(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Ns)).To(gomega.Succeed())
+	util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.managerCq, true)
+	util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Cq, true)
+	util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Cq, true)
+	util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.managerFlavor, true)
+	util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, f.worker1Flavor, true)
+	util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, f.worker2Flavor, true)
+	util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.multiKueueAC, true)
+	util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.managerMultiKueueConfig, true)
+	util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster1, true)
+	util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster2, true)
+	util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.managerMultiKueueSecret1, true)
+	util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, f.managerMultiKueueSecret2, true)
+}
