@@ -121,9 +121,9 @@ func BoundedAdd(a, b int64) (int64, bool) {
 	return a + b, true
 }
 
-// BoundedMul is BoundedAdd's counterpart, under the same bound on operands and
-// result. Note that only the result is bounded, so multiplying by zero is
-// answered rather than refused.
+// BoundedMul is BoundedAdd's counterpart. Negative operands are refused the same
+// way, and the product must land below resources.Unlimited, but an operand is
+// free to reach it: multiplying the sentinel by zero is answered, not refused.
 func BoundedMul(a, b int64) (int64, bool) {
 	if a < 0 || b < 0 {
 		return 0, false

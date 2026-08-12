@@ -392,6 +392,9 @@ func TestChargesForClaimSpecWithPrioritizedList(t *testing.T) {
 					t.Errorf("class %s = %d, want %d", name, got.perDeviceClass.ResourceValue(name), want)
 				}
 			}
+			if got.perDeviceClass.Len() != len(tc.wantClasses) {
+				t.Errorf("class charges = %v, want %v", got.perDeviceClass, tc.wantClasses)
+			}
 		})
 	}
 }
