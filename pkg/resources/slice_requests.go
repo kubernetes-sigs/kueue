@@ -396,12 +396,12 @@ func (sr *SliceRequests) FloorToZero() {
 	}
 }
 
-func (r *SliceRequests) Iter() iter.Seq2[corev1.ResourceName, int64] {
+func (sr *SliceRequests) Iter() iter.Seq2[corev1.ResourceName, int64] {
 	return func(yield func(corev1.ResourceName, int64) bool) {
-		if r == nil {
+		if sr == nil {
 			return
 		}
-		for _, req := range *r {
+		for _, req := range *sr {
 			if !yield(req.name, req.value) {
 				return
 			}
