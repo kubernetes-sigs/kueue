@@ -25,6 +25,7 @@ import (
 	gomegatypes "github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -596,7 +597,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
-				wl.Status.Conditions = append(wl.Status.Conditions, metav1.Condition{
+				apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
 					Type:               kueue.WorkloadQuotaReserved,
 					Status:             metav1.ConditionTrue,
 					Reason:             "Admitted",
