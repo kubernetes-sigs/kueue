@@ -38,7 +38,7 @@ type Requests interface {
 	Mul(f int64)
 	CountIn(capacity Requests) int32
 	CountInWithLimitingResource(capacity Requests) (int32, corev1.ResourceName)
-	GetValue(name corev1.ResourceName) int64
+	ResourceValue(name corev1.ResourceName) int64
 	Set(name corev1.ResourceName, val int64)
 	ForEach(fn func(name corev1.ResourceName, val int64))
 	Iter() iter.Seq2[corev1.ResourceName, int64]
