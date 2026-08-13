@@ -1324,6 +1324,31 @@ func TestValidate(t *testing.T) {
 		},
 		// Kueue writes this key itself during flavor assignment, so a charge
 		// stored under it is replaced rather than counted.
+		// Only the bare name is taken. A qualified one ending in the same word
+		// is somebody else's resource and has to keep working.
+		"qualified names ending in pods accepted": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "dra.example.com/pods",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "input.example.com/pods",
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: "multiplier.example.com/pods",
+							Outputs: corev1.ResourceList{
+								"output.example.com/pods": resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+		},
 		"device class mapping named pods rejected": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
