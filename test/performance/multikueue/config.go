@@ -26,6 +26,10 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// maxWorkloadCount bounds the runner's O(N) observation state while allowing 10k-workload
+// scale scenarios.
+const maxWorkloadCount = 10_000
+
 type benchmarkConfig struct {
 	WorkloadCount   int             `json:"workloadCount"`
 	WorkerClusters  int             `json:"workerClusters"`
@@ -53,6 +57,9 @@ func loadConfig(path string) (benchmarkConfig, error) {
 func (c benchmarkConfig) validate() error {
 	if c.WorkloadCount < 1 {
 		return errors.New("workloadCount must be positive")
+	}
+	if c.WorkloadCount > maxWorkloadCount {
+		return fmt.Errorf("workloadCount must not exceed %d", maxWorkloadCount)
 	}
 	if c.WorkerClusters < 1 {
 		return errors.New("workerClusters must be positive")
