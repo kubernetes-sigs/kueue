@@ -285,6 +285,8 @@ The following limitations apply:
   to the same logical resource, and an alternative on a counter-backed or
   capacity-backed mapping is refused rather than charged. Kueue does not check
   that any alternative can actually be satisfied by the cluster, so a request
-  whose alternatives are all infeasible holds quota until it is evicted.
+  whose alternatives are all infeasible holds quota until something evicts the
+  Workload. [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/)
+  does that where it is configured, and nothing else reclaims the reservation.
   MultiKueue does not support it: a manager and a worker may resolve different
   templates, and nothing refuses such a Workload before dispatch yet.
