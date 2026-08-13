@@ -71,6 +71,13 @@ var (
 	errInconsistentPodSetAssignments = errors.New("inconsistent podSet assignments")
 )
 
+// Defaults the ProvisioningRequestConfig CRD applies to retryStrategy.
+const (
+	defaultBackoffBaseSeconds int32 = 60
+	defaultBackoffMaxSeconds  int32 = 1800
+	defaultBackoffLimitCount  int32 = 3
+)
+
 var (
 	realClock = clock.RealClock{}
 )
@@ -611,9 +618,13 @@ func (c *Controller) syncCheckStates(
 					"accepted", isAccepted(pr),
 					"bookingExpired", isBookingExpired(pr),
 					"capacityRevoked", isCapacityRevoked(pr))
-				backoffBaseSeconds := *prc.Spec.RetryStrategy.BackoffBaseSeconds
-				backoffMaxSeconds := *prc.Spec.RetryStrategy.BackoffMaxSeconds
-				backoffLimitCount := *prc.Spec.RetryStrategy.BackoffLimitCount
+				// The CRD defaults these; a config that did not come through it may not.
+				backoffBaseSeconds, backoffMaxSeconds, backoffLimitCount := defaultBackoffBaseSeconds, defaultBackoffMaxSeconds, defaultBackoffLimitCount
+				if retry := prc.Spec.RetryStrategy; retry != nil {
+					backoffBaseSeconds = ptr.Deref(retry.BackoffBaseSeconds, backoffBaseSeconds)
+					backoffMaxSeconds = ptr.Deref(retry.BackoffMaxSeconds, backoffMaxSeconds)
+					backoffLimitCount = ptr.Deref(retry.BackoffLimitCount, backoffLimitCount)
+				}
 				switch {
 				case isFailed(pr):
 					if attempt := getAttempt(log, pr, wl.Name, check); attempt <= backoffLimitCount {

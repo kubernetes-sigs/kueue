@@ -2452,3 +2452,48 @@ func TestUpdateCheckMessage(t *testing.T) {
 		})
 	}
 }
+
+// A ProvisioningRequestConfig that never went through the CRD's defaulting.
+func TestSyncCheckStatesWithoutARetryStrategy(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	builder, ctx := getClientBuilder(ctx)
+
+	wl := utiltestingapi.MakeWorkload("wl", TestNamespace).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q").PodSets(
+			kueue.PodSetAssignment{Name: "main", Count: new(int32(1))}).Obj(), time.Now()).
+		AdmissionChecks(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending}).
+		Obj()
+
+	builder = builder.WithObjects(wl).WithStatusSubresource(wl)
+	controller, err := NewController(builder.Build(), &utiltesting.EventRecorder{}, nil)
+	if err != nil {
+		t.Fatalf("Setting up the controller: %v", err)
+	}
+
+	provisioned := &autoscaling.ProvisioningRequest{
+		ObjectMeta: metav1.ObjectMeta{Name: "pr", Namespace: TestNamespace},
+		Status: autoscaling.ProvisioningRequestStatus{Conditions: []metav1.Condition{{
+			Type: autoscaling.Provisioned, Status: metav1.ConditionTrue, Reason: "Provisioned",
+			LastTransitionTime: metav1.Now(),
+		}}},
+	}
+
+	if err := controller.syncCheckStates(ctx, wl, &workloadInfo{},
+		map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig{
+			"check": utiltestingapi.MakeProvisioningRequestConfig("config").Obj(),
+		},
+		map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest{
+			"check": provisioned,
+		}); err != nil {
+		t.Fatalf("syncCheckStates: %v", err)
+	}
+
+	got := &kueue.Workload{}
+	if err := controller.client.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(got.Status.AdmissionChecks) == 0 || got.Status.AdmissionChecks[0].State != kueue.CheckStateReady {
+		t.Errorf("check state = %v, want Ready", got.Status.AdmissionChecks)
+	}
+}
