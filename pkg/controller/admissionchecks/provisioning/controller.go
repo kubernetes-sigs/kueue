@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -69,10 +70,13 @@ const (
 	// attempt is int32; reserve enough digits so prefix+attempt stays within 253.
 	provisioningRequestAttemptMaxDigits = 10
 	podTemplatesPrefix                  = "ppt"
+	// podSetGroupsAnnotation maps each PodTemplate of a request to the Workload PodSets merged into it.
+	podSetGroupsAnnotation = "kueue.x-k8s.io/provisioning-podset-groups"
 )
 
 var (
 	errInconsistentPodSetAssignments = errors.New("inconsistent podSet assignments")
+	errInconsistentPodSetGroups      = errors.New("inconsistent podSet groups")
 )
 
 var (
@@ -324,6 +328,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			if err != nil {
 				return err
 			}
+			recordPodSetGroups(req, mergedPodSets)
 
 			for _, mergedPodSet := range mergedPodSets {
 				ptName := getProvisioningRequestPodTemplateName(requestName, mergedPodSet.Name)
@@ -745,9 +750,12 @@ func (c *Controller) syncCheckStates(
 					}
 				case isProvisioned(pr):
 					if updateCheckState(&checkState, kueue.CheckStateReady) {
+						psUpdates, err := podSetUpdates(log, wl, pr, prc)
+						if err != nil {
+							return false, err
+						}
 						updated = true
-						// add the pod podSetUpdates
-						checkState.PodSetUpdates = podSetUpdates(log, wl, pr, prc)
+						checkState.PodSetUpdates = psUpdates
 						// propagate the message from the provisioning request status into the workload
 						// to change to the "successfully provisioned" message after provisioning
 						updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
@@ -790,14 +798,31 @@ func (c *Controller) syncCheckStates(
 	return nil
 }
 
-func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) []kueue.PodSetUpdate {
-	podSets := wl.Spec.PodSets
-	refMap := slices.ToMap(podSets, func(i int) (string, kueue.PodSetReference) {
-		return getProvisioningRequestPodTemplateName(pr.Name, podSets[i].Name), podSets[i].Name
-	})
-	return slices.Map(pr.Spec.PodSets, func(ps *autoscaling.PodSet) kueue.PodSetUpdate {
+func recordPodSetGroups(req *autoscaling.ProvisioningRequest, merged []MergedPodSet) {
+	groups := make(map[string][]kueue.PodSetReference, len(merged))
+	for _, mps := range merged {
+		groups[getProvisioningRequestPodTemplateName(req.Name, mps.Name)] = mps.Names
+	}
+	// A map of strings always encodes.
+	raw, _ := json.Marshal(groups)
+	metav1.SetMetaDataAnnotation(&req.ObjectMeta, podSetGroupsAnnotation, string(raw))
+}
+
+func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) ([]kueue.PodSetUpdate, error) {
+	groups, err := podSetGroups(wl, pr)
+	if err != nil {
+		return nil, err
+	}
+	covered := sets.New[kueue.PodSetReference]()
+	updates := make([]kueue.PodSetUpdate, 0, len(wl.Spec.PodSets))
+	for i := range pr.Spec.PodSets {
+		ref := pr.Spec.PodSets[i].PodTemplateRef.Name
+		members := groups[ref]
+		if len(members) == 0 {
+			return nil, fmt.Errorf("%w: request %q has no podSets recorded for podTemplate %q",
+				errInconsistentPodSetGroups, pr.Name, ref)
+		}
 		podSetUpdate := kueue.PodSetUpdate{
-			Name: refMap[ps.PodTemplateRef.Name],
 			Annotations: map[string]string{
 				autoscaling.ProvisioningRequestPodAnnotationKey: pr.Name,
 				autoscaling.ProvisioningClassPodAnnotationKey:   pr.Spec.ProvisioningClassName,
@@ -814,8 +839,36 @@ func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.Provisio
 				podSetUpdate.NodeSelector[nodeSelector.Key] = string(value)
 			}
 		}
-		return podSetUpdate
-	})
+		for _, name := range members {
+			if covered.Has(name) {
+				return nil, fmt.Errorf("%w: podSet %q is claimed by more than one podTemplate",
+					errInconsistentPodSetGroups, name)
+			}
+			covered.Insert(name)
+			forPodSet := *podSetUpdate.DeepCopy()
+			forPodSet.Name = name
+			updates = append(updates, forPodSet)
+		}
+	}
+	return updates, nil
+}
+
+// podSetGroups returns the grouping recorded on pr. For a request created before
+// it was recorded, each PodTemplate maps to the PodSet it was named after.
+func podSetGroups(wl *kueue.Workload, pr *autoscaling.ProvisioningRequest) (map[string][]kueue.PodSetReference, error) {
+	if raw, recorded := pr.Annotations[podSetGroupsAnnotation]; recorded {
+		groups := map[string][]kueue.PodSetReference{}
+		if err := json.Unmarshal([]byte(raw), &groups); err != nil {
+			return nil, fmt.Errorf("%w: reading %s from request %q: %w", errInconsistentPodSetGroups, podSetGroupsAnnotation, pr.Name, err)
+		}
+		return groups, nil
+	}
+	groups := make(map[string][]kueue.PodSetReference, len(wl.Spec.PodSets))
+	for i := range wl.Spec.PodSets {
+		name := wl.Spec.PodSets[i].Name
+		groups[getProvisioningRequestPodTemplateName(pr.Name, name)] = []kueue.PodSetReference{name}
+	}
+	return groups, nil
 }
 
 type acHandler struct {
@@ -1015,7 +1068,9 @@ func limitObjectNameWithReservedSuffix(fullName string, reservedSuffixLen int) s
 }
 
 type MergedPodSet struct {
-	Name             kueue.PodSetReference
+	Name kueue.PodSetReference
+	// Names are the workload PodSets folded into this one, Name first.
+	Names            []kueue.PodSetReference
 	PodSet           *kueue.PodSet
 	PodSetAssignment *kueue.PodSetAssignment
 	Count            int32
@@ -1085,6 +1140,7 @@ func mergePodSets(
 			for i, mps := range mergedPodSets {
 				if merged = canMergePodSets(mps.PodSet, ps, mergePolicy); merged {
 					mergedPodSets[i].Count += count
+					mergedPodSets[i].Names = append(mergedPodSets[i].Names, psName)
 					break
 				}
 			}
@@ -1093,6 +1149,7 @@ func mergePodSets(
 		if !merged {
 			mergedPodSets = append(mergedPodSets, MergedPodSet{
 				Name:             psName,
+				Names:            []kueue.PodSetReference{psName},
 				PodSet:           ps,
 				PodSetAssignment: psa,
 				Count:            count,
