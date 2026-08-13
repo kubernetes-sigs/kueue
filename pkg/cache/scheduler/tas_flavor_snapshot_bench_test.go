@@ -221,7 +221,7 @@ func runBenchmarkTASFlavorAssignment(b *testing.B, topo benchTopology, name stri
 		if failure := result.Failure(); failure != nil {
 			b.Fatalf("balanced placement preflight failed: %s", failure.Reason)
 		}
-		if len(snapshot.state) == len(snapshot.domains) {
+		if len(snapshot.domainStates) == snapshot.domainCount {
 			b.Fatal("balanced placement preflight did not clone domain state")
 		}
 

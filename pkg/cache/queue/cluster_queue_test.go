@@ -187,7 +187,7 @@ func Test_PushOrUpdate(t *testing.T) {
 			if diff := cmp.Diff(tc.wantWorkload, newWl, cmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected workloads in heap (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantInAdmissibleWorkloads, cq.inadmissibleWorkloads, cmpOpts...); len(diff) != 0 {
+			if diff := cmp.Diff(tc.wantInAdmissibleWorkloads, cq.workloads.inadmissible, cmpOpts...); len(diff) != 0 {
 				t.Errorf("Unexpected inadmissibleWorkloads (-want,+got):\n%s", diff)
 			}
 		})
@@ -437,9 +437,9 @@ func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
 			},
 		}).
 		Build()
-	afsConsumedResources := queueafs.NewAfsConsumedResources()
-	afsConsumedResources.Set("default/higher-usage", corev1.ResourceList{resourceGPU: resource.MustParse("20")}, now)
-	afsConsumedResources.Set("default/lower-usage", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsUsageLedger := queueafs.NewAfsUsageLedger()
+	afsUsageLedger.SetForTest("default/higher-usage", corev1.ResourceList{resourceGPU: resource.MustParse("20")}, now)
+	afsUsageLedger.SetForTest("default/lower-usage", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
 
 	cq, err := newClusterQueue(
 		ctx,
@@ -448,8 +448,7 @@ func TestSnapshotFallsBackToBaseOrderingOnLocalQueueLookupError(t *testing.T) {
 		nil,
 		defaultOrdering,
 		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1}},
-		nil,
-		afsConsumedResources,
+		afsUsageLedger,
 	)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
@@ -491,17 +490,16 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 			FairSharing(&kueue.FairSharing{Weight: new(resource.MustParse("1"))}).Obj(),
 	)
 
-	afsConsumedResources := queueafs.NewAfsConsumedResources()
-	afsConsumedResources.Set("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("5")}, now)
-	afsConsumedResources.Set("default/lq2", corev1.ResourceList{resourceGPU: resource.MustParse("5")}, now)
+	afsUsageLedger := queueafs.NewAfsUsageLedger()
+	afsUsageLedger.SetForTest("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("5")}, now)
+	afsUsageLedger.SetForTest("default/lq2", corev1.ResourceList{resourceGPU: resource.MustParse("5")}, now)
 
-	penaltyMap := queueafs.NewPenaltyMap()
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cq, err := newClusterQueue(ctx, builder.Build(),
 		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
 		nil, defaultOrdering,
 		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1.0}},
-		penaltyMap, afsConsumedResources)
+		afsUsageLedger)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
@@ -523,8 +521,8 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				penaltyMap.Push("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("100")})
-				penaltyMap.Sub("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("100")})
+				afsUsageLedger.PushPenalty("default/lq1", "default/toggle", corev1.ResourceList{resourceGPU: resource.MustParse("100")}, now)
+				afsUsageLedger.SubPenalty("default/lq1", "default/toggle")
 			}
 		}
 	}()
@@ -549,9 +547,9 @@ func TestSnapshotStableWithConcurrentFSUpdates(t *testing.T) {
 func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	ctx, _ := utiltesting.ContextWithLog(t)
-	afsConsumedResources := queueafs.NewAfsConsumedResources()
-	afsConsumedResources.Set("default/existing", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
-	afsConsumedResources.Set("default/missing", corev1.ResourceList{resourceGPU: resource.MustParse("15")}, now)
+	afsUsageLedger := queueafs.NewAfsUsageLedger()
+	afsUsageLedger.SetForTest("default/existing", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsUsageLedger.SetForTest("default/missing", corev1.ResourceList{resourceGPU: resource.MustParse("15")}, now)
 
 	cq, err := newClusterQueue(
 		ctx,
@@ -562,8 +560,7 @@ func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 		nil,
 		defaultOrdering,
 		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1}},
-		nil,
-		afsConsumedResources,
+		afsUsageLedger,
 	)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
@@ -605,17 +602,16 @@ func TestHeapOrderingStableOnLocalQueueLookupError(t *testing.T) {
 	}).Build()
 
 	// lq1 high usage (10 GPU), lq2 low usage (1 GPU); both weight 1.0.
-	afsConsumedResources := queueafs.NewAfsConsumedResources()
-	afsConsumedResources.Set("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
-	afsConsumedResources.Set("default/lq2", corev1.ResourceList{resourceGPU: resource.MustParse("1")}, now)
+	afsUsageLedger := queueafs.NewAfsUsageLedger()
+	afsUsageLedger.SetForTest("default/lq1", corev1.ResourceList{resourceGPU: resource.MustParse("10")}, now)
+	afsUsageLedger.SetForTest("default/lq2", corev1.ResourceList{resourceGPU: resource.MustParse("1")}, now)
 
-	penaltyMap := queueafs.NewPenaltyMap()
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cq, err := newClusterQueue(ctx, failingClient,
 		utiltestingapi.MakeClusterQueue("cq").AdmissionMode(kueue.UsageBasedAdmissionFairSharing).Obj(),
 		nil, defaultOrdering,
 		&config.AdmissionFairSharing{ResourceWeights: map[corev1.ResourceName]float64{resourceGPU: 1.0}},
-		penaltyMap, afsConsumedResources)
+		afsUsageLedger)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
@@ -677,7 +673,7 @@ func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
 			},
 		}, nil,
 		defaultOrdering,
-		nil, nil, nil)
+		nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
@@ -736,7 +732,7 @@ func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
 			},
 		}, nil,
 		defaultOrdering,
-		nil, nil, nil)
+		nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
@@ -854,12 +850,12 @@ func TestPendingResources(t *testing.T) {
 	}
 
 	// Sum should equal wl1 + wl2 + wl3: CPU = 2+1+3 = 6000m, Memory = 1Gi+512Mi+2Gi.
-	wantCPU := wl1.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU) +
-		wl2.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU) +
-		wl3.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU)
-	wantMemory := wl1.TotalRequests[0].Requests.GetValue(corev1.ResourceMemory) +
-		wl2.TotalRequests[0].Requests.GetValue(corev1.ResourceMemory) +
-		wl3.TotalRequests[0].Requests.GetValue(corev1.ResourceMemory)
+	wantCPU := wl1.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU) +
+		wl2.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU) +
+		wl3.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)
+	wantMemory := wl1.TotalRequests[0].Requests.ResourceValue(corev1.ResourceMemory) +
+		wl2.TotalRequests[0].Requests.ResourceValue(corev1.ResourceMemory) +
+		wl3.TotalRequests[0].Requests.ResourceValue(corev1.ResourceMemory)
 	if got[corev1.ResourceCPU] != wantCPU {
 		t.Errorf("CPU mismatch: want %d, got %d", wantCPU, got[corev1.ResourceCPU])
 	}
@@ -888,14 +884,14 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 	}{
 		"the workload stays tracked as inadmissible": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
-				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+				cq.workloads.InsertInadmissible(workloadKey(wInfo), wInfo)
 			},
 			wantInInadmissible: true,
 			wantCPU:            singleWorkloadCPU,
 		},
 		"requeuing all inadmissible workloads moves it to the heap": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
-				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+				cq.workloads.InsertInadmissible(workloadKey(wInfo), wInfo)
 			},
 			afterResync: func(cq *ClusterQueue, _ *workload.Info) {
 				cq.namespaceSelector = labels.Everything()
@@ -907,7 +903,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 		},
 		"deleting the workload removes it and its resources": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
-				cq.insertInadmissible(workloadKey(wInfo), wInfo)
+				cq.workloads.InsertInadmissible(workloadKey(wInfo), wInfo)
 			},
 			afterResync: func(cq *ClusterQueue, wInfo *workload.Info) {
 				cq.Delete(log, workloadKey(wInfo))
@@ -949,9 +945,9 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 				tc.afterResync(cq, wInfo)
 			}
 
-			inHeap := cq.heap.GetByKey(key) != nil
-			inInadmissible := cq.inadmissibleWorkloads.hasKey(key)
-			inInflight := cq.inflight != nil && workloadKey(cq.inflight) == key
+			inHeap := cq.workloads.active.GetByKey(key) != nil
+			inInadmissible := cq.workloads.inadmissible.hasKey(key)
+			inInflight := cq.workloads.inflight != nil && workloadKey(cq.workloads.inflight) == key
 			if inHeap != tc.wantInHeap {
 				t.Errorf("in heap = %v, want %v", inHeap, tc.wantInHeap)
 			}
@@ -961,7 +957,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 			if inInflight != tc.wantInInflight {
 				t.Errorf("in inflight = %v, want %v", inInflight, tc.wantInInflight)
 			}
-			if got := cq.pendingActive(); got.Total() != tc.wantPendingActive {
+			if got := cq.workloads.pendingActive(); got.Total() != tc.wantPendingActive {
 				t.Errorf("pending active workloads = %d, want %d", got.Total(), tc.wantPendingActive)
 			}
 			if gotCPU, wantCPU := cq.pendingResources()[corev1.ResourceCPU], tc.wantCPU(wInfo); gotCPU != wantCPU {
@@ -972,7 +968,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 }
 
 func singleWorkloadCPU(wInfo *workload.Info) int64 {
-	return wInfo.TotalRequests[0].Requests.GetValue(corev1.ResourceCPU)
+	return wInfo.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)
 }
 
 func TestPendingInLocalQueueCountsInflight(t *testing.T) {
@@ -1038,8 +1034,8 @@ func Test_DeleteFromLocalQueue(t *testing.T) {
 	if cq.PendingTotal() != wantPending {
 		t.Errorf("clusterQueue's workload number not right, want %v, got %v", wantPending, cq.PendingTotal())
 	}
-	if cq.inadmissibleWorkloads.len() != len(inadmissibleWorkloads) {
-		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), cq.inadmissibleWorkloads.len())
+	if cq.workloads.inadmissible.len() != len(inadmissibleWorkloads) {
+		t.Errorf("clusterQueue's workload number in inadmissibleWorkloads not right, want %v, got %v", len(inadmissibleWorkloads), cq.workloads.inadmissible.len())
 	}
 
 	cq.DeleteFromLocalQueue(log, qImpl, nil, nil)
@@ -1418,7 +1414,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 					},
 				}, nil,
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-				nil, nil, nil)
+				nil, nil)
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 			info := workload.NewInfo(wl)
 			info.LastAssignment = tc.lastAssignment
@@ -1426,7 +1422,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
-			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
+			gotInadmissible := cq.workloads.inadmissible.hasKey(workload.Key(wl))
 			if diff := cmp.Diff(tc.wantInadmissible, gotInadmissible); diff != "" {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
 			}
@@ -1453,7 +1449,7 @@ func TestFIFOClusterQueue(t *testing.T) {
 		}, nil,
 		workload.Ordering{
 			PodsReadyRequeuingTimestamp: config.EvictionTimestamp,
-		}, nil, nil, nil)
+		}, nil, nil)
 	if err != nil {
 		t.Fatalf("Failed creating ClusterQueue %v", err)
 	}
@@ -1610,7 +1606,7 @@ func TestStrictFIFO(t *testing.T) {
 					},
 				}, nil,
 				*tt.workloadOrdering,
-				nil, nil, nil)
+				nil, nil)
 			if err != nil {
 				t.Fatalf("Failed creating ClusterQueue %v", err)
 			}
@@ -1654,13 +1650,13 @@ func TestStrictFIFORequeueIfNotPresent(t *testing.T) {
 					},
 				}, nil,
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-				nil, nil, nil)
+				nil, nil)
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Obj()
 			if ok := cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), reason, ""); !ok {
 				t.Error("failed to requeue nonexistent workload")
 			}
 
-			gotInadmissible := cq.inadmissibleWorkloads.hasKey(workload.Key(wl))
+			gotInadmissible := cq.workloads.inadmissible.hasKey(workload.Key(wl))
 			if test.wantInadmissible != gotInadmissible {
 				t.Errorf("Got inadmissible after requeue %t, want %t", gotInadmissible, test.wantInadmissible)
 			}
@@ -1826,12 +1822,12 @@ func TestFsAdmission(t *testing.T) {
 			}
 			client := builder.Build()
 
-			afsConsumedResources := queueafs.NewAfsConsumedResources()
+			afsUsageLedger := queueafs.NewAfsUsageLedger()
 			for lqKey, consumedResources := range tc.initConsumedResources {
-				afsConsumedResources.Set(utilqueue.LocalQueueReference(lqKey), consumedResources, time.Now())
+				afsUsageLedger.SetForTest(utilqueue.LocalQueueReference(lqKey), consumedResources, time.Now())
 			}
 
-			cq, _ := newClusterQueue(t.Context(), client, tc.cq, nil, defaultOrdering, tc.afsConfig, nil, afsConsumedResources)
+			cq, _ := newClusterQueue(t.Context(), client, tc.cq, nil, defaultOrdering, tc.afsConfig, afsUsageLedger)
 			for _, wl := range tc.wls {
 				cq.PushOrUpdate(workload.NewInfo(&wl))
 			}
@@ -2045,7 +2041,7 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 					},
 				}, nil,
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-				nil, nil, nil)
+				nil, nil)
 
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
 				Request(corev1.ResourceCPU, "1").Obj()
@@ -2124,7 +2120,7 @@ func TestGetNoFitReason(t *testing.T) {
 			wlKey := workload.Key(wl)
 			if tc.deleteFromInadmissible {
 				cq.rwm.Lock()
-				cq.inadmissibleWorkloads.delete(wlKey)
+				cq.workloads.inadmissible.delete(wlKey)
 				cq.rwm.Unlock()
 			}
 

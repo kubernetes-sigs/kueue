@@ -87,8 +87,7 @@ func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 	if !found {
 		return nil
 	}
-	ref := workload.Reference(key)
-	return &ref
+	return new(workload.Reference(key))
 }
 
 // SliceName returns the workload slice name for the given workload.
@@ -132,6 +131,10 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 // Eviction is two writes: the condition is set first, and the reservation is
 // released after. A slice in between still reports a reservation while its
 // capacity is on the way out, so it is not the one to measure against.
+//
+// Quota reservation alone does not mean every AdmissionCheck is Ready: callers
+// that must not act before full admission (e.g. releasing an elastic scheduling
+// gate) need an additional workload.IsAdmitted check on the result.
 func FindLatestActiveWorkload(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, error) {
 	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
 	if err != nil {

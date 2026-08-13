@@ -738,4 +738,93 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
+
+	ginkgo.It("Should put the workload on hold when RayJob validation fails", func() {
+		ginkgo.By("creating an invalid RayJob")
+		job := testingrayjob.MakeJob(jobName, ns.Name).
+			Queue(localQueue.Name).
+			Suspend(true).
+			Obj()
+		// Use malformed YAML to make the RayJob invalid at creation time.
+		job.Spec.RuntimeEnvYAML = "working_dir: ["
+		util.MustCreate(ctx, k8sClient, job)
+
+		lookupKey := types.NamespacedName{
+			Name:      jobName,
+			Namespace: ns.Name,
+		}
+
+		createdJob := &rayv1.RayJob{}
+
+		ginkgo.By("checking the workload is created")
+
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadrayjob.GetWorkloadNameForRayJob(job.Name, job.UID),
+			Namespace: ns.Name,
+		}
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).
+				Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("admitting the workload")
+
+		assignments := make([]kueue.PodSetAssignment, len(createdWorkload.Spec.PodSets))
+		for i, podSet := range createdWorkload.Spec.PodSets {
+			assignments[i] = kueue.PodSetAssignment{
+				Name: podSet.Name,
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+				},
+			}
+		}
+
+		admission := utiltestingapi.MakeAdmission(
+			kueue.ClusterQueueReference(clusterQueue.Name),
+		).PodSets(assignments...).Obj()
+
+		util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+		ginkgo.By("checking the workload has a quota reservation")
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).
+				Should(gomega.Succeed())
+
+			g.Expect(createdWorkload.Status.Conditions).
+				Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("marking the RayJob as validation failed", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).
+					Should(gomega.Succeed())
+				createdJob.Status.JobDeploymentStatus =
+					rayv1.JobDeploymentStatusValidationFailed
+				g.Expect(k8sClient.Status().Update(ctx, createdJob)).
+					Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the workload is put on hold")
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).
+				Should(gomega.Succeed())
+
+			g.Expect(createdWorkload.Status.Conditions).
+				Should(utiltesting.HaveConditionStatusFalseAndReason(
+					kueue.WorkloadQuotaReserved,
+					kueue.WorkloadOnHold,
+				))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the workload is not finished")
+
+		gomega.Expect(createdWorkload.Status.Conditions).
+			ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+	})
 })

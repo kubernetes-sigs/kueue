@@ -2536,7 +2536,7 @@ func TestAddOrUpdateWorkloadCarriesLastAssignment(t *testing.T) {
 				if !cqImpl.requeueIfNotPresent(log, tracked, false, RequeueReasonNoFit, "") {
 					t.Fatal("Requeueing the Workload failed")
 				}
-				if cqImpl.inadmissibleWorkloads.get(key) == nil {
+				if cqImpl.workloads.GetInadmissible(key) == nil {
 					t.Fatal("Workload is not held in inadmissibleWorkloads")
 				}
 			}
@@ -2617,7 +2617,7 @@ func TestHeadsRespectLocalQueueWeightForPreexistingWorkloads(t *testing.T) {
 		}
 	}
 	for _, lqName := range []string{"lq-normal", "lq-zero"} {
-		manager.AfsConsumedResources.Set(
+		manager.AfsUsageLedger.SetForTest(
 			queue.LocalQueueReference("default/"+lqName),
 			corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")}, now)
 	}
@@ -2677,7 +2677,7 @@ func TestUpdateLocalQueueWeightReheapifies(t *testing.T) {
 	}
 	// Equal, non-zero usage; zero penalties so Pop does not rebuild the heap.
 	for _, lqName := range []string{"lq-a", "lq-b"} {
-		manager.AfsConsumedResources.Set(
+		manager.AfsUsageLedger.SetForTest(
 			queue.LocalQueueReference("default/"+lqName),
 			corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}, now)
 	}
@@ -2755,7 +2755,7 @@ func TestUpdateLocalQueueWeightReheapifiesMultipleWorkloads(t *testing.T) {
 	}
 	// Equal, non-zero usage; zero penalties so Pop does not rebuild the heap.
 	for _, lqName := range []string{"lq-a", "lq-b"} {
-		manager.AfsConsumedResources.Set(
+		manager.AfsUsageLedger.SetForTest(
 			queue.LocalQueueReference("default/"+lqName),
 			corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}, now)
 	}
@@ -2825,7 +2825,7 @@ func TestUpdateLocalQueueWeightZeroReheapifies(t *testing.T) {
 	}
 	// Equal, non-zero usage; zero penalties so Pop does not rebuild the heap.
 	for _, lqName := range []string{"lq-a", "lq-b"} {
-		manager.AfsConsumedResources.Set(
+		manager.AfsUsageLedger.SetForTest(
 			queue.LocalQueueReference("default/"+lqName),
 			corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}, now)
 	}

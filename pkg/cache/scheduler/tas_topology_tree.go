@@ -27,14 +27,14 @@ import (
 
 // domain holds the static information about placement of a topology
 // domain in the hierarchy of topology domains.
-// Its per-snapshot mutable state lives in TASFlavorSnapshot.state,
+// Its per-snapshot mutable state lives in TASFlavorSnapshot.domainStates,
 // addressed by idx.
 type domain struct {
-	// id is the globally unique id of the domain
+	// id identifies the domain within its topology level
 	id utiltas.TopologyDomainID
 
 	// idx is the dense index of the domain within its topologyTree, used to
-	// address the per-snapshot state in TASFlavorSnapshot.state.
+	// address the per-snapshot state in TASFlavorSnapshot.domainStates.
 	idx int
 
 	// parent points to domain which is a parent in topology structure
@@ -49,13 +49,13 @@ type domain struct {
 }
 
 // leafDomain extends the domain with static information for the lowest-level
-// domain. Its per-snapshot mutable state lives in
-// TASFlavorSnapshot.leafStates, addressed by leafIdx.
+// domain. Its per-snapshot mutable capacity data lives in
+// TASFlavorSnapshot.leafCapacities, addressed by leafIdx.
 type leafDomain struct {
 	domain
 
 	// leafIdx is the dense index of the leaf within its topologyTree, used
-	// to address the per-snapshot state in TASFlavorSnapshot.leafStates.
+	// to address the per-snapshot capacity data in TASFlavorSnapshot.leafCapacities.
 	leafIdx int
 
 	// capacity is the static capacity of the leaf: the summed allocatable of
@@ -89,11 +89,8 @@ type topologyTree struct {
 	// roots maps domainID to domains that are at the highest level of topology structure
 	roots domainByID
 
-	// domains maps domainID to every domain available in the topology structure
-	domains domainByID
-
-	// domainCount is the number of allocated domains. It can exceed len(domains)
-	// when domains at different topology levels have colliding IDs.
+	// domainCount is the number of allocated domains. Domain IDs are not unique
+	// across levels, so it counts domains rather than distinct IDs.
 	domainCount int
 
 	// domainsPerLevel stores the static tree information
@@ -123,7 +120,6 @@ func newTopologyTree(levels []string, nodes []*corev1.Node, generation int64) *t
 		generation:        generation,
 		levelKeys:         slices.Clone(levels),
 		leaves:            make(leafDomainByID),
-		domains:           make(domainByID),
 		roots:             make(domainByID),
 		domainsPerLevel:   domainsPerLevel,
 		isLowestLevelNode: len(levels) > 0 && levels[len(levels)-1] == corev1.LabelHostname,
@@ -196,7 +192,6 @@ func (t *topologyTree) initialize() {
 	for _, leafDomain := range t.leaves {
 		domain := &leafDomain.domain
 		t.indexDomain(domain)
-		t.domains[domain.id] = domain
 		t.domainsPerLevel[len(domain.levelValues)-1][domain.id] = domain
 		t.initializeHelper(domain)
 	}
@@ -210,14 +205,13 @@ func (t *topologyTree) initializeHelper(dom *domain) {
 	}
 	parentValues := dom.levelValues[:len(dom.levelValues)-1]
 	parentID := utiltas.DomainID(parentValues)
-	parent, parentFound := t.domains[parentID]
+	parent, parentFound := t.domainsPerLevel[len(parentValues)-1][parentID]
 	if !parentFound {
 		// create parent
 		parent = &domain{id: parentID, levelValues: parentValues}
 		t.indexDomain(parent)
 
 		t.domainsPerLevel[len(parentValues)-1][parentID] = parent
-		t.domains[parentID] = parent
 		t.initializeHelper(parent)
 	}
 	// connect parent and child
@@ -227,7 +221,7 @@ func (t *topologyTree) initializeHelper(dom *domain) {
 
 func (t *topologyTree) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.Requests) {
 	if t.leaves[domainID].capacity == nil {
-		t.leaves[domainID].capacity = resources.CreateEmpty()
+		t.leaves[domainID].capacity = resources.NewRequests()
 	}
 	t.leaves[domainID].capacity.Add(capacity)
 }

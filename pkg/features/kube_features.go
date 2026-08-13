@@ -245,12 +245,6 @@ const (
 	// Enabled failure recovery of pods stuck in terminating state.
 	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
 
-	// owner: @mbobrovskyi
-	//
-	// issue: https://github.com/kubernetes-sigs/kueue/issues/5298
-	// Enabled skip adding finalizers for serving workloads.
-	SkipFinalizersForPodsSuspendedByParent featuregate.Feature = "SkipFinalizersForPodsSuspendedByParent"
-
 	// owner: @kannon92
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8190
@@ -432,6 +426,7 @@ const (
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
 	// Enable re-computing the assignment within the same scheduling cycle when a TAS workload doesn't fit.
+	// Requires TopologyAwareScheduling to be enabled.
 	TASRecomputeAssignmentWithinSchedulingCycle featuregate.Feature = "TASRecomputeAssignmentWithinSchedulingCycle"
 
 	// owner: @j-skiba
@@ -533,6 +528,25 @@ const (
 	// begun, and suspend defaulting only ever adds suspend, so no path exists to
 	// unsuspend an object or bypass quota via create-then-delete.
 	SkipAncestorCheckForDeletedWorkloads featuregate.Feature = "SkipAncestorCheckForDeletedWorkloads"
+
+	// owner: @kevin85421
+	//
+	// Enables MultiKueue to forward manager-side spec changes (currently a RayService
+	// serveConfigV2 edit) onto the worker copy after admission, and to watch the manager
+	// job so such a change is forwarded promptly instead of on the next periodic requeue.
+	MultiKueueRemoteSpecSync featuregate.Feature = "MultiKueueRemoteSpecSync"
+
+	// owner: @pajakd
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13320
+	//
+	// Enable recomputing preemption targets if they overlap with another workload's targets
+	// within the same scheduling cycle. This recomputation is done assuming that the earlier
+	// preemptions issued in this cycle are already completed. If the outcome of the new assuignment
+	// is Preempt, we issue preemptions for the new set of targets. If the outcome is Fit,
+	// it means that the preemptions issued by other workloads in this cycle are sufficient also
+	// for the considered workload to get it. We don't immediately admit this workload as we have
+	// to wait for these preemptions to complete.
+	RecomputeAssignmentUponPreemptionTargetsOverlap featuregate.Feature = "RecomputeAssignmentUponPreemptionTargetsOverlap"
 )
 
 func init() {
@@ -541,22 +555,23 @@ func init() {
 }
 
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
-	TASFailedNodeReplacement:                 {TopologyAwareScheduling},
-	TASFailedNodeReplacementFailFast:         {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeOnPodTermination:           {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeDueToNotReadyOverFixedTime: {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASBalancedPlacement:                     {TopologyAwareScheduling},
-	TASReplaceNodeOnNodeTaints:               {TopologyAwareScheduling},
-	TASMultiLayerTopology:                    {TopologyAwareScheduling},
-	TASRespectNodeAffinityPreferred:          {TopologyAwareScheduling},
-	UnadmittedWorkloadsExplicitStatus:        {UnadmittedWorkloadsObservability},
-	TASHandleOverlappingFlavors:              {TopologyAwareScheduling},
-	TASProfileMixed:                          {TopologyAwareScheduling},
-	ElasticJobsViaWorkloadSlicesWithTAS:      {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
-	KueueDRAIntegrationExtendedResource:      {KueueDRAIntegration},
-	KueueDRAIntegrationPartitionableDevices:  {KueueDRAIntegration},
-	KueueDRAIntegrationConsumableCapacity:    {KueueDRAIntegration},
-	FlavorFungibilityPreserveScanProgress:    {FlavorFungibility},
+	TASFailedNodeReplacement:                    {TopologyAwareScheduling},
+	TASFailedNodeReplacementFailFast:            {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeOnPodTermination:              {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeDueToNotReadyOverFixedTime:    {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASBalancedPlacement:                        {TopologyAwareScheduling},
+	TASReplaceNodeOnNodeTaints:                  {TopologyAwareScheduling},
+	TASMultiLayerTopology:                       {TopologyAwareScheduling},
+	TASRespectNodeAffinityPreferred:             {TopologyAwareScheduling},
+	UnadmittedWorkloadsExplicitStatus:           {UnadmittedWorkloadsObservability},
+	TASHandleOverlappingFlavors:                 {TopologyAwareScheduling},
+	TASProfileMixed:                             {TopologyAwareScheduling},
+	TASRecomputeAssignmentWithinSchedulingCycle: {TopologyAwareScheduling},
+	ElasticJobsViaWorkloadSlicesWithTAS:         {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
+	KueueDRAIntegrationExtendedResource:         {KueueDRAIntegration},
+	KueueDRAIntegrationPartitionableDevices:     {KueueDRAIntegration},
+	KueueDRAIntegrationConsumableCapacity:       {KueueDRAIntegration},
+	FlavorFungibilityPreserveScanProgress:       {FlavorFungibility},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -686,10 +701,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FailureRecoveryPolicy: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
-	},
-	SkipFinalizersForPodsSuspendedByParent: {
-		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.18
-		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.20
 	},
 	TLSOptions: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.20
@@ -831,6 +842,14 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	SkipAncestorCheckForDeletedWorkloads: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	MultiKueueRemoteSpecSync: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	RecomputeAssignmentUponPreemptionTargetsOverlap: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }

@@ -378,9 +378,11 @@ is documented here:
      Users deploying DRA with Kueue should enable `waitForPodsReady`.
    - **Quota drift**: the scheduler allocates from a different DeviceClass than Kueue charged
      quota against, but the pod runs successfully. `waitForPodsReady` does not catch this.
-     Since the extended resources path uses `extendedResourceName` directly as the quota key,
-     quota accounting remains correct at the resource name level, though not at the physical
-     DeviceClass level.
+     Since the extended resources path resolves the quota key from the selected DeviceClass,
+     the mapped logical name when that class is in `deviceClassMappings` and the
+     `extendedResourceName` otherwise, a class switch drifts the quota key itself whenever the
+     two classes map to different logical resources, and not only the physical device behind a
+     stable key.
    To mitigate:
    - Kueue uses a controller-runtime field indexer on `DeviceClass` by `spec.extendedResourceName`
      to resolve DeviceClasses deterministically.
@@ -909,7 +911,12 @@ The two DRA paths resolve quota independently:
 
 #### Processing Flow
 
-1. Kueue detects extended resources in `resources.requests`
+1. Kueue detects extended resources in `resources.requests` and computes each
+   original resource name's Pod-level request (max across init containers, sum
+   across regular containers, then max of the two) before any DeviceClass lookup
+   or quota-key mapping. Two different resource names later mapped to the same
+   quota key are therefore aggregated independently first, so neither collapses
+   into the other's contribution.
 2. Looks up DeviceClasses by `extendedResourceName` by field indexer
 3. If no matching DeviceClass is found, the resource is not DRA-backed and Kueue
    processes it through the standard resource quota path (counted via `node.Status.Allocatable`)
