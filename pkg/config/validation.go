@@ -472,13 +472,18 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 		} else {
 			seenKeys.Insert(transform.Input)
 		}
-		// Flavor assignment replaces this key with the PodSet count.
+		// pods is reserved for the request Kueue synthesizes from the PodSet
+		// count, so a transformation must not name it in any position.
+		if transform.Input == corev1.ResourcePods {
+			allErrs = append(allErrs, field.Invalid(
+				resourceTransformationPath.Index(idx).Child("input"),
+				transform.Input, reservedResourceNameMsg))
+		}
 		if _, ok := transform.Outputs[corev1.ResourcePods]; ok {
 			allErrs = append(allErrs, field.Invalid(
 				resourceTransformationPath.Index(idx).Child("outputs").Key(string(corev1.ResourcePods)),
 				corev1.ResourcePods, reservedResourceNameMsg))
 		}
-		// Not yet synthesized when transformations run, so it multiplies by one.
 		if transform.MultiplyBy == corev1.ResourcePods {
 			allErrs = append(allErrs, field.Invalid(
 				resourceTransformationPath.Index(idx).Child("multiplyBy"),

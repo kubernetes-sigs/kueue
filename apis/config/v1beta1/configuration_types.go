@@ -559,6 +559,7 @@ const Replace ResourceTransformationStrategy = "Replace"
 
 type ResourceTransformation struct {
 	// Input is the name of the input resource.
+	// It must not be `pods`, which is reserved for Kueue's internal Pod-count accounting.
 	Input corev1.ResourceName `json:"input"`
 
 	// Strategy specifies if the input resource should be replaced or retained.
