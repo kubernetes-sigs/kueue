@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package queue
+package limitrange
 
 import (
 	"testing"
@@ -66,7 +66,7 @@ func TestLimitRanges(t *testing.T) {
 		},
 	}
 
-	lrs := newLimitRanges()
+	lrs := New()
 
 	// Add container LimitRange
 	lrs.AddOrUpdate(lrContainer)
@@ -96,7 +96,7 @@ func TestLimitRanges(t *testing.T) {
 			Type: corev1.LimitTypePersistentVolumeClaim,
 		},
 	}
-	lrs.Update(lrContainer, lrContainerUpdated)
+	lrs.AddOrUpdate(lrContainerUpdated)
 	got = lrs.GetForNamespace("ns1")
 	if len(got) != 1 || got[0].Name != "lr-pod" {
 		t.Errorf("Expected 1 LimitRange 'lr-pod' after unsupported update, got %v", got)
