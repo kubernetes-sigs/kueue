@@ -694,6 +694,14 @@ func TestReconcile(t *testing.T) {
 		ControllerName(kueue.ProvisioningRequestControllerName).
 		Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 		Obj()
+	check2 := utiltestingapi.MakeAdmissionCheck("check2").
+		ControllerName(kueue.ProvisioningRequestControllerName).
+		Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
+		Obj()
+	check2Request := baseRequest.DeepCopy()
+	check2Request.Name = "wl-check2-1"
+	check2Request.Spec.PodSets[0].PodTemplateRef.Name = "ppt-wl-check2-1-ps1"
+	check2Request.Spec.PodSets[1].PodTemplateRef.Name = "ppt-wl-check2-1-ps2"
 
 	podSetMergePolicyAssignemnt := []kueue.PodSetAssignment{
 		{
@@ -1866,6 +1874,65 @@ func TestReconcile(t *testing.T) {
 			wantRequestsNotFound: []string{
 				ProvisioningRequestName("wl", "check1", 1),
 				ProvisioningRequestName("wl", "check2", 1),
+			},
+		},
+		"when check1 is ready without a request; check2 is still synced from its provisioned request": {
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkloadWithCheck1Ready.DeepCopy()}).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStateReady,
+				}, kueue.AdmissionCheckState{
+					Name:  "check2",
+					State: kueue.CheckStatePending,
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy(), *check2.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithCondition(check2Request, autoscaling.Provisioned, metav1.ConditionTrue),
+			},
+			wantWorkloads: map[string]*kueue.Workload{
+				baseWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkloadWithCheck1Ready.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:  "check1",
+						State: kueue.CheckStateReady,
+					}, kueue.AdmissionCheckState{
+						Name:    "check2",
+						Message: "By test",
+						State:   kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{
+							{
+								Name: "ps1",
+								Annotations: map[string]string{
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check2-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
+								},
+							},
+							{
+								Name: "ps2",
+								Annotations: map[string]string{
+									autoscaling.ProvisioningRequestPodAnnotationKey: "wl-check2-1",
+									autoscaling.ProvisioningClassPodAnnotationKey:   "class1",
+								},
+							},
+						},
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "UpdatedAdmissionCheck",
+					Message:   `Admission check check2 updated state from Pending to Ready with message: By test`,
+				},
 			},
 		},
 		"workloads status gets updated based on the provisioning request": {
