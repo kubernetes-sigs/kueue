@@ -19,6 +19,7 @@ package provisioning
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -106,27 +107,25 @@ func parametersKueueToProvisioning(in map[string]kueue.Parameter) map[string]aut
 	return out
 }
 
-// provReqSyncedWithConfig checks if the provisioning request has the same provisioningClassName as the provisioning request config
-// and contains all the parameters from the config
-func provReqSyncedWithConfig(req *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) bool {
+// provReqSyncedWithConfig reports whether req has the class name and parameters a
+// new request for wl would get from prc.
+func provReqSyncedWithConfig(wl *kueue.Workload, req *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) bool {
 	if req.Spec.ProvisioningClassName != prc.Spec.ProvisioningClassName {
 		return false
 	}
-	for k, vCfg := range prc.Spec.Parameters {
-		if vReq, found := req.Spec.Parameters[k]; !found || string(vReq) != string(vCfg) {
-			return false
-		}
-	}
-	return true
+	return maps.Equal(req.Spec.Parameters, provReqParameters(wl, prc))
 }
 
-// passProvReqParams extracts from Workload's annotations ones that should be passed to ProvisioningRequest
-func passProvReqParams(wl *kueue.Workload, req *autoscaling.ProvisioningRequest) {
-	if req.Spec.Parameters == nil {
-		req.Spec.Parameters = make(map[string]autoscaling.Parameter, 0)
+// provReqParameters returns the parameters of a ProvisioningRequest for wl: prc's
+// parameters, with wl's provreq annotations taking precedence.
+func provReqParameters(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) map[string]autoscaling.Parameter {
+	params := parametersKueueToProvisioning(prc.Spec.Parameters)
+	if params == nil {
+		params = make(map[string]autoscaling.Parameter)
 	}
 	for annotation, val := range admissioncheck.FilterProvReqAnnotations(wl.Annotations) {
 		paramName := strings.TrimPrefix(annotation, constants.ProvReqAnnotationPrefix)
-		req.Spec.Parameters[paramName] = autoscaling.Parameter(val)
+		params[paramName] = autoscaling.Parameter(val)
 	}
+	return params
 }
