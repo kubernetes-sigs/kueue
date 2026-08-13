@@ -32,13 +32,13 @@ func DomainID(levelValues []string) TopologyDomainID {
 	return TopologyDomainID(strings.Join(levelValues, topologyDomainIDSeparator))
 }
 
-// HasPrefix reports whether prefix identifies the same topology domain as
-// domainID or one of its ancestors.
-func HasPrefix(domainID, prefix TopologyDomainID) bool {
-	if prefix == "" {
+// BelongsTo reports whether d identifies targetDomain itself or one of its
+// descendants.
+func (d TopologyDomainID) BelongsTo(targetDomain TopologyDomainID) bool {
+	if targetDomain == "" {
 		return true
 	}
-	return domainID == prefix || strings.HasPrefix(string(domainID), string(prefix)+topologyDomainIDSeparator)
+	return d == targetDomain || strings.HasPrefix(string(d), string(targetDomain)+topologyDomainIDSeparator)
 }
 
 // NodeNameFromDomainID returns the node name identified by the domain ID. It
