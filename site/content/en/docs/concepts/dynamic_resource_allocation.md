@@ -262,9 +262,10 @@ The following limitations apply:
 - **ResourceClaimTemplates only**: Only `ResourceClaimTemplate` references
   are supported. Direct `ResourceClaim` references in the Pod spec are not
   supported and will result in inadmissible workloads.
-- **ExactCount allocation mode only**: Only device requests using `exactly`
-  are supported, and the `All` allocation mode is not. A `firstAvailable`
-  request is read only with the `KueueDRAIntegrationPrioritizedList` feature
+- **ExactCount allocation mode only**: the `All` allocation mode is not
+  supported, in an `exactly` request or in an alternative of a `firstAvailable`
+  one. Whether a `firstAvailable` request is read at all is a separate question,
+  and the answer is only with the `KueueDRAIntegrationPrioritizedList` feature
   gate, which is alpha and off by default; see the note below for what it
   covers.
 - **Device constraints and config do not change the charge**: Device
