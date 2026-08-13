@@ -50,17 +50,11 @@ const (
 	ErrLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
 )
 
-// handlePodOverhead raises what a PodSet carries to the overhead the RuntimeClass
-// it names defines. The apiserver holds a Pod to that value when it creates one;
-// nothing holds a Workload to it, so one can name a class defining 250m, carry 1m,
-// and be charged the 1m its Pods will never run with.
-//
-// The larger of the two rather than the class outright, because a PodSet copied
-// off a Pod that was already admitted carries what that Pod actually got, and a
-// class is free to be edited afterwards: only its handler is immutable. The
-// maximum is of those two values and no others: a Pod created while the class
-// defined more than either of them goes on carrying that, and is charged the
-// smaller figure. That generation gap is #14317.
+// handlePodOverhead raises what a PodSet carries to the overhead its RuntimeClass
+// defines, taking the larger of the two rather than the class outright: only a
+// class's handler is immutable, so a PodSet copied off an already-admitted Pod can
+// carry more than the class now defines. A Pod admitted under an older and larger
+// generation carries more than either, and is charged the smaller: #14317.
 func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
 	var errs []error
 	for i := range wl.Spec.PodSets {
