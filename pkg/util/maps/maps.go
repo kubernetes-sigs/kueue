@@ -156,3 +156,19 @@ func (dwc *SyncMap[K, V]) Update(k K, fn func(v V, found bool) V) V {
 	dwc.m[k] = updated
 	return updated
 }
+
+// UpdateIfPresent atomically replaces the value for k with the result of fn,
+// or does nothing when k is absent — unlike Update, it never creates an entry.
+// It returns the stored value and whether k was present. fn runs under the
+// map's write lock, so it must not acquire other locks or block.
+func (dwc *SyncMap[K, V]) UpdateIfPresent(k K, fn func(v V) V) (V, bool) {
+	dwc.lock.Lock()
+	defer dwc.lock.Unlock()
+	old, found := dwc.m[k]
+	if !found {
+		return old, false
+	}
+	updated := fn(old)
+	dwc.m[k] = updated
+	return updated, true
+}
