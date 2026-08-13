@@ -411,6 +411,51 @@ func TestDominantResourceShare(t *testing.T) {
 				},
 			},
 		},
+		"a zero-weight ClusterQueue borrowing only what nobody lends": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(3),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("0")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("2").LendingLimit("0").Append().
+						Obj(),
+				).Obj(),
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("64").LendingLimit("0").Append().
+						Obj(),
+				).Obj(),
+			flvResQ: resources.FlavorResourceQuantities{},
+			want: []fairSharingResult{
+				{
+					Name:      "cq",
+					NodeType:  nodeTypeCq,
+					DrName:    "",
+					DrValue:   math.MaxInt64,
+					Borrowing: true,
+				},
+				{
+					Name:      "lending-cq",
+					NodeType:  nodeTypeCq,
+					DrName:    "",
+					DrValue:   0,
+					Borrowing: false,
+				},
+				{
+					Name:      "test-cohort",
+					NodeType:  nodeTypeCohort,
+					DrName:    "",
+					DrValue:   0,
+					Borrowing: false,
+				},
+			},
+		},
 		"multiple flavors": {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: resources.NewAmount(15_000),
