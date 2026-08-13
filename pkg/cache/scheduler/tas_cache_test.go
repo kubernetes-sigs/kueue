@@ -8407,7 +8407,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			admissionCount: 8,
 			unhealthyNode:  "node-1",
 			topologyRequest: &kueue.PodSetTopologyRequest{
-				Required: ptr.To(tasBlockLabel),
+				Required: new(tasBlockLabel),
 			},
 			count: 8,
 			// node-1 (NotReady) is replaced within block-1 by reusing node-2 (+2,
@@ -8450,7 +8450,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			admissionCount: 2,
 			unhealthyNode:  "node-1",
 			topologyRequest: &kueue.PodSetTopologyRequest{
-				Required: ptr.To(corev1.LabelHostname),
+				Required: new(corev1.LabelHostname),
 			},
 			count: 2,
 			wantAssignment: &tas.TopologyAssignment{
