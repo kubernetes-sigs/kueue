@@ -158,9 +158,7 @@ func (c *TASFlavorCache) snapshot(
 	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
 		tasDomainUsages = aggregatedDomainUsages
 	}
-	for domainID, usage := range tasDomainUsages {
-		snapshot.addTASUsage(domainID, usage)
-	}
+	snapshot.addTASUsageForHeldDomains(tasDomainUsages)
 	c.nonTasUsageCache.forEachNodeUsage(func(nodeName string, usage resources.Requests) {
 		if domainID, ok := nodeToDomain[nodeName]; ok {
 			snapshot.addNonTASUsage(domainID, usage)

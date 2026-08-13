@@ -339,6 +339,31 @@ func (s *TASFlavorSnapshot) getRemainingCapacity(leaf *leafDomain) resources.Req
 	return leaf.cachedRemainingCapacity.Get()
 }
 
+// hasDomain reports whether the domain has a leaf in the snapshot, i.e. whether
+// it holds a node the flavor selects.
+func (s *TASFlavorSnapshot) hasDomain(domainID utiltas.TopologyDomainID) bool {
+	return s.leaves[domainID] != nil
+}
+
+// addTASUsageForHeldDomains adds usage only for domains this snapshot has a leaf
+// for. With TASHandleOverlappingFlavors, usages can cover far more domains than
+// the flavor selects, so it walks whichever side is smaller.
+func (s *TASFlavorSnapshot) addTASUsageForHeldDomains(usages map[utiltas.TopologyDomainID]resources.Requests) {
+	if len(s.leaves) < len(usages) {
+		for domainID := range s.leaves {
+			if usage, found := usages[domainID]; found {
+				s.addTASUsage(domainID, usage)
+			}
+		}
+		return
+	}
+	for domainID, usage := range usages {
+		if s.hasDomain(domainID) {
+			s.addTASUsage(domainID, usage)
+		}
+	}
+}
+
 func (s *TASFlavorSnapshot) addTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
 	if s.leaves[domainID] == nil {
 		// this can happen if there is an admitted workload for which the
