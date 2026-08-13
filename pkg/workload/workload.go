@@ -493,12 +493,13 @@ func chargeablePodRequests(spec *corev1.PodSpec) corev1.ResourceList {
 		return resourcehelpers.PodRequests(&corev1.Pod{Spec: *spec}, resourcehelpers.PodResourcesOptions{})
 	}
 	requests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *chargeableSpec(spec)}, resourcehelpers.PodResourcesOptions{})
-	// A dropped pod-level override with no container total to fall back to leaves
-	// the name unset, which a multiplyBy that reads it treats as one. Put it back
-	// at zero so it still overrides at zero.
+	// A dropped override leaves the name unset where no container asked for it,
+	// and a multiplyBy that reads it then scales by one. Only the names
+	// component-helpers reads at the pod level: no other was in the untreated
+	// total, and a name the ClusterQueue covers picks a flavor at any quantity.
 	if spec.Resources != nil {
 		for name, q := range spec.Resources.Requests {
-			if q.Sign() >= 0 {
+			if q.Sign() >= 0 || !resourcehelpers.IsSupportedPodLevelResource(name) {
 				continue
 			}
 			if _, found := requests[name]; !found {

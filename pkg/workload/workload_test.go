@@ -1191,10 +1191,12 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
-		// component-helpers only reads cpu, memory and hugepages at the pod level,
-		// so an invalid entry under any other name leaves nothing behind for a
-		// multiplyBy to find, and a missing multiplier is read as one.
-		"negativeUnsupportedPodLevelNameIsStillNamedAtZero": {
+		// component-helpers only reads cpu, memory and hugepages at the pod level.
+		// The normalization has no business naming any other one: it was never in
+		// the total, and flavor assignment matches on the name rather than on the
+		// quantity, so a zero under a name the ClusterQueue covers would pick that
+		// resource's flavor and put its node labels and tolerations on the Job.
+		"unsupportedPodLevelNameStaysOutOfTheCharge": {
 			workload: withPodLevelRequests(
 				utiltestingapi.MakeWorkload("podlevelunsup", "").
 					PodSets(*utiltestingapi.MakePodSet("a", 1).
@@ -1212,8 +1214,7 @@ func TestNewInfo(t *testing.T) {
 				TotalRequests: []PodSetResources{{
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
-						corev1.ResourceName("example.com/gpu"):  8,
-						corev1.ResourceName("example.com/node"): 0,
+						corev1.ResourceName("example.com/gpu"): 5,
 					}),
 					Count: 1,
 				}},
