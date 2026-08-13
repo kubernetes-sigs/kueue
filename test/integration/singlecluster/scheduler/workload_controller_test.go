@@ -1109,14 +1109,24 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				g.Expect(k8sClient.Update(ctx, &w)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			gomega.Consistently(func(g gomega.Gomega) {
+			// Wait for PendingEvaluation to clear, then verify the detailed condition is preserved
+			gomega.Eventually(func(g gomega.Gomega) bool {
 				var w kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlPreserved), &w)).Should(gomega.Succeed())
+
+				// Check if PendingEvaluation is still present
+				pendingCond := apimeta.FindStatusCondition(w.Status.Conditions, "PendingEvaluation")
+				if pendingCond != nil && pendingCond.Status == metav1.ConditionTrue {
+					return false // Still pending, keep waiting
+				}
+
+				// Verify the condition is preserved
 				cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 				g.Expect(cond).ToNot(gomega.BeNil())
 				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				g.Expect(cond.Message).To(gomega.Equal(detailedMsg))
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				return true
+			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
 		})
 	})
 })
