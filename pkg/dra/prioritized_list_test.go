@@ -204,7 +204,7 @@ func TestChargeForPrioritizedList(t *testing.T) {
 			wantErr:    true,
 			wantField:  base + "[0].count",
 			wantType:   field.ErrorTypeInvalid,
-			wantDetail: "greater than zero",
+			wantDetail: "must not be negative",
 		},
 		"the largest representable count is still charged": {
 			req:          faReq("r", alt("fast", "fast.example.com", math.MaxInt64)),
