@@ -47,7 +47,9 @@ ResourceClaimTemplate path.
 
 When a Pod references a `ResourceClaimTemplate`, Kueue reads the
 `deviceClassName` from the template's `exactly` field and looks it up in
-`deviceClassMappings`. This mapping tells Kueue which logical resource name
+`deviceClassMappings`. With `KueueDRAIntegrationPrioritizedList` enabled it
+reads a request's `firstAvailable` alternatives as well; see the limitations
+below for what that charges. This mapping tells Kueue which logical resource name
 to charge quota against. The number of units charged is determined by the
 `count` field in the device request (default 1).
 
@@ -284,13 +286,16 @@ The following limitations apply:
   charged the largest count among its alternatives, which is an upper bound on
   whichever one the scheduler picks. Every alternative of a request has to map
   to the same logical resource, and an alternative on a counter-backed or
-  capacity-backed mapping is refused rather than charged. Kueue does not check
-  that any alternative can actually be satisfied by the cluster, so a request
-  whose alternatives are all infeasible holds quota until something evicts the
-  Workload. Nothing evicts it for being infeasible.
-  [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/) usually
-  gets there first; preemption, an admission check turning the Workload back,
-  deactivation, stopping the queue and deletion release the reservation as
-  well, each for a reason of its own.
-  MultiKueue does not support it: a manager and a worker may resolve different
-  templates, and nothing refuses such a Workload before dispatch yet.
+  capacity-backed mapping is refused rather than charged. An alternative
+  setting `capacity` is refused too, separately from that, since what a
+  capacity requirement consumes is not the device count this charges. Kueue
+  does not check that any alternative can be satisfied by the cluster, so a
+  request whose alternatives are all infeasible holds quota until something
+  evicts the Workload. Nothing evicts it for being infeasible.
+  [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/) evicts it
+  where it is configured, and so do preemption, an admission check turning the
+  Workload back, deactivation, a `HoldAndDrain` stop policy and deletion, each
+  for a reason of its own. A plain `Hold` does not: an admitted Workload runs
+  to completion under it. MultiKueue does not support it: a manager and a
+  worker may resolve different templates, and nothing refuses such a Workload
+  before dispatch yet.
