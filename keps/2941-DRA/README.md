@@ -2054,7 +2054,9 @@ admission with a number that is quietly wrong. The cost is easy to reach, becaus
 share a placeholder: `administer_cluster_quotas.md` excludes `example.com` while `setup_dra.md`
 maps a DeviceClass to `example.com/gpu`, so an administrator following both verbatim is refused.
 Renaming the logical resource is the way out; dropping the mapping is not, since an unmapped
-DeviceClass makes a claim-template Workload inadmissible on its own.
+DeviceClass makes a claim-template Workload inadmissible on its own. Renaming is an
+administrator's move, though, and the refusal lands on a Workload whose author cannot remove the
+overlap, so the message has to name the mapping rather than the request.
 
 CEL selectors in every subrequest are compiled and syntax-checked. The `Exactly`
 device-cardinality check against ResourceSlices is not reused, because it would require every
