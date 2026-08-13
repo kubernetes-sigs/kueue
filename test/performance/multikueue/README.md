@@ -39,6 +39,10 @@ The scenario is configured in
 intended for smoke tests; committed baseline changes should be made in the
 configuration file.
 
+`workloadCount` must be between 1 and 10,000. The upper bound keeps the
+runner's per-Workload observation state and watch handover buffer bounded while
+retaining room for a 10k-scale scenario.
+
 The runner uses the production defaults for MultiKueue garbage collection,
 worker-loss detection, and remote-event batching. These values are recorded in
 the summary so a comparison cannot silently mix controller configurations.

@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -33,11 +34,20 @@ func TestBenchmarkConfigValidate(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		mutate func(*benchmarkConfig)
-		valid  bool
+		mutate  func(*benchmarkConfig)
+		valid   bool
+		wantErr string
 	}{
 		"valid": {
 			valid: true,
+		},
+		"maximum workloads": {
+			mutate: func(c *benchmarkConfig) { c.WorkloadCount = maxWorkloadCount },
+			valid:  true,
+		},
+		"too many workloads": {
+			mutate:  func(c *benchmarkConfig) { c.WorkloadCount = maxWorkloadCount + 1 },
+			wantErr: "workloadCount must not exceed 10000",
 		},
 		"zero workloads": {
 			mutate: func(c *benchmarkConfig) { c.WorkloadCount = 0 },
@@ -66,11 +76,17 @@ func TestBenchmarkConfigValidate(t *testing.T) {
 				tc.mutate(&cfg)
 			}
 			err := cfg.validate()
-			if tc.valid && err != nil {
-				t.Fatalf("validate() unexpected error: %v", err)
+			if tc.valid {
+				if err != nil {
+					t.Fatalf("validate() unexpected error: %v", err)
+				}
+				return
 			}
-			if !tc.valid && err == nil {
+			if err == nil {
 				t.Fatal("validate() returned no error")
+			}
+			if tc.wantErr != "" && !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("validate() error = %v, want one containing %q", err, tc.wantErr)
 			}
 		})
 	}

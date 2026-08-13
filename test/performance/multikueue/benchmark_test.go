@@ -17,14 +17,21 @@ limitations under the License.
 package main
 
 import (
+	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -121,6 +128,126 @@ func TestObservationCollectorSummarize(t *testing.T) {
 	}
 	if summary.Scenario.WorkloadConcurrency != workloadConcurrency {
 		t.Errorf("Scenario.WorkloadConcurrency = %d, want %d", summary.Scenario.WorkloadConcurrency, workloadConcurrency)
+	}
+}
+
+func TestRunBenchmarkCancelsAndJoinsBackgroundWork(t *testing.T) {
+	testCases := map[string]bool{
+		"generation returns first": true,
+		"watch returns first":      false,
+	}
+	for name, releaseGenerationFirst := range testCases {
+		t.Run(name, func(t *testing.T) {
+			testRunBenchmarkCancelsAndJoinsBackgroundWork(t, releaseGenerationFirst)
+		})
+	}
+}
+
+func testRunBenchmarkCancelsAndJoinsBackgroundWork(t *testing.T, releaseGenerationFirst bool) {
+	watcher := watch.NewRaceFreeFake()
+	malformedWorkload := utiltestingapi.MakeWorkload("workload", benchmarkNamespaceName).Obj()
+	malformedWorkload.ResourceVersion = "1"
+	watcher.Add(malformedWorkload)
+
+	generationCanceled := make(chan struct{})
+	generationReturned := make(chan struct{})
+	releaseGeneration := make(chan struct{})
+	watchCanceled := make(chan struct{})
+	watchReturned := make(chan struct{})
+	releaseWatch := make(chan struct{})
+	generationReleased := false
+	watchReleased := false
+	defer func() {
+		if !generationReleased {
+			close(releaseGeneration)
+		}
+		if !watchReleased {
+			close(releaseWatch)
+		}
+	}()
+
+	benchmarkClient := interceptor.NewClient(utiltesting.NewClientBuilder().Build(), interceptor.Funcs{
+		Create: func(ctx context.Context, _ client.WithWatch, _ client.Object, _ ...client.CreateOption) error {
+			<-ctx.Done()
+			close(generationCanceled)
+			<-releaseGeneration
+			close(generationReturned)
+			return ctx.Err()
+		},
+		Watch: func(ctx context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+			go func() {
+				<-ctx.Done()
+				close(watchCanceled)
+				<-releaseWatch
+				watcher.Stop()
+				close(watchReturned)
+			}()
+			return watcher, nil
+		},
+	})
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := runBenchmark(t.Context(), &benchmarkCluster{client: benchmarkClient}, benchmarkConfig{
+			WorkloadCount:   1,
+			WorkerClusters:  1,
+			CreationWorkers: 1,
+			CPURequest:      "1m",
+		})
+		result <- err
+	}()
+
+	waitForSignal := func(signal <-chan struct{}, name string) {
+		t.Helper()
+		select {
+		case <-signal:
+		case <-time.After(time.Second):
+			t.Fatalf("timed out waiting for %s", name)
+		}
+	}
+	assertRunning := func(wait time.Duration) {
+		t.Helper()
+		select {
+		case err := <-result:
+			t.Fatalf("runBenchmark() returned before its background work stopped: %v", err)
+		case <-time.After(wait):
+		}
+	}
+
+	waitForSignal(generationCanceled, "workload generation cancellation")
+	waitForSignal(watchCanceled, "workload watch cancellation")
+	assertRunning(10 * time.Millisecond)
+
+	if releaseGenerationFirst {
+		generationReleased = true
+		close(releaseGeneration)
+		waitForSignal(generationReturned, "workload generation return")
+		assertRunning(100 * time.Millisecond)
+
+		watchReleased = true
+		close(releaseWatch)
+		waitForSignal(watchReturned, "workload watch return")
+	} else {
+		watchReleased = true
+		close(releaseWatch)
+		waitForSignal(watchReturned, "workload watch return")
+		assertRunning(100 * time.Millisecond)
+
+		generationReleased = true
+		close(releaseGeneration)
+		waitForSignal(generationReturned, "workload generation return")
+	}
+
+	select {
+	case err := <-result:
+		if err == nil || !strings.Contains(err.Error(), "has no "+benchmarkCreatedAtAnnotation+" annotation") {
+			t.Fatalf("runBenchmark() error = %v, want malformed Workload error", err)
+		}
+		if errors.Is(err, context.Canceled) {
+			t.Fatalf("runBenchmark() error = %v, want the primary collector error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runBenchmark() did not return after its background work stopped")
 	}
 }
 

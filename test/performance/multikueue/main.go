@@ -106,6 +106,8 @@ func run() error {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+	clusterCtx, failClusters := context.WithCancelCause(ctx)
+	defer failClusters(nil)
 
 	workers := make([]*benchmarkCluster, 0, cfg.WorkerClusters)
 	defer func() {
@@ -119,11 +121,14 @@ func run() error {
 	for i := range cfg.WorkerClusters {
 		name := workerName(i)
 		fmt.Printf("Starting %s control plane\n", name)
-		worker, err := startBenchmarkCluster(ctx, name, *crdsPath, setupCoreControllers)
+		worker, err := startBenchmarkCluster(clusterCtx, name, *crdsPath, setupCoreControllers, failClusters)
 		if err != nil {
-			return err
+			return preferUnexpectedManagerError(err, workers...)
 		}
 		workers = append(workers, worker)
+		if err := unexpectedManagerError(ctx, clusterCtx, workers...); err != nil {
+			return err
+		}
 	}
 
 	fmt.Printf(
@@ -132,29 +137,45 @@ func run() error {
 		rest.DefaultBurst,
 	)
 	managerCluster, err := startBenchmarkCluster(
-		ctx,
+		clusterCtx,
 		"manager",
 		*crdsPath,
 		setupManagerControllers(configNamespaceName),
+		failClusters,
 	)
 	if err != nil {
-		return err
+		return preferUnexpectedManagerError(err, workers...)
 	}
 	defer func() {
 		if err := managerCluster.stop(); err != nil {
 			fmt.Fprintf(os.Stderr, "Cleanup warning: %v\n", err)
 		}
 	}()
-
-	fmt.Println("Configuring one manager and", cfg.WorkerClusters, "worker clusters")
-	if err := setupBenchmarkTopology(ctx, managerCluster, workers, cfg); err != nil {
+	clusters := make([]*benchmarkCluster, 0, len(workers)+1)
+	clusters = append(clusters, workers...)
+	clusters = append(clusters, managerCluster)
+	if err := unexpectedManagerError(ctx, clusterCtx, clusters...); err != nil {
 		return err
 	}
 
-	benchmarkCtx, benchmarkCancel := context.WithTimeout(ctx, cfg.Timeout.Duration)
+	fmt.Println("Configuring one manager and", cfg.WorkerClusters, "worker clusters")
+	if err := setupBenchmarkTopology(clusterCtx, managerCluster, workers, cfg); err != nil {
+		if managerErr := unexpectedManagerError(ctx, clusterCtx, clusters...); managerErr != nil {
+			return managerErr
+		}
+		return err
+	}
+	if err := unexpectedManagerError(ctx, clusterCtx, clusters...); err != nil {
+		return err
+	}
+
+	benchmarkCtx, benchmarkCancel := context.WithTimeout(clusterCtx, cfg.Timeout.Duration)
 	defer benchmarkCancel()
 	fmt.Println("Creating", cfg.WorkloadCount, "workloads")
 	summary, err := runBenchmark(benchmarkCtx, managerCluster, cfg)
+	if managerErr := unexpectedManagerError(ctx, clusterCtx, clusters...); managerErr != nil {
+		return managerErr
+	}
 	if err != nil {
 		return err
 	}
@@ -175,5 +196,40 @@ func run() error {
 		summary.Latencies.AdmissionMs.P95Ms,
 	)
 	fmt.Println("Summary:", summaryPath)
+	if err := unexpectedManagerError(ctx, clusterCtx, clusters...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func unexpectedManagerError(parentCtx, clusterCtx context.Context, clusters ...*benchmarkCluster) error {
+	select {
+	case <-parentCtx.Done():
+		return nil
+	default:
+	}
+	if clusterCtx.Err() != nil {
+		return context.Cause(clusterCtx)
+	}
+	return latchedUnexpectedManagerError(clusters...)
+}
+
+func preferUnexpectedManagerError(err error, clusters ...*benchmarkCluster) error {
+	if managerErr := latchedUnexpectedManagerError(clusters...); managerErr != nil {
+		return managerErr
+	}
+	return err
+}
+
+func latchedUnexpectedManagerError(clusters ...*benchmarkCluster) error {
+	for _, cluster := range clusters {
+		select {
+		case <-cluster.manager.done:
+			if cluster.manager.unexpected {
+				return managerRuntimeError(cluster.name, cluster.manager.err)
+			}
+		default:
+		}
+	}
 	return nil
 }
