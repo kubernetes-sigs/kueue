@@ -94,7 +94,7 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	}
 
 	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error) {
-		snap := cache.NewSnapshot(pods, nodes)()
+		snap := cache.NewSnapshot(pods, nodes)
 		profiles, err := framework.NewProfileMap(ctx, client, informerFactory, snap, cfg)
 		if err != nil {
 			return nil, err
