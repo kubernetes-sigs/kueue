@@ -615,6 +615,50 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 		},
 		{
+			// vendor.example/a and vendor.example/b share the "gpu-claims" quota key.
+			// The negative request for b must be dropped before aggregation, not
+			// merged in and left to offset a's positive charge.
+			name: "positive and negative extended resource names sharing a quota key: negative does not offset positive",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name:  "c",
+									Image: "pause",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"vendor.example/a": resource.MustParse("5"),
+											"vendor.example/b": resource.MustParse("-3"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{classADeviceClass, classBDeviceClass},
+			mapperMappings: []configapi.DeviceClassMapping{
+				{
+					Name:             "gpu-claims",
+					DeviceClassNames: []corev1.ResourceName{"class-a", "class-b"},
+				},
+			},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpu-claims": resource.MustParse("5"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("vendor.example/a"),
+			},
+		},
+		{
 			name: "workload with non-integer extended resource quantity",
 			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
