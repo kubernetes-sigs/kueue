@@ -1518,6 +1518,12 @@ default. The upper bound matches the API limit on `Status.UnhealthyNodes`:
   because a deleted tail node generates no further node events, so the tail must be carried
   forward explicitly rather than re-discovered).
 
+Strict head-of-queue processing can cause head-of-line blocking, including across PodSets. If
+the first unhealthy node cannot be replaced in its PodSet's required topology domain, later
+unhealthy nodes are not attempted even when they have valid replacement capacity. They remain
+queued until the head becomes replaceable or the Workload is otherwise evicted. Scanning past
+an unreplaceable head may be considered as a future enhancement.
+
 The replacement algorithm is greedy and does not atomically recompute the entire PodSet. For a
 required topology request, healthy members of the current assignment pin replacement to their
 existing required domain. If that domain has no spare capacity, replacement remains pending even
