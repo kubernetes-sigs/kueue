@@ -777,6 +777,10 @@ func TestHandlePodOverhead(t *testing.T) {
 	}
 	rc := utiltesting.MakeRuntimeClass("rc", "h").PodOverhead(cpu("250m")).RuntimeClass
 	bare := utiltesting.MakeRuntimeClass("bare", "h").RuntimeClass
+	mixed := utiltesting.MakeRuntimeClass("mixed", "h").PodOverhead(corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("100m"),
+		corev1.ResourceMemory: resource.MustParse("2Gi"),
+	}).RuntimeClass
 
 	cases := map[string]struct {
 		wl      *kueue.Workload
@@ -807,6 +811,18 @@ func TestHandlePodOverhead(t *testing.T) {
 				corev1.ResourceMemory: resource.MustParse("1Gi"),
 			},
 		},
+		// Larger on a different side for each resource, so taking whichever list
+		// wins on one of them cannot pass this.
+		"each resource takes its own larger value": {
+			wl: overheadWorkload("mixed", corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}, nil),
+			want: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+			},
+		},
 		"a class defining no overhead leaves the PodSet alone": {
 			wl: overheadWorkload("bare", cpu("250m"), nil), want: cpu("250m"),
 		},
@@ -818,7 +834,7 @@ func TestHandlePodOverhead(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
-				WithLists(&nodev1.RuntimeClassList{Items: []nodev1.RuntimeClass{rc, bare}}).
+				WithLists(&nodev1.RuntimeClassList{Items: []nodev1.RuntimeClass{rc, bare, mixed}}).
 				Build()
 			errs := handlePodOverhead(ctx, cl, tc.wl)
 			if gotErr := len(errs) > 0; gotErr != tc.wantErr {
