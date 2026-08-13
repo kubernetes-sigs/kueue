@@ -191,7 +191,7 @@ func chargeForPrioritizedList(req *resourcev1.DeviceRequest, mapper *ResourceMap
 			count = 1
 		}
 		if count < 0 {
-			return "", 0, field.ErrorList{field.Invalid(subPath.Child("count"), sub.Count, "must be greater than zero")}
+			return "", 0, field.ErrorList{field.Invalid(subPath.Child("count"), sub.Count, "must not be negative")}
 		}
 		if sub.DeviceClassName == "" {
 			return "", 0, field.ErrorList{field.Required(subPath.Child("deviceClassName"), "")}
