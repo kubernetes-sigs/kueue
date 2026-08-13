@@ -51,8 +51,9 @@ When a Pod references a `ResourceClaimTemplate`, Kueue reads the
 to charge quota against. The number of units charged is determined by the
 `count` field in the device request (default 1).
 
-Only the `ExactCount` allocation mode is supported. The
-`All` allocation mode is not supported.
+Only the `ExactCount` allocation mode is supported. The `All` allocation mode
+is not, except for a request with `adminAccess: true`, which is admitted
+whatever its mode and charged nothing.
 
 For setup instructions, see
 [Set Up Dynamic Resource Allocation](/docs/tasks/manage/setup_dra).
@@ -286,7 +287,10 @@ The following limitations apply:
   capacity-backed mapping is refused rather than charged. Kueue does not check
   that any alternative can actually be satisfied by the cluster, so a request
   whose alternatives are all infeasible holds quota until something evicts the
-  Workload. [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/)
-  does that where it is configured, and nothing else reclaims the reservation.
+  Workload. Nothing evicts it for being infeasible.
+  [WaitForPodsReady](/docs/tasks/manage/setup_wait_for_pods_ready/) usually
+  gets there first; preemption, an admission check turning the Workload back,
+  deactivation, stopping the queue and deletion release the reservation as
+  well, each for a reason of its own.
   MultiKueue does not support it: a manager and a worker may resolve different
   templates, and nothing refuses such a Workload before dispatch yet.
