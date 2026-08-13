@@ -57,8 +57,10 @@ const (
 //
 // The larger of the two rather than the class outright, because a PodSet copied
 // off a Pod that was already admitted carries what that Pod actually got, and a
-// class is free to be edited afterwards: only its handler is immutable. Taking
-// the maximum can leave the charge too high for such a PodSet, never too low.
+// class is free to be edited afterwards: only its handler is immutable. The
+// maximum is of those two values and no others: a Pod created while the class
+// defined more than either of them goes on carrying that, and is charged the
+// smaller figure. That generation gap is #14317.
 func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
 	var errs []error
 	for i := range wl.Spec.PodSets {
