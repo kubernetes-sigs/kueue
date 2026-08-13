@@ -982,13 +982,27 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			ginkgo.By("Only the containers' request moves to the logical name, so the overhead is left with nowhere to go")
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			// Named rather than left to any pending reason: six of the seven that
+			// helper accepts are ones a Workload passes through on its way to being
+			// admitted, so one of those would satisfy a weaker assertion while the
+			// overhead went missing.
+			ginkgo.By("Waiting on the original name, rather than refused as misconfigured DRA")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonNoMatchingFlavor))
+				g.Expect(cond.Message).To(gomega.ContainSubstring(extendedResourceName))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("Waiting on quota it has not been given, rather than refused as misconfigured DRA")
+			ginkgo.By("And staying there, rather than reaching quota once the overhead is dropped")
 			gomega.Consistently(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+				g.Expect(updatedWl.Status.Admission).To(gomega.BeNil())
 				g.Expect(apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadRequeued)).To(gomega.BeNil())
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
