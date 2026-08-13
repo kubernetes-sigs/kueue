@@ -259,9 +259,9 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 		}
 		initCharged := charged(initEntries)
 		regularCharged := charged(regularEntries)
-		// Totalled as the Pod's own requests are, so a sidecar adds to the regular
-		// containers instead of being maxed against them. The overhead belongs to the
-		// Pod, not to what its containers asked for.
+		// Totalled as the Pod's own requests are: a sidecar joins the regular containers
+		// in the long-running total, and that total is maxed against each init container
+		// measured beside the sidecars already running. The overhead belongs to the Pod.
 		podRequests := resourcehelpers.PodRequests(
 			&corev1.Pod{Spec: corev1.PodSpec{InitContainers: initCharged, Containers: regularCharged}},
 			resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})

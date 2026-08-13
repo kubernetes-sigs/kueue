@@ -913,12 +913,13 @@ The two DRA paths resolve quota independently:
 
 1. Kueue detects extended resources in `resources.requests` and computes each
    original resource name's Pod-level request the way a Pod's own requests are
-   computed, before any DeviceClass lookup or quota-key mapping: regular and
-   restartable init containers contribute to the long-running total, and an
-   ordinary init container is measured together with the restartable ones
-   already started beside it. Two different resource names later mapped to the same
-   quota key are therefore aggregated independently first, so neither collapses
-   into the other's contribution.
+   computed, before any DeviceClass lookup or quota-key mapping. Regular and
+   restartable init containers together make the long-running total; each init
+   container is measured with the restartable ones already running beside it;
+   and the charge is the larger of that total and the largest of those init
+   measurements. Two different resource names later mapped to the same quota
+   key are therefore aggregated independently first, so neither collapses into
+   the other's contribution.
 2. Looks up DeviceClasses by `extendedResourceName` by field indexer
 3. If no matching DeviceClass is found, the resource is not DRA-backed and Kueue
    processes it through the standard resource quota path (counted via `node.Status.Allocatable`)
@@ -951,11 +952,11 @@ back from is a later view. The processing order:
    name, and generated contributions are not touched by the subtraction
 5. Translated resource is added through `preprocessedDRAResources`
 
-The container contribution is aggregated the way a Pod's own requests are, so a restartable
-init container adds to it rather than being compared against it. For an extended resource
-name whose DeviceClass resolution holds for the length of preprocessing, the amount
-subtracted is the amount charged. Each name is aggregated under its own name before any
-mapping, so two names reaching one logical resource are charged and subtracted alike.
+The container contribution is the figure step 1 computes, so the charge and the subtraction
+come from the same aggregation. For an extended resource name whose DeviceClass resolution
+holds for the length of preprocessing, the amount subtracted is the amount charged. Each
+name is aggregated under its own name before any mapping, so two names reaching one logical
+resource are charged and subtracted alike.
 
 This keeps the extended resource from being counted twice under its own name. It does not
 reach a resource transformation naming the same resource: a `Replace` consuming a DRA-backed
