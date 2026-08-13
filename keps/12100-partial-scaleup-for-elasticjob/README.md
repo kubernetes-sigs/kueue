@@ -31,25 +31,27 @@
 
 ## Summary
 
-Add an optional way of allowing partial scale up for elastic workloads if the full scale up could not be admitted due to quota constraints.
+Add an optional way of allowing partial scale up for elastic workloads if the full scale up could not be admitted due to quota constraints. Only `RayJob`, `RayService`, and `RayCluster` integrations will initially support this feature.
 
 ## Motivation
 
-In elastic batch workloads (such as RayJob with autoscaling), jobs dynamically scale up their pod counts during execution. When a scale-up request cannot be fully satisfied due to cluster quota constraints, rejecting the scale-up request entirely leaves available quota unused. Conversely, admitting a scale-up request partially allows the workload to make progress with the currently available resources while waiting for additional capacity.
+In elastic workloads (such as RayJob with autoscaling), jobs dynamically scale up their pod counts during execution. When a scale-up request cannot be fully satisfied due to cluster quota constraints, rejecting the scale-up request entirely leaves available quota unused. Conversely, admitting a scale-up request partially allows the workload to make progress with the currently available resources while waiting for additional capacity.
 
 ### Goals
 
 - Provide an opt-in mechanism for elastic jobs to partially scale up when requested scale-up capacity exceeds available quota.
 - Opportunistically scale up the remaining requested pods as quota becomes available.
 - Support multi-podset elastic jobs (e.g., RayJob with multiple worker groups).
+- Support partial scale up  for `RayJob`, `RayService`, and `RayCluster` integrations.
 
 ### Non-Goals
 
 - Partial admission for initial job creation when only partial scale-up is configured.
+- Support for `batch/v1 Job` (`batch.job`) integration.
 
 ## Proposal
 
-Using partial admission mechanism to support partial scale up for elastic workloads.
+Using partial admission mechanism to support partial scale up for elastic workloads (`RayJob`, `RayService`, `RayCluster`).
 
 ### User Stories
 
@@ -74,7 +76,7 @@ Also, a new Workload representing the full job will be created and added to the 
 
 ### Enablement
 
-PartialScaleUpForElasticJob for ElasticJob in Kueue is enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. At the cluster level, the PartialScaleUpForElasticJob feature (disabled by default) must be enabled via the corresponding Kueue feature gate.
+PartialScaleUpForElasticJob for elastic jobs in Kueue is enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. At the cluster level, the PartialScaleUpForElasticJob feature (disabled by default) must be enabled via the corresponding Kueue feature gate.
 
 Once the feature gate is enabled, individual Job objects can opt into partial admission by including the `kueue.x-k8s.io/elastic-job-partial-scale-up="true"` annotation. 
 When both conditions are met, Kueue treats the Workload as eligible for partial scale up. 
@@ -142,26 +144,26 @@ The newly created workload for opportunistic scale up should have a different na
 
 Consider a scenario where:
 1. The ClusterQueue has a total quota of **7** for the requested resource flavor.
-2. The Job is configured for both `ElasticJobs` and `PartialScaleUpForElasticJob`.
-3. The user performs a two-step scale up of the Job: starting at **5** replicas, scaling up to **10**, and then to **12**.
+2. The `RayCluster` is configured for both `ElasticJobs` and `PartialScaleUpForElasticJob`.
+3. The user performs a two-step scale up of the `RayCluster`: starting at **5** replicas, scaling up to **10**, and then to **12**.
 
 ##### Step 0: Job Creation (Initial Size: 5)
-* **Job spec.parallelism**: 5
+* **RayCluster worker group replicas**: 5
 * **Workloads**:
   * `wl-A` (Admitted):
     * `spec.podSets.count` = 5
     * `spec.podSets.minCount` = 5 (partial admission disabled for initial creation)
     * `status.admission.count` = 5
 * **Controller Actions**:
-  1. **Job Controller**: Detects the Job creation, sets `.spec.suspend = false`, and creates 5 Pods. Due to Kueue's webhook mutation, the Pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
-  2. **Kueue Job Framework / Workload Controller**: Detects the Job and creates `wl-A` with `spec.podSets.count = 5` and `spec.podSets.minCount = 5`.
+  1. **KubeRay Controller**: Creates `RayCluster`.
+  2. **Workload Controller**: Detects the `RayCluster` and creates `wl-A` with `spec.podSets.count = 5` and `spec.podSets.minCount = 5`.
   3. **Kueue Scheduler**: Evaluates `wl-A`. Since the requested 5 pods fit within the available quota of 7, it admits `wl-A` (`status.admission.count = 5`), reserving 5 units of quota.
   4. **ElasticJobUngater Controller**: Detects that `wl-A` is admitted and removes the scheduling gate from the 5 pods respecting the pod indexing.
   5. **Kube-scheduler**: Schedules the 5 ungated pods, which transition to the Running state.
 * **Quota usage**: 5/7 (2 available).
 
 ##### Step 1: Scale Up from 5 to 10 (Quota Constraint: 7), partial admission of scale up
-* **Job spec.parallelism**: 10
+* **RayCluster worker group replicas**: 10
 * **Workloads**:
   * `wl-A` (Finished - aggregated/replaced by `wl-B`)
   * `wl-B` (Admitted - Partially):
@@ -172,7 +174,7 @@ Consider a scenario where:
     * `spec.podSets.count` = 10
     * `spec.podSets.minCount` = 8 (the current running count 7 + 1)
 * **Controller Actions**:
-  1. **Job Controller**: Detects the parallelism increase and creates 5 new Pods (total 10 pods: 5 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
+  1. **KubeRay Controller**: Increase worker group replica count and creates 5 new Pods (total 10 pods: 5 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
   2. **Workload Controller**: Observes the scale-up and creates a new Workload slice `wl-B` with `spec.podSets.count = 10` and `spec.podSets.minCount = 6` (inheriting/adjusting the minimum count based on the currently running/admitted count of 5 + 1 from `wl-A`). It is annotated as a replacement for `wl-A` via `kueue.x-k8s.io/workload-slice-replacement-for`.
   3. **Kueue Scheduler**: Evaluates `wl-B`. Since it replaces `wl-A`, it calculates the demand: `10 (new request) - 5 (already admitted in wl-A) = 5`. The available quota is only 2. Since the Workload could not be fully admitted, the Kueue scheduler evaluates whether it can partially admit the workload with any count between 6 and 10. Given the available quota of 2, the scheduler admits `wl-B` with a count of `5 + 2 = 7` (`status.admission.count = 7`), reserving 2 more units of quota (total 7).
   4. **WorkloadSlice Controller**: Creates another WorkloadSlice `wl-C` that represents the current state of the job with `.spec.podSets[0].count` = 10 and `spec.podSets.minCount` = 8. This workload is added to the queue to be evaluated when capacity becomes available, and it currently stays `Pending`. `wl-A` is marked as finished.
@@ -180,15 +182,15 @@ Consider a scenario where:
 * **Quota usage**: 7/7 (0 available).
 
 ##### Step 2: Scale Up to 12 (Quota Constraint: 7), scale up isn't admitted
-* **Job spec.parallelism**: 12
+* **RayCluster worker group replicas**: 12
 * **Workloads**:
   * `wl-B` (Admitted)
   * `wl-C` (Updated, keep pending):
     * `spec.podSets.count` = 12
     * `spec.podSets.minCount` = 8 (7 + 1)
 * **Controller Actions**:
-  1. **Job Controller**: Detects the parallelism increase and creates 2 more Pods (total 12 pods: 7 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
-  2. **Workload Controller**: Detects the update. Since the Job's parallelism is updated to 12, Kueue updates the pending workload `wl-C` with `spec.podSets.count = 12`.
+  1. **KubeRay Controller**: Increase worker group replica count and creates 2 more Pods (total 12 pods: 7 running, 5 gated). The new pods are created with the `kueue.x-k8s.io/elastic-job` scheduling gate.
+  2. **Workload Controller**: Detects the update. Since the `RayCluster`'s worker group replica count is updated to 12, Kueue updates the pending workload `wl-C` with `spec.podSets.count = 12`.
   3. **Kueue Scheduler**: Evaluates `wl-C`. The demand is `12 - 7 = 5`. The available quota is 0, so the scheduler puts `wl-C` in the queue.
 
 ##### Step 3: Quota increases to 12, opportunistic scale up when capacity is freed
@@ -204,6 +206,8 @@ If the available quota in the ClusterQueue increases to 12 (or more) in the futu
   2. **ElasticJobUngater Controller**: Detects that `wl-C` is admitted with count 12 and removes the scheduling gate from the remaining 5 pods.
 
 ### RayJob/RayService/RayCluster controller
+
+Only `RayJob`, `RayService`, and `RayCluster` integrations support the partial scale up feature (`batch/v1 Job` is not supported).
 
 The `RayCluster.workerGroupSpec[i].replicas * numOfHosts` will be translated to `PodSet.Count`. For the initial workload, `spec.podSets[i].minCount` will be equal to `PodSet.Count` to disable partial admission. For workloads representing scale up, `spec.podSets[i].minCount` will be equal to the currently admitted pods count increased by 1 for worker groups that are scaling up.
 
