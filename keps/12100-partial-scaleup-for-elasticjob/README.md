@@ -13,7 +13,7 @@
 - [Design Details](#design-details)
   - [Enablement](#enablement)
     - [Features](#features)
-    - [Partial ScaleUp Annotation](#partial-scaleup-annotation)
+    - [ElasticJob ScaleUp Annotation](#elasticjob-scaleup-annotation)
   - [Workload API](#workload-api)
   - [Scheduler / Flavorassignment](#scheduler--flavorassignment)
   - [Opportunistic scale up when capacity is freed](#opportunistic-scale-up-when-capacity-is-freed)
@@ -23,6 +23,8 @@
       - [Step 2: Scale Up to 12 (Quota Constraint: 7), scale up isn't admitted](#step-2-scale-up-to-12-quota-constraint-7-scale-up-isnt-admitted)
       - [Step 3: Quota increases to 12, opportunistic scale up when capacity is freed](#step-3-quota-increases-to-12-opportunistic-scale-up-when-capacity-is-freed)
   - [RayJob/RayService/RayCluster controller](#rayjobrayserviceraycluster-controller)
+    - [Partial ScaleUp for multiple PodSets](#partial-scaleup-for-multiple-podsets)
+    - [Order-Based policy (<code>order-based</code>)](#order-based-policy-order-based)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -211,6 +213,60 @@ If the available quota in the ClusterQueue increases to 12 (or more) in the futu
 Only `RayJob`, `RayService`, and `RayCluster` integrations support the partial scale up feature (`batch/v1 Job` is not supported).
 
 The `RayCluster.workerGroupSpec[i].replicas * numOfHosts` will be translated to `PodSet.Count`. For the initial workload, `spec.podSets[i].minCount` will be equal to `PodSet.Count` to disable partial admission. For workloads representing scale up, `spec.podSets[i].minCount` will be equal to the currently admitted pods count increased by 1 for worker groups that are scaling up.
+
+#### Partial ScaleUp for multiple PodSets
+
+There are multiple ways how to approach multiple podsets shrinking in case of insufficient quota. For simplicity reasons we'll start with the order-based one and will expand options if needed in future.
+
+- **`order-based` (default)**: Shrinks the counts of the PodSets sequentially starting from the last one (suits for the cases when the podsets are ordered by priority). The Workload PodSet order is usually the same as the order of the PodSets in the Job spec.
+
+#### Order-Based policy (`order-based`)
+
+Under the `order-based` policy, Kueue shrinks the PodSets starting from the last one in the list and moving towards the beginning as needed.
+Specifically, if multiple PodSets have variable counts, Kueue iterates over them in the order they are defined in the Workload spec, starting from the last one. It decreases the count of the current PodSet down to its `minCount` until the workload fits the available quota. If shrinking the last PodSet to its `minCount` is still not enough to fit, Kueue keeps it at its `minCount` and moves to the second-to-last PodSet, decreasing its count down to its `minCount`, and so on.
+As an optimization, we will introduce a second phase (similar to the preemption algorithm): when a workload finds a combination that fits the available quota, Kueue tries to gradually put the reduced counts back. In this phase, Kueue iterates over all PodSets from the first to the last one. For each PodSet that was reduced, Kueue tries to increase its count back to the original count. If that fits, Kueue keeps it. Otherwise, Kueue performs a binary search on the PodSet's count between the current count and the original count to find the maximum count that fits.
+
+One example when order-based policy is used, is when a multi-podset Job has identical PodSets that have different node selectors tied to different node group capacity — for example, reservation/on-demand/spot. In this case, it is preferable to keep pods running on reservation nodes rather than on-demand/spot nodes.
+
+**Examples:**
+Consider a Job with three PodSets:
+- `ps0` (highest priority): `count: 1`, no `minCount` (cannot be shrunk).
+- `ps1` (medium priority): `count: 4`, `minCount: 2` (can be reduced by up to 2 pods).
+- `ps2` (lowest priority): `count: 20`, `minCount: 10` (can be reduced by up to 10 pods).
+
+Total requested pods: `1 + 4 + 20 = 25` pods.
+
+- **Scenario A: Available quota is 19 pods** (requires a reduction of 6 pods).
+  1. Kueue targets the lowest priority PodSet, `ps2`, and decreases its count by 6 (from 20 to 14).
+  2. The resulting counts are: `ps0: 1`, `ps1: 4`, `ps2: 14` (total 19 pods, fits the quota).
+  3. Admitted counts: `ps0: 1`, `ps1: 4`, `ps2: 14`.
+
+- **Scenario B: Available quota is 13 pods** (requires a reduction of 12 pods).
+  1. Kueue targets the lowest priority PodSet, `ps2`, and decreases its count to its minimum: `10` (reduction of 10 pods). The current total count is now `1 + 4 + 10 = 15`.
+  2. Since it still does not fit the quota of 13, Kueue keeps `ps2` at `10` and moves to the next lowest priority PodSet, `ps1`.
+  3. Kueue decreases `ps1` by the remaining 2 pods (from 4 to 2). The resulting total count is `1 + 2 + 10 = 13` pods.
+  4. Admitted counts: `ps0: 1`, `ps1: 2`, `ps2: 10`.
+
+- **Scenario C: Available quota is 10 pods** (requires a reduction of 15 pods).
+  1. Kueue targets the lowest priority PodSet, `ps2`, and decreases its count to its minimum: `10` (reduction of 10 pods). The current total count is now `1 + 4 + 10 = 15`.
+  2. Since it does not fit the quota of 10, Kueue keeps `ps2` at `10` and moves to the next lowest priority PodSet, `ps1`.
+  3. Kueue decreases `ps1` to its minimum: `2` (reduction of 2 pods). The current total count is now `1 + 2 + 10 = 13`.
+  4. Since it still does not fit the quota of 10, and the remaining PodSet `ps0` does not allow partial admission (has no `minCount`), the search fails.
+  5. The job remains unadmitted.
+
+- **Scenario D: Multiple resource flavors (illustrates the second phase)**
+  Assume `ps1` and `ps2` are tied to different resource flavors, `rf1` and `rf2`, respectively.
+  The available quota for `rf1` is 2 pods (requires a reduction of at least 2 pods for `ps1`), and the available quota for `rf2` is 20 pods (full capacity for `ps2`).
+  1. In the first phase, Kueue targets the lowest priority PodSet, `ps2` (tied to `rf2`), and decreases its count to its minimum `10` (reduction of 10 pods) in search of a fit. The intermediate total count is `1 + 4 + 10 = 15` pods.
+  2. Since the workload still does not fit because of the constraint on `rf1` (which only allows 2 pods for `ps1` but it requests 4), Kueue keeps `ps2` at `10` and moves to the next lowest priority PodSet, `ps1`.
+  3. Kueue decreases `ps1` by 2 pods (from 4 to 2) to fit the available quota of `rf1`. The resulting total count is `1 + 2 + 10 = 13` pods.
+  4. The first phase successfully finds a combination (`ps0: 1`, `ps1: 2`, `ps2: 10`) that fits the available quotas.
+  5. In the second phase (optimization), Kueue iterates over all PodSets from the first to the last (`ps0`, `ps1`, `ps2`) and tries to restore the reduced counts.
+     - `ps1` was reduced to 2. Kueue tries to increase its count back to 4, but this fails since `rf1` only has a quota of 2. `ps1` remains at 2.
+     - `ps2` was reduced to 10. Kueue tries to increase its count back to 20. This succeeds since `rf2` has 20 available quota.
+  6. Admitted counts: `ps0: 1`, `ps1: 2`, `ps2: 20`.
+
+The accepted number of pods in each PodSet is recorded in `workload.Status.Admission.PodSetAssignments[*].Count`.
 
 ### Test Plan
 

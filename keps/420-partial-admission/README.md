@@ -11,13 +11,11 @@
 - [Design Details](#design-details)
   - [Enablement](#enablement)
     - [Features](#features)
-    - [Partial Admission Annotation](#partial-admission-annotation)
   - [Workload API](#workload-api)
   - [Validation](#validation)
   - [Scheduler / Flavorassignment](#scheduler--flavorassignment)
     - [Partial Admission for one PodSet](#partial-admission-for-one-podset)
     - [Partial Admission for multiple PodSets](#partial-admission-for-multiple-podsets)
-    - [Order-Based policy (<code>order-based</code>)](#order-based-policy-order-based)
   - [Jobframework](#jobframework)
   - [batch/Job controller](#batchjob-controller)
   - [Limitations](#limitations)
@@ -68,7 +66,7 @@ As a user submitting a regular batch Job (e.g., `batch/v1.Job`), I want the Job 
 
 ### Enablement
 
-PartialAdmission in Kueue is enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. At the cluster level, the PartialAdmission feature (enabled by default). The job that defined minCount value for the PodSet is eligible for partial admission.
+PartialAdmission in Kueue is enabled through a combination of a Kubernetes feature gate and a `kueue.x-k8s.io/job-min-parallelism` annotation indicating the minimum `parallelism` acceptable by the job in case of partial admission.
 
 #### Features
 ```go
@@ -76,15 +74,6 @@ PartialAdmission in Kueue is enabled through a combination of a Kubernetes featu
 	PartialAdmission featuregate.Feature = "PartialAdmission"
 ```
 
-#### Partial Admission Annotation
-```go
-const (
-  // EnabledAnnotationKey refers to the annotation key present on Jobs that support
-  // partial admission.
-  // This annotation is alpha-level.
-  EnabledPartialAdmission = "kueue.x-k8s.io/partial-admission"
-)
-```
 
 ### Workload API
 
@@ -134,57 +123,8 @@ The search for appropriate count value is done using binary search algorithm.
 
 #### Partial Admission for multiple PodSets
 
-There are multiple ways how to approach multiple podsets shrinking in case of insufficient quota. For simplicity reasons we'll start with the order-based one and will expand options if needed in future.
-
-- **`order-based` (default)**: Shrinks the counts of the PodSets sequentially starting from the last one (suits for the cases when the podsets are ordered by priority). The Workload PodSet order is usually the same as the order of the PodSets in the Job spec.
-
-#### Order-Based policy (`order-based`)
-
-Under the `order-based` policy, Kueue shrinks the PodSets starting from the last one in the list and moving towards the beginning as needed.
-Specifically, if multiple PodSets have variable counts, Kueue iterates over them in the order they are defined in the Workload spec, starting from the last one. It decreases the count of the current PodSet down to its `minCount` until the workload fits the available quota. If shrinking the last PodSet to its `minCount` is still not enough to fit, Kueue keeps it at its `minCount` and moves to the second-to-last PodSet, decreasing its count down to its `minCount`, and so on.
-As an optimization, we will introduce a second phase (similar to the preemption algorithm): when a workload finds a combination that fits the available quota, Kueue tries to gradually put the reduced counts back. In this phase, Kueue iterates over all PodSets from the first to the last one. For each PodSet that was reduced, Kueue tries to increase its count back to the original count. If that fits, Kueue keeps it. Otherwise, Kueue performs a binary search on the PodSet's count between the current count and the original count to find the maximum count that fits.
-
-One example when order-based policy is used, is when a multi-podset Job has identical PodSets that have different node selectors tied to different node group capacity — for example, reservation/on-demand/spot. In this case, it is preferable to keep pods running on reservation nodes rather than on-demand/spot nodes.
-
-**Examples:**
-Consider a Job with three PodSets:
-- `ps0` (highest priority): `count: 1`, no `minCount` (cannot be shrunk).
-- `ps1` (medium priority): `count: 4`, `minCount: 2` (can be reduced by up to 2 pods).
-- `ps2` (lowest priority): `count: 20`, `minCount: 10` (can be reduced by up to 10 pods).
-
-Total requested pods: `1 + 4 + 20 = 25` pods.
-
-- **Scenario A: Available quota is 19 pods** (requires a reduction of 6 pods).
-  1. Kueue targets the lowest priority PodSet, `ps2`, and decreases its count by 6 (from 20 to 14).
-  2. The resulting counts are: `ps0: 1`, `ps1: 4`, `ps2: 14` (total 19 pods, fits the quota).
-  3. Admitted counts: `ps0: 1`, `ps1: 4`, `ps2: 14`.
-
-- **Scenario B: Available quota is 13 pods** (requires a reduction of 12 pods).
-  1. Kueue targets the lowest priority PodSet, `ps2`, and decreases its count to its minimum: `10` (reduction of 10 pods). The current total count is now `1 + 4 + 10 = 15`.
-  2. Since it still does not fit the quota of 13, Kueue keeps `ps2` at `10` and moves to the next lowest priority PodSet, `ps1`.
-  3. Kueue decreases `ps1` by the remaining 2 pods (from 4 to 2). The resulting total count is `1 + 2 + 10 = 13` pods.
-  4. Admitted counts: `ps0: 1`, `ps1: 2`, `ps2: 10`.
-
-- **Scenario C: Available quota is 10 pods** (requires a reduction of 15 pods).
-  1. Kueue targets the lowest priority PodSet, `ps2`, and decreases its count to its minimum: `10` (reduction of 10 pods). The current total count is now `1 + 4 + 10 = 15`.
-  2. Since it does not fit the quota of 10, Kueue keeps `ps2` at `10` and moves to the next lowest priority PodSet, `ps1`.
-  3. Kueue decreases `ps1` to its minimum: `2` (reduction of 2 pods). The current total count is now `1 + 2 + 10 = 13`.
-  4. Since it still does not fit the quota of 10, and the remaining PodSet `ps0` does not allow partial admission (has no `minCount`), the search fails.
-  5. The job remains unadmitted.
-
-- **Scenario D: Multiple resource flavors (illustrates the second phase)**
-  Assume `ps1` and `ps2` are tied to different resource flavors, `rf1` and `rf2`, respectively.
-  The available quota for `rf1` is 2 pods (requires a reduction of at least 2 pods for `ps1`), and the available quota for `rf2` is 20 pods (full capacity for `ps2`).
-  1. In the first phase, Kueue targets the lowest priority PodSet, `ps2` (tied to `rf2`), and decreases its count to its minimum `10` (reduction of 10 pods) in search of a fit. The intermediate total count is `1 + 4 + 10 = 15` pods.
-  2. Since the workload still does not fit because of the constraint on `rf1` (which only allows 2 pods for `ps1` but it requests 4), Kueue keeps `ps2` at `10` and moves to the next lowest priority PodSet, `ps1`.
-  3. Kueue decreases `ps1` by 2 pods (from 4 to 2) to fit the available quota of `rf1`. The resulting total count is `1 + 2 + 10 = 13` pods.
-  4. The first phase successfully finds a combination (`ps0: 1`, `ps1: 2`, `ps2: 10`) that fits the available quotas.
-  5. In the second phase (optimization), Kueue iterates over all PodSets from the first to the last (`ps0`, `ps1`, `ps2`) and tries to restore the reduced counts.
-     - `ps1` was reduced to 2. Kueue tries to increase its count back to 4, but this fails since `rf1` only has a quota of 2. `ps1` remains at 2.
-     - `ps2` was reduced to 10. Kueue tries to increase its count back to 20. This succeeds since `rf2` has 20 available quota.
-  6. Admitted counts: `ps0: 1`, `ps1: 2`, `ps2: 20`.
-
-The accepted number of pods in each PodSet is recorded in `workload.Status.Admission.PodSetAssignments[*].Count`.
+Currently Partial Admission support only one PodSet.
+However the same approch as the Partial ScaleUp for ElasticJobs for multiple PodSets could be used if needed.
 
 ### Jobframework
 
@@ -235,7 +175,6 @@ to implement this enhancement.
     - `partial admission single variable pod set`: verifies flavor assignment with a single variable count PodSet.
     - `partial admission single variable pod set, preempt first`: verifies preemption behavior when a workload can be admitted using partial admission.
     - `partial admission single variable pod set, preempt with partial admission`: verifies that preemption triggers when partial admission alone is not enough.
-    - `partial admission multiple variable pod sets, order-based policy`: verifies shrinking order when the order-based policy is set, starting from the last PodSet.
     - `partial admission disabled, multiple variable pod sets`: verifies that no partial admission is performed if features/annotations are not active.
   - `pkg/scheduler/scheduler_tas_test.go`:
     - `TAS workload gets scheduled as trimmed by partial admission`: verifies that Topology Aware Scheduling is compatible with partial admission.

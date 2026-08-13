@@ -2,7 +2,6 @@ title: Allow partial admission of jobs
 kep-number: 420
 authors:
   - "@trasc"
-  - "@yaroslava-serdiuk"
 status: implementable
 creation-date: 2023-05-10
 reviewers:
@@ -11,7 +10,6 @@ reviewers:
 approvers:
   - "@alculquicondor"
   - "@ahg-g"
-  - "@mimowo"
 
 
 # The target maturity stage in the current dev cycle for this KEP.
@@ -20,7 +18,7 @@ stage: beta
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.20"
+latest-milestone: "v0.5"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
