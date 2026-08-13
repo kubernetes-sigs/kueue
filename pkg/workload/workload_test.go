@@ -135,7 +135,7 @@ func TestIsOnHold(t *testing.T) {
 	}
 }
 
-// The PodSet builders do not reach pod-level resources, and only one case needs them.
+// The PodSet builders do not reach pod-level resources.
 func withPodLevelRequests(wl *kueue.Workload, rl corev1.ResourceList) kueue.Workload {
 	wl.Spec.PodSets[0].Template.Spec.Resources = &corev1.ResourceRequirements{Requests: rl}
 	return *wl
@@ -1017,6 +1017,31 @@ func TestNewInfo(t *testing.T) {
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("example.com/gpu"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The reproducer Kueue#14015 was filed with. Both contributions are
+		// generated, and outputs cancelling each other is deliberate, so nothing
+		// downstream separates these two: the source is the only place to act.
+		"transformNegativeInputDoesNotSpendWhatAnotherInputGenerated": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/real-gpu", "8").
+					Request("example.com/credit", "-3").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{Input: "example.com/real-gpu", Strategy: new(config.Replace),
+					Outputs: corev1.ResourceList{"example.com/gpu-quota": resource.MustParse("1")}},
+				{Input: "example.com/credit", Strategy: new(config.Replace),
+					Outputs: corev1.ResourceList{"example.com/gpu-quota": resource.MustParse("1")}},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu-quota"): 8,
 					}),
 					Count: 1,
 				}},
