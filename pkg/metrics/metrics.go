@@ -345,11 +345,11 @@ var (
 	CohortSubtreeAdmittedActiveWorkloads *prometheus.GaugeVec
 
 	// +metricsdoc:group=cohort
-	// +metricsdoc:labels=cohort="the name of the Cohort",parent_cohort="the direct parent Cohort name, empty if this Cohort has no parent",root_cohort="the root Cohort name in the hierarchy",replica_role="one of `leader`, `follower`, or `standalone`"
+	// +metricsdoc:labels=cohort="the name of the Cohort",parent_cohort="the direct parent Cohort name, empty if this Cohort has no parent",root_cohort="the root Cohort name in the hierarchy",dynamic_quota_orchestrator="name of the dynamic quota orchestrator, empty if none",replica_role="one of `leader`, `follower`, or `standalone`"
 	CohortInfo *prometheus.GaugeVec
 
 	// +metricsdoc:group=clusterqueue
-	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",parent_cohort="the direct parent Cohort name, empty if this ClusterQueue has no Cohort",root_cohort="the root Cohort name in the hierarchy, empty if this ClusterQueue has no Cohort",replica_role="one of `leader`, `follower`, or `standalone`"
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",parent_cohort="the direct parent Cohort name, empty if this ClusterQueue has no Cohort",root_cohort="the root Cohort name in the hierarchy, empty if this ClusterQueue has no Cohort",dynamic_quota_orchestrator="name of the dynamic quota orchestrator, empty if none",replica_role="one of `leader`, `follower`, or `standalone`"
 	ClusterQueueInfo *prometheus.GaugeVec
 )
 
@@ -1055,7 +1055,7 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 			Subsystem: constants.KueueName,
 			Name:      "cohort_info",
 			Help:      `Reports Cohort hierarchy information. The metric has value 1 and can be joined using labels.`,
-		}, append([]string{"cohort", "parent_cohort", "root_cohort", "replica_role"}, cohortMetricLabels...),
+		}, append([]string{"cohort", "parent_cohort", "root_cohort", "dynamic_quota_orchestrator", "replica_role"}, cohortMetricLabels...),
 	))
 
 	ClusterQueueInfo = trackGaugeVec(prometheus.NewGaugeVec(
@@ -1063,7 +1063,7 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 			Subsystem: constants.KueueName,
 			Name:      "cluster_queue_info",
 			Help:      `Reports ClusterQueue hierarchy information. The metric has value 1 and can be joined using labels.`,
-		}, append([]string{"cluster_queue", "parent_cohort", "root_cohort", "replica_role"}, clusterQueueMetricsLabels...),
+		}, append([]string{"cluster_queue", "parent_cohort", "root_cohort", "dynamic_quota_orchestrator", "replica_role"}, clusterQueueMetricsLabels...),
 	))
 }
 
@@ -1430,9 +1430,9 @@ func ClearCohortSubtreeResourceReservations(cohort kueue.CohortReference, flavor
 	CohortSubtreeResourceReservations.DeletePartialMatch(lbls)
 }
 
-func ReportCohortInfo(cohort, parentCohort, rootCohort kueue.CohortReference, customLabelValues []string, tracker *roletracker.RoleTracker) {
-	labels := make([]string, 0, 4+len(customLabelValues))
-	labels = append(labels, string(cohort), string(parentCohort), string(rootCohort), roletracker.GetRole(tracker))
+func ReportCohortInfo(cohort, parentCohort, rootCohort kueue.CohortReference, dynamicQuotaOrchestrator string, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := make([]string, 0, 5+len(customLabelValues))
+	labels = append(labels, string(cohort), string(parentCohort), string(rootCohort), dynamicQuotaOrchestrator, roletracker.GetRole(tracker))
 	labels = append(labels, customLabelValues...)
 	CohortInfo.WithLabelValues(labels...).Set(1)
 }
@@ -1441,9 +1441,15 @@ func ClearCohortInfo(cohort kueue.CohortReference) {
 	CohortInfo.DeletePartialMatch(prometheus.Labels{"cohort": string(cohort)})
 }
 
-func ReportClusterQueueInfo(cqName kueue.ClusterQueueReference, parentCohort, rootCohort kueue.CohortReference, customLabelValues []string, tracker *roletracker.RoleTracker) {
-	labels := make([]string, 0, 4+len(customLabelValues))
-	labels = append(labels, string(cqName), string(parentCohort), string(rootCohort), roletracker.GetRole(tracker))
+func ReportClusterQueueInfo(
+	cqName kueue.ClusterQueueReference,
+	parentCohort, rootCohort kueue.CohortReference,
+	dynamicQuotaOrchestrator string,
+	customLabelValues []string,
+	tracker *roletracker.RoleTracker,
+) {
+	labels := make([]string, 0, 5+len(customLabelValues))
+	labels = append(labels, string(cqName), string(parentCohort), string(rootCohort), dynamicQuotaOrchestrator, roletracker.GetRole(tracker))
 	labels = append(labels, customLabelValues...)
 	ClusterQueueInfo.WithLabelValues(labels...).Set(1)
 }
