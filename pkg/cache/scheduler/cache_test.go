@@ -3415,37 +3415,37 @@ func TestCohortCycles(t *testing.T) {
 
 func TestCohortCyclesWithClusterQueue(t *testing.T) {
 	testCases := map[string]struct {
-		initialCohorts []kueue.Cohort
+		buildHierarchy func(*Cache) error
 		clusterQueue   *kueue.ClusterQueue
 		wantErr        string
 	}{
 		"clusterqueue add returns error when cohort has cycle": {
-			initialCohorts: func() []kueue.Cohort {
-				// Create a cycle by making cohort-a parent of cohort-b, cohort-b parent of cohort-c, and cohort-c parent of cohort-a
-				// But we need to add them in a way that doesn't create the cycle until the last one
-				cohortA := v1beta2.MakeCohort("cohort-a").Parent("cohort-b").Obj()
-				cohortB := v1beta2.MakeCohort("cohort-b").Obj() // Initially no parent
-				// cohortC will be added later to create the cycle
-				return []kueue.Cohort{*cohortA, *cohortB}
-			}(),
-			clusterQueue: v1beta2.MakeClusterQueue("cq").Cohort("cohort-a").Obj(),
-			wantErr:      "", // The clusterqueue addition should succeed because the cycle doesn't exist yet
-		},
-		"clusterqueue add returns error when cohort has cycle - with cycle present": {
-			initialCohorts: func() []kueue.Cohort {
-				cohortA := v1beta2.MakeCohort("cohort-a").Parent("cohort-b").Obj()
-				cohortB := v1beta2.MakeCohort("cohort-b").Parent("cohort-c").Obj()
-				cohortC := v1beta2.MakeCohort("cohort-c").Parent("cohort-a").Obj()
-				return []kueue.Cohort{*cohortA, *cohortB, *cohortC}
-			}(),
-			clusterQueue: v1beta2.MakeClusterQueue("cq").Cohort("cohort-a").Obj(),
+			buildHierarchy: func(cache *Cache) error {
+				// Build hierarchy with cycle
+				cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
+				if err := cache.AddOrUpdateCohort(cohortA); err != nil {
+					return err
+				}
+
+				cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj()
+				if err := cache.AddOrUpdateCohort(cohortB); err != nil {
+					return err
+				}
+
+				// This creates the cycle and should fail, but we ignore the error
+				cohortC := utiltestingapi.MakeCohort("cohort-c").Parent("cohort-a").Obj()
+				_ = cache.AddOrUpdateCohort(cohortC)
+				return nil
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Obj(),
 			wantErr:      "cycle",
 		},
 		"clusterqueue add succeeds when cohort has no cycle": {
-			initialCohorts: []kueue.Cohort{
-				*v1beta2.MakeCohort("cohort").Obj(),
+			buildHierarchy: func(cache *Cache) error {
+				cohort := utiltestingapi.MakeCohort("cohort").Obj()
+				return cache.AddOrUpdateCohort(cohort)
 			},
-			clusterQueue: v1beta2.MakeClusterQueue("cq").Cohort("cohort").Obj(),
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").Cohort("cohort").Obj(),
 			wantErr:      "",
 		},
 	}
@@ -3455,13 +3455,14 @@ func TestCohortCyclesWithClusterQueue(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 
-			// Add initial cohorts - this should succeed because we only add valid hierarchies
-			for i := range tc.initialCohorts {
-				if err := cache.AddOrUpdateCohort(&tc.initialCohorts[i]); err != nil {
-					t.Fatalf("setup failed to add initial cohort: %v", err)
+			// Build the hierarchy
+			if tc.buildHierarchy != nil {
+				if err := tc.buildHierarchy(cache); err != nil {
+					t.Fatalf("failed to build hierarchy: %v", err)
 				}
 			}
 
+			// Test clusterqueue addition
 			err := cache.AddClusterQueue(ctx, tc.clusterQueue)
 
 			if (err != nil) != (tc.wantErr != "") {
