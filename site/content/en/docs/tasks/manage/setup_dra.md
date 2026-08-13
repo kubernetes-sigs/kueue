@@ -169,9 +169,14 @@ kubectl apply -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-queues.yaml
 ### What is charged where when the name is remapped
 
 If a `deviceClassMappings` entry gives the DeviceClass a different logical name,
-only the request the Pod's containers make is translated to that name. Anything
-else under the original `extendedResourceName` stays there: a chargeable Pod
-overhead, or a `ResourceTransformation` output written to the same name.
+only the request the Pod's containers make is translated to that name. What the
+translation takes back is that contribution and no more, so anything still under
+the original `extendedResourceName` by the time it runs stays there: a chargeable
+Pod overhead, or a `ResourceTransformation` output written to the same name.
+
+`excludeResourcePrefixes` and the transformations run before it, so a name one of
+them removed or a `Replace` consumed has nothing left under it either way. What
+changed is that the translation no longer takes the name itself.
 
 Pod overhead reaches this without anyone writing it by hand. A RuntimeClass
 `overhead.podFixed` entry is copied onto the PodSet, and it is an ordinary

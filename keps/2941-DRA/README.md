@@ -912,9 +912,11 @@ The two DRA paths resolve quota independently:
 #### Processing Flow
 
 1. Kueue detects extended resources in `resources.requests` and computes each
-   original resource name's Pod-level request (max across init containers, sum
-   across regular containers, then max of the two) before any DeviceClass lookup
-   or quota-key mapping. Two different resource names later mapped to the same
+   original resource name's Pod-level request the way a Pod's own requests are
+   computed, before any DeviceClass lookup or quota-key mapping: regular and
+   restartable init containers contribute to the long-running total, and an
+   ordinary init container is measured together with the restartable ones
+   already started beside it. Two different resource names later mapped to the same
    quota key are therefore aggregated independently first, so neither collapses
    into the other's contribution.
 2. Looks up DeviceClasses by `extendedResourceName` by field indexer
@@ -927,20 +929,25 @@ The two DRA paths resolve quota independently:
 5. If the mapping has counter sources configured, the workload is marked inadmissible.
    Extended resources do not carry profile-level information for counter-based charging.
    Otherwise charges device count.
-6. Subtracts what the containers asked for on that extended resource from the workload's
-   effective resource requests (tracked internally per PodSet) to avoid double-counting.
-   Pod overhead and resource transformation outputs carried under the same name are not
-   what the charge stands in for, so they are left intact
-7. Admits workload against the resolved quota key
+6. Subtracts what the containers asked for on that extended resource from what is
+   still retained under that name (tracked internally per PodSet) to avoid
+   double-counting. Pod overhead and resource transformation outputs carried under
+   the same name are not what the charge stands in for, so whatever of them is still
+   there once exclusions and transformations have run is left alone
+7. Admits the Workload against the resulting requests, which is the mapped logical
+   name together with any contribution still standing under the original one
 
-The extended resource translation reads directly from the workload spec before
-`excludeResourcePrefixes` filtering is applied. The processing order:
-1. Extended resource translation runs first, reading the original spec
+The container contribution is read from the workload spec as it stands, before any
+filtering, so that what is charged is what the Pods will ask for. Where it is taken
+back from is a later view. The processing order:
+1. The container contribution on each translated extended resource is read from the
+   original spec
 2. `excludeResourcePrefixes` filters the pod's `resources.requests`
 3. Resource transformations run
-4. What the containers asked for on each translated extended resource is subtracted from
-   the effective requests, so the pod overhead and anything a transformation added under
-   the same name are left alone
+4. The container contribution is subtracted from what is still retained under that name,
+   so pod overhead and anything a transformation added under it survive. A name an
+   excluded prefix removed, or a `Replace` transformation consumed, has nothing left to
+   subtract from and nothing left to keep
 5. Translated resource is added through `preprocessedDRAResources`
 
 The container contribution is aggregated the way a Pod's own requests are, so a restartable
