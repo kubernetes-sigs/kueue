@@ -1107,6 +1107,36 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// An ordinary init container is measured with the sidecars declared before
+		// it already running, and that sum is compared with the regular one rather
+		// than added to it. It is a different branch from the case above, and a
+		// negative sidecar reaches the ordinary init container through it.
+		"negativeSidecarDoesNotSpendAnOrdinaryInitThatFollowsIt": {
+			workload: *utiltestingapi.MakeWorkload("sidecar-then-init", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(
+						*utiltesting.MakeContainer().Name("asks").WithResourceReq("example.com/credit", "1").Obj(),
+					).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("beside").AsSidecar().WithResourceReq("example.com/credit", "-3").Obj(),
+						*utiltesting.MakeContainer().Name("before").WithResourceReq("example.com/credit", "8").Obj(),
+					).Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		// cpu, memory and hugepages are the names a pod-level entry is read for,
 		// and it replaces the container total rather than adding to it, so an
 		// invalid entry has to go rather than become a zero.
