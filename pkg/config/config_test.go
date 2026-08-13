@@ -18,6 +18,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"net"
 	"os"
@@ -36,6 +37,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	clienttesting "k8s.io/client-go/testing"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -48,13 +50,13 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	configv1beta1 "sigs.k8s.io/kueue/apis/config/v1beta1"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
-
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
 var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
@@ -1701,6 +1703,54 @@ namespace: kueue-system
 			}
 			if diff := cmp.Diff(tc.wantPod, got); diff != "" {
 				t.Errorf("Unexpected pod after transform (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// A v1beta1 file reaches the same validator through generated conversion, so the
+// reservation covers the operators still writing that version only as long as
+// conversion carries these four fields.
+func TestReservedNameReachesAV1beta1Configuration(t *testing.T) {
+	const configuration = `apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+resources:
+  deviceClassMappings:
+  - name: %[1]spods
+    deviceClassNames: [gpu.example.com]
+  transformations:
+  - input: %[1]spods
+    strategy: Retain
+    multiplyBy: %[1]spods
+    outputs:
+      %[1]spods: 1
+`
+	scheme := runtime.NewScheme()
+	for _, addToScheme := range []func(*runtime.Scheme) error{
+		configapi.AddToScheme, configv1beta1.AddToScheme, clientgoscheme.AddToScheme,
+	} {
+		if err := addToScheme(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, tc := range map[string]struct {
+		prefix   string
+		wantErrs int
+	}{
+		"the bare name in all four positions": {wantErrs: 4},
+		"a qualified name in all four":        {prefix: "example.com/", wantErrs: 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, fmt.Appendf(nil, configuration, tc.prefix), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, cfg, err := Load(scheme, path)
+			if err != nil {
+				t.Fatalf("loading the configuration: %v", err)
+			}
+			if errs := Validate(&cfg, scheme, jobs.NewIntegrationManager()); len(errs) != tc.wantErrs {
+				t.Errorf("%d errors, want %d: %v", len(errs), tc.wantErrs, errs)
 			}
 		})
 	}
