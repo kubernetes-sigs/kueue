@@ -704,11 +704,11 @@ status:
     flavors:
     - name: cpu-flavor
       resources:
-      - cpu: "900"
-      - memory: 3.6Ti
+        cpu: "900"
+        memory: 3.6Ti
     - name: gpu-flavor
       resources:
-      - nvidia.com/gpu: "32"
+        nvidia.com/gpu: "32"
 ```
 
 DQO referencing the provider and distributing capacity from a Cohort root:
