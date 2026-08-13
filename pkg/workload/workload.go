@@ -1439,7 +1439,13 @@ func UnhealthyNodesEvictionThreshold(w *kueue.Workload) (int, error) {
 		if n >= DefaultUnhealthyNodesEvictionThreshold && n <= MaxUnhealthyNodesEvictionThreshold {
 			return n, nil
 		}
-		return DefaultUnhealthyNodesEvictionThreshold, fmt.Errorf("invalid %s annotation value %q: must be between %d and %d", kueue.TASUnhealthyNodesEvictionThresholdAnnotation, v, DefaultUnhealthyNodesEvictionThreshold, MaxUnhealthyNodesEvictionThreshold)
+		return DefaultUnhealthyNodesEvictionThreshold, fmt.Errorf(
+			"invalid %s annotation value %q: must be between %d and %d",
+			kueue.TASUnhealthyNodesEvictionThresholdAnnotation,
+			v,
+			DefaultUnhealthyNodesEvictionThreshold,
+			MaxUnhealthyNodesEvictionThreshold,
+		)
 	}
 	return DefaultUnhealthyNodesEvictionThreshold, nil
 }
