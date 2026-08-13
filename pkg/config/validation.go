@@ -455,7 +455,8 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
-// reservedResourceNameMsg is the Workload webhook's message for the same key.
+// reservedResourceNameMsg is worded as the Workload webhook words the same
+// refusal. Nothing holds the two together; the webhook spells its own out.
 const reservedResourceNameMsg = "the key is reserved for internal kueue use"
 
 func validateResourceTransformations(c *configapi.Configuration) field.ErrorList {
@@ -524,7 +525,7 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, "must not exceed 253 characters"))
 		}
 
-		// Flavor assignment replaces this key with the PodSet count.
+		// pods is reserved for the request Kueue synthesizes from the PodSet count.
 		if mapping.Name == corev1.ResourcePods {
 			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, reservedResourceNameMsg))
 		}

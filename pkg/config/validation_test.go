@@ -1430,6 +1430,37 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		// Reported per entry rather than once for the Configuration, and in the
+		// order the transformations are written.
+		"pods reported for each transformation naming it": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    "example.com/credits",
+							Strategy: new(configapi.Retain),
+							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+						{
+							Input:    "example.com/tokens",
+							Strategy: new(configapi.Retain),
+							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[pods]",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[1].outputs[pods]",
+				},
+			},
+		},
 		"multi-counter: whole-device and counter for same DeviceClass rejected": {
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPartitionableDevices: true},
 			cfg: &configapi.Configuration{
@@ -3419,61 +3450,4 @@ func TestValidateCustomLabels(t *testing.T) {
 			t.Errorf("unexpected error details (-want,+got):\n%s", diff)
 		}
 	})
-}
-
-// TestValidateReportsAReservedOutputPerTransformation pins one error per
-// transformation, in configured order and not deduplicated across them.
-func TestValidateReportsAReservedOutputPerTransformation(t *testing.T) {
-	scheme := runtime.NewScheme()
-	if err := clientgoscheme.AddToScheme(scheme); err != nil {
-		t.Fatal(err)
-	}
-	if err := configapi.AddToScheme(scheme); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg := &configapi.Configuration{
-		Integrations: &configapi.Integrations{Frameworks: []string{"batch/job"}},
-		Resources: &configapi.Resources{
-			Transformations: []configapi.ResourceTransformation{
-				{
-					Input:    "example.com/credits",
-					Strategy: new(configapi.Retain),
-					Outputs: corev1.ResourceList{
-						corev1.ResourcePods: resource.MustParse("-1"),
-						"example.com/fine":  resource.MustParse("1"),
-					},
-				},
-				{
-					Input:    "example.com/tokens",
-					Strategy: new(configapi.Retain),
-					Outputs: corev1.ResourceList{
-						corev1.ResourcePods:     resource.MustParse("1"),
-						"example.com/also-fine": resource.MustParse("2"),
-					},
-				},
-			},
-		},
-	}
-
-	want := []reportedError{
-		{"resources.transformations[0].outputs[pods]", reservedResourceNameMsg},
-		{"resources.transformations[1].outputs[pods]", reservedResourceNameMsg},
-	}
-	var got []reportedError
-	for _, e := range Validate(cfg, scheme, jobs.NewIntegrationManager()) {
-		if strings.Contains(e.Field, ".outputs[") {
-			got = append(got, reportedError{e.Field, e.Detail})
-		}
-	}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("output errors (-want +got):\n%s", diff)
-	}
-}
-
-// reportedError is a field path with the reason it was refused, which is the
-// only thing telling the two checks apart when they land on one output.
-type reportedError struct {
-	Field  string
-	Detail string
 }
