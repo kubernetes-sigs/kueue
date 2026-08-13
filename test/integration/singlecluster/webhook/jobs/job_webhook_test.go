@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/discovery"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -192,7 +191,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		createdJob := &batchv1.Job{}
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-		createdJob.Spec.Parallelism = ptr.To[int32](4)
+		createdJob.Spec.Parallelism = new(int32(4))
 		createdJob.Spec.Suspend = new(false)
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 	})
@@ -214,7 +213,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		createdJob := &batchv1.Job{}
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-		createdJob.Spec.Parallelism = ptr.To[int32](3)
+		createdJob.Spec.Parallelism = new(int32(3))
 		createdJob.Spec.Suspend = new(false)
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 	})
@@ -232,12 +231,14 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		updatedJob := &batchv1.Job{}
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, updatedJob)).Should(gomega.Succeed())
 
-		updatedJob.Spec.Parallelism = ptr.To[int32](6)
+		updatedJob.Spec.Parallelism = new(int32(6))
 		delete(updatedJob.Annotations, job.StoppingAnnotation)
 		gomega.Expect(k8sClient.Update(ctx, updatedJob)).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should not set the default WorkloadPriorityClass label when the feature gate is disabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassDefaulting, false)
+
 		defaultWPC := utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
 		util.MustCreate(ctx, k8sClient, defaultWPC)
 		ginkgo.DeferCleanup(func() {

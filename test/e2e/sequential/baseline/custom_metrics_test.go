@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -74,13 +73,13 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 					{
 						Name:           "custom_label_key",
 						SourceLabelKey: "toCopyKeyCustom",
-						SourceKind:     ptr.To(config.SourceKindWorkload),
+						SourceKind:     new(config.SourceKindWorkload),
 						TrackedValues:  []string{"custom_value"},
 					},
 					{
 						Name:                "custom_annotation_key",
 						SourceAnnotationKey: "toCopyAnnotation",
-						SourceKind:          ptr.To(config.SourceKindWorkload),
+						SourceKind:          new(config.SourceKindWorkload),
 						TrackedValues:       []string{"annotation_value"},
 					},
 				}

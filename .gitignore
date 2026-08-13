@@ -41,4 +41,8 @@ node_modules
 test/e2e/kueueviz/cypress/screenshots
 test/e2e/kueueviz/cypress/videos
 
+# Python bytecode caches
+__pycache__/
+*.pyc
+
 

@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -660,8 +659,8 @@ var _ = ginkgo.Describe("JAXJob controller with TopologyAwareScheduling", ginkgo
 						Name:  kueue.NewPodSetReference(string(kftraining.JAXJobReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:     ptr.To(utiltesting.DefaultBlockTopologyLevel),
-							PodIndexLabel: ptr.To(kftraining.ReplicaIndexLabel),
+							Preferred:     new(utiltesting.DefaultBlockTopologyLevel),
+							PodIndexLabel: new(kftraining.ReplicaIndexLabel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))

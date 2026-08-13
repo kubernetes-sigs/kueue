@@ -80,17 +80,20 @@ func (t *tasCache) AddOrUpdateFlavor(flavor *kueue.ResourceFlavor) {
 	defer t.Unlock()
 	name := kueue.ResourceFlavorReference(flavor.Name)
 	tolerations := slices.Clone(flavor.Spec.Tolerations)
+	nodeLabels := maps.Clone(flavor.Spec.NodeLabels)
 	if flavorInfo, ok := t.flavors[name]; ok {
 		flavorInfo.Tolerations = tolerations
+		flavorInfo.NodeLabels = nodeLabels
 		t.flavors[name] = flavorInfo
 		if flavorCache, ok := t.flavorCache[name]; ok {
 			flavorCache.updateTolerations(tolerations)
+			flavorCache.updateNodeLabels(nodeLabels)
 		}
 		return
 	}
 	flavorInfo := flavorInformation{
 		TopologyName: *flavor.Spec.TopologyName,
-		NodeLabels:   maps.Clone(flavor.Spec.NodeLabels),
+		NodeLabels:   nodeLabels,
 		Tolerations:  tolerations,
 	}
 	t.flavors[name] = flavorInfo
@@ -103,15 +106,20 @@ func (t *tasCache) AddTopology(topology *kueue.Topology) {
 	t.Lock()
 	defer t.Unlock()
 	name := kueue.TopologyReference(topology.Name)
-	if _, ok := t.topologies[name]; !ok {
-		tInfo := topologyInformation{
-			Levels: utiltas.Levels(topology),
+	tInfo := topologyInformation{
+		Levels: utiltas.Levels(topology),
+	}
+	t.topologies[name] = tInfo
+	for fName, flavorInfo := range t.flavors {
+		if flavorInfo.TopologyName != name {
+			continue
 		}
-		t.topologies[name] = tInfo
-		for fName, flavorInfo := range t.flavors {
-			if flavorInfo.TopologyName == name {
-				t.flavorCache[fName] = t.NewTASFlavorCache(tInfo, flavorInfo)
-			}
+		if c, ok := t.flavorCache[fName]; ok {
+			// Update the levels in place: rebuilding the cache entry would drop
+			// the usage accumulated from admitted workloads.
+			c.updateTopology(tInfo)
+		} else {
+			t.flavorCache[fName] = t.NewTASFlavorCache(tInfo, flavorInfo)
 		}
 	}
 }
@@ -135,7 +143,7 @@ func (t *tasCache) DeleteTopology(name kueue.TopologyReference) {
 }
 
 // UpdateNonTASUsage updates the non-TAS resource usage cache for the pod.
-// Returns the node name when a terminated pod is removed from the cache.
+// Returns the node name when capacity may have been freed on a node.
 func (t *tasCache) UpdateNonTASUsage(pod *corev1.Pod, log logr.Logger) string {
 	return t.nonTasUsageCache.update(pod, log)
 }

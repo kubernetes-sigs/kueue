@@ -66,10 +66,36 @@ func TestNonTasUsageCacheRemovedNode(t *testing.T) {
 				return cache.update(pod, log)
 			},
 		},
-		"update with running pod returns empty": {
+		"update with new running pod returns empty": {
 			action: func(cache *nonTasUsageCache, log logr.Logger) string {
 				return cache.update(makePod("pod1", "ns", "node-a", "2"), log)
 			},
+		},
+		"update existing running pod with decreased requests returns old node": {
+			setup: func(cache *nonTasUsageCache, log logr.Logger) {
+				cache.update(makePod("pod1", "ns", "node-a", "4"), log)
+			},
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				return cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+			wantNode: "node-a",
+		},
+		"update existing running pod with increased requests returns empty": {
+			setup: func(cache *nonTasUsageCache, log logr.Logger) {
+				cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				return cache.update(makePod("pod1", "ns", "node-a", "4"), log)
+			},
+		},
+		"update existing running pod moved to new node returns old node": {
+			setup: func(cache *nonTasUsageCache, log logr.Logger) {
+				cache.update(makePod("pod1", "ns", "node-a", "2"), log)
+			},
+			action: func(cache *nonTasUsageCache, log logr.Logger) string {
+				return cache.update(makePod("pod1", "ns", "node-b", "2"), log)
+			},
+			wantNode: "node-a",
 		},
 		"delete existing pod returns node": {
 			setup: func(cache *nonTasUsageCache, log logr.Logger) {
@@ -112,7 +138,7 @@ func verifyNodeUsageConsistency(t *testing.T, cache *nonTasUsageCache) {
 	expected := make(map[string]resources.Requests)
 	for _, pv := range cache.podUsage {
 		if _, found := expected[pv.node]; !found {
-			expected[pv.node] = resources.CreateEmpty()
+			expected[pv.node] = resources.NewRequests()
 		}
 		expected[pv.node].Add(pv.usage)
 		expected[pv.node].Add(resources.OnePodRequest)

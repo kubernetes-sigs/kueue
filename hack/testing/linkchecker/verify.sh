@@ -30,7 +30,7 @@ echo "Building linkchecker Docker image..."
 "${DOCKER}" build --load -f "${SOURCE_DIR}/Dockerfile" -t linkchecker "${SOURCE_DIR}"
 
 echo "Running linkchecker against ${LINK_CHECK_URL} ..."
-"${ROOT_DIR}/hack/testing/retry.sh" --attempts 2 --delay 5 --stream -- \
+"${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
     "${DOCKER}" run --rm linkchecker --no-warnings --ignore-url='^mailto:' --ignore-url='^tel:' "${LINK_CHECK_URL}"
 
 echo "Link check completed successfully"

@@ -21,10 +21,10 @@ GO_TEST_FLAGS ?= -race
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION ?= 1.36
 
-ENVTEST_RETRY_ATTEMPTS ?= 4
-ENVTEST_RETRY_DELAY ?= 5
+ENVTEST_RETRY_ATTEMPTS ?= 7
+ENVTEST_RETRY_DELAY ?= 2
 KUBEBUILDER_ASSETS = $(or \
-	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
+	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) --exponential -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
 	$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 
 TEST_LOG_LEVEL ?= -3
@@ -100,10 +100,6 @@ else
 	export USE_RAY_FOR_TESTS="raymini"
 endif
 
-# When using raymini, exclude tests that require the full ray image (e.g. RayService).
-# Workaround until upstream Ray fixes protobuf 7.35+ compatibility (ray-project/ray#64362).
-FULLRAY_EXCLUDE := $(if $(filter "raymini",$(USE_RAY_FOR_TESTS)), && !requires:fullray)
-
 .PHONY: test
 test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run a specific shard.
 	mkdir -p $(ARTIFACTS)
@@ -159,6 +155,7 @@ test-integration-run:
 	ARTIFACTS=$(ARTIFACTS) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	GORACE="log_path=$(ARTIFACTS)/race" \
+	GOTRACEBACK=system \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --json-report=integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
@@ -180,6 +177,7 @@ test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkg
 	ARTIFACTS=$(ARTIFACTS) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	GORACE="log_path=$(ARTIFACTS)/race" \
+	GOTRACEBACK=system \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
@@ -222,7 +220,7 @@ test-multikueue-e2e-extended-shard-0: setup-e2e-env run-test-multikueue-e2e-exte
 
 .PHONY: test-multikueue-e2e-extended-shard-1
 test-multikueue-e2e-extended-shard-1: E2E_NPROCS := 5
-test-multikueue-e2e-extended-shard-1: GINKGO_ARGS=--label-filter='feature:kuberay$(FULLRAY_EXCLUDE)'
+test-multikueue-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:kuberay
 test-multikueue-e2e-extended-shard-1: E2E_CONFIG_FOLDER=multikueue/extended-shard-1
 test-multikueue-e2e-extended-shard-1: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
@@ -273,7 +271,7 @@ test-e2e-extended: run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) #
 
 .PHONY: test-e2e-extended-shard-0
 test-e2e-extended-shard-0: E2E_NPROCS := 4
-test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-a$(FULLRAY_EXCLUDE)'
+test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-a'
 test-e2e-extended-shard-0: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-1
@@ -283,7 +281,7 @@ test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 
 .PHONY: test-e2e-extended-shard-2
 test-e2e-extended-shard-2: E2E_NPROCS := 2
-test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-b$(FULLRAY_EXCLUDE)'
+test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-b'
 test-e2e-extended-shard-2: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:

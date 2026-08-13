@@ -1,6 +1,6 @@
 # kueue
 
-![Version: 0.19.0](https://img.shields.io/badge/Version-0.19.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.19.0](https://img.shields.io/badge/AppVersion-v0.19.0-informational?style=flat-square)
+![Version: 0.19.1](https://img.shields.io/badge/Version-0.19.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: v0.19.1](https://img.shields.io/badge/AppVersion-v0.19.1-informational?style=flat-square)
 
 Kueue is a set of APIs and controllers for job queueing. It is a job-level manager that decides when a job should be admitted to start (as in pods can be created) and when it should stop (as in active pods should be deleted).
 
@@ -28,7 +28,7 @@ $ helm install kueue kueue/ --create-namespace --namespace kueue-system
 Or use the charts pushed to `oci://registry.k8s.io/kueue/charts/kueue`:
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.0" --create-namespace --namespace=kueue-system
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.1" --create-namespace --namespace=kueue-system
 ```
 
 For more advanced parametrization of Kueue, we recommend using a local overrides file, passed via the `--values` flag. For example:
@@ -50,7 +50,7 @@ controllerManager:
 ```
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.0" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.1" \
   --create-namespace --namespace=kueue-system \
   --values overrides.yaml
 ```
@@ -58,7 +58,7 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.0" \
 You can also use the `--set` flag. For example, to enable a feature gate (e.g., `TopologyAwareScheduling`):
 
 ```bash
-helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.0" \
+helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.1" \
   --create-namespace --namespace=kueue-system \
   --set "controllerManager.featureGates[0].name=TopologyAwareScheduling" \
   --set "controllerManager.featureGates[0].enabled=true"
@@ -112,7 +112,9 @@ The following table lists the configurable parameters of the kueue chart and the
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | certManager.issuerRef | object | `{}` | Override the default self-signed cert-manager issuer reference. When set, the chart skips creating its own Issuer and uses this reference for webhook, metrics, and visibility certificates. The referenced issuer must provide the CA data required by Kueue's cert-manager integration. |
+| controllerManager.dnsPolicy | string | `""` | ControllerManager pod's dnsPolicy. Set to ClusterFirstWithHostNet when hostNetwork is enabled. |
 | controllerManager.featureGates | list | `[]` | ControllerManager's feature gates |
+| controllerManager.hostNetwork | bool | `false` | Run the ControllerManager pod on the host network. Needed where the API server reaches the webhook/visibility endpoints via node IPs rather than pod IPs. |
 | controllerManager.imagePullSecrets | list | `[]` | ControllerManager's imagePullSecrets |
 | controllerManager.livenessProbe.failureThreshold | int | `3` | ControllerManager's livenessProbe failureThreshold |
 | controllerManager.livenessProbe.initialDelaySeconds | int | `15` | ControllerManager's livenessProbe initialDelaySeconds |
@@ -137,6 +139,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.readinessProbe.successThreshold | int | `1` | ControllerManager's readinessProbe successThreshold |
 | controllerManager.readinessProbe.timeoutSeconds | int | `1` | ControllerManager's readinessProbe timeoutSeconds |
 | controllerManager.replicas | int | `1` | ControllerManager's replicas count |
+| controllerManager.strategy | object | `{}` | ControllerManager Deployment's update strategy. When hostNetwork is enabled the manager's ports bind to the node, so the default RollingUpdate surge cannot schedule a second pod onto an already-occupied node; set maxSurge: 0 to roll in place. |
 | controllerManager.tolerations | list | `[]` | ControllerManager's tolerations |
 | controllerManager.topologySpreadConstraints | list | `[]` | ControllerManager's topologySpreadConstraints |
 | enableCertManager | bool | `false` | Enable x509 automated certificate management using cert-manager (cert-manager.io) |
@@ -161,6 +164,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.backend.ingress.enabled | bool | `true` | Enable KueueViz dashboard backend ingress |
 | kueueViz.backend.ingress.host | string | `"backend.kueueviz.local"` | KueueViz dashboard backend ingress host |
 | kueueViz.backend.ingress.ingressClassName | string | `nil` | KueueViz dashboard backend ingress class name |
+| kueueViz.backend.ingress.tlsEnabled | string | `nil` | If true, enable KueueViz dashboard backend ingress tls. Defaults to true if tlsSecretName is set. |
 | kueueViz.backend.ingress.tlsSecretName | string | `"kueueviz-backend-tls"` | KueueViz dashboard backend ingress tls secret name |
 | kueueViz.backend.nodeSelector | object | `{}` | KueueViz backend nodeSelector |
 | kueueViz.backend.podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | KueueViz backend pod securityContext |
@@ -177,6 +181,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.frontend.ingress.enabled | bool | `true` | Enable KueueViz dashboard frontend ingress |
 | kueueViz.frontend.ingress.host | string | `"frontend.kueueviz.local"` | KueueViz dashboard frontend ingress host |
 | kueueViz.frontend.ingress.ingressClassName | string | `nil` | KueueViz dashboard frontend ingress class name |
+| kueueViz.frontend.ingress.tlsEnabled | string | `nil` | If true, enable KueueViz dashboard frontend ingress tls. Defaults to true if tlsSecretName is set. |
 | kueueViz.frontend.ingress.tlsSecretName | string | `"kueueviz-frontend-tls"` | KueueViz dashboard frontend ingress tls secret name |
 | kueueViz.frontend.nodeSelector | object | `{}` | KueueViz frontend nodeSelector |
 | kueueViz.frontend.podSecurityContext | object | `{"runAsNonRoot":true,"runAsUser":1000,"seccompProfile":{"type":"RuntimeDefault"}}` | KueueViz frontend pod securityContext |

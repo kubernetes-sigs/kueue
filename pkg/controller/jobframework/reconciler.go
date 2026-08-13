@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/validate/content"
@@ -94,6 +95,7 @@ type WorkloadRetentionPolicy struct {
 
 // JobReconciler reconciles a GenericJob object
 type JobReconciler struct {
+	integrationManager           *IntegrationManager
 	cache                        *schdcache.Cache
 	client                       client.Client
 	record                       events.EventRecorder
@@ -130,6 +132,7 @@ type Options struct {
 	WorkloadRetentionPolicy      WorkloadRetentionPolicy
 	RoleTracker                  *roletracker.RoleTracker
 	CustomLabels                 *metrics.CustomLabels
+	IntegrationManager           *IntegrationManager
 	NoopWebhook                  bool
 }
 
@@ -259,6 +262,13 @@ func WithCustomLabels(cl *metrics.CustomLabels) Option {
 	}
 }
 
+// WithIntegrationManager sets the integration manager used by controllers and webhooks.
+func WithIntegrationManager(manager *IntegrationManager) Option {
+	return func(o *Options) {
+		o.IntegrationManager = manager
+	}
+}
+
 // WithNoopWebhook sets the integration webhook to noopWebhook.
 // This is needed when the integration is disabled.
 func WithNoopWebhook(noop bool) Option {
@@ -276,8 +286,12 @@ func NewReconciler(
 	record events.EventRecorder,
 	opts ...Option) *JobReconciler {
 	options := ProcessOptions(opts...)
+	if options.IntegrationManager == nil {
+		options.IntegrationManager = NewIntegrationManager()
+	}
 
 	return &JobReconciler{
+		integrationManager:           options.IntegrationManager,
 		cache:                        options.Cache,
 		client:                       client,
 		record:                       record,
@@ -346,7 +360,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// Skipping traversal to top-level ancestor job because this is already a top-level job.
 		isTopLevelJob = true
 	} else {
-		ancestorJob, err = FindAncestorJobManagedByKueue(ctx, r.client, object, r.manageJobsWithoutQueueName)
+		ancestorJob, err = r.integrationManager.FindAncestorJobManagedByKueue(ctx, r.client, object, r.manageJobsWithoutQueueName)
 		if err != nil {
 			if errors.Is(err, ErrManagedOwnersChainLimitReached) {
 				errMsg := fmt.Sprintf("Terminated search for Kueue-managed Job because ancestor depth exceeded limit of %d", managedOwnersChainLimit)
@@ -459,7 +473,27 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// 2. handle job is finished.
+	// 2. handle job is on hold.
+	if jobOnHold, ok := job.(JobWithOnHold); ok && jobOnHold.IsOnHold() {
+		if wl != nil && workload.HasQuotaReservation(wl) {
+			log.V(2).Info("Job is on hold, releasing quota reservation")
+			err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				changed := workload.UnsetQuotaReservationWithCondition(
+					wl,
+					kueue.WorkloadOnHold,
+					"Job is on hold",
+					r.clock.Now(),
+				)
+				return changed, nil
+			})
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("putting workload on hold: %w", err)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// 3. handle job is finished.
 	if message, success, finished := job.Finished(ctx); finished {
 		log.V(3).Info("The workload is already finished")
 		if wl != nil && !workloadfinish.IsFinished(wl) {
@@ -859,7 +893,7 @@ func (r *JobReconciler) getLatestNotFinishedWorkloadForObject(ctx context.Contex
 // Job (queue-name) -> JobSet -> AppWrapper (queue-name) => AppWrapper
 // Job (queue-name) -> JobSet (queue-name) -> AppWrapper (queue-name) => AppWrapper
 // Job -> JobSet (disabled) -> AppWrapper => AppWrapper
-func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj client.Object, manageJobsWithoutQueueName bool) (client.Object, error) {
+func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj client.Object, manageJobsWithoutQueueName bool) (client.Object, error) {
 	log := ctrl.LoggerFrom(ctx)
 	seen := sets.New[types.UID]()
 	currentObj := jobObj
@@ -881,7 +915,7 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 			return topLevelJob, nil
 		}
 
-		if !manager.isKnownOwner(owner) {
+		if !m.isKnownOwner(owner) {
 			log.V(3).Info(
 				"stop walking up as the owner is not known",
 				"currentObj", klog.KObj(currentObj),
@@ -889,7 +923,7 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 			)
 			return topLevelJob, nil
 		}
-		parentObj := GetEmptyOwnerObject(owner)
+		parentObj := m.GetEmptyOwnerObject(owner)
 		managed := parentObj != nil
 		if parentObj == nil {
 			parentObj = &metav1.PartialObjectMetadata{
@@ -910,6 +944,36 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 			return nil, ErrManagedOwnersChainLimitReached
 		}
 	}
+}
+
+// syncWorkloadSlicePriority applies a priority-class label change to the slices
+// a compatible scale decision leaves live. Slice compatibility only considers
+// the pod set shape, so the label change arrives here with the old priority
+// still on the slice.
+//
+// While a scale-up waits for quota the admitted slice is kept alongside its
+// pending replacement and only the replacement is returned, but both are
+// ordered against other Workloads during preemption, so updating one alone
+// would split the Job's priority. wl is nil when a new slice is to be created.
+func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	// Quota-reserved rather than admitted: FindLatestActiveWorkload selects on
+	// the reservation, and the distinction is what makes the skip below matter.
+	retained, err := workloadslicing.FindLatestActiveWorkload(ctx, r.client, object, job.GVK())
+	if err != nil {
+		return err
+	}
+	live := []*kueue.Workload{wl}
+	if retained != nil && (wl == nil || retained.Name != wl.Name) {
+		log.V(4).Info("Workload slice priority applies to the replacement and to the quota-reserved slice it is waiting behind",
+			"replacement", klog.KObj(wl), "retained", klog.KObj(retained))
+		live = append(live, retained)
+	}
+	// The quota-reserved/no-priorityClassRef legality check lives in
+	// UpdateWorkloadPriority so the ordinary Job and LeaderWorkerSet paths, which
+	// reach the shared helper without this caller's filtering, get the same guard.
+	return UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), live...)
 }
 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
@@ -987,6 +1051,9 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 		if compatible {
+			if err := r.syncWorkloadSlicePriority(ctx, job, object, wl); err != nil {
+				return nil, err
+			}
 			return wl, nil
 		}
 		// Fallback.
@@ -1074,7 +1141,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			}
 		}
 
-		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), match, getCustomPriorityClassFuncFromJob(job)); err != nil {
+		if err := UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), match); err != nil {
 			return nil, err
 		}
 	}
@@ -1100,13 +1167,19 @@ func UpdateAdmissionGatedBy(ctx context.Context, c client.Client, r events.Event
 	}
 
 	if propagated {
-		r.Eventf(obj, nil,
-			corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
-			"Updated workload AdmissionGatedBy to %q", obj.GetAnnotations()[constants.AdmissionGatedByAnnotation],
-		)
+		RecordAdmissionGatedByUpdateEvent(r, obj)
 	}
 
 	return nil
+}
+
+// RecordAdmissionGatedByUpdateEvent records a successful AdmissionGatedBy
+// propagation to a workload.
+func RecordAdmissionGatedByUpdateEvent(r events.EventRecorder, obj client.Object) {
+	r.Eventf(obj, nil,
+		corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
+		"Updated workload AdmissionGatedBy to %q", obj.GetAnnotations()[constants.AdmissionGatedByAnnotation],
+	)
 }
 
 // PropagateAdmissionGatedByAnnotation copies the AdmissionGatedBy annotation from the given object to
@@ -1141,16 +1214,43 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 	return false
 }
 
-// UpdateWorkloadPriority updates workload priority if object's kueue.x-k8s.io/priority-class label changed.
-func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	jobPriorityClassName := WorkloadPriorityClassName(obj)
-	wlPriorityClassName := workloadpatching.PriorityClassName(wl)
+// UpdateWorkloadPriority reconciles the priority of each workload that still
+// follows the object's kueue.x-k8s.io/priority-class label. Every workload
+// passed must belong to obj, since the class is resolved once for the whole set
+// rather than per workload, so one batch cannot itself write two different
+// values. The resolved value is applied to every eligible workload whose full
+// priority state has drifted, so a partial write followed by a class-value
+// change converges on retry instead of leaving same-name workloads pinned to a
+// stale value. The workloads are written one by one rather than atomically, and
+// a class edited once every workload already names it is not re-resolved here.
+func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
+	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
 
-	// This handles both: changing priority (old -> new) AND adding priority (none -> new)
-	if (workload.HasNoPriority(wl) || workload.IsWorkloadPriorityClass(wl)) && jobPriorityClassName != wlPriorityClassName {
-		if err := PrepareWorkloadPriority(ctx, c, obj, wl, customPriorityClassFunc); err != nil {
-			return fmt.Errorf("prepare workload priority: %w", err)
+	// Resolving only when at least one workload needs a transition keeps
+	// steady-state reconciles from re-resolving and overwriting the
+	// otherwise-mutable priority value.
+	if len(needsClassChange) == 0 {
+		return nil
+	}
+
+	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, needsClassChange[0].Spec.PodSets, customPriorityClassFunc)
+	if err != nil {
+		return fmt.Errorf("prepare workload priority: %w", err)
+	}
+
+	// Apply the resolved ref/value to every eligible workload whose full priority
+	// state differs. Same-name workloads with a stale value are repaired before the
+	// name-changing ones, so a name mismatch survives as the retry marker if a
+	// write in this batch fails.
+	targets := make([]*kueue.Workload, 0, len(sameClassName)+len(needsClassChange))
+	targets = append(targets, sameClassName...)
+	targets = append(targets, needsClassChange...)
+	for _, wl := range targets {
+		if priorityStateEqual(wl, priorityClassRef, priority) {
+			continue
 		}
+		wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
+		wl.Spec.Priority = new(priority)
 		if err := c.Update(ctx, wl); err != nil {
 			return fmt.Errorf("updating existing workload: %w", err)
 		}
@@ -1162,6 +1262,53 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 		)
 	}
 	return nil
+}
+
+// classifyWorkloadsForPriorityUpdate splits the workloads this helper may manage
+// into those that already carry the object's class name, whose value may still be
+// stale, and those whose class name has to transition. The rest are left out: a
+// Pod PriorityClass-backed workload does not follow the label at all, and one that
+// reserved quota without a priorityClassRef can no longer be given one.
+func classifyWorkloadsForPriorityUpdate(log logr.Logger, jobPriorityClassName string, wls []*kueue.Workload) (sameClassName, needsClassChange []*kueue.Workload) {
+	for _, wl := range wls {
+		if wl == nil {
+			continue
+		}
+		// The API server refuses to add a priorityClassRef once quota is reserved
+		// (Workload CEL), so retrying would only fail the reconcile for good. The
+		// skip is unconditional, so that even under an empty label a name-changing
+		// sibling in the same batch cannot drag this workload into a nil -> ref
+		// update; only the log is gated on a non-empty label, to keep ordinary
+		// no-class reserved workloads quiet. Keeping the guard here covers the
+		// ordinary Job and LeaderWorkerSet paths, which reach the helper directly.
+		if workload.HasQuotaReservation(wl) && workload.HasNoPriority(wl) {
+			if jobPriorityClassName != "" {
+				log.V(2).Info("Leaving a workload that reserved quota with no priority class alone, since one can no longer be added",
+					"workload", klog.KObj(wl))
+			}
+			continue
+		}
+		if !workload.HasNoPriority(wl) && !workload.IsWorkloadPriorityClass(wl) {
+			continue
+		}
+		if workloadpatching.PriorityClassName(wl) == jobPriorityClassName {
+			sameClassName = append(sameClassName, wl)
+		} else {
+			needsClassChange = append(needsClassChange, wl)
+		}
+	}
+	return sameClassName, needsClassChange
+}
+
+// priorityStateEqual reports whether the workload's priority already matches the
+// resolved ref and value. It compares the full ref (group, kind, name) and the
+// numeric value, so a same-name workload whose value drifted is not mistaken for
+// up to date.
+func priorityStateEqual(wl *kueue.Workload, ref *kueue.PriorityClassRef, priority int32) bool {
+	if wl.Spec.Priority == nil || *wl.Spec.Priority != priority {
+		return false
+	}
+	return apiequality.Semantic.DeepEqual(wl.Spec.PriorityClassRef, ref)
 }
 
 func FindMatchingWorkloads(ctx context.Context, c client.Client, job GenericJob) (match *kueue.Workload, toDelete []*kueue.Workload, err error) {

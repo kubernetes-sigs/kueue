@@ -21,16 +21,17 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/component-base/metrics/testutil"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -50,8 +51,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
-				{Name: "team_lq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindLocalQueue)},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "team_lq", SourceLabelKey: "team", SourceKind: new(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -194,7 +195,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "cost_center", SourceLabelKey: "billing/cost-center", SourceKind: ptr.To(config.SourceKindClusterQueue)},
+				{Name: "cost_center", SourceLabelKey: "billing/cost-center", SourceKind: new(config.SourceKindClusterQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -244,7 +245,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "budget", SourceAnnotationKey: "billing.co/budget", SourceKind: ptr.To(config.SourceKindClusterQueue)},
+				{Name: "budget", SourceAnnotationKey: "billing.co/budget", SourceKind: new(config.SourceKindClusterQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -294,8 +295,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, false)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
-				{Name: "team_lq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindLocalQueue)},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "team_lq", SourceLabelKey: "team", SourceKind: new(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -402,8 +403,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
-				{Name: "team_lq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindLocalQueue)},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "team_lq", SourceLabelKey: "team", SourceKind: new(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -465,8 +466,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
-				{Name: "team_lq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindLocalQueue)},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "team_lq", SourceLabelKey: "team", SourceKind: new(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -626,7 +627,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
+				{Name: "team", SourceKind: new(config.SourceKindClusterQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -723,8 +724,8 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			controllersCfg := &config.Configuration{}
 			controllersCfg.FairSharing = &config.FairSharing{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
-				{Name: "team_cohort", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindCohort)},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "team_cohort", SourceLabelKey: "team", SourceKind: new(config.SourceKindCohort)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -983,10 +984,13 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			controllersCfg := &config.Configuration{}
 			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-				{Name: "team_cq", SourceLabelKey: "team", SourceKind: ptr.To(config.SourceKindClusterQueue)},
-				{Name: "wl_kind", SourceLabelKey: "workload-kind", SourceKind: ptr.To(config.SourceKindWorkload), TrackedValues: []string{"kind1", "kind2"}},
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "wl_kind", SourceLabelKey: "workload-kind", SourceKind: new(config.SourceKindWorkload), TrackedValues: []string{"kind1", "kind2"}},
+				{Name: "wl_anno", SourceAnnotationKey: "workload-anno", SourceKind: new(config.SourceKindWorkload), TrackedValues: []string{"anno1", "anno2"}},
+				{Name: "lq_label", SourceLabelKey: "lq-label", SourceKind: new(config.SourceKindLocalQueue)},
 			}
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
@@ -1004,6 +1008,255 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 		})
 
 		ginkgo.It("AdmittedActiveWorkloads metrics should track workloads by custom CQ and WL labels", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			lq.Labels = map[string]string{"lq-label": "lq-val"}
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
+				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
+
+			wl3 := utiltestingapi.MakeWorkload("wl3", ns.Name).
+				Label("workload-kind", "kind2").
+				Annotation("workload-anno", "anno2").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl3)
+
+			ginkgo.By("verifying all workloads get admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl1 kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &updatedWl1)).To(gomega.Succeed())
+				g.Expect(updatedWl1.Status.Admission).ToNot(gomega.BeNil())
+
+				var updatedWl2 kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl2)).To(gomega.Succeed())
+				g.Expect(updatedWl2.Status.Admission).ToNot(gomega.BeNil())
+
+				var updatedWl3 kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), &updatedWl3)).To(gomega.Succeed())
+				g.Expect(updatedWl3.Status.Admission).ToNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying CQ admitted active workloads metric includes custom_team_cq=ml-team and custom_wl_kind values")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 2, "ml-team", "kind1", "anno1")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind2", "anno2")
+
+			ginkgo.By("verifying LQ admitted workloads metrics includes custom_wl_kind, custom_wl_anno, and lq_label values")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 2, "lq-val", "kind1", "anno1")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "lq-val", "kind2", "anno2")
+			util.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 2, "lq-val", "kind1", "anno1")
+			util.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1, "lq-val", "kind2", "anno2")
+			util.ExpectLQAdmissionWaitTimeMetric(lq, "", 2, "lq-val", "kind1", "anno1")
+			util.ExpectLQAdmissionWaitTimeMetric(lq, "", 1, "lq-val", "kind2", "anno2")
+
+			ginkgo.By("marking two workloads as finished")
+			util.FinishWorkloads(ctx, k8sClient, wl1, wl3)
+
+			ginkgo.By("verifying CQ admitted active workloads metric is updated")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1", "anno1")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind2", "anno2")
+
+			ginkgo.By("verifying LQ admitted workloads metrics are updated")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "lq-val", "kind1", "anno1")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "lq-val", "kind2", "anno2")
+			util.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 2, "lq-val", "kind1", "anno1")
+			util.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1, "lq-val", "kind2", "anno2")
+		})
+
+		ginkgo.It("should update AdmittedActiveWorkloads metric when workload labels match and we change CQ labels", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			lq.Labels = map[string]string{"lq-label": "lq-val"}
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("verifying workload gets admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(updatedWl.Status.Admission).ToNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying CQ admitted active workloads metric includes custom_team_cq=ml-team and custom_wl_kind=kind1")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1", "anno1")
+
+			ginkgo.By("updating CQ team label")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
+				updatedCq.Labels["team"] = "data-team"
+				g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying CQ admitted active workloads metric updates to data-team")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "data-team", "kind1", "anno1")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind1", "anno1")
+		})
+
+		ginkgo.It("should update AdmittedActiveWorkloads metric when we update the labels on the workload", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			lq.Labels = map[string]string{"lq-label": "lq-val"}
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("verifying workload gets admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(updatedWl.Status.Admission).ToNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying CQ admitted active workloads metric includes custom_team_cq=ml-team and custom_wl_kind=kind1")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1", "anno1")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind2", "anno1")
+
+			ginkgo.By("verifying LQ admitted workloads metrics includes custom_wl_kind=kind1")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "lq-val", "kind1", "anno1")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "lq-val", "kind2", "anno1")
+			util.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1, "lq-val", "kind1", "anno1")
+			util.ExpectLQAdmissionWaitTimeMetric(lq, "", 1, "lq-val", "kind1", "anno1")
+
+			ginkgo.By("updating workload custom label value")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				updatedWl.Labels["workload-kind"] = "kind2"
+				g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying CQ admitted active workloads metric updates to kind2")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind2", "anno1")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind1", "anno1")
+
+			ginkgo.By("verifying LQ admitted workloads metrics updates to kind2")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "lq-val", "kind2", "anno1")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "lq-val", "kind1", "anno1")
+		})
+
+		ginkgo.It("should update/decrement AdmittedActiveWorkloads metric when workload is deleted", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			lq.Labels = map[string]string{"lq-label": "lq-val"}
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("verifying workload gets admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(updatedWl.Status.Admission).ToNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying CQ admitted active workloads metric includes custom_team_cq=ml-team and custom_wl_kind=kind1")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1", "anno1")
+
+			ginkgo.By("verifying LQ admitted workloads metrics includes custom_wl_kind=kind1")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 1, "lq-val", "kind1", "anno1")
+			util.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1, "lq-val", "kind1", "anno1")
+
+			ginkgo.By("deleting workload")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+
+			ginkgo.By("verifying CQ admitted active workloads metric is updated/decremented")
+			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind1", "anno1")
+
+			ginkgo.By("verifying LQ admitted workloads metrics are updated/decremented")
+			util.ExpectLQAdmittedActiveWorkloadsGaugeMetric(lq, 0, "lq-val", "kind1", "anno1")
+			util.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1, "lq-val", "kind1", "anno1")
+		})
+	})
+
+	ginkgo.When("PendingWorkloads metric when CustomMetricLabels is enabled with workload custom labels", func() {
+		var (
+			cq *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
+			controllersCfg := &config.Configuration{}
+			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
+				{Name: "team_cq", SourceLabelKey: "team", SourceKind: new(config.SourceKindClusterQueue)},
+				{Name: "wl_kind", SourceLabelKey: "workload-kind", SourceKind: new(config.SourceKindWorkload), TrackedValues: []string{"kind1", "kind2"}},
+			}
+			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
+			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+			util.MustCreate(ctx, k8sClient, defaultFlavor)
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-wl-")
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			fwk.StopManager(ctx)
+			metrics.InitMetricVectors(nil)
+		})
+
+		ginkgo.It("should track active pending workloads with custom labels", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
@@ -1034,34 +1287,19 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				Request(corev1.ResourceCPU, "1").Obj()
 			util.MustCreate(ctx, k8sClient, wl3)
 
-			ginkgo.By("verifying all workloads get admitted")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl1 kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &updatedWl1)).To(gomega.Succeed())
-				g.Expect(updatedWl1.Status.Admission).ToNot(gomega.BeNil())
+			wlUntracked := utiltestingapi.MakeWorkload("wl-untracked", ns.Name).
+				Label("workload-kind", "kind3").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wlUntracked)
 
-				var updatedWl2 kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl2)).To(gomega.Succeed())
-				g.Expect(updatedWl2.Status.Admission).ToNot(gomega.BeNil())
-
-				var updatedWl3 kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), &updatedWl3)).To(gomega.Succeed())
-				g.Expect(updatedWl3.Status.Admission).ToNot(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("verifying CQ admitted active workloads metric includes custom_team_cq=ml-team and custom_wl_kind values")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 2, "ml-team", "kind1")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind2")
-
-			ginkgo.By("marking two workloads as finished")
-			util.FinishWorkloads(ctx, k8sClient, wl1, wl3)
-
-			ginkgo.By("verifying CQ admitted active workloads metric is updated")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind2")
+			ginkgo.By("verifying active pending workloads metric counts match the custom labels")
+			util.ExpectPendingWorkloadsMetric(cq, 2, 0, "ml-team", "kind1")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind2")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kueue.x-k8s.io/_UNTRACKED_VALUE_")
 		})
 
-		ginkgo.It("should update AdmittedActiveWorkloads metric when workload labels match and we change CQ labels", func() {
+		ginkgo.It("should track inadmissible pending workloads", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
@@ -1074,23 +1312,173 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				ClusterQueue(cq.Name).Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 
-			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+			wl3 := utiltestingapi.MakeWorkload("wl3", ns.Name).
+				Label("workload-kind", "kind2").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl3)
+
+			ginkgo.By("waiting for wl3 to be present in the queue manager active heap")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(qManager.PendingWorkloadsInfo(kueue.ClusterQueueReference(cq.Name))).To(gomega.HaveLen(1))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("popping wl3 from the queue manager to increment popCycle and clear it from active heap")
+			popped := qManager.Heads(ctx)
+			gomega.Expect(popped).To(gomega.HaveLen(1))
+			gomega.Expect(workload.Key(popped[0].Obj)).To(gomega.Equal(workload.Key(wl3)))
+
+			ginkgo.By("making popped workload (wl3) inadmissible")
+			var fetchedWl3 kueue.Workload
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), &fetchedWl3)).To(gomega.Succeed())
+			qManager.RequeueWorkload(ctx, workload.NewInfo(&fetchedWl3), qcache.RequeueReasonGeneric, "")
+
+			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Label("workload-kind", "kind1").
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, wl)
+			util.MustCreate(ctx, k8sClient, wl1)
 
-			ginkgo.By("verifying workload gets admitted")
+			wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
+				Label("workload-kind", "kind2").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
+
+			ginkgo.By("verifying counts: wl1 active kind1, wl2 active kind2, wl3 inadmissible kind2")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 1, "ml-team", "kind2")
+		})
+
+		ginkgo.It("should count workloads correctly on CQ stop/resume", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl3 := utiltestingapi.MakeWorkload("wl3", ns.Name).
+				Label("workload-kind", "kind2").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl3)
+
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				g.Expect(updatedWl.Status.Admission).ToNot(gomega.BeNil())
+				g.Expect(qManager.PendingWorkloadsInfo(kueue.ClusterQueueReference(cq.Name))).To(gomega.HaveLen(1))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("verifying CQ admitted active workloads metric includes custom_team_cq=ml-team and custom_wl_kind=kind1")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1")
+			popped := qManager.Heads(ctx)
+			gomega.Expect(popped).To(gomega.HaveLen(1))
 
-			ginkgo.By("updating CQ team label")
+			var fetchedWl3 kueue.Workload
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), &fetchedWl3)).To(gomega.Succeed())
+			qManager.RequeueWorkload(ctx, workload.NewInfo(&fetchedWl3), qcache.RequeueReasonGeneric, "")
+
+			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Label("workload-kind", "kind1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			ginkgo.By("verifying initial active vs inadmissible counts")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")
+			util.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind2")
+
+			ginkgo.By("stopping the ClusterQueue to make it inactive")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
+				updatedCq.Spec.StopPolicy = new(kueue.Hold)
+				g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying both active and inadmissible workloads are reported as inadmissible")
+			util.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind1")
+			util.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind2")
+
+			ginkgo.By("resuming the ClusterQueue to make it active")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
+				updatedCq.Spec.StopPolicy = new(kueue.None)
+				g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying they restore to active statuses")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind2")
+		})
+
+		ginkgo.It("should update metrics when labels on a pending workload change", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Label("workload-kind", "kind1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			ginkgo.By("verifying initial active count")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")
+
+			ginkgo.By("changing label on the workload from kind1 to kind2")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl1 kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &updatedWl1)).To(gomega.Succeed())
+				updatedWl1.Labels["workload-kind"] = "kind2"
+				g.Expect(k8sClient.Update(ctx, &updatedWl1)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying that the metric counts are updated according to the new workload label")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+					"cluster_queue":  cq.Name,
+					"custom_team_cq": "ml-team",
+					"custom_wl_kind": "kind1",
+				})).To(gomega.BeEmpty())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind2")
+		})
+
+		ginkgo.It("should update metrics when labels on a ClusterQueue change", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Label("workload-kind", "kind1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			ginkgo.By("verifying initial active count under old CQ label")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")
+
+			ginkgo.By("changing label on the ClusterQueue from ml-team to data-team")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
@@ -1098,12 +1486,20 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("verifying CQ admitted active workloads metric updates to data-team")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "data-team", "kind1")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind1")
+			ginkgo.By("verifying that the metric counts are updated under the new ClusterQueue label")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "data-team", "kind1")
+
+			ginkgo.By("verifying that the old ClusterQueue label series are cleaned up")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+					"cluster_queue":  cq.Name,
+					"custom_team_cq": "ml-team",
+					"custom_wl_kind": "kind1",
+				})).To(gomega.BeEmpty())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("should update AdmittedActiveWorkloads metric when we update the labels on the workload", func() {
+		ginkgo.It("should clean up entry when all contributing workloads are gone", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
@@ -1116,70 +1512,26 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				ClusterQueue(cq.Name).Obj()
 			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 
-			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Label("workload-kind", "kind1").
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, wl)
+			util.MustCreate(ctx, k8sClient, wl1)
 
-			ginkgo.By("verifying workload gets admitted")
+			ginkgo.By("verifying initial metric series is present")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")
+
+			ginkgo.By("deleting the workload")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, true)
+
+			ginkgo.By("verifying metric series for kind1 is deleted (not holding 0)")
 			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				g.Expect(updatedWl.Status.Admission).ToNot(gomega.BeNil())
+				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+					"cluster_queue":  cq.Name,
+					"custom_team_cq": "ml-team",
+					"custom_wl_kind": "kind1",
+				})).To(gomega.BeEmpty())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("verifying CQ admitted active workloads metric includes custom_team_cq=ml-team and custom_wl_kind=kind1")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind2")
-
-			ginkgo.By("updating workload custom label value")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				updatedWl.Labels["workload-kind"] = "kind2"
-				g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("verifying CQ admitted active workloads metric updates to kind2")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind2")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind1")
-		})
-
-		ginkgo.It("should update/decrement AdmittedActiveWorkloads metric when workload is deleted", func() {
-			cq = utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).Label("team", "ml-team").Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
-
-			lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).
-				ClusterQueue(cq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
-
-			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
-				Label("workload-kind", "kind1").
-				Queue(kueue.LocalQueueName(lq.Name)).
-				Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, wl)
-
-			ginkgo.By("verifying workload gets admitted")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedWl kueue.Workload
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
-				g.Expect(updatedWl.Status.Admission).ToNot(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("verifying CQ admitted active workloads metric includes custom_team_cq=ml-team and custom_wl_kind=kind1")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1")
-
-			ginkgo.By("deleting workload")
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
-
-			ginkgo.By("verifying CQ admitted active workloads metric is updated/decremented")
-			util.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 0, "ml-team", "kind1")
 		})
 	})
 })

@@ -51,6 +51,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -273,6 +274,9 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := deleteWorkloadsInNamespace(ctx, c, ns, 2); err != nil {
 		return err
 	}
+	if err := DeleteAllEventsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
 	err := c.DeleteAllOf(ctx, &corev1.LimitRange{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
 	if err != nil && !apierrors.IsNotFound(err) {
 		return err
@@ -339,6 +343,10 @@ func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.N
 	return deleteAllPodsInNamespace(ctx, c, ns, 2)
 }
 
+func DeleteAllEventsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &eventsv1.Event{})
+}
+
 func deleteAllObjectsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace, obj client.Object) error {
 	err := c.DeleteAllOf(ctx, obj, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
 	if err != nil && !apierrors.IsNotFound(err) && !errors.Is(err, &apimeta.NoKindMatchError{}) {
@@ -400,7 +408,7 @@ func UnholdClusterQueue(ctx context.Context, k8sClient client.Client, cq *kueue.
 		if ptr.Deref(cqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
 			return
 		}
-		cqCopy.Spec.StopPolicy = ptr.To(kueue.None)
+		cqCopy.Spec.StopPolicy = new(kueue.None)
 		g.Expect(k8sClient.Update(ctx, &cqCopy)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold cluster queue", &cqCopy))
 }
@@ -412,7 +420,7 @@ func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.Lo
 		if ptr.Deref(lqCopy.Spec.StopPolicy, kueue.None) == kueue.None {
 			return
 		}
-		lqCopy.Spec.StopPolicy = ptr.To(kueue.None)
+		lqCopy.Spec.StopPolicy = new(kueue.None)
 		g.Expect(k8sClient.Update(ctx, &lqCopy)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unhold local queue", &lqCopy))
 }
@@ -1452,6 +1460,29 @@ func FindNonFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
 	return active
 }
 
+// DeleteWorkloadSliceAndAwaitDeletion deletes the named workload slice and waits
+// until it is gone, stripping the resource-in-use finalizer if it blocks removal.
+// Used by elastic-job tests to emulate a rollout garbage-collecting an origin
+// (root) slice while later slices and their pods still point at its name.
+func DeleteWorkloadSliceAndAwaitDeletion(ctx context.Context, k8sClient client.Client, key types.NamespacedName) {
+	ginkgo.GinkgoHelper()
+	slice := &kueue.Workload{}
+	gomega.Expect(k8sClient.Get(ctx, key, slice)).To(gomega.Succeed())
+	gomega.Expect(k8sClient.Delete(ctx, slice)).To(gomega.Succeed())
+	gomega.Eventually(func(g gomega.Gomega) {
+		wl := &kueue.Workload{}
+		err := k8sClient.Get(ctx, key, wl)
+		if apierrors.IsNotFound(err) {
+			return
+		}
+		g.Expect(err).To(gomega.Succeed())
+		if controllerutil.RemoveFinalizer(wl, kueue.ResourceInUseFinalizerName) {
+			g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, wl))).To(gomega.Succeed())
+		}
+		g.Expect(apierrors.IsNotFound(k8sClient.Get(ctx, key, wl))).To(gomega.BeTrue())
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 // ExpectWorkloadSliceAdmittedBeforeOldFinished watches workload events and asserts
 // that the old workload slice is not marked Finished before the new slice is Admitted.
 // The watcher must be started before the scale-up that triggers the replacement.
@@ -1676,7 +1707,7 @@ func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node 
 			SuccessPolicy(&batchv1.SuccessPolicy{
 				Rules: []batchv1.SuccessPolicyRule{
 					{
-						SucceededCount: ptr.To[int32](1),
+						SucceededCount: new(int32(1)),
 					},
 				},
 			}).

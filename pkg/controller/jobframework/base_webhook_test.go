@@ -49,6 +49,7 @@ func TestBaseWebhookDefault(t *testing.T) {
 		manageJobsWithoutQueueName   bool
 		managedJobsNamespaceSelector labels.Selector
 		defaultLqExist               bool
+		withoutIntegrationManager    bool
 		featureGates                 map[featuregate.Feature]bool
 		job                          *batchv1.Job
 		want                         *batchv1.Job
@@ -79,6 +80,12 @@ func TestBaseWebhookDefault(t *testing.T) {
 			defaultLqExist: false,
 			job:            utiljob.MakeJob("job", metav1.NamespaceDefault).Obj(),
 			want:           utiljob.MakeJob("job", metav1.NamespaceDefault).Obj(),
+		},
+		"does not panic without an integration manager": {
+			defaultLqExist:            true,
+			withoutIntegrationManager: true,
+			job:                       utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
+			want:                      utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("queue").Obj(),
 		},
 		"ManagedByDefaulting, targeting multikueue local queue": {
 			job: utiljob.MakeJob("job", metav1.NamespaceDefault).Queue("multikueue").Obj(),
@@ -199,7 +206,12 @@ func TestBaseWebhookDefault(t *testing.T) {
 				Return(features.Enabled(features.MultiKueue) && (tc.job.Spec.ManagedBy == nil || *tc.job.Spec.ManagedBy == batchv1.JobControllerName)).
 				AnyTimes()
 
+			integrationManager := jobframework.NewIntegrationManager()
+			if tc.withoutIntegrationManager {
+				integrationManager = nil
+			}
 			w := &jobframework.BaseWebhook[*mockJob]{
+				IntegrationManager:           integrationManager,
 				Client:                       cl,
 				ManageJobsWithoutQueueName:   tc.manageJobsWithoutQueueName,
 				ManagedJobsNamespaceSelector: tc.managedJobsNamespaceSelector,

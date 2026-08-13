@@ -29,7 +29,6 @@ import (
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -47,6 +46,21 @@ const (
 	testWorkloadName      = "test-workload"
 	testWorkloadNamespace = "test-ns"
 )
+
+// quotaReservedWithoutAdmission builds a Workload with the QuotaReserved
+// condition and no status.admission.
+func quotaReservedWithoutAdmission(now time.Time) *kueue.Workload {
+	wl := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+		PodSets(*utiltestingapi.MakePodSet("driver", 1).Obj()).Obj()
+	wl.Status.Conditions = []metav1.Condition{{
+		Type:               kueue.WorkloadQuotaReserved,
+		Status:             metav1.ConditionTrue,
+		Reason:             "AdmittedByTest",
+		Message:            "admitted",
+		LastTransitionTime: metav1.NewTime(now),
+	}}
+	return wl
+}
 
 func TestValidateWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
@@ -67,6 +81,12 @@ func TestValidateWorkload(t *testing.T) {
 				*utiltestingapi.MakePodSet("driver", 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 100).Obj(),
 			).Obj(),
+		},
+		"quota reserved without an admission is refused, not a panic": {
+			workload: quotaReservedWithoutAdmission(now),
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeRequired, Field: "status.admission"},
+			}.ToAggregate(),
 		},
 		"should have a valid podSet name in status assignment": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
@@ -413,7 +433,7 @@ func TestValidateWorkload(t *testing.T) {
 									Operator:          corev1.TolerationOpEqual,
 									Value:             "t1v",
 									Effect:            corev1.TaintEffectNoExecute,
-									TolerationSeconds: ptr.To[int64](5),
+									TolerationSeconds: new(int64(5)),
 								},
 							},
 							NodeSelector: map[string]string{"type": "first"},
@@ -428,7 +448,7 @@ func TestValidateWorkload(t *testing.T) {
 									Operator:          corev1.TolerationOpEqual,
 									Value:             "t2v",
 									Effect:            corev1.TaintEffectNoExecute,
-									TolerationSeconds: ptr.To[int64](10),
+									TolerationSeconds: new(int64(10)),
 								},
 							},
 							NodeSelector: map[string]string{"type": "second"},
@@ -716,6 +736,18 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		wantErr       error
 		wantWarnings  admission.Warnings
 	}{
+		"an update may not put a workload in quota reserved with no admission": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("driver", 1).Obj()).Obj(),
+			after: quotaReservedWithoutAdmission(now),
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeRequired, Field: "status.admission"},
+			}.ToAggregate(),
+		},
+		"a workload already in that state stays updatable so it can be removed": {
+			before: quotaReservedWithoutAdmission(now),
+			after:  quotaReservedWithoutAdmission(now),
+		},
 		"reclaimable pod count can change up": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
@@ -897,7 +929,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(8))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -909,7 +941,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 3).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(8))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -929,7 +961,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 10).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](20)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(20))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -941,7 +973,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 10).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](20)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(20))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -987,7 +1019,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 8).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(8))}).
 						Obj(), now,
 				).
 				ReclaimablePods(
@@ -999,7 +1031,7 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("ps1", 1).Obj()).
 				ReserveQuotaAt(
 					utiltestingapi.MakeAdmission("cluster-queue").
-						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: ptr.To[int32](8)}).
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(8))}).
 						Obj(), now,
 				).
 				Obj(),
@@ -1393,6 +1425,16 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 				}).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 				Obj(),
+			wantErr: nil,
+		},
+		// Refusing this update would leave the object undeletable.
+		"a workload whose quota reservation lost its admission can still drop its finalizer": {
+			before: func() *kueue.Workload {
+				wl := quotaReservedWithoutAdmission(now)
+				wl.Finalizers = []string{kueue.ResourceInUseFinalizerName}
+				return wl
+			}(),
+			after:   quotaReservedWithoutAdmission(now),
 			wantErr: nil,
 		},
 	}

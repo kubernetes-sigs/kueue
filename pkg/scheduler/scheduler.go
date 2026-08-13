@@ -42,6 +42,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -236,14 +237,20 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 	s.admissionRoutineWrapper = wrapper
 }
 
-// markSkipped marks the entry as skipped for this cycle. The flavor
-// assignment is cleared so the next cycle retries all flavors (e.g.
-// after Fit no longer fitting, or Preempt being skipped due to an
-// overlapping earlier admission).
+// markSkipped marks the entry as skipped for this cycle.
+//
+// With features.FlavorFungibilityPreserveScanProgress the flavor assignment is kept, so the next cycle
+// resumes the flavor scan where this one left off rather than starting over. Both callers
+// skip on contention rather than on the flavor itself - capacity taken by a Workload
+// processed earlier in the cycle, or preemption targets claimed by another entry - so the
+// recorded progress is still the best information available. Without the gate the
+// assignment is cleared and the next cycle retries every flavor.
 func (e *entry) markSkipped(msg string) {
 	e.status = skipped
 	e.inadmissibleMsg = msg
-	e.LastAssignment = nil
+	if !features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
+		e.LastAssignment = nil
+	}
 }
 
 // markPreemptionGated marks the entry as gated pending preemption.
@@ -321,8 +328,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// 2. Take a snapshot of the cache.
 	var snapshotOpts []schdcache.SnapshotOption
 	if afs.Enabled(s.admissionFairSharing) {
-		snapshotOpts = append(snapshotOpts, schdcache.WithAfsEntryPenalties(s.queues.AfsEntryPenalties))
-		snapshotOpts = append(snapshotOpts, schdcache.WithAfsConsumedResources(s.queues.AfsConsumedResources))
+		snapshotOpts = append(snapshotOpts, schdcache.WithAfsUsageLedger(s.queues.AfsUsageLedger))
 	}
 	phaseStartTime := s.clock.Now()
 	snapshot, err := s.cache.Snapshot(ctx, snapshotOpts...)
@@ -410,6 +416,7 @@ func (s *Scheduler) processEntry(
 	// The assignment was computed during nomination, but it may need to be refreshed.
 	// For example, TAS nominations for workloads from different CQs are computed
 	// independently, making them likely to choose conflicting topology domains.
+	// We may also recompute in case of overlapping preemption targets with another workload.
 	// Recompute when needed so CQs considered later in the cycle don't repeatedly
 	// lose to earlier CQs and starve for prolonged periods.
 	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
@@ -443,7 +450,23 @@ func (s *Scheduler) processEntry(
 		}
 	}
 
-	// We skip multiple-preemptions per cohort if any of the targets are overlapping
+	// If the workload only fits because of other preemptions in this cycle,
+	// we must wait for those preemptions to complete.
+	if mode == flavorassigner.DeferredFit {
+		e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+		e.requeueReason = qcache.RequeueReasonPendingPreemption
+		// Clear LastAssignment to force a full re-evaluation of all flavors in the next cycle.
+		// Since we are deferring admission until in-flight preemptions complete, the cluster
+		// state will change. Retaining the current assignment could lock the workload into a
+		// suboptimal flavor, preventing it from claiming a more preferred flavor that might
+		// become available.
+		e.LastAssignment = nil
+		cq.AddUsage(usage)
+		return
+	}
+
+	// We skip multiple-preemptions per cohort if any of the targets are overlapping.
 	if preemptedWorkloads.HasAny(e.preemptionTargets) {
 		e.markSkipped("Workload has overlapping preemption targets with another workload")
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
@@ -705,30 +728,51 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	preemptedWorkloads preemption.PreemptedWorkloads) (workload.Usage, bool) {
 	usage := e.assignmentUsage(log)
 	fitsCheck := fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
-	if fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle) {
+
+	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
+	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
+
+	var revertRemoval func()
+	switch {
+	case needsOverlapRecompute:
+		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
+		// To get the projected cluster state after other preemptions complete,
+		// we simulate the removal of their victims.
+		victimsOfOtherPreemptions := slices.Collect(maps.Values(preemptedWorkloads))
+		revertRemoval = snapshot.SimulateWorkloadRemoval(victimsOfOtherPreemptions)
+	case needsTASRecompute:
 		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
-		// Clear the last assignment so that we can start from the first flavor again and
-		// reach all flavors from the nomination.
-		e.LastAssignment = nil
-		e.NominationMapping = e.readResourceToFlavorMapping()
-		newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
-		e.recordAssignment(newAssignment, newTargets)
-		usage = e.assignmentUsage(log)
-		fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
-		log.V(2).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode())
-		// clear the assignment flavors as they are only used within a single scheduling cycle
-		e.NominationMapping = nil
+	default:
+		// Short-circuit, nothing to recompute.
+		return usage, schdcache.FitsCheckOk == fitsCheck
 	}
+	// Clear the last assignment so that we can start from the first flavor again and
+	// reach all flavors from the nomination.
+	e.LastAssignment = nil
+	e.NominationMapping = e.readResourceToFlavorMapping()
+	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
+	e.recordAssignment(newAssignment, newTargets)
+	if needsOverlapRecompute {
+		if revertRemoval != nil {
+			revertRemoval()
+		}
+		if e.assignment.RepresentativeMode() == flavorassigner.Fit {
+			e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
+		}
+	}
+	usage = e.assignmentUsage(log)
+	fitsCheck = fits(snapshot, cq, &usage, preemptedWorkloads, newTargets)
+	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
+	// clear the assignment flavors as they are only used within a single scheduling cycle
+	e.NominationMapping = nil
+
 	return usage, schdcache.FitsCheckOk == fitsCheck
 }
 
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
 	newTargets []*preemption.Target) schdcache.FitsCheck {
-	workloads := slices.Collect(maps.Values(preemptedWorkloads))
-	for _, target := range newTargets {
-		workloads = append(workloads, target.WorkloadInfo)
-	}
-	revertUsage := snapshot.SimulateWorkloadRemoval(workloads)
+	merged := preemptedWorkloads.MergeWithTargets(newTargets)
+	revertUsage := snapshot.SimulateWorkloadUsageRemoval(merged.Workloads())
 	defer revertUsage()
 	return cq.Fits(*usage)
 }
@@ -776,10 +820,40 @@ type partialAssignment struct {
 }
 
 func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (flavorassigner.Assignment, []*preemption.Target) {
-	assignment, targets := s.getInitialAssignments(ctx, wl, snap)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
+	// The flavor scan resumes from the progress recorded in LastAssignment, so it has to be
+	// dropped once it no longer describes the current state. Deciding that here rather than
+	// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
+	// again for each reduced pod count when partial admission is in play.
+	if wl.LastAssignment != nil && lastAssignmentOutdated(wl.LastAssignment, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
+		log.FromContext(ctx).V(6).Info("Clearing Workload's last assignment because it was outdated",
+			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
+			"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration)
+		wl.LastAssignment = nil
+	}
+	assignment, targets := s.getInitialAssignments(ctx, wl, snap)
 	updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets)
 	return assignment, targets
+}
+
+// lastAssignmentOutdated reports whether the recorded flavor assignment no longer describes
+// the current state, in which case the flavor scan has to start over.
+func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash workload.EquivalenceHash) bool {
+	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
+		// Checked before the cycle age, so that a Workload whose shape changed starts over
+		// even when it was assigned in the preceding cycle.
+		if !last.MatchesSchedulingShape(currentSchedulingHash) {
+			return true
+		}
+		// An assignment computed in the current or the immediately preceding cycle is not
+		// treated as outdated. The ClusterQueue generation advances on every admission or
+		// eviction in the Cohort, which on a busy cluster discards the flavor progress
+		// recorded one cycle earlier before it can be used.
+		if currentSchedulingCycle-last.SchedulingCycle <= 1 {
+			return false
+		}
+	}
+	return currentCQGeneration > last.ClusterQueueGeneration
 }
 
 // getInitialAssignments computes the initial resource flavor assignment and any required preemption targets
@@ -811,7 +885,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
 		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
-		s.quotaCheckStrategy, s.resourceFormatter,
+		s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
 	fullAssignment := flvAssigner.Assign(ctx, nil)
 
@@ -886,7 +960,7 @@ func updateAssignmentForTAS(
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			revertUsage := snapshot.SimulateWorkloadRemoval(targetWorkloads)
+			revertUsage := snapshot.SimulateWorkloadUsageRemoval(targetWorkloads)
 			tasResult = cq.FindTopologyAssignmentsForWorkload(
 				ctx,
 				tasRequests,
@@ -949,7 +1023,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		// by an event.
 		_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
 		s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
-		if afs.Enabled(s.admissionFairSharing) {
+		if s.shouldApplyEntryPenalty(e) {
 			s.updateEntryPenalty(log, e, subtract)
 		}
 		if apierrors.IsNotFound(err) {
@@ -1023,7 +1097,7 @@ func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.Clus
 	e.markAssumed()
 	log.V(2).Info("Workload assumed in the cache")
 
-	if afs.Enabled(s.admissionFairSharing) {
+	if s.shouldApplyEntryPenalty(e) {
 		s.updateEntryPenalty(log, e, add)
 		// Trigger LocalQueue reconciler to apply any pending penalties
 		s.queues.NotifyWorkloadUpdateWatchers(e.Obj, cacheWl)
@@ -1197,8 +1271,14 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 	shouldExposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, newWorkload)
 	if shouldExposeLqMetrics {
 		lqRef := metrics.LQRefFromWorkload(newWorkload)
-		lqCustomLabels := s.customLabels.LQGet(utilqueue.KeyFromWorkload(newWorkload))
-		metrics.LocalQueueAdmittedWorkload(lqRef, priorityClassName, waitTime, lqCustomLabels, s.roleTracker)
+		if features.Enabled(features.CustomMetricLabels) {
+			s.customLabels.Store(config.SourceKindWorkload, string(workload.Key(newWorkload)), newWorkload.Labels, newWorkload.Annotations)
+		}
+		lqCustomLabelsValues := s.customLabels.GetFor(map[config.SourceKind]string{
+			config.SourceKindLocalQueue: string(utilqueue.KeyFromWorkload(newWorkload)),
+			config.SourceKindWorkload:   string(workload.Key(newWorkload)),
+		})
+		metrics.LocalQueueAdmittedWorkload(lqRef, priorityClassName, waitTime, lqCustomLabelsValues, s.roleTracker)
 	}
 
 	if len(newWorkload.Status.AdmissionChecks) > 0 {
@@ -1260,22 +1340,42 @@ func filterByNames(requests corev1.ResourceList, allowed sets.Set[corev1.Resourc
 	return filtered
 }
 
+// shouldApplyEntryPenalty gates both the entry-penalty push at assume time and
+// its rollback on a failed admission patch, so the two always pair up.
+func (s *Scheduler) shouldApplyEntryPenalty(e *entry) bool {
+	if !afs.Enabled(s.admissionFairSharing) {
+		return false
+	}
+	// Only UsageBasedAdmissionFairSharing ClusterQueues settle, so a penalty pushed
+	// for any other ClusterQueue would never be consolidated and would inflate the
+	// LocalQueue's usage until restart.
+	if e.clusterQueueSnapshot.AdmissionScope.AdmissionMode != kueue.UsageBasedAdmissionFairSharing {
+		return false
+	}
+	// A second scheduling pass (delayed topology, node-failure replacement)
+	// re-assumes an already-reserved workload whose penalty was pushed on the first
+	// pass. One reservation contributes at most one push, mirroring netUsage, which
+	// books no additional quota for an already-reserved workload.
+	return !workload.HasQuotaReservation(e.Obj)
+}
+
 func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	lqKey := utilqueue.NewLocalQueueReference(e.Obj.Namespace, e.Obj.Spec.QueueName)
 	lqObjRef := klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName))
-	totalRequests := e.SumTotalRequests(s.resourceFormatter)
-	if flavorassigner.IgnoreUndeclaredResources(s.quotaCheckStrategy) {
-		totalRequests = filterByNames(totalRequests, resourcegroups.AllCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
-	}
-	penalty := afs.CalculateEntryPenalty(totalRequests, s.admissionFairSharing)
+	wlKey := queueafs.WorkloadReference(workload.Key(e.Obj))
 
 	switch op {
 	case add:
-		s.queues.AfsEntryPenalties.Push(lqKey, penalty)
-		log.V(3).Info("Entry penalty added to localQueue", "localQueue", lqObjRef, "penalty", penalty)
+		totalRequests := e.SumTotalRequests(s.resourceFormatter)
+		if flavorassigner.IgnoreUndeclaredResources(s.quotaCheckStrategy) {
+			totalRequests = filterByNames(totalRequests, resourcegroups.AllCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
+		}
+		penalty := afs.CalculateEntryPenalty(totalRequests, s.admissionFairSharing)
+		s.queues.AfsUsageLedger.PushPenalty(lqKey, wlKey, penalty, s.clock.Now())
+		log.V(3).Info("Entry penalty added to localQueue", "localQueue", lqObjRef, "workload", wlKey, "penalty", penalty)
 	case subtract:
-		s.queues.AfsEntryPenalties.Sub(lqKey, penalty)
-		log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", lqObjRef, "penalty", penalty)
+		removed := s.queues.AfsUsageLedger.SubPenalty(lqKey, wlKey)
+		log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", lqObjRef, "workload", wlKey, "penalty", removed)
 	}
 }
 

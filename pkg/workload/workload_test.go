@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -34,7 +35,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -284,7 +284,7 @@ func TestNewInfo(t *testing.T) {
 								corev1.ResourceCPU:    resource.MustParse("10m"),
 								corev1.ResourceMemory: resource.MustParse("512Ki"),
 							},
-							Count: ptr.To[int32](1),
+							Count: new(int32(1)),
 						},
 						kueue.PodSetAssignment{
 							Name: "workers",
@@ -293,7 +293,7 @@ func TestNewInfo(t *testing.T) {
 								corev1.ResourceMemory: resource.MustParse("3Mi"),
 								"ex.com/gpu":          resource.MustParse("3"),
 							},
-							Count: ptr.To[int32](3),
+							Count: new(int32(3)),
 						},
 					).
 					Obj(), now).
@@ -632,7 +632,7 @@ func TestNewInfo(t *testing.T) {
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
 				{
 					Input:    "nvidia.com/mig-1g.5gb",
-					Strategy: ptr.To(config.Replace),
+					Strategy: new(config.Replace),
 					Outputs: corev1.ResourceList{
 						"example.com/accelerator-memory": resource.MustParse("5Ki"),
 						"example.com/credits":            resource.MustParse("10"),
@@ -640,7 +640,7 @@ func TestNewInfo(t *testing.T) {
 				},
 				{
 					Input:    "nvidia.com/mig-2g.10gb",
-					Strategy: ptr.To(config.Replace),
+					Strategy: new(config.Replace),
 					Outputs: corev1.ResourceList{
 						"example.com/accelerator-memory": resource.MustParse("10Ki"),
 						"example.com/credits":            resource.MustParse("15"),
@@ -648,7 +648,7 @@ func TestNewInfo(t *testing.T) {
 				},
 				{
 					Input:    "nvidia.com/gpu",
-					Strategy: ptr.To(config.Retain),
+					Strategy: new(config.Retain),
 					Outputs: corev1.ResourceList{
 						"example.com/accelerator-memory": resource.MustParse("40Ki"),
 						"example.com/credits":            resource.MustParse("100"),
@@ -656,7 +656,7 @@ func TestNewInfo(t *testing.T) {
 				},
 				{
 					Input:      "nvidia.com/vgpucores",
-					Strategy:   ptr.To(config.Replace),
+					Strategy:   new(config.Replace),
 					MultiplyBy: "nvidia.com/vgpu",
 					Outputs: corev1.ResourceList{
 						"nvidia.com/total-vgpucores": resource.MustParse("1"),
@@ -664,7 +664,7 @@ func TestNewInfo(t *testing.T) {
 				},
 				{
 					Input:      "nvidia.com/vgpumem",
-					Strategy:   ptr.To(config.Replace),
+					Strategy:   new(config.Replace),
 					MultiplyBy: "nvidia.com/vgpu",
 					Outputs: corev1.ResourceList{
 						"nvidia.com/total-vgpumem": resource.MustParse("1"),
@@ -713,6 +713,287 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		// A negative output factor is how a per-unit allowance is written: the
+		// charge is what the request exceeds it by. These three are the same
+		// configuration at, above and below the allowance.
+		"transformAllowanceAboveIt": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("nvidia.com/gpumem", "2048").
+					Request("nvidia.com/gpu", "2").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:      "nvidia.com/gpumem",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "nvidia.com/gpu",
+					Outputs:    corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("1")},
+				},
+				{
+					Input:    "nvidia.com/gpu",
+					Strategy: new(config.Retain),
+					Outputs:  corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("-1024")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/gpu-memory-overage"): 2048,
+						corev1.ResourceName("nvidia.com/gpu"):                       2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"transformAllowanceExactlyAtIt": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("nvidia.com/gpumem", "1024").
+					Request("nvidia.com/gpu", "2").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:      "nvidia.com/gpumem",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "nvidia.com/gpu",
+					Outputs:    corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("1")},
+				},
+				{
+					Input:    "nvidia.com/gpu",
+					Strategy: new(config.Retain),
+					Outputs:  corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("-1024")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/gpu-memory-overage"): 0,
+						corev1.ResourceName("nvidia.com/gpu"):                       2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"transformAllowanceUnderIt": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("nvidia.com/gpumem", "512").
+					Request("nvidia.com/gpu", "2").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:      "nvidia.com/gpumem",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "nvidia.com/gpu",
+					Outputs:    corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("1")},
+				},
+				{
+					Input:    "nvidia.com/gpu",
+					Strategy: new(config.Retain),
+					Outputs:  corev1.ResourceList{"quota.example.com/gpu-memory-overage": resource.MustParse("-1024")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/gpu-memory-overage"): 0,
+						corev1.ResourceName("nvidia.com/gpu"):                       2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// An allowance is spent against what the transformations generate, and
+		// nothing else. Here it would otherwise come off a request the PodSet
+		// made directly under the same name.
+		"transformAllowanceDoesNotReachADirectRequest": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "8").
+					Request("example.com/credit", "3").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// An output sharing a name with something the PodSet requests directly
+		// used to be kept or dropped by the order the input map was walked.
+		"transformOutputSharingANameWithARequestIsAdded": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					Request("example.com/credit", "1").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// And one naming its own retained input used to be overwritten by the
+		// retain assignment every time.
+		"transformOutputSharingANameWithItsRetainedInputIsAdded": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/gpu",
+				Strategy: new(config.Retain),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("5")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 6,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"transformRetainWithMultiplyBy": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/gpumem", "1024").
+						Request("example.com/gpu", "2").
+						Obj(),
+				).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:      "example.com/gpumem",
+					Strategy:   new(config.Retain),
+					MultiplyBy: "example.com/gpu",
+					Outputs: corev1.ResourceList{
+						"example.com/gpumem-quota": resource.MustParse("1"),
+					},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "a",
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							// Retain keeps gpumem as requested (1024), not the multiplyBy
+							// product (2048); the multiplier only scales the quota output.
+							corev1.ResourceName("example.com/gpumem"):       1024,
+							corev1.ResourceName("example.com/gpumem-quota"): 2048,
+							corev1.ResourceName("example.com/gpu"):          2,
+						}),
+						Count: 1,
+					},
+				},
+			},
+		},
+		// A multiplier below one scales the generated output but leaves the
+		// retained input unchanged: 1024 is retained while the output is 512.
+		"transformRetainWithMultiplyByUnderOne": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/gpumem", "1024").
+						Request(corev1.ResourceCPU, "500m").
+						Obj(),
+				).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input: "example.com/gpumem",
+					// Strategy left unset: nil defaults to Retain in production,
+					// so this covers the path an operator gets without asking.
+					MultiplyBy: corev1.ResourceCPU,
+					Outputs: corev1.ResourceList{
+						"example.com/gpumem-quota": resource.MustParse("1"),
+					},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: "a",
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceName("example.com/gpumem"):       1024,
+							corev1.ResourceName("example.com/gpumem-quota"): 512,
+							corev1.ResourceCPU:                              500,
+						}),
+						Count: 1,
+					},
+				},
+			},
+		},
+		// MultiplyBy scales the value the outputs are computed from. Retain keeps
+		// the input as it was requested, so a request of 1 against a multiplier
+		// of 2 leaves 2 generated and 1 retained rather than 2 and 2.
+		"transformOutputSharingANameWithItsRetainedInputIsAddedToTheAmountRequested": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					Request("example.com/node", "2").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:      "example.com/gpu",
+				Strategy:   new(config.Retain),
+				MultiplyBy: "example.com/node",
+				Outputs:    corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"):  3,
+						corev1.ResourceName("example.com/node"): 2,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// A transformation product past the range must not arrive negative and
+		// be floored away.
+		"transformProductPastTheRangeIsNotFlooredAway": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/credit", "10000000000").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("10000000000")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): math.MaxInt64,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		"transformMilliValues": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(
@@ -725,14 +1006,14 @@ func TestNewInfo(t *testing.T) {
 			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
 				{
 					Input:    corev1.ResourceCPU,
-					Strategy: ptr.To(config.Replace),
+					Strategy: new(config.Replace),
 					Outputs: corev1.ResourceList{
 						"example.com/cpu-credits": resource.MustParse("3000"),
 					},
 				},
 				{
 					Input:    corev1.ResourceMemory,
-					Strategy: ptr.To(config.Replace),
+					Strategy: new(config.Replace),
 					Outputs: corev1.ResourceList{
 						"example.com/memory-credits": resource.MustParse("3m"),
 					},
@@ -819,7 +1100,7 @@ func TestUpdateWithRebuild(t *testing.T) {
 					PodSets(kueue.PodSetAssignment{
 						Name:          kueue.DefaultPodSetName,
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 					}).Obj(), now).
 				Obj(),
 			wantRequests: []PodSetResources{{
@@ -2290,14 +2571,14 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: true,
 			wantUpdated:    true,
 			wantRequeueAt:  new(metav1.NewTime(futureTime)),
-			wantCount:      ptr.To[int32](1),
+			wantCount:      new(int32(1)),
 		},
 		"should update time when existing requeue time is earlier": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
 						RequeueAt: new(metav1.NewTime(pastTime)),
-						Count:     ptr.To[int32](2),
+						Count:     new(int32(2)),
 					},
 				},
 			},
@@ -2305,14 +2586,14 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: false,
 			wantUpdated:    true,
 			wantRequeueAt:  new(metav1.NewTime(futureTime)),
-			wantCount:      ptr.To[int32](2),
+			wantCount:      new(int32(2)),
 		},
 		"should not update time when existing requeue time is later": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
 						RequeueAt: new(metav1.NewTime(evenMoreFutureTime)),
-						Count:     ptr.To[int32](3),
+						Count:     new(int32(3)),
 					},
 				},
 			},
@@ -2320,14 +2601,14 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: false,
 			wantUpdated:    false,
 			wantRequeueAt:  new(metav1.NewTime(evenMoreFutureTime)),
-			wantCount:      ptr.To[int32](3),
+			wantCount:      new(int32(3)),
 		},
 		"should increment count but keep later requeue time": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
 						RequeueAt: new(metav1.NewTime(evenMoreFutureTime)),
-						Count:     ptr.To[int32](3),
+						Count:     new(int32(3)),
 					},
 				},
 			},
@@ -2335,14 +2616,14 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: true,
 			wantUpdated:    true,
 			wantRequeueAt:  new(metav1.NewTime(evenMoreFutureTime)),
-			wantCount:      ptr.To[int32](4),
+			wantCount:      new(int32(4)),
 		},
 		"should increment count when requeue time is same": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
 						RequeueAt: new(metav1.NewTime(futureTime)),
-						Count:     ptr.To[int32](1),
+						Count:     new(int32(1)),
 					},
 				},
 			},
@@ -2350,14 +2631,14 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: true,
 			wantUpdated:    true,
 			wantRequeueAt:  new(metav1.NewTime(futureTime)),
-			wantCount:      ptr.To[int32](2),
+			wantCount:      new(int32(2)),
 		},
 		"should increment from zero count": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
 						RequeueAt: new(metav1.NewTime(pastTime)),
-						Count:     ptr.To[int32](0),
+						Count:     new(int32(0)),
 					},
 				},
 			},
@@ -2365,14 +2646,14 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: true,
 			wantUpdated:    true,
 			wantRequeueAt:  new(metav1.NewTime(futureTime)),
-			wantCount:      ptr.To[int32](1),
+			wantCount:      new(int32(1)),
 		},
 		"should handle zero time in requeue state": {
 			workload: &kueue.Workload{
 				Status: kueue.WorkloadStatus{
 					RequeueState: &kueue.RequeueState{
 						RequeueAt: new(metav1.NewTime(time.Time{})),
-						Count:     ptr.To[int32](0),
+						Count:     new(int32(0)),
 					},
 				},
 			},
@@ -2380,7 +2661,7 @@ func TestSetRequeueState(t *testing.T) {
 			incrementCount: true,
 			wantUpdated:    true,
 			wantRequeueAt:  new(metav1.NewTime(futureTime)),
-			wantCount:      ptr.To[int32](1),
+			wantCount:      new(int32(1)),
 		},
 	}
 
@@ -2920,7 +3201,7 @@ func TestUsedNodes(t *testing.T) {
 												}},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -2951,7 +3232,7 @@ func TestUsedNodes(t *testing.T) {
 												}},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -2993,7 +3274,7 @@ func TestUsedNodes(t *testing.T) {
 												}},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -3024,7 +3305,7 @@ func TestUsedNodes(t *testing.T) {
 												}},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -3043,7 +3324,7 @@ func TestUsedNodes(t *testing.T) {
 												}},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -3074,7 +3355,7 @@ func TestUsedNodes(t *testing.T) {
 												}},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -3106,7 +3387,7 @@ func TestUsedNodes(t *testing.T) {
 												{Universal: new("rack-1")},
 											},
 											PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-												Universal: ptr.To[int32](1),
+												Universal: new(int32(1)),
 											},
 										},
 									},
@@ -3422,12 +3703,12 @@ func TestCalcLocalQueueFSUsage(t *testing.T) {
 
 			resWeights := map[corev1.ResourceName]float64{corev1.ResourceCPU: 5.0}
 
-			afsConsumed := queueafs.NewAfsConsumedResources()
-			afsConsumed.Set(utilqueue.KeyFromWorkload(wl), corev1.ResourceList{
+			afsLedger := queueafs.NewAfsUsageLedger()
+			afsLedger.SetForTest(utilqueue.KeyFromWorkload(wl), corev1.ResourceList{
 				corev1.ResourceCPU: resource.MustParse("10"),
 			}, time.Now())
 
-			usage, err := info.CalcLocalQueueFSUsage(ctx, cl, resWeights, nil, afsConsumed)
+			usage, err := info.CalcLocalQueueFSUsage(ctx, cl, resWeights, afsLedger)
 
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
@@ -3454,7 +3735,7 @@ func TestTotalExecutionTime(t *testing.T) {
 				AdmittedAt(true, now).
 				FinishedAt(now.Add(10 * time.Second)).
 				Obj(),
-			want: ptr.To(10 * time.Second),
+			want: new(10 * time.Second),
 		},
 		"not admitted": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
@@ -3491,7 +3772,7 @@ func TestTotalExecutionTime(t *testing.T) {
 				FinishedAt(now.Add(5 * time.Second)).
 				PastAdmittedTime(30).
 				Obj(),
-			want: ptr.To(35 * time.Second),
+			want: new(35 * time.Second),
 		},
 	}
 	for name, tc := range cases {

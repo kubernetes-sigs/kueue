@@ -18,6 +18,7 @@ package pod
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"testing"
@@ -33,7 +34,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -44,6 +44,7 @@ import (
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -826,14 +827,14 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Count: ptr.To[int32](1),
+							Count: new(int32(1)),
 						},
 						kueue.PodSetAssignment{
 							Name: "bf90803c",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Count: ptr.To[int32](1),
+							Count: new(int32(1)),
 						},
 					).Obj()
 					util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
@@ -900,7 +901,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Count: ptr.To[int32](2),
+							Count: new(int32(2)),
 						},
 					).Obj()
 					util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
@@ -1283,14 +1284,14 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Count: ptr.To[int32](1),
+							Count: new(int32(1)),
 						},
 						kueue.PodSetAssignment{
 							Name: "bf90803c",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Count: ptr.To[int32](1),
+							Count: new(int32(1)),
 						},
 					).Obj()
 					util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
@@ -1409,14 +1410,14 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Count: ptr.To[int32](1),
+							Count: new(int32(1)),
 						},
 						kueue.PodSetAssignment{
 							Name: "bf90803c",
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Count: ptr.To[int32](1),
+							Count: new(int32(1)),
 						},
 					).Obj()
 					util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
@@ -1475,7 +1476,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Count: ptr.To[int32](podCount),
+							Count: new(int32(podCount)),
 						},
 					).Obj()
 					util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
@@ -1712,7 +1713,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 								corev1.ResourceCPU: "default",
 							},
-							Count: ptr.To[int32](2),
+							Count: new(int32(2)),
 						},
 					).Obj()
 					util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
@@ -2395,9 +2396,9 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 		waitForPodsReady := &configapi.WaitForPodsReady{
 			Timeout: metav1.Duration{Duration: util.TinyTimeout},
 			RequeuingStrategy: &configapi.RequeuingStrategy{
-				Timestamp:          ptr.To(configapi.EvictionTimestamp),
-				BackoffLimitCount:  ptr.To[int32](1),
-				BackoffBaseSeconds: ptr.To[int32](1),
+				Timestamp:          new(configapi.EvictionTimestamp),
+				BackoffLimitCount:  new(int32(1)),
+				BackoffBaseSeconds: new(int32(1)),
 			},
 		}
 		nsSelector := &metav1.LabelSelector{
@@ -2493,7 +2494,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
 				g.Expect(workload.IsActive(wl)).Should(gomega.BeTrue())
 				g.Expect(wl.Status.RequeueState).ShouldNot(gomega.BeNil())
-				g.Expect(wl.Status.RequeueState.Count).Should(gomega.Equal(ptr.To[int32](1)))
+				g.Expect(wl.Status.RequeueState.Count).Should(gomega.Equal(new(int32(1))))
 				g.Expect(wl.Status.RequeueState.RequeueAt).Should(gomega.BeNil())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			util.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
@@ -2870,8 +2871,8 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.La
 					Name:  kueue.DefaultPodSetName,
 					Count: 1,
 					TopologyRequest: &kueue.PodSetTopologyRequest{
-						Required:      ptr.To(tasBlockLabel),
-						PodIndexLabel: ptr.To(kueue.PodGroupPodIndexLabel),
+						Required:      new(tasBlockLabel),
+						PodIndexLabel: new(kueue.PodGroupPodIndexLabel),
 					},
 				}}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -2921,8 +2922,8 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.La
 					Name:  "5949e52e",
 					Count: 2,
 					TopologyRequest: &kueue.PodSetTopologyRequest{
-						Required:      ptr.To(tasBlockLabel),
-						PodIndexLabel: ptr.To(kueue.PodGroupPodIndexLabel),
+						Required:      new(tasBlockLabel),
+						PodIndexLabel: new(kueue.PodGroupPodIndexLabel),
 					},
 				}}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -3225,6 +3226,294 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 	})
 })
 
+var _ = ginkgo.Describe("Pod controller with TASFailedNodeReplacementFailFast disabled", ginkgo.Label("job:pod", "area:jobs", "feature:tas"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	const (
+		nodeGroupLabel = "node-group"
+	)
+
+	var (
+		ns           *corev1.Namespace
+		nodes        []corev1.Node
+		topology     *kueue.Topology
+		tasFlavor    *kueue.ResourceFlavor
+		clusterQueue *kueue.ClusterQueue
+		localQueue   *kueue.LocalQueue
+	)
+	nsSelector := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      corev1.LabelMetadataName,
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   []string{"kube-system", "kueue-system"},
+			},
+		},
+	}
+	mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(true, true, nil,
+			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
+			jobframework.WithEnabledFrameworks([]string{"pod"}),
+		))
+	})
+
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
+
+		// Two nodes with room for exactly one 1-CPU pod each, so a two-pod
+		// group fills both and no domain has a spare slot for a replacement.
+		nodes = []corev1.Node{
+			*testingnode.MakeNode("x1").
+				Label(nodeGroupLabel, "tas").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r1").
+				Label(corev1.LabelHostname, "x1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+			*testingnode.MakeNode("x2").
+				Label(nodeGroupLabel, "tas").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r1").
+				Label(corev1.LabelHostname, "x2").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("1"),
+					corev1.ResourceMemory: resource.MustParse("1Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+		}
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+		topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
+		util.MustCreate(ctx, k8sClient, topology)
+
+		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+			NodeLabel(nodeGroupLabel, "tas").
+			TopologyName(topology.Name).Obj()
+		util.MustCreate(ctx, k8sClient, tasFlavor)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, clusterQueue)
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		util.MustCreate(ctx, k8sClient, localQueue)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		for _, node := range nodes {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+		}
+	})
+
+	ginkgo.It("should not ungate a replacement pod onto the failed node while no replacement domain is available", framework.SlowSpec, func() {
+		// The ungater skips the failed node regardless of the fail-fast gate;
+		// the gate is disabled here only to keep the window open long enough to
+		// observe it. With fail-fast enabled and no replacement domain the
+		// workload is evicted right away, whereas with it disabled the workload
+		// keeps its admission and its TopologyAssignment while the second pass
+		// looks for a replacement domain, so the assignment still names the
+		// failed node. A replacement pod created in that window must stay gated
+		// rather than be ungated onto that node: it could never schedule there,
+		// and the node controller would terminate it again immediately.
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
+
+		podGroupName := "pod-group"
+		var failedNode string
+		podToNode := make(map[string]string, 2)
+		podgroup := testingpod.MakePod(podGroupName, ns.Name).
+			Queue(localQueue.Name).
+			Annotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+			Request(corev1.ResourceCPU, "1").
+			MakeIndexedGroup(2)
+
+		ginkgo.By("Creating the Pod group", func() {
+			for _, p := range podgroup {
+				util.MustCreate(ctx, k8sClient, p)
+				gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
+					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
+					corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
+				))
+			}
+		})
+
+		wlKey := types.NamespacedName{Namespace: ns.Name, Name: podGroupName}
+		wl := &kueue.Workload{}
+
+		ginkgo.By("checking that the workload is created", func() {
+			// Also populates wl, whose name/namespace ExpectWorkloadsToBeAdmitted
+			// below uses as the lookup key.
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
+				g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the workload is admitted onto both nodes", func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
+			gomega.Expect(nodeNames).To(gomega.ConsistOf("x1", "x2"))
+		})
+
+		ginkgo.By("wait for pods to be ungated and bind each to its assigned node", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				for _, p := range podgroup {
+					pod := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).To(gomega.Succeed())
+					g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeEmpty())
+					g.Expect(pod.Spec.NodeSelector).Should(gomega.HaveKey(corev1.LabelHostname))
+					podToNode[pod.Name] = pod.Spec.NodeSelector[corev1.LabelHostname]
+				}
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Expect(slices.Sorted(maps.Values(podToNode))).To(gomega.Equal([]string{"x1", "x2"}))
+			for _, p := range podgroup {
+				util.BindPodWithNode(ctx, k8sClient, podToNode[p.Name], p)
+			}
+			util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, podgroup...)
+		})
+
+		failedNode = podToNode[podgroup[0].Name]
+
+		ginkgo.By("making the node of the first pod NotReady", func() {
+			nodeToUpdate := &corev1.Node{}
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: failedNode}, nodeToUpdate)).Should(gomega.Succeed())
+			util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
+				Type:   corev1.NodeReady,
+				Status: corev1.ConditionFalse,
+			})
+		})
+
+		ginkgo.By("terminating the pod on the failed node", func() {
+			podKey := client.ObjectKeyFromObject(podgroup[0])
+			gomega.Eventually(func(g gomega.Gomega) {
+				pod := &corev1.Pod{}
+				g.Expect(k8sClient.Get(ctx, podKey, pod)).To(gomega.Succeed())
+				pod.Status.Phase = corev1.PodFailed
+				g.Expect(k8sClient.Status().Update(ctx, pod)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the node is marked unhealthy and the assignment still names it", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.UnhealthyNodeNames(wl)).To(gomega.ConsistOf(failedNode))
+				// Retained on purpose while a replacement is sought; see the
+				// "should update workload TopologyAssignment after a node
+				// becomes available" TAS integration test.
+				nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
+				g.Expect(nodeNames).To(gomega.ContainElement(failedNode))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// Carries the same group index as the pod it replaces. The PodSet has a
+		// PodIndexLabel, so the ungater takes the rank-based path
+		// (readRanksIfAvailable): rank 0 maps to the assignment's first domain,
+		// which is the node podgroup[0] was ungated onto and therefore the node
+		// this test fails. Without an index the ungater falls back to greedy
+		// assignment, and whether it lands on the failed domain depends on
+		// ordering rather than on the behaviour under test.
+		replacementPod := testingpod.MakePod("replacement-pod", ns.Name).
+			GroupNameLabel(podGroupName).
+			GroupTotalCount("2").
+			GroupIndex("0").
+			Queue(localQueue.Name).
+			Annotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		replacementKey := client.ObjectKeyFromObject(replacementPod)
+
+		ginkgo.By("creating a replacement pod in the group", func() {
+			util.MustCreate(ctx, k8sClient, replacementPod)
+		})
+
+		ginkgo.By("verify Kueue observes the replacement pod", func() {
+			// Guards the assertion below against passing vacuously: the group
+			// is whole again, so the replacement is genuinely being tracked
+			// and is a candidate for ungating.
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusFalse(kueue.WorkloadWaitingForReplacementPods))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the replacement pod is enrolled in the podset the ungater reads", func() {
+			// Without this the test can pass for the wrong reason: the ungater
+			// only considers pods carrying constants.PodSetLabel, so a
+			// replacement missing it would stay gated no matter what the
+			// ungater does, and the assertion below would be vacuous.
+			originalPod := &corev1.Pod{}
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(podgroup[1]), originalPod)).To(gomega.Succeed())
+			wantPodSet := originalPod.Labels[constants.PodSetLabel]
+			gomega.Expect(wantPodSet).ToNot(gomega.BeEmpty())
+			gomega.Eventually(func(g gomega.Gomega) {
+				pod := &corev1.Pod{}
+				g.Expect(k8sClient.Get(ctx, replacementKey, pod)).To(gomega.Succeed())
+				g.Expect(pod.Labels).To(gomega.HaveKeyWithValue(constants.PodSetLabel, wantPodSet))
+				g.Expect(pod.Spec.SchedulingGates).ToNot(gomega.ContainElement(
+					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
+					"the replacement must be past the managed-by gate to be an ungate candidate")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the unhealthy domain still has a free slot for the replacement", func() {
+			// The ungater only ungates into a domain with remaining capacity. If
+			// the failed pod still occupied the domain, the replacement would
+			// stay gated regardless of the fix.
+			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			ungatedOnFailedNode := 0
+			pods := &corev1.PodList{}
+			gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+			for _, p := range pods.Items {
+				if utilpod.IsTerminated(&p) || utilpod.HasGate(&p, kueue.TopologySchedulingGate) {
+					continue
+				}
+				if p.Spec.NodeSelector[corev1.LabelHostname] == failedNode {
+					ungatedOnFailedNode++
+				}
+			}
+			gomega.Expect(ungatedOnFailedNode).To(gomega.Equal(0),
+				"the failed node's slot must be free, otherwise the ungater has nowhere to place the replacement and the assertion below is vacuous")
+		})
+
+		ginkgo.By("verify the replacement pod stays gated and is never pinned to the failed node", func() {
+			// LongConsistentDuration, not ConsistentDuration: the ungater reacts
+			// to pod and workload events within a few hundred milliseconds of the
+			// replacement becoming visible, so a 300ms window can close before it
+			// has acted and pass whatever the ungater decides.
+			gomega.Consistently(func(g gomega.Gomega) {
+				pod := &corev1.Pod{}
+				g.Expect(k8sClient.Get(ctx, replacementKey, pod)).To(gomega.Succeed())
+				g.Expect(pod.Spec.SchedulingGates).To(gomega.ContainElement(
+					corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate}))
+				g.Expect(pod.Spec.NodeSelector).ShouldNot(gomega.HaveKeyWithValue(corev1.LabelHostname, failedNode))
+			}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the workload kept its admission rather than being evicted", func() {
+			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			gomega.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+		})
+	})
+})
+
 var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPodsReady", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
@@ -3238,9 +3527,9 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 			Timeout:        metav1.Duration{Duration: 3 * time.Second},
 			BlockAdmission: new(false),
 			RequeuingStrategy: &configapi.RequeuingStrategy{
-				Timestamp:          ptr.To(configapi.EvictionTimestamp),
-				BackoffBaseSeconds: ptr.To[int32](1),
-				BackoffMaxSeconds:  ptr.To[int32](5),
+				Timestamp:          new(configapi.EvictionTimestamp),
+				BackoffBaseSeconds: new(int32(1)),
+				BackoffMaxSeconds:  new(int32(5)),
 			},
 		}
 		nsSelector := &metav1.LabelSelector{

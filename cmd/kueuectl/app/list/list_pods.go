@@ -40,16 +40,14 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-
-	// Ensure linking of the job controllers.
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
+	"sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
 var (
 	podLong = templates.LongDesc(`
-		Lists all pods that matches the given criteria: should be part 
+		Lists all pods that match the given criteria: should be part 
 		of the specified Job kind, belonging to the specified namespace, 
-		matching the label selector or the field selector.)
+		matching the label selector or the field selector.
 
 		The --for=pod/pod-name option allows to find pods from the same 
 		pod group as the specified pod, including that pod itself. 
@@ -77,6 +75,7 @@ type PodOptions struct {
 	ForGVK                 schema.GroupVersionKind
 	ForObject              *unstructured.Unstructured
 	PodLabelSelector       string
+	IntegrationManager     *jobframework.IntegrationManager
 
 	Clientset k8s.Interface
 
@@ -85,8 +84,9 @@ type PodOptions struct {
 
 func NewPodOptions(streams genericiooptions.IOStreams) *PodOptions {
 	return &PodOptions{
-		PrintFlags: genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
-		IOStreams:  streams,
+		PrintFlags:         genericclioptions.NewPrintFlags("").WithTypeSetter(scheme.Scheme),
+		IntegrationManager: jobs.NewIntegrationManager(),
+		IOStreams:          streams,
 	}
 }
 
@@ -229,7 +229,7 @@ func (o *PodOptions) getForObject(infos []*resource.Info) (*unstructured.Unstruc
 
 // getPodLabelSelector returns the podLabels used as a standard selector for jobs
 func (o *PodOptions) getPodLabelSelector() (string, error) {
-	cbs, ok := jobframework.GetIntegrationByGVK(o.ForGVK)
+	cbs, ok := o.IntegrationManager.GetIntegrationByGVK(o.ForGVK)
 	if !ok {
 		return "", nil
 	}

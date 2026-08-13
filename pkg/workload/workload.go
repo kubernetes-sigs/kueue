@@ -61,6 +61,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	utilptr "sigs.k8s.io/kueue/pkg/util/ptr"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/wait"
@@ -115,6 +116,15 @@ func FromQuotaReservedOrAdmittedToPending(prevStatus, newStatus string) bool {
 type AssignmentClusterQueueState struct {
 	LastTriedFlavorIdx     []map[corev1.ResourceName]int
 	ClusterQueueGeneration int64
+	// SchedulingCycle is the scheduling cycle that computed this assignment. It lets the
+	// assignment from the immediately preceding cycle be treated as current even when the
+	// ClusterQueue generation has moved on.
+	SchedulingCycle int64
+	// SchedulingHash is the scheduling equivalence hash of the Workload this assignment was
+	// computed for. LastTriedFlavorIdx is indexed by PodSet and holds flavor indices chosen
+	// for a particular set of requests, so it only carries meaning while the Workload keeps
+	// the shape it had then.
+	SchedulingHash EquivalenceHash
 }
 
 type dra struct {
@@ -173,11 +183,28 @@ func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
 	c := AssignmentClusterQueueState{
 		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
 		ClusterQueueGeneration: s.ClusterQueueGeneration,
+		SchedulingCycle:        s.SchedulingCycle,
+		SchedulingHash:         s.SchedulingHash,
 	}
 	for ps, flavorIdx := range s.LastTriedFlavorIdx {
 		c.LastTriedFlavorIdx[ps] = maps.Clone(flavorIdx)
 	}
 	return &c
+}
+
+// MatchesSchedulingShape reports whether this assignment was computed for the scheduling
+// shape the Workload has now. A change to the PodSets or their requests makes the recorded
+// flavor indices describe a search that no longer applies: resuming from them could skip a
+// flavor the changed Workload would now fit.
+//
+// An unknown hash on either side means SchedulingEquivalenceHashing is disabled and there is
+// nothing to compare, so the shape is taken to be unchanged. That keeps the two features
+// independent, and NextFlavorToTryForPodSetResource still bounds-checks the PodSet index.
+func (s *AssignmentClusterQueueState) MatchesSchedulingShape(current EquivalenceHash) bool {
+	if s.SchedulingHash == SchedulingHashUnknown || current == SchedulingHashUnknown {
+		return true
+	}
+	return s.SchedulingHash == current
 }
 
 // PendingFlavors returns whether there are pending flavors to try
@@ -459,34 +486,42 @@ func dropExcludedResources(input corev1.ResourceList, excludedPrefixes []string)
 	return res
 }
 
+// ComputeLocalQueueFSUsage returns the fair-sharing usage for the workload's
+// LocalQueue using the given weight, without any API read. The persistent heap
+// comparator uses this with a cached weight so its ordering stays consistent even
+// if a LocalQueue lookup fails. See Kueue#13476.
+func (i *Info) ComputeLocalQueueFSUsage(
+	weight float64,
+	resWeights map[corev1.ResourceName]float64,
+	afsUsageLedger *queueafs.AfsUsageLedger,
+) float64 {
+	lqKey := queue.KeyFromWorkload(i.Obj)
+
+	// One Get, so the (consumed, penalty) pair is consistent.
+	consumed := corev1.ResourceList{}
+	penalty := corev1.ResourceList{}
+	if afsUsageLedger != nil {
+		if entry, found := afsUsageLedger.Get(lqKey); found {
+			consumed = entry.Resources
+			penalty = entry.PendingPenalty()
+		}
+	}
+
+	return afs.CalculateUsage(consumed, penalty, weight, resWeights)
+}
+
 func (i *Info) CalcLocalQueueFSUsage(
 	ctx context.Context,
 	c client.Client,
 	resWeights map[corev1.ResourceName]float64,
-	afsEntryPenalties *queueafs.AfsEntryPenalties,
-	afsConsumedResources *queueafs.AfsConsumedResources,
+	afsUsageLedger *queueafs.AfsUsageLedger,
 ) (float64, error) {
-	lqKey := queue.KeyFromWorkload(i.Obj)
-
-	consumed := corev1.ResourceList{}
-	if afsConsumedResources != nil {
-		entry, found := afsConsumedResources.Get(lqKey)
-		if found {
-			consumed = entry.Resources
-		}
-	}
-
-	penalty := corev1.ResourceList{}
-	if afsEntryPenalties != nil {
-		penalty = afsEntryPenalties.Peek(lqKey)
-	}
-
 	lqObjKey := client.ObjectKey{Namespace: i.Obj.Namespace, Name: string(i.Obj.Spec.QueueName)}
 	lqWeight, err := afs.ResolveLQWeight(ctx, c, lqObjKey)
 	if err != nil {
 		return 0, err
 	}
-	return afs.CalculateUsage(consumed, penalty, lqWeight, resWeights), nil
+	return i.ComputeLocalQueueFSUsage(lqWeight, resWeights, afsUsageLedger), nil
 }
 
 // IsUsingTAS returns information if the workload is using TAS
@@ -528,7 +563,7 @@ func (i *Info) TASUsage() TASUsage {
 }
 
 func (i *Info) SumTotalRequests(formatter *resources.ResourceFormatter) corev1.ResourceList {
-	reqs := resources.CreateEmpty()
+	reqs := resources.NewRequests()
 	for _, psReqs := range i.TotalRequests {
 		if psReqs.Requests != nil {
 			reqs.Add(psReqs.Requests)
@@ -548,32 +583,47 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 	if !match {
 		return input
 	}
-	output := make(corev1.ResourceList)
+	// What the transformations produce is kept apart from what the PodSet asked
+	// for until the end. A negative output factor is how an allowance is
+	// written, so outputs still cancel each other, but the total one resource
+	// generates cannot go on to reduce a request that was never part of that
+	// arithmetic: an ordinary request under the same name, or the DRA charge
+	// merged in after this returns.
+	retained := make(corev1.ResourceList)
+	generated := make(corev1.ResourceList)
 	for inputName, inputQuantity := range input {
-		if mapping, ok := transforms[inputName]; ok {
-			// If MultiplyBy is specified, multiply the input quantity by
-			// the value of the resource specified in MultiplyBy.
-			if mapping.MultiplyBy != "" {
-				if q, ok := input[mapping.MultiplyBy]; ok {
-					inputQuantity = multiplyResourceQuantities(inputQuantity, q)
-				}
+		mapping, ok := transforms[inputName]
+		if !ok {
+			retained[inputName] = inputQuantity
+			continue
+		}
+		// MultiplyBy scales the value the outputs are computed from by the
+		// quantity of the resource it names. Retain keeps the input as it was
+		// requested, so the multiplier does not reach that as well.
+		outputInputVal := inputQuantity
+		if mapping.MultiplyBy != "" {
+			if q, ok := input[mapping.MultiplyBy]; ok {
+				outputInputVal = multiplyResourceQuantities(inputQuantity, q)
 			}
+		}
 
-			for outputName, baseFactor := range mapping.Outputs {
-				outputQuantity := multiplyResourceQuantities(inputQuantity, baseFactor)
-				if accumulated, ok := output[outputName]; ok {
-					outputQuantity.Add(accumulated)
-				}
-				output[outputName] = outputQuantity
-			}
-			if ptr.Deref(mapping.Strategy, config.Retain) == config.Retain {
-				output[inputName] = inputQuantity
-			}
-		} else {
-			output[inputName] = inputQuantity
+		outputs := make(corev1.ResourceList, len(mapping.Outputs))
+		for outputName, baseFactor := range mapping.Outputs {
+			outputs[outputName] = multiplyResourceQuantities(outputInputVal, baseFactor)
+		}
+		// Summed rather than assigned, so which order the input map is walked
+		// in does not decide which contribution to a name survives.
+		generated = utilresource.MergeResourceListKeepSum(generated, outputs)
+		if ptr.Deref(mapping.Strategy, config.Retain) == config.Retain {
+			retained[inputName] = inputQuantity
 		}
 	}
-	return output
+	for name, quantity := range generated {
+		if quantity.Sign() < 0 {
+			generated[name] = resource.Quantity{}
+		}
+	}
+	return utilresource.MergeResourceListKeepSum(retained, generated)
 }
 
 func multiplyResourceQuantities(value, mul resource.Quantity) resource.Quantity {
@@ -853,8 +903,7 @@ func TotalExecutionTime(wl *kueue.Workload) *time.Duration {
 		return nil
 	}
 	accumulatedPast := time.Duration(ptr.Deref(wl.Status.AccumulatedPastExecutionTimeSeconds, 0)) * time.Second
-	total := accumulatedPast + finishedCond.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
-	return &total
+	return new(accumulatedPast + finishedCond.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time))
 }
 
 func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {

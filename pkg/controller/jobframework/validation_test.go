@@ -231,7 +231,7 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 		"change priority": {
 			oldPodSpec: &corev1.PodSpec{},
 			newPodSpec: &corev1.PodSpec{
-				Priority: ptr.To[int32](1),
+				Priority: new(int32(1)),
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -253,7 +253,6 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 }
 
 func TestValidateJobOnUpdate(t *testing.T) {
-	t.Cleanup(jobframework.EnableIntegrationsForTest(t, "batch/job"))
 	fieldString := field.NewPath("metadata").Child("labels").Key(constants.QueueLabel).String()
 	testCases := map[string]struct {
 		oldJob            *batchv1.Job
@@ -428,7 +427,6 @@ func TestValidateJobOnUpdate(t *testing.T) {
 }
 
 func TestValidateJobOnCreate(t *testing.T) {
-	t.Cleanup(jobframework.EnableIntegrationsForTest(t, "batch/job"))
 	elasticAnnotationPath := field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey)
 	testCases := map[string]struct {
 		job          *batchv1.Job

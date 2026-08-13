@@ -68,6 +68,7 @@ var (
 )
 
 type Reconciler struct {
+	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
 	record                       events.EventRecorder
 	logName                      string
@@ -104,7 +105,12 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
-	eg, ctx := errgroup.WithContext(ctx)
+	// Finalizing pods and reconciling the Workload touch different objects, so
+	// one failing is no reason to abandon the other. A derived context would
+	// cancel it, and its own lookups would then fail as cancelled rather than
+	// for the reason they were about to find. The reconcile context still
+	// carries shutdown and any deadline.
+	var eg errgroup.Group
 
 	eg.Go(func() error {
 		return r.finalizePods(ctx, sts, podList.Items)
@@ -249,15 +255,19 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = true
 	}
 
+	var admissionGatedByUpdated bool
 	if features.Enabled(features.AdmissionGatedBy) {
-		gateUpdated := jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
-		shouldUpdate = gateUpdated || shouldUpdate
+		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(sts, wl)
+		shouldUpdate = admissionGatedByUpdated || shouldUpdate
 	}
 
 	if shouldUpdate {
 		if err := r.client.Update(ctx, wl); err != nil {
 			return err
 		}
+	}
+	if admissionGatedByUpdated {
+		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
 	}
 
 	if shouldReleaseReservation {
@@ -347,7 +357,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(sts.Spec.Template.ObjectMeta.DeepCopy()).
-			PodIndexLabel(ptr.To(appsv1.PodIndexLabel)).
+			PodIndexLabel(new(appsv1.PodIndexLabel)).
 			Build()
 		if err != nil {
 			return nil, err
@@ -394,6 +404,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
+		integrationManager:           options.IntegrationManager,
 		client:                       client,
 		record:                       eventRecorder,
 		logName:                      "statefulset-reconciler",
@@ -441,7 +452,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	}
 
 	// Handle only statefulset managed by kueue.
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, sts, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
+	suspend, err := r.integrationManager.WorkloadShouldBeSuspended(ctx, sts, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
 	if err != nil {
 		log.Error(err, "Failed to determine if the StatefulSet should be managed by Kueue")
 	}

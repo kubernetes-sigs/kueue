@@ -154,7 +154,8 @@ func TestDefault(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
+			integrationManager := newTestIntegrationManager(t)
+			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "pod"))
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
 			cqCache := schdcache.New(client)
@@ -167,8 +168,9 @@ func TestDefault(t *testing.T) {
 				}
 			}
 			w := &Webhook{
-				client: client,
-				queues: queueManager,
+				integrationManager: integrationManager,
+				client:             client,
+				queues:             queueManager,
 			}
 
 			if err := w.Default(ctx, tc.deployment); err != nil {
@@ -357,8 +359,6 @@ func TestValidateCreate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
-
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
 
@@ -632,8 +632,6 @@ func TestValidateUpdate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
-
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
 
@@ -650,4 +648,13 @@ func TestValidateUpdate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newTestIntegrationManager(t *testing.T) *jobframework.IntegrationManager {
+	t.Helper()
+	manager := jobframework.NewIntegrationManager()
+	if err := RegisterIntegration(manager); err != nil {
+		t.Fatalf("RegisterIntegration() error = %v", err)
+	}
+	return manager
 }

@@ -84,14 +84,14 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 				Timeout:         metav1.Duration{Duration: util.TinyTimeout},
 				RecoveryTimeout: nil,
 				RequeuingStrategy: &configapi.RequeuingStrategy{
-					Timestamp:          ptr.To(configapi.EvictionTimestamp),
+					Timestamp:          new(configapi.EvictionTimestamp),
 					BackoffBaseSeconds: new(int32(10)),
 					BackoffLimitCount:  new(int32(1)),
 				},
 			}
 		})
 
-		curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+		curlPod = testingjobspod.MakePod("curl-metrics", util.GetKueueNamespace()).
 			ServiceAccountName(serviceAccountName).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
@@ -224,7 +224,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 				{
 					Kind:      "ServiceAccount",
 					Name:      serviceAccountName,
-					Namespace: configapi.DefaultNamespace,
+					Namespace: kueueNS,
 				},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -241,7 +241,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 				BlockAdmission:  new(true),
 				RecoveryTimeout: &metav1.Duration{Duration: util.TinyTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
-					Timestamp:          ptr.To(configapi.EvictionTimestamp),
+					Timestamp:          new(configapi.EvictionTimestamp),
 					BackoffBaseSeconds: new(int32(1)),
 					// Allow at least one requeue cycle before deactivation so the test
 					// can verify the requeue behavior.
@@ -250,7 +250,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 			}
 		})
 
-		curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+		curlPod = testingjobspod.MakePod("curl-metrics", util.GetKueueNamespace()).
 			ServiceAccountName(serviceAccountName).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
@@ -371,7 +371,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 				{
 					Kind:      "ServiceAccount",
 					Name:      serviceAccountName,
-					Namespace: configapi.DefaultNamespace,
+					Namespace: kueueNS,
 				},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -388,14 +388,14 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 				BlockAdmission:  new(true),
 				RecoveryTimeout: &metav1.Duration{Duration: util.LongTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
-					Timestamp:          ptr.To(configapi.EvictionTimestamp),
+					Timestamp:          new(configapi.EvictionTimestamp),
 					BackoffBaseSeconds: new(int32(1)),
 					BackoffLimitCount:  new(int32(1)),
 				},
 			}
 		})
 
-		curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+		curlPod = testingjobspod.MakePod("curl-metrics", util.GetKueueNamespace()).
 			ServiceAccountName(serviceAccountName).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).

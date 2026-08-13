@@ -21,7 +21,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 - **AdmissionChecks:** A mechanism for internal or external components to influence whether a workload can be [admitted](https://kueue.sigs.k8s.io/docs/concepts/admission_check/).
 - **Advanced autoscaling support:** Integration with cluster-autoscaler's [provisioningRequest](https://kueue.sigs.k8s.io/docs/concepts/admission_check/provisioning_request/#job-using-a-provisioningrequest) via admissionChecks.
 - **All-or-nothing with ready Pods:** A timeout-based implementation of [All-or-nothing scheduling](https://kueue.sigs.k8s.io/docs/tasks/manage/setup_wait_for_pods_ready/).
-- **Partial admission and dynamic reclaim:** mechanisms to run a job with [reduced parallelism](https://kueue.sigs.k8s.io/docs/tasks/run/jobs/#partial-admission), based on available quota, and to [release](https://kueue.sigs.k8s.io/docs/concepts/workload/#dynamic-reclaim) the quota the pods complete..
+- **Partial admission and dynamic reclaim:** mechanisms to run a job with [reduced parallelism](https://kueue.sigs.k8s.io/docs/tasks/run/jobs/#partial-admission), based on available quota, and to [release](https://kueue.sigs.k8s.io/docs/concepts/workload/#dynamic-reclaim) the quota the pods complete.
 - **Mixing training and inference**: Simultaneous management of batch workloads along with serving workloads (such as [Deployments](https://kueue.sigs.k8s.io/docs/tasks/run/deployment/) or [StatefulSets](https://kueue.sigs.k8s.io/docs/tasks/run/statefulset/))
 - **Multi-cluster job dispatching:** called [MultiKueue](https://kueue.sigs.k8s.io/docs/concepts/multikueue/), allows to search for capacity and off-load the main cluster.
 - **Topology-Aware Scheduling**: Allows to optimize the Pod-to-Pod communication throughput by [scheduling aware of the data-center topology](https://kueue.sigs.k8s.io/docs/concepts/topology_aware_scheduling/).
@@ -97,7 +97,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.19.0/manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.19.1/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.
@@ -135,7 +135,7 @@ High-level overview of the main priorities for 2026:
 - Improve user experience for [Topology Aware Scheduling](https://kueue.sigs.k8s.io/docs/concepts/topology_aware_scheduling/), in particular:
   * Support for ResourceTransformations [#8860](https://github.com/kubernetes-sigs/kueue/issues/8860)
   * Support for [Elastic Workloads](https://kueue.sigs.k8s.io/docs/concepts/elastic_workload/) [#8160](https://github.com/kubernetes-sigs/kueue/issues/8160)
-  * Evict workloads which are running on nodes which become tainted [#8838](https://github.com/kubernetes-sigs/kueue/issues/8828)
+  * Evict workloads which are running on nodes which become tainted [#8828](https://github.com/kubernetes-sigs/kueue/issues/8828)
 - Integration with the k8s native Workload-Aware Scheduler (WAS) and Topology-Aware Scheduling [#8871](https://github.com/kubernetes-sigs/kueue/issues/8871)
 - Support for Concurrent Workload Admission [#8691](https://github.com/kubernetes-sigs/kueue/issues/8691)
 - Support for running hero workloads [#8826](https://github.com/kubernetes-sigs/kueue/issues/8826)
