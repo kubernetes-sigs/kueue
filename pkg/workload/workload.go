@@ -684,6 +684,31 @@ func PodSetNameToTopologyRequest(wl *kueue.Workload) map[kueue.PodSetReference]*
 	})
 }
 
+// subtractReplacedRequests takes out of retained what the containers asked for on
+// each name a DRA charge stands in for. The charge replaces that much and no more,
+// so a pod overhead or a transformation output carried under the same name is left
+// where it is.
+func subtractReplacedRequests(retained corev1.ResourceList, spec *corev1.PodSpec, replaced sets.Set[corev1.ResourceName]) {
+	// Read without the overhead rather than subtracting it back off, so this cannot
+	// disagree with whichever view the retained requests were taken as.
+	containerRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *spec},
+		resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
+	for extRes := range replaced {
+		// Gone already when an excluded prefix dropped it or a Replace
+		// transformation consumed it.
+		q, ok := retained[extRes]
+		if !ok {
+			continue
+		}
+		q.Sub(containerRequests[extRes])
+		if q.CmpInt64(0) <= 0 {
+			delete(retained, extRes)
+			continue
+		}
+		retained[extRes] = q
+	}
+}
+
 func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
@@ -702,28 +727,8 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			info.resourceTransformations,
 		)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
-			// The charge stands in for what the containers asked for, so take back
-			// that much and no more. The overhead and any transformation output
-			// carried under the same name are not part of it.
 			if replacedRes, exists := info.replacedExtendedResources[ps.Name]; exists {
-				// Read without the overhead rather than subtracting it back off, so
-				// this cannot disagree with whichever view specRequests is taken as.
-				containerRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec},
-					resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
-				for extRes := range replacedRes {
-					// Gone already when an excluded prefix dropped it or a Replace
-					// transformation consumed it.
-					q, ok := retained[extRes]
-					if !ok {
-						continue
-					}
-					q.Sub(containerRequests[extRes])
-					if q.CmpInt64(0) <= 0 {
-						delete(retained, extRes)
-						continue
-					}
-					retained[extRes] = q
-				}
+				subtractReplacedRequests(retained, &ps.Template.Spec, replacedRes)
 			}
 			// Then, add the DRA logical resources
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
