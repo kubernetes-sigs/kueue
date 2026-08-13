@@ -233,7 +233,7 @@ func (c *Controller) activeOrLastPRForChecks(
 			if arrayslices.ContainsFunc(req.OwnerReferences, func(owner metav1.OwnerReference) bool {
 				return owner.UID == wl.UID
 			}) && matchesWorkloadAndCheck(req, wl.Name, checkName) {
-				if reqNeeded && provReqSyncedWithConfig(req, prc) {
+				if reqNeeded && provReqSyncedWithConfig(wl, req, prc) {
 					currPr, exists := activeOrLastPRForChecks[checkName]
 					if !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
@@ -390,10 +390,9 @@ func (c *Controller) createProvisioningRequest(
 		},
 		Spec: autoscaling.ProvisioningRequestSpec{
 			ProvisioningClassName: prc.Spec.ProvisioningClassName,
-			Parameters:            parametersKueueToProvisioning(prc.Spec.Parameters),
+			Parameters:            provReqParameters(wl, prc),
 		},
 	}
-	passProvReqParams(wl, req)
 
 	mergedPodSets, err := c.mergePodSets(ctx, wl, &prc.Spec)
 	if err != nil {
