@@ -510,6 +510,7 @@ func chargeablePodRequests(spec *corev1.PodSpec) corev1.ResourceList {
 	return requests
 }
 
+// hasNegativeRequest reports whether any list the charge is built from holds one.
 func hasNegativeRequest(spec *corev1.PodSpec) bool {
 	negative := func(rl corev1.ResourceList) bool {
 		for _, q := range rl {
@@ -555,6 +556,8 @@ func chargeableSpec(spec *corev1.PodSpec) *corev1.PodSpec {
 	return out
 }
 
+// dropNegativeRequests removes the names it cannot charge, rather than keeping
+// them at zero as chargeableRequests does.
 func dropNegativeRequests(requests corev1.ResourceList) corev1.ResourceList {
 	out := make(corev1.ResourceList, len(requests))
 	for name, quantity := range requests {
