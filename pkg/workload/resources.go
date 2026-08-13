@@ -53,8 +53,9 @@ const (
 // handlePodOverhead raises what a PodSet carries to the overhead its RuntimeClass
 // defines, taking the larger of the two rather than the class outright: only a
 // class's handler is immutable, so a PodSet copied off an already-admitted Pod can
-// carry more than the class now defines. A Pod admitted under an older and larger
-// generation carries more than either, and is charged the smaller: #14317.
+// carry more than the class now defines. It reconciles the two values visible at
+// this adjustment and nothing else: a reservation already taken is not rebuilt
+// when the class is edited afterwards, which is #14317.
 func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
 	var errs []error
 	for i := range wl.Spec.PodSets {
