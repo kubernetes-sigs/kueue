@@ -1544,21 +1544,23 @@ namespace: kueue-system
 }
 
 // A v1beta1 file reaches the same validator through generated conversion, so the
-// reservation covers the operators still writing that version only as long as
-// conversion carries these four fields.
+// reservation covers the operators still writing that version. One field is bare
+// per case, so each case pins the position that reported it. Only the mapping
+// name is converted field by field; the transformation list is reinterpreted
+// whole, so there is no per-field step there to hold.
 func TestReservedNameReachesAV1beta1Configuration(t *testing.T) {
 	const configuration = `apiVersion: config.kueue.x-k8s.io/v1beta1
 kind: Configuration
 resources:
   deviceClassMappings:
-  - name: %[1]spods
+  - name: %[1]s
     deviceClassNames: [gpu.example.com]
   transformations:
-  - input: %[1]spods
+  - input: %[2]s
     strategy: Retain
-    multiplyBy: %[1]spods
+    multiplyBy: %[3]s
     outputs:
-      %[1]spods: 1
+      %[4]s: 1
 `
 	scheme := runtime.NewScheme()
 	for _, addToScheme := range []func(*runtime.Scheme) error{
@@ -1568,24 +1570,54 @@ resources:
 			t.Fatal(err)
 		}
 	}
+	// Four distinct names, as the validator's own table uses, so a clean load
+	// says nothing about names that collide with one another.
+	const (
+		okMapping    = "dra.example.com/pods"
+		okInput      = "input.example.com/pods"
+		okMultiplier = "multiplier.example.com/pods"
+		okOutput     = "output.example.com/pods"
+	)
 	for name, tc := range map[string]struct {
-		prefix   string
-		wantErrs int
+		mapping, input, multiplyBy, output string
+		wantFields                         []string
 	}{
-		"the bare name in all four positions": {wantErrs: 4},
-		"a qualified name in all four":        {prefix: "example.com/", wantErrs: 0},
+		"qualified names in all four positions": {
+			mapping: okMapping, input: okInput, multiplyBy: okMultiplier, output: okOutput,
+		},
+		"a bare mapping name": {
+			mapping: "pods", input: okInput, multiplyBy: okMultiplier, output: okOutput,
+			wantFields: []string{"resources.deviceClassMappings[0].name"},
+		},
+		"a bare transformation input": {
+			mapping: okMapping, input: "pods", multiplyBy: okMultiplier, output: okOutput,
+			wantFields: []string{"resources.transformations[0].input"},
+		},
+		"a bare multiplier": {
+			mapping: okMapping, input: okInput, multiplyBy: "pods", output: okOutput,
+			wantFields: []string{"resources.transformations[0].multiplyBy"},
+		},
+		"a bare output key": {
+			mapping: okMapping, input: okInput, multiplyBy: okMultiplier, output: "pods",
+			wantFields: []string{"resources.transformations[0].outputs[pods]"},
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
-			if err := os.WriteFile(path, fmt.Appendf(nil, configuration, tc.prefix), 0o600); err != nil {
+			body := fmt.Appendf(nil, configuration, tc.mapping, tc.input, tc.multiplyBy, tc.output)
+			if err := os.WriteFile(path, body, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			_, cfg, err := Load(scheme, path)
 			if err != nil {
 				t.Fatalf("loading the configuration: %v", err)
 			}
-			if errs := Validate(&cfg, scheme, jobs.NewIntegrationManager()); len(errs) != tc.wantErrs {
-				t.Errorf("%d errors, want %d: %v", len(errs), tc.wantErrs, errs)
+			var gotFields []string
+			for _, e := range Validate(&cfg, scheme, jobs.NewIntegrationManager()) {
+				gotFields = append(gotFields, e.Field)
+			}
+			if diff := cmp.Diff(tc.wantFields, gotFields); diff != "" {
+				t.Errorf("validation fields (-want,+got):\n%s", diff)
 			}
 		})
 	}

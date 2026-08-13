@@ -1349,6 +1349,32 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		// The case above rules out a match that only ends in the reserved name.
+		// These rule out one that only starts with it, and one that differs from
+		// it in case alone.
+		"names that merely resemble the reserved one accepted": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "pods.example.com/gpu",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "Pods",
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: "pods-per-node",
+							Outputs: corev1.ResourceList{
+								"PODS": resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+		},
 		"device class mapping named pods rejected": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
