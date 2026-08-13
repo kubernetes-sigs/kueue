@@ -1325,8 +1325,7 @@ func TestValidate(t *testing.T) {
 		},
 		// Kueue writes this key itself during flavor assignment, so a charge
 		// stored under it is replaced rather than counted.
-		// Only the bare name is taken. A qualified one ending in the same word
-		// is somebody else's resource and has to keep working.
+		// Only the bare name is reserved: one ending in /pods is a different resource.
 		"qualified names ending in pods accepted": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
