@@ -415,3 +415,30 @@ func TestIsExtendedResourceName(t *testing.T) {
 		})
 	}
 }
+
+func TestMergeKeepMaxOwnsItsResult(t *testing.T) {
+	cases := map[string]string{
+		"decimal Gi quantity": "1.1Gi",
+		"milli quantity":      "250m",
+		"integer Gi quantity": "2Gi",
+	}
+
+	for name, q := range cases {
+		t.Run(name, func(t *testing.T) {
+			a := corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("0")}
+			b := corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(q)}
+			want := b[corev1.ResourceMemory].DeepCopy()
+
+			got := MergeResourceListKeepMax(a, b)
+			v := got[corev1.ResourceMemory]
+			v.Add(resource.MustParse("1000"))
+			got[corev1.ResourceMemory] = v
+
+			after := b[corev1.ResourceMemory]
+			t.Logf("b was %s, is now %s", want.String(), after.String())
+			if diff := cmp.Diff(want, after); diff != "" {
+				t.Errorf("mutating the merged result changed the input (-want +after):\n%s", diff)
+			}
+		})
+	}
+}
