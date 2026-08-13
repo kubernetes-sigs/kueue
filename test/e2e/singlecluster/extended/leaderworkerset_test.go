@@ -866,7 +866,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			func(alsoSetOnWorkerTemplate bool) {
 				lwsWrapper := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
 					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-					Size(3).
+					Size(2).
 					Replicas(1).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
 					Queue(lq.Name).
@@ -920,7 +920,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 						g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
 							leaderworkersetv1.SetNameLabelKey: lws.Name,
 						}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
-						g.Expect(pods.Items).To(gomega.HaveLen(3))
+						g.Expect(pods.Items).To(gomega.HaveLen(2))
 						for _, pod := range pods.Items {
 							g.Expect(pod.Spec.SchedulingGates).NotTo(gomega.ContainElement(corev1.PodSchedulingGate{
 								Name: podconstants.SchedulingGateName,
@@ -955,7 +955,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 						g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
 							leaderworkersetv1.SetNameLabelKey: lws.Name,
 						}, client.InNamespace(lws.Namespace))).Should(gomega.Succeed())
-						g.Expect(pods.Items).To(gomega.HaveLen(3))
+						g.Expect(pods.Items).To(gomega.HaveLen(2))
 						for _, pod := range pods.Items {
 							g.Expect(pod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{
 								Name: podconstants.SchedulingGateName,
