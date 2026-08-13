@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
@@ -50,9 +51,9 @@ type ImportCache struct {
 	PriorityClasses map[string]*schedulingv1.PriorityClass
 	AddLabels       map[string]string
 
-	// Derived from ClusterQueues and ResourceFlavors at Load time; read-only after that.
-	FlavorValidation  map[string]error
-	FlavorsByResource map[string]map[corev1.ResourceName]kueue.ResourceFlavorReference
+	// Derived from ClusterQueues and ResourceFlavors at Load time.
+	flavorValidation  map[kueue.ClusterQueueReference]error
+	flavorsByResource map[kueue.ClusterQueueReference]map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
 func Load(ctx context.Context, c client.Client, namespaces []string, mappingRules mapping.Rules, addLabels map[string]string) (*ImportCache, error) {
@@ -91,13 +92,14 @@ func Load(ctx context.Context, c client.Client, namespaces []string, mappingRule
 	}
 	ret.PriorityClasses = utilslices.ToRefMap(pcList.Items, func(pc *schedulingv1.PriorityClass) string { return pc.Name })
 
-	ret.FlavorValidation = make(map[string]error, len(cqList.Items))
-	ret.FlavorsByResource = make(map[string]map[corev1.ResourceName]kueue.ResourceFlavorReference, len(cqList.Items))
+	ret.flavorValidation = make(map[kueue.ClusterQueueReference]error, len(cqList.Items))
+	ret.flavorsByResource = make(map[kueue.ClusterQueueReference]map[corev1.ResourceName]kueue.ResourceFlavorReference, len(cqList.Items))
 	for i := range cqList.Items {
 		cq := &cqList.Items[i]
 		rgs := resourceGroupsFrom(cq)
-		ret.FlavorsByResource[cq.Name] = flavorsByResourceFrom(rgs)
-		ret.FlavorValidation[cq.Name] = validateFlavors(cq.Name, rgs, ret.ResourceFlavors)
+		cqRef := kueue.ClusterQueueReference(cq.Name)
+		ret.flavorsByResource[cqRef] = flavorsByResourceFrom(rgs)
+		ret.flavorValidation[cqRef] = validateFlavors(cq.Name, rgs, ret.ResourceFlavors)
 	}
 
 	return &ret, nil
@@ -140,12 +142,15 @@ func flavorsByResourceFrom(rgs []resourcegroups.ResourceGroup) map[corev1.Resour
 // validateFlavors checks that every ResourceFlavor referenced by rgs is known.
 func validateFlavors(cqName string, rgs []resourcegroups.ResourceGroup, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) error {
 	// Sorted for a deterministic error message; AllFlavors returns a set.
-	flavors := resourcegroups.AllFlavors(rgs).UnsortedList()
-	slices.Sort(flavors)
+	flavors := sets.List(resourcegroups.AllFlavors(rgs))
+	missing := make([]kueue.ResourceFlavorReference, 0)
 	for _, flavor := range flavors {
 		if _, found := resourceFlavors[flavor]; !found {
-			return fmt.Errorf("%q flavor %q: %w", cqName, flavor, ErrCQInvalid)
+			missing = append(missing, flavor)
 		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%q missing flavors %v: %w", cqName, missing, ErrCQInvalid)
 	}
 	return nil
 }
@@ -170,4 +175,20 @@ func (ic *ImportCache) LocalQueueForPod(p *corev1.Pod) (*kueue.LocalQueue, bool,
 		return nil, false, fmt.Errorf("%s: %w", queueName, ErrLQNotFound)
 	}
 	return lq, false, nil
+}
+
+func (ic *ImportCache) FlavorValidationForClusterQueue(cqName kueue.ClusterQueueReference) error {
+	return ic.flavorValidation[cqName]
+}
+
+func (ic *ImportCache) FlavorsByResourceForClusterQueue(cqName kueue.ClusterQueueReference) map[corev1.ResourceName]kueue.ResourceFlavorReference {
+	flavorsByResource := ic.flavorsByResource[cqName]
+	if flavorsByResource == nil {
+		return nil
+	}
+
+	ret := make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(flavorsByResource))
+	maps.Copy(ret, flavorsByResource)
+
+	return ret
 }

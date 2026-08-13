@@ -17,11 +17,13 @@ limitations under the License.
 package cache
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -65,7 +67,7 @@ func TestFlavorsByResourceFrom(t *testing.T) {
 				corev1.ResourceName("nvidia.com/gpu"): "on-demand",
 			},
 		},
-		"omits resources not covered by any resource group": {
+		"returns only resources covered by resource groups": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("cpu-flavor").
@@ -86,4 +88,45 @@ func TestFlavorsByResourceFrom(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateFlavors(t *testing.T) {
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("spot").
+				Resource(corev1.ResourceCPU, "10", "0").
+				Obj(),
+			*utiltestingapi.MakeFlavorQuotas("on-demand").
+				Resource(corev1.ResourceCPU, "10", "0").
+				Obj(),
+			*utiltestingapi.MakeFlavorQuotas("reserved").
+				Resource(corev1.ResourceCPU, "10", "0").
+				Obj(),
+		).Obj()
+
+	rgs := resourceGroupsFrom(cq)
+
+	t.Run("returns nil when all referenced flavors exist", func(t *testing.T) {
+		err := validateFlavors(cq.Name, rgs, map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+			"on-demand": {ObjectMeta: metav1.ObjectMeta{Name: "on-demand"}},
+			"reserved":  {ObjectMeta: metav1.ObjectMeta{Name: "reserved"}},
+			"spot":      {ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
+		})
+		if err != nil {
+			t.Fatalf("validateFlavors() = %v, want nil", err)
+		}
+	})
+
+	t.Run("returns all missing flavors in deterministic order", func(t *testing.T) {
+		err := validateFlavors(cq.Name, rgs, map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+			"spot": {ObjectMeta: metav1.ObjectMeta{Name: "spot"}},
+		})
+		if !errors.Is(err, ErrCQInvalid) {
+			t.Fatalf("validateFlavors() error = %v, want wrapped %v", err, ErrCQInvalid)
+		}
+		want := "\"cq\" missing flavors [on-demand reserved]: clusterqueue invalid"
+		if got := err.Error(); got != want {
+			t.Fatalf("validateFlavors() error = %q, want %q", got, want)
+		}
+	})
 }
