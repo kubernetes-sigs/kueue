@@ -85,10 +85,10 @@ type fsLogClusterQueue struct {
 // the target ordering. The preemptor's incoming workload requests 3 CPU, so
 // the preemptor borrows too. That keeps runFirstFsStrategy on the strategy
 // path instead of the FairSharingPreemptWithinNominal shortcut.
-func newFsLogFixture(t *testing.T, log logr.Logger, cqs []fsLogClusterQueue) fsLogFixture {
-	t.Helper()
+func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fsLogFixture {
+	tb.Helper()
 	now := time.Now()
-	ctx, setupLog := utiltesting.ContextWithLog(t)
+	ctx, setupLog := utiltesting.ContextWithLog(tb)
 
 	flavor := utiltestingapi.MakeResourceFlavor("default").Obj()
 	clusterQueues := []*kueue.ClusterQueue{
@@ -127,12 +127,12 @@ func newFsLogFixture(t *testing.T, log logr.Logger, cqs []fsLogClusterQueue) fsL
 	cqCache.AddOrUpdateResourceFlavor(setupLog, flavor)
 	for _, cq := range clusterQueues {
 		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
-			t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+			tb.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
 		}
 	}
 	snapshot, err := cqCache.Snapshot(ctx)
 	if err != nil {
-		t.Fatalf("unexpected error while building snapshot: %v", err)
+		tb.Fatalf("unexpected error while building snapshot: %v", err)
 	}
 
 	incoming := utiltestingapi.MakeWorkload("a-incoming", "").
