@@ -48,6 +48,7 @@ In elastic workloads (such as RayJob with autoscaling), jobs dynamically scale u
 
 - Partial admission for initial job creation when only partial scale-up is configured.
 - Support for `batch/v1 Job` (`batch.job`) integration.
+- Respecting pod indexing when ungating pods.
 
 ## Proposal
 
@@ -76,24 +77,24 @@ Also, a new Workload representing the full job will be created and added to the 
 
 ### Enablement
 
-PartialScaleUpForElasticJob for elastic jobs in Kueue is enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. At the cluster level, the PartialScaleUpForElasticJob feature (disabled by default) must be enabled via the corresponding Kueue feature gate.
+Partial ScaleUp for elastic jobs in Kueue is enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. At the cluster level, the ElasticJobWithPartialScaleUp feature (disabled by default) must be enabled via the corresponding Kueue feature gate.
 
-Once the feature gate is enabled, individual Job objects can opt into partial admission by including the `kueue.x-k8s.io/elastic-job-partial-scale-up="true"` annotation. 
+Once the feature gate is enabled, individual Job objects can opt into partial admission by including the `kueue.x-k8s.io/elastic-job-scale-up="partial"` annotation. 
 When both conditions are met, Kueue treats the Workload as eligible for partial scale up. 
 
 #### Features
 ```go
 	// Enables partial scale up for elastic jobs.
-	PartialScaleUpForElasticJob featuregate.Feature = "PartialScaleUpForElasticJob"
+	ElasticJobWithPartialScaleUp featuregate.Feature = "ElasticJobWithPartialScaleUp"
 ```
 
-#### Partial ScaleUp Annotation
+#### ElasticJob ScaleUp Annotation
 ```go
 const (
-  // EnabledAnnotationKey refers to the annotation key present on Jobs that support
+  // ElasticJobScaleUpAnnotationKey refers to the annotation key present on Jobs that support
   // partial scale up.
   // This annotation is alpha-level.
-  EnabledPartialScaleUpForElasticJob = "kueue.x-k8s.io/partial-scale-up-for-elastic-job"
+  ElasticJobScaleUpAnnotationKey = "kueue.x-k8s.io/elastic-job-scale-up"
 )
 ```
 The proposal relies on following existing API:
@@ -144,7 +145,7 @@ The newly created workload for opportunistic scale up should have a different na
 
 Consider a scenario where:
 1. The ClusterQueue has a total quota of **7** for the requested resource flavor.
-2. The `RayCluster` is configured for both `ElasticJobs` and `PartialScaleUpForElasticJob`.
+2. The `RayCluster` is configured for both `ElasticJobs` and `ElasticJobWithPartialScaleUp`.
 3. The user performs a two-step scale up of the `RayCluster`: starting at **5** replicas, scaling up to **10**, and then to **12**.
 
 ##### Step 0: Job Creation (Initial Size: 5)
@@ -158,7 +159,7 @@ Consider a scenario where:
   1. **KubeRay Controller**: Creates `RayCluster`.
   2. **Workload Controller**: Detects the `RayCluster` and creates `wl-A` with `spec.podSets.count = 5` and `spec.podSets.minCount = 5`.
   3. **Kueue Scheduler**: Evaluates `wl-A`. Since the requested 5 pods fit within the available quota of 7, it admits `wl-A` (`status.admission.count = 5`), reserving 5 units of quota.
-  4. **ElasticJobUngater Controller**: Detects that `wl-A` is admitted and removes the scheduling gate from the 5 pods respecting the pod indexing.
+  4. **ElasticJobUngater Controller**: Detects that `wl-A` is admitted and removes the scheduling gate from the 5 pods.
   5. **Kube-scheduler**: Schedules the 5 ungated pods, which transition to the Running state.
 * **Quota usage**: 5/7 (2 available).
 
