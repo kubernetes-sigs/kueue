@@ -38,6 +38,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -233,7 +234,7 @@ func NewWorkloadPriorityClassReferenceReconciler(
 	}
 }
 
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;update;patch
 
 func (r *WorkloadPriorityClassReferenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	var wl kueue.Workload
@@ -261,8 +262,13 @@ func (r *WorkloadPriorityClassReferenceReconciler) Reconcile(ctx context.Context
 		return ctrl.Result{}, nil
 	}
 
-	wl.Spec.Priority = new(wpc.Value)
-	if err := r.client.Update(ctx, &wl); err != nil {
+	// Patched rather than updated: the workload was read whole from the API
+	// server, and one field of it is this controller's to write. Strict is the
+	// helper's default, so the resourceVersion read above still has to match.
+	if err := clientutil.Patch(ctx, r.client, &wl, func() (bool, error) {
+		wl.Spec.Priority = new(wpc.Value)
+		return true, nil
+	}); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 	// The class can move between the read above and this write, and the pass that

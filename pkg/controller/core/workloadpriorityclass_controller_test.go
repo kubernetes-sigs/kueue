@@ -458,13 +458,13 @@ func TestWorkloadPriorityClassReferenceReconcile(t *testing.T) {
 		workload     *kueue.Workload
 		class        *kueue.WorkloadPriorityClass
 		wantPriority *int32
-		wantUpdates  int
+		wantWrites   int
 	}{
 		"a value left behind by an earlier reconcile": {
 			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
 			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
 			wantPriority: new(int32(200)),
-			wantUpdates:  1,
+			wantWrites:   1,
 		},
 		// The rule this pins: the class wins over a value the user chose. A
 		// Workload created already referencing a class is resolved from it at
@@ -475,7 +475,7 @@ func TestWorkloadPriorityClassReferenceReconcile(t *testing.T) {
 			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(123).Obj(),
 			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
 			wantPriority: new(int32(200)),
-			wantUpdates:  1,
+			wantWrites:   1,
 		},
 		"a value already in step with the class": {
 			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(200).Obj(),
@@ -507,7 +507,7 @@ func TestWorkloadPriorityClassReferenceReconcile(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			var updates, workloadLists int
+			var writes, workloadLists int
 			objs := []client.Object{tc.workload}
 			if tc.class != nil {
 				objs = append(objs, tc.class)
@@ -515,9 +515,15 @@ func TestWorkloadPriorityClassReferenceReconcile(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithObjects(objs...).
 				WithInterceptorFuncs(interceptor.Funcs{
+					// Counted whichever verb carries it, so the count says how
+					// often the workload was written rather than which call did it.
 					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-						updates++
+						writes++
 						return c.Update(ctx, obj, opts...)
+					},
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						writes++
+						return c.Patch(ctx, obj, patch, opts...)
 					},
 					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 						if _, isWorkloads := list.(*kueue.WorkloadList); isWorkloads {
@@ -539,8 +545,8 @@ func TestWorkloadPriorityClassReferenceReconcile(t *testing.T) {
 			if diff := cmp.Diff(tc.wantPriority, got.Spec.Priority); diff != "" {
 				t.Errorf("workload priority (-want +got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantUpdates, updates); diff != "" {
-				t.Errorf("workload updates (-want +got):\n%s", diff)
+			if diff := cmp.Diff(tc.wantWrites, writes); diff != "" {
+				t.Errorf("workload writes (-want +got):\n%s", diff)
 			}
 			// The whole point of keying on the Workload: one arriving at a
 			// class must not cost a pass over every other Workload using it.

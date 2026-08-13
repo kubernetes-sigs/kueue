@@ -129,6 +129,36 @@ func TestReferenceReconcileResolvesTheRequeueFromTheAPIServer(t *testing.T) {
 	// to the API server.
 	var mgrClient client.WithWatch
 	moved := false
+	// The class moves once the workload write has landed, whichever verb carried
+	// it. Its own informer sees that, which is what queues the sweep, while the
+	// workload informer is still behind the write.
+	afterWorkloadWrite := func(ctx context.Context, obj client.Object) error {
+		if _, ok := obj.(*kueue.Workload); !ok || moved {
+			return nil
+		}
+		moved = true
+		var live kueue.WorkloadPriorityClass
+		if err := api.Get(ctx, client.ObjectKey{Name: "high"}, &live); err != nil {
+			t.Fatalf("moving the class: %v", err)
+		}
+		live.Value = 200
+		if err := api.Update(ctx, &live); err != nil {
+			t.Fatalf("moving the class: %v", err)
+		}
+		var cached kueue.WorkloadPriorityClass
+		if err := cache.Get(ctx, client.ObjectKey{Name: "high"}, &cached); err != nil {
+			t.Fatalf("moving the class: %v", err)
+		}
+		live.ResourceVersion = cached.ResourceVersion
+		if err := cache.Update(ctx, &live); err != nil {
+			t.Fatalf("moving the class: %v", err)
+		}
+		sweep := NewWorkloadPriorityClassReconciler(mgrClient, roletracker.NewFakeRoleTracker("leader"))
+		if _, err := sweep.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "high"}}); err != nil {
+			t.Errorf("class sweep: %v", err)
+		}
+		return nil
+	}
 	mgrClient = interceptor.NewClient(api, interceptor.Funcs{
 		Get: func(ctx context.Context, _ client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 			return cache.Get(ctx, key, obj, opts...)
@@ -140,34 +170,13 @@ func TestReferenceReconcileResolvesTheRequeueFromTheAPIServer(t *testing.T) {
 			if err := c.Update(ctx, obj, opts...); err != nil {
 				return err
 			}
-			if _, ok := obj.(*kueue.Workload); !ok || moved {
-				return nil
+			return afterWorkloadWrite(ctx, obj)
+		},
+		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+			if err := c.Patch(ctx, obj, patch, opts...); err != nil {
+				return err
 			}
-			moved = true
-			// The class moves once the write has landed. Its own informer sees
-			// that, which is what queues the sweep, while the workload informer
-			// is still behind the write.
-			var live kueue.WorkloadPriorityClass
-			if err := api.Get(ctx, client.ObjectKey{Name: "high"}, &live); err != nil {
-				t.Fatalf("moving the class: %v", err)
-			}
-			live.Value = 200
-			if err := api.Update(ctx, &live); err != nil {
-				t.Fatalf("moving the class: %v", err)
-			}
-			var cached kueue.WorkloadPriorityClass
-			if err := cache.Get(ctx, client.ObjectKey{Name: "high"}, &cached); err != nil {
-				t.Fatalf("moving the class: %v", err)
-			}
-			live.ResourceVersion = cached.ResourceVersion
-			if err := cache.Update(ctx, &live); err != nil {
-				t.Fatalf("moving the class: %v", err)
-			}
-			sweep := NewWorkloadPriorityClassReconciler(mgrClient, roletracker.NewFakeRoleTracker("leader"))
-			if _, err := sweep.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: "high"}}); err != nil {
-				t.Errorf("class sweep: %v", err)
-			}
-			return nil
+			return afterWorkloadWrite(ctx, obj)
 		},
 	})
 
