@@ -437,8 +437,8 @@ func TestMergeKeepMaxOwnsItsResult(t *testing.T) {
 
 			after := b[corev1.ResourceMemory]
 			t.Logf("b was %s, is now %s", want.String(), after.String())
-			if want.Cmp(after) != 0 {
-				t.Errorf("mutating the merged result changed the input: %s became %s", want.String(), after.String())
+			if diff := cmp.Diff(want, after); diff != "" {
+				t.Errorf("mutating the merged result changed the input (-want +after):\n%s", diff)
 			}
 		})
 	}
