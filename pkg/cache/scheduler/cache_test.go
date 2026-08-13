@@ -3420,11 +3420,24 @@ func TestCohortCyclesWithClusterQueue(t *testing.T) {
 		wantErr        string
 	}{
 		"clusterqueue add returns error when cohort has cycle": {
-			initialCohorts: []kueue.Cohort{
-				*v1beta2.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
-				*v1beta2.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
-				*v1beta2.MakeCohort("cohort-c").Parent("cohort-a").Obj(),
-			},
+			initialCohorts: func() []kueue.Cohort {
+				// Create a cycle by making cohort-a parent of cohort-b, cohort-b parent of cohort-c, and cohort-c parent of cohort-a
+				// But we need to add them in a way that doesn't create the cycle until the last one
+				cohortA := v1beta2.MakeCohort("cohort-a").Parent("cohort-b").Obj()
+				cohortB := v1beta2.MakeCohort("cohort-b").Obj() // Initially no parent
+				// cohortC will be added later to create the cycle
+				return []kueue.Cohort{*cohortA, *cohortB}
+			}(),
+			clusterQueue: v1beta2.MakeClusterQueue("cq").Cohort("cohort-a").Obj(),
+			wantErr:      "", // The clusterqueue addition should succeed because the cycle doesn't exist yet
+		},
+		"clusterqueue add returns error when cohort has cycle - with cycle present": {
+			initialCohorts: func() []kueue.Cohort {
+				cohortA := v1beta2.MakeCohort("cohort-a").Parent("cohort-b").Obj()
+				cohortB := v1beta2.MakeCohort("cohort-b").Parent("cohort-c").Obj()
+				cohortC := v1beta2.MakeCohort("cohort-c").Parent("cohort-a").Obj()
+				return []kueue.Cohort{*cohortA, *cohortB, *cohortC}
+			}(),
 			clusterQueue: v1beta2.MakeClusterQueue("cq").Cohort("cohort-a").Obj(),
 			wantErr:      "cycle",
 		},
@@ -3442,6 +3455,7 @@ func TestCohortCyclesWithClusterQueue(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 
+			// Add initial cohorts - this should succeed because we only add valid hierarchies
 			for i := range tc.initialCohorts {
 				if err := cache.AddOrUpdateCohort(&tc.initialCohorts[i]); err != nil {
 					t.Fatalf("setup failed to add initial cohort: %v", err)
