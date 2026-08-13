@@ -30,6 +30,7 @@ import (
 	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/constants"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 
 	_ "k8s.io/metrics/pkg/apis/metrics/install"
 )
@@ -73,14 +74,14 @@ func (m *pendingWorkloadsInCqREST) Get(_ context.Context, name string, opts runt
 	}
 	wls := make([]visibility.PendingWorkload, 0, min(limit, int64(len(pendingWorkloadsInfo))))
 
-	localQueuePositions := make(map[kueue.LocalQueueName]int32, 0)
+	localQueuePositions := make(map[utilqueue.LocalQueueReference]int32, 0)
 
 	for index := 0; index < int(offset+limit) && index < len(pendingWorkloadsInfo); index++ {
 		// Update positions in LocalQueue
 		wlInfo := pendingWorkloadsInfo[index]
-		queueName := wlInfo.Obj.Spec.QueueName
-		positionInLocalQueue := localQueuePositions[queueName]
-		localQueuePositions[queueName]++
+		queueKey := utilqueue.KeyFromWorkload(wlInfo.Obj)
+		positionInLocalQueue := localQueuePositions[queueKey]
+		localQueuePositions[queueKey]++
 
 		if index >= int(offset) {
 			// Add a workload to results
