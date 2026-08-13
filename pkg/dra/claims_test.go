@@ -779,7 +779,7 @@ func exactReq(name, deviceClass string, count int64) resourcev1.DeviceRequest {
 	}
 }
 
-func Test_chargesForClaimSpec_overflow(t *testing.T) {
+func TestChargesForClaimSpecOverflow(t *testing.T) {
 	cases := map[string]struct {
 		requests  []resourcev1.DeviceRequest
 		wantCount int64
