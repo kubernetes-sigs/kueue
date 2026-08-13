@@ -947,7 +947,8 @@ back from is a later view. The processing order:
 4. The container contribution is subtracted from what is still retained under that name,
    so pod overhead and anything a transformation added under it survive. A name an
    excluded prefix removed, or a `Replace` transformation consumed, has nothing left to
-   subtract from and nothing left to keep
+   subtract from. A transformation may still generate a contribution under the same
+   name, and generated contributions are not touched by the subtraction
 5. Translated resource is added through `preprocessedDRAResources`
 
 The container contribution is aggregated the way a Pod's own requests are, so a restartable
@@ -977,7 +978,8 @@ metadata:
 spec:
   extendedResourceName: example.com/gpu
 ---
-# Kueue config: deviceClassMappings only needed for ResourceClaimTemplate path
+# Kueue config: the ResourceClaimTemplate path needs deviceClassMappings, and
+# the extended-resource path reuses the same entry when one covers its DeviceClass
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 resources:
@@ -997,15 +999,22 @@ spec:
     flavors:
     - name: default
       resources:
-      - name: example.com/gpu    # for extended resource users
-        nominalQuota: 4
-      - name: gpu-claims          # for ResourceClaimTemplate users
+      - name: gpu-claims          # both paths charge here
+        nominalQuota: 8
+      - name: example.com/gpu    # residual only, see below
         nominalQuota: 4
 ```
 
-Both quota buckets draw from the same physical hardware. The admin controls how capacity is
-split between the two user populations. Since these are different resource names, the split
-is fixed at configuration time.
+`gpu-claims` is the device count both populations draw from. A container asking for
+`example.com/gpu` resolves its DeviceClass through the same `deviceClassMappings` entry,
+so it is charged to `gpu-claims` alongside the ResourceClaimTemplate users rather than to
+its own name. Giving the original name its own quota does not create a second device
+population, and splitting the eight devices between the two names would leave half of them
+unreachable.
+
+`example.com/gpu` is only needed where something other than the containers' request survives
+under that name, a chargeable pod overhead or a resource transformation output. Size it for
+that, not for devices.
 
 #### DeviceClass Resolution via Field Indexer
 
