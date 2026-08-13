@@ -911,9 +911,10 @@ The two DRA paths resolve quota independently:
 
 #### Processing Flow
 
-1. Kueue detects extended resources in `resources.requests` and computes each
-   original resource name's Pod-level request the way a Pod's own requests are
-   computed, before any DeviceClass lookup or quota-key mapping. Regular and
+1. Kueue detects extended resources in the `resources.requests` of the PodSet spec
+   `AdjustResources` has already processed, and computes each original resource
+   name's Pod-level request the way a Pod's own requests are computed, before any
+   DeviceClass lookup or quota-key mapping. Regular and
    restartable init containers together make the long-running total; each init
    container is measured with the restartable ones already running beside it;
    and the charge is the larger of that total and the largest of those init
@@ -952,11 +953,13 @@ back from is a later view. The processing order:
    name, and generated contributions are not touched by the subtraction
 5. Translated resource is added through `preprocessedDRAResources`
 
-The container contribution is the figure step 1 computes, so the charge and the subtraction
-come from the same aggregation. For an extended resource name whose DeviceClass resolution
-holds for the length of preprocessing, the amount subtracted is the amount charged. Each
-name is aggregated under its own name before any mapping, so two names reaching one logical
-resource are charged and subtracted alike.
+These steps run during DRA preprocessing, before Kueue's accounting exclusions and resource
+transformations; what they produce is merged in later, when `TotalRequests` is built from the
+same spec. The container contribution is the figure step 1 computes, so the charge and the
+subtraction come from the same aggregation. For a name whose requests are valid and whose
+DeviceClass resolution holds for the length of preprocessing, the amount subtracted is the
+amount charged. Each name is aggregated under its own name before any mapping, so two names
+reaching one logical resource are charged and subtracted alike.
 
 This keeps the extended resource from being counted twice under its own name. It does not
 reach a resource transformation naming the same resource: a `Replace` consuming a DRA-backed
@@ -967,8 +970,9 @@ tracked in [#14160](https://github.com/kubernetes-sigs/kueue/issues/14160).
 #### Same Hardware with Both Paths
 
 When the same hardware needs to serve both ResourceClaimTemplate users and extended resource
-users, admins configure separate flavors under the same ClusterQueue. Assuming a cluster
-with 1 node and 8 GPU devices available:
+users, both paths resolve to one logical device count, so admins give that name the quota
+and cover the original name beside it for whatever the charge does not replace. Assuming a
+cluster with 1 node and 8 GPU devices available:
 
 ```yaml
 # DeviceClass
@@ -996,7 +1000,7 @@ metadata:
   name: gpu-queue
 spec:
   resourceGroups:
-  - coveredResources: ["example.com/gpu", "gpu-claims"]
+  - coveredResources: ["gpu-claims", "example.com/gpu"]
     flavors:
     - name: default
       resources:
