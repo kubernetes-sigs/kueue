@@ -30,8 +30,11 @@ def is_authorized(
         raise ValueError("OWNERS_ALIASES must contain an aliases mapping.")
 
     aliases = document["aliases"]
+    authorized = False
     for alias in authorized_aliases:
-        members = aliases.get(alias, [])
+        if alias not in aliases:
+            raise ValueError(f"OWNERS_ALIASES must define alias {alias!r}.")
+        members = aliases[alias]
         if not isinstance(members, list) or not all(
             isinstance(member, str) for member in members
         ):
@@ -39,8 +42,8 @@ def is_authorized(
                 f"OWNERS_ALIASES alias {alias!r} must contain a list of names."
             )
         if actor in members:
-            return True
-    return False
+            authorized = True
+    return authorized
 
 
 def main() -> int:

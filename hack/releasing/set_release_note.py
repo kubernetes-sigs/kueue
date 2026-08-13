@@ -21,24 +21,109 @@ from pathlib import Path
 
 COMMAND = "/set-release-note"
 MAX_PR_BODY_LENGTH = 65_536
-RELEASE_NOTE_START_RE = re.compile(r"(?m)^[ \t]*```release-note[ \t]*\r?$")
-RELEASE_NOTE_BLOCK_RE = re.compile(
-    r"(?ms)^[ \t]*```release-note[ \t]*\r?\n.*?^[ \t]*```[ \t]*\r?$"
+FENCE_RE = re.compile(
+    r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*?)[ \t]*(?:\r?\n)?$"
 )
+
+
+def _match_fence(line: str) -> re.Match[str] | None:
+    """Match a CommonMark fence line, including its info-string restriction."""
+    match = FENCE_RE.fullmatch(line)
+    if (
+        match is not None
+        and match.group("fence")[0] == "`"
+        and "`" in match.group("info")
+    ):
+        return None
+    return match
 
 
 def parse_release_note(comment: str) -> str:
     """Parse and validate the release note from a ChatOps comment."""
-    lines = comment.replace("\r\n", "\n").strip().splitlines()
-    if not lines or lines[0].strip() != COMMAND:
+    lines = comment.replace("\r\n", "\n").splitlines()
+    if not lines or lines[0] != COMMAND:
         raise ValueError(f"{COMMAND} must be the first line of the comment.")
 
     release_note = "\n".join(lines[1:]).strip()
     if not release_note:
         raise ValueError(f"{COMMAND} must be followed by a non-empty release note.")
-    if "```" in release_note:
+    if any(_match_fence(line) for line in release_note.splitlines()):
         raise ValueError("The release note must not contain a fenced code block.")
     return release_note
+
+
+def _line_content_end(line: str) -> int:
+    """Return the offset before a line's newline sequence."""
+    return len(line.rstrip("\r\n"))
+
+
+def _release_note_spans(pr_body: str) -> list[tuple[int, int]]:
+    """Find top-level release-note spans without consuming malformed content."""
+    lines = pr_body.splitlines(keepends=True)
+    offsets: list[int] = []
+    offset = 0
+    for line in lines:
+        offsets.append(offset)
+        offset += len(line)
+
+    spans: list[tuple[int, int]] = []
+    line_index = 0
+    while line_index < len(lines):
+        opening = _match_fence(lines[line_index])
+        if opening is None:
+            line_index += 1
+            continue
+
+        fence = opening.group("fence")
+        fence_char = fence[0]
+        fence_length = len(fence)
+        info = opening.group("info").strip()
+        is_release_note = fence_char == "`" and info == "release-note"
+
+        closing_index: int | None = None
+        nested_fence_index: int | None = None
+        for candidate_index in range(line_index + 1, len(lines)):
+            candidate = _match_fence(lines[candidate_index])
+            if candidate is None:
+                continue
+
+            candidate_fence = candidate.group("fence")
+            candidate_info = candidate.group("info").strip()
+            if (
+                candidate_info == ""
+                and candidate_fence[0] == fence_char
+                and len(candidate_fence) >= fence_length
+            ):
+                closing_index = candidate_index
+                break
+            if (
+                is_release_note
+                and candidate_fence[0] == fence_char
+                and len(candidate_fence) < fence_length
+            ):
+                continue
+            if is_release_note and candidate_fence[0] == fence_char:
+                nested_fence_index = candidate_index
+                break
+
+        if is_release_note:
+            start = offsets[line_index]
+            if closing_index is None:
+                end = start + _line_content_end(lines[line_index])
+            else:
+                end = offsets[closing_index] + _line_content_end(lines[closing_index])
+            spans.append((start, end))
+
+        if closing_index is not None:
+            line_index = closing_index + 1
+        elif nested_fence_index is not None:
+            line_index = nested_fence_index
+        elif not is_release_note:
+            line_index = len(lines)
+        else:
+            line_index += 1
+
+    return spans
 
 
 def set_release_note(pr_body: str, release_note: str) -> str:
@@ -61,18 +146,14 @@ def set_release_note(pr_body: str, release_note: str) -> str:
     ... )
     'Summary\\n\\n```release-note\\nnew note\\n```\\nold note\\n\\nDetails\\n'
     """
-    starts = list(RELEASE_NOTE_START_RE.finditer(pr_body))
-    blocks = list(RELEASE_NOTE_BLOCK_RE.finditer(pr_body))
-    if len(starts) > 1:
+    spans = _release_note_spans(pr_body)
+    if len(spans) > 1:
         raise ValueError("The pull request body contains multiple release-note blocks.")
 
     new_block = f"```release-note\n{release_note}\n```"
-    if blocks:
-        block = blocks[0]
-        updated_body = f"{pr_body[:block.start()]}{new_block}{pr_body[block.end():]}"
-    elif starts:
-        start = starts[0]
-        updated_body = f"{pr_body[:start.start()]}{new_block}{pr_body[start.end():]}"
+    if spans:
+        start, end = spans[0]
+        updated_body = f"{pr_body[:start]}{new_block}{pr_body[end:]}"
     elif pr_body.strip():
         updated_body = f"{pr_body.rstrip()}\n\n{new_block}\n"
     else:

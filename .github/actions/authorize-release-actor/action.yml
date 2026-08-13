@@ -1,0 +1,72 @@
+name: Authorize release actor
+description: Checks whether an actor belongs to one of the configured OWNERS aliases.
+
+inputs:
+  actor:
+    description: GitHub login to authorize.
+    required: true
+  aliases:
+    description: Newline-separated OWNERS aliases allowed to run the operation.
+    required: true
+  owners-file:
+    description: Path to the OWNERS_ALIASES file.
+    required: false
+    default: OWNERS_ALIASES
+
+outputs:
+  error_message:
+    description: User-facing authorization or configuration error.
+    value: ${{ steps.verify.outputs.error_message }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      with:
+        python-version: '3.12'
+
+    - name: Install Python dependencies
+      shell: bash
+      run: |
+        python3 -m pip install \
+          --no-deps \
+          --only-binary=:all: \
+          --require-hashes \
+          --requirement hack/releasing/requirements.txt
+
+    - name: Verify actor authorization
+      id: verify
+      shell: bash
+      env:
+        ACTOR: ${{ inputs.actor }}
+        AUTHORIZED_ALIASES: ${{ inputs.aliases }}
+        OWNERS_FILE: ${{ inputs.owners-file }}
+      run: |
+        alias_args=()
+        while IFS= read -r alias; do
+          if [ -n "$alias" ]; then
+            alias_args+=(--alias "$alias")
+          fi
+        done <<< "$AUTHORIZED_ALIASES"
+
+        set +e
+        authorization_error=$(python3 hack/releasing/authorize_release_actor.py \
+          --actor "$ACTOR" \
+          --owners-file "$OWNERS_FILE" \
+          "${alias_args[@]}" 2>&1)
+        authorization_status=$?
+        set -e
+
+        if [ "$authorization_status" -eq 0 ]; then
+          exit 0
+        fi
+        if [ "$authorization_status" -eq 1 ]; then
+          error_message="❌ Actor $ACTOR is not authorized."
+        else
+          authorization_error=${authorization_error//$'\n'/ }
+          authorization_error=${authorization_error//$'\r'/ }
+          error_message="❌ Failed to validate $OWNERS_FILE: $authorization_error"
+        fi
+        echo "error_message=$error_message" >> "$GITHUB_OUTPUT"
+        exit "$authorization_status"

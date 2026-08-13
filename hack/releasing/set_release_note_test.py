@@ -37,10 +37,6 @@ class ParseReleaseNoteTest(unittest.TestCase):
                 "/set-release-note\nFirst line\nSecond line",
                 "First line\nSecond line",
             ),
-            "surrounding whitespace": (
-                "  /set-release-note  \n\n  A useful change  \n",
-                "A useful change",
-            ),
             "CRLF line endings": (
                 "/set-release-note\r\nFirst line\r\nSecond line\r\n",
                 "First line\nSecond line",
@@ -61,6 +57,10 @@ class ParseReleaseNoteTest(unittest.TestCase):
                 "Please update this.\n/set-release-note\nA useful change",
                 "/set-release-note must be the first line of the comment.",
             ),
+            "command with surrounding whitespace": (
+                "  /set-release-note  \nA useful change",
+                "/set-release-note must be the first line of the comment.",
+            ),
             "missing note": (
                 "/set-release-note",
                 "/set-release-note must be followed by a non-empty release note.",
@@ -71,6 +71,10 @@ class ParseReleaseNoteTest(unittest.TestCase):
             ),
             "fenced block in note": (
                 "/set-release-note\n```text\nA useful change\n```",
+                "The release note must not contain a fenced code block.",
+            ),
+            "tilde-fenced block in note": (
+                "/set-release-note\n~~~text\nA useful change\n~~~",
                 "The release note must not contain a fenced code block.",
             ),
         }
@@ -108,6 +112,61 @@ class SetReleaseNoteTest(unittest.TestCase):
                 "```release-note\nold note\n```\n",
                 r"Use $1 and \\1 literally",
                 "```release-note\nUse $1 and \\\\1 literally\n```\n",
+            ),
+            "preserve a structured block after an unclosed release note": (
+                "Summary\n\n```release-note\nold note\n\nDetails\n"
+                "```go\nfmt.Println(1)\n```\n\nTail\n",
+                "new note",
+                "Summary\n\n```release-note\nnew note\n```\nold note\n\nDetails\n"
+                "```go\nfmt.Println(1)\n```\n\nTail\n",
+            ),
+            "preserve a tilde block after an unclosed release note": (
+                "```release-note\nold note\n~~~go\nfmt.Println(1)\n~~~\n",
+                "new note",
+                "```release-note\nnew note\n```\nold note\n"
+                "~~~go\nfmt.Println(1)\n~~~\n",
+            ),
+            "accept a longer closing fence": (
+                "Summary\n\n```release-note\nold note\n````\n\nDetails\n",
+                "new note",
+                "Summary\n\n```release-note\nnew note\n```\n\nDetails\n",
+            ),
+            "replace a longer block containing a shorter fence": (
+                "````release-note\nold note\n```\nmore old note\n````\nTail\n",
+                "new note",
+                "```release-note\nnew note\n```\nTail\n",
+            ),
+            "replace a block containing a different fence character": (
+                "```release-note\nold note\n~~~yaml\nkey: value\n~~~\n```\nTail\n",
+                "new note",
+                "```release-note\nnew note\n```\nTail\n",
+            ),
+            "replace a three-space-indented block": (
+                "   ```release-note\nold note\n   ```\n",
+                "new note",
+                "```release-note\nnew note\n```\n",
+            ),
+            "preserve CRLF around a replacement": (
+                "Summary\r\n\r\n```release-note\r\nold note\r\n```\r\nTail\r\n",
+                "new note",
+                "Summary\r\n\r\n```release-note\nnew note\n```\r\nTail\r\n",
+            ),
+            "ignore release note example in an outer fence": (
+                "````markdown\n```release-note\nexample\n```\n````\n",
+                "new note",
+                "````markdown\n```release-note\nexample\n```\n````\n\n"
+                "```release-note\nnew note\n```\n",
+            ),
+            "ignore an invalid backtick info string": (
+                "```bad`info\ntext\n```release-note\nold note\n```\n",
+                "new note",
+                "```bad`info\ntext\n```release-note\nnew note\n```\n",
+            ),
+            "ignore four-space-indented release note example": (
+                "    ```release-note\n    example\n    ```\n",
+                "new note",
+                "    ```release-note\n    example\n    ```\n\n"
+                "```release-note\nnew note\n```\n",
             ),
         }
 
