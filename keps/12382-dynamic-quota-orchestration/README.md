@@ -51,6 +51,7 @@
   - [One CRD per capacity provider](#one-crd-per-capacity-provider)
   - [Typed union of built-in providers](#typed-union-of-built-in-providers)
   - [CapacityProvider referencing namespaced config](#capacityprovider-referencing-namespaced-config)
+  - [Nested ResorceCapacity for CapacitySnapshot](#nested-resorcecapacity-for-capacitysnapshot)
 <!-- /toc -->
 
 ## Summary
@@ -423,29 +424,13 @@ type AggregatedCapacityFlavor struct {
     // +required
     Name ResourceFlavorReference `json:"name"`
 
-    // resources lists capacity by resource name.
-    //
-    // +listType=map
-    // +listMapKey=name
-    // +kubebuilder:validation:MinItems=1
-    // +kubebuilder:validation:MaxItems=128
-    Resources []ResourceCapacity `json:"resources"`
-}
-
-type ResourceCapacity struct {
-    // name identifies the resource whose capacity is reported.
-    //
-    // +kubebuilder:validation:MinLength=1
-    // +kubebuilder:validation:MaxLength=317
-    // +kubebuilder:validation:Pattern=`^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$`
-    Name corev1.ResourceName `json:"name"`
-
-    // value is total capacity attributable to the provider, not currently free
-    // capacity. It must be non-negative.
+    // resources contains total capacity by resource name.
     //
     // +required
-    // +kubebuilder:validation:XValidation:rule="type(self) == string ? quantity(self).sign() >= 0 : self >= 0",message="value must be non-negative"
-    Value resource.Quantity `json:"value"`
+    // +kubebuilder:validation:MinProperties=1
+    // +kubebuilder:validation:MaxProperties=64
+    // +kubebuilder:validation:XValidation:rule="self.all(r, type(self[r]) == string ? quantity(self[r]).sign() >= 0 : self[r] >= 0)",message="resource capacity must be non-negative"
+    Resources corev1.ResourceList `json:"resources"`
 }
 ```
 
@@ -558,13 +543,13 @@ type CapacityProviderSnapshotFlavor struct {
     // +required
     Name ResourceFlavorReference `json:"name"`
 
-    // resources lists capacity by resource name.
+    // resources contains total capacity by resource name.
     //
-    // +listType=map
-    // +listMapKey=name
-    // +kubebuilder:validation:MinItems=1
-    // +kubebuilder:validation:MaxItems=128
-    Resources []ResourceCapacity `json:"resources"`
+    // +required
+    // +kubebuilder:validation:MinProperties=1
+    // +kubebuilder:validation:MaxProperties=64
+    // +kubebuilder:validation:XValidation:rule="self.all(r, type(self[r]) == string ? quantity(self[r]).sign() >= 0 : self[r] >= 0)",message="resource capacity must be non-negative"
+    Resources corev1.ResourceList `json:"resources"`
 }
 
 // +kubebuilder:validation:MinLength=1
@@ -719,14 +704,11 @@ status:
     flavors:
     - name: cpu-flavor
       resources:
-      - name: cpu
-        value: "900"
-      - name: memory
-        value: 3.6Ti
+      - cpu: "900"
+      - memory: 3.6Ti
     - name: gpu-flavor
       resources:
-      - name: nvidia.com/gpu
-        value: "32"
+      - nvidia.com/gpu: "32"
 ```
 
 DQO referencing the provider and distributing capacity from a Cohort root:
@@ -923,3 +905,24 @@ CapacityProvider itself is cluster-scoped and affects cluster-scoped quota,
 so this keeps the ownership and authorization model straightforward.
 
 Also, this follows the model of Parameters used for modeling AdmissionChecks.
+
+### Nested ResorceCapacity for CapacitySnapshot
+
+We could consider nested structure for resources produced by CapacityProviders,
+within a flavor, ie:
+
+```yaml
+flavors:
+- name: cpu-flavor
+  resources:
+  - name: "cpu"
+    value: "900"
+  - name: "memory"
+    value: "3.6Ti"
+```
+
+**Reasons for deferring/rejecting**:
+
+Since capacity providers are scraping the capacity information rather
+than quotas it seems preferred to use the k8s native model for representing
+capacities.
