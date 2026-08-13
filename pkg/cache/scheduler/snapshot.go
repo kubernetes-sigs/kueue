@@ -183,10 +183,12 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference](),
 	}
 
-	var err error
-	snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(ctx, c.tasCache.nodesCache.getAllNodes())
-	if err != nil {
-		return nil, err
+	if features.Enabled(features.TopologyAwareScheduling) {
+		var err error
+		snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(ctx, c.tasCache.nodesCache.getAllNodes())
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	for _, cohort := range c.hm.Cohorts() {

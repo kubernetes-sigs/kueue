@@ -3,13 +3,9 @@
 package was
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"iter"
-	"maps"
-	"slices"
-	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,6 +27,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error)
@@ -38,8 +35,7 @@ type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*core
 // podTracker maintains pod state for scheduler plugins that need
 // existing pod information.
 type podTracker struct {
-	mu   sync.RWMutex
-	pods map[types.NamespacedName]*corev1.Pod
+	pods *utilmaps.SyncMap[types.NamespacedName, *corev1.Pod]
 }
 
 type wasSimulator struct {
@@ -98,7 +94,7 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	}
 
 	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error) {
-		snap := cache.NewSnapshot(pods, nodes)
+		snap := cache.NewSnapshot(pods, nodes)()
 		profiles, err := framework.NewProfileMap(ctx, client, informerFactory, snap, cfg)
 		if err != nil {
 			return nil, err
@@ -109,7 +105,7 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	return &wasSimulator{
 		newSnapshot: snapshotFn,
 		pods: podTracker{
-			pods: make(map[types.NamespacedName]*corev1.Pod),
+			pods: utilmaps.NewSyncMap[types.NamespacedName, *corev1.Pod](0),
 		},
 	}, nil
 }
@@ -151,25 +147,16 @@ func (s *wasSimulator) UntrackPod(key types.NamespacedName) {
 }
 
 func (t *podTracker) allPods() []*corev1.Pod {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	// Sorting just for test determinism.
-	return slices.SortedFunc(maps.Values(t.pods), func(a, b *corev1.Pod) int {
-		return cmp.Compare(a.UID, b.UID)
-	})
+	return t.pods.Values()
 }
 
 func (t *podTracker) track(pod *corev1.Pod) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	key := client.ObjectKeyFromObject(pod)
-	t.pods[key] = pod
+	t.pods.Add(key, pod)
 }
 
 func (t *podTracker) untrack(key types.NamespacedName) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	delete(t.pods, key)
+	t.pods.Delete(key)
 }
 
 func (s *wasSimulatorSnapshot) FindFeasibleNodes(

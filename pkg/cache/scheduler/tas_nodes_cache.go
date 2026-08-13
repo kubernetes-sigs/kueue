@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"maps"
+	"slices"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
@@ -124,11 +125,7 @@ func copyAndStripNode(node *corev1.Node) *corev1.Node {
 func (t *nodesCache) getAllNodes() []*corev1.Node {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
-	nodes := make([]*corev1.Node, 0, len(t.nodes))
-	for _, node := range t.nodes {
-		nodes = append(nodes, node)
-	}
-	return nodes
+	return slices.Collect(maps.Values(t.nodes))
 }
 
 // strippedNodesEqual reports whether two stripped nodes carry semantically
