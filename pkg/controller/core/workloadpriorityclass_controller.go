@@ -253,6 +253,8 @@ func (r *WorkloadPriorityClassReferenceReconciler) Reconcile(ctx context.Context
 
 	// The workload was read whole, and one field of it is this controller's to
 	// write. Strict is the helper's default, so the read above still has to match.
+	// A conflict belongs to the workqueue, not to a retry here: the helper retries
+	// through the cached client and keeps the class value this closure already read.
 	if err := clientutil.Patch(ctx, r.client, &wl, func() (bool, error) {
 		wl.Spec.Priority = new(wpc.Value)
 		return true, nil

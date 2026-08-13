@@ -20,6 +20,7 @@ import (
 	"context"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -203,5 +204,75 @@ func TestReferenceReconcileResolvesTheRequeueFromTheAPIServer(t *testing.T) {
 	t.Logf("class value = 200, workload priority = %d", ptr.Deref(got.Spec.Priority, -1))
 	if ptr.Deref(got.Spec.Priority, -1) != 200 {
 		t.Errorf("WINDOW OPEN: workload left at %d", ptr.Deref(got.Spec.Priority, -1))
+	}
+}
+
+// The patch carries the resourceVersion the workload was read at, so a change
+// landing between that read and the write takes a conflict rather than being
+// crossed. Both cases move what this pass decided from.
+func TestReferenceReconcileConflictsRatherThanCrossingAWrite(t *testing.T) {
+	for name, tc := range map[string]struct {
+		disturb func(*kueue.Workload)
+		want    int32
+	}{
+		// Ownership passed to MultiKueue, so the value this pass resolved is no
+		// longer this cluster's to write and the workload keeps what it had.
+		"the workload becomes MultiKueue's": {
+			disturb: func(wl *kueue.Workload) {
+				wl.Labels = map[string]string{kueue.MultiKueueOriginLabel: "manager"}
+			},
+			want: 200,
+		},
+		"the reference moves to another class": {
+			disturb: func(wl *kueue.Workload) { wl.Spec.PriorityClassRef.Name = "other" },
+			want:    50,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			api := utiltesting.NewClientBuilder().
+				WithObjects(
+					utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj(),
+					utiltestingapi.MakeWorkloadPriorityClass("other").PriorityValue(50).Obj(),
+					utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(200).Obj(),
+				).
+				WithIndex(&kueue.Workload{}, indexer.WorkloadPriorityClassKey, indexer.IndexWorkloadPriorityClass).
+				Build()
+
+			disturbed := false
+			mgrClient := interceptor.NewClient(api, interceptor.Funcs{
+				Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+					if _, ok := obj.(*kueue.Workload); ok && !disturbed {
+						disturbed = true
+						var live kueue.Workload
+						if err := api.Get(ctx, client.ObjectKey{Namespace: "ns", Name: "wl"}, &live); err != nil {
+							t.Fatalf("reading the workload to disturb it: %v", err)
+						}
+						tc.disturb(&live)
+						if err := api.Update(ctx, &live); err != nil {
+							t.Fatalf("disturbing the workload: %v", err)
+						}
+					}
+					return c.Patch(ctx, obj, patch, opts...)
+				},
+			})
+
+			ref := NewWorkloadPriorityClassReferenceReconciler(mgrClient, api, roletracker.NewFakeRoleTracker("leader"))
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl"}}
+			if _, err := ref.Reconcile(ctx, req); !apierrors.IsConflict(err) {
+				t.Fatalf("first pass returned %v, want a conflict", err)
+			}
+			if _, err := ref.Reconcile(ctx, req); err != nil {
+				t.Fatalf("second pass: %v", err)
+			}
+
+			var got kueue.Workload
+			if err := api.Get(ctx, client.ObjectKey{Namespace: "ns", Name: "wl"}, &got); err != nil {
+				t.Fatal(err)
+			}
+			if ptr.Deref(got.Spec.Priority, -1) != tc.want {
+				t.Errorf("priority %d, want %d", ptr.Deref(got.Spec.Priority, -1), tc.want)
+			}
+		})
 	}
 }
