@@ -22,46 +22,46 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-func TestHasPrefix(t *testing.T) {
+func TestTopologyDomainIDBelongsTo(t *testing.T) {
 	cases := map[string]struct {
-		domainID TopologyDomainID
-		prefix   TopologyDomainID
-		want     bool
+		domainID     TopologyDomainID
+		targetDomain TopologyDomainID
+		want         bool
 	}{
-		"empty prefix": {
+		"empty target domain": {
 			domainID: DomainID([]string{"b1", "rack-a", "x1"}),
 			want:     true,
 		},
 		"same domain": {
-			domainID: DomainID([]string{"b1", "rack-a"}),
-			prefix:   DomainID([]string{"b1", "rack-a"}),
-			want:     true,
+			domainID:     DomainID([]string{"b1", "rack-a"}),
+			targetDomain: DomainID([]string{"b1", "rack-a"}),
+			want:         true,
 		},
 		"ancestor domain": {
-			domainID: DomainID([]string{"b1", "rack-a", "x1"}),
-			prefix:   DomainID([]string{"b1", "rack-a"}),
-			want:     true,
+			domainID:     DomainID([]string{"b1", "rack-a", "x1"}),
+			targetDomain: DomainID([]string{"b1", "rack-a"}),
+			want:         true,
 		},
 		"string-prefix sibling domain": {
-			domainID: DomainID([]string{"b1", "rack-ab", "x1"}),
-			prefix:   DomainID([]string{"b1", "rack-a"}),
-			want:     false,
+			domainID:     DomainID([]string{"b1", "rack-ab", "x1"}),
+			targetDomain: DomainID([]string{"b1", "rack-a"}),
+			want:         false,
 		},
 		"different root domain": {
-			domainID: DomainID([]string{"b2", "rack-a", "x1"}),
-			prefix:   DomainID([]string{"b1"}),
-			want:     false,
+			domainID:     DomainID([]string{"b2", "rack-a", "x1"}),
+			targetDomain: DomainID([]string{"b1"}),
+			want:         false,
 		},
-		"descendant is not a prefix": {
-			domainID: DomainID([]string{"b1", "rack-a"}),
-			prefix:   DomainID([]string{"b1", "rack-a", "x1"}),
-			want:     false,
+		"target descendant": {
+			domainID:     DomainID([]string{"b1", "rack-a"}),
+			targetDomain: DomainID([]string{"b1", "rack-a", "x1"}),
+			want:         false,
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := HasPrefix(tc.domainID, tc.prefix); got != tc.want {
-				t.Errorf("HasPrefix(%q, %q) = %t, want %t", tc.domainID, tc.prefix, got, tc.want)
+			if got := tc.domainID.BelongsTo(tc.targetDomain); got != tc.want {
+				t.Errorf("%q.BelongsTo(%q) = %t, want %t", tc.domainID, tc.targetDomain, got, tc.want)
 			}
 		})
 	}
