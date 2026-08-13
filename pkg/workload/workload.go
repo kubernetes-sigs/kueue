@@ -547,7 +547,11 @@ func chargeableSpec(spec *corev1.PodSpec) *corev1.PodSpec {
 		// so a zero left here would spend what the containers asked for.
 		out.Resources.Requests = dropNegativeRequests(out.Resources.Requests)
 	}
-	out.Overhead = chargeableRequests(out.Overhead)
+	// PodRequests adds the overhead only where the field is set, so a nil one is
+	// left alone rather than handed back as an empty map.
+	if out.Overhead != nil {
+		out.Overhead = chargeableRequests(out.Overhead)
+	}
 	return out
 }
 
