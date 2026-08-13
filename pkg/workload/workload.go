@@ -684,11 +684,11 @@ func PodSetNameToTopologyRequest(wl *kueue.Workload) map[kueue.PodSetReference]*
 	})
 }
 
-// subtractReplacedRequests takes out of retained what the containers asked for on
+// subtractReplacedRequestsFrom takes out of retained what the containers asked for on
 // each name a DRA charge stands in for. The charge replaces that much and no more,
 // so a pod overhead or a transformation output carried under the same name is left
 // where it is.
-func subtractReplacedRequests(retained corev1.ResourceList, spec *corev1.PodSpec, replaced sets.Set[corev1.ResourceName]) {
+func subtractReplacedRequestsFrom(retained corev1.ResourceList, spec *corev1.PodSpec, replaced sets.Set[corev1.ResourceName]) {
 	// Read without the overhead rather than subtracting it back off, so this cannot
 	// disagree with whichever view the retained requests were taken as.
 	containerRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *spec},
@@ -728,7 +728,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
 			if replacedRes, exists := info.replacedExtendedResources[ps.Name]; exists {
-				subtractReplacedRequests(retained, &ps.Template.Spec, replacedRes)
+				subtractReplacedRequestsFrom(retained, &ps.Template.Spec, replacedRes)
 			}
 			// Then, add the DRA logical resources
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
