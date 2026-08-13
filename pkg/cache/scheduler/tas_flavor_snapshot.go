@@ -156,7 +156,7 @@ type TASFlavorSnapshot struct {
 	// multiple worker PodSet placements within the same scheduling cycle snapshot.
 	matchingLeavesCache map[podSetMatchKey]*matchingLeavesCacheEntry
 
-	// feasibilityChecker checks whether a pod can fit in a given set of nodes.
+	// simulatorSnapshot stores enough data to run a WAS scheduling simulation.
 	simulatorSnapshot simulator.SimulatorSnapshot
 
 	resourceFormatter *resources.ResourceFormatter
