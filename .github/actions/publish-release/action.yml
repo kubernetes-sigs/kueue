@@ -61,7 +61,7 @@ runs:
         # Fill in the release link in the release issue checklist. Callers opt out
         # via "update-release-issue: false" for release candidates, since the
         # checklist tracks the final release link only.
-        if [[ -n "$ISSUE_NUMBER" && "$UPDATE_RELEASE_ISSUE" == "true" ]]; then
+        if [[ "$UPDATE_RELEASE_ISSUE" == "true" ]]; then
           ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --repo "$TARGET_REPO" --json body --jq '.body' || true)
           if [[ -n "$ISSUE_BODY" && "$ISSUE_BODY" == *"<!-- RELEASE_LINK -->"* ]]; then
             NEW_ISSUE_BODY=${ISSUE_BODY//<!-- RELEASE_LINK -->/${RELEASE_URL}}
