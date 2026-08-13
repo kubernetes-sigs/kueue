@@ -1282,6 +1282,13 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
 	r.queues.DeleteAndForgetWorkload(log, wlKey)
+
+	if afs.Enabled(r.admissionFSConfig) {
+		// A Workload deleted before settling (e.g. a Job deleted while waiting
+		// for an AdmissionCheck) would leave its penalty pending forever,
+		// inflating the LocalQueue's fair-sharing usage until restart.
+		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.Object), queueafs.WorkloadReference(wlKey))
+	}
 	return true
 }
 
@@ -1420,19 +1427,53 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		// and are not supposed to actually change anything.
 		r.cache.AddOrUpdateWorkload(log, wlCopy)
 	}
+	r.reconcileAfsPenaltiesOnUpdate(log, e, wlCopy, active, status, prevStatus, prevQueue)
+	r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
+	return true
+}
+
+// reconcileAfsPenaltiesOnUpdate advances the AFS entry-penalty lifecycle for an
+// updated Workload. It must run after the Update event switch: outside the
+// switch so that no transition into Admitted is missed, and after it so that
+// the cache already accounts for the workload usage read by
+// updateAfsConsumedUsage.
+func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
+	log logr.Logger,
+	e event.TypedUpdateEvent[*kueue.Workload],
+	wlCopy *kueue.Workload,
+	active bool,
+	status, prevStatus string,
+	prevQueue kueue.LocalQueueName,
+) {
+	if !afs.Enabled(r.admissionFSConfig) {
+		return
+	}
 	// The AFS entry penalty must be settled on every transition into Admitted
-	// (#12539). It is settled outside the switch so that no transition into
-	// Admitted is missed, and after it so that the cache already accounts for
-	// the workload usage read by updateAfsConsumedUsage. Deactivation wins
-	// over admission: a workload deactivated in the same event was removed
-	// from the cache by the first case and must not be charged.
+	// (#12539). Deactivation wins over admission: a workload deactivated in the
+	// same event was removed from the cache by the event switch and must not be
+	// charged.
 	if active && status == workload.StatusAdmitted && prevStatus != workload.StatusAdmitted &&
-		afs.Enabled(r.admissionFSConfig) &&
 		r.cache.ClusterQueueUsesAdmissionFairSharing(wlCopy.Status.Admission.ClusterQueue) {
 		r.updateAfsConsumedUsage(log, wlCopy)
 	}
-	r.queues.QueueSecondPassIfNeeded(ctx, wlCopy, 0)
-	return true
+	// Drop a pending penalty its Workload can no longer settle — moved to
+	// another LocalQueue (settlement and deletion key by the current queueName),
+	// inactive with its reservation gone, or finished without admission — or it
+	// inflates the LocalQueue's fair-sharing usage until the object is deleted.
+	// An evicted Workload that stays active on the same LocalQueue keeps its
+	// record, and so does a deactivated Workload that still holds its
+	// reservation: reactivated in place, it can reach Admitted without another
+	// scheduler assume, and its penalty must still settle.
+	wlRef := queueafs.WorkloadReference(workload.Key(e.ObjectNew))
+	if prevQueue != e.ObjectNew.Spec.QueueName {
+		r.queues.AfsUsageLedger.SubPenalty(qutil.NewLocalQueueReference(e.ObjectOld.Namespace, prevQueue), wlRef)
+	}
+	inactiveUnreserved := !active && !workload.HasQuotaReservation(e.ObjectNew)
+	wasActiveOrReserved := workload.IsActive(e.ObjectOld) || workload.HasQuotaReservation(e.ObjectOld)
+	if (inactiveUnreserved && wasActiveOrReserved) ||
+		(status == workload.StatusFinished && prevStatus != workload.StatusFinished) {
+		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.ObjectNew), wlRef)
+	}
 }
 
 func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload]) bool {
@@ -1442,7 +1483,7 @@ func (r *WorkloadReconciler) Generic(e event.TypedGenericEvent[*kueue.Workload])
 
 func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.Workload) {
 	lqKey := qutil.KeyFromWorkload(wl)
-	penalty := afs.CalculateEntryPenalty(workload.NewInfo(wl).SumTotalRequests(), r.admissionFSConfig)
+	wlKey := queueafs.WorkloadReference(workload.Key(wl))
 	now := r.clock.Now()
 
 	cacheLq, err := r.cache.GetCacheLocalQueue(wl.Status.Admission.ClusterQueue, lqKey)
@@ -1451,11 +1492,12 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 		return
 	}
 	// Read live usage before taking the entry lock: the scheduler snapshot reads
-	// AfsConsumedResources while holding the scheduler-cache lock, so the Update
+	// AfsUsageLedger while holding the scheduler-cache lock, so the Update
 	// closure must not call back into the cache.
 	newUsage := cacheLq.GetAdmittedUsage()
 
-	updated := r.queues.AfsConsumedResources.Update(lqKey, func(old queueafs.ConsumedResourcesEntry, found bool) queueafs.ConsumedResourcesEntry {
+	var settled corev1.ResourceList
+	updated := r.queues.AfsUsageLedger.Update(lqKey, func(old queueafs.UsageLedgerEntry, found bool) queueafs.UsageLedgerEntry {
 		lastUpdate := old.LastUpdate
 		if !found {
 			lastUpdate = now
@@ -1469,15 +1511,19 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 			storedLastUpdate = lastUpdate
 		}
 		newConsumed := afs.CalculateDecayedConsumed(old.Resources, newUsage, elapsed, r.admissionFSConfig.UsageHalfLifeTime.Seconds())
-		return queueafs.ConsumedResourcesEntry{
-			Resources:       resource.MergeResourceListKeepSum(newConsumed, penalty),
-			LastUpdate:      storedLastUpdate,
-			StatusAccounted: old.StatusAccounted,
-		}
+		// Fold exactly the pushed amount and drop the record in the same write,
+		// so a repeated settlement folds nothing and other Workloads' pending
+		// penalties are untouched. No record (e.g. pushed before a manager
+		// restart) folds nothing; restart recovery is out of scope.
+		remaining, penalty := old.WithoutPenalty(wlKey)
+		settled = penalty
+		remaining.Resources = resource.MergeResourceListKeepSum(newConsumed, penalty)
+		remaining.LastUpdate = storedLastUpdate
+		return remaining
 	})
-	r.queues.AfsEntryPenalties.Sub(lqKey, penalty)
-	log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "penalty", penalty, "remaining", r.queues.AfsEntryPenalties.Peek(lqKey))
-
+	if len(settled) > 0 {
+		log.V(3).Info("Entry penalty settled into consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "penalty", settled, "remaining", updated.PendingPenalty())
+	}
 	log.V(2).Info("Updated AFS consumed usage", "localQueue", klog.KRef(wl.Namespace, string(wl.Spec.QueueName)), "consumed", updated.Resources)
 }
 
