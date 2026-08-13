@@ -53,4 +53,18 @@ runs:
         fi
 
         RELEASE_URL="https://github.com/${TARGET_REPO}/releases/tag/${VERSION}"
+
+        # Fill in the release link in the release issue checklist. Skip release
+        # candidates (tagged with a "-rc.N" suffix) since the checklist tracks the
+        # final release link only.
+        if [[ -n "$ISSUE_NUMBER" && ! "$VERSION" =~ -rc\.[0-9]+$ ]]; then
+          ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --repo "$TARGET_REPO" --json body --jq '.body' || true)
+          if [[ -n "$ISSUE_BODY" && "$ISSUE_BODY" == *"<!-- RELEASE_LINK -->"* ]]; then
+            NEW_ISSUE_BODY=${ISSUE_BODY//<!-- RELEASE_LINK -->/${RELEASE_URL}}
+            gh issue edit "$ISSUE_NUMBER" --repo "$TARGET_REPO" --body "$NEW_ISSUE_BODY" || {
+              echo "!!! Failed to update release issue body with release link." >&2
+            }
+          fi
+        fi
+
         echo "message=✅ Release \`$VERSION\` has been successfully published. Link: ${RELEASE_URL}" >> "$GITHUB_OUTPUT"
