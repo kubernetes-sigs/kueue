@@ -118,7 +118,8 @@ a configured timeout.
 
 ## MultiKueue
 
-DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue).
+DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue),
+except for prioritized lists; see the limitations below.
 MultiKueue syncs the workload and its owning job to worker clusters, but
 `ResourceClaimTemplate` and `DeviceClass` objects are not automatically
 synced. These must be created on each worker cluster separately by the
