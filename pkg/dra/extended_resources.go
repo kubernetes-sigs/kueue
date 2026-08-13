@@ -200,8 +200,9 @@ type containerExtendedResourceRequests struct {
 
 // ResolveExtendedResourceQuota converts extended resource requests across all PodSets
 // into DRA logical quota resources. Per PodSet, the containers are totalled the way the
-// Pod's own requests are, so a restartable init container adds to the regular containers
-// rather than being maxed against them. That total is taken under each original resource
+// Pod's own requests are: regular and restartable init containers make the long-running
+// total, each init container is measured with the restartable ones already running beside
+// it, and the charge is the larger of the two. That total is taken under each original resource
 // name, before any two names sharing a quota key can collapse into each other's
 // contribution. The quota key for each original name is resolved once per PodSet, from
 // that name's own aggregated total.
