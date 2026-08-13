@@ -959,7 +959,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 					utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("cycle-update-missing-flavor").
 						Resource(corev1.ResourceCPU, "2").Obj()),
 				}
-				got.Spec.StopPolicy = ptr.To(kueue.Hold)
+				got.Spec.StopPolicy = new(kueue.Hold)
 				got.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
 					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{{Name: "cycle-update-missing-check"}},
 				}

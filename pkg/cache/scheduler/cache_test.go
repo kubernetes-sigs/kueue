@@ -3772,12 +3772,13 @@ func TestCohortCycles(t *testing.T) {
 		if got := len(tasFlavorCache.usage); got != 1 {
 			t.Fatalf("Got TAS usage for %d domains, want 1", got)
 		}
+		wantUsage := map[corev1.ResourceName]int64{
+			corev1.ResourceCPU:  1_000,
+			corev1.ResourcePods: 1,
+		}
 		for _, gotUsage := range tasFlavorCache.usage {
-			if got := gotUsage.GetValue(corev1.ResourceCPU); got != 1_000 {
-				t.Errorf("Got TAS CPU usage %dm, want 1000m", got)
-			}
-			if got := gotUsage.GetValue(corev1.ResourcePods); got != 1 {
-				t.Errorf("Got TAS pod usage %d, want 1", got)
+			if diff := cmp.Diff(wantUsage, resources.ToMap(gotUsage)); diff != "" {
+				t.Errorf("Unexpected TAS usage (-want,+got):\n%s", diff)
 			}
 		}
 		fr := resources.FlavorResource{Flavor: kueue.ResourceFlavorReference(flavor.Name), Resource: corev1.ResourceCPU}
