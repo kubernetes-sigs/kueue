@@ -65,8 +65,8 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ## - If it ONLY VALIDATES without writing files: add it to `verify-checks`.
 ##
 ## Implementation location:
-## - You can define the target in this file (`Makefile-verify.mk`) if it’s verify-specific,
-##   or in another included fragment (`Makefile-test.mk`, etc.) if it logically belongs there.
+## - You can define the target in this file (`hack/make/verify.mk`) if it’s verify-specific,
+##   or in another included fragment (`hack/make/test.mk`, etc.) if it logically belongs there.
 ## - Then, wire it into the appropriate aggregator target below.
 verify: ## Ensure repo is clean after generation/formatting.
 	$(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks

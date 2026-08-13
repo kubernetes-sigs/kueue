@@ -135,16 +135,16 @@ all: generate fmt vet build
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-include Makefile-deps.mk
+include hack/make/deps.mk
 
-include Makefile-test.mk
+include hack/make/test.mk
 
-include Makefile-kueue-populator.mk
-include Makefile-kueue-priority-booster.mk
+include hack/make/kueue-populator.mk
+include hack/make/kueue-priority-booster.mk
 
 # Repo-wide verification is defined in a separate fragment so it can be read/maintained
-# independently of build/test logic. See `Makefile-verify.mk` for what `make verify` runs.
-include Makefile-verify.mk
+# independently of build/test logic. See `hack/make/verify.mk` for what `make verify` runs.
+include hack/make/verify.mk
 
 ##@ Development
 

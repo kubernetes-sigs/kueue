@@ -56,8 +56,8 @@ filters:
     approvers:
       - release-team
 
-  # Any directory depth: Makefile-deps.mk
-  "Makefile-deps\\.mk$":
+  # Dependency makefile
+  "^hack/make/deps\\.mk$":
     approvers:
       - dependency-approvers
 
@@ -81,8 +81,8 @@ filters:
     approvers:
       - test-approvers
 
-  # Any directory depth: Makefile-test.mk
-  "Makefile-(verify|test)\\.mk$":
+  # Test and verification makefiles
+  "^hack/make/(verify|test)\\.mk$":
     approvers:
       - test-approvers
 
