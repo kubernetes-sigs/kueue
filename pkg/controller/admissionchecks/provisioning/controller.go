@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"maps"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -660,7 +659,11 @@ func (c *Controller) syncCheckStates(
 					if updateCheckState(&checkState, kueue.CheckStateReady) {
 						updated = true
 						// add the pod podSetUpdates
-						checkState.PodSetUpdates = podSetUpdates(log, wl, pr, prc)
+						psUpdates, err := podSetUpdates(ctx, wl, pr, prc)
+						if err != nil {
+							return false, err
+						}
+						checkState.PodSetUpdates = psUpdates
 						// propagate the message from the provisioning request status into the workload
 						// to change to the "successfully provisioned" message after provisioning
 						updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
@@ -703,14 +706,19 @@ func (c *Controller) syncCheckStates(
 	return nil
 }
 
-func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) []kueue.PodSetUpdate {
-	podSets := wl.Spec.PodSets
-	refMap := slices.ToMap(podSets, func(i int) (string, kueue.PodSetReference) {
-		return getProvisioningRequestPodTemplateName(pr.Name, podSets[i].Name), podSets[i].Name
+func podSetUpdates(ctx context.Context, wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) ([]kueue.PodSetUpdate, error) {
+	log := ctrl.LoggerFrom(ctx)
+	// The request holds one PodSet per merge group; every member of a group needs the update.
+	merged, err := mergePodSets(ctx, wl, &prc.Spec)
+	if err != nil {
+		return nil, err
+	}
+	refMap := slices.ToMap(merged, func(i int) (string, []kueue.PodSetReference) {
+		return getProvisioningRequestPodTemplateName(pr.Name, merged[i].Name), merged[i].Names
 	})
-	return slices.Map(pr.Spec.PodSets, func(ps *autoscaling.PodSet) kueue.PodSetUpdate {
+	updates := make([]kueue.PodSetUpdate, 0, len(wl.Spec.PodSets))
+	for i := range pr.Spec.PodSets {
 		podSetUpdate := kueue.PodSetUpdate{
-			Name: refMap[ps.PodTemplateRef.Name],
 			Annotations: map[string]string{
 				autoscaling.ProvisioningRequestPodAnnotationKey: pr.Name,
 				autoscaling.ProvisioningClassPodAnnotationKey:   pr.Spec.ProvisioningClassName,
@@ -727,8 +735,13 @@ func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.Provisio
 				podSetUpdate.NodeSelector[nodeSelector.Key] = string(value)
 			}
 		}
-		return podSetUpdate
-	})
+		for _, name := range refMap[pr.Spec.PodSets[i].PodTemplateRef.Name] {
+			forPodSet := *podSetUpdate.DeepCopy()
+			forPodSet.Name = name
+			updates = append(updates, forPodSet)
+		}
+	}
+	return updates, nil
 }
 
 type acHandler struct {
@@ -927,7 +940,9 @@ func limitObjectName(fullName string) string {
 }
 
 type MergedPodSet struct {
-	Name             kueue.PodSetReference
+	Name kueue.PodSetReference
+	// Names are the workload PodSets folded into this one, Name first.
+	Names            []kueue.PodSetReference
 	PodSet           *kueue.PodSet
 	PodSetAssignment *kueue.PodSetAssignment
 	Count            int32
@@ -963,6 +978,7 @@ func mergePodSets(
 			for i, mps := range mergedPodSets {
 				if merged = canMergePodSets(mps.PodSet, ps, mergePolicy); merged {
 					mergedPodSets[i].Count += count
+					mergedPodSets[i].Names = append(mergedPodSets[i].Names, psName)
 					break
 				}
 			}
@@ -971,6 +987,7 @@ func mergePodSets(
 		if !merged {
 			mergedPodSets = append(mergedPodSets, MergedPodSet{
 				Name:             psName,
+				Names:            []kueue.PodSetReference{psName},
 				PodSet:           ps,
 				PodSetAssignment: psa,
 				Count:            count,

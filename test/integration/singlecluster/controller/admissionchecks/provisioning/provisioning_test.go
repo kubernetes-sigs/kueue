@@ -1595,6 +1595,41 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				util.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
 			})
 		})
+
+		ginkgo.It("Should update every merged PodSet once the ProvisioningRequest is provisioned", func() {
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			})
+
+			ginkgo.By("Setting the provision request as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: "Provisioned",
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that both merged PodSets carry an update", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).Should(gomega.Succeed())
+					state := admissioncheck.FindAdmissionCheck(updatedWl.Status.AdmissionChecks, kueue.AdmissionCheckReference(ac.Name))
+					g.Expect(state).ShouldNot(gomega.BeNil())
+					names := make([]kueue.PodSetReference, 0, len(state.PodSetUpdates))
+					for _, psu := range state.PodSetUpdates {
+						names = append(names, psu.Name)
+					}
+					g.Expect(names).Should(gomega.ConsistOf(kueue.PodSetReference("master"), kueue.PodSetReference("worker")))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Removing the quota reservation from the workload", func() {
+				util.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
+			})
+		})
 	})
 })
 
