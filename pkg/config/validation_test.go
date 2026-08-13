@@ -1364,8 +1364,26 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		// The multiplier is read while transformations run, before flavor
-		// assignment writes this key, so the lookup always misses.
+		"transformation taking pods as input rejected": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    corev1.ResourcePods,
+							Strategy: new(configapi.Replace),
+							Outputs:  corev1.ResourceList{"example.com/license": resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].input",
+				},
+			},
+		},
 		"transformation multiplying by pods rejected": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
