@@ -41,6 +41,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -145,6 +146,48 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	// The workload event must have been delivered (guaranteed, not dropped).
 	if got := len(ch); got != 1 {
 		t.Fatalf("unexpected draReconcileChannel length: got %d, want 1", got)
+	}
+}
+
+// TestAddLocalQueue_DRAExtendedResourceOnlyInLimits verifies that a workload whose
+// only mention of a DRA-backed extended resource is a container limit (no request)
+// is still routed to DRA reconciliation, not queued directly as an ordinary
+// extended-resource request. AdjustResources copies the limit onto the request, and
+// that copy has to happen before dra.NeedsDRAReconcile is evaluated.
+func TestAddLocalQueue_DRAExtendedResourceOnlyInLimits(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+
+	wl := utiltestingapi.MakeWorkload("wl", "earth").Queue("foo").PodSets(
+		*utiltestingapi.MakePodSet("ps", 1).Limit("example.com/gpu", "1").Obj(),
+	).Obj()
+
+	erCache := dra.NewExtendedResourceCache()
+	erCache.Add("example.com/gpu", "gpu.example.com")
+
+	kClient := utiltesting.NewFakeClient(wl)
+	manager := NewManagerForUnitTests(kClient, nil, WithDRABackedResources(erCache))
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	ch := make(chan event.TypedGenericEvent[*kueue.Workload], 1)
+	manager.SetDRAReconcileChannel(ch)
+
+	if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()); err != nil {
+		t.Fatalf("Failed adding queue: %v", err)
+	}
+
+	select {
+	case e := <-ch:
+		if e.Object.Name != wl.Name {
+			t.Fatalf("unexpected workload sent to draReconcileChannel: got %q, want %q", e.Object.Name, wl.Name)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("workload with a limits-only DRA-backed extended resource was not routed to draReconcileChannel")
+	}
+
+	qImpl := manager.localQueues[queue.Key(utiltestingapi.MakeLocalQueue("foo", "earth").Obj())]
+	if workloadNamesFromLQ(qImpl).Has("earth/wl") {
+		t.Fatal("workload should not be queued directly; it must wait for DRA reconciliation")
 	}
 }
 
