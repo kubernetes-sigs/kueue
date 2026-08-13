@@ -337,6 +337,20 @@ func TestValidateCreate(t *testing.T) {
 	}
 }
 
+// mpiJobWithNilLauncher builds a RunLauncherAsWorker MPIJob whose Launcher spec is nil.
+func mpiJobWithNilLauncher() *v2beta1.MPIJob {
+	j := testingutil.MakeMPIJob("job", "default").
+		Queue("queue").
+		MPIJobReplicaSpecs(
+			testingutil.MPIJobReplicaSpecRequirement{ReplicaType: v2beta1.MPIReplicaTypeLauncher, ReplicaCount: 1},
+			testingutil.MPIJobReplicaSpecRequirement{ReplicaType: v2beta1.MPIReplicaTypeWorker, ReplicaCount: 3},
+		).
+		RunLauncherAsWorker(true).
+		Obj()
+	j.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeLauncher] = nil
+	return j
+}
+
 func TestDefault(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -593,6 +607,12 @@ func TestDefault(t *testing.T) {
 				RunLauncherAsWorker(true).
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").
 				Obj(),
+		},
+		{
+			name:         "TAS enabled, RunLauncherAsWorker true but the Launcher spec is nil does not panic",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			mpiJob:       mpiJobWithNilLauncher(),
+			want:         mpiJobWithNilLauncher(),
 		},
 		{
 			name:         "TAS enabled, RunLauncherAsWorker false",
