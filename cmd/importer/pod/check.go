@@ -82,8 +82,8 @@ func Check(ctx context.Context, c client.Client, importCache *cache.ImportCache,
 	return errors.Join(summary.Errors...)
 }
 
-// resolveQueues returns the LocalQueue and ClusterQueue a Pod maps to. Import
-// and Check share this lookup so "queue not found" cannot diverge between them.
+// resolveQueues resolves the Pod to its LocalQueue and ClusterQueue.
+// It returns skip=true when mapping says this Pod should be skipped.
 func resolveQueues(importCache *cache.ImportCache, p *corev1.Pod) (*kueue.LocalQueue, *kueue.ClusterQueue, bool, error) {
 	lq, skip, err := importCache.LocalQueueForPod(p)
 	if skip || err != nil {
@@ -96,11 +96,9 @@ func resolveQueues(importCache *cache.ImportCache, p *corev1.Pod) (*kueue.LocalQ
 	return lq, cq, false, nil
 }
 
-// checkPodWorkload validates that p can be imported into cq and builds the
-// Workload it would produce. Check calls this and only reports the outcome;
-// Import calls this and, on success, persists Pod labels and creates/admits
-// the Workload. Keeping the validation in one place means the two commands
-// cannot silently disagree on whether a Pod is importable.
+// checkPodWorkload validates p against the target ClusterQueue and returns the
+// Workload that would be created, its resource-flavor assignments, and the
+// resolved priority.
 func checkPodWorkload(ctx context.Context, c client.Client, importCache *cache.ImportCache, p *corev1.Pod, lqName string, cq *kueue.ClusterQueue) (*checkedWorkload, error) {
 	if oldLq, found := p.Labels[controllerconstants.QueueLabel]; found && oldLq != lqName {
 		return nil, &queueLabelConflictError{CurrentQueue: oldLq, ExpectedQueue: lqName}
@@ -108,7 +106,7 @@ func checkPodWorkload(ctx context.Context, c client.Client, importCache *cache.I
 	if len(cq.Spec.ResourceGroups) == 0 {
 		return nil, fmt.Errorf("%q has no resource groups: %w", cq.Name, cache.ErrCQInvalid)
 	}
-	if err := importCache.FlavorValidation[cq.Name]; err != nil {
+	if err := importCache.FlavorValidationForClusterQueue(kueue.ClusterQueueReference(cq.Name)); err != nil {
 		return nil, err
 	}
 
@@ -140,7 +138,7 @@ func checkPodWorkload(ctx context.Context, c client.Client, importCache *cache.I
 	if len(info.TotalRequests) == 0 {
 		return nil, fmt.Errorf("workload has no total requests: %w", cache.ErrPodInvalid)
 	}
-	flavors, err := flavorAssignmentsForRequests(importCache.FlavorsByResource[cq.Name], cq.Name, info.TotalRequests[0].Requests)
+	flavors, err := flavorAssignmentsForRequests(importCache.FlavorsByResourceForClusterQueue(kueue.ClusterQueueReference(cq.Name)), cq.Name, info.TotalRequests[0].Requests)
 	if err != nil {
 		return nil, err
 	}
