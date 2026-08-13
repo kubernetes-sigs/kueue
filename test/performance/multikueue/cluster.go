@@ -82,17 +82,27 @@ func workerName(index int) string {
 }
 
 type benchmarkCluster struct {
-	name   string
-	env    *envtest.Environment
-	config *rest.Config
-	client client.WithWatch
-	cancel context.CancelFunc
-	done   <-chan error
+	name    string
+	env     *envtest.Environment
+	config  *rest.Config
+	client  client.WithWatch
+	cancel  context.CancelFunc
+	manager *managerRun
 }
 
 type managerSetup func(context.Context, manager.Manager) error
 
-func startBenchmarkCluster(ctx context.Context, name, crdPath string, setup managerSetup) (*benchmarkCluster, error) {
+type managerRun struct {
+	done       chan struct{}
+	err        error
+	unexpected bool
+}
+
+func startBenchmarkCluster(ctx context.Context, name, crdPath string, setup managerSetup, failClusters context.CancelCauseFunc) (*benchmarkCluster, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, context.Cause(ctx)
+	}
+
 	scheme, err := benchmarkScheme()
 	if err != nil {
 		return nil, err
@@ -141,28 +151,24 @@ func startBenchmarkCluster(ctx context.Context, name, crdPath string, setup mana
 		return nil, fmt.Errorf("setup %s manager: %w", name, err)
 	}
 
-	done := make(chan error, 1)
-	go func() {
-		done <- mgr.Start(managerCtx)
-		close(done)
-	}()
+	managerRun := startManagerRun(managerCtx, name, mgr.Start, failClusters)
 
 	cacheCtx, cacheCancel := context.WithTimeout(ctx, time.Minute)
 	defer cacheCancel()
-	if err := waitForManagerReady(name, mgr.GetCache().WaitForCacheSync, done, cacheCtx); err != nil {
+	if err := waitForManagerReady(cacheCtx, name, mgr.GetCache().WaitForCacheSync, managerRun); err != nil {
 		cancel()
-		<-done
+		<-managerRun.done
 		_ = testEnv.Stop()
 		return nil, err
 	}
 
 	return &benchmarkCluster{
-		name:   name,
-		env:    testEnv,
-		config: restConfig,
-		client: directClient,
-		cancel: cancel,
-		done:   done,
+		name:    name,
+		env:     testEnv,
+		config:  restConfig,
+		client:  directClient,
+		cancel:  cancel,
+		manager: managerRun,
 	}, nil
 }
 
@@ -274,25 +280,39 @@ func (c *benchmarkCluster) stop() error {
 	c.cancel()
 	var managerErr error
 	select {
-	case managerErr = <-c.done:
+	case <-c.manager.done:
+		managerErr = c.manager.err
 	case <-time.After(time.Minute):
 		managerErr = fmt.Errorf("%s manager did not stop within one minute", c.name)
 	}
 	return stopErrors(c.name, managerErr, c.env.Stop())
 }
 
-func waitForManagerReady(name string, cacheSynced func(context.Context) bool, done <-chan error, ctx context.Context) error {
+func startManagerRun(ctx context.Context, name string, start func(context.Context) error, onUnexpectedExit func(error)) *managerRun {
+	run := &managerRun{done: make(chan struct{})}
+	go func() {
+		run.err = start(ctx)
+		run.unexpected = ctx.Err() == nil
+		close(run.done)
+		if run.unexpected {
+			onUnexpectedExit(managerRuntimeError(name, run.err))
+		}
+	}()
+	return run
+}
+
+func waitForManagerReady(ctx context.Context, name string, cacheSynced func(context.Context) bool, managerRun *managerRun) error {
 	synced := make(chan bool, 1)
 	go func() {
 		synced <- cacheSynced(ctx)
 	}()
 	select {
-	case err := <-done:
-		return managerStartError(name, err)
+	case <-managerRun.done:
+		return managerStartError(name, managerRun.err)
 	case ok := <-synced:
 		select {
-		case err := <-done:
-			return managerStartError(name, err)
+		case <-managerRun.done:
+			return managerStartError(name, managerRun.err)
 		default:
 		}
 		if !ok {
@@ -307,6 +327,13 @@ func managerStartError(name string, err error) error {
 		return fmt.Errorf("start %s manager: %w", name, err)
 	}
 	return fmt.Errorf("%s manager exited before cache sync", name)
+}
+
+func managerRuntimeError(name string, err error) error {
+	if err != nil {
+		return fmt.Errorf("%s manager exited unexpectedly: %w", name, err)
+	}
+	return fmt.Errorf("%s manager exited unexpectedly", name)
 }
 
 func stopErrors(name string, managerErr, envErr error) error {
