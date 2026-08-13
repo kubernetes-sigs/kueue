@@ -56,6 +56,10 @@ filters:
     approvers:
       - release-team
 
+  "^\\.github/ISSUE_TEMPLATE/NEW_RELEASE\\.md$":
+    approvers:
+      - release-team
+
   # Dependency makefile
   "^hack/make/deps\\.mk$":
     approvers:

@@ -1,4 +1,11 @@
 # See the OWNERS docs at https://go.k8s.io/owners
 
-approvers:
-- infra-approvers
+filters:
+  # Catch-all (required when using filters)
+  ".*":
+    approvers:
+      - infra-approvers
+
+  "^(release-utils|openvex|sbom|krew-release)\\.ya?ml$":
+    approvers:
+      - release-team
