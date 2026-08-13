@@ -107,7 +107,8 @@ func (w *MpiJobWebhook) Default(ctx context.Context, obj *v2beta1.MPIJob) error 
 
 	if features.Enabled(features.TopologyAwareScheduling) {
 		if replicaSpecs := mpiJob.Spec.MPIReplicaSpecs; ptr.Deref(mpiJob.Spec.RunLauncherAsWorker, false) &&
-			len(replicaSpecs) == 2 && replicaSpecs[v2beta1.MPIReplicaTypeWorker] != nil {
+			len(replicaSpecs) == 2 && replicaSpecs[v2beta1.MPIReplicaTypeWorker] != nil &&
+			replicaSpecs[v2beta1.MPIReplicaTypeLauncher] != nil {
 			// The offset is handled as PodSet group scheduling mechanism separately in topology-unGater
 			// when the MPIJob constructs PodSet group across Launcher and Worker.
 			if _, isPodSetGroup := replicaSpecs[v2beta1.MPIReplicaTypeLauncher].Template.Annotations[kueue.PodSetGroupName]; isPodSetGroup {
