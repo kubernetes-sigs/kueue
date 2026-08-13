@@ -319,9 +319,9 @@
     version: "0.17"
 - name: SchedulerLibraryIntegration
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.19"
 - name: SchedulingEquivalenceHashing
   versionedSpecs:
