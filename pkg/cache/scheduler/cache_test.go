@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -3528,6 +3529,11 @@ func TestCohortCycles(t *testing.T) {
 		}
 		for name, tc := range cases {
 			t.Run(name, func(t *testing.T) {
+				metrics.ClearCohortAdmittedWorkloadsMetrics("cycle")
+				t.Cleanup(func() {
+					metrics.ClearClusterQueueMetricsOnLabelChange("cq")
+					metrics.ClearCohortAdmittedWorkloadsMetrics("cycle")
+				})
 				now := time.Now().Truncate(time.Second)
 				lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
 				reserving := utiltestingapi.MakeWorkload("reserving", "ns").
@@ -3649,8 +3655,33 @@ func TestCohortCycles(t *testing.T) {
 				if got := cache.hm.Cohort("cycle").admittedWorkloadsCount; got != 1 {
 					t.Errorf("Got cohort admitted workloads count %d, want 1", got)
 				}
+				cohortActiveMetrics := utiltestingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeAdmittedActiveWorkloads, map[string]string{
+					"cohort":       "cycle",
+					"replica_role": "standalone",
+				})
+				if got := len(cohortActiveMetrics); got != 1 {
+					t.Fatalf("Got %d Cohort active workload metrics after repair, want 1", got)
+				}
+				if got := cohortActiveMetrics[0].Value; got != 1 {
+					t.Errorf("Got Cohort active workload metric %v after repair, want 1", got)
+				}
 				if got := cache.hm.Cohort("cycle").resourceNode.Usage[fr]; got.CmpInt64(2_000) != 0 {
 					t.Errorf("Got cohort CPU usage %v, want 2000m", got)
+				}
+				weightedShareMetricValue := func() float64 {
+					weightedShareMetrics := utiltestingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueWeightedShare, map[string]string{
+						"cluster_queue": "cq",
+						"cohort":        "cycle",
+						"replica_role":  "standalone",
+					})
+					if got := len(weightedShareMetrics); got != 1 {
+						t.Fatalf("Got %d ClusterQueue weighted share metrics, want 1", got)
+					}
+					return weightedShareMetrics[0].Value
+				}
+				cache.RecordClusterQueueResourceMetrics(log, "cq")
+				if got := weightedShareMetricValue(); got != 1_000 {
+					t.Fatalf("Got ClusterQueue weighted share metric %v before the Cohort cycle, want 1000", got)
 				}
 
 				// Re-form the cycle after the tree has been initialized with borrowing
@@ -3672,80 +3703,93 @@ func TestCohortCycles(t *testing.T) {
 				if cohortUsage.WeightedShare != 0 {
 					t.Errorf("Got Cohort weighted share %v with a cycle, want 0", cohortUsage.WeightedShare)
 				}
+				// Metrics recording must not recurse while the Cohort cycle exists.
 				cache.RecordClusterQueueResourceMetrics(log, "cq")
+				if got := weightedShareMetricValue(); got != 0 {
+					t.Errorf("Got ClusterQueue weighted share metric %v with a Cohort cycle, want 0", got)
+				}
 			})
 		}
 	})
 
-	t.Run("TAS sync resumes after repairing a cohort cycle", func(t *testing.T) {
+	t.Run("TAS sync is not blocked by a cohort cycle", func(t *testing.T) {
 		features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
-		cases := map[string]struct {
-			repair func(*Cache) error
-		}{
-			"updating the cohort": {
-				repair: func(cache *Cache) error {
-					return cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cycle").Obj())
-				},
-			},
-			"deleting the cohort": {
-				repair: func(cache *Cache) error {
-					cache.DeleteCohort("cycle")
-					return nil
-				},
-			},
+		now := time.Now().Truncate(time.Second)
+		topology := utiltestingapi.MakeTopology("topology").Levels(corev1.LabelHostname).Obj()
+		flavor := utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
+		tasWorkload := utiltestingapi.MakeWorkload("tas-workload", "ns").
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Request(corev1.ResourceCPU, "1").
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(flavor.Name)).
+					ResourceUsage(corev1.ResourceCPU, "1").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(), now).
+			Obj()
+		cache := New(utiltesting.NewFakeClient(tasWorkload))
+		ctx, log := utiltesting.ContextWithLog(t)
+		cache.AddOrUpdateTopology(log, topology)
+
+		cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
+		if err := cache.AddOrUpdateCohort(cycleCohort); !errors.Is(err, ErrCohortHasCycle) {
+			t.Fatalf("Expected cohort cycle error, got %v", err)
 		}
-		for name, tc := range cases {
-			t.Run(name, func(t *testing.T) {
-				cache := New(utiltesting.NewFakeClient())
-				ctx, log := utiltesting.ContextWithLog(t)
-				topology := utiltestingapi.MakeTopology("topology").Levels("hostname").Obj()
-				flavor := utiltestingapi.MakeResourceFlavor("tas-flavor").TopologyName(topology.Name).Obj()
-				cache.AddOrUpdateResourceFlavor(log, flavor)
-				cache.AddOrUpdateTopology(log, topology)
-				cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
-				if err := cache.AddOrUpdateCohort(cycleCohort); !errors.Is(err, ErrCohortHasCycle) {
-					t.Fatalf("Expected cohort cycle error, got %v", err)
-				}
-				cq := utiltestingapi.MakeClusterQueue("cq").
-					Cohort("cycle").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
-						Resource(corev1.ResourceCPU, "1").Obj()).
-					Obj()
-				if err := cache.AddClusterQueue(ctx, cq); !errors.Is(err, ErrCohortHasCycle) {
-					t.Fatalf("Expected cohort cycle error when adding cq, got %v", err)
-				}
+		cq := utiltestingapi.MakeClusterQueue("cq").
+			Cohort("cycle").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
+				Resource(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		if err := cache.AddClusterQueue(ctx, cq); !errors.Is(err, ErrCohortHasCycle) {
+			t.Fatalf("Expected cohort cycle error when adding cq, got %v", err)
+		}
 
-				cachedCQ := cache.hm.ClusterQueue("cq")
-				if cachedCQ == nil {
-					t.Fatal("Expected ClusterQueue to remain cached")
-				}
-				wantTASFlavors := map[kueue.ResourceFlavorReference]kueue.TopologyReference{
-					kueue.ResourceFlavorReference(flavor.Name): kueue.TopologyReference(topology.Name),
-				}
-				if diff := cmp.Diff(wantTASFlavors, cachedCQ.tasFlavors); diff != "" {
-					t.Errorf("Unexpected TAS flavors (-want,+got):\n%s", diff)
-				}
-				if !cachedCQ.isTASInitialized() {
-					t.Fatal("Expected TAS cache to be initialized")
-				}
-				if cachedCQ.isTASSynced {
-					t.Error("Expected TAS sync to be skipped while the cohort has a cycle")
-				}
+		cachedCQ := cache.hm.ClusterQueue("cq")
+		if cachedCQ == nil {
+			t.Fatal("Expected ClusterQueue to remain cached")
+		}
+		if cachedCQ.isTASSynced {
+			t.Fatal("Expected TAS to remain unsynced before the ResourceFlavor is available")
+		}
 
-				if err := tc.repair(cache); err != nil {
-					t.Fatalf("Repairing cohort cycle: %v", err)
-				}
-				if !cachedCQ.isTASSynced {
-					t.Error("Expected TAS sync after the cohort cycle is repaired")
-				}
-				snapshot, err := cache.Snapshot(ctx)
-				if err != nil {
-					t.Fatalf("Creating snapshot: %v", err)
-				}
-				if snapshot.ClusterQueue("cq") == nil {
-					t.Error("Expected repaired ClusterQueue in snapshot")
-				}
-			})
+		cache.AddOrUpdateResourceFlavor(log, flavor)
+		if !cachedCQ.isTASSynced {
+			t.Error("Expected TAS sync while the Cohort has a cycle")
+		}
+		tasFlavorCache := cache.tasCache.Get(kueue.ResourceFlavorReference(flavor.Name))
+		if tasFlavorCache == nil {
+			t.Fatal("Expected TAS flavor cache to be initialized")
+		}
+		wantWorkloads := sets.New(workload.Key(tasWorkload))
+		if diff := cmp.Diff(wantWorkloads, sets.KeySet(tasFlavorCache.wlUsage)); diff != "" {
+			t.Errorf("Unexpected TAS workloads (-want,+got):\n%s", diff)
+		}
+		if got := len(tasFlavorCache.usage); got != 1 {
+			t.Fatalf("Got TAS usage for %d domains, want 1", got)
+		}
+		for _, gotUsage := range tasFlavorCache.usage {
+			if got := gotUsage.GetValue(corev1.ResourceCPU); got != 1_000 {
+				t.Errorf("Got TAS CPU usage %dm, want 1000m", got)
+			}
+			if got := gotUsage.GetValue(corev1.ResourcePods); got != 1 {
+				t.Errorf("Got TAS pod usage %d, want 1", got)
+			}
+		}
+		fr := resources.FlavorResource{Flavor: kueue.ResourceFlavorReference(flavor.Name), Resource: corev1.ResourceCPU}
+		if got := cachedCQ.resourceNode.Usage[fr]; got.CmpInt64(1_000) != 0 {
+			t.Errorf("Got local CPU usage %v after TAS sync, want 1000m", got)
+		}
+		snapshot, err := cache.Snapshot(ctx)
+		if err != nil {
+			t.Fatalf("Creating snapshot: %v", err)
+		}
+		if snapshot.ClusterQueue("cq") != nil {
+			t.Error("Expected ClusterQueue with a Cohort cycle to remain excluded from snapshot")
 		}
 	})
 

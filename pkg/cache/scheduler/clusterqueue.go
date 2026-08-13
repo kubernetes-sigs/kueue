@@ -298,11 +298,6 @@ func (c *clusterQueue) ensureTASIsSynced(log logr.Logger) {
 	if c.isTASSynced {
 		return
 	}
-	// Workload resync updates usage and metrics through the Cohort hierarchy, so it
-	// cannot run while that hierarchy contains a cycle.
-	if c.HasParent() && hierarchy.HasCycle(c.Parent()) {
-		return
-	}
 	log.V(2).Info("Syncing TAS usage initilized TAS cache", "workloads", len(c.Workloads))
 	for _, w := range c.Workloads {
 		c.addOrUpdateWorkload(log, w.Obj)
@@ -610,6 +605,7 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 
 func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
 	if c.HasParent() && hierarchy.HasCycle(c.Parent()) {
+		metrics.ReportClusterQueueWeightedShare(c.Name, cohort, 0, c.GetCustomLabelValues(), c.roleTracker)
 		return
 	}
 	drs := dominantResourceShare(c, nil)
@@ -627,6 +623,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 	frUsage := wi.ResourceUsage().Assigned
 	cohortHasCycle := c.HasParent() && hierarchy.HasCycle(c.Parent())
 	if cohortHasCycle {
+		log.V(4).Info("Skipping Cohort usage propagation due to cycle", "clusterQueue", c.Name, "cohort", c.Parent().Name)
 		// The Cohort tree is rebuilt after the cycle is repaired. Keep the
 		// ClusterQueue's local usage current without traversing the cyclic parents.
 		updateFlavorUsage(frUsage, c.resourceNode.Usage, op)

@@ -228,7 +228,19 @@ func (c *Cache) recordCQInfo(cq *clusterQueue, parentCohort kueue.CohortReferenc
 // updateCohortResourceAndInfoMetrics updates subtree resources then records info metrics.
 func (c *Cache) updateCohortResourceAndInfoMetrics(cohort *cohort, root *cohort) {
 	updateCohortResourceNode(cohort)
+	c.resyncTreeActiveWorkloadMetrics(cohort)
 	c.recordTreeInfoMetrics(cohort, root)
+}
+
+// resyncTreeActiveWorkloadMetrics refreshes Cohort gauges that workload updates
+// cannot safely report while the hierarchy has a cycle.
+func (c *Cache) resyncTreeActiveWorkloadMetrics(cohort *cohort) {
+	for _, child := range cohort.ChildCQs() {
+		child.reportActiveWorkloads()
+	}
+	for _, child := range cohort.ChildCohorts() {
+		c.resyncTreeActiveWorkloadMetrics(child)
+	}
 }
 
 // recordTreeInfoMetrics records cohort and cluster queue info metrics for the subtree.
