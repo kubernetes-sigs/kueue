@@ -434,6 +434,17 @@
     This label is always mutable, as it may be useful for preemption.
     For more details, see [Workload Priority Class](/docs/concepts/workload_priority_class/).
 
+- key: kueue.x-k8s.io/provisioning-podset-groups
+  type: Annotation
+  example: '`kueue.x-k8s.io/provisioning-podset-groups: {"ppt-my-workload-my-check-1-main":["main","worker"]}`'
+  used_on: |
+    [ProvisioningRequest](/docs/concepts/admission_check/provisioning_request).
+  description: |
+    The annotation records which Workload PodSets each PodTemplate of the ProvisioningRequest covers.
+    With `podSetMergePolicy`, one PodTemplate can cover several PodSets. Kueue sets the annotation
+    when it creates the request, and reads it to give each of those PodSets its PodSetUpdate once
+    the request is provisioned.
+
 - key: kueue.x-k8s.io/queue-name
   type: Label
   example: '`kueue.x-k8s.io/queue-name: "my-local-queue"`'

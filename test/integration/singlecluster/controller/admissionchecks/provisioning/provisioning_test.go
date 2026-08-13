@@ -1530,6 +1530,12 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			prc = baseConfig.Clone().
 				RetryLimit(0).
 				PodSetMergePolicy(kueue.IdenticalWorkloadSchedulingRequirements).
+				PodSetUpdate(kueue.ProvisioningRequestPodSetUpdates{
+					NodeSelector: []kueue.ProvisioningRequestPodSetUpdatesNodeSelector{{
+						Key:                              "provisioned-node",
+						ValueFromProvisioningClassDetail: "node-pool",
+					}},
+				}).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, prc)
 
@@ -1636,6 +1642,59 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				gomega.Expect(mergedTemplate.Template.Spec.Containers).To(gomega.BeComparableTo(updatedWl.Spec.PodSets[0].Template.Spec.Containers, ignoreContainersDefaults))
 				gomega.Expect(mergedTemplate.Template.Spec.NodeSelector).To(gomega.BeComparableTo(map[string]string{"ns1": "ns1v"}))
 				gomega.Expect(mergedTemplate.ObjectMeta.GetLabels()).To(gomega.BeComparableTo(map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue}))
+			})
+
+			ginkgo.By("Removing the quota reservation from the workload", func() {
+				behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
+			})
+		})
+
+		ginkgo.It("Should update every merged PodSet once the ProvisioningRequest is provisioned", func() {
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			})
+
+			ginkgo.By("Checking the request merged both PodSets into one", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					g.Expect(createdRequest.Spec.PodSets).Should(gomega.HaveLen(1))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the provision request as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					createdRequest.Status.ProvisioningClassDetails = map[string]autoscaling.Detail{
+						"node-pool": "pool-xyz",
+					}
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that both merged PodSets carry the whole update", func() {
+				behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady,
+					kueue.PodSetUpdate{
+						Name: "master",
+						Annotations: map[string]string{
+							autoscaling.ProvisioningRequestPodAnnotationKey: provReqKey.Name,
+							autoscaling.ProvisioningClassPodAnnotationKey:   "provisioning-class",
+						},
+						NodeSelector: map[string]string{"provisioned-node": "pool-xyz"},
+					},
+					kueue.PodSetUpdate{
+						Name: "worker",
+						Annotations: map[string]string{
+							autoscaling.ProvisioningRequestPodAnnotationKey: provReqKey.Name,
+							autoscaling.ProvisioningClassPodAnnotationKey:   "provisioning-class",
+						},
+						NodeSelector: map[string]string{"provisioned-node": "pool-xyz"},
+					},
+				)
 			})
 
 			ginkgo.By("Removing the quota reservation from the workload", func() {
