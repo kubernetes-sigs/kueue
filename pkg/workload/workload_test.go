@@ -1378,6 +1378,41 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// A multiplier reads the aggregate by name, so the name a zeroed overhead
+		// leaves behind multiplies by zero. Dropping the entry instead would leave
+		// it missing, which is a multiplier of one, and the negative output would
+		// land: gpu would come out at 5.
+		"negativeOverheadReadAsAMultiplierIsZeroRatherThanAbsent": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/credit", "8").
+					Request("example.com/slot", "3").
+					PodOverHead(corev1.ResourceList{"example.com/node": resource.MustParse("-2")}).Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:    "example.com/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				},
+				{
+					Input:      "example.com/slot",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "example.com/node",
+					Outputs:    corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"):  8,
+						corev1.ResourceName("example.com/node"): 0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		// The charge here is one preprocessing already produced, not one this
 		// resolves: the PodSet carries no claim. What is pinned is the merge.
 		"negativeOrdinaryRequestDoesNotSpendPreprocessedDRACharge": {
@@ -1472,7 +1507,13 @@ func TestNewInfo(t *testing.T) {
 			for fg, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
+			// The caller is lending this Workload, not handing it over: it is the
+			// one the informer holds, and the charge is built from a copy.
+			borrowed := tc.workload.DeepCopy()
 			info := NewInfo(&tc.workload, tc.infoOptions...)
+			if diff := cmp.Diff(borrowed, &tc.workload); diff != "" {
+				t.Errorf("NewInfo(_) changed the Workload it was given (-before,+after):\n%s", diff)
+			}
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash"), cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
