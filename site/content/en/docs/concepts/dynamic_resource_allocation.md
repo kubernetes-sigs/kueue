@@ -276,7 +276,10 @@ The following limitations apply:
   `adminAccess: true` is admitted and reserves no quota, rather than being
   refused. This is read before the allocation mode, so such a request is
   admitted even under `All`, where the count it would otherwise be charged
-  cannot be known.
+  cannot be known. Such a request ignores every ordinary claim to the device,
+  and Kubernetes only accepts it in a namespace labelled
+  `resource.kubernetes.io/admin-access: "true"`, so charging it nothing follows
+  a privileged mode rather than offering a way to share a device at no cost.
 - **No DRA + Topology Aware Scheduling (TAS)**: DRA resources are not
   accounted for in TAS capacity calculations. Using both features together
   may result in incorrect topology assignments for DRA devices.
