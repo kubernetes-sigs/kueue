@@ -30,6 +30,7 @@ import (
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/util/csv"
@@ -1806,4 +1807,48 @@ func (cpw *ClusterProfileWrapper) ClusterManager(clusterManagerName string) *Clu
 		Name: clusterManagerName,
 	}
 	return cpw
+}
+
+// CustomLabelWrapper builds a ControllerMetricsCustomLabel. The label is a named field
+// (not embedded) so the setters can mirror the API field names.
+type CustomLabelWrapper struct {
+	label configapi.ControllerMetricsCustomLabel
+}
+
+// MakeCustomLabel starts a wrapper for the label with the given name.
+func MakeCustomLabel(name string) *CustomLabelWrapper {
+	return &CustomLabelWrapper{label: configapi.ControllerMetricsCustomLabel{Name: name}}
+}
+
+func (w *CustomLabelWrapper) SourceLabelKey(key string) *CustomLabelWrapper {
+	w.label.SourceLabelKey = key
+	return w
+}
+
+func (w *CustomLabelWrapper) SourceAnnotationKey(key string) *CustomLabelWrapper {
+	w.label.SourceAnnotationKey = key
+	return w
+}
+
+func (w *CustomLabelWrapper) SourceKind(kind configapi.SourceKind) *CustomLabelWrapper {
+	w.label.SourceKind = new(kind)
+	return w
+}
+
+func (w *CustomLabelWrapper) TrackedValues(values ...string) *CustomLabelWrapper {
+	w.label.TrackedValues = values
+	return w
+}
+
+// Obj returns the built ControllerMetricsCustomLabel. Like the ResourceGroup and
+// FlavorQuotas builders, it panics on local construction mistakes; the full API
+// validation lives in pkg/config.
+func (w *CustomLabelWrapper) Obj() configapi.ControllerMetricsCustomLabel {
+	if w.label.SourceLabelKey != "" && w.label.SourceAnnotationKey != "" {
+		panic(fmt.Sprintf("CustomLabel %q: sourceLabelKey and sourceAnnotationKey are mutually exclusive", w.label.Name))
+	}
+	if w.label.SourceKind != nil && *w.label.SourceKind == configapi.SourceKindWorkload && len(w.label.TrackedValues) == 0 {
+		panic(fmt.Sprintf("CustomLabel %q: trackedValues are required when sourceKind is Workload", w.label.Name))
+	}
+	return w.label
 }
