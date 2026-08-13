@@ -948,10 +948,10 @@ func TestPodRequestsDropsOverheadThatIsNotCharged(t *testing.T) {
 	if diff := cmp.Diff(before, spec.Overhead); diff != "" {
 		t.Errorf("the caller's overhead was modified (-before +after):\n%s", diff)
 	}
-	if v := NewRequestsFromPodSpec(spec).GetValue(corev1.ResourceCPU); v != 1000 {
+	if v := NewRequestsFromPodSpec(spec).ResourceValue(corev1.ResourceCPU); v != 1000 {
 		t.Errorf("NewRequestsFromPodSpec disagrees: cpu %d, want 1000 milli", v)
 	}
-	if v := NewMapRequestsFromPodSpec(spec).GetValue(corev1.ResourceCPU); v != 1000 {
+	if v := NewMapRequestsFromPodSpec(spec).ResourceValue(corev1.ResourceCPU); v != 1000 {
 		t.Errorf("NewMapRequestsFromPodSpec disagrees: cpu %d, want 1000 milli", v)
 	}
 }
