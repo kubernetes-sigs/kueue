@@ -192,9 +192,15 @@ on `quotaCheckStrategy` in the Kueue Configuration:
   the Workload is admitted and that contribution is left out of the usage
   recorded in `status.admission`.
 
-The charge left under the original name is Kueue accounting alone. It does not
-make the kube-scheduler ask for another device, since the claim it builds comes
-from the containers' requests.
+The charge left under the original name does not make the kube-scheduler ask for
+another device, since the claim it builds comes from the containers' requests.
+It is still a quota resource, though, and it is assigned a ResourceFlavor like
+any other. Kueue applies the node labels and tolerations of every flavor in the
+assignment to the Pods, so give the two names the same flavor by keeping them in
+one resource group. A flavor reached only through the original name adds its
+labels and tolerations to Workloads that were placed by the logical one alone
+until now, and where both flavors set the same label key, which value survives
+is not defined.
 
 Where the logical name and the original name are the same, the two
 contributions share one quota key, and the total under it is no longer a count
