@@ -816,7 +816,9 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		return retryAfter, err
 	} else if retryAfter != nil {
-		ctrl.LoggerFrom(ctx).V(2).Info("reconnect deferred, backoff not elapsed", "retryAfter", retryAfter, "failedAttempts", client.getFailedConnAttempts())
+		if logV := ctrl.LoggerFrom(ctx).V(2); logV.Enabled() {
+			logV.Info("reconnect deferred, backoff not elapsed", "retryAfter", retryAfter, "failedAttempts", client.getFailedConnAttempts())
+		}
 		return retryAfter, nil
 	}
 	return nil, nil
