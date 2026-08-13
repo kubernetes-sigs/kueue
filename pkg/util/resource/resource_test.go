@@ -417,7 +417,14 @@ func TestIsExtendedResourceName(t *testing.T) {
 }
 
 func TestMergeKeepMaxOwnsItsResult(t *testing.T) {
-	for _, q := range []string{"1.1Gi", "250m", "2Gi"} {
+	cases := map[string]string{
+		"": "1.1Gi",
+		"": "250m",
+		"": "2Gi",
+	}
+
+	for name, q := range cases {
+	  t.Run(name, func(...
 		t.Run(q, func(t *testing.T) {
 			a := corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1")}
 			b := corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(q)}
