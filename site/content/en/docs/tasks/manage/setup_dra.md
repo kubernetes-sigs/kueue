@@ -175,7 +175,9 @@ the original `extendedResourceName` by the time it runs stays there: a chargeabl
 Pod overhead, or a `ResourceTransformation` output written to the same name.
 
 `excludeResourcePrefixes` and the transformations run before it, so a name one of
-them removed or a `Replace` consumed has nothing left under it either way. What
+them removed or a `Replace` consumed has no retained value left to take from. A
+transformation can still generate a new contribution under that name, and that output is
+left alone. What
 changed is that the translation no longer takes the name itself.
 
 Pod overhead reaches this without anyone writing it by hand. A RuntimeClass
