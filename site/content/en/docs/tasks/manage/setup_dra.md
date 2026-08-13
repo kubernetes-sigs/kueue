@@ -166,6 +166,35 @@ The `coveredResources` must include the extended resource name that matches
 kubectl apply -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-queues.yaml
 ```
 
+### What is charged where when the name is remapped
+
+If a `deviceClassMappings` entry gives the DeviceClass a different logical name,
+only the request the Pod's containers make is translated to that name. Anything
+else under the original `extendedResourceName` stays there: a chargeable Pod
+overhead, or a `ResourceTransformation` output written to the same name.
+
+Pod overhead reaches this without anyone writing it by hand. A RuntimeClass
+`overhead.podFixed` entry is copied onto the PodSet, and it is an ordinary
+`ResourceList`, so it can name an extended resource.
+
+To meter both contributions, the ClusterQueue has to cover the logical name and
+the original one. Covering only the logical name behaves differently depending
+on `quotaCheckStrategy` in the Kueue Configuration:
+
+- `BlockUndeclared`, the default: the Workload is not admitted, and reports the
+  original name as unavailable in the ClusterQueue.
+- `IgnoreUndeclared`: the undeclared contribution is skipped deliberately, so
+  the Workload is admitted and that contribution is left out of the usage
+  recorded in `status.admission`.
+
+The charge left under the original name is Kueue accounting alone. It does not
+make the kube-scheduler ask for another device, since the claim it builds comes
+from the containers' requests.
+
+Where the logical name and the original name are the same, the two
+contributions share one quota key, and the total under it is no longer a count
+of devices.
+
 ### Late DeviceClass creation
 
 Kueue watches `DeviceClass` objects for create, update, and delete events.
