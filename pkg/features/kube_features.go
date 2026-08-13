@@ -76,6 +76,8 @@ const (
 	// Enables MultiKueue support.
 	MultiKueue featuregate.Feature = "MultiKueue"
 
+	// owner: @Vaishnav88sk
+	//
 	// Enables strict validation for MultiKueue workload ownership to prevent spoofing.
 	MultiKueueStrictValidation featuregate.Feature = "MultiKueueStrictValidation"
 
