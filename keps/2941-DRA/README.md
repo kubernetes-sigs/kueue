@@ -2043,6 +2043,19 @@ excluded because the counter and consumable-capacity
 accounting paths process only `Exactly` requests today; they can be added later by charging each
 alternative through its source path and taking the component-wise maximum of the resulting vectors.
 
+The `excludeResourcePrefixes` overlap is the one rejection above that costs an administrator a
+configuration working today, so it is worth writing down what it costs and why it is still the
+choice. The filter runs over the pod's requests before a logical resource exists, so that name
+never passes through it, which leaves three ways out: charge it anyway, drop it, or refuse the
+configuration. Charging leaves the exclusion not applied to the one resource an administrator
+named a prefix for, and drops nothing but the surprise; dropping hands out the devices for free.
+Refusing fails closed, and it fails at startup with the name in the message rather than at
+admission with a number that is quietly wrong. The cost is easy to reach, because the task guides
+share a placeholder: `administer_cluster_quotas.md` excludes `example.com` while `setup_dra.md`
+maps a DeviceClass to `example.com/gpu`, so an administrator following both verbatim is refused.
+Renaming the logical resource is the way out; dropping the mapping is not, since an unmapped
+DeviceClass makes a claim-template Workload inadmissible on its own.
+
 CEL selectors in every subrequest are compiled and syntax-checked. The `Exactly`
 device-cardinality check against ResourceSlices is not reused, because it would require every
 alternative to be satisfiable while only one has to be; the initial scope compiles CEL but skips
