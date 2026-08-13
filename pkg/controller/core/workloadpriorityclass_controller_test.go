@@ -466,6 +466,17 @@ func TestWorkloadPriorityClassReferenceReconcile(t *testing.T) {
 			wantPriority: new(int32(200)),
 			wantUpdates:  1,
 		},
+		// The rule this pins: the class wins over a value the user chose. A
+		// Workload created already referencing a class is resolved from it at
+		// once, where before this the value stood until the class next moved.
+		// A later numeric-only update is left alone, so an override is still
+		// available, just not in the same request as the reference.
+		"a value the user chose, against the class it references": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(123).Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			wantPriority: new(int32(200)),
+			wantUpdates:  1,
+		},
 		"a value already in step with the class": {
 			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(200).Obj(),
 			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
