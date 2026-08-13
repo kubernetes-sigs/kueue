@@ -267,10 +267,11 @@ func (r *WorkloadPriorityClassReferenceReconciler) Reconcile(ctx context.Context
 	}
 	// The class can move between the read above and this write, and the pass that
 	// change starts can find the workload already holding the new value and leave
-	// it alone, which leaves nothing to stop this write landing on top of a
-	// correct one. Reading the class again closes the window this write opened,
-	// and the requeue resolves from the API server rather than from a cache that
-	// has not caught up with the write above.
+	// it alone, leaving nothing to stop this write landing on top of a correct one.
+	// Reading the class again catches a move up to this point, from the API server
+	// rather than a cache that has not caught up with the write. A move after this
+	// read is the class's own pass to notice, and that pass can still skip on a
+	// stale cached value: #14006.
 	var after kueue.WorkloadPriorityClass
 	if err := r.apiReader.Get(ctx, client.ObjectKey{Name: wl.Spec.PriorityClassRef.Name}, &after); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
