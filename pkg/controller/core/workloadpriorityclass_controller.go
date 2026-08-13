@@ -100,9 +100,7 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 		wl := &workloads.Items[i]
 		wlLog := log.WithValues("workload", klog.KObj(wl))
 
-		// The same question the reference reconciler asks, since a Workload
-		// MultiKueue created here holds the priority the manager resolved and a
-		// class of this name on this cluster is not the policy behind it.
+		// The same question the reference reconciler asks.
 		if !ownsPriority(wl) {
 			wlLog.V(3).Info("Workload's priority is not this cluster's to write")
 			continue
@@ -170,16 +168,14 @@ func workloadPriorityClassRefChanged() predicate.TypedPredicate[*kueue.Workload]
 				return false
 			}
 			// The reference can stay put while the answer stops being someone
-			// else's. A Workload that loses the MultiKueue origin label carries a
-			// value resolved on the manager, from a class this cluster's own is
-			// under no obligation to agree with.
+			// else's: a Workload losing the origin label carries the manager's
+			// resolution, not this cluster's.
 			if !ownsPriority(e.ObjectOld) {
 				return true
 			}
-			// Compared as a whole reference, and against the reference rather
-			// than the value: Reconcile writes spec.priority and leaves the
-			// reference alone, so this does not fire on its own writes, and a
-			// move between two groups sharing a name is still a move.
+			// The reference rather than the value, so this does not fire on
+			// Reconcile's own writes, and whole, so a move between two groups
+			// sharing a name is still a move.
 			return !apiequality.Semantic.DeepEqual(e.ObjectOld.Spec.PriorityClassRef, e.ObjectNew.Spec.PriorityClassRef)
 		},
 		DeleteFunc:  func(event.TypedDeleteEvent[*kueue.Workload]) bool { return false },
@@ -187,34 +183,27 @@ func workloadPriorityClassRefChanged() predicate.TypedPredicate[*kueue.Workload]
 	}
 }
 
-// classMovedRequeue is how long the reconcile waits before resolving again when
-// the class changed under it. Short, since the value it just wrote is known to
-// be the wrong one, and not zero, so a class being edited repeatedly does not
-// spin.
+// classMovedRequeue is short, since the value just written is known to be the
+// wrong one, and not zero, so a class edited repeatedly does not spin.
 const classMovedRequeue = time.Second
 
-// ownsPriority reports whether this cluster decides the Workload's priority.
-// A Workload MultiKueue created here carries the manager's resolution, and a
-// class of the same name on this cluster is not the one it was resolved from.
+// ownsPriority reports whether this cluster decides the Workload's priority. A
+// Workload MultiKueue created here carries the manager's resolution, from a
+// class this cluster's own of that name need not agree with.
 func ownsPriority(wl *kueue.Workload) bool {
 	_, isMultiKueueRemote := wl.Labels[kueue.MultiKueueOriginLabel]
 	return !isMultiKueueRemote && workload.IsWorkloadPriorityClass(wl)
 }
 
 // WorkloadPriorityClassReferenceReconciler keeps one Workload's priority in step
-// with the class it references. It is keyed on the Workload rather than the
-// class, so a Workload arriving at a class does not cost a pass over every other
-// Workload already using it.
+// with the class it references, keyed on the Workload so that one arriving at a
+// class does not cost a pass over every other Workload already using it.
 type WorkloadPriorityClassReferenceReconciler struct {
 	logName string
 	client  client.Client
-	// Both objects are read straight from the API server, since neither cached
-	// answer is ordered against what this reconcile is deciding from. The class
-	// read can be one this replica took before the class moved, and the pass that
-	// would have repaired it has already decided there was nothing to do. The
-	// workload read can be one from before this reconcile's own write, which on a
-	// requeue still holds the value the class has since moved to, so the pass
-	// that came back to repair it reports nothing left to do instead.
+	// Both read straight from the API server: a cached answer is not ordered
+	// against what this reconcile decides from, and either one being behind
+	// leaves the pass that came to repair the value reporting nothing to do.
 	apiReader   client.Reader
 	roleTracker *roletracker.RoleTracker
 }
@@ -262,22 +251,19 @@ func (r *WorkloadPriorityClassReferenceReconciler) Reconcile(ctx context.Context
 		return ctrl.Result{}, nil
 	}
 
-	// Patched rather than updated: the workload was read whole from the API
-	// server, and one field of it is this controller's to write. Strict is the
-	// helper's default, so the resourceVersion read above still has to match.
+	// The workload was read whole, and one field of it is this controller's to
+	// write. Strict is the helper's default, so the read above still has to match.
 	if err := clientutil.Patch(ctx, r.client, &wl, func() (bool, error) {
 		wl.Spec.Priority = new(wpc.Value)
 		return true, nil
 	}); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	// The class can move between the read above and this write, and the pass that
-	// change starts can find the workload already holding the new value and leave
-	// it alone, leaving nothing to stop this write landing on top of a correct one.
-	// Reading the class again catches a move up to this point, from the API server
-	// rather than a cache that has not caught up with the write. A move after this
-	// read is the class's own pass to notice, and that pass can still skip on a
-	// stale cached value: #14006.
+	// A class moving between the read above and this write leaves the pass that
+	// change starts finding the new value already there, so nothing stops this
+	// write landing on a correct one. Reading again catches a move up to here. A
+	// move after it is the class's own pass to notice, and that pass can still
+	// skip on a stale cached value: #14006.
 	var after kueue.WorkloadPriorityClass
 	if err := r.apiReader.Get(ctx, client.ObjectKey{Name: wl.Spec.PriorityClassRef.Name}, &after); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
