@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -148,11 +149,11 @@ func startBenchmarkCluster(ctx context.Context, name, crdPath string, setup mana
 
 	cacheCtx, cacheCancel := context.WithTimeout(ctx, time.Minute)
 	defer cacheCancel()
-	if !mgr.GetCache().WaitForCacheSync(cacheCtx) {
+	if err := waitForManagerReady(name, mgr.GetCache().WaitForCacheSync, done, cacheCtx); err != nil {
 		cancel()
 		<-done
 		_ = testEnv.Stop()
-		return nil, fmt.Errorf("wait for %s manager cache sync", name)
+		return nil, err
 	}
 
 	return &benchmarkCluster{
@@ -277,12 +278,43 @@ func (c *benchmarkCluster) stop() error {
 	case <-time.After(time.Minute):
 		managerErr = fmt.Errorf("%s manager did not stop within one minute", c.name)
 	}
-	envErr := c.env.Stop()
+	return stopErrors(c.name, managerErr, c.env.Stop())
+}
+
+func waitForManagerReady(name string, cacheSynced func(context.Context) bool, done <-chan error, ctx context.Context) error {
+	synced := make(chan bool, 1)
+	go func() {
+		synced <- cacheSynced(ctx)
+	}()
+	select {
+	case err := <-done:
+		return managerStartError(name, err)
+	case ok := <-synced:
+		select {
+		case err := <-done:
+			return managerStartError(name, err)
+		default:
+		}
+		if !ok {
+			return fmt.Errorf("wait for %s manager cache sync", name)
+		}
+		return nil
+	}
+}
+
+func managerStartError(name string, err error) error {
+	if err != nil {
+		return fmt.Errorf("start %s manager: %w", name, err)
+	}
+	return fmt.Errorf("%s manager exited before cache sync", name)
+}
+
+func stopErrors(name string, managerErr, envErr error) error {
 	if managerErr != nil {
-		return fmt.Errorf("stop %s manager: %w", c.name, managerErr)
+		managerErr = fmt.Errorf("stop %s manager: %w", name, managerErr)
 	}
 	if envErr != nil {
-		return fmt.Errorf("stop %s control plane: %w", c.name, envErr)
+		envErr = fmt.Errorf("stop %s control plane: %w", name, envErr)
 	}
-	return nil
+	return errors.Join(managerErr, envErr)
 }
