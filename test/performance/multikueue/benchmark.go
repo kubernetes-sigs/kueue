@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -348,23 +349,26 @@ func waitForActive(ctx context.Context, c client.Client, key client.ObjectKey, o
 }
 
 func runBenchmark(ctx context.Context, managerCluster *benchmarkCluster, cfg benchmarkConfig) (report.Summary, error) {
+	runCtx, cancelRun := context.WithCancel(ctx)
+	var runWG sync.WaitGroup
+	defer func() {
+		cancelRun()
+		runWG.Wait()
+	}()
+
 	runID := strconv.FormatInt(time.Now().UnixNano(), 10)
 	collector := newObservationCollector()
 
-	// Cancelling on return stops the watch and unblocks the receiving goroutine, which owns it.
-	watchCtx, stopWatch := context.WithCancel(ctx)
-	defer stopWatch()
-
 	tracker := &watchTracker{}
 	observed := make(chan timedWorkload, watchBufferPerWorkload*cfg.WorkloadCount)
-	watcher, resourceVersion, err := openWorkloadWatch(watchCtx, managerCluster.client, runID)
+	watcher, resourceVersion, err := openWorkloadWatch(runCtx, managerCluster.client, runID)
 	if err != nil {
 		return report.Summary{}, fmt.Errorf("watch benchmark workloads: %w", err)
 	}
 	watchDone := make(chan error, 1)
-	go func() {
+	runWG.Go(func() {
 		watchDone <- receiveWorkloads(
-			watchCtx,
+			runCtx,
 			managerCluster.client,
 			runID,
 			watcher,
@@ -372,17 +376,17 @@ func runBenchmark(ctx context.Context, managerCluster *benchmarkCluster, cfg ben
 			tracker,
 			observed,
 		)
-	}()
+	})
 
 	generationDone := make(chan generationResult, 1)
-	go func() {
+	runWG.Go(func() {
 		started := time.Now()
-		err := generateWorkloads(ctx, managerCluster.client, cfg, runID)
+		err := generateWorkloads(runCtx, managerCluster.client, cfg, runID)
 		generationDone <- generationResult{
 			duration: time.Since(started),
 			err:      err,
 		}
-	}()
+	})
 
 	var generationDuration time.Duration
 	reportedMilestone := 0
@@ -413,10 +417,10 @@ func runBenchmark(ctx context.Context, managerCluster *benchmarkCluster, cfg ben
 				reportedMilestone = milestone
 				fmt.Printf("Admission progress: %d/%d\n", collector.admittedCount(), cfg.WorkloadCount)
 			}
-		case <-ctx.Done():
+		case <-runCtx.Done():
 			return report.Summary{}, fmt.Errorf(
 				"wait for admissions: %w (admitted %d/%d)",
-				ctx.Err(),
+				runCtx.Err(),
 				collector.admittedCount(),
 				cfg.WorkloadCount,
 			)
@@ -435,7 +439,8 @@ func runBenchmark(ctx context.Context, managerCluster *benchmarkCluster, cfg ben
 
 // watchBufferPerWorkload sizes the handover buffer between receiving watch events and processing
 // them, as a multiple of the run's workload count. A Workload goes through a bounded number of
-// transitions, so a run's whole event stream fits and the receiving loop never blocks.
+// transitions, so a run's whole event stream fits and the receiving loop never blocks. Config
+// validation bounds the resulting allocation.
 const watchBufferPerWorkload = 8
 
 type timedWorkload struct {
