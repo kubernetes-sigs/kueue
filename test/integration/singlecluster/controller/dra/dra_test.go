@@ -970,6 +970,120 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName(logicalName)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.It("Should leave pod overhead under the original extended resource name", func() {
+			ginkgo.By("Creating a workload whose overhead names the DRA-backed resource")
+			wl := utiltestingapi.MakeWorkload("overhead-wl", ns.Name).
+				Queue("unified-lq").
+				Request(corev1.ResourceName(extendedResourceName), "1").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
+				corev1.ResourceName(extendedResourceName): resource.MustParse("1"),
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Only the containers' request moves to the logical name, so the overhead is left with nowhere to go")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+
+			ginkgo.By("Waiting on quota it has not been given, rather than refused as misconfigured DRA")
+			gomega.Consistently(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadRequeued)).To(gomega.BeNil())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("Extended Resources where the ClusterQueue covers both names", func() {
+		var (
+			ns             *corev1.Namespace
+			resourceFlavor *kueue.ResourceFlavor
+			clusterQueue   *kueue.ClusterQueue
+			localQueue     *kueue.LocalQueue
+			deviceClass    *resourcev1.DeviceClass
+		)
+
+		const (
+			extendedResourceName = "example.com/gpu"
+			logicalName          = "gpu-claims"
+		)
+
+		ginkgo.BeforeAll(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
+
+			deviceClass = utiltesting.MakeDeviceClass("gpu-both.example.com").
+				ExtendedResourceName(extendedResourceName).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
+
+			fwk.StopManager(ctx)
+			fwk.StartManager(ctx, cfg, managerSetup(func(c *config.Configuration) {
+				c.Resources.DeviceClassMappings = append(c.Resources.DeviceClassMappings, config.DeviceClassMapping{
+					Name:             logicalName,
+					DeviceClassNames: []corev1.ResourceName{"gpu-both.example.com"},
+				})
+			}))
+		})
+
+		ginkgo.AfterAll(func() {
+			fwk.StopManager(ctx)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			fwk.StartManager(ctx, cfg, managerSetup(nil))
+		})
+
+		ginkgo.BeforeEach(func() {
+			ns = utiltesting.MakeNamespaceWithGenerateName("dra-both-")
+			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
+
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("").GeneratedName("rf-both-").Obj()
+			gomega.Expect(k8sClient.Create(ctx, resourceFlavor)).To(gomega.Succeed())
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("").GeneratedName("both-cq-").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+						Resource(logicalName, "8").
+						Resource(corev1.ResourceName(extendedResourceName), "8").
+						Obj(),
+				).Obj()
+			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("both-lq", ns.Name).
+				ClusterQueue(clusterQueue.Name).Obj()
+			gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		})
+
+		ginkgo.It("Should charge the containers to the logical name and the overhead to the original one", func() {
+			ginkgo.By("Creating a workload whose overhead names the DRA-backed resource")
+			wl := utiltestingapi.MakeWorkload("both-wl", ns.Name).
+				Queue("both-lq").
+				Request(corev1.ResourceName(extendedResourceName), "1").
+				Obj()
+			wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
+				corev1.ResourceName(extendedResourceName): resource.MustParse("1"),
+			}
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Both names are covered, so each contribution is charged where it belongs")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				usage := updatedWl.Status.Admission.PodSetAssignments[0].ResourceUsage
+				g.Expect(usage).To(gomega.HaveKeyWithValue(corev1.ResourceName(logicalName), resource.MustParse("1")))
+				g.Expect(usage).To(gomega.HaveKeyWithValue(corev1.ResourceName(extendedResourceName), resource.MustParse("1")))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
 	})
 
 	ginkgo.When("KueueDRAIntegrationExtendedResource feature gate disabled", func() {
