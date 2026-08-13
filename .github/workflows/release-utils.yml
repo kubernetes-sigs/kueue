@@ -279,6 +279,7 @@ jobs:
         with:
           version: ${{ steps.rc-version.outputs.version }}
           repo: ${{ github.repository }}
+          update-release-issue: false
 
       - name: Report Success
         if: ${{ success() }}
@@ -653,6 +654,7 @@ jobs:
         with:
           version: ${{ needs.authorize.outputs.version }}
           repo: ${{ github.repository }}
+          update-release-issue: true
 
       - name: Report Success
         if: ${{ success() }}

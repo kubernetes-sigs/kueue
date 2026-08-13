@@ -753,7 +753,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 	}
 
 	for _, podSets := range groupedRequests.InOrder {
-		requests := resources.CreateEmpty()
+		requests := resources.NewRequests()
 		psIDs := make([]int, len(podSets))
 		for idx, podset := range podSets {
 			psIDs[idx] = podset.originalIndex
@@ -992,7 +992,7 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 		// podSets that already have quota reserved in the old slice.
 		var requestAmount int64
 		if requests != nil {
-			requestAmount = requests.GetValue(resource)
+			requestAmount = requests.ResourceValue(resource)
 		}
 		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
 			oldRequest := a.findOldPodSetRequest(psAssignment.Name, resource)
@@ -1014,7 +1014,7 @@ func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource
 
 	for _, oldPS := range a.replaceWorkloadSlice.TotalRequests {
 		if oldPS.Name == psName && oldPS.Requests != nil {
-			return oldPS.Requests.GetValue(resource)
+			return oldPS.Requests.ResourceValue(resource)
 		}
 	}
 
@@ -1104,7 +1104,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 					// Subtract the resource usage of the preempted slice to request only the delta needed.
 					if preemptWorkloadRequests.Requests != nil {
-						val -= preemptWorkloadRequests.Requests.GetValue(rName)
+						val -= preemptWorkloadRequests.Requests.ResourceValue(rName)
 					}
 				}
 			}
@@ -1354,7 +1354,7 @@ func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {
 }
 
 func filterRequestedResources(req resources.Requests, allowList sets.Set[corev1.ResourceName]) resources.Requests {
-	filtered := resources.CreateEmpty()
+	filtered := resources.NewRequests()
 	req.ForEach(func(resName corev1.ResourceName, quantity int64) {
 		if allowList.Has(resName) {
 			filtered.Set(resName, quantity)
