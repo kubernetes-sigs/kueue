@@ -692,7 +692,8 @@ func (c *Controller) syncCheckStates(
 			} else {
 				pr := activeOrLastPRForChecks[check]
 				if pr == nil {
-					return false, nil
+					// Skip only this check; its siblings' states are already staged in wlPatch.
+					continue
 				}
 				log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl),
 					"check", check,
