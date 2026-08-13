@@ -206,6 +206,26 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 		},
 	}
 
+	// Two distinct extendedResourceNames, both mapped by the same deviceClassMappings
+	// entry to the logical key "gpu-claims".
+	classADeviceClass := &resourceapi.DeviceClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "class-a",
+		},
+		Spec: resourceapi.DeviceClassSpec{
+			ExtendedResourceName: new("vendor.example/a"),
+		},
+	}
+
+	classBDeviceClass := &resourceapi.DeviceClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "class-b",
+		},
+		Spec: resourceapi.DeviceClassSpec{
+			ExtendedResourceName: new("vendor.example/b"),
+		},
+	}
+
 	tests := []struct {
 		name           string
 		workload       *kueue.Workload
@@ -303,6 +323,33 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 									Resources: corev1.ResourceRequirements{
 										Requests: corev1.ResourceList{
 											"other.vendor.io/resource": resource.MustParse("1"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			want:          nil,
+		},
+		{
+			name: "workload with fractional quantity for extended resource not backed by DRA (no matching DeviceClass)",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name:  "c",
+									Image: "pause",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"other.vendor.io/resource": resource.MustParse("1500m"),
 										},
 									},
 								}},
@@ -480,6 +527,67 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 		},
 		{
+			// vendor.example/a and vendor.example/b both map to the "gpu-claims" quota
+			// key, but each is charged against the OTHER container kind (init vs.
+			// regular), so the max/sum aggregation only ever sees one contribution
+			// per key if the mapping happens before aggregation across containers.
+			// The correct charge is the sum of each name's own Pod aggregation:
+			// max(A's init contribution, A's regular contribution) is 5 for A alone,
+			// and likewise 5 for B alone, so the quota key must be charged 10, not
+			// max(5, 5) = 5.
+			name: "two extended resource names sharing a quota key are not collapsed by cross-container aggregation",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								InitContainers: []corev1.Container{
+									{
+										Name:  "init",
+										Image: "pause",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"vendor.example/a": resource.MustParse("5"),
+											},
+										},
+									},
+								},
+								Containers: []corev1.Container{
+									{
+										Name:  "c",
+										Image: "pause",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"vendor.example/b": resource.MustParse("5"),
+											},
+										},
+									},
+								},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{classADeviceClass, classBDeviceClass},
+			mapperMappings: []configapi.DeviceClassMapping{
+				{
+					Name:             "gpu-claims",
+					DeviceClassNames: []corev1.ResourceName{"class-a", "class-b"},
+				},
+			},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpu-claims": resource.MustParse("10"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("vendor.example/a", "vendor.example/b"),
+			},
+		},
+		{
 			name: "workload with non-integer extended resource quantity",
 			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
@@ -498,6 +606,55 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 										},
 									},
 								}},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("spec", "podSets").Index(0).
+						Child("template", "spec", "containers").Index(0).
+						Child("resources", "requests", "example.com/gpu"),
+					"",
+					"",
+				),
+			},
+		},
+		{
+			// Each container's quantity fits int64 on its own, but their sum
+			// overflows it. Charging the aggregate without re-checking would
+			// silently charge nothing instead of rejecting the request.
+			name: "workload with per-container integer quantities that overflow int64 when summed",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name:  "c1",
+										Image: "pause",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("9e18"),
+											},
+										},
+									},
+									{
+										Name:  "c2",
+										Image: "pause",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("9e18"),
+											},
+										},
+									},
+								},
 							},
 						},
 					}},
