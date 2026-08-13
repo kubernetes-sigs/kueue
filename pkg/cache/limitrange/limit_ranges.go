@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package queue
+package limitrange
 
 import (
 	"cmp"
@@ -31,7 +31,7 @@ type LimitRanges struct {
 	store map[string]map[string]*corev1.LimitRange
 }
 
-func newLimitRanges() *LimitRanges {
+func New() *LimitRanges {
 	return &LimitRanges{
 		store: make(map[string]map[string]*corev1.LimitRange),
 	}
@@ -61,10 +61,6 @@ func (l *LimitRanges) AddOrUpdate(lr *corev1.LimitRange) {
 		l.store[ns] = make(map[string]*corev1.LimitRange)
 	}
 	l.store[ns][lr.Name] = lr
-}
-
-func (l *LimitRanges) Update(oldLr, newLr *corev1.LimitRange) {
-	l.AddOrUpdate(newLr)
 }
 
 func (l *LimitRanges) Delete(lr *corev1.LimitRange) {

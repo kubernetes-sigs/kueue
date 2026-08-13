@@ -34,7 +34,9 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/cache/limitrange"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/cache/runtimeclass"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -199,8 +201,8 @@ type Manager struct {
 	// can be removed - the expectation is satisfied.
 	preemptionExpectations *expectations.Store
 
-	limitRanges    *LimitRanges
-	runtimeClasses *RuntimeClasses
+	limitRanges    *limitrange.LimitRanges
+	runtimeClasses *runtimeclass.RuntimeClasses
 }
 
 // NewManager is a factory for cache.queue.Manager. For tests,
@@ -227,8 +229,8 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		AfsConsumedResources:   queueafs.NewAfsConsumedResources(),
 		requeuer:               requeuer,
 		resourceFormatter:      resources.NewResourceFormatter(),
-		limitRanges:            newLimitRanges(),
-		runtimeClasses:         newRuntimeClasses(),
+		limitRanges:            limitrange.New(),
+		runtimeClasses:         runtimeclass.New(),
 	}
 	for _, option := range options {
 		option(m)
@@ -1147,10 +1149,10 @@ func (m *Manager) LocalQueueExistsWithoutLock(lqRef queue.LocalQueueReference) b
 	return ok
 }
 
-func (m *Manager) LimitRangeCache() *LimitRanges {
+func (m *Manager) LimitRangeCache() *limitrange.LimitRanges {
 	return m.limitRanges
 }
 
-func (m *Manager) RuntimeClassCache() *RuntimeClasses {
+func (m *Manager) RuntimeClassCache() *runtimeclass.RuntimeClasses {
 	return m.runtimeClasses
 }

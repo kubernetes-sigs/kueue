@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package queue
+package runtimeclass
 
 import (
 	"maps"
@@ -28,7 +28,7 @@ type RuntimeClasses struct {
 	store map[string]*nodev1.RuntimeClass
 }
 
-func newRuntimeClasses() *RuntimeClasses {
+func New() *RuntimeClasses {
 	return &RuntimeClasses{
 		store: make(map[string]*nodev1.RuntimeClass),
 	}
@@ -38,10 +38,6 @@ func (r *RuntimeClasses) Add(rc *nodev1.RuntimeClass) {
 	r.Lock()
 	defer r.Unlock()
 	r.store[rc.Name] = rc
-}
-
-func (r *RuntimeClasses) Update(oldRc, newRc *nodev1.RuntimeClass) {
-	r.Add(newRc)
 }
 
 func (r *RuntimeClasses) Delete(rc *nodev1.RuntimeClass) {

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package queue
+package runtimeclass
 
 import (
 	"testing"
@@ -31,7 +31,7 @@ func TestRuntimeClasses(t *testing.T) {
 		Handler: "handler-1",
 	}
 
-	rcs := newRuntimeClasses()
+	rcs := New()
 
 	// Add RuntimeClass
 	rcs.Add(rc1)
