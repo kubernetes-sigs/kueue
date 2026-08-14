@@ -39,6 +39,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadappwrapper "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
@@ -177,6 +178,70 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				condition.LastTransitionTime = completedJobCondition.LastTransitionTime
 				return condition
 			}, gomega.Equal(completedJobCondition))))
+		})
+	})
+
+	ginkgo.It("Should propagate a manager-side WorkloadPriorityClass change to the worker workload", func() {
+		highPC := utiltestingapi.MakeWorkloadPriorityClass("mk-high").PriorityValue(1000).Obj()
+		lowPC := utiltestingapi.MakeWorkloadPriorityClass("mk-low").PriorityValue(100).Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, highPC)
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lowPC)
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(client.IgnoreNotFound(managerTestCluster.client.Delete(managerTestCluster.ctx, highPC))).To(gomega.Succeed())
+			gomega.Expect(client.IgnoreNotFound(managerTestCluster.client.Delete(managerTestCluster.ctx, lowPC))).To(gomega.Succeed())
+		})
+
+		job := testingjob.MakeJob("job-prio", f.managerNs.Name).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			WorkloadPriorityClass(highPC.Name).
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: f.managerNs.Name}
+
+		ginkgo.By("admitting the workload through MultiKueue on worker1", func() {
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+				Obj()
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+			createdWorkload := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
+			util.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+				f.multiKueueAC.Name, kueue.CheckStateReady, `The workload was admitted on "worker1"`)
+		})
+
+		ginkgo.By("both the manager and worker1 workloads start at high priority", func() {
+			util.ExpectWorkloadsWithWorkloadPriority(managerTestCluster.ctx, managerTestCluster.client, highPC.Name, highPC.Value, wlLookupKey)
+			util.ExpectWorkloadsWithWorkloadPriority(worker1TestCluster.ctx, worker1TestCluster.client, highPC.Name, highPC.Value, wlLookupKey)
+		})
+
+		ginkgo.By("changing the manager job's priority-class label high -> low", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob := &batchv1.Job{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
+				createdJob.Labels[controllerconsts.WorkloadPriorityClassLabel] = lowPC.Name
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdJob)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the manager workload follows the change to low priority", func() {
+			util.ExpectWorkloadsWithWorkloadPriority(managerTestCluster.ctx, managerTestCluster.client, lowPC.Name, lowPC.Value, wlLookupKey)
+		})
+
+		ginkgo.By("the worker workload converges to low priority and stays there (no revert to the stale job label)", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, wl)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(wl.Spec.Priority, 0)).To(gomega.Equal(lowPC.Value))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, wl)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(wl.Spec.Priority, 0)).To(gomega.Equal(lowPC.Value))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
