@@ -32,6 +32,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
@@ -59,12 +60,13 @@ func TestCheckNamespace(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		pods            []corev1.Pod
-		clusterQueues   []kueue.ClusterQueue
-		localQueues     []kueue.LocalQueue
-		mapping         mapping.Rules
-		flavors         []kueue.ResourceFlavor
-		priorityClasses []schedulingv1.PriorityClass
+		pods                     []corev1.Pod
+		clusterQueues            []kueue.ClusterQueue
+		localQueues              []kueue.LocalQueue
+		mapping                  mapping.Rules
+		flavors                  []kueue.ResourceFlavor
+		priorityClasses          []schedulingv1.PriorityClass
+		excludedResourcePrefixes []string
 
 		wantError error
 	}{
@@ -137,6 +139,21 @@ func TestCheckNamespace(t *testing.T) {
 				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
 			},
 			wantError: &resourceNotCoveredError{Resource: corev1.ResourceName("nvidia.com/gpu"), ClusterQueue: "cq1"},
+		},
+		"excluded resource request is ignored": {
+			pods:        []corev1.Pod{*basePodWrapper.Clone().Request(corev1.ResourceName("vendor.com/special"), "1").Obj()},
+			mapping:     baseMapping,
+			localQueues: []kueue.LocalQueue{*baseLocalQueue.Obj()},
+			clusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("cq1").
+					ResourceGroup(*utiltestingapi.
+						MakeFlavorQuotas("rf1").
+						Resource(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			flavors:                  []kueue.ResourceFlavor{*utiltestingapi.MakeResourceFlavor("rf1").Obj()},
+			excludedResourcePrefixes: []string{"vendor.com/"},
 		},
 		"request-less pod still validates cluster queue flavors": {
 			pods: []corev1.Pod{
@@ -237,7 +254,7 @@ func TestCheckNamespace(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			mpc, err := cache.Load(ctx, client, []string{testingNamespace}, tc.mapping, nil)
+			mpc, err := cache.Load(ctx, client, []string{testingNamespace}, tc.mapping, nil, []workload.InfoOption{workload.WithExcludedResourcePrefixes(tc.excludedResourcePrefixes)})
 			if err != nil {
 				t.Fatalf("Unexpected cache load error: %s", err)
 			}
