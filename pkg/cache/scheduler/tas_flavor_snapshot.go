@@ -1931,9 +1931,9 @@ func (s *TASFlavorSnapshot) remainingCapacityForLeaf(leaf *leafDomain, simulateE
 }
 
 func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topologyAssignmentPodRequirements, state *findTopologyAssignmentState, cachingRemainingResourcesEnabled bool) {
-	// While correcting the topologyAssignment with a failed node
-	// check if the leaf belongs to the required domain
-	if !belongsToRequiredDomain(leaf, requirements.requiredReplacementDomain) {
+	// leaf.id contains only the hostname for hostname-level topologies, while
+	// levelValues retain the full domain path needed for this ancestry check.
+	if !utiltas.DomainID(leaf.levelValues).BelongsTo(requirements.requiredReplacementDomain) {
 		state.stats.TopologyDomain++
 		return
 	}
@@ -1958,15 +1958,6 @@ func (s *TASFlavorSnapshot) fillLeafCounts(leaf *leafDomain, requirements *topol
 	}
 
 	leaf.podCountWithLeader = requirements.requests.CountIn(remainingCapacity.Get())
-}
-
-func belongsToRequiredDomain(leaf *leafDomain, requiredReplacementDomain utiltas.TopologyDomainID) bool {
-	if requiredReplacementDomain == "" {
-		return true
-	}
-	// Uses levelValues instead of leaf.id since for topologies with hostname as lowest level it points directly to the hostname
-	// TODO(#5322): Use util function that compare two DomainIDs
-	return strings.HasPrefix(string(utiltas.DomainID(leaf.levelValues)), string(requiredReplacementDomain))
 }
 
 func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, sliceSize int32, sliceLevelIdx int, level int, sliceSizeAtLevel map[int]int32, leaderRequired bool) {
