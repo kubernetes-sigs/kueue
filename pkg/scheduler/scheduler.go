@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/reclaimbackoff"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -92,6 +93,10 @@ type Scheduler struct {
 	customLabels            *metrics.CustomLabels
 	resourceFormatter       *resources.ResourceFormatter
 
+	// reclaimBackoff tracks per-(ClusterQueue, FlavorResource) reclaim backoff.
+	// It is nil unless the reclaimBackoff block is set in the Configuration.
+	reclaimBackoff *reclaimbackoff.Tracker
+
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
 	schedulingCycle int64
@@ -107,6 +112,7 @@ type options struct {
 	preemptionExpectations      *expectations.Store
 	customLabels                *metrics.CustomLabels
 	resourceFormatter           *resources.ResourceFormatter
+	reclaimBackoff              *reclaimbackoff.Tracker
 }
 
 // Option configures the reconciler.
@@ -179,6 +185,14 @@ func WithResourceFormatter(formatter *resources.ResourceFormatter) Option {
 	}
 }
 
+// WithReclaimBackoff sets the reclaim backoff tracker. A nil tracker disables
+// the feature (assignments are never deferred by reclaim backoff).
+func WithReclaimBackoff(tracker *reclaimbackoff.Tracker) Option {
+	return func(o *options) {
+		o.reclaimBackoff = tracker
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder events.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -215,6 +229,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		roleTracker:             options.roleTracker,
 		customLabels:            options.customLabels,
 		resourceFormatter:       options.resourceFormatter,
+		reclaimBackoff:          options.reclaimBackoff,
 	}
 	return s
 }
@@ -431,6 +446,9 @@ func (s *Scheduler) processEntry(
 		e.requeueReason = qcache.RequeueReasonNoFit
 		log.V(3).Info("Skipping workload as FlavorAssigner assigned NoFit mode")
 		e.quotaReservedReason = e.assignment.NoFitReason
+		if e.assignment.NoFitReason == kueue.WorkloadQuotaReservedReasonReclaimBackoff {
+			s.scheduleReclaimBackoffRetry(cq.Name)
+		}
 		return
 	}
 
@@ -560,11 +578,96 @@ func (s *Scheduler) issueMigration(ctx context.Context, log logr.Logger, e *entr
 }
 
 func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *entry, preemptionTargets []*preemption.Target) {
-	preempted, errors, err := s.preemptor.IssuePreemptions(ctx, s.cache, &e.Info, preemptionTargets, e.clusterQueueSnapshot)
+	preempted, errors, issuedTargets, err := s.preemptor.IssuePreemptions(ctx, s.cache, &e.Info, preemptionTargets, e.clusterQueueSnapshot)
 	if err != nil {
 		log.Error(err, "Failed to preempt workloads")
 	}
+	s.recordReclaimBackoff(log, preemptionTargets, issuedTargets)
 	e.markPreemptionOutcome(preempted, errors)
+}
+
+// recordReclaimBackoff arms the reclaim backoff for the resources a reclaimed
+// victim was borrowing, so its ClusterQueue is not immediately allowed to
+// re-borrow them in the next scheduling cycle. It also schedules a delayed
+// requeue so the victim's ClusterQueue is retried once the cooldown expires,
+// since ordinary retries only fire on quota-freeing events.
+//
+// Only targets whose eviction was actually issued during this call (present in
+// issuedTargets) are armed: a target that is already evicted or still awaiting
+// observation from an earlier cycle was armed when its eviction was issued, and
+// re-arming it would keep growing the cooldown while the same preemption is
+// still in flight; a target whose eviction failed reclaimed nothing.
+func (s *Scheduler) recordReclaimBackoff(log logr.Logger, preemptionTargets []*preemption.Target, issuedTargets sets.Set[types.NamespacedName]) {
+	if s.reclaimBackoff == nil {
+		return
+	}
+	for _, target := range preemptionTargets {
+		if !isReclaimReason(target.Reason) {
+			continue
+		}
+		if !issuedTargets.Has(types.NamespacedName{Name: target.WorkloadInfo.Obj.Name, Namespace: target.WorkloadInfo.Obj.Namespace}) {
+			continue
+		}
+		cq := target.WorkloadCq
+		if cq == nil {
+			continue
+		}
+		var maxCooldown time.Duration
+		for fr := range borrowedFlavorResources(target.WorkloadInfo, cq) {
+			cooldown := s.reclaimBackoff.RecordReclaim(cq.Name, fr)
+			metrics.ReportReclaimBackoffArmed(cq.Name, fr.Flavor, fr.Resource, s.customLabels.CQGet(cq.Name), s.roleTracker)
+			maxCooldown = max(maxCooldown, cooldown)
+		}
+		if maxCooldown > 0 {
+			log.V(3).Info("Armed reclaim backoff for reclaimed workload",
+				"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
+				"clusterQueue", cq.Name, "cooldown", maxCooldown)
+			s.scheduleReclaimBackoffRetry(cq.Name)
+		}
+	}
+}
+
+// reclaimBackoffWakeupMargin is added to the scheduled reclaim-backoff wake-up
+// so the ClusterQueue is guaranteed to be out of its cooldown by the time the
+// retry runs, even though the requeue and tracker clocks are not the same
+// instant.
+const reclaimBackoffWakeupMargin = 100 * time.Millisecond
+
+// scheduleReclaimBackoffRetry wakes cq shortly after its longest reclaim
+// cooldown elapses, so a workload deferred by the backoff is retried without
+// waiting for an unrelated quota-freeing event. It is safe to call repeatedly:
+// every deferral reschedules, so an early or coalesced wake-up simply defers
+// again and arms the next retry.
+func (s *Scheduler) scheduleReclaimBackoffRetry(cqName kueue.ClusterQueueReference) {
+	if s.reclaimBackoff == nil {
+		return
+	}
+	if remaining := s.reclaimBackoff.MaxRemaining(cqName); remaining > 0 {
+		s.queues.NotifyRetryInadmissibleAfter(cqName, remaining+reclaimBackoffWakeupMargin)
+	}
+}
+
+// isReclaimReason reports whether the preemption reason denotes a cohort
+// reclamation (as opposed to same-ClusterQueue priority preemption or fair
+// sharing), which is the only case reclaim backoff applies to.
+func isReclaimReason(reason string) bool {
+	return reason == kueue.InCohortReclamationReason || reason == kueue.InCohortReclaimWhileBorrowingReason
+}
+
+// borrowedFlavorResources returns the FlavorResources the victim occupies that
+// its ClusterQueue was borrowing at scheduling time (usage above nominal). These
+// are exactly the dimensions whose re-borrowing should be backed off.
+func borrowedFlavorResources(victim *workload.Info, cq *schdcache.ClusterQueueSnapshot) sets.Set[resources.FlavorResource] {
+	frs := sets.New[resources.FlavorResource]()
+	for _, ps := range victim.TotalRequests {
+		for res, flv := range ps.Flavors {
+			fr := resources.FlavorResource{Flavor: flv, Resource: res}
+			if cq.Borrowing(fr) {
+				frs.Insert(fr)
+			}
+		}
+	}
+	return frs
 }
 
 // waitForPodsReadyIfNeeded blocks admission until all currently admitted
@@ -884,6 +987,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
 		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
 		s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
+		s.reclaimBackoff,
 	)
 	fullAssignment := flvAssigner.Assign(ctx, nil)
 

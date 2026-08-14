@@ -496,6 +496,7 @@ var pendingQuotaReservedReasons = sets.New(
 	kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 	kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
 	kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+	kueue.WorkloadQuotaReservedReasonReclaimBackoff,
 )
 
 func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
