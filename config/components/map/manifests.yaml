@@ -22,19 +22,21 @@ spec:
       expression: "has(object.status.nominatedClusterNames) && size(object.status.nominatedClusterNames) > 0"
     - name: trigger
       expression: >-
-        (has(object.status.clusterName) && !has(oldObject.status.clusterName))
+        (has(object.status.clusterName) && (!has(oldObject.status.clusterName) || oldObject.status.clusterName == ''))
         ||
-        (object.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True') &&
-         !oldObject.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True'))
+        (has(object.status.conditions) && object.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True') &&
+         (!has(oldObject.status.conditions) || !oldObject.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True')))
   mutations:
-    - patchType: ApplyConfiguration
-      applyConfiguration:
+    - patchType: JSONPatch
+      jsonPatch:
         expression: >-
-          Object{
-            status: Object.status{
-              nominatedClusterNames: null
+          [
+            JSONPatch{
+              op: "replace",
+              path: "/status/nominatedClusterNames",
+              value: []
             }
-          }
+          ]
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingAdmissionPolicyBinding

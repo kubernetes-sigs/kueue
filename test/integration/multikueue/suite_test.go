@@ -126,7 +126,8 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 			util.AutoscalerCrds,
 			util.ClusterProfileCrds,
 		},
-		APIServerFeatureGates: apiFeatureGates,
+		APIServerFeatureGates:     apiFeatureGates,
+		APIServerAdmissionPlugins: []string{"MutatingAdmissionPolicy"},
 	}
 	mu.Lock()
 	c.cfg = c.fwk.Init()
@@ -492,7 +493,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
 			// pass nil setup since the manager for the manage cluster is different in some specs.
-			managerTestCluster = createCluster(nil)
+			managerTestCluster = createCluster(nil, "MutatingAdmissionPolicy=true")
 		})
 		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()

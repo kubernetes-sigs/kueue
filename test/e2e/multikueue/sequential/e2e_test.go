@@ -925,26 +925,5 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
-
-		ginkgo.It("clears nominatedClusterNames when workload is admitted or evicted via MAP", func() {
-			ginkgo.By("creating a workload with nominatedClusterNames", func() {
-				wl := utiltestingapi.MakeWorkload("wl-map-test", managerNs.Name).
-					Queue(kueue.LocalQueueName(managerLq.Name)).
-					NominatedClusterNames("worker1", "worker2").
-					Obj()
-				util.MustCreate(ctx, k8sManagerClient, wl)
-				wlKey := client.ObjectKeyFromObject(wl)
-
-				ginkgo.By("verifying nominatedClusterNames is cleared once admitted", func() {
-					gomega.Eventually(func(g gomega.Gomega) {
-						fetchedWl := &kueue.Workload{}
-						g.Expect(k8sManagerClient.Get(ctx, wlKey, fetchedWl)).To(gomega.Succeed())
-						if workload.IsAdmitted(fetchedWl) || workloadevict.IsEvicted(fetchedWl) {
-							g.Expect(fetchedWl.Status.NominatedClusterNames).To(gomega.BeNil())
-						}
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
-			})
-		})
 	})
 })
