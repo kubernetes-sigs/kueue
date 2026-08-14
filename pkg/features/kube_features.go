@@ -76,7 +76,9 @@ const (
 	// In fair sharing, when a workload is admitted, pop the next workload
 	// from the same ClusterQueue so it joins the running scheduling cycle
 	// instead of waiting for the next one. The number of extra workloads
-	// per cycle is bounded by a budget.
+	// per cycle is bounded by a budget. A refilled workload is only
+	// admitted when its assignment mode is Fit; it never preempts or
+	// reserves capacity mid-cycle.
 	FairSharingRefill featuregate.Feature = "FairSharingRefill"
 
 	// owner: @trasc

@@ -24,6 +24,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
@@ -164,6 +165,14 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 			Obj())
 	poorRetry := pendingWl("poor-retry", "poor-lq", now.Add(-time.Minute)).
 		AdmissionCheck(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateRetry})
+	// refill-rich can borrow, so a request above its nominal quota but within
+	// its borrowing limit is short of used capacity, not of quota.
+	richBorrow := utiltestingapi.MakeWorkload("rich-borrow", "default").
+		Queue("rich-lq").
+		Creation(now.Add(-30 * time.Second)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "5").
+			Obj())
 
 	// Preemption-case fixture: high-priority prio-head can only enter by
 	// preempting the low-priority prio-victim; prio-next waits behind it.
@@ -199,6 +208,176 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 	bgtSolo := pendingWl("bgt-solo", "bgt-solo-lq", now.Add(-4*time.Minute))
 	bgtPoorA := pendingWl("bgt-poor-a", "bgt-poor-lq", now.Add(-3*time.Minute))
 	bgtPoorB := pendingWl("bgt-poor-b", "bgt-poor-lq", now.Add(-2*time.Minute))
+
+	// Fit-only-rule reservation fixture (resv-*): resv-rich borrows all the
+	// cohort's spare CPU except one, so resv-blocked's head cannot fit, has no
+	// reclaim candidates (ReclaimWithinCohort defaults to Never), and reserves
+	// its request mid-cycle. resv-work admits its head on memory, and the
+	// refilled resv-work-b finds the single free CPU consumed by that
+	// reservation. The scenario is load-bearing on the DRS=0 FIFO tie:
+	// resv-blocked-head must be processed (and reserve) before resv-work's
+	// head admits and triggers the refill pop.
+	resvClusterQueues := []kueue.ClusterQueue{
+		*utiltestingapi.MakeClusterQueue("resv-blocked").
+			Cohort("resv").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "3", "0").Obj()).
+			Obj(),
+		*utiltestingapi.MakeClusterQueue("resv-work").
+			Cohort("resv").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "2", "0").
+				Resource(corev1.ResourceMemory, "2Gi", "0").Obj()).
+			Obj(),
+		*utiltestingapi.MakeClusterQueue("resv-rich").
+			Cohort("resv").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "0", "4").Obj()).
+			Obj(),
+	}
+	resvLocalQueues := []kueue.LocalQueue{
+		*utiltestingapi.MakeLocalQueue("resv-blocked-lq", "default").ClusterQueue("resv-blocked").Obj(),
+		*utiltestingapi.MakeLocalQueue("resv-work-lq", "default").ClusterQueue("resv-work").Obj(),
+		*utiltestingapi.MakeLocalQueue("resv-rich-lq", "default").ClusterQueue("resv-rich").Obj(),
+	}
+	resvRichActive := utiltestingapi.MakeWorkload("resv-rich-active", "default").
+		Queue("resv-rich-lq").
+		PodSets(*utiltestingapi.MakePodSet("one", 4).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("resv-rich").PodSets(
+			utiltestingapi.MakePodSetAssignment("one").
+				Assignment(corev1.ResourceCPU, "default", "4").Count(4).Obj(),
+		).Obj(), now)
+	resvBlockedHead := utiltestingapi.MakeWorkload("resv-blocked-head", "default").
+		Queue("resv-blocked-lq").
+		Creation(now.Add(-4 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "2").
+			Obj())
+	resvWorkA := utiltestingapi.MakeWorkload("resv-work-a", "default").
+		Queue("resv-work-lq").
+		Creation(now.Add(-3 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceMemory, "1Gi").
+			Obj())
+	resvWorkB := utiltestingapi.MakeWorkload("resv-work-b", "default").
+		Queue("resv-work-lq").
+		Creation(now.Add(-2 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj())
+	resvWorkAAdmission := utiltestingapi.MakeAdmission("resv-work").PodSets(
+		utiltestingapi.MakePodSetAssignment("one").
+			Assignment(corev1.ResourceMemory, "default", "1Gi").Count(1).Obj(),
+	).Obj()
+	resvWorkAAdmitted := resvWorkA.Clone().
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadQuotaReserved,
+			Status:             metav1.ConditionTrue,
+			Reason:             "QuotaReserved",
+			Message:            "Quota reserved in ClusterQueue resv-work",
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Admitted",
+			Message:            "The workload is admitted",
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Admission(resvWorkAAdmission)
+
+	// DeferredFit fixture (dfit-*): dfit-work admits its head and refills
+	// dfit-work-b, whose nomination targets the borrowing dfit-victim-active;
+	// dfit-preempt's head preempts that victim first, so dfit-work-b's
+	// recomputed assignment lands on DeferredFit.
+	dfitClusterQueues := []kueue.ClusterQueue{
+		*utiltestingapi.MakeClusterQueue("dfit-preempt").
+			Cohort("dfit").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "2", "0").Obj()).
+			Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+			}).
+			Obj(),
+		*utiltestingapi.MakeClusterQueue("dfit-work").
+			Cohort("dfit").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "4", "0").Obj()).
+			Preemption(kueue.ClusterQueuePreemption{
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+			}).
+			Obj(),
+		*utiltestingapi.MakeClusterQueue("dfit-victim").
+			Cohort("dfit").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "0", "5").Obj()).
+			Obj(),
+	}
+	dfitLocalQueues := []kueue.LocalQueue{
+		*utiltestingapi.MakeLocalQueue("dfit-preempt-lq", "default").ClusterQueue("dfit-preempt").Obj(),
+		*utiltestingapi.MakeLocalQueue("dfit-work-lq", "default").ClusterQueue("dfit-work").Obj(),
+		*utiltestingapi.MakeLocalQueue("dfit-victim-lq", "default").ClusterQueue("dfit-victim").Obj(),
+	}
+	dfitVictimActive := utiltestingapi.MakeWorkload("dfit-victim-active", "default").
+		Queue("dfit-victim-lq").
+		PodSets(*utiltestingapi.MakePodSet("one", 5).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("dfit-victim").PodSets(
+			utiltestingapi.MakePodSetAssignment("one").
+				Assignment(corev1.ResourceCPU, "default", "5").Count(5).Obj(),
+		).Obj(), now)
+	dfitWorkA := pendingWl("dfit-work-a", "dfit-work-lq", now.Add(-5*time.Minute))
+	dfitHead := utiltestingapi.MakeWorkload("dfit-head", "default").
+		Queue("dfit-preempt-lq").
+		UID("wl-dfit-head").
+		JobUID("job-dfit-head").
+		Creation(now.Add(-4 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "2").
+			Obj())
+	dfitWorkB := utiltestingapi.MakeWorkload("dfit-work-b", "default").
+		Queue("dfit-work-lq").
+		Creation(now.Add(-time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "2").
+			Obj())
+
+	// Real-preemption fixture (fitonly-*): the head admits and refills
+	// fitonly-next, whose nomination finds a genuine lower-priority candidate.
+	fitonlyClusterQueue := utiltestingapi.MakeClusterQueue("fitonly-prio").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+			Resource(corev1.ResourceCPU, "3", "0").Obj()).
+		Preemption(kueue.ClusterQueuePreemption{
+			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+		}).
+		Obj()
+	fitonlyVictim := utiltestingapi.MakeWorkload("fitonly-victim", "default").
+		Queue("fitonly-lq").
+		Priority(0).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "2").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("fitonly-prio").PodSets(
+			utiltestingapi.MakePodSetAssignment("one").
+				Assignment(corev1.ResourceCPU, "default", "2").Count(1).Obj(),
+		).Obj(), now)
+	fitonlyHead := utiltestingapi.MakeWorkload("fitonly-head", "default").
+		Queue("fitonly-lq").
+		Priority(100).
+		Creation(now.Add(-3 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj())
+	fitonlyNext := utiltestingapi.MakeWorkload("fitonly-next", "default").
+		Queue("fitonly-lq").
+		Priority(100).
+		Creation(now.Add(-time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "2").
+			Obj())
 
 	cases := map[string]scheduleTestCase{
 		// Two CPUs are free. The poorest CQ's head wins the first admission;
@@ -298,10 +477,11 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 		},
 		// Two CPUs are free and the budget allows one extra pop. The refilled
 		// workload needs ten CPUs -- more than its ClusterQueue could ever
-		// get -- so its nomination is NoFit and it is requeued as
-		// inadmissible. Its pop already consumed the budget, so the
-		// over-share CQ's later admission cannot refill either: rich-next
-		// stays in the heap, never popped.
+		// get -- so it is deferred like any other non-Fit refill and waits on
+		// the heap. It parks with its precise reason one cycle later, when it
+		// comes round as its ClusterQueue's head. Its pop already consumed the
+		// budget, so the over-share CQ's later admission cannot refill either:
+		// rich-next stays in the heap, never popped.
 		"a refilled workload that no longer fits consumes budget and is requeued": {
 			enableFairSharing: true,
 			featureGates:      map[featuregate.Feature]bool{features.FairSharingRefill: true},
@@ -315,8 +495,8 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*admittedWl(poorA, "refill-poor").Obj(),
-				*unadmittedWl(poorBig, kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
-					"couldn't assign flavors to pod set one: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (10) > maximum capacity (8)", "10").Obj(),
+				*unadmittedWl(poorBig, kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					"Workload was evaluated mid-cycle and is deferred to the next scheduling cycle: couldn't assign flavors to pod set one: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (10) > maximum capacity (8)", "10").Obj(),
 				*richActive(8, "8").Obj(),
 				*richNext.Clone().Obj(),
 				*admittedWl(richPending, "refill-rich").Obj(),
@@ -330,10 +510,37 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 				"default/rich-pending": *singleCPUAdmission("refill-rich"),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"refill-poor": {"default/poor-big"},
 				"refill-rich": {"default/rich-next"},
 			},
-			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
-				"refill-poor": {"default/poor-big"},
+		},
+		// The mirror of the case above: rich-borrow is short of used capacity
+		// rather than of quota, which is the shortfall a mid-cycle reservation
+		// could have produced. It is deferred just the same, and lands back on
+		// the heap to compete against the next cycle's fresh snapshot.
+		"a refilled workload short of used capacity is deferred, not parked": {
+			enableFairSharing: true,
+			featureGates:      map[featuregate.Feature]bool{features.FairSharingRefill: true},
+			workloads: []kueue.Workload{
+				*richActive(6, "6").Obj(),
+				*richPending.Clone().Obj(),
+				*richBorrow.Clone().Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*richActive(6, "6").Obj(),
+				*unadmittedWl(richBorrow, kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					"Workload was evaluated mid-cycle and is deferred to the next scheduling cycle: couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 2 more needed", "5").Obj(),
+				*admittedWl(richPending, "refill-rich").Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/rich-active": *utiltestingapi.MakeAdmission("refill-rich").PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "default", "6").Count(6).Obj(),
+				).Obj(),
+				"default/rich-pending": *singleCPUAdmission("refill-rich"),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"refill-rich": {"default/rich-borrow"},
 			},
 		},
 		// The refilled workload fails nomination (retrying admission checks),
@@ -371,7 +578,9 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 		// competes while borrowing, so chain-b1 (within nominal) wins the
 		// second admission even though it is the newest workload. A ranking
 		// computed once at cycle start would keep refill-a at zero borrowing
-		// and let chain-a2 and chain-a3 win on FIFO instead.
+		// and let chain-a2 and chain-a3 win on FIFO instead. The refilled
+		// chain-a3 no longer fits, so the Fit-only rule requeues it back to
+		// the heap immediately.
 		"consecutive refills rerank against fresh usage on every pop": {
 			enableFairSharing: true,
 			featureGates:      map[featuregate.Feature]bool{features.FairSharingRefill: true},
@@ -402,7 +611,7 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 				*admittedWl(pendingWl("chain-a2", "a-lq", now.Add(-3*time.Minute)), "refill-a").Obj(),
 				*unadmittedWl(pendingWl("chain-a3", "a-lq", now.Add(-2*time.Minute)),
 					kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-					"couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 1 more needed", "1").Obj(),
+					"Workload was evaluated mid-cycle and is deferred to the next scheduling cycle: couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 1 more needed", "1").Obj(),
 				*admittedWl(pendingWl("chain-b1", "b-lq", now.Add(-time.Minute)), "refill-b").Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -410,7 +619,7 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 				"default/chain-a2": *singleCPUAdmission("refill-a"),
 				"default/chain-b1": *singleCPUAdmission("refill-b"),
 			},
-			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"refill-a": {"default/chain-a3"},
 			},
 		},
@@ -561,6 +770,255 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 				"refill-poor": {"default/poor-b"},
 			},
 		},
+		// Fit-only rule, reservation source #1: resv-blocked's head reserves
+		// its request (no reclaim candidates), which consumes the last free
+		// CPU. The refilled resv-work-b would fit on a clean snapshot; against
+		// the reservation its mode is Preempt with no candidates, so it is
+		// requeued back to the heap immediately -- it must neither reserve
+		// capacity itself nor park as inadmissible with no wakeup event.
+		"a reservation for an unreclaimable preemption defers the refilled workload": {
+			enableFairSharing:       true,
+			featureGates:            map[featuregate.Feature]bool{features.FairSharingRefill: true},
+			additionalClusterQueues: resvClusterQueues,
+			additionalLocalQueues:   resvLocalQueues,
+			workloads: []kueue.Workload{
+				*resvRichActive.Clone().Obj(),
+				*resvBlockedHead.Clone().Obj(),
+				*resvWorkA.Clone().Obj(),
+				*resvWorkB.Clone().Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*unadmittedWl(resvBlockedHead, kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					"couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 1 more needed", "2").Obj(),
+				*resvRichActive.Clone().Obj(),
+				*resvWorkAAdmitted.Clone().Obj(),
+				*resvWorkB.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "Workload was evaluated mid-cycle and is deferred to the next scheduling cycle: couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 1 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/resv-rich-active": *utiltestingapi.MakeAdmission("resv-rich").PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "default", "4").Count(4).Obj(),
+				).Obj(),
+				"default/resv-work-a": *resvWorkAAdmission,
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"resv-work": {"default/resv-work-b"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"resv-blocked": {"default/resv-blocked-head"},
+			},
+			// The deferral returns before the skipped-preemption accounting.
+			wantSkippedPreemptions: map[string]int{"resv-blocked": 0, "resv-work": 0, "resv-rich": 0},
+		},
+		// Control for the reservation case: the same fixture without the
+		// reserving head admits the refilled workload on the free CPU, so the
+		// deferral above is caused by the reservation, not by the fixture.
+		"without the reservation the same refilled workload is admitted": {
+			enableFairSharing:       true,
+			featureGates:            map[featuregate.Feature]bool{features.FairSharingRefill: true},
+			additionalClusterQueues: resvClusterQueues,
+			additionalLocalQueues:   resvLocalQueues,
+			workloads: []kueue.Workload{
+				*resvRichActive.Clone().Obj(),
+				*resvWorkA.Clone().Obj(),
+				*resvWorkB.Clone().Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*resvRichActive.Clone().Obj(),
+				*resvWorkAAdmitted.Clone().Obj(),
+				*resvWorkB.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue resv-work",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(singleCPUAdmission("resv-work")).Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/resv-rich-active": *utiltestingapi.MakeAdmission("resv-rich").PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "default", "4").Count(4).Obj(),
+				).Obj(),
+				"default/resv-work-a": *resvWorkAAdmission,
+				"default/resv-work-b": *singleCPUAdmission("resv-work"),
+			},
+		},
+		// Fit-only rule, reservation source #2 (the #13863 interaction): the
+		// refilled dfit-work-b's nomination targets the same victim as
+		// dfit-preempt's head, so its recomputed assignment is DeferredFit.
+		// The refilled entry must not take the DeferredFit branch (which would
+		// reserve capacity mid-cycle); it is requeued back to the heap.
+		"a refilled workload whose recomputed assignment is DeferredFit is requeued": {
+			enableFairSharing:       true,
+			featureGates:            map[featuregate.Feature]bool{features.FairSharingRefill: true},
+			additionalClusterQueues: dfitClusterQueues,
+			additionalLocalQueues:   dfitLocalQueues,
+			workloads: []kueue.Workload{
+				*dfitVictimActive.Clone().Obj(),
+				*dfitWorkA.Clone().Obj(),
+				*dfitHead.Clone().Obj(),
+				*dfitWorkB.Clone().Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*dfitHead.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 1 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+					}).Obj(),
+				*dfitVictimActive.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-dfit-head, JobUID: job-dfit-head) due to reclamation within the cohort; preemptor path: /dfit/dfit-preempt; preemptee path: /dfit/dfit-victim",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-dfit-head, JobUID: job-dfit-head) due to reclamation within the cohort; preemptor path: /dfit/dfit-preempt; preemptee path: /dfit/dfit-victim",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*admittedWl(dfitWorkA, "dfit-work").Obj(),
+				*dfitWorkB.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "Workload was evaluated mid-cycle and is deferred to the next scheduling cycle",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+					}).Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/dfit-victim-active": *utiltestingapi.MakeAdmission("dfit-victim").PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "default", "5").Count(5).Obj(),
+				).Obj(),
+				"default/dfit-work-a": *singleCPUAdmission("dfit-work"),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"dfit-preempt": {"default/dfit-head"},
+				"dfit-work":    {"default/dfit-work-b"},
+			},
+			// The overlapping targets defer via the Fit-only rule, not via
+			// the skipped-preemption path.
+			wantSkippedPreemptions: map[string]int{"dfit-preempt": 0, "dfit-work": 0, "dfit-victim": 0},
+		},
+		// Fit-only rule with genuine scarcity: the refilled fitonly-next has a
+		// real lower-priority preemption candidate, but a refilled workload
+		// never preempts. The victim keeps its admission and fitonly-next
+		// competes as the head of the next cycle, where it may preempt
+		// normally.
+		"a refilled workload does not preempt even with real candidates": {
+			enableFairSharing:       true,
+			featureGates:            map[featuregate.Feature]bool{features.FairSharingRefill: true},
+			additionalClusterQueues: []kueue.ClusterQueue{*fitonlyClusterQueue},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("fitonly-lq", "default").ClusterQueue("fitonly-prio").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*fitonlyVictim.Clone().Obj(),
+				*fitonlyHead.Clone().Obj(),
+				*fitonlyNext.Clone().Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*admittedWl(fitonlyHead, "fitonly-prio").Obj(),
+				*fitonlyNext.Clone().
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "Workload was evaluated mid-cycle and is deferred to the next scheduling cycle: couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 2 more needed",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("2"),
+						},
+					}).Obj(),
+				*fitonlyVictim.Clone().Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/fitonly-victim": *utiltestingapi.MakeAdmission("fitonly-prio").PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "default", "2").Count(1).Obj(),
+				).Obj(),
+				"default/fitonly-head": *singleCPUAdmission("fitonly-prio"),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"fitonly-prio": {"default/fitonly-next"},
+			},
+			wantSkippedPreemptions: map[string]int{"fitonly-prio": 0},
+		},
 	}
 	runScheduleTestCases(t, scheduleTestConfig{
 		queues:          queues,
@@ -673,6 +1131,316 @@ func TestRefillReleasesWorkloadAlreadyAccountedInCache(t *testing.T) {
 	want := []workload.Reference{"default/stale"}
 	if diff := cmp.Diff(want, qManager.Dump()["refill-poor"], cmpDump); diff != "" {
 		t.Errorf("The workload did not return to the queue; the drop kept its inflight claim (-want,+got):\n%s", diff)
+	}
+}
+
+// TestRefillFitOnlyDeferralIsPerCycle covers the Fit-only rule across two
+// cycles: in the first cycle a mid-cycle reservation defers the refilled
+// workload, and in the second cycle -- where the reserving head is parked as
+// inadmissible and the reservation is gone with its snapshot -- both the
+// deferred workload and a fresh refill pop must proceed normally. This guards
+// the rule's state being scoped to the entry, not to the Scheduler: a deferral
+// signal that outlives the cycle would suppress the second cycle's refill.
+//
+// Not expressible as a scheduleTestCase because the harness runs a single
+// schedule() call.
+func TestRefillFitOnlyDeferralIsPerCycle(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.FairSharingRefill: true})
+
+	now := time.Now().Truncate(time.Second)
+	flavor := utiltestingapi.MakeResourceFlavor("default").Obj()
+	// Same shape as the resv-* fixture of TestScheduleForFairSharingRefill:
+	// cycle-blocked's head reserves the cohort's last free CPU mid-cycle.
+	clusterQueues := []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("cycle-blocked").
+			Cohort("cycle").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "3", "0").Obj()).
+			Obj(),
+		utiltestingapi.MakeClusterQueue("cycle-work").
+			Cohort("cycle").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "2", "0").
+				Resource(corev1.ResourceMemory, "2Gi", "0").Obj()).
+			Obj(),
+		utiltestingapi.MakeClusterQueue("cycle-rich").
+			Cohort("cycle").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "0", "4").Obj()).
+			Obj(),
+	}
+	localQueues := []*kueue.LocalQueue{
+		utiltestingapi.MakeLocalQueue("cycle-blocked-lq", "default").ClusterQueue("cycle-blocked").Obj(),
+		utiltestingapi.MakeLocalQueue("cycle-work-lq", "default").ClusterQueue("cycle-work").Obj(),
+		utiltestingapi.MakeLocalQueue("cycle-rich-lq", "default").ClusterQueue("cycle-rich").Obj(),
+	}
+	richActive := utiltestingapi.MakeWorkload("rich-active", "default").
+		Queue("cycle-rich-lq").
+		PodSets(*utiltestingapi.MakePodSet("one", 4).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cycle-rich").PodSets(
+			utiltestingapi.MakePodSetAssignment("one").
+				Assignment(corev1.ResourceCPU, "default", "4").Count(4).Obj(),
+		).Obj(), now).
+		Obj()
+	blockedHead := utiltestingapi.MakeWorkload("blocked-head", "default").
+		Queue("cycle-blocked-lq").
+		Creation(now.Add(-5 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "2").
+			Obj()).
+		Obj()
+	workA := utiltestingapi.MakeWorkload("work-a", "default").
+		Queue("cycle-work-lq").
+		Creation(now.Add(-4 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceMemory, "1Gi").
+			Obj()).
+		Obj()
+	workB := utiltestingapi.MakeWorkload("work-b", "default").
+		Queue("cycle-work-lq").
+		Creation(now.Add(-3 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		Obj()
+	workC := utiltestingapi.MakeWorkload("work-c", "default").
+		Queue("cycle-work-lq").
+		Creation(now.Add(-2 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceMemory, "1Gi").
+			Obj()).
+		Obj()
+
+	cl := utiltesting.NewClientBuilder().
+		WithLists(
+			&kueue.WorkloadList{Items: []kueue.Workload{*richActive, *blockedHead, *workA, *workB, *workC}},
+			&kueue.LocalQueueList{Items: []kueue.LocalQueue{*localQueues[0], *localQueues[1], *localQueues[2]}},
+		).
+		WithObjects(utiltesting.MakeNamespaceWrapper("default").Obj()).
+		WithStatusSubresource(&kueue.Workload{}).
+		Build()
+
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+		qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	cqCache.AddOrUpdateResourceFlavor(log, flavor)
+	for _, cq := range clusterQueues {
+		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+		}
+		if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+		}
+	}
+	for _, lq := range localQueues {
+		if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+			t.Fatalf("Inserting localQueue %s in manager: %v", lq.Name, err)
+		}
+	}
+	if !cqCache.AddOrUpdateWorkload(log, richActive.DeepCopy()) {
+		t.Fatal("Failed to account the admitted workload in the scheduler cache")
+	}
+
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{},
+		WithFairSharing(&config.FairSharing{}),
+		WithClock(t, testingclock.NewFakeClock(now)),
+		WithPreemptionExpectations(preemptexpectations.New()),
+	)
+	wg := sync.WaitGroup{}
+	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+		func() { wg.Add(1) },
+		func() { wg.Done() },
+	))
+	ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+	defer cancel()
+	go qManager.CleanUpOnContext(ctx)
+
+	// Cycle 1: blocked-head reserves the free CPU and parks as inadmissible;
+	// work-a admits on memory; the refilled work-b is deferred back to the
+	// heap. work-c is never popped because the deferred work-b ends the chain.
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	wantHeap := map[kueue.ClusterQueueReference][]workload.Reference{
+		"cycle-work": {"default/work-b", "default/work-c"},
+	}
+	if diff := cmp.Diff(wantHeap, qManager.Dump(), cmpDump...); diff != "" {
+		t.Errorf("Unexpected heap after the first cycle (-want,+got):\n%s", diff)
+	}
+	wantInadmissible := map[kueue.ClusterQueueReference][]workload.Reference{
+		"cycle-blocked": {"default/blocked-head"},
+	}
+	if diff := cmp.Diff(wantInadmissible, qManager.DumpInadmissible(), cmpDump...); diff != "" {
+		t.Errorf("Unexpected inadmissible workloads after the first cycle (-want,+got):\n%s", diff)
+	}
+
+	// Cycle 2: the reservation is gone with its snapshot, so work-b admits as
+	// its ClusterQueue's head and refill pops and admits work-c.
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	if got := qManager.Dump(); len(got) != 0 {
+		t.Errorf("Workloads left on the heap after the second cycle: %v", got)
+	}
+	for _, name := range []string{"work-b", "work-c"} {
+		var wl kueue.Workload
+		if err := cl.Get(ctx, client.ObjectKey{Namespace: "default", Name: name}, &wl); err != nil {
+			t.Fatalf("Getting workload %s: %v", name, err)
+		}
+		if !workload.HasQuotaReservation(&wl) {
+			t.Errorf("Workload %s has no quota reservation after the second cycle", name)
+		}
+	}
+}
+
+// TestRefillDeferralClearsFlavorScanProgress guards the deferral's
+// LastAssignment clearing against FlavorFungibilityPreserveScanProgress: with
+// whenCanPreempt: MayStopSearch the refilled flv-next's first-cycle scan stops
+// at f1, where it has a genuine preemption candidate, and records that
+// position. In the second cycle flv-next is the head and may preempt; only a
+// cleared assignment rescans f1 and evicts the candidate there -- preserved
+// progress would resume at f2, where the equal-priority filler leaves no
+// candidates, and park the workload instead.
+//
+// Not expressible as a scheduleTestCase because the harness runs a single
+// schedule() call.
+func TestRefillDeferralClearsFlavorScanProgress(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.FairSharingRefill:                     true,
+		features.FlavorFungibilityPreserveScanProgress: true,
+	})
+
+	now := time.Now().Truncate(time.Second)
+	flavors := []*kueue.ResourceFlavor{
+		utiltestingapi.MakeResourceFlavor("f1").Obj(),
+		utiltestingapi.MakeResourceFlavor("f2").Obj(),
+	}
+	cq := utiltestingapi.MakeClusterQueue("flv-prio").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("f1").
+				Resource(corev1.ResourceCPU, "3", "0").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("f2").
+				Resource(corev1.ResourceCPU, "2", "0").Obj()).
+		Preemption(kueue.ClusterQueuePreemption{
+			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+		}).
+		FlavorFungibility(kueue.FlavorFungibility{WhenCanPreempt: kueue.MayStopSearch}).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("flv-lq", "default").ClusterQueue("flv-prio").Obj()
+
+	victimF1 := utiltestingapi.MakeWorkload("victim-f1", "default").
+		Queue("flv-lq").
+		Priority(0).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "2").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("flv-prio").PodSets(
+			utiltestingapi.MakePodSetAssignment("one").
+				Assignment(corev1.ResourceCPU, "f1", "2").Count(1).Obj(),
+		).Obj(), now).
+		Obj()
+	fillerF2 := utiltestingapi.MakeWorkload("filler-f2", "default").
+		Queue("flv-lq").
+		Priority(100).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "2").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("flv-prio").PodSets(
+			utiltestingapi.MakePodSetAssignment("one").
+				Assignment(corev1.ResourceCPU, "f2", "2").Count(1).Obj(),
+		).Obj(), now).
+		Obj()
+	head := utiltestingapi.MakeWorkload("flv-head", "default").
+		Queue("flv-lq").
+		Priority(100).
+		Creation(now.Add(-4 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		Obj()
+	next := utiltestingapi.MakeWorkload("flv-next", "default").
+		Queue("flv-lq").
+		UID("wl-flv-next").
+		Priority(100).
+		Creation(now.Add(-2 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "2").
+			Obj()).
+		Obj()
+
+	cl := utiltesting.NewClientBuilder().
+		WithLists(
+			&kueue.WorkloadList{Items: []kueue.Workload{*victimF1, *fillerF2, *head, *next}},
+			&kueue.LocalQueueList{Items: []kueue.LocalQueue{*lq}},
+		).
+		WithObjects(utiltesting.MakeNamespaceWrapper("default").Obj()).
+		WithStatusSubresource(&kueue.Workload{}).
+		Build()
+
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+		qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	for _, flavor := range flavors {
+		cqCache.AddOrUpdateResourceFlavor(log, flavor)
+	}
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue in cache: %v", err)
+	}
+	if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue in manager: %v", err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Inserting localQueue in manager: %v", err)
+	}
+	for _, wl := range []*kueue.Workload{victimF1, fillerF2} {
+		if !cqCache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
+			t.Fatalf("Failed to account the admitted workload %s in the scheduler cache", wl.Name)
+		}
+	}
+
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{},
+		WithFairSharing(&config.FairSharing{}),
+		WithClock(t, testingclock.NewFakeClock(now)),
+		WithPreemptionExpectations(preemptexpectations.New()),
+	)
+	wg := sync.WaitGroup{}
+	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+		func() { wg.Add(1) },
+		func() { wg.Done() },
+	))
+	ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+	defer cancel()
+	go qManager.CleanUpOnContext(ctx)
+
+	// Cycle 1: flv-head admits on f1's last free CPU; the refilled flv-next
+	// stops its scan at f1 with victim-f1 as a preemption candidate and is
+	// deferred without preempting.
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	var victim kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKey{Namespace: "default", Name: "victim-f1"}, &victim); err != nil {
+		t.Fatalf("Getting workload victim-f1: %v", err)
+	}
+	if meta.IsStatusConditionTrue(victim.Status.Conditions, kueue.WorkloadEvicted) {
+		t.Fatal("The refilled workload preempted the victim in the first cycle")
+	}
+
+	// Cycle 2: flv-next is the head and may preempt. The cleared assignment
+	// rescans from f1 and evicts victim-f1 there; preserved scan progress
+	// would resume at f2 and find no candidates.
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	if err := cl.Get(ctx, client.ObjectKey{Namespace: "default", Name: "victim-f1"}, &victim); err != nil {
+		t.Fatalf("Getting workload victim-f1: %v", err)
+	}
+	if !meta.IsStatusConditionTrue(victim.Status.Conditions, kueue.WorkloadEvicted) {
+		t.Error("The deferred workload did not preempt on f1 in the second cycle; its flavor scan did not restart")
 	}
 }
 
