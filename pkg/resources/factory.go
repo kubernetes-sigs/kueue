@@ -74,6 +74,8 @@ func NewRequestsFromResourceList(rl corev1.ResourceList) Requests {
 // https://github.com/kubernetes/kubernetes/issues/141241.
 func PodRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
 	spec := *podSpec
+	// Only the pod-level requests are aliased into the total (container totals are
+	// already deep-copied), so copying spec.Resources avoids a full-spec copy here.
 	if spec.Resources != nil {
 		spec.Resources = spec.Resources.DeepCopy()
 	}
