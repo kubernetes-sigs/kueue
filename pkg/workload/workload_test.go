@@ -1048,7 +1048,11 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
-		"transformMissingMultiplierScalesByOne": {
+		// What a multiplier absent from the source does today, kept beside the
+		// excluded one so the two cases stay told apart. Nothing defines it: the
+		// field says which resource is read, not what happens when it is missing,
+		// so this records the current behavior and is not a contract to preserve.
+		"transformMultiplierMissingFromTheSourceIsNotScaledBy": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
 					Request("example.com/mem", "1024").Obj()).

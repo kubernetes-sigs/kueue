@@ -595,10 +595,10 @@ type Resources struct {
 	// ExcludeResourcePrefixes defines the resource-name prefixes left out of the
 	// Pod request view that Kueue charges quota against.
 	//
-	// A matching resource is not charged, and a transformation naming one as its
-	// input does not run. The resource can still be read by ResourceTransformation.MultiplyBy,
-	// which reads the request view from before this field is applied. Transformation
-	// outputs and DRA logical resources are added afterwards and are not filtered.
+	// An entry matching one of these prefixes is dropped from that view, so it is
+	// not charged, and a transformation naming it as its input does not run. The
+	// resource can still be read by ResourceTransformation.MultiplyBy, which reads
+	// the request view from before this field is applied.
 	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
 
 	// Transformations defines how to transform PodSpec resources into Workload resource requests.
