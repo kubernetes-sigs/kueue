@@ -334,6 +334,14 @@ func TestOwnsPriority(t *testing.T) {
 				Label(kueue.MultiKueueOriginLabel, "manager").
 				Obj(),
 		},
+		// The label is read for its presence, not its value, so an origin that
+		// somehow arrived empty is still the manager's to answer for.
+		"an empty origin value still marks remote ownership": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				WorkloadPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "").
+				Obj(),
+		},
 		"a PodPriorityClass of the same name is a different class": {
 			wl: utiltestingapi.MakeWorkload("wl", "default").PodPriorityClassRef("high").Obj(),
 		},
