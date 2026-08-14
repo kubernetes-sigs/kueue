@@ -418,7 +418,7 @@ func TestImportNamespace(t *testing.T) {
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			mpc, err := cache.Load(ctx, client, []string{testingNamespace}, baseMapping, tc.addLabels)
+			mpc, err := cache.Load(ctx, client, []string{testingNamespace}, baseMapping, tc.addLabels, nil)
 			if err != nil {
 				t.Fatalf("Unexpected cache load error: %s", err)
 			}
