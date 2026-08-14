@@ -316,6 +316,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err = r.ignoreUnretryableError(log, err)
 	}()
 
+	// loadJob normalizes req.NamespacedName in place (pod groups rewrite it to the lead pod),
+	// so keep the original for a later reload of the same job.
+	reconcileKey := req.NamespacedName
 	shouldFinalize, err := r.loadJob(ctx, &req.NamespacedName, job)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -420,8 +423,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	log.V(2).Info("Reconciling Job")
 
 	// 1. Attempt to retrieve an existing workload (if any) for this job.
-	wl, err := r.ensureOneWorkload(ctx, job, object)
+	wl, err := r.ensureOneWorkload(ctx, reconcileKey, job, object)
 	if err != nil {
+		// A prebuilt job still stopping ends the reconcile; its status change re-triggers us.
+		if errors.Is(err, errWaitingForStop) {
+			return ctrl.Result{}, nil
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -979,7 +986,7 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there are more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
-func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
+func (r *JobReconciler) ensureOneWorkload(ctx context.Context, key types.NamespacedName, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	if prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object()); prebuiltWorkload != "" {
@@ -1015,8 +1022,14 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return wl, nil
 		}
 
-		if useWorkload, err := r.ensurePrebuiltWorkloadInSync(ctx, wl, job); !useWorkload || err != nil {
+		state, err := r.ensurePrebuiltWorkloadInSync(ctx, key, wl, job)
+		switch {
+		case err != nil:
 			return nil, err
+		case state == prebuiltWaitingForStop:
+			return nil, errWaitingForStop
+		case state == prebuiltNoUsableWorkload:
+			return nil, nil
 		}
 		return wl, nil
 	}
@@ -1355,45 +1368,77 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 	return nil
 }
 
-// ensurePrebuiltWorkloadInSync reports whether the workload is the one to carry
-// on with. One that no longer matches its job is finished here, after the job is
-// stopped and its pods are gone, and handed back so the caller finalizes it.
-func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
+// prebuiltSyncState is the outcome of reconciling a prebuilt workload against its job.
+type prebuiltSyncState int
+
+const (
+	prebuiltUseWorkload      prebuiltSyncState = iota // carry on with the workload
+	prebuiltWaitingForStop                            // job is stopping; end the reconcile
+	prebuiltNoUsableWorkload                          // job is gone; fall back to the no-workload path
+)
+
+// errWaitingForStop ends the reconcile while a prebuilt job stops; its status change re-triggers us.
+var errWaitingForStop = errors.New("waiting for the job to stop")
+
+// ensurePrebuiltWorkloadInSync decides what to do with a prebuilt workload that may no longer
+// match its job. A mismatched workload is finished only after the job is stopped and its pods are
+// gone, so quota is never released while pods still hold it.
+func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key types.NamespacedName, wl *kueue.Workload, job GenericJob) (prebuiltSyncState, error) {
 	var (
 		equivalent bool
 		err        error
 	)
-
 	if cj, implements := job.(ComposableJob); implements {
 		equivalent, err = cj.EquivalentToWorkload(ctx, r.client, wl)
 	} else {
 		equivalent, err = EquivalentToWorkload(ctx, r.client, job, wl)
 	}
-
 	if err != nil {
-		return false, err
+		return prebuiltWaitingForStop, err
 	}
 	if equivalent {
-		return true, nil
+		return prebuiltUseWorkload, nil
 	}
 
-	// A job that ended keeps the reason it ended with, which the caller writes.
+	// A finished job keeps the reason it ended with, which the caller writes.
 	if _, _, finished := job.Finished(ctx); finished {
-		return true, nil
+		return prebuiltUseWorkload, nil
 	}
 
 	msg := "The prebuilt workload is out of sync with its user job"
-	// Finishing gives the quota back, and the pods hold it until the job stops.
 	if err := r.stopJob(ctx, job, wl, StopReasonNoMatchingWorkload, msg); err != nil {
-		return false, err
+		return prebuiltWaitingForStop, err
 	}
-	if job.IsActive() {
-		return false, nil
+	// Release quota only once the stop is real: IsActive can be a stale false, and an async
+	// controller may still create pods from a view older than the stop.
+	// TODO(#13308,#13163): obey QuotaReleaseStrategy here so OutOfSync matches eviction.
+	if job.IsActive() || !stopAcknowledged(job) {
+		return prebuiltWaitingForStop, nil
+	}
+	// The job may have finished while stopping; re-read before writing OutOfSync, which is
+	// permanent and, under MultiKueue, re-dispatches an already finished job.
+	reloadKey := key
+	if gone, err := r.loadJob(ctx, &reloadKey, job); err != nil {
+		return prebuiltWaitingForStop, err
+	} else if gone {
+		return prebuiltNoUsableWorkload, nil
+	}
+	if _, _, finished := job.Finished(ctx); finished {
+		return prebuiltUseWorkload, nil
 	}
 	if err := workloadfinish.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock); err != nil {
-		return false, err
+		return prebuiltWaitingForStop, err
 	}
-	return true, nil
+	return prebuiltUseWorkload, nil
+}
+
+// stopAcknowledged reports whether an async stop has been confirmed by its controller; jobs
+// stopped synchronously have nothing extra to wait for beyond IsActive.
+func stopAcknowledged(job GenericJob) bool {
+	if ack, ok := job.(JobWithStopAcknowledgement); ok {
+		return ack.StopAcknowledged()
+	}
+	return true
 }
 
 // expectedRunningPodSets gets the expected podsets during the job execution, returns nil if the workload has no reservation or

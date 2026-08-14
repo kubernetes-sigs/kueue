@@ -614,6 +614,43 @@ func TestIsActive(t *testing.T) {
 	}
 }
 
+func TestStopAcknowledged(t *testing.T) {
+	activeCluster := rayv1.RayServiceStatus{RayClusterName: "active"}
+	suspendedCluster := rayv1.RayServiceStatus{
+		RayClusterName:   "active",
+		RayClusterStatus: rayv1.RayClusterStatus{Conditions: []metav1.Condition{{Type: string(rayv1.RayClusterSuspended), Status: metav1.ConditionTrue}}},
+	}
+	testCases := map[string]struct {
+		status rayv1.RayServiceStatuses
+		want   bool
+	}{
+		"not acknowledged - Ready is false but an active RayCluster still exists": {
+			status: rayv1.RayServiceStatuses{ActiveServiceStatus: activeCluster},
+			want:   false,
+		},
+		"not acknowledged - a pending RayCluster still exists": {
+			status: rayv1.RayServiceStatuses{PendingServiceStatus: activeCluster},
+			want:   false,
+		},
+		"acknowledged - active RayCluster suspended, no pending": {
+			status: rayv1.RayServiceStatuses{ActiveServiceStatus: suspendedCluster},
+			want:   true,
+		},
+		"acknowledged - no RayClusters": {
+			status: rayv1.RayServiceStatuses{},
+			want:   true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			j := (*RayService)(&rayv1.RayService{Status: tc.status})
+			if got := j.StopAcknowledged(); got != tc.want {
+				t.Errorf("StopAcknowledged() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestPodsReady(t *testing.T) {
 	testCases := map[string]struct {
 		rayService *RayService

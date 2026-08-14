@@ -7082,19 +7082,66 @@ func TestPod_IsActive(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	type fields struct {
-		pod  corev1.Pod
-		list corev1.PodList
+		pod     corev1.Pod
+		list    corev1.PodList
+		isGroup bool
 	}
 	tests := map[string]struct {
 		fields                 fields
 		enableFastQuotaRelease bool
 		want                   bool
 	}{
-		"RegularPod": {
+		"SinglePod_NotFound_Inactive": {
+			want: false,
+		},
+		"SinglePod_Running_Active": {
+			fields: fields{
+				pod: corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{Name: "single"},
+					Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+				},
+			},
+			want: true,
+		},
+		"SinglePod_Succeeded_Inactive": {
+			fields: fields{
+				pod: corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{Name: "single"},
+					Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+				},
+			},
+			want: false,
+		},
+		"SinglePod_TerminatingWithinGrace_Active": {
+			fields: fields{
+				pod: corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:                       "single-terminating",
+						DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+						DeletionGracePeriodSeconds: new(int64(90)),
+					},
+					Status: corev1.PodStatus{Phase: corev1.PodRunning},
+				},
+			},
+			want: true,
+		},
+		"SinglePod_FastQuotaRelease_Terminating_Inactive": {
+			enableFastQuotaRelease: true,
+			fields: fields{
+				pod: corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:                       "single-terminating",
+						DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+						DeletionGracePeriodSeconds: new(int64(90)),
+					},
+					Status: corev1.PodStatus{Phase: corev1.PodRunning},
+				},
+			},
 			want: false,
 		},
 		"PodGroup_NotActive": {
 			fields: fields{
+				isGroup: true,
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
@@ -7119,6 +7166,7 @@ func TestPod_IsActive(t *testing.T) {
 		},
 		"PodGroup_Active": {
 			fields: fields{
+				isGroup: true,
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
@@ -7153,6 +7201,7 @@ func TestPod_IsActive(t *testing.T) {
 		"FastQuotaRelease_PodWithDeletionTimestamp_Inactive": {
 			enableFastQuotaRelease: true,
 			fields: fields{
+				isGroup: true,
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
@@ -7171,6 +7220,7 @@ func TestPod_IsActive(t *testing.T) {
 		"FastQuotaRelease_Disabled_PodWithDeletionTimestampWithinGrace_Active": {
 			enableFastQuotaRelease: false,
 			fields: fields{
+				isGroup: true,
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
@@ -7189,6 +7239,7 @@ func TestPod_IsActive(t *testing.T) {
 		"FastQuotaRelease_MixedGroup_SomeTerminating_SomeRunning": {
 			enableFastQuotaRelease: true,
 			fields: fields{
+				isGroup: true,
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
@@ -7211,6 +7262,7 @@ func TestPod_IsActive(t *testing.T) {
 		"FastQuotaRelease_AllTerminating": {
 			enableFastQuotaRelease: true,
 			fields: fields{
+				isGroup: true,
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
@@ -7239,9 +7291,10 @@ func TestPod_IsActive(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tt.enableFastQuotaRelease)
 			p := &Pod{
-				pod:   tt.fields.pod,
-				list:  tt.fields.list,
-				clock: testingclock.NewFakeClock(now),
+				pod:     tt.fields.pod,
+				list:    tt.fields.list,
+				isGroup: tt.fields.isGroup,
+				clock:   testingclock.NewFakeClock(now),
 			}
 			if got := p.IsActive(); got != tt.want {
 				t.Errorf("IsActive() = %v, want %v", got, tt.want)

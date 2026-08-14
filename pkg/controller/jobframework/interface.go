@@ -98,6 +98,14 @@ type JobWithCustomStop interface {
 	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) (bool, error)
 }
 
+// JobWithStopAcknowledgement is implemented by integrations whose stop is carried out
+// asynchronously by another controller, so the framework can wait for that controller to confirm
+// it before releasing resources rather than trusting that submitting the stop removed the pods.
+type JobWithStopAcknowledgement interface {
+	// StopAcknowledged reports whether the stop is complete: no pods remain or will be recreated.
+	StopAcknowledged() bool
+}
+
 // JobWithFinalize is an optional interface that should be implemented by generic jobs
 // when custom finalization logic is needed for a job after it has finished.
 type JobWithFinalize interface {

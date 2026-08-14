@@ -762,3 +762,60 @@ func TestReconciler(t *testing.T) {
 		}
 	}
 }
+
+func TestStopAcknowledged(t *testing.T) {
+	testCases := map[string]struct {
+		status rayv1.RayClusterStatus
+		want   bool
+	}{
+		"provisioning, no conditions yet: stop not acknowledged": {
+			status: rayv1.RayClusterStatus{State: ""},
+			want:   false,
+		},
+		"ready, no conditions: stop not acknowledged": {
+			status: rayv1.RayClusterStatus{State: rayv1.Ready},
+			want:   false,
+		},
+		"suspended state, no conditions (older KubeRay): acknowledged": {
+			status: rayv1.RayClusterStatus{State: rayv1.Suspended},
+			want:   true,
+		},
+		"conditions present, not suspended: not acknowledged": {
+			status: rayv1.RayClusterStatus{
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.HeadPodReady),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: false,
+		},
+		"conditions present, suspending in progress: not acknowledged": {
+			// Pods are still being deleted, so the stop is not complete.
+			status: rayv1.RayClusterStatus{
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.RayClusterSuspending),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: false,
+		},
+		"conditions present, suspended: all Pods deleted, acknowledged": {
+			status: rayv1.RayClusterStatus{
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.RayClusterSuspended),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			j := (*RayCluster)(&rayv1.RayCluster{Status: tc.status})
+			if got := j.StopAcknowledged(); got != tc.want {
+				t.Errorf("StopAcknowledged() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

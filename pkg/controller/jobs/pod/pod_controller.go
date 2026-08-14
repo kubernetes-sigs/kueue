@@ -437,8 +437,13 @@ func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 // its grace period status. This allows quota to be released as soon as
 // preempted pods begin terminating.
 func (p *Pod) IsActive() bool {
-	for i := range p.list.Items {
-		pod := p.list.Items[i]
+	// A single (non-group) Pod is not in p.list; read its own object, as Stop does.
+	pods := p.list.Items
+	if !p.isGroup {
+		pods = []corev1.Pod{p.pod}
+	}
+	for i := range pods {
+		pod := pods[i]
 
 		// Pods that are not in the Running phase are never considered Active.
 		if pod.Status.Phase != corev1.PodRunning {

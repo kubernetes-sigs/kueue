@@ -144,6 +144,7 @@ var _ jobframework.GenericJob = (*Job)(nil)
 var _ jobframework.JobWithReclaimablePods = (*Job)(nil)
 var _ jobframework.JobWithCustomStop = (*Job)(nil)
 var _ jobframework.JobWithManagedBy = (*Job)(nil)
+var _ jobframework.JobWithStopAcknowledgement = (*Job)(nil)
 
 func (j *Job) Object() client.Object {
 	return (*batchv1.Job)(j)
@@ -159,6 +160,23 @@ func (j *Job) IsSuspended() bool {
 
 func (j *Job) IsActive() bool {
 	return j.Status.Active != 0
+}
+
+// StopAcknowledged reports whether the Job controller processed the suspend (set JobSuspended).
+// A zero status.Active can be a stale snapshot while the controller still creates pods.
+func (j *Job) StopAcknowledged() bool {
+	return jobControllerSuspended(j)
+}
+
+// jobControllerSuspended reports the JobSuspended status condition, set by the controller —
+// unlike IsSuspended, which reads the spec Kueue itself writes.
+func jobControllerSuspended(j *Job) bool {
+	for _, c := range j.Status.Conditions {
+		if c.Type == batchv1.JobSuspended {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 func (j *Job) Suspend() {

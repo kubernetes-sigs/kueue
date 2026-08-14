@@ -4367,11 +4367,14 @@ func TestReconciler(t *testing.T) {
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
+				// The Job controller has acknowledged the suspend, so the workload may finish.
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
@@ -4416,6 +4419,55 @@ func TestReconciler(t *testing.T) {
 					EventType: "Normal",
 					Reason:    "FinishedWorkload",
 					Message:   "Workload 'ns/prebuilt-workload' is declared finished",
+				},
+			},
+		},
+		"when the prebuilt workload is out of sync but the suspend is not yet acknowledged": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:  false,
+				features.AssignQueueLabelsForPods: true,
+			},
+			// No JobSuspended condition: the Job controller has not confirmed the stop, so the
+			// workload keeps its quota and finalizer instead of being finished as OutOfSync.
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The prebuilt workload is out of sync with its user job",
 				},
 			},
 		},

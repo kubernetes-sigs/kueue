@@ -128,6 +128,7 @@ var _ jobframework.JobWithCustomAnnotations = (*RayService)(nil)
 var _ jobframework.JobWithManagedBy = (*RayService)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
 var _ jobframework.JobWithSkip = (*RayService)(nil)
+var _ jobframework.JobWithStopAcknowledgement = (*RayService)(nil)
 
 func (j *RayService) Object() client.Object {
 	return (*rayv1.RayService)(j)
@@ -139,6 +140,22 @@ func (j *RayService) IsSuspended() bool {
 
 func (j *RayService) IsActive() bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
+}
+
+// StopAcknowledged reports whether neither the active nor pending RayCluster still holds pods.
+// RayServiceReady is serve-readiness, not pod existence, so the cluster slots are tracked instead.
+func (j *RayService) StopAcknowledged() bool {
+	return !rayServiceClusterActive(j.Status.ActiveServiceStatus) &&
+		!rayServiceClusterActive(j.Status.PendingServiceStatus)
+}
+
+// rayServiceClusterActive reports whether a cluster slot may still hold pods: it names a cluster
+// KubeRay has not reported suspended.
+func rayServiceClusterActive(s rayv1.RayServiceStatus) bool {
+	if s.RayClusterName == "" {
+		return false
+	}
+	return !meta.IsStatusConditionTrue(s.RayClusterStatus.Conditions, string(rayv1.RayClusterSuspended))
 }
 
 func (j *RayService) Suspend() {

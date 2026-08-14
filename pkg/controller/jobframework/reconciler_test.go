@@ -1253,6 +1253,22 @@ type prebuiltJobState struct {
 	// suspendedAtWrite is what suspended was when the workload's status was
 	// last written, which is how the order between the two is asserted.
 	suspendedAtWrite bool
+	// finishedOnReread makes Finished report terminal only from the reload on, modeling a job
+	// that completes while stopping. finishedCalls counts the calls to detect the reload.
+	finishedOnReread bool
+	finishedCalls    int
+}
+
+// countingStopJob wraps a GenericJob mock and implements JobWithCustomStop so a second stop is
+// observable: a plain mock's generic stop would silently no-op once suspended.
+type countingStopJob struct {
+	*mocks.MockGenericJob
+	stops *int
+}
+
+func (j *countingStopJob) Stop(context.Context, client.Client, []podset.PodSetInfo, StopReason, string) (bool, error) {
+	*j.stops++
+	return true, nil
 }
 
 func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
@@ -1295,7 +1311,9 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 			}).AnyTimes()
 		mgj.EXPECT().Finished(gomock.Any()).
 			DoAndReturn(func(context.Context) (string, bool, bool) {
-				return "by the job", st.success, st.finished
+				st.finishedCalls++
+				finished := st.finished || (st.finishedOnReread && st.finishedCalls >= 2)
+				return "by the job", st.success, finished
 			}).AnyTimes()
 
 		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
@@ -1419,4 +1437,38 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("a job that finishes while stopping keeps its own reason, not OutOfSync", func(t *testing.T) {
+		// Finished is false at the first check and true from the reload on: the job completed
+		// while stopping. The workload must finish as Succeeded — the input to MultiKueue's retry
+		// decision — never OutOfSync.
+		st := &prebuiltJobState{finishedOnReread: true, success: true}
+		ctx, cl, r, mgj, req := setup(t, st, false)
+
+		if _, err := r.ReconcileGenericJob(ctx, req, mgj); err != nil {
+			t.Fatalf("reconcile: %v", err)
+		}
+		if reason := finishedReason(t, ctx, cl); reason != kueue.WorkloadFinishedReasonSucceeded {
+			t.Errorf("finished for %q, want %q", reason, kueue.WorkloadFinishedReasonSucceeded)
+		}
+	})
+
+	t.Run("the job is stopped exactly once and waiting never enters the missing-workload path", func(t *testing.T) {
+		st := &prebuiltJobState{active: true}
+		ctx, cl, r, mgj, req := setup(t, st, false)
+		stops := 0
+		// The old bool return turned "waiting" into wl==nil, so the reconciler fell into
+		// handleJobWithNoWorkload and stopped the job a second time as "missing workload".
+		job := &countingStopJob{MockGenericJob: mgj, stops: &stops}
+
+		if _, err := r.ReconcileGenericJob(ctx, req, job); err != nil {
+			t.Fatalf("reconcile: %v", err)
+		}
+		if stops != 1 {
+			t.Errorf("stopped %d times, want exactly 1", stops)
+		}
+		if reason := finishedReason(t, ctx, cl); reason != "" {
+			t.Errorf("workload finished for %q while its pods were still running", reason)
+		}
+	})
 }

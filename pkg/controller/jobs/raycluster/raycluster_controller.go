@@ -22,6 +22,7 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -77,6 +78,7 @@ type RayCluster rayv1.RayCluster
 
 var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
+var _ jobframework.JobWithStopAcknowledgement = (*RayCluster)(nil)
 
 func (j *RayCluster) Object() client.Object {
 	return (*rayv1.RayCluster)(j)
@@ -88,6 +90,15 @@ func (j *RayCluster) IsSuspended() bool {
 
 func (j *RayCluster) IsActive() bool {
 	return j.Status.State == rayv1.Ready
+}
+
+// StopAcknowledged reports whether KubeRay finished the suspend: RayClusterSuspended is set only
+// after every pod is deleted. Older KubeRay without the condition falls back to the Suspended state.
+func (j *RayCluster) StopAcknowledged() bool {
+	if len(j.Status.Conditions) > 0 {
+		return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayClusterSuspended))
+	}
+	return j.Status.State == rayv1.Suspended
 }
 
 func (j *RayCluster) Suspend() {
