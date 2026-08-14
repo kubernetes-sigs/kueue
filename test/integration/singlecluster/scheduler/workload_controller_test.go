@@ -1109,20 +1109,22 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				g.Expect(k8sClient.Update(ctx, &w)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			// Wait for PendingEvaluation to clear, then verify the detailed condition is preserved
 			gomega.Eventually(func(g gomega.Gomega) bool {
 				var w kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlPreserved), &w)).Should(gomega.Succeed())
 
-				// Check if PendingEvaluation is still present
-				pendingCond := apimeta.FindStatusCondition(w.Status.Conditions, "PendingEvaluation")
-				if pendingCond != nil && pendingCond.Status == metav1.ConditionTrue {
+				// Find the WorkloadQuotaReserved condition
+				cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
+				if cond == nil {
+					return false // Condition not found yet
+				}
+
+				// Wait while reason is still PendingEvaluation
+				if cond.Reason == kueue.WorkloadQuotaReservedReasonPendingEvaluation {
 					return false // Still pending, keep waiting
 				}
 
-				// Verify the condition is preserved
-				cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
-				g.Expect(cond).ToNot(gomega.BeNil())
+				// Verify the final state
 				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 				g.Expect(cond.Message).To(gomega.Equal(detailedMsg))
 				return true
