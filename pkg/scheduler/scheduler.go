@@ -382,7 +382,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 			result = metrics.AdmissionResultSuccess
 		}
 	}
-	for _, e := range refill.nominatedEntries() {
+	for _, e := range refill.refilledEntries() {
 		if s.finishEntry(ctx, log, e) {
 			result = metrics.AdmissionResultSuccess
 		}
@@ -390,7 +390,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	for i := range inadmissibleEntries {
 		s.finishEntry(ctx, log, &inadmissibleEntries[i])
 	}
-	for _, e := range refill.inadmissible() {
+	for _, e := range refill.refilledInadmissible() {
 		s.finishEntry(ctx, log, e)
 	}
 
