@@ -1083,7 +1083,7 @@ func TestSnapshot(t *testing.T) {
 					}
 					gotTASUsage[flavor] = domainUsage
 				}
-				usageCmpOpts := cmp.Options{cmpopts.EquateEmpty(), cmp.Comparer(resources.Equal)}
+				usageCmpOpts := cmp.Options{cmp.Comparer(resources.Equal)}
 				if diff := cmp.Diff(tc.wantTASUsage, gotTASUsage, usageCmpOpts...); diff != "" {
 					t.Errorf("unexpected TAS usage in the flavor snapshots (-want,+got):\n%s", diff)
 				}
