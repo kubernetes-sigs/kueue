@@ -825,6 +825,36 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"zero clientConnection.qps": {
+			cfg: &configapi.Configuration{
+				Integrations:     defaultIntegrations,
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(0)), Burst: new(int32(100))},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "clientConnection.qps",
+				},
+			},
+		},
+		"zero clientConnection.burst": {
+			cfg: &configapi.Configuration{
+				Integrations:     defaultIntegrations,
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100)), Burst: new(int32(0))},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "clientConnection.burst",
+				},
+			},
+		},
+		"valid clientConnection": {
+			cfg: &configapi.Configuration{
+				Integrations:     defaultIntegrations,
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100)), Burst: new(int32(200))},
+			},
+		},
 		"invalid .internalCertManagement.webhookSecretName": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -2890,9 +2920,10 @@ func TestValidateClientConnection(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "clientConnection.burst",
-					Detail: "must be greater than 0 when client-side rate limiting is enabled",
+					Type:     field.ErrorTypeInvalid,
+					Field:    "clientConnection.burst",
+					BadValue: int32(0),
+					Detail:   "must be greater than 0 when client-side rate limiting is enabled",
 				},
 			},
 		},
@@ -2902,9 +2933,10 @@ func TestValidateClientConnection(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "clientConnection.burst",
-					Detail: "must be greater than 0 when client-side rate limiting is enabled",
+					Type:     field.ErrorTypeInvalid,
+					Field:    "clientConnection.burst",
+					BadValue: int32(-1),
+					Detail:   "must be greater than 0 when client-side rate limiting is enabled",
 				},
 			},
 		},
@@ -2914,9 +2946,10 @@ func TestValidateClientConnection(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "clientConnection.qps",
-					Detail: "must be greater than 0, or negative to disable client-side rate limiting",
+					Type:     field.ErrorTypeInvalid,
+					Field:    "clientConnection.qps",
+					BadValue: float32(0),
+					Detail:   "must be greater than 0, or negative to disable client-side rate limiting",
 				},
 			},
 		},
@@ -2926,14 +2959,16 @@ func TestValidateClientConnection(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "clientConnection.qps",
-					Detail: "must be greater than 0, or negative to disable client-side rate limiting",
+					Type:     field.ErrorTypeInvalid,
+					Field:    "clientConnection.qps",
+					BadValue: float32(0),
+					Detail:   "must be greater than 0, or negative to disable client-side rate limiting",
 				},
 				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "clientConnection.burst",
-					Detail: "must be greater than 0 when client-side rate limiting is enabled",
+					Type:     field.ErrorTypeInvalid,
+					Field:    "clientConnection.burst",
+					BadValue: int32(0),
+					Detail:   "must be greater than 0 when client-side rate limiting is enabled",
 				},
 			},
 		},
@@ -2942,7 +2977,7 @@ func TestValidateClientConnection(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			got := validateClientConnection(tc.cfg)
-			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
+			if diff := cmp.Diff(tc.wantErr, got); diff != "" {
 				t.Errorf("validateClientConnection() returned unexpected error (-want,+got):\n%s", diff)
 			}
 		})
