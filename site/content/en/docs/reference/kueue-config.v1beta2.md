@@ -1343,7 +1343,9 @@ specified.
 The requested amount of the resource is used to multiply the requested
 amount of the resource indicated by the &quot;input&quot; field when computing
 &quot;outputs&quot;. It does not change the quantity retained under &quot;input&quot; when
-&quot;strategy&quot; is Retain.</p>
+&quot;strategy&quot; is Retain.
+The quantity is read from the request view before &quot;excludeResourcePrefixes&quot;
+is applied, so a resource kept out of quota can still be named here.</p>
 </td>
 </tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
@@ -1394,7 +1396,12 @@ An empty Outputs combined with a <code>Replace</code> Strategy causes the Input 
 <code>[]string</code>
 </td>
 <td>
-   <p>ExcludedResourcePrefixes defines which resources should be ignored by Kueue</p>
+   <p>ExcludeResourcePrefixes defines the resource-name prefixes left out of the
+Pod request view that Kueue charges quota against.</p>
+<p>A matching resource is not charged, and a transformation naming one as its
+input does not run. It can still be read by ResourceTransformation.MultiplyBy,
+which reads the request view from before this field is applied. Transformation
+outputs and DRA logical resources are added afterwards and are not filtered.</p>
 </td>
 </tr>
 <tr><td><code>transformations</code> <B>[Required]</B><br/>
