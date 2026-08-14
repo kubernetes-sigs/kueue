@@ -82,7 +82,7 @@ func Import(ctx context.Context, c client.Client, importCache *cache.ImportCache
 			return false, fmt.Errorf("creating workload: %w", err)
 		}
 
-		if err := admitWorkload(ctx, c, wl, cq, checked.flavors); err != nil {
+		if err := admitWorkload(ctx, c, wl, cq, checked.flavors, importCache.WorkloadInfoOptions()); err != nil {
 			return false, err
 		}
 		log.V(2).Info("Successfully imported", "pod", klog.KObj(p), "workload", klog.KObj(wl))
@@ -191,10 +191,17 @@ func createWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) er
 	return err
 }
 
-func admitWorkload(ctx context.Context, c client.Client, wl *kueue.Workload, cq *kueue.ClusterQueue, flavors map[corev1.ResourceName]kueue.ResourceFlavorReference) error {
+func admitWorkload(
+	ctx context.Context,
+	c client.Client,
+	wl *kueue.Workload,
+	cq *kueue.ClusterQueue,
+	flavors map[corev1.ResourceName]kueue.ResourceFlavorReference,
+	workloadInfoOptions []workload.InfoOption,
+) error {
 	resourceFormatter := resources.NewResourceFormatter()
 	update := func(wl *kueue.Workload) (bool, error) {
-		info := workload.NewInfo(wl)
+		info := workload.NewInfo(wl, workloadInfoOptions...)
 		if len(info.TotalRequests) == 0 {
 			return false, fmt.Errorf("workload has no total requests: %w", cache.ErrPodInvalid)
 		}
