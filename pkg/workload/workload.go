@@ -703,7 +703,14 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 					delete(effectiveRequests, extRes)
 				}
 			}
-			// Then, add the DRA logical resources
+			// Then, add the DRA logical resources.
+			//
+			// No producer may name corev1.ResourcePods here. Claim-based charges
+			// key on mapping names, which configuration validation refuses that
+			// name; the extended-resource path takes only names
+			// IsExtendedResourceName accepts, and it reads pods as native. Flavor
+			// assignment sets pods from the PodSet count after this, so anything
+			// merged under it is overwritten and lost.
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
 				for resName, quantity := range draRes {
 					q := effectiveRequests[resName]

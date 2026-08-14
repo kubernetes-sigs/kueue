@@ -602,8 +602,9 @@ DNS labels consist of lower-case alphanumeric characters or hyphens,
 and must start and end with an alphanumeric character.
 DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
 The total length must not exceed 253 characters.
-It must not be <code>pods</code>; that exact name is reserved for Kueue's internal
-Pod-count accounting. A qualified name such as <code>example.com/pods</code> is allowed.</p>
+With KueueDRAIntegration enabled it must not be <code>pods</code>; that exact name is
+reserved for Kueue's internal Pod-count accounting. A qualified name such
+as <code>example.com/pods</code> is allowed.</p>
 </td>
 </tr>
 <tr><td><code>deviceClassNames</code> <B>[Required]</B><br/>

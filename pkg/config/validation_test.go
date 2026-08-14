@@ -1375,7 +1375,8 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
-		"device class mapping named pods rejected": {
+		"device class mapping named pods rejected when DRA is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -1391,6 +1392,46 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "resources.deviceClassMappings[0].name",
+				},
+			},
+		},
+		// The mapper is only built behind the gate, so nothing reads this name
+		// while it is off and refusing it would fail an upgrade about something
+		// else. It is refused the day the gate goes on, which is the case above.
+		"device class mapping named pods accepted when DRA is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             corev1.ResourcePods,
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+				},
+			},
+		},
+		// Transformations are installed whatever the DRA gate says, so the name is
+		// refused there whatever it says too.
+		"transformation output named pods rejected when DRA is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    "example.com/credits",
+							Strategy: new(configapi.Retain),
+							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[pods]",
 				},
 			},
 		},
