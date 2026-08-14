@@ -146,7 +146,9 @@ func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 		},
 		// One node only: the head fills it, and the refilled successor still
 		// fits the quota but not the topology, so its flavor attempt degrades
-		// to Preempt with no candidates and it is parked as inadmissible.
+		// to Preempt with no candidates. The Fit-only rule requeues it back
+		// to the heap immediately instead of letting it park or reserve
+		// capacity mid-cycle.
 		"refilled workload fails placement once the only node is full": {
 			refillEnabled: true,
 			nodes:         []corev1.Node{node("x1")},
@@ -157,7 +159,7 @@ func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 			wantAssignments: map[workload.Reference]kueue.Admission{
 				"default/tas-a": tasAdmission("x1", 2, "2000m"),
 			},
-			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-refill": {"default/tas-b"},
 			},
 		},

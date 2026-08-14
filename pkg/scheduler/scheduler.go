@@ -251,11 +251,12 @@ func (s *Scheduler) setAdmissionRoutineWrapper(wrapper routine.Wrapper) {
 // markSkipped marks the entry as skipped for this cycle.
 //
 // With features.FlavorFungibilityPreserveScanProgress the flavor assignment is kept, so the next cycle
-// resumes the flavor scan where this one left off rather than starting over. Both callers
-// skip on contention rather than on the flavor itself - capacity taken by a Workload
-// processed earlier in the cycle, or preemption targets claimed by another entry - so the
-// recorded progress is still the best information available. Without the gate the
-// assignment is cleared and the next cycle retries every flavor.
+// resumes the flavor scan where this one left off rather than starting over. The contention
+// skips - capacity taken by a Workload processed earlier in the cycle, or preemption targets
+// claimed by another entry - are not about the flavor itself, so the recorded progress is
+// still the best information available. Without the gate the assignment is cleared and the
+// next cycle retries every flavor. The refill Fit-only path clears LastAssignment regardless
+// of the gate; see processEntry.
 func (e *entry) markSkipped(msg string) {
 	e.status = skipped
 	e.inadmissibleMsg = msg
@@ -472,6 +473,27 @@ func (s *Scheduler) processEntry(
 	// lose to earlier CQs and starve for prolonged periods.
 	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
 	mode := e.assignment.RepresentativeMode()
+
+	// A refilled entry acts only on Fit: capacity reserved mid-cycle for
+	// workloads this cycle will not admit adds usage to the shared snapshot,
+	// and refill's nomination does not compensate for in-flight preemption
+	// victims the way fits and the recompute paths do, so any mode short of Fit
+	// may be an artifact of reserved rather than consumed capacity.
+	if e.refilled && mode != flavorassigner.Fit {
+		msg := "Workload was evaluated mid-cycle and is deferred to the next scheduling cycle"
+		// The assignment message is empty when the mode is DeferredFit.
+		if detail := e.assignment.Message(); detail != "" {
+			msg += ": " + detail
+		}
+		e.markSkipped(msg)
+		e.requeueReason = qcache.RequeueReasonFailedAfterNomination
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
+		// The scan progress was shaped by the transient reservations, so the
+		// next cycle re-evaluates every flavor, as in the DeferredFit branch.
+		e.LastAssignment = nil
+		log.V(3).Info("Refilled workload cannot act on its assignment; deferring to the next cycle", "mode", mode)
+		return
+	}
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
 		s.handleFailedTASReplacement(ctx, log, e)
@@ -693,6 +715,9 @@ type entry struct {
 	clusterQueueSnapshot *schdcache.ClusterQueueSnapshot
 	quotaReservedReason  string
 	skipStatusUpdate     bool
+	// refilled marks an entry popped mid-cycle rather than nominated as a
+	// ClusterQueue head; such entries are admitted only on Fit.
+	refilled bool
 }
 
 func (e *entry) assignmentUsage(log logr.Logger) workload.Usage {

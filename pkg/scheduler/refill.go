@@ -38,8 +38,13 @@ const defaultRefillBudget = 8
 // cycle instead of waiting for the next one. Without refill, a cohort that
 // frees several units of capacity in one cycle serves the poorest
 // ClusterQueue's single head and over-share siblings pick up the rest; the
-// refilled workload is nominated against the snapshot that already accounts
-// for the admission, so same-CQ state is never stale. See Kueue#9345.
+// refilled workload is nominated against the snapshot whose usage already
+// accounts for the admission. Only usage is current: the snapshot's workload
+// membership stays frozen for the cycle, and other entries may have reserved
+// capacity for workloads that are not admitted yet. A refilled workload
+// therefore acts on its assignment only when the mode is Fit: Preempt and
+// DeferredFit are requeued for the next cycle, while the structural NoFit
+// parks as usual (see processEntry). See Kueue#9345.
 //
 // When the budget runs out, the cycle keeps processing the entries already in
 // the room; the remaining backlog waits for the next cycle.
@@ -124,6 +129,7 @@ func (r *refillPass) afterEntryProcessed(ctx context.Context, e *entry) {
 		return
 	}
 	ne, nominated := r.scheduler.nominateWorkload(ctx, wlLog, *wl, r.snapshot)
+	ne.refilled = true
 	refilled := &ne
 	if !nominated {
 		r.inadmissibleEntries = append(r.inadmissibleEntries, refilled)
