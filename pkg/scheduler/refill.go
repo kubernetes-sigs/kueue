@@ -68,12 +68,18 @@ type refillPass struct {
 	inadmissibleEntries []*entry
 }
 
-// newRefillPass returns the refill hook for this cycle, or nil (a no-op) when
-// refill is disabled. Only the fair-sharing iterator is supported: refill relies
-// on the tournament re-ranking the remaining entries on every pop, and ordering
-// for the classical iterator is an open question.
+// newRefillPass returns nil when refill cannot run. Refill relies on the
+// tournament re-ranking the remaining entries on every pop, so only the
+// fair-sharing iterator qualifies; ordering for the classical one is unanswered.
+// WaitForPodsReady with blockAdmission already serializes the cycle, so a
+// refilled successor would only lengthen it; the cache's pods-ready tracking
+// stands in for that setting, which the manager turns on for exactly that
+// configuration.
 func (s *Scheduler) newRefillPass(iterator entryIterator, snapshot *schdcache.Snapshot) *refillPass {
 	if !features.Enabled(features.FairSharingRefill) {
+		return nil
+	}
+	if s.cache.PodsReadyTracking() {
 		return nil
 	}
 	fsIterator, ok := iterator.(*fairSharingIterator)
@@ -100,13 +106,6 @@ func (r *refillPass) afterEntryProcessed(ctx context.Context, e *entry) {
 		return
 	}
 	log := ctrl.LoggerFrom(ctx)
-	// With WaitForPodsReady blockAdmission, admitting the refilled workload
-	// would block the scheduler goroutine until all admitted workloads
-	// (including the one just assumed) become ready. Leave the backlog for
-	// the next cycle instead.
-	if !r.scheduler.cache.PodsReadyForAllAdmittedWorkloads(log) {
-		return
-	}
 	if r.budget <= 0 {
 		// Log only when a successor actually exists in the heap, so the
 		// count measures how often the budget binds rather than how often
