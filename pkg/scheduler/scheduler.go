@@ -391,7 +391,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	}
 	// Workloads popped mid-cycle by refill are not part of the initial entries,
 	// but must reach the same terminal paths.
-	for _, e := range refill.nominatedEntries() {
+	for _, e := range refill.refilledEntries() {
 		logAdmissionAttemptIfVerbose(log, e)
 		if e.status != assumed && e.status != evicted {
 			s.requeueAndUpdate(ctx, *e)
@@ -403,7 +403,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		logAdmissionAttemptIfVerbose(log, &e)
 		s.requeueAndUpdate(ctx, e)
 	}
-	for _, e := range refill.inadmissible() {
+	for _, e := range refill.refilledInadmissible() {
 		logAdmissionAttemptIfVerbose(log, e)
 		s.requeueAndUpdate(ctx, *e)
 	}

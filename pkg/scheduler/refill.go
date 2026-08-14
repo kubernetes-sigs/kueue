@@ -28,44 +28,33 @@ import (
 )
 
 // defaultRefillBudget bounds the number of extra workloads a scheduling cycle
-// may pop after the initial ClusterQueue heads. The bound keeps cycle length
-// and time-to-fresh-snapshot predictable under a large backlog.
-// TODO: make this configurable via the Kueue Configuration API.
+// may pop after the initial ClusterQueue heads, keeping cycle length and
+// time-to-fresh-snapshot predictable under a large backlog. The allowance is
+// global and per-cycle, not a per-ClusterQueue or per-cohort quota, so one
+// queue can spend all of it.
+// TODO(#14190): make this configurable via the Kueue Configuration API.
 const defaultRefillBudget = 8
 
-// refillPass implements refill for fair sharing: when a workload is admitted,
-// its ClusterQueue's next workload immediately joins the running scheduling
-// cycle instead of waiting for the next one. Without refill, a cohort that
+// refillPass implements refill for fair sharing. Without it, a cohort that
 // frees several units of capacity in one cycle serves the poorest
-// ClusterQueue's single head and over-share siblings pick up the rest; the
-// refilled workload is nominated against the snapshot whose usage already
-// accounts for the admission. Only usage is current: the snapshot's workload
-// membership stays frozen for the cycle, and other entries may have reserved
-// capacity for workloads that are not admitted yet. A refilled workload
-// therefore acts on its assignment only when the mode is Fit: Preempt and
-// DeferredFit are requeued for the next cycle, while the structural NoFit
-// parks as usual (see processEntry). See Kueue#9345.
-//
-// When the budget runs out, the cycle keeps processing the entries already in
-// the room; the remaining backlog waits for the next cycle.
-//
-// The mid-cycle insertion primitive lives in fairSharingIterator.push so
-// other mechanisms can re-enter entries mid-cycle independently of the
-// refill-specific "pop next + budget" logic below.
+// ClusterQueue's single head and over-share siblings pick up the rest.
+// A refilled workload acts on its assignment only when the mode is Fit; see
+// processEntry. See Kueue#9345.
 type refillPass struct {
 	scheduler *Scheduler
 	iterator  *fairSharingIterator
 	snapshot  *schdcache.Snapshot
 
-	// budget is the remaining number of extra workloads this cycle may pop
-	// after the initial ClusterQueue heads.
+	// budget is how many more workloads this cycle may pull in. Spent on every
+	// workload pulled in, not only the ones that get admitted, so the extra
+	// work per cycle stays bounded regardless of how the nominations turn out.
 	budget int
 
-	// entries and inadmissibleEntries track the workloads popped mid-cycle so
-	// the cycle's requeue step reaches them; they are not part of the entries
-	// slice built during initial nomination.
-	entries             []*entry
-	inadmissibleEntries []*entry
+	// pushed and parked hold the workloads popped mid-cycle so the cycle's
+	// requeue step reaches them: they are not in the entries slice built
+	// during nomination.
+	pushed []*entry
+	parked []*entry
 }
 
 // newRefillPass returns the refill hook for this cycle, or nil (a no-op) when
@@ -76,9 +65,8 @@ type refillPass struct {
 // WaitForPodsReady with blockAdmission disables refill outright, because that
 // configuration already serializes the cycle: a refilled successor would make
 // the current cycle longer without being admitted any sooner. The cache's
-// pods-ready tracking stands in for the setting, which holds only because the
-// manager turns tracking on for exactly that configuration and reads the
-// tracked set for nothing else.
+// pods-ready tracking stands in for the setting, which the manager turns on
+// for exactly that configuration.
 func (s *Scheduler) newRefillPass(iterator entryIterator, snapshot *schdcache.Snapshot) *refillPass {
 	if !features.Enabled(features.FairSharingRefill) {
 		return nil
@@ -119,15 +107,18 @@ const (
 	refillStopSuccessorNotNominated refillStopReason = "SuccessorNotNominated"
 )
 
-// afterEntryProcessed is the refill hook, called after processEntry for
-// every popped entry. Safe to call on a nil receiver.
+// afterEntryProcessed pulls a ClusterQueue's next workload into the running
+// cycle when one of its workloads is admitted, so a queue that is still the
+// poorest can win again this cycle instead of waiting for the next one.
+// Called after processEntry for every popped entry; safe on a nil receiver.
+// A refill is logged, and so is where a chain stopped instead — except for the
+// entries that were never admitted: they are the common case and would bury
+// the real reasons.
 func (r *refillPass) afterEntryProcessed(ctx context.Context, e *entry) {
 	if r == nil {
 		return
 	}
 	reason, refilled := r.tryRefill(ctx, e)
-	// Entries that were never admitted say nothing about refill and are the
-	// common case; logging them would bury the real stop reasons.
 	if reason == refillStopNotAdmitted {
 		return
 	}
@@ -171,22 +162,18 @@ func (r *refillPass) tryRefill(ctx context.Context, e *entry) (refillStopReason,
 	if wl == nil {
 		return refillStopQueueEmpty, nil
 	}
-	// A popped workload consumes budget regardless of its nomination outcome,
-	// so the total per-cycle work stays bounded.
 	r.budget--
 	refilled, outcome := r.scheduler.nominateWorkload(ctx, *wl, r.snapshot)
 	refilled.refilled = true
 	switch outcome {
 	case nominationOK:
-		// The tournament reranks it against the remaining entries on the
-		// next pop.
-		r.entries = append(r.entries, &refilled)
+		// The tournament reranks it against the remaining entries.
+		r.pushed = append(r.pushed, &refilled)
 		r.iterator.push(&refilled)
 		return refillContinue, &refilled
 	case nominationInadmissible:
-		// Parks with its inadmissibleMsg; the cycle's requeue step reaches
-		// it through refilledInadmissible.
-		r.inadmissibleEntries = append(r.inadmissibleEntries, &refilled)
+		// The cycle's requeue step reaches it through refilledInadmissible.
+		r.parked = append(r.parked, &refilled)
 	case nominationDropped:
 		// Already accounted in the cache, so it leaves the cycle without
 		// being requeued; nominateWorkload drops its inflight claim.
@@ -194,20 +181,20 @@ func (r *refillPass) tryRefill(ctx context.Context, e *entry) (refillStopReason,
 	return refillStopSuccessorNotNominated, &refilled
 }
 
-// nominatedEntries returns the refilled entries that competed for admission
+// refilledEntries returns the refilled entries that competed for admission
 // this cycle. Safe to call on a nil receiver.
-func (r *refillPass) nominatedEntries() []*entry {
+func (r *refillPass) refilledEntries() []*entry {
 	if r == nil {
 		return nil
 	}
-	return r.entries
+	return r.pushed
 }
 
-// inadmissible returns the refilled entries that could not be nominated. Safe
-// to call on a nil receiver.
-func (r *refillPass) inadmissible() []*entry {
+// refilledInadmissible returns the refilled entries that could not be
+// nominated. Safe to call on a nil receiver.
+func (r *refillPass) refilledInadmissible() []*entry {
 	if r == nil {
 		return nil
 	}
-	return r.inadmissibleEntries
+	return r.parked
 }
