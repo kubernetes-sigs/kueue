@@ -26,14 +26,21 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
+
+	configapi "github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1"
+	"github.com/kubeflow/trainer/v2/pkg/util/tlsconfig"
 )
 
 const (
-	certDir          = "/tmp/k8s-webhook-server/serving-certs"
 	caName           = "kubeflow-trainer-ca"
 	caOrganization   = "kubeflow-trainer"
 	defaultNamespace = "kubeflow-system"
 )
+
+// certDir is the directory the webhook serving certificates are written to and
+// watched from. It is a variable rather than a constant so that tests can point
+// it at a temporary directory.
+var certDir = "/tmp/k8s-webhook-server/serving-certs"
 
 func GetOperatorNamespace() string {
 	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
@@ -91,7 +98,7 @@ func ManageCerts(mgr ctrl.Manager, cfg Config, setupFinished chan struct{}) erro
 // SetupTLSConfig creates a TLS config with automatic certificate rotation support.
 // It creates a cert watcher, adds it to the manager, and returns a TLS config
 // that will automatically pick up rotated certificates.
-func SetupTLSConfig(mgr ctrl.Manager, enableHTTP2 bool) (*tls.Config, error) {
+func SetupTLSConfig(mgr ctrl.Manager, tlsOpts *configapi.TLSOptions) (*tls.Config, error) {
 	certWatcher, err := certwatcher.New(certDir+"/tls.crt", certDir+"/tls.key")
 	if err != nil {
 		return nil, fmt.Errorf("error creating cert watcher: %w", err)
@@ -104,11 +111,7 @@ func SetupTLSConfig(mgr ctrl.Manager, enableHTTP2 bool) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
 		GetCertificate: certWatcher.GetCertificate,
 	}
-
-	// Disable HTTP/2 unless explicitly enabled (CVE-2023-44487, CVE-2023-39325)
-	if !enableHTTP2 {
-		tlsConfig.NextProtos = []string{"http/1.1"}
-	}
+	tlsconfig.Apply(tlsConfig, tlsOpts)
 
 	return tlsConfig, nil
 }
