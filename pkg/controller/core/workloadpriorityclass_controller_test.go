@@ -466,6 +466,14 @@ func TestWorkloadPriorityClassReferenceReconcile(t *testing.T) {
 			wantPriority: new(int32(200)),
 			wantWrites:   1,
 		},
+		// A reference can arrive before anything has filled the priority, so
+		// unset is a state to resolve rather than a value to leave alone.
+		"a reference with nothing in the priority yet": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			wantPriority: new(int32(200)),
+			wantWrites:   1,
+		},
 		// The rule this pins: the class wins over a value the user chose. A
 		// Workload created already referencing a class is resolved from it at
 		// once, where before this the value stood until the class next moved.
