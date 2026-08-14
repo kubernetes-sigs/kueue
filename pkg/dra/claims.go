@@ -211,6 +211,12 @@ func chargeForPrioritizedList(req *resourcev1.DeviceRequest, mapper *ResourceMap
 		if !found {
 			return "", 0, field.ErrorList{field.NotFound(subPath.Child("deviceClassName"), dc)}
 		}
+		// The prefix filter runs over what the pod asked for, before this name
+		// exists, so charging it would spend quota the administrator excluded.
+		if mapper.Excluded(mapped) {
+			return "", 0, field.ErrorList{field.Invalid(subPath.Child("deviceClassName"), dc,
+				fmt.Sprintf("maps to %q, which an excludeResourcePrefixes entry covers", mapped))}
+		}
 		// The counter and capacity paths read Exactly requests only, so an alternative
 		// on one of those mappings would be charged nothing rather than too little.
 		if len(mapper.getCounterConfigs(dc)) > 0 || len(mapper.getCapacityConfigs(dc)) > 0 {
