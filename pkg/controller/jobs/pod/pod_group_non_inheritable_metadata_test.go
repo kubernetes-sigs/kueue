@@ -17,6 +17,7 @@ limitations under the License.
 package pod
 
 import (
+	"maps"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -30,89 +31,129 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
-// The marker used to reach the Workload here: the group copies its labels after
-// NewWorkload has already run, so the guard there never saw them.
-func TestConstructComposableWorkloadDropsTheOriginLabel(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-	mk := func(name, origin string) corev1.Pod {
-		p := testingpod.MakePod(name, "test-ns").GroupNameLabel("test-group").GroupTotalCount("2").Obj()
-		p.Labels["team"] = "alpha"
-		if origin != "" {
-			p.Labels[kueue.MultiKueueOriginLabel] = origin
-		}
-		return *p
+// A pod group copies its members' metadata after NewWorkload has run, so the
+// guard there never sees it. The group also compares the members before it
+// settles on one set, so a key neither of them may pass on has to be gone by
+// then: two Pods disagreeing about one must not read as two different groups.
+func TestConstructComposableWorkloadDropsNonInheritableMetadata(t *testing.T) {
+	cases := map[string]struct {
+		gate            bool
+		labels          []map[string]string
+		annotations     []map[string]string
+		labelKeys       []string
+		annotationKeys  []string
+		wantLabels      map[string]string
+		wantNoLabels    []string
+		wantAnnotations map[string]string
+		wantNoAnnots    []string
+	}{
+		"the origin label is dropped when the pods agree on it": {
+			labels: []map[string]string{
+				{"team": "alpha", kueue.MultiKueueOriginLabel: "multikueue"},
+				{"team": "alpha", kueue.MultiKueueOriginLabel: "multikueue"},
+			},
+			labelKeys:    []string{"team", kueue.MultiKueueOriginLabel},
+			wantLabels:   map[string]string{"team": "alpha"},
+			wantNoLabels: []string{kueue.MultiKueueOriginLabel},
+		},
+		"the origin label is dropped when the pods disagree on it": {
+			labels: []map[string]string{
+				{"team": "alpha", kueue.MultiKueueOriginLabel: "multikueue"},
+				{"team": "alpha", kueue.MultiKueueOriginLabel: "other"},
+			},
+			labelKeys:    []string{"team", kueue.MultiKueueOriginLabel},
+			wantLabels:   map[string]string{"team": "alpha"},
+			wantNoLabels: []string{kueue.MultiKueueOriginLabel},
+		},
+		"non-inheritable annotations are dropped and the group marker is rewritten": {
+			gate: true,
+			annotations: []map[string]string{
+				{
+					"team": "alpha",
+					controllerconstants.JobOwnerNameAnnotation:     "from-driver",
+					controllerconstants.PriorityBoostAnnotationKey: "from-driver",
+					kueue.WorkloadSliceNameAnnotation:              "from-driver",
+					podconstants.IsGroupWorkloadAnnotationKey:      "from-driver",
+				},
+				{
+					"team": "alpha",
+					controllerconstants.JobOwnerNameAnnotation:     "from-worker",
+					controllerconstants.PriorityBoostAnnotationKey: "from-worker",
+					kueue.WorkloadSliceNameAnnotation:              "from-worker",
+					podconstants.IsGroupWorkloadAnnotationKey:      "from-worker",
+				},
+			},
+			annotationKeys: []string{
+				"team",
+				controllerconstants.JobOwnerNameAnnotation,
+				controllerconstants.PriorityBoostAnnotationKey,
+				kueue.WorkloadSliceNameAnnotation,
+				podconstants.IsGroupWorkloadAnnotationKey,
+			},
+			wantAnnotations: map[string]string{
+				"team": "alpha",
+				// Written back after the filtering, so the group still says what it is.
+				podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
+			},
+			wantNoAnnots: []string{
+				controllerconstants.JobOwnerNameAnnotation,
+				controllerconstants.PriorityBoostAnnotationKey,
+				kueue.WorkloadSliceNameAnnotation,
+			},
+		},
 	}
-	for _, tc := range []struct{ label, a, b string }{
-		{"same origin on both pods", "multikueue", "multikueue"},
-		{"different origin per pod", "multikueue", "other"},
-	} {
-		pods := []corev1.Pod{mk("driver", tc.a), mk("worker", tc.b)}
-		p := &Pod{pod: pods[0], isGroup: true, list: corev1.PodList{Items: pods}}
-		keys := sets.New("team", kueue.MultiKueueOriginLabel)
-		cl := utiltesting.NewClientBuilder().WithObjects(&pods[0], &pods[1]).Build()
-		wl, err := p.ConstructComposableWorkload(ctx, cl, &utiltesting.EventRecorder{}, keys, nil)
-		if err != nil {
-			t.Fatalf("%s: ConstructComposableWorkload() error = %v", tc.label, err)
-		}
-		if got, ok := wl.Labels[kueue.MultiKueueOriginLabel]; ok {
-			t.Errorf("%s: Workload carries the origin label %q", tc.label, got)
-		}
-		if got := wl.Labels["team"]; got != "alpha" {
-			t.Errorf("%s: ordinary label = %q, want alpha", tc.label, got)
-		}
-		if !keys.Has(kueue.MultiKueueOriginLabel) {
-			t.Errorf("%s: the caller's key set was modified", tc.label)
-		}
-	}
-}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if tc.gate {
+				features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+			}
+			ctx, _ := utiltesting.ContextWithLog(t)
 
-// The group compares its members before it settles on one set of metadata, so a
-// non-inheritable key has to be gone by then: two Pods disagreeing about a value
-// neither of them may pass on must not be read as two different groups.
-func TestConstructComposableWorkloadDropsNonInheritableAnnotations(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
-	ctx, _ := utiltesting.ContextWithLog(t)
+			pods := make([]corev1.Pod, 2)
+			for i, podName := range []string{"driver", "worker"} {
+				p := testingpod.MakePod(podName, "test-ns").GroupNameLabel("test-group").GroupTotalCount("2").Obj()
+				if tc.labels != nil {
+					maps.Copy(p.Labels, tc.labels[i])
+				}
+				if tc.annotations != nil {
+					maps.Copy(p.Annotations, tc.annotations[i])
+				}
+				pods[i] = *p
+			}
+			labelKeys, annotationKeys := sets.New(tc.labelKeys...), sets.New(tc.annotationKeys...)
+			p := &Pod{pod: pods[0], isGroup: true, list: corev1.PodList{Items: pods}}
+			cl := utiltesting.NewClientBuilder().WithObjects(&pods[0], &pods[1]).Build()
 
-	// The group marker is spoofed alongside these, but NewGroupWorkload writes
-	// the real one back afterwards, so it is the one checked by value below.
-	dropped := []string{
-		controllerconstants.JobOwnerNameAnnotation,
-		controllerconstants.PriorityBoostAnnotationKey,
-		kueue.WorkloadSliceNameAnnotation,
-	}
-	reserved := append([]string{podconstants.IsGroupWorkloadAnnotationKey}, dropped...)
-	mk := func(name, spoofed string) corev1.Pod {
-		p := testingpod.MakePod(name, "test-ns").GroupNameLabel("test-group").GroupTotalCount("2").Obj()
-		p.Annotations["team"] = "alpha"
-		for _, key := range reserved {
-			p.Annotations[key] = spoofed
-		}
-		return *p
-	}
-	pods := []corev1.Pod{mk("driver", "from-driver"), mk("worker", "from-worker")}
-	p := &Pod{pod: pods[0], isGroup: true, list: corev1.PodList{Items: pods}}
-	keys := sets.New(append([]string{"team"}, reserved...)...)
-	cl := utiltesting.NewClientBuilder().WithObjects(&pods[0], &pods[1]).Build()
+			wl, err := p.ConstructComposableWorkload(ctx, cl, &utiltesting.EventRecorder{}, labelKeys, annotationKeys)
+			if err != nil {
+				t.Fatalf("ConstructComposableWorkload() error = %v", err)
+			}
 
-	wl, err := p.ConstructComposableWorkload(ctx, cl, &utiltesting.EventRecorder{}, nil, keys)
-	if err != nil {
-		t.Fatalf("ConstructComposableWorkload() error = %v", err)
-	}
-	for _, key := range dropped {
-		if got, found := wl.Annotations[key]; found {
-			t.Errorf("Workload carries %s from a Pod: %q", key, got)
-		}
-	}
-	if got := wl.Annotations["team"]; got != "alpha" {
-		t.Errorf("ordinary annotation = %q, want alpha", got)
-	}
-	// Written after the filtering, so the group still says what it is.
-	if got := wl.Annotations[podconstants.IsGroupWorkloadAnnotationKey]; got != podconstants.IsGroupWorkloadAnnotationValue {
-		t.Errorf("group marker = %q, want %q", got, podconstants.IsGroupWorkloadAnnotationValue)
-	}
-	for _, key := range reserved {
-		if !keys.Has(key) {
-			t.Errorf("the caller's key set lost %s", key)
-		}
+			for key, want := range tc.wantLabels {
+				if got := wl.Labels[key]; got != want {
+					t.Errorf("label %s = %q, want %q", key, got, want)
+				}
+			}
+			for _, key := range tc.wantNoLabels {
+				if got, found := wl.Labels[key]; found {
+					t.Errorf("Workload carries label %s from a Pod: %q", key, got)
+				}
+			}
+			for key, want := range tc.wantAnnotations {
+				if got := wl.Annotations[key]; got != want {
+					t.Errorf("annotation %s = %q, want %q", key, got, want)
+				}
+			}
+			for _, key := range tc.wantNoAnnots {
+				if got, found := wl.Annotations[key]; found {
+					t.Errorf("Workload carries annotation %s from a Pod: %q", key, got)
+				}
+			}
+			for _, key := range append(tc.labelKeys, tc.annotationKeys...) {
+				if !labelKeys.Union(annotationKeys).Has(key) {
+					t.Errorf("the caller's key set lost %s", key)
+				}
+			}
+		})
 	}
 }
