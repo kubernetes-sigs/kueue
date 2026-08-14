@@ -17,8 +17,10 @@ limitations under the License.
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"iter"
 	"strings"
 	"testing"
 
@@ -1604,6 +1606,32 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 	})
 }
 
+// additiveChecker scores the way the WAS checker does, reading a candidate's
+// score before writing it back. The assignment in fillInCounts rests on that
+// state being clear when the checker runs, and nothing else here holds it.
+type additiveChecker struct {
+	calls int
+}
+
+func (c *additiveChecker) FindFeasibleNodes(
+	_ context.Context,
+	candidates iter.Seq[simulator.Candidate],
+	requirements *simulator.PodRequirements,
+	_ *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
+	c.calls++
+	var matched []simulator.MatchedCandidate
+	for candidate := range candidates {
+		mc, ok := candidate.(simulator.MatchedCandidate)
+		if !ok {
+			continue
+		}
+		mc.SetAffinityScore(mc.GetAffinityScore() + requirements.PreferredSchedulingTerms.Score(mc.GetNode()))
+		matched = append(matched, mc)
+	}
+	return matched, nil
+}
+
 func TestFillInCountsAffinityScoreIsStableAcrossRuns(t *testing.T) {
 	for _, cacheMatches := range []bool{true, false} {
 		t.Run(fmt.Sprintf("TASCacheNodeMatchResults=%t", cacheMatches), func(t *testing.T) {
@@ -1629,8 +1657,9 @@ func fillInCountsAffinityScoreIsStableAcrossRuns(t *testing.T, cacheMatches bool
 				corev1.ResourcePods: resource.MustParse("110"),
 			}).Ready().Obj(),
 	}
+	checker := &additiveChecker{}
 	snapshot := newTASFlavorSnapshot(log, "tas-topology",
-		newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), nil, &defaultChecker{})
+		newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), nil, checker)
 
 	terms, err := nodeaffinity.NewPreferredSchedulingTerms(
 		utiltesting.MakePreferredSchedulingTerms().Term(10, "pool", corev1.NodeSelectorOpIn, "fast").Obj())
@@ -1642,12 +1671,13 @@ func fillInCountsAffinityScoreIsStableAcrossRuns(t *testing.T, cacheMatches bool
 		requests:        resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
 		matchKey:        &podSetMatchKey{WorkloadUID: types.UID("wl-uid"), PodSetName: "main"},
 	}
-	state := &findTopologyAssignmentState{stats: newTASExclusionStats()}
-	state.sliceSize = 1
-
 	want := map[tas.TopologyDomainID]int64{"node-a": 10, "node-b": 0}
 	domains := []*domain{&snapshot.leaves["node-a"].domain, &snapshot.leaves["node-b"].domain}
 	for _, run := range []string{"first", "second"} {
+		// A placement evaluation builds its own state, so sharing one here would
+		// let the exclusion stats carry over in a way production never sees.
+		state := &findTopologyAssignmentState{stats: newTASExclusionStats()}
+		state.sliceSize = 1
 		if err := snapshot.fillInCounts(ctx, requirements, state); err != nil {
 			t.Fatalf("%s: fillInCounts() error: %v", run, err)
 		}
@@ -1662,5 +1692,14 @@ func fillInCountsAffinityScoreIsStableAcrossRuns(t *testing.T, cacheMatches bool
 		if got := snapshot.sortedDomains(domains, false)[0].id; got != "node-a" {
 			t.Errorf("%s run: the preferred domain is %q, want node-a", run, got)
 		}
+	}
+	// Without this the second run proves the result is stable, not that it came
+	// from the cache the result is supposed to have survived.
+	wantCalls := 2
+	if cacheMatches {
+		wantCalls = 1
+	}
+	if checker.calls != wantCalls {
+		t.Errorf("the checker ran %d times, want %d", checker.calls, wantCalls)
 	}
 }

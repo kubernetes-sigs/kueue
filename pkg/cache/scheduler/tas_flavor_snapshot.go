@@ -203,8 +203,10 @@ type podSetMatchKey struct {
 
 // matchedLeaf is a leaf the checker accepted and the score it gave it. The score
 // is a value because the state a candidate reads it from is cleared between runs.
+// The leaf itself is shared by every snapshot and never written, so it is kept
+// by pointer rather than looked up again on each hit.
 type matchedLeaf struct {
-	id    utiltas.TopologyDomainID
+	leaf  *leafDomain
 	score int64
 }
 
@@ -1818,9 +1820,8 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 		}
 		state.stats.add(stats)
 		for _, ml := range matchingLeaves {
-			leaf := s.leaves[ml.id]
-			s.domainStateOf(&leaf.domain).affinityScore = ml.score
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			s.domainStateOf(&ml.leaf.domain).affinityScore = ml.score
+			s.fillLeafCounts(ml.leaf, requirements, state, cachingRemainingResourcesEnabled)
 		}
 	} else {
 		if s.isLowestLevelNode {
@@ -1855,7 +1856,7 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 		stats.TotalNodes += len(s.leaves)
 		result := make([]matchedLeaf, 0, len(s.leaves))
 		for candidate := range s.candidates() {
-			result = append(result, matchedLeaf{id: candidate.GetID(), score: candidate.GetAffinityScore()})
+			result = append(result, matchedLeaf{leaf: s.leaves[candidate.GetID()], score: candidate.GetAffinityScore()})
 		}
 		return result, stats, nil
 	}
@@ -1875,7 +1876,7 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 	}
 	matched := make([]matchedLeaf, 0, len(feasibleLeaves))
 	for _, candidate := range feasibleLeaves {
-		matched = append(matched, matchedLeaf{id: candidate.GetID(), score: candidate.GetAffinityScore()})
+		matched = append(matched, matchedLeaf{leaf: s.leaves[candidate.GetID()], score: candidate.GetAffinityScore()})
 	}
 	entry := &matchingLeavesCacheEntry{
 		leaves: matched,
