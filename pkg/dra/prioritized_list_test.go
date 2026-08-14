@@ -60,6 +60,10 @@ func mapperFor(logical string, deviceClasses ...corev1.ResourceName) *ResourceMa
 
 func TestChargeForPrioritizedList(t *testing.T) {
 	twoClassesOneResource := mapperFor("example.com/gpu", "fast.example.com", "slow.example.com")
+	excludedResource := mapperFor("example.com/gpu", "fast.example.com")
+	excludedResource.SetExcludedResourcePrefixes([]string{"other.example", "example.com"})
+	excludedMidway := mapperFor("vendor/example.com", "fast.example.com")
+	excludedMidway.SetExcludedResourcePrefixes([]string{"example.com"})
 
 	twoResources := NewResourceMapper()
 	_ = twoResources.PopulateFromConfiguration([]configapi.DeviceClassMapping{
@@ -126,6 +130,23 @@ func TestChargeForPrioritizedList(t *testing.T) {
 			req:          faReq("r", alt("fast", "fast.example.com", 4)),
 			mapper:       twoClassesOneResource,
 			wantResource: "example.com/gpu",
+			wantCount:    4,
+		},
+		// The two task guides collide on this: one excludes example.com while
+		// the other maps a DeviceClass to example.com/gpu.
+		"a logical resource an excluded prefix covers is refused": {
+			req:        faReq("r", alt("fast", "fast.example.com", 4)),
+			mapper:     excludedResource,
+			wantErr:    true,
+			wantField:  base + "[0].deviceClassName",
+			wantType:   field.ErrorTypeInvalid,
+			wantDetail: `maps to "example.com/gpu", which an excludeResourcePrefixes entry covers`,
+		},
+		// The entry has to cover the start of the name, not appear anywhere in it.
+		"a prefix the logical resource only contains still charges": {
+			req:          faReq("r", alt("fast", "fast.example.com", 4)),
+			mapper:       excludedMidway,
+			wantResource: "vendor/example.com",
 			wantCount:    4,
 		},
 		"alternatives reaching two logical resources are refused": {

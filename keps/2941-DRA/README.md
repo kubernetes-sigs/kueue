@@ -943,12 +943,13 @@ This ensures no overlap or double-counting between the two mechanisms.
 Step 4 runs after step 2, so an `excludeResourcePrefixes` entry does not apply to a logical
 resource name, whether that name comes from `deviceClassMappings[].name` or from a
 DeviceClass's `extendedResourceName`. A transformation's output name is added after the same
-filter and behaves the same way. The classifier is never handed the excluded prefixes, so what
-the code does today is charge such a name rather than refuse it.
+filter and behaves the same way. So the mapper is handed the excluded prefixes and a
+`firstAvailable` request whose logical resource one of them covers is refused where it resolves.
+An `exactly` request on the same mapping still charges, since answering it for everyone would
+change what that path does today.
 
-Whether it should refuse is still open in
-[#13601](https://github.com/kubernetes-sigs/kueue/pull/13601), which currently says it does.
-Refusing has a cost worth weighing first: one task guide uses
+The refusal follows [#13601](https://github.com/kubernetes-sigs/kueue/pull/13601), and it has a
+cost worth stating: one task guide uses
 `excludeResourcePrefixes: ["example.com"]` while another names a mapping `example.com/gpu`, so
 an admin following both would be refused a configuration that works today. Dropping the mapping
 isn't the way out either, since an unmapped DeviceClass makes a claim-template Workload
