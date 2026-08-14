@@ -403,6 +403,17 @@ resources:
 
 ## Transform resources for quota management
 
+{{% alert title="Interaction with excludeResourcePrefixes" color="primary" %}}
+Kueue applies `excludeResourcePrefixes` to the Pod requests before the
+transformations run, so a transformation whose `input` matches an excluded
+prefix does not run at all and produces no outputs. A resource matching an
+excluded prefix can still be named by `multiplyBy`, which reads the request
+view from before the prefixes are applied. Outputs are produced afterwards and
+are not filtered by `excludeResourcePrefixes`. For the same reason, a
+`multiplyBy` operand cannot name a transformation output: it is resolved from the
+Pod request view while the transformation runs, before any output exists.
+{{% /alert %}}
+
 {{< feature-state state="stable" for_version="v0.14" >}}
 
 An administrator may customize how the resources requested by Pods are

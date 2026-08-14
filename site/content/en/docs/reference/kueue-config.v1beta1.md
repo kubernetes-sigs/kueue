@@ -1199,10 +1199,10 @@ An empty Outputs combined with a <code>Replace</code> Strategy causes the Input 
 <td>
    <p>ExcludeResourcePrefixes defines the resource-name prefixes left out of the
 Pod request view that Kueue charges quota against.</p>
-<p>A matching resource is not charged, and a transformation naming one as its
-input does not run. The resource can still be read by ResourceTransformation.MultiplyBy,
-which reads the request view from before this field is applied. Transformation
-outputs and DRA logical resources are added afterwards and are not filtered.</p>
+<p>An entry matching one of these prefixes is dropped from that view, so it is
+not charged, and a transformation naming it as its input does not run. The
+resource can still be read by ResourceTransformation.MultiplyBy, which reads
+the request view from before this field is applied.</p>
 </td>
 </tr>
 <tr><td><code>transformations</code> <B>[Required]</B><br/>

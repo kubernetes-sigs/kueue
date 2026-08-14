@@ -576,10 +576,9 @@ func (i *Info) SumTotalRequests(formatter *resources.ResourceFormatter) corev1.R
 	return reqs.ToResourceList(formatter)
 }
 
-// applyResourceTransformations charges input and reads a multiplyBy from
-// multiplierSource, the same requests before excludeResourcePrefixes dropped
-// from them. Both must come from one chargeable view; a multiplier read from a
-// rawer list would scale by a quantity that cannot be charged at all.
+// applyResourceTransformations transforms input. A multiplyBy operand is read
+// from multiplierSource, the view from before excludeResourcePrefixes, and is
+// never merged in, so an excluded resource scales an output without being charged.
 func applyResourceTransformations(input, multiplierSource corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
 	match := false
 	for resourceName := range input {
