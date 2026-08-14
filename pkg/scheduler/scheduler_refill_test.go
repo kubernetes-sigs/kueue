@@ -18,10 +18,13 @@ package scheduler
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -29,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -1429,6 +1433,212 @@ func TestRefillDeferralClearsFlavorScanProgress(t *testing.T) {
 	}
 	if !meta.IsStatusConditionTrue(victim.Status.Conditions, kueue.WorkloadEvicted) {
 		t.Error("The deferred workload did not preempt on f1 in the second cycle; its flavor scan did not restart")
+	}
+}
+
+// TestTryRefillStopsBeforePopping covers the stop reasons reachable without
+// popping a successor, including every entryStatus that must not start a chain.
+// BudgetExhausted must mean the budget actually bound, not merely that it was
+// spent. The reasons needing a snapshot are covered by
+// TestScheduleForFairSharingRefill.
+func TestTryRefillStopsBeforePopping(t *testing.T) {
+	cases := map[string]struct {
+		entryStatus     entryStatus
+		quotaReserved   bool
+		queuedSuccessor bool
+		want            refillStopReason
+		// Spelled out rather than derived from want, so renaming a constant
+		// cannot move the expectation with it.
+		wantLabel string
+	}{
+		// One row per entryStatus that must not start a chain. A successor is
+		// queued throughout, so a leak reports a different reason.
+		"the processed entry was never nominated": {
+			entryStatus:     notNominated,
+			queuedSuccessor: true,
+			want:            refillStopNotAdmitted,
+		},
+		"the processed entry was nominated but not admitted": {
+			entryStatus:     nominated,
+			queuedSuccessor: true,
+			want:            refillStopNotAdmitted,
+		},
+		"the processed entry was skipped": {
+			entryStatus:     skipped,
+			queuedSuccessor: true,
+			want:            refillStopNotAdmitted,
+		},
+		// Only gated: no capacity freed, and no quota reservation for the
+		// second-pass guard to catch.
+		"the processed entry is waiting on preemption gates": {
+			entryStatus:     preemptionGated,
+			queuedSuccessor: true,
+			want:            refillStopNotAdmitted,
+		},
+		"the processed entry was evicted": {
+			entryStatus:     evicted,
+			queuedSuccessor: true,
+			want:            refillStopNotAdmitted,
+		},
+		"the admission was a second pass": {
+			entryStatus:   assumed,
+			quotaReserved: true,
+			want:          refillStopSecondPass,
+			wantLabel:     "SecondPassAdmission",
+		},
+		"the budget is spent and a successor is waiting": {
+			entryStatus:     assumed,
+			queuedSuccessor: true,
+			want:            refillStopBudget,
+			wantLabel:       "BudgetExhausted",
+		},
+		"the budget is spent but nothing is waiting": {
+			entryStatus: assumed,
+			want:        refillStopQueueEmpty,
+			wantLabel:   "QueueEmpty",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			now := time.Now().Truncate(time.Second)
+
+			cq := utiltestingapi.MakeClusterQueue("stop-cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "8", "0").Obj()).
+				Obj()
+			lq := utiltestingapi.MakeLocalQueue("stop-lq", "default").ClusterQueue("stop-cq").Obj()
+
+			admitted := utiltestingapi.MakeWorkload("admitted", "default").Queue("stop-lq").
+				PodSets(*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "1").Obj())
+			if tc.quotaReserved {
+				admitted.ReserveQuotaAt(utiltestingapi.MakeAdmission("stop-cq").Obj(), now)
+			}
+			var pending []kueue.Workload
+			if tc.queuedSuccessor {
+				pending = append(pending, *utiltestingapi.MakeWorkload("successor", "default").
+					Queue("stop-lq").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Obj())
+			}
+
+			cl := utiltesting.NewClientBuilder().
+				WithLists(
+					&kueue.WorkloadList{Items: pending},
+					&kueue.LocalQueueList{Items: []kueue.LocalQueue{*lq}},
+				).
+				WithObjects(utiltesting.MakeNamespaceWrapper("default").Obj()).
+				Build()
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Inserting clusterQueue in cache: %v", err)
+			}
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Inserting clusterQueue in manager: %v", err)
+			}
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Inserting localQueue in manager: %v", err)
+			}
+			if got := qManager.HasQueuedWorkloads("stop-cq"); got != tc.queuedSuccessor {
+				t.Fatalf("The fixture has a queued successor: %t, want %t", got, tc.queuedSuccessor)
+			}
+
+			// budget 0 stops on the budget branch, so no snapshot is needed.
+			r := &refillPass{
+				scheduler: &Scheduler{queues: qManager, cache: cqCache},
+				budget:    0,
+			}
+			e := &entry{
+				Head:   qcache.Head{Info: workload.Info{Obj: admitted.Obj(), ClusterQueue: "stop-cq"}},
+				status: tc.entryStatus,
+			}
+
+			got, refilled := r.tryRefill(ctx, e)
+			if got != tc.want {
+				t.Errorf("tryRefill() reason = %q, want %q", got, tc.want)
+			}
+			if refilled != nil {
+				t.Errorf("tryRefill() popped %q, want no successor", workload.Key(refilled.Obj))
+			}
+
+			// The same decision through the hook, to pin the emitted string
+			// and that EntryNotAdmitted stays silent.
+			capture, logger := newRefillLogCapture()
+			hook := &refillPass{
+				scheduler: &Scheduler{queues: qManager, cache: cqCache},
+				budget:    0,
+			}
+			hook.afterEntryProcessed(ctrl.LoggerInto(ctx, logger), e)
+			capture.verifyStop(t, tc.want, tc.wantLabel)
+		})
+	}
+}
+
+// TestRefillStopReasonLabels pins the label strings a future
+// refill_stops_total{reason} would inherit. Two of them are out of reach of
+// TestTryRefillStopsBeforePopping, and a pair collapsing onto one label would
+// make that metric under-report: as constant keys, that is a compile error here.
+func TestRefillStopReasonLabels(t *testing.T) {
+	want := map[refillStopReason]string{
+		refillContinue:                  "",
+		refillStopNotAdmitted:           "EntryNotAdmitted",
+		refillStopSecondPass:            "SecondPassAdmission",
+		refillStopBudget:                "BudgetExhausted",
+		refillStopQueueEmpty:            "QueueEmpty",
+		refillStopSuccessorNotNominated: "SuccessorNotNominated",
+	}
+	for reason, label := range want {
+		if string(reason) != label {
+			t.Errorf("Stop reason label = %q, want %q", string(reason), label)
+		}
+	}
+}
+
+// newRefillLogCapture returns a logger verbose enough for refill's V(3) lines
+// and a capture of what reaches it.
+func newRefillLogCapture() (*refillLogCapture, logr.Logger) {
+	capture := &refillLogCapture{}
+	logger := funcr.NewJSON(func(obj string) {
+		entry := make(map[string]any)
+		if err := json.Unmarshal([]byte(obj), &entry); err != nil {
+			capture.parseErr = err
+			return
+		}
+		capture.entries = append(capture.entries, entry)
+	}, funcr.Options{Verbosity: 3})
+	return capture, logger
+}
+
+type refillLogCapture struct {
+	entries  []map[string]any
+	parseErr error
+}
+
+// verifyStop asserts the single line afterEntryProcessed emits for a stop, or
+// that it stayed silent when the chain never started.
+func (c *refillLogCapture) verifyStop(t *testing.T, want refillStopReason, wantLabel string) {
+	t.Helper()
+	if c.parseErr != nil {
+		t.Fatalf("Parsing the captured log: %v", c.parseErr)
+	}
+	if want == refillStopNotAdmitted {
+		if len(c.entries) != 0 {
+			t.Errorf("afterEntryProcessed logged %v, want silence for %q", c.entries, want)
+		}
+		return
+	}
+	if len(c.entries) != 1 {
+		t.Fatalf("afterEntryProcessed logged %d lines, want exactly 1: %v", len(c.entries), c.entries)
+	}
+	entry := c.entries[0]
+	if got := entry["msg"]; got != "Refill stopped after an admission" {
+		t.Errorf("The logged message is %q, want the stop message", got)
+	}
+	if got := entry["reason"]; got != wantLabel {
+		t.Errorf("The logged reason is %q, want %q", got, wantLabel)
 	}
 }
 
