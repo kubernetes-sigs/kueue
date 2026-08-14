@@ -2360,6 +2360,37 @@ func TestQueueSecondPassRefreshesDelayedTopologyWorkload(t *testing.T) {
 	}
 }
 
+func TestQueueSecondPassRefreshAdjustsResources(t *testing.T) {
+	now := time.Now()
+	queuedWl := makeSecondPassDelayedTopologyWorkload(now)
+	containerResources := &queuedWl.Spec.PodSets[0].Template.Spec.Containers[0].Resources
+	containerResources.Limits = containerResources.Requests
+	containerResources.Requests = nil
+	latestWl := queuedWl.DeepCopy()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	fakeClock := testingclock.NewFakeClock(now)
+	manager := NewManagerForUnitTests(
+		utiltesting.NewFakeClient(latestWl),
+		nil,
+		WithClock(fakeClock),
+	)
+
+	if !manager.QueueSecondPassIfNeeded(ctx, queuedWl, 0) {
+		t.Fatal("expected the workload to be pre-queued for a second pass")
+	}
+	fakeClock.Step(initialBackoff)
+
+	ready := manager.secondPassQueue.takeAllReady()
+	if len(ready) != 1 {
+		t.Fatalf("expected one ready workload, got %d", len(ready))
+	}
+	cpuRequest := ready[0].Obj.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
+	if got := cpuRequest.MilliValue(); got != 1000 {
+		t.Errorf("CPU request = %dm, want 1000m copied from the limit", got)
+	}
+}
+
 func TestQueueSecondPassRetriesWorkloadRefresh(t *testing.T) {
 	now := time.Now()
 	queuedWl := makeSecondPassNodeReplacementWorkload(now)

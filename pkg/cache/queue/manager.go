@@ -1050,6 +1050,7 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 		go m.QueueSecondPassIfNeeded(ctx, &latest, 0)
 		return
 	}
+	workload.AdjustResources(ctx, m.client, &latest)
 	w = &latest
 
 	m.Lock()
