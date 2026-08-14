@@ -320,6 +320,32 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
+		{
+			name: "invalid PodSet grouping request - pod-index-offset set alongside podset-group-name",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations").
+					Key("kueue.x-k8s.io/pod-index-offset"), "may not be set when 'kueue.x-k8s.io/podset-group-name' is specified"),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
 	}
 
 	for _, tc := range testcases {
@@ -332,6 +358,75 @@ func TestValidateCreate(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateUpdate(t *testing.T) {
+	baseJob := func() *testingutil.MPIJobWrapper {
+		return testingutil.MakeMPIJob("job", "default").
+			Queue("queue").
+			MPIJobReplicaSpecs(
+				testingutil.MPIJobReplicaSpecRequirement{
+					ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+					ReplicaCount: 1,
+				},
+				testingutil.MPIJobReplicaSpecRequirement{
+					ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+					ReplicaCount: 3,
+				},
+			)
+	}
+	testcases := []struct {
+		name         string
+		oldJob       *v2beta1.MPIJob
+		newJob       *v2beta1.MPIJob
+		wantErr      error
+		featureGates map[featuregate.Feature]bool
+	}{
+		{
+			name:         "pod-index-offset unchanged",
+			oldJob:       baseJob().PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			newJob:       baseJob().PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name:   "pod-index-offset removed on update",
+			oldJob: baseJob().PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			newJob: baseJob().Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(workerOffsetAnnotationPath, "", "field is immutable"),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name:   "pod-index-offset changed on update",
+			oldJob: baseJob().PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			newJob: baseJob().PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(workerOffsetAnnotationPath, "5", "field is immutable"),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name:         "pod-index-offset removed on update, TAS disabled",
+			oldJob:       baseJob().PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			newJob:       baseJob().Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			jsw := &MpiJobWebhook{}
+			ctx, _ := utiltesting.ContextWithLog(t)
+			_, gotErr := jsw.ValidateUpdate(ctx, tc.oldJob, tc.newJob)
+
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

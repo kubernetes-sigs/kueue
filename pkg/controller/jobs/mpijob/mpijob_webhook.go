@@ -22,6 +22,7 @@ import (
 	"slices"
 
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -50,6 +51,7 @@ var (
 		kueue.NewPodSetReference(string(v2beta1.MPIReplicaTypeLauncher)): launcherMetadataPath.Child("annotations"),
 		kueue.NewPodSetReference(string(v2beta1.MPIReplicaTypeWorker)):   workerMetadataPath.Child("annotations"),
 	}
+	workerOffsetAnnotationPath = workerMetadataPath.Child("annotations").Key(kueue.PodIndexOffsetAnnotation)
 )
 
 type MpiJobWebhook struct {
@@ -154,6 +156,18 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 		return nil, err
 	}
 	allErrs = append(allErrs, validationErrs...)
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		// The pod-index-offset annotation is written by the mutating webhook on CREATE
+		// only, so guard it against removal or modification on UPDATE; otherwise Worker
+		// Pods created afterwards would be read as starting at index 0 again, breaking
+		// rank-ordering.
+		allErrs = append(allErrs, apivalidation.ValidateImmutableField(
+			workerPodIndexOffset(newMpiJob),
+			workerPodIndexOffset(oldMpiJob),
+			workerOffsetAnnotationPath,
+		)...)
+	}
 	slices.SortFunc(allErrs, func(a, b *field.Error) int {
 		return cmp.Compare(a.Field, b.Field)
 	})
@@ -163,6 +177,16 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (w *MpiJobWebhook) ValidateDelete(context.Context, *v2beta1.MPIJob) (admission.Warnings, error) {
 	return nil, nil
+}
+
+// workerPodIndexOffset returns the value of the pod-index-offset annotation on the
+// Worker replica template, or the empty string when the replica or annotation is absent.
+func workerPodIndexOffset(mpiJob *MPIJob) string {
+	worker := mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker]
+	if worker == nil {
+		return ""
+	}
+	return worker.Template.Annotations[kueue.PodIndexOffsetAnnotation]
 }
 
 func (w *MpiJobWebhook) validateCommon(ctx context.Context, mpiJob *MPIJob) (field.ErrorList, error) {
