@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
@@ -71,6 +72,8 @@ func TestSnapshot(t *testing.T) {
 		wantSnapshot     Snapshot
 		// wantTASUsage asserts per-flavor domain usage (and that none was skipped).
 		wantTASUsage map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests
+		// featureGates set per case before the snapshot is taken.
+		featureGates map[featuregate.Feature]bool
 	}{
 		"empty": {},
 		"independent clusterQueues": {
@@ -869,7 +872,8 @@ func TestSnapshot(t *testing.T) {
 		// The next three cases exercise how Cache.Snapshot feeds
 		// TASHandleOverlappingFlavors usage into each flavor's snapshot (#10659).
 		"overlapping flavors selecting disjoint nodes take only their own usage": {
-			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.TASHandleOverlappingFlavors: true},
+			topologies:   []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
 			rfs: []*kueue.ResourceFlavor{
 				utiltestingapi.MakeResourceFlavor("tas-zone-a").TopologyName("topology").NodeLabel("zone", "a").Obj(),
 				utiltestingapi.MakeResourceFlavor("tas-zone-b").TopologyName("topology").NodeLabel("zone", "b").Obj(),
@@ -910,6 +914,7 @@ func TestSnapshot(t *testing.T) {
 			},
 		},
 		"overlapping flavors differing only in taints share the usage of their node (#10659)": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.TASHandleOverlappingFlavors: true},
 			// Both flavors select x1; counting per-flavor would double-count it.
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
 			rfs: []*kueue.ResourceFlavor{
@@ -948,6 +953,7 @@ func TestSnapshot(t *testing.T) {
 			},
 		},
 		"overlapping flavor that moved to other nodes still counts on the node holding its usage": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true, features.TASHandleOverlappingFlavors: true},
 			// tas-moved is relabelled to zone=b after its usage was recorded on
 			// x1; tas-stay still selects x1 and must still count that usage.
 			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
@@ -993,12 +999,7 @@ func TestSnapshot(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			if tc.wantTASUsage != nil {
-				// These cases exercise the gated overlapping-flavor usage
-				// aggregation, which depends on TAS being enabled.
-				features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
-				features.SetFeatureGateDuringTest(t, features.TASHandleOverlappingFlavors, true)
-			}
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			for _, cq := range tc.cqs {
@@ -1083,7 +1084,7 @@ func TestSnapshot(t *testing.T) {
 					}
 					gotTASUsage[flavor] = domainUsage
 				}
-				usageCmpOpts := cmp.Options{cmpopts.EquateEmpty(), cmp.Comparer(resources.Equal)}
+				usageCmpOpts := cmp.Options{cmp.Comparer(resources.Equal)}
 				if diff := cmp.Diff(tc.wantTASUsage, gotTASUsage, usageCmpOpts...); diff != "" {
 					t.Errorf("unexpected TAS usage in the flavor snapshots (-want,+got):\n%s", diff)
 				}
