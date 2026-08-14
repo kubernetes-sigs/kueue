@@ -522,7 +522,12 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 		}
 
 		// pods is reserved for the request Kueue synthesizes from the PodSet count.
-		if mapping.Name == corev1.ResourcePods {
+		// A mapping is dormant until the gate is on, since that is where the mapper
+		// is built, so refusing it before then would fail a start that nothing else
+		// about the upgrade was going to fail. The rest of the checks below stay
+		// unconditional: a mapping that is malformed while dormant is still
+		// malformed the day it is switched on.
+		if features.Enabled(features.KueueDRAIntegration) && mapping.Name == corev1.ResourcePods {
 			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, reservedResourceNameMsg))
 		}
 

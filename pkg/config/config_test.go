@@ -1727,6 +1727,9 @@ resources:
     outputs:
       %[4]s: 1
 `
+	// The mapping half is only refused behind this gate, and its default is not
+	// this test's to depend on.
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
 	scheme := runtime.NewScheme()
 	for _, addToScheme := range []func(*runtime.Scheme) error{
 		configapi.AddToScheme, configv1beta1.AddToScheme, clientgoscheme.AddToScheme,
