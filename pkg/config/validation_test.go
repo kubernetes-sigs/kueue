@@ -3390,6 +3390,19 @@ func TestValidateRejectsCopyingNonInheritableLabels(t *testing.T) {
 		}
 		return cfg
 	}
+	// The annotation half of the same contract.
+	customAnnotation := func(kind configapi.SourceKind, sourceAnnotationKey string) *configapi.Configuration {
+		cfg := integrations()
+		cfg.Metrics = configapi.ControllerMetrics{
+			CustomLabels: []configapi.ControllerMetricsCustomLabel{{
+				Name:                "priority_boost",
+				SourceKind:          &kind,
+				SourceAnnotationKey: sourceAnnotationKey,
+				TrackedValues:       []string{"10"},
+			}},
+		}
+		return cfg
+	}
 
 	refused := func(index int, key string) *field.Error {
 		return field.Invalid(integrationsLabelKeysToCopyPath.Index(index), key,
@@ -3423,6 +3436,11 @@ func TestValidateRejectsCopyingNonInheritableLabels(t *testing.T) {
 		// and a Workload MultiKueue really did place here carries the label honestly.
 		"a Workload custom metric may observe what a controller wrote": {
 			cfg: customLabel(configapi.SourceKindWorkload, kueueapi.MultiKueueOriginLabel),
+		},
+		// A boost an authorized external controller set is worth graphing; the key
+		// is refused where the Workload is built rather than at load.
+		"a Workload custom metric may observe the priority boost": {
+			cfg: customAnnotation(configapi.SourceKindWorkload, controllerconstants.PriorityBoostAnnotationKey),
 		},
 		"a ClusterQueue one never lands on a Workload, so it stands": {
 			cfg: customLabel(configapi.SourceKindClusterQueue, kueueapi.MultiKueueOriginLabel),
