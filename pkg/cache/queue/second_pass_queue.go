@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/wait"
@@ -36,7 +36,7 @@ const (
 type secondPassQueue struct {
 	sync.RWMutex
 
-	prequeued sets.Set[workload.Reference]
+	prequeued map[workload.Reference]types.UID
 	queued    map[workload.Reference]*workload.Info
 
 	backoff wait.Backoff
@@ -44,7 +44,7 @@ type secondPassQueue struct {
 
 func newSecondPassQueue() *secondPassQueue {
 	return &secondPassQueue{
-		prequeued: sets.New[workload.Reference](),
+		prequeued: make(map[workload.Reference]types.UID),
 		queued:    make(map[workload.Reference]*workload.Info),
 		backoff:   wait.NewBackoff(initialBackoff, maxBackoff, backoffFactor, 0),
 	}
@@ -67,10 +67,13 @@ func (q *secondPassQueue) prequeueIfAbsent(obj *kueue.Workload) bool {
 	defer q.Unlock()
 
 	key := workload.Key(obj)
-	if q.prequeued.Has(key) {
+	if uid, found := q.prequeued[key]; found && uid == obj.UID {
 		return false
 	}
-	q.prequeued.Insert(key)
+	if queued, found := q.queued[key]; found && queued.Obj.UID != obj.UID {
+		delete(q.queued, key)
+	}
+	q.prequeued[key] = obj.UID
 	return true
 }
 
@@ -79,11 +82,15 @@ func (q *secondPassQueue) queue(w *workload.Info) bool {
 	defer q.Unlock()
 
 	key := workload.Key(w.Obj)
-	enqueued := q.prequeued.Has(key) && workload.NeedsSecondPass(w.Obj)
+	uid, prequeued := q.prequeued[key]
+	matchesPrequeued := prequeued && uid == w.Obj.UID
+	enqueued := matchesPrequeued && workload.NeedsSecondPass(w.Obj)
 	if enqueued {
 		q.queued[key] = w
 	}
-	q.prequeued.Delete(key)
+	if matchesPrequeued {
+		delete(q.prequeued, key)
+	}
 	return enqueued
 }
 
@@ -92,7 +99,19 @@ func (q *secondPassQueue) deleteByKey(key workload.Reference) {
 	defer q.Unlock()
 
 	delete(q.queued, key)
-	q.prequeued.Delete(key)
+	delete(q.prequeued, key)
+}
+
+func (q *secondPassQueue) deleteByKeyIfUID(key workload.Reference, uid types.UID) {
+	q.Lock()
+	defer q.Unlock()
+
+	if queued, found := q.queued[key]; found && queued.Obj.UID == uid {
+		delete(q.queued, key)
+	}
+	if prequeuedUID, found := q.prequeued[key]; found && prequeuedUID == uid {
+		delete(q.prequeued, key)
+	}
 }
 
 func (q *secondPassQueue) nextDelay(iteration int) time.Duration {
