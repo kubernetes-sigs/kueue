@@ -22,7 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
-func TestTopologyDomainIDBelongsTo(t *testing.T) {
+func TestBelongsTo(t *testing.T) {
 	cases := map[string]struct {
 		domainID     TopologyDomainID
 		targetDomain TopologyDomainID
