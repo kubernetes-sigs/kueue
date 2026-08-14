@@ -592,7 +592,13 @@ type Resources struct {
 	// +optional
 	QuotaCheckStrategy *QuotaCheckStrategy `json:"quotaCheckStrategy,omitempty"`
 
-	// ExcludedResourcePrefixes defines which resources should be ignored by Kueue
+	// ExcludeResourcePrefixes defines the resource-name prefixes left out of the
+	// Pod request view that Kueue charges quota against.
+	//
+	// A matching resource is not charged, and a transformation naming one as its
+	// input does not run. It can still be read by ResourceTransformation.MultiplyBy,
+	// which reads the request view from before this field is applied. Transformation
+	// outputs and DRA logical resources are added afterwards and are not filtered.
 	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
 
 	// Transformations defines how to transform PodSpec resources into Workload resource requests.
@@ -634,6 +640,8 @@ type ResourceTransformation struct {
 	// Disabling the ReservedResourceNameValidation feature gate lets such a
 	// configuration load for an upgrade; flavor assignment still overwrites the
 	// key with the PodSet count.
+	// The quantity is read from the request view before "excludeResourcePrefixes"
+	// is applied, so a resource kept out of quota can still be named here.
 	// +optional
 	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 

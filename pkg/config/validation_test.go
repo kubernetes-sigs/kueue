@@ -940,6 +940,25 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		// The KEP asks for an overlap check between excludeResourcePrefixes and
+		// the transformations, scoped to the input. A multiplyBy naming an
+		// excluded resource is the deliberate combination, not the one to reject.
+		"valid .resources.transformations.multiplyBy naming an excluded prefix": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					ExcludeResourcePrefixes: []string{"vendor.example/"},
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "example.com/mem",
+							Strategy:   new(configapi.Replace),
+							MultiplyBy: "vendor.example/gpu",
+							Outputs:    corev1.ResourceList{"quota.example.com/total-mem": resource.MustParse("1")},
+						},
+					},
+				},
+			},
+		},
 		"negative afterFinished in .objectRetentionPolicies.workloads": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,

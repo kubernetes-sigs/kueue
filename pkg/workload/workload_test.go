@@ -1020,6 +1020,58 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// The next two are a pair. A multiplier the lookup finds at zero and one it
+		// does not find at all are different answers, and which of the two an
+		// excluded resource becomes is decided upstream of here.
+		"transformExcludedMultiplierAtZeroIsNotAMissingMultiplier": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/mem", "1024").
+					Request("vendor.example/gpu", "0").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{
+				WithExcludedResourcePrefixes([]string{"vendor.example/"}),
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:      "example.com/mem",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "vendor.example/gpu",
+					Outputs:    corev1.ResourceList{"quota.example.com/total-mem": resource.MustParse("1")},
+				}}),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/total-mem"): 0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"transformMissingMultiplierScalesByOne": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/mem", "1024").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{
+				WithExcludedResourcePrefixes([]string{"vendor.example/"}),
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:      "example.com/mem",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "vendor.example/gpu",
+					Outputs:    corev1.ResourceList{"quota.example.com/total-mem": resource.MustParse("1")},
+				}}),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/total-mem"): 1024,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		"transformMilliValues": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(

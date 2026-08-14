@@ -616,7 +616,9 @@ We should implement additional verification to flag overlaps between `resources.
 and `resources.transformations`.  The implementation applies the exclusions before
 the transformations, so if a resource both matches an exclusion prefix and is an input resource
 to a transformation the transformation will never apply.  This could be detected when validating
-the configuration and reported as a configuration error.
+the configuration and reported as a configuration error.  The overlap that is worth flagging is
+the one on `input`.  A `multiplyBy` naming an excluded resource is a supported combination: the
+resource is kept out of quota and is still read as a multiplier, so validation must not reject it.
 
 #### GA
 
