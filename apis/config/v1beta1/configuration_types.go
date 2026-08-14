@@ -77,7 +77,8 @@ type Configuration struct {
 	WaitForPodsReady *WaitForPodsReady `json:"waitForPodsReady,omitempty"`
 
 	// ClientConnection provides additional configuration options for Kubernetes
-	// API server client.
+	// API server client. Both fields are defaulted, so the section may be omitted.
+	// +optional
 	ClientConnection *ClientConnection `json:"clientConnection,omitempty"`
 
 	// Integrations provide configuration options for AI/ML/Batch frameworks

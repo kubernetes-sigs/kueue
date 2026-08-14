@@ -93,12 +93,12 @@ and passing the readiness probe) within the specified time. If the timeout
 is exceeded, then the workload is evicted.</p>
 </td>
 </tr>
-<tr><td><code>clientConnection</code> <B>[Required]</B><br/>
+<tr><td><code>clientConnection</code><br/>
 <a href="#config-kueue-x-k8s-io-v1beta1-ClientConnection"><code>ClientConnection</code></a>
 </td>
 <td>
    <p>ClientConnection provides additional configuration options for Kubernetes
-API server client.</p>
+API server client. Both fields are defaulted, so the section may be omitted.</p>
 </td>
 </tr>
 <tr><td><code>integrations</code> <B>[Required]</B><br/>

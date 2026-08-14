@@ -199,7 +199,7 @@ clientConnection:
 			for _, e := range Validate(&cfg, testScheme, jobs.NewIntegrationManager()) {
 				gotErrs = append(gotErrs, e.Field)
 			}
-			if diff := cmp.Diff(tc.wantErrs, gotErrs, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantErrs, gotErrs); diff != "" {
 				t.Errorf("Validate after Load (-want +got):\n%s", diff)
 			}
 			if len(tc.wantErrs) == 0 && (cfg.ClientConnection == nil || cfg.ClientConnection.Burst == nil) {
