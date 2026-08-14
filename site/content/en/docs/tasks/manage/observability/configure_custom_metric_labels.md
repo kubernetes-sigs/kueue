@@ -78,6 +78,15 @@ copies the configured source key from the underlying job (Job, JobSet, and other
 supported kinds) onto the Workload it creates, so you set the label or annotation
 on the job.
 
+{{% alert title="Note" color="primary" %}}
+Workload control metadata, the keys a controller writes on a Workload to decide
+what it may act on, is the exception and is never copied from a job or a pod. A custom metric may
+name one of those keys, and then reports the value only where the controller
+responsible for it wrote it on the Workload directly. Setting such a key on the
+job has no effect on the metric. Naming one in `labelKeysToCopy` is refused at
+startup, and the error names the key.
+{{% /alert %}}
+
 A `Workload` label must declare its allowed values in `trackedValues`. Workloads
 are numerous and can carry arbitrary values, so any value outside the list is
 reported under `kueue.x-k8s.io/_UNTRACKED_VALUE_`. This keeps the number of time
