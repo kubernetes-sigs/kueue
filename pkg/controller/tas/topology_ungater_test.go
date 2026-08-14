@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -3267,7 +3268,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			}
 
 			count, err := testutil.GetHistogramMetricCount(
-				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(kueue.TopologySchedulingGate, cqName, strconv.FormatBool(tc.isGroup)),
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(kueue.TopologySchedulingGate, cqName, strconv.FormatBool(tc.isGroup), roletracker.RoleStandalone),
 			)
 			if err != nil {
 				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric count: %v", err)
@@ -3277,7 +3278,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			}
 
 			seconds, err := testutil.GetHistogramMetricValue(
-				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(kueue.TopologySchedulingGate, cqName, strconv.FormatBool(tc.isGroup)),
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(kueue.TopologySchedulingGate, cqName, strconv.FormatBool(tc.isGroup), roletracker.RoleStandalone),
 			)
 			if err != nil {
 				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric seconds: %v", err)

@@ -19,13 +19,20 @@ package pod
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/component-base/metrics/testutil"
+	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -321,6 +328,82 @@ func TestGenerateRoleHash(t *testing.T) {
 			}
 			if gotBaseHash := gotHash == baseHash; gotBaseHash != tc.wantBaseHash {
 				t.Errorf("Unexpected role hash comparison with base hash: want equality %t, base hash %q, got hash %q", tc.wantBaseHash, baseHash, gotHash)
+			}
+		})
+	}
+}
+
+func TestRecordPodSchedulingGateRemovalSecondsReplicaRole(t *testing.T) {
+	const (
+		gateName = "example.com/gate"
+		cqName   = kueue.ClusterQueueReference("cq")
+	)
+
+	now := time.Now().Truncate(time.Second)
+
+	cases := map[string]struct {
+		admitted  bool
+		tracker   *roletracker.RoleTracker
+		wantRole  string
+		wantCount uint64
+	}{
+		"nil tracker records the standalone role": {
+			admitted:  true,
+			tracker:   nil,
+			wantRole:  roletracker.RoleStandalone,
+			wantCount: 1,
+		},
+		"leader tracker records the leader role": {
+			admitted:  true,
+			tracker:   roletracker.NewFakeRoleTracker(roletracker.RoleLeader),
+			wantRole:  roletracker.RoleLeader,
+			wantCount: 1,
+		},
+		"follower tracker records the follower role": {
+			admitted:  true,
+			tracker:   roletracker.NewFakeRoleTracker(roletracker.RoleFollower),
+			wantRole:  roletracker.RoleFollower,
+			wantCount: 1,
+		},
+		"no sample is recorded for a non-admitted workload": {
+			admitted:  false,
+			tracker:   nil,
+			wantRole:  roletracker.RoleStandalone,
+			wantCount: 0,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			metrics.PodSchedulingGateRemovalSeconds.Reset()
+
+			wl := utiltestingapi.MakeWorkload("wl", corev1.NamespaceDefault).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission(cqName).Obj(), now.Add(-2*time.Second)).
+				AdmittedAt(tc.admitted, now.Add(-2*time.Second)).
+				Obj()
+
+			RecordPodSchedulingGateRemovalSeconds(testingclock.NewFakeClock(now), gateName, wl, false, tc.tracker)
+
+			count, err := testutil.GetHistogramMetricCount(
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(gateName, string(cqName), "false", tc.wantRole),
+			)
+			if err != nil {
+				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric count: %v", err)
+			}
+			if count != tc.wantCount {
+				t.Errorf("Unexpected metric count for role %q: want %d, got %d", tc.wantRole, tc.wantCount, count)
+			}
+
+			if tc.wantCount > 0 {
+				seconds, err := testutil.GetHistogramMetricValue(
+					metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(gateName, string(cqName), "false", tc.wantRole),
+				)
+				if err != nil {
+					t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric value: %v", err)
+				}
+				if seconds != 2 {
+					t.Errorf("Unexpected metric value for role %q: want 2, got %f", tc.wantRole, seconds)
+				}
 			}
 		})
 	}
