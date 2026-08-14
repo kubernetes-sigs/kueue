@@ -29,6 +29,8 @@ Please do not remove items from the checklist
   - Write the change log into the draft release.
   - Generate the artifacts in the `release-artifacts` folder.
   - Upload the files in the `release-artifacts` folder to the draft release.
+  - Generate openvex data.
+  - Generate the SBOM and add it to the release.
 - [ ] Promote images and Helm Charts to production:
   - [ ] Use `/wait-for-images` to await for the staging images.
   - [ ] Run `./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
@@ -36,8 +38,6 @@ Please do not remove items from the checklist
   - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available.
 - [ ] Use `/publish-release` to publish the release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- RELEASE_LINK --> <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
-- [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
-- [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
 - [ ] Update the `main` branch :
   - [ ] Run `/prepare-pull main` ChatOps command (or locally: `./hack/releasing/prepare_pull.sh --target main $VERSION`)
         *Note: The script automatically detects if a newer version is already out and skips version updates if so. Specifying `--skip-version-updates` is not necessary in a default workflow.*
