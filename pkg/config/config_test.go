@@ -41,6 +41,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -1104,56 +1105,6 @@ webhook:
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 				Scheduling:       &configapi.Scheduling{QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTermination)},
-
-				ClientConnection: &configapi.ClientConnection{
-					QPS:   new(configapi.DefaultClientConnectionQPS),
-					Burst: new(configapi.DefaultClientConnectionBurst),
-				},
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
-				},
-				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            new(configapi.DefaultMultiKueueOrigin),
-					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
-				},
-				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "VersionTLS12",
-						CipherSuites: []string{
-							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-							"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-						},
-					},
-				},
-			},
-		},
-		{
-			name:       "TLS 1.3 config is applied",
-			configFile: tlsConfigTLS13,
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.SchemeGroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  new(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             new(true),
-					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
-				},
-				WaitForPodsReady: defaultWaitForPodsReady,
-				Scheduling:       &configapi.Scheduling{QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTermination)},
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
 					Burst: new(configapi.DefaultClientConnectionBurst),
@@ -1187,104 +1138,6 @@ webhook:
 			name:       "invalid TLS config returns error",
 			configFile: tlsConfigInvalid,
 			wantError:  ErrWebhookTLSParse,
-		},
-		{
-			name:         "invalid TLS config ignored when feature gate disabled",
-			configFile:   tlsConfigInvalid,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.SchemeGroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
-				},
-				WaitForPodsReady: defaultWaitForPodsReady,
-				Scheduling:       &configapi.Scheduling{QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTermination)},
-				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
-				},
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
-				},
-				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-				},
-				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "InvalidVersion",
-					},
-				},
-			},
-			verifyTLSApplied: false,
-		},
-		{
-			name:         "TLS 1.3 config NOT applied when feature gate disabled",
-			configFile:   tlsConfigTLS13,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.SchemeGroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
-				},
-				WaitForPodsReady: defaultWaitForPodsReady,
-				Scheduling:       &configapi.Scheduling{QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTermination)},
-
-				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
-				},
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
-				},
-				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-				},
-				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "VersionTLS13",
-					},
-				},
-			},
-			verifyTLSApplied: false,
->>>>>>> 7053b32ff (fix: corrections for the errors and reviews)
 		},
 	}
 

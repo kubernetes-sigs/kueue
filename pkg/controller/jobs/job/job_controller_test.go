@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
@@ -32,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -4974,6 +4976,8 @@ func TestCleanLabels(t *testing.T) {
 			}
 		})
 	}
+}
+
 func TestTerminalIndexesCount(t *testing.T) {
 	cases := map[string]struct {
 		completedIndexes string
@@ -5070,7 +5074,8 @@ func TestJob_IsActive(t *testing.T) {
 			j := utiltestingjob.MakeJob("job", "ns").Parallelism(8).Obj()
 			j.Status.Active = tt.active
 			j.Status.Terminating = tt.terminating
-			if got := (*Job)(j).IsActive(tt.strategy); got != tt.want {
+			ctx := jobframework.ContextWithQuotaReleaseStrategy(t.Context(), tt.strategy)
+			if got := (*Job)(j).IsActive(ctx); got != tt.want {
 				t.Errorf("IsActive(%v) = %v, want %v", tt.strategy, got, tt.want)
 			}
 		})
@@ -5129,27 +5134,6 @@ func TestReclaimablePods(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("ReclaimablePods() mismatch (-want +got):\n%s", diff)
-=======
-			// 1. Build the raw Kubernetes Job
-			k8sJob := &batchv1.Job{
-				Status: batchv1.JobStatus{
-					Active:      tt.active,
-					Terminating: tt.terminating,
-				},
-			}
-
-			// 2. Cast to Kueue Job wrapper
-			j := (*Job)(k8sJob)
-
-			// 3. Inject strategy into context
-			// We must use t.Context() in test and explicitly inject it
-			// because the production code pulls it out using jobframework.GetQuotaReleaseStrategy
-			ctx := jobframework.ContextWithQuotaReleaseStrategy(t.Context(), tt.strategy)
-
-			// 4. Assert behavior
-			if got := j.IsActive(ctx); got != tt.want {
-				t.Errorf("IsActive() = %v, want %v", got, tt.want)
->>>>>>> 9cbf73989 (feat: implement configurable QuotaReleaseStrategy (KEP-6143))
 			}
 		})
 	}

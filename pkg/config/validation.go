@@ -110,8 +110,6 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationMan
 	allErrs = append(allErrs, validateCustomLabels(c)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
 	allErrs = append(allErrs, validateQuotaReleaseStrategy(c)...)
-	allErrs = append(allErrs, validateDRAFeatureGateDependencies()...)
-	allErrs = append(allErrs, validateFeatureGateDependency(features.UnadmittedWorkloadsExplicitStatus, features.UnadmittedWorkloadsObservability)...)
 	return allErrs
 }
 
