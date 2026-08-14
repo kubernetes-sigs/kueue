@@ -103,6 +103,17 @@ func TestValidateCreate(t *testing.T) {
 			},
 		},
 		{
+			name: "partial admission annotation overflowing int32 is rejected",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "2147483648").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, 2147483648, "should be between 0 and 3"),
+			},
+		},
+		{
 			name: "valid partial admission annotation",
 			job: testingutil.MakeJob("job", "default").
 				Parallelism(4).
