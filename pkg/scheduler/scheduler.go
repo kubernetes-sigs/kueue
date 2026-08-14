@@ -377,35 +377,24 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		refill.afterEntryProcessed(ctx, e)
 	}
 
-	// 6. Requeue the heads that were not scheduled.
+	// 6. Requeue the heads that were not scheduled. Workloads popped mid-cycle by
+	// refill are not part of the initial entries, but reach the same terminal paths.
 	result := metrics.AdmissionResultInadmissible
-	for _, e := range entries {
-		logAdmissionAttemptIfVerbose(log, &e)
-		// When the workload is evicted by scheduler we skip requeueAndUpdate.
-		// The eviction process will be finalized by the workload controller.
-		if e.status != assumed && e.status != evicted {
-			s.requeueAndUpdate(ctx, e)
-		} else {
+	for i := range entries {
+		if s.finishEntry(ctx, log, &entries[i]) {
 			result = metrics.AdmissionResultSuccess
 		}
 	}
-	// Workloads popped mid-cycle by refill are not part of the initial entries,
-	// but must reach the same terminal paths.
 	for _, e := range refill.refilledEntries() {
-		logAdmissionAttemptIfVerbose(log, e)
-		if e.status != assumed && e.status != evicted {
-			s.requeueAndUpdate(ctx, *e)
-		} else {
+		if s.finishEntry(ctx, log, e) {
 			result = metrics.AdmissionResultSuccess
 		}
 	}
-	for _, e := range inadmissibleEntries {
-		logAdmissionAttemptIfVerbose(log, &e)
-		s.requeueAndUpdate(ctx, e)
+	for i := range inadmissibleEntries {
+		s.finishEntry(ctx, log, &inadmissibleEntries[i])
 	}
 	for _, e := range refill.refilledInadmissible() {
-		logAdmissionAttemptIfVerbose(log, e)
-		s.requeueAndUpdate(ctx, *e)
+		s.finishEntry(ctx, log, e)
 	}
 
 	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
@@ -415,6 +404,18 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		return wait.SlowDown
 	}
 	return wait.KeepGoing
+}
+
+// finishEntry takes an entry down the terminal path its status calls for, and reports
+// whether the cycle counts as a successful admission attempt. Entries the scheduler
+// evicted skip the requeue: the workload controller finalizes the eviction.
+func (s *Scheduler) finishEntry(ctx context.Context, log logr.Logger, e *entry) bool {
+	logAdmissionAttemptIfVerbose(log, e)
+	if e.status == assumed || e.status == evicted {
+		return true
+	}
+	s.requeueAndUpdate(ctx, *e)
+	return false
 }
 
 // requeueHeadsAfterSnapshotError puts back the workloads popped by Heads, which
