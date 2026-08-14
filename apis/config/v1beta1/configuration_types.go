@@ -544,7 +544,7 @@ type Resources struct {
 	// Pod request view that Kueue charges quota against.
 	//
 	// A matching resource is not charged, and a transformation naming one as its
-	// input does not run. It can still be read by ResourceTransformation.MultiplyBy,
+	// input does not run. The resource can still be read by ResourceTransformation.MultiplyBy,
 	// which reads the request view from before this field is applied. Transformation
 	// outputs and DRA logical resources are added afterwards and are not filtered.
 	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
