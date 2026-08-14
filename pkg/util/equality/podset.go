@@ -49,7 +49,13 @@ func comparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) b
 	if !equality.Semantic.DeepEqual(a.InitContainers, b.InitContainers) {
 		return false
 	}
-	return equality.Semantic.DeepEqual(a.Containers, b.Containers)
+	if !equality.Semantic.DeepEqual(a.Containers, b.Containers) {
+		return false
+	}
+	if !equality.Semantic.DeepEqual(a.Resources, b.Resources) {
+		return false
+	}
+	return equality.Semantic.DeepEqual(a.ResourceClaims, b.ResourceClaims)
 }
 
 func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
