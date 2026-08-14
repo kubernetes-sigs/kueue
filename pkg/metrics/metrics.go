@@ -227,6 +227,10 @@ var (
 	PreemptedWorkloadsTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the ClusterQueue whose borrowed resource was reclaimed",flavor="the resource flavor put into backoff",resource="the resource put into backoff",replica_role="one of `leader`, `follower`, or `standalone`"
+	ReclaimBackoffArmedTotal *prometheus.CounterVec
+
+	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the evicted workload's ClusterQueue from status.admission on the workload before quota was released (only present when the metric records a sample)",reason="eviction or preemption reason (same values as evicted_workloads_total)",replica_role="one of `leader`, `follower`, or `standalone`"
 	WorkloadEvictionLatencySeconds *prometheus.HistogramVec
 
@@ -785,6 +789,22 @@ The label 'reason' can have the following values:
 		}, append([]string{"preempting_cluster_queue", "reason", "replica_role"}, clusterQueueMetricsLabels...),
 	)
 
+	// ReclaimBackoffArmedTotal counts how often reclaim backoff was armed for a
+	// (cluster_queue, flavor, resource) triple, i.e. how often that borrowed
+	// resource was reclaimed by preemption while Configuration.ReclaimBackoff is
+	// set. A rising rate indicates a ClusterQueue whose borrowing is being
+	// repeatedly reclaimed. A counter is used rather than a gauge because the
+	// backoff expiry is time-based and lazily evaluated, so there is no reliable
+	// moment at which to reset an "active" gauge.
+	ReclaimBackoffArmedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "reclaim_backoff_armed_total",
+			Help: `The number of times reclaim backoff was armed for a borrowed resource, per 'cluster_queue', 'flavor' and 'resource'.
+Reported only when Configuration.ReclaimBackoff is set.`,
+		}, append([]string{"cluster_queue", "flavor", "resource", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+
 	WorkloadEvictionLatencySeconds = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
@@ -1230,6 +1250,13 @@ func ReportPreemption(preemptingCqName kueue.ClusterQueueReference, preemptingRe
 	PreemptedWorkloadsTotal.WithLabelValues(labels...).Inc()
 }
 
+// ReportReclaimBackoffArmed records that reclaim backoff was armed for the given
+// ClusterQueue, flavor and resource.
+func ReportReclaimBackoffArmed(cqName kueue.ClusterQueueReference, flavor kueue.ResourceFlavorReference, resource corev1.ResourceName, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), string(flavor), string(resource), roletracker.GetRole(tracker)}, customLabelValues...)
+	ReclaimBackoffArmedTotal.WithLabelValues(labels...).Inc()
+}
+
 func LQRefFromWorkload(wl *kueue.Workload) LocalQueueReference {
 	return LocalQueueReference{
 		Name:      wl.Spec.QueueName,
@@ -1613,6 +1640,7 @@ func Register() {
 	if features.Enabled(features.MetricForWorkloadCreationLatency) {
 		metrics.Registry.MustRegister(WorkloadCreationLatency)
 	}
+	metrics.Registry.MustRegister(ReclaimBackoffArmedTotal)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
 	}

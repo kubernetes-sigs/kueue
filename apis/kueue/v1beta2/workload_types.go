@@ -978,6 +978,13 @@ const (
 	// for previously admitted workloads to reach PodsReady condition under waitForPodsReady configuration.
 	WorkloadQuotaReservedReasonWaitingForPodsReady = "WaitingForPodsReady"
 
+	// WorkloadQuotaReservedReasonReclaimBackoff indicates that the workload is waiting because
+	// its ClusterQueue recently had a borrowed resource reclaimed by preemption, and the
+	// resource it would borrow is in the reclaim backoff cooldown. Only assignments that would
+	// borrow the reclaimed resource are deferred; assignments within nominal quota, and other
+	// resources, are unaffected. Only reported when Configuration.ReclaimBackoff is set.
+	WorkloadQuotaReservedReasonReclaimBackoff = "ReclaimBackoff"
+
 	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
 	WorkloadAdmittedReasonNoReservation = "NoReservation"
 
