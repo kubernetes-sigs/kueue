@@ -1,20 +1,18 @@
-title: Support Workload Priority Boost By External Controllers
-kep-number: 7990
+title: Scope Workload Priority Boost on Preemption to a ClusterQueue
+kep-number: 13414
 authors:
-  - "@vladikkuzn"
-status: replaced  # Replaced by KEP #13414
-creation-date: 2026-01-12
-reviewers:
-  - "@mimowo"
-  - "@sanposhiho"
-  - "@sohankunkerkar"
   - "@tenzen-y"
+status: implementable
+creation-date: 2026-08-09
+reviewers:
+  - TODO
 approvers:
   - "@mimowo"
-  - "@tenzen-y"
 
 see-also:
   - "/keps/1714-fair-sharing"
+replaces:
+  - "/keps/7990-preemption-cost"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha
@@ -22,14 +20,14 @@ stage: alpha
 # The most recent milestone for which work toward delivery of this KEP has been
 # done. This can be the current (upcoming) milestone, if it is being actively
 # worked on.
-latest-milestone: "v0.17"
+latest-milestone: "v0.20"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
 milestone:
-  alpha: "v0.17"
+  alpha: "v0.20"
 
 # The following PRR answers are required at alpha release
 # List the feature gate name and the components for which it must be enabled
 feature-gates:
-  - name: PriorityBoost
+  - name: PriorityBoostWithScopedPreemption
 disable-supported: true
