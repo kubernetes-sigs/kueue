@@ -1132,4 +1132,29 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.It("should not offset the Worker of a runLauncherAsWorker MPIJob without a Launcher", func() {
+		mpiJob := testingmpijob.MakeMPIJob(jobName, ns.Name).
+			GenericLauncherAndWorker().
+			RunLauncherAsWorker(true).
+			Obj()
+		mpiJob.Spec.MPIReplicaSpecs["Extra"] = mpiJob.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].DeepCopy()
+		delete(mpiJob.Spec.MPIReplicaSpecs, kfmpi.MPIReplicaTypeLauncher)
+
+		// Two keys and no Launcher is the shape the old length check let through
+		// and then dereferenced, so the create is half the assertion: a webhook
+		// that panics on it never returns one.
+		ginkgo.By("creating the MPIJob through the API server", func() {
+			util.MustCreate(ctx, k8sClient, mpiJob)
+		})
+
+		ginkgo.By("verify the stored job kept both specs and the Worker was left unannotated", func() {
+			createdMPIJob := &kfmpi.MPIJob{}
+			gomega.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobName, Namespace: ns.Name}, createdMPIJob)).Should(gomega.Succeed())
+			gomega.Expect(createdMPIJob.Spec.MPIReplicaSpecs).ShouldNot(gomega.HaveKey(kfmpi.MPIReplicaTypeLauncher))
+			gomega.Expect(createdMPIJob.Spec.MPIReplicaSpecs).Should(gomega.HaveKey(kfmpi.MPIReplicaType("Extra")))
+			gomega.Expect(createdMPIJob.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Annotations).ShouldNot(
+				gomega.HaveKey(kueue.PodIndexOffsetAnnotation))
+		})
+	})
 })
