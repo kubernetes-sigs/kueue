@@ -31,9 +31,12 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -1599,4 +1602,65 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 			t.Errorf("Observed leaf domain fields mismatch (-want +got):\n%s", diff)
 		}
 	})
+}
+
+func TestFillInCountsAffinityScoreIsStableAcrossRuns(t *testing.T) {
+	for _, cacheMatches := range []bool{true, false} {
+		t.Run(fmt.Sprintf("TASCacheNodeMatchResults=%t", cacheMatches), func(t *testing.T) {
+			fillInCountsAffinityScoreIsStableAcrossRuns(t, cacheMatches)
+		})
+	}
+}
+
+func fillInCountsAffinityScoreIsStableAcrossRuns(t *testing.T, cacheMatches bool) {
+	features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, true)
+	features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, cacheMatches)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	nodes := []*corev1.Node{
+		node.MakeNode("node-a").Label(corev1.LabelHostname, "node-a").Label("pool", "fast").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("110"),
+			}).Ready().Obj(),
+		node.MakeNode("node-b").Label(corev1.LabelHostname, "node-b").Label("pool", "slow").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("110"),
+			}).Ready().Obj(),
+	}
+	snapshot := newTASFlavorSnapshot(log, "tas-topology",
+		newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), nil, &defaultChecker{})
+
+	terms, err := nodeaffinity.NewPreferredSchedulingTerms(
+		utiltesting.MakePreferredSchedulingTerms().Term(10, "pool", corev1.NodeSelectorOpIn, "fast").Obj())
+	if err != nil {
+		t.Fatalf("NewPreferredSchedulingTerms() error: %v", err)
+	}
+	requirements := &topologyAssignmentPodRequirements{
+		podRequirements: simulator.PodRequirements{PreferredSchedulingTerms: terms},
+		requests:        resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+		matchKey:        &podSetMatchKey{WorkloadUID: types.UID("wl-uid"), PodSetName: "main"},
+	}
+	state := &findTopologyAssignmentState{stats: newTASExclusionStats()}
+	state.sliceSize = 1
+
+	want := map[tas.TopologyDomainID]int64{"node-a": 10, "node-b": 0}
+	domains := []*domain{&snapshot.leaves["node-a"].domain, &snapshot.leaves["node-b"].domain}
+	for _, run := range []string{"first", "second"} {
+		if err := snapshot.fillInCounts(ctx, requirements, state); err != nil {
+			t.Fatalf("%s: fillInCounts() error: %v", run, err)
+		}
+		for id, wantScore := range want {
+			leaf := snapshot.leaves[id]
+			if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != wantScore {
+				t.Errorf("%s run: leaf %q affinityScore = %d, want %d", run, id, got, wantScore)
+			}
+		}
+		// node-b holds twice the CPU, so it leads on capacity whenever the
+		// preference stops separating the two.
+		if got := snapshot.sortedDomains(domains, false)[0].id; got != "node-a" {
+			t.Errorf("%s run: the preferred domain is %q, want node-a", run, got)
+		}
+	}
 }
