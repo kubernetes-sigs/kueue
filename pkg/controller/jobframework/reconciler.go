@@ -1432,8 +1432,9 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 	return prebuiltUseWorkload, nil
 }
 
-// stopAcknowledged reports whether an async stop has been confirmed by its controller; jobs
-// stopped synchronously have nothing extra to wait for beyond IsActive.
+// stopAcknowledged reports whether an async stop has been confirmed by its controller. Without it
+// the wait is IsActive alone: true here is not a reading of the job, it is the absence of a
+// stronger one, and reversing it would hold every integration that has nothing else to report.
 func stopAcknowledged(job GenericJob) bool {
 	if ack, ok := job.(JobWithStopAcknowledgement); ok {
 		return ack.StopAcknowledged()
