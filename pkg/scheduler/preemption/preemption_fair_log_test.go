@@ -256,210 +256,183 @@ func assertJSONString(t *testing.T, fields map[string]any, key string) {
 	}
 }
 
-// TestRunFirstFsStrategyLogsOncePerCandidateClusterQueue asserts that the
-// first FairSharing strategy emits one log entry per candidate ClusterQueue,
-// carrying an array of per-candidate evaluations, rather than one entry per
-// evaluated candidate workload.
-func TestRunFirstFsStrategyLogsOncePerCandidateClusterQueue(t *testing.T) {
-	log, observed := newObservedLogger(4)
-	fixture := newFsLogFixture(t, log, []fsLogClusterQueue{
-		{name: "b", candidates: 3},
-		{name: "c", candidates: 2},
-	})
-
-	fits, targets, retryCandidates := runFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, alwaysFails)
-	if fits {
-		t.Fatalf("expected the always-failing strategy to not fit")
-	}
-	if len(targets) != 0 {
-		t.Fatalf("expected no targets, got %d", len(targets))
-	}
-	// All 5 candidates were evaluated, and all were rejected.
-	if len(retryCandidates) != 5 {
-		t.Fatalf("expected 5 retry candidates (i.e. 5 evaluations), got %d", len(retryCandidates))
-	}
-
-	entries := observed.FilterMessage(strategyLogMessage).All()
-	// The defect being fixed: one entry per evaluated candidate workload (5)
-	// instead of one entry per candidate ClusterQueue (2).
-	if len(entries) != 2 {
-		t.Fatalf("expected 1 log entry per candidate ClusterQueue (2 total), got %d", len(entries))
-	}
-
-	wantEvaluationsPerCQ := map[string]int{"b": 3, "c": 2}
-	gotEvaluationsPerCQ := make(map[string]int, len(entries))
-	for _, entry := range entries {
-		decoded := decodeLogEntry(t, entry)
-		targetCQ := targetClusterQueueName(t, decoded)
-
-		// The constant-per-ClusterQueue fields are still present, once each.
-		for _, key := range drsLogFields {
-			if _, ok := decoded[key]; !ok {
-				t.Errorf("log entry for %q is missing the %s field", targetCQ, key)
-			}
-		}
-		// The per-candidate fields moved into the array.
-		for _, key := range []string{"targetWorkload", "targetNewShare", "strategyPassed"} {
-			if _, ok := decoded[key]; ok {
-				t.Errorf("log entry for %q unexpectedly has per-candidate field %s at the top level", targetCQ, key)
-			}
-		}
-
-		evaluations := strategyEvaluations(t, decoded)
-		for _, evaluation := range evaluations {
-			if name, _ := evaluation["targetWorkload"].(string); name == "" {
-				t.Errorf("evaluation for %q is missing targetWorkload: %v", targetCQ, evaluation)
-			}
-			if _, ok := evaluation["targetNewShare"]; !ok {
-				t.Errorf("evaluation for %q is missing targetNewShare: %v", targetCQ, evaluation)
-			}
-			if passed, _ := evaluation["strategyPassed"].(bool); passed {
-				t.Errorf("evaluation for %q unexpectedly passed: %v", targetCQ, evaluation)
-			}
-		}
-		gotEvaluationsPerCQ[targetCQ] = len(evaluations)
-	}
-	if diff := cmp.Diff(wantEvaluationsPerCQ, gotEvaluationsPerCQ); diff != "" {
-		t.Errorf("Unexpected evaluations per ClusterQueue (-want,+got):\n%s", diff)
-	}
-}
-
-// TestRunFirstFsStrategyLogRetainsStrategyPassed asserts that a passing
-// evaluation is collapsed into the same entry as the failing ones that
-// preceded it, and that its strategyPassed value is retained. The rare
-// passing evaluations are the diagnostically interesting ones.
-func TestRunFirstFsStrategyLogRetainsStrategyPassed(t *testing.T) {
-	log, observed := newObservedLogger(4)
-	fixture := newFsLogFixture(t, log, []fsLogClusterQueue{{name: "b", candidates: 3}})
-
-	evaluated := 0
-	failTwiceThenPass := func(fairsharing.PreemptorNewShare, fairsharing.TargetOldShare, fairsharing.TargetNewShare) bool {
-		evaluated++
-		return evaluated == 3
-	}
-	runFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, failTwiceThenPass)
-
-	if evaluated != 3 {
-		t.Fatalf("expected 3 evaluations, got %d", evaluated)
-	}
-	entries := observed.FilterMessage(strategyLogMessage).All()
-	if len(entries) != 1 {
-		t.Fatalf("expected exactly 1 log entry for the 3 evaluations, got %d", len(entries))
-	}
-	evaluations := strategyEvaluations(t, decodeLogEntry(t, entries[0]))
-	gotPassed := make([]bool, 0, len(evaluations))
-	for _, evaluation := range evaluations {
-		passed, ok := evaluation["strategyPassed"].(bool)
-		if !ok {
-			t.Fatalf("evaluation is missing a boolean strategyPassed: %v", evaluation)
-		}
-		gotPassed = append(gotPassed, passed)
-	}
-	if diff := cmp.Diff([]bool{false, false, true}, gotPassed); diff != "" {
-		t.Errorf("Unexpected strategyPassed values (-want,+got):\n%s", diff)
-	}
-}
-
-// TestFsStrategyLogDisabled asserts that nothing is emitted, and no array is
-// built, when V(4) is not enabled.
-func TestFsStrategyLogDisabled(t *testing.T) {
-	t.Run("no log entry is emitted", func(t *testing.T) {
-		// Enabled up to V(3) only, so V(4) is disabled.
-		log, observed := newObservedLogger(3)
-		fixture := newFsLogFixture(t, log, []fsLogClusterQueue{
-			{name: "b", candidates: 3},
-			{name: "c", candidates: 2},
-		})
-
-		runFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, alwaysFails)
-
-		if got := observed.Len(); got != 0 {
-			t.Errorf("expected no log entries when V(4) is disabled, got %d: %v", got, observed.All())
-		}
-	})
-
-	t.Run("no array is built", func(t *testing.T) {
-		log, _ := newObservedLogger(3)
-		fixture := newFsLogFixture(t, log, []fsLogClusterQueue{{name: "b", candidates: 3}})
-		candCQ := firstCandidateClusterQueue(t, fixture)
-		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
-
-		strategyLog := newFsStrategyLog(log, candCQ, preemptorNewShare, targetOldShare)
-		if strategyLog.enabled {
-			t.Fatalf("expected the strategy log to be disabled at V(4)")
-		}
-		for _, candWl := range fixture.candidates {
-			strategyLog.record(candWl, fairsharing.TargetNewShare{}, false)
-		}
-		if len(strategyLog.entries) != 0 {
-			t.Errorf("expected no entries to be accumulated when V(4) is disabled, got %d", len(strategyLog.entries))
-		}
-	})
-}
-
-// TestRunFirstFsStrategyLogSerializesDRS asserts that every
-// DominantResourceShare logged by runFirstFsStrategy is serialized as a JSON
-// string, whether it is finite or +Inf.
-//
-// A DRS is +Inf when the FairSharing weight is 0. zapcore writes a raw +Inf
-// float64 as the JSON string "+Inf" but writes finite float64s as JSON
-// numbers, so logging DRS as a raw float makes the field's type depend on the
-// value. Inside the strategyEvaluations array it is worse: json.Marshal
-// rejects +Inf outright, and zapcore drops the whole array in favour of an
-// error field. PreciseWeightedShareSerialized fixes both. This applies the fix
-// from #13154 to preemption.go.
-func TestRunFirstFsStrategyLogSerializesDRS(t *testing.T) {
+// TestRunFirstFsStrategyLogging covers how runFirstFsStrategy emits the first
+// FairSharing strategy's evaluations: one log entry per candidate ClusterQueue
+// (not per evaluated workload), collapsing every evaluation into that entry's
+// strategyEvaluations array, only when V(4) is enabled, and with every
+// DominantResourceShare serialized as a JSON string.
+func TestRunFirstFsStrategyLogging(t *testing.T) {
 	zeroWeight := resource.MustParse("0")
 	cases := map[string]struct {
-		fairWeight         *resource.Quantity
-		wantTargetOldShare string
-		wantTargetNewShare string
+		enabledUpToV     int                 // logger is enabled up to this logr V-level (4 = strategy log on, 3 = off).
+		cqs              []fsLogClusterQueue // candidate ClusterQueues to seed the fixture with.
+		passOnEvaluation int                 // strategy passes on the Nth candidate evaluation; 0 = always fails.
+
+		wantEntries         int            // number of strategyLogMessage entries expected.
+		wantAllRejected     bool           // assert nothing fit and every candidate became a retry candidate.
+		wantEvaluationsByCQ map[string]int // per target ClusterQueue, the evaluations carried in its one entry.
+		wantStrategyPassed  []bool         // strategyPassed values within a single entry, in evaluation order.
+		wantDRSJSONStrings  bool           // assert every logged DRS is a JSON string (finite or +Inf).
+		wantTargetOldShare  string         // expected top-level targetOldShare (with wantDRSJSONStrings).
+		wantTargetNewShare  string         // expected per-evaluation targetNewShare (with wantDRSJSONStrings).
+		wantNoLog           bool           // assert the logger captured nothing at all.
+		wantNoArrayBuilt    bool           // assert record accumulates nothing while the strategy log is disabled.
 	}{
-		// Guards against the type instability: with the default weight every
-		// DRS here is finite, and a raw float64 would be a JSON number.
-		"finite DRS": {
-			fairWeight:         nil,
-			wantTargetOldShare: "1000",
-			wantTargetNewShare: "500",
+		"logs one entry per candidate ClusterQueue rather than one per evaluated workload": {
+			enabledUpToV:        4,
+			cqs:                 []fsLogClusterQueue{{name: "b", candidates: 3}, {name: "c", candidates: 2}},
+			wantEntries:         2,
+			wantAllRejected:     true,
+			wantEvaluationsByCQ: map[string]int{"b": 3, "c": 2},
 		},
-		"infinite DRS": {
-			fairWeight:         &zeroWeight,
-			wantTargetOldShare: "+Inf",
-			wantTargetNewShare: "+Inf",
+		"a passing evaluation is retained in the candidate ClusterQueue's single entry": {
+			enabledUpToV:       4,
+			cqs:                []fsLogClusterQueue{{name: "b", candidates: 3}},
+			passOnEvaluation:   3,
+			wantEntries:        1,
+			wantStrategyPassed: []bool{false, false, true},
+		},
+		"nothing is emitted and no array is accumulated when V(4) is disabled": {
+			enabledUpToV:     3,
+			cqs:              []fsLogClusterQueue{{name: "b", candidates: 3}, {name: "c", candidates: 2}},
+			wantEntries:      0,
+			wantNoLog:        true,
+			wantNoArrayBuilt: true,
+		},
+		"serializes a finite DRS as a JSON string": {
+			enabledUpToV:        4,
+			cqs:                 []fsLogClusterQueue{{name: "b", candidates: 3}},
+			wantEntries:         1,
+			wantEvaluationsByCQ: map[string]int{"b": 3},
+			wantDRSJSONStrings:  true,
+			wantTargetOldShare:  "1000",
+			wantTargetNewShare:  "500",
+		},
+		"serializes an infinite DRS (zero FairSharing weight) as a JSON string": {
+			enabledUpToV:        4,
+			cqs:                 []fsLogClusterQueue{{name: "b", candidates: 3, fairWeight: &zeroWeight}},
+			wantEntries:         1,
+			wantEvaluationsByCQ: map[string]int{"b": 3},
+			wantDRSJSONStrings:  true,
+			wantTargetOldShare:  "+Inf",
+			wantTargetNewShare:  "+Inf",
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			log, observed := newObservedLogger(4)
-			// 3 candidates so the target still borrows after one is removed,
-			// which keeps targetNewShare non-zero.
-			fixture := newFsLogFixture(t, log, []fsLogClusterQueue{
-				{name: "b", candidates: 3, fairWeight: tc.fairWeight},
-			})
+			log, observed := newObservedLogger(tc.enabledUpToV)
+			fixture := newFsLogFixture(t, log, tc.cqs)
 
-			runFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, alwaysFails)
+			if tc.wantNoArrayBuilt {
+				// A disabled strategy log must not accumulate entries even as record is called.
+				candCQ := firstCandidateClusterQueue(t, fixture)
+				preemptorNewShare, targetOldShare := candCQ.ComputeShares()
+				strategyLog := newFsStrategyLog(log, candCQ, preemptorNewShare, targetOldShare)
+				if strategyLog.enabled {
+					t.Fatalf("expected the strategy log to be disabled at V(4)")
+				}
+				for _, candWl := range fixture.candidates {
+					strategyLog.record(candWl, fairsharing.TargetNewShare{}, false)
+				}
+				if len(strategyLog.entries) != 0 {
+					t.Errorf("expected no entries to be accumulated when V(4) is disabled, got %d", len(strategyLog.entries))
+				}
+			}
+
+			// passOnEvaluation 0 never passes, matching an always-failing strategy.
+			evaluated := 0
+			strategy := func(fairsharing.PreemptorNewShare, fairsharing.TargetOldShare, fairsharing.TargetNewShare) bool {
+				evaluated++
+				return tc.passOnEvaluation != 0 && evaluated == tc.passOnEvaluation
+			}
+			fits, targets, retryCandidates := runFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, strategy)
+
+			if tc.wantAllRejected {
+				if fits {
+					t.Errorf("expected the always-failing strategy to not fit")
+				}
+				if len(targets) != 0 {
+					t.Errorf("expected no targets, got %d", len(targets))
+				}
+				if got := len(retryCandidates); got != len(fixture.candidates) {
+					t.Errorf("expected every candidate (%d) to be a retry candidate, got %d", len(fixture.candidates), got)
+				}
+			}
+
+			if tc.wantNoLog {
+				if got := observed.Len(); got != 0 {
+					t.Errorf("expected no log entries when V(4) is disabled, got %d: %v", got, observed.All())
+				}
+			}
 
 			entries := observed.FilterMessage(strategyLogMessage).All()
-			if len(entries) != 1 {
-				t.Fatalf("expected exactly 1 log entry, got %d", len(entries))
-			}
-			decoded := decodeLogEntry(t, entries[0])
-
-			for _, key := range drsLogFields {
-				assertJSONString(t, decoded, key)
-			}
-			if got := decoded["targetOldShare"]; got != tc.wantTargetOldShare {
-				t.Errorf("expected targetOldShare to be %q, got %v", tc.wantTargetOldShare, got)
+			if len(entries) != tc.wantEntries {
+				t.Fatalf("expected %d %q log entries, got %d", tc.wantEntries, strategyLogMessage, len(entries))
 			}
 
-			evaluations := strategyEvaluations(t, decoded)
-			if len(evaluations) != 3 {
-				t.Fatalf("expected 3 evaluations, got %d", len(evaluations))
+			gotEvaluationsByCQ := make(map[string]int, len(entries))
+			var gotStrategyPassed []bool
+			for _, entry := range entries {
+				decoded := decodeLogEntry(t, entry)
+				targetCQ := targetClusterQueueName(t, decoded)
+
+				// The per-ClusterQueue DRS fields are logged once, at the top level.
+				for _, key := range drsLogFields {
+					if tc.wantDRSJSONStrings {
+						assertJSONString(t, decoded, key)
+					} else if _, ok := decoded[key]; !ok {
+						t.Errorf("entry for %q is missing the %s field", targetCQ, key)
+					}
+				}
+				if tc.wantDRSJSONStrings {
+					if got := decoded["targetOldShare"]; got != tc.wantTargetOldShare {
+						t.Errorf("expected targetOldShare to be %q, got %v", tc.wantTargetOldShare, got)
+					}
+				}
+				// The per-candidate fields live only inside the evaluations array.
+				for _, key := range []string{"targetWorkload", "targetNewShare", "strategyPassed"} {
+					if _, ok := decoded[key]; ok {
+						t.Errorf("entry for %q unexpectedly has per-candidate field %s at the top level", targetCQ, key)
+					}
+				}
+
+				evaluations := strategyEvaluations(t, decoded)
+				gotEvaluationsByCQ[targetCQ] = len(evaluations)
+				for _, evaluation := range evaluations {
+					if tc.wantEvaluationsByCQ != nil {
+						if name, _ := evaluation["targetWorkload"].(string); name == "" {
+							t.Errorf("evaluation for %q is missing targetWorkload: %v", targetCQ, evaluation)
+						}
+						if _, ok := evaluation["targetNewShare"]; !ok {
+							t.Errorf("evaluation for %q is missing targetNewShare: %v", targetCQ, evaluation)
+						}
+						if passed, _ := evaluation["strategyPassed"].(bool); passed {
+							t.Errorf("evaluation for %q unexpectedly passed: %v", targetCQ, evaluation)
+						}
+					}
+					if tc.wantDRSJSONStrings {
+						assertJSONString(t, evaluation, "targetNewShare")
+						if got := evaluation["targetNewShare"]; got != tc.wantTargetNewShare {
+							t.Errorf("expected targetNewShare to be %q, got %v", tc.wantTargetNewShare, got)
+						}
+					}
+					if tc.wantStrategyPassed != nil {
+						passed, ok := evaluation["strategyPassed"].(bool)
+						if !ok {
+							t.Fatalf("evaluation is missing a boolean strategyPassed: %v", evaluation)
+						}
+						gotStrategyPassed = append(gotStrategyPassed, passed)
+					}
+				}
 			}
-			for _, evaluation := range evaluations {
-				assertJSONString(t, evaluation, "targetNewShare")
-				if got := evaluation["targetNewShare"]; got != tc.wantTargetNewShare {
-					t.Errorf("expected targetNewShare to be %q, got %v", tc.wantTargetNewShare, got)
+			if tc.wantEvaluationsByCQ != nil {
+				if diff := cmp.Diff(tc.wantEvaluationsByCQ, gotEvaluationsByCQ); diff != "" {
+					t.Errorf("Unexpected evaluations per ClusterQueue (-want,+got):\n%s", diff)
+				}
+			}
+			if tc.wantStrategyPassed != nil {
+				if diff := cmp.Diff(tc.wantStrategyPassed, gotStrategyPassed); diff != "" {
+					t.Errorf("Unexpected strategyPassed values (-want,+got):\n%s", diff)
 				}
 			}
 		})
