@@ -597,8 +597,9 @@ type DeviceClassMapping struct {
 	// and must start and end with an alphanumeric character.
 	// DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
 	// The total length must not exceed 253 characters.
-	// It must not be `pods`; that exact name is reserved for Kueue's internal
-	// Pod-count accounting. A qualified name such as `example.com/pods` is allowed.
+	// With KueueDRAIntegration enabled it must not be `pods`; that exact name is
+	// reserved for Kueue's internal Pod-count accounting. A qualified name such
+	// as `example.com/pods` is allowed.
 	Name corev1.ResourceName `json:"name"`
 
 	// DeviceClassNames enumerates the DeviceClasses represented by this resource name.
