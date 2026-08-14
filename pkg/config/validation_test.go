@@ -3284,7 +3284,7 @@ func TestValidateCustomLabels(t *testing.T) {
 	})
 }
 
-func TestValidateRejectsCopyingOwnershipLabels(t *testing.T) {
+func TestValidateRejectsCopyingNonInheritableLabels(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	if err := configapi.AddToScheme(testScheme); err != nil {
 		t.Fatal(err)
@@ -3339,6 +3339,10 @@ func TestValidateRejectsCopyingOwnershipLabels(t *testing.T) {
 		"the parent label the variant controller trusts is refused as well": {
 			cfg:  integrations(controllerconstants.ConcurrentAdmissionParentLabelKey),
 			want: field.ErrorList{refused(0, controllerconstants.ConcurrentAdmissionParentLabelKey)},
+		},
+		"the job UID label is refused as well": {
+			cfg:  integrations(controllerconstants.JobUIDLabel),
+			want: field.ErrorList{refused(0, controllerconstants.JobUIDLabel)},
 		},
 		// A source says what to read off a Workload, not what may travel onto one,
 		// and a Workload MultiKueue really did place here carries the label honestly.

@@ -47,7 +47,7 @@ import (
 // decide what it may act on, however the configuration came to ask for it. Each
 // case keeps an ordinary key alongside, so a test cannot pass by copying
 // nothing at all.
-func TestNewWorkloadLeavesReservedMetadataBehind(t *testing.T) {
+func TestNewWorkloadFiltersNonInheritableMetadata(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 
 	cases := map[string]struct {
@@ -87,6 +87,16 @@ func TestNewWorkloadLeavesReservedMetadataBehind(t *testing.T) {
 				Obj(),
 			annotationKeys:  sets.New("team", workloadslicing.WorkloadSliceReplacementFor),
 			wantAnnotations: map[string]string{"team": "physics"},
+		},
+		// The job UID names who a Workload speaks for, and each integration
+		// writes the real one as soon as it has built the Workload.
+		"the job UID label": {
+			job: testingjob.MakeJob("job", "ns").
+				Label("team", "physics").
+				Label(controllerconstants.JobUIDLabel, "someone-elses-uid").
+				Obj(),
+			labelKeys:  sets.New("team", controllerconstants.JobUIDLabel),
+			wantLabels: map[string]string{"team": "physics"},
 		},
 		// The variant controller creates variants for whatever carries this,
 		// without repeating the eligibility checked before it was written.
@@ -296,6 +306,38 @@ func TestRecordWorkloadCreationLatency(t *testing.T) {
 			}
 			if val != tc.expectedLatency {
 				t.Errorf("Expecting metric value %f, got %f", tc.expectedLatency, val)
+			}
+		})
+	}
+}
+
+// The reconciler options hold the caller's set for every reconcile, so filtering
+// one Workload's keys must not take a key away from the next one.
+func TestCopyableKeysLeaveTheCallersSetAlone(t *testing.T) {
+	cases := map[string]struct {
+		keys   sets.Set[string]
+		filter func(sets.Set[string]) sets.Set[string]
+		want   sets.Set[string]
+	}{
+		"labels": {
+			keys:   sets.New("team", controllerconstants.JobUIDLabel),
+			filter: jobframework.CopyableLabelKeys,
+			want:   sets.New("team"),
+		},
+		"annotations": {
+			keys:   sets.New("team", controllerconstants.JobOwnerNameAnnotation),
+			filter: jobframework.CopyableAnnotationKeys,
+			want:   sets.New("team"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			before := tc.keys.Clone()
+			if got := tc.filter(tc.keys); !got.Equal(tc.want) {
+				t.Errorf("filtered to %v, want %v", sets.List(got), sets.List(tc.want))
+			}
+			if !tc.keys.Equal(before) {
+				t.Errorf("the caller's set became %v, want %v", sets.List(tc.keys), sets.List(before))
 			}
 		})
 	}
