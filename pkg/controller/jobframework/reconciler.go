@@ -1015,7 +1015,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return wl, nil
 		}
 
-		if inSync, err := r.ensurePrebuiltWorkloadInSync(ctx, wl, job); !inSync || err != nil {
+		if useWorkload, err := r.ensurePrebuiltWorkloadInSync(ctx, wl, job); !useWorkload || err != nil {
 			return nil, err
 		}
 		return wl, nil
@@ -1355,6 +1355,9 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 	return nil
 }
 
+// ensurePrebuiltWorkloadInSync reports whether the workload is the one to carry
+// on with. One that no longer matches its job is finished here, after the job is
+// stopped and its pods are gone, and handed back so the caller finalizes it.
 func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
 	var (
 		equivalent bool
@@ -1367,13 +1370,28 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *ku
 		equivalent, err = EquivalentToWorkload(ctx, r.client, job, wl)
 	}
 
-	if !equivalent || err != nil {
-		if err != nil {
-			return false, err
-		}
-		// mark the workload as finished
-		msg := "The prebuilt workload is out of sync with its user job"
-		return false, workloadfinish.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock)
+	if err != nil {
+		return false, err
+	}
+	if equivalent {
+		return true, nil
+	}
+
+	// A job that ended keeps the reason it ended with, which the caller writes.
+	if _, _, finished := job.Finished(ctx); finished {
+		return true, nil
+	}
+
+	msg := "The prebuilt workload is out of sync with its user job"
+	// Finishing gives the quota back, and the pods hold it until the job stops.
+	if err := r.stopJob(ctx, job, wl, StopReasonNoMatchingWorkload, msg); err != nil {
+		return false, err
+	}
+	if job.IsActive() {
+		return false, nil
+	}
+	if err := workloadfinish.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock); err != nil {
+		return false, err
 	}
 	return true, nil
 }

@@ -6202,43 +6202,11 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Obj(),
 			},
-			wantPods: []corev1.Pod{
-				*basePodWrapper.
-					Clone().
-					Name("pod1").
-					ManagedByKueueLabel().
-					PrebuiltWorkloadLabel("prebuilt-workload").
-					KueueFinalizer().
-					StatusPhase(corev1.PodPending).
-					GroupNameLabel("test-group").
-					GroupTotalCount("2").
-					StatusConditions(corev1.PodCondition{
-						Type:    ConditionTypeTerminationTarget,
-						Status:  corev1.ConditionTrue,
-						Reason:  "NoMatchingWorkload",
-						Message: "missing workload",
-					}).
-					Obj(),
-				*basePodWrapper.
-					Clone().
-					Name("pod2").
-					ManagedByKueueLabel().
-					PrebuiltWorkloadLabel("prebuilt-workload").
-					KueueFinalizer().
-					StatusPhase(corev1.PodPending).
-					GroupNameLabel("test-group").
-					GroupTotalCount("2").
-					StatusConditions(corev1.PodCondition{
-						Type:    ConditionTypeTerminationTarget,
-						Status:  corev1.ConditionTrue,
-						Reason:  "NoMatchingWorkload",
-						Message: "missing workload",
-					}).
-					Obj(),
-			},
+			// Stop deletes the pods, and finishing the workload takes their
+			// finalizer off, so the deletion goes through.
+			wantPods: []corev1.Pod{},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localTestQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
@@ -6256,17 +6224,22 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "pod1", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "missing workload",
+					Message:   "The prebuilt workload is out of sync with its user job",
 				},
 				{
 					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "missing workload",
+					Message:   "The prebuilt workload is out of sync with its user job",
+				},
+				{
+					Key:       types.NamespacedName{Name: "pod1", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/prebuilt-workload' is declared finished",
 				},
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
-			wantErr:         jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should delete the job": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},

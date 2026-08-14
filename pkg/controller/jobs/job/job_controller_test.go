@@ -4307,6 +4307,57 @@ func TestReconciler(t *testing.T) {
 			},
 			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
+		"when the prebuilt workload is not equivalent to a job with running pods": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:  false,
+				features.AssignQueueLabelsForPods: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Active(1).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			// Suspended, and the workload keeps its quota and its finalizer
+			// until the pod is gone.
+			wantJob: *baseJobWrapper.
+				Clone().
+				Active(1).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The prebuilt workload is out of sync with its user job",
+				},
+			},
+		},
 		"when the prebuilt workload is not equivalent to the job": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
@@ -4333,9 +4384,10 @@ func TestReconciler(t *testing.T) {
 					Priority(100).
 					Obj(),
 			},
+			// The job is stopped before the workload is finished, and the
+			// finished workload then gives up its finalizer.
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
 					Queue("test-queue").
 					WorkloadPriorityClassRef("test-wpc").
@@ -4357,10 +4409,15 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "missing workload",
+					Message:   "The prebuilt workload is out of sync with its user job",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/prebuilt-workload' is declared finished",
 				},
 			},
-			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"the workload is not admitted, tolerations and node selector change": {
 			featureGates: map[featuregate.Feature]bool{
