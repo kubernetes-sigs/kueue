@@ -1557,6 +1557,110 @@ func TestFitsNonHostnameLowestLevel(t *testing.T) {
 	}
 }
 
+// Usage domain IDs reference the user-lowest level while the hostname level
+// is virtual; a node whose name equals a domain ID must not capture the
+// domain's usage.
+func TestLeavesForUsageDomainIgnoresNameCollision(t *testing.T) {
+	const rackLabel = "cloud.provider.com/topology-rack"
+	_, log := utiltesting.ContextWithLog(t)
+
+	rackNode := node.MakeNode("").
+		StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}).
+		Ready()
+	nodeA := rackNode.Clone().Name("node-a").Label(corev1.LabelHostname, "node-a").Label(rackLabel, "r1").Obj()
+	nodeB := rackNode.Clone().Name("node-b").Label(corev1.LabelHostname, "node-b").Label(rackLabel, "r1").Obj()
+	// A third node is named like rack r1 itself, but lives in rack r2.
+	nodeNamedR1 := rackNode.Clone().Name("r1").Label(corev1.LabelHostname, "r1").Label(rackLabel, "r2").Obj()
+
+	tree := newTopologyTree([]string{rackLabel}, []*corev1.Node{nodeA, nodeB, nodeNamedR1}, 0)
+	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot())
+	leaves := snapshot.leavesForUsageDomain("r1")
+	if len(leaves) != 2 {
+		t.Fatalf("leavesForUsageDomain(\"r1\") = %d leaves, want rack r1's 2 leaves", len(leaves))
+	}
+	for _, leaf := range leaves {
+		if leaf.node.Name == "r1" {
+			t.Error("leavesForUsageDomain(\"r1\") returned the node named \"r1\" instead of the rack's leaves")
+		}
+	}
+
+	// Control: with hostname declared as the lowest level, usage domains are
+	// the leaves themselves and the leaf lookup must keep working.
+	declaredTree := newTopologyTree([]string{rackLabel, corev1.LabelHostname}, []*corev1.Node{nodeA, nodeB}, 0)
+	declaredSnapshot := newTASFlavorSnapshot(log, "tas-topology", declaredTree, nil, newDefaultSimulatorSnapshot())
+	declaredLeaves := declaredSnapshot.leavesForUsageDomain("node-a")
+	if len(declaredLeaves) != 1 || declaredLeaves[0].node.Name != "node-a" {
+		t.Errorf("leavesForUsageDomain(\"node-a\") = %d leaves, want the node-a leaf", len(declaredLeaves))
+	}
+}
+
+// Removing one Workload's usage must not erase the usage of Workloads that
+// remain admitted. This holds only when the snapshot records usage per
+// Workload: rounded-up per-leaf shares are not additive, so an
+// aggregate-initialized snapshot loses the survivor's usage on removal and
+// Fits overreports free capacity.
+func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
+	const blockLabel = "cloud.provider.com/topology-block"
+	const rackLabel = "cloud.provider.com/topology-rack"
+	dev := corev1.ResourceName("example.com/device")
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	rackNode := node.MakeNode("").
+		Label(blockLabel, "b1").
+		Label(rackLabel, "r1").
+		StatusAllocatable(corev1.ResourceList{dev: resource.MustParse("1")}).
+		Ready()
+	for _, name := range []string{"n1", "n2"} {
+		tasCache.SyncNode(rackNode.Clone().Name(name).Label(corev1.LabelHostname, name).Obj())
+	}
+	fc := tasCache.NewTASFlavorCache(
+		topologyInformation{Levels: []string{blockLabel, rackLabel}},
+		flavorInformation{TopologyName: "default"},
+	)
+	singleDevice := []workload.TopologyDomainRequests{{
+		Values: []string{"b1", "r1"},
+		SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+			dev: 1,
+		}),
+		Count: 1,
+	}}
+	bothDevices := workload.TASFlavorUsage{{
+		Values: []string{"b1", "r1"},
+		SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+			dev: 1,
+		}),
+		Count: 2,
+	}}
+
+	// Control: with no usage recorded, both devices are free.
+	empty, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	if err != nil {
+		t.Fatalf("snapshot() error = %v", err)
+	}
+	if got := empty.Fits(bothDevices); !got {
+		t.Errorf("Fits() with no usage = %t, want true", got)
+	}
+
+	fc.addUsage(log, "wl1", singleDevice)
+	fc.addUsage(log, "wl2", singleDevice)
+	snapshot, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	if err != nil {
+		t.Fatalf("snapshot() error = %v", err)
+	}
+	if got := snapshot.Fits(bothDevices); got {
+		t.Errorf("Fits() with both devices used = %t, want false", got)
+	}
+
+	// Preemption simulation removes one Workload; the other still holds a device.
+	for _, tr := range singleDevice {
+		snapshot.updateTASUsage(tas.DomainID(tr.Values), tr.TotalRequests(), subtract, tr.Count)
+	}
+	if got := snapshot.Fits(bothDevices); got {
+		t.Errorf("Fits() after removing one Workload = %t, want false", got)
+	}
+}
+
 func newObservedLogger(level zapcore.Level) (logr.Logger, *observer.ObservedLogs) {
 	logsObserver, observedLogs := observer.New(level)
 	logger := crzap.New(
