@@ -68,8 +68,10 @@ func TestJobMinPodsCount(t *testing.T) {
 		want       *int32
 	}{
 		"valid":           {"3", new(int32(3))},
+		"max int32":       {"2147483647", new(int32(2147483647))},
 		"overflows int32": {"2147483648", nil},
 		"not positive":    {"0", nil},
+		"negative":        {"-1", nil},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
