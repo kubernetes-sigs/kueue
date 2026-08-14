@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/importer/mapping"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
@@ -43,25 +44,27 @@ var (
 )
 
 type ImportCache struct {
-	Namespaces      []string
-	MappingRules    mapping.Rules
-	LocalQueues     map[string]map[string]*kueue.LocalQueue
-	ClusterQueues   map[string]*kueue.ClusterQueue
-	ResourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
-	PriorityClasses map[string]*schedulingv1.PriorityClass
-	AddLabels       map[string]string
+	Namespaces          []string
+	MappingRules        mapping.Rules
+	LocalQueues         map[string]map[string]*kueue.LocalQueue
+	ClusterQueues       map[string]*kueue.ClusterQueue
+	ResourceFlavors     map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
+	PriorityClasses     map[string]*schedulingv1.PriorityClass
+	AddLabels           map[string]string
+	workloadInfoOptions []workload.InfoOption
 
 	// Derived from ClusterQueues and ResourceFlavors at Load time.
 	flavorValidation  map[kueue.ClusterQueueReference]error
 	flavorsByResource map[kueue.ClusterQueueReference]map[corev1.ResourceName]kueue.ResourceFlavorReference
 }
 
-func Load(ctx context.Context, c client.Client, namespaces []string, mappingRules mapping.Rules, addLabels map[string]string) (*ImportCache, error) {
+func Load(ctx context.Context, c client.Client, namespaces []string, mappingRules mapping.Rules, addLabels map[string]string, workloadInfoOptions []workload.InfoOption) (*ImportCache, error) {
 	ret := ImportCache{
-		Namespaces:   slices.Clone(namespaces),
-		MappingRules: mappingRules,
-		LocalQueues:  make(map[string]map[string]*kueue.LocalQueue),
-		AddLabels:    addLabels,
+		Namespaces:          slices.Clone(namespaces),
+		MappingRules:        mappingRules,
+		LocalQueues:         make(map[string]map[string]*kueue.LocalQueue),
+		AddLabels:           addLabels,
+		workloadInfoOptions: slices.Clone(workloadInfoOptions),
 	}
 
 	cqList := &kueue.ClusterQueueList{}
@@ -103,6 +106,10 @@ func Load(ctx context.Context, c client.Client, namespaces []string, mappingRule
 	}
 
 	return &ret, nil
+}
+
+func (ic *ImportCache) WorkloadInfoOptions() []workload.InfoOption {
+	return slices.Clone(ic.workloadInfoOptions)
 }
 
 // resourceGroupsFrom converts cq's API resource groups to the ResourceGroup
