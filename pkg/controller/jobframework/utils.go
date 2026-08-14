@@ -261,20 +261,14 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 	SetPrebuiltWorkloadName(obj, workloadName)
 }
 
-// nonInheritableLabels are the labels a Workload must not inherit from the
-// object below it, because a controller reads them to decide what it may act
-// on. Who else may write one on a Workload is a separate question: what matters
-// here is that the answer never comes up from a Job or a Pod.
-//
-// Whether a Workload is one MultiKueue placed here is ours to say. The variant
-// controller creates variants for whatever carries the parent label, without
-// repeating the eligibility the Workload controller checks before writing it.
-// The job UID names who a Workload speaks for, in preemption events and in the
-// orphan check, and each integration writes the real one as soon as it has
-// built the Workload.
+// nonInheritableLabels are the labels a Workload must not inherit from the object
+// below it. Who else may write one is a separate question.
 var nonInheritableLabels = []string{
+	// Whether a Workload is one MultiKueue placed here is ours to say.
 	kueue.MultiKueueOriginLabel,
+	// The variant controller trusts this without rechecking eligibility.
 	controllerconstants.ConcurrentAdmissionParentLabelKey,
+	// Names who a Workload speaks for in preemption events and the orphan check.
 	controllerconstants.JobUIDLabel,
 }
 
@@ -284,10 +278,10 @@ func IsNonInheritableWorkloadLabel(key string) bool {
 	return slices.Contains(nonInheritableLabels, key)
 }
 
-// CopyableLabelKeys returns the label keys a Workload may inherit from the
-// object below it, however the configuration came to ask for the rest. The
-// caller's set is left alone: the reconciler options hold it for every
-// reconcile.
+// CopyableLabelKeys returns the label keys a Workload may inherit from the object
+// below it, however the configuration came to ask for the rest. It never writes to
+// the caller's set, which the reconciler options hold across reconciles, and
+// returns that same set when there is nothing to drop, so the result is read-only.
 func CopyableLabelKeys(keys sets.Set[string]) sets.Set[string] {
 	if !keys.HasAny(nonInheritableLabels...) {
 		return keys
@@ -298,34 +292,22 @@ func CopyableLabelKeys(keys sets.Set[string]) sets.Set[string] {
 }
 
 // nonInheritableAnnotations is nonInheritableLabels for annotations.
-//
-// MultiKueue reads the job-owner pair to decide which remote object a Workload
-// speaks for, ahead of the Workload's own owner reference, so a Job naming a job
-// it does not own would be answered rather than questioned. The scheduler reads
-// the slice replacement key to pick which of its preemption targets to finish
-// rather than preempt, and prepareWorkloadSlice writes the real one from the
-// slices it finds, so a value that came up with the job is never the right one.
-// SliceName answers with the slice name over the Workload's own, and the
-// topology ungater lists Pods by it, so one taken from a job points a reconcile
-// at another Workload's Pods. OwnedBySinglePod reads the group marker to leave a
-// Workload no future Pod can consume out of reassignment, and the flavor
-// assigner honours the allowed flavors on any Workload carrying them. The
-// LeaderWorkerSet adapter orders component Workloads by the index one, and its
-// reconciler writes the real index once it has built the Workload.
-//
-// The priority boost is here for what it does rather than who writes it. An
-// external controller adding one to a Workload is the feature; the scheduler
-// adds it to the base priority for both admission and preemption, and its own
-// design gives a Job no way to ask for one, which is what this would otherwise
-// hand back to whoever can submit a Job.
 var nonInheritableAnnotations = []string{
+	// The LeaderWorkerSet adapter orders component Workloads by this.
 	controllerconstants.ComponentWorkloadIndexAnnotation,
+	// MultiKueue answers this pair ahead of the Workload's own owner reference.
 	controllerconstants.JobOwnerGVKAnnotation,
 	controllerconstants.JobOwnerNameAnnotation,
+	// Here for what it does: the scheduler adds it to the base priority, and a
+	// Job's own design gives it no way to ask for one.
 	controllerconstants.PriorityBoostAnnotationKey,
+	// The flavor assigner honours these on any Workload carrying them.
 	controllerconstants.WorkloadAllowedResourceFlavorAnnotation,
+	// Answered over the Workload's own name, and the ungater lists Pods by it.
 	kueue.WorkloadSliceNameAnnotation,
+	// The scheduler finishes rather than preempts the target this names.
 	workloadslicing.WorkloadSliceReplacementFor,
+	// OwnedBySinglePod reads this to keep a Workload out of reassignment.
 	podconstants.IsGroupWorkloadAnnotationKey,
 }
 
@@ -346,12 +328,11 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 	if features.Enabled(features.CustomMetricLabels) {
 		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), CopyableAnnotationKeys(annotationsToCopy).UnsortedList()))
 	}
-	labels := maps.FilterKeys(obj.GetLabels(), CopyableLabelKeys(labelKeysToCopy).UnsortedList())
 	return &kueue.Workload{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
 			Namespace:   obj.GetNamespace(),
-			Labels:      labels,
+			Labels:      maps.FilterKeys(obj.GetLabels(), CopyableLabelKeys(labelKeysToCopy).UnsortedList()),
 			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
 			Annotations: annotations,
 		},
