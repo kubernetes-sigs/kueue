@@ -70,6 +70,31 @@ var (
 	stsGVK = appsv1.SchemeGroupVersion.WithKind("StatefulSet")
 )
 
+func TestRevisionChanged(t *testing.T) {
+	cases := map[string]struct {
+		current string
+		update  string
+		want    bool
+	}{
+		"both empty":          {"", "", false},
+		"current empty":       {"", "rev1", false},
+		"update empty":        {"rev1", "", false},
+		"equal revisions":     {"rev1", "rev1", false},
+		"different revisions": {"rev1", "rev2", true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			sts := &appsv1.StatefulSet{Status: appsv1.StatefulSetStatus{
+				CurrentRevision: tc.current,
+				UpdateRevision:  tc.update,
+			}}
+			if got := revisionChanged(sts); got != tc.want {
+				t.Errorf("revisionChanged() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReconciler(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}

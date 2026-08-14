@@ -756,6 +756,14 @@ func (h *lwsStsHandler) Delete(_ context.Context, _ event.DeleteEvent, _ workque
 func (h *lwsStsHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
+// revisionChanged reports whether the StatefulSet has both revisions set and
+// they differ, i.e. a rollout is in progress.
+func revisionChanged(sts *appsv1.StatefulSet) bool {
+	return sts.Status.CurrentRevision != "" &&
+		sts.Status.UpdateRevision != "" &&
+		sts.Status.CurrentRevision != sts.Status.UpdateRevision
+}
+
 // enqueue adds a reconcile request for the LeaderWorkerSet owning the given StatefulSet to the provided workqueue.
 func (h *lwsStsHandler) enqueue(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	sts, ok := obj.(*appsv1.StatefulSet)
@@ -770,10 +778,9 @@ func (h *lwsStsHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 	)
 	log.V(3).Info("Enqueue LeaderWorkerSet StatefulSet")
 
-	// Handle only when .Status.CurrentRevision != .Status.UpdateRevision.
-	// This ensures that Pod scheduling gates are removed when the revision changes.
-	if sts.Status.CurrentRevision == "" || sts.Status.UpdateRevision == "" &&
-		sts.Status.CurrentRevision == sts.Status.UpdateRevision {
+	// Handle only when the revision changed, so that Pod scheduling gates are
+	// removed.
+	if !revisionChanged(sts) {
 		return
 	}
 
