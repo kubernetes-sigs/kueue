@@ -3359,7 +3359,7 @@ func TestValidateCustomLabels(t *testing.T) {
 	})
 }
 
-func TestValidateRejectsCopyingNonInheritableLabels(t *testing.T) {
+func TestValidateCopiedLabelKey(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	if err := configapi.AddToScheme(testScheme); err != nil {
 		t.Fatal(err)
