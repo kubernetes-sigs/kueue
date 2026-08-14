@@ -352,6 +352,32 @@ func mpiJobWithNilLauncher() *v2beta1.MPIJob {
 	return j
 }
 
+const extraMPIReplicaType v2beta1.MPIReplicaType = "Extra"
+
+// mpiJobWithExtraReplicaSpec builds a RunLauncherAsWorker MPIJob carrying a
+// replica spec besides Launcher and Worker. The map key is a plain string and
+// the operator's validator only reads the two it knows, so one can be set.
+func mpiJobWithExtraReplicaSpec() *testingutil.MPIJobWrapper {
+	j := testingutil.MakeMPIJob("job", "default").
+		Queue("queue").
+		MPIJobReplicaSpecs(
+			testingutil.MPIJobReplicaSpecRequirement{ReplicaType: v2beta1.MPIReplicaTypeLauncher, ReplicaCount: 1},
+			testingutil.MPIJobReplicaSpecRequirement{ReplicaType: v2beta1.MPIReplicaTypeWorker, ReplicaCount: 3},
+		).
+		RunLauncherAsWorker(true)
+	j.Spec.MPIReplicaSpecs[extraMPIReplicaType] = j.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].DeepCopy()
+	return j
+}
+
+// mpiJobWithoutLauncher drops the key rather than nilling it, which is the shape
+// admission delivers: the CRD does not mark the map value nullable, so a
+// Launcher set to null is stripped before the webhook sees it.
+func mpiJobWithoutLauncher() *v2beta1.MPIJob {
+	j := mpiJobWithExtraReplicaSpec().Obj()
+	delete(j.Spec.MPIReplicaSpecs, v2beta1.MPIReplicaTypeLauncher)
+	return j
+}
+
 func TestDefault(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -608,6 +634,20 @@ func TestDefault(t *testing.T) {
 				RunLauncherAsWorker(true).
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").
 				Obj(),
+		},
+		{
+			name:         "TAS enabled, RunLauncherAsWorker true with a replica spec besides Launcher and Worker",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			mpiJob:       mpiJobWithExtraReplicaSpec().Obj(),
+			want: mpiJobWithExtraReplicaSpec().
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").
+				Obj(),
+		},
+		{
+			name:         "TAS enabled, RunLauncherAsWorker true with no Launcher key at all",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			mpiJob:       mpiJobWithoutLauncher(),
+			want:         mpiJobWithoutLauncher(),
 		},
 		{
 			name:         "TAS enabled, RunLauncherAsWorker true but the Launcher spec is nil does not panic",
