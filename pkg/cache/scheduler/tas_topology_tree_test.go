@@ -41,6 +41,53 @@ const (
 	treeTestRackLabel  = "cloud.provider.com/topology-rack"
 )
 
+// The virtual hostname level must identify nodes by name: hostname labels
+// are neither unique nor immutable, and two nodes sharing one label must
+// not merge into a single leaf with pooled capacity.
+func TestTreeVirtualLevelKeyedByNodeName(t *testing.T) {
+	makeLabeledNode := func(name, hostnameLabel string) *corev1.Node {
+		return testingnode.MakeNode(name).
+			Label(treeTestBlockLabel, "b1").
+			Label(treeTestRackLabel, "r1").
+			Label(corev1.LabelHostname, hostnameLabel).
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}).
+			Ready().
+			Obj()
+	}
+	testCases := map[string]struct {
+		hostnameLabels []string
+	}{
+		"distinct hostname labels": {
+			hostnameLabels: []string{"node-a", "node-b"},
+		},
+		"duplicate hostname labels": {
+			hostnameLabels: []string{"dup", "dup"},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			tree := newTopologyTree(
+				[]string{treeTestBlockLabel, treeTestRackLabel},
+				[]*corev1.Node{
+					makeLabeledNode("node-a", tc.hostnameLabels[0]),
+					makeLabeledNode("node-b", tc.hostnameLabels[1]),
+				},
+				0,
+			)
+			if len(tree.leaves) != 2 {
+				t.Fatalf("expected one leaf per node, got %d leaves for 2 nodes", len(tree.leaves))
+			}
+			seen := map[string]bool{}
+			for _, leaf := range tree.leaves {
+				seen[leaf.node.Name] = true
+			}
+			if !seen["node-a"] || !seen["node-b"] {
+				t.Errorf("expected leaves backed by node-a and node-b, got %v", seen)
+			}
+		})
+	}
+}
+
 func makeTreeTestNode(name, block, rack string) *corev1.Node {
 	return testingnode.MakeNode(name).
 		Label(treeTestBlockLabel, block).

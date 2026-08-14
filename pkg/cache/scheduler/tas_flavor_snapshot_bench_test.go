@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
@@ -262,4 +263,58 @@ func balancedPlacementBenchRequests(topo benchTopology, withLeader bool) FlavorT
 		})
 	}
 	return requests
+}
+
+// Measures snapshot construction with admitted-Workload usage recorded,
+// which the modes above leave empty. Rack-lowest topologies charge usage
+// per Workload; hostname-lowest topologies add the per-domain aggregate.
+func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
+	topo := benchTopology{nodes: 2500, nodesPerRack: 16, racksPerBlock: 16}
+	levelSchemes := []struct {
+		name   string
+		levels []string
+	}{
+		{name: "hostname-lowest", levels: []string{benchBlockLabel, benchRackLabel, benchHostLabel}},
+		{name: "rack-lowest", levels: []string{benchBlockLabel, benchRackLabel}},
+	}
+	for _, scheme := range levelSchemes {
+		for _, admittedWorkloads := range []int{1000, 5000} {
+			name := fmt.Sprintf("levels=%s/workloads=%d", scheme.name, admittedWorkloads)
+			b.Run(name, func(b *testing.B) {
+				b.ReportAllocs()
+				log := logr.Discard()
+				nodes := buildBenchNodes(topo)
+				tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+				for i := range nodes {
+					tasCache.SyncNode(&nodes[i])
+				}
+				fc := tasCache.NewTASFlavorCache(
+					topologyInformation{Levels: scheme.levels},
+					flavorInformation{TopologyName: "default"},
+				)
+				for i := range admittedWorkloads {
+					n := i % topo.nodes
+					rack := n / topo.nodesPerRack
+					block := rack / topo.racksPerBlock
+					values := []string{fmt.Sprintf("block-%d", block), fmt.Sprintf("rack-%d", rack)}
+					if len(scheme.levels) == 3 {
+						values = append(values, fmt.Sprintf("node-%d", n))
+					}
+					fc.addUsage(log, workload.Reference(fmt.Sprintf("wl-%d", i)), []workload.TopologyDomainRequests{{
+						Values:            values,
+						SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+						Count:             1,
+					}})
+				}
+				if _, err := fc.snapshot(b.Context(), log, nil); err != nil {
+					b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
+				}
+				for b.Loop() {
+					if _, err := fc.snapshot(b.Context(), log, nil); err != nil {
+						b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
+					}
+				}
+			})
+		}
+	}
 }

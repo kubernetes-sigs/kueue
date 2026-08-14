@@ -1554,6 +1554,112 @@ func TestFitsNonHostnameLowestLevel(t *testing.T) {
 	}
 }
 
+// Usage domain IDs reference the user-lowest level while the hostname level
+// is virtual; a node whose name equals a domain ID must not capture the
+// domain's usage.
+func TestLeavesForUsageDomainIgnoresNameCollision(t *testing.T) {
+	const rackLabel = "cloud.provider.com/topology-rack"
+	_, log := utiltesting.ContextWithLog(t)
+	makeRackNode := func(name, rack string) *corev1.Node {
+		return node.MakeNode(name).
+			Label(rackLabel, rack).
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}).
+			Ready().
+			Obj()
+	}
+	// Rack r1 holds two nodes; a third node is named like the rack itself
+	// but lives in rack r2.
+	tree := newTopologyTree([]string{rackLabel}, []*corev1.Node{
+		makeRackNode("node-a", "r1"),
+		makeRackNode("node-b", "r1"),
+		makeRackNode("r1", "r2"),
+	}, 0)
+	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, &defaultChecker{})
+	leaves := snapshot.leavesForUsageDomain("r1")
+	if len(leaves) != 2 {
+		t.Fatalf("domain \"r1\" must resolve to rack r1's 2 leaves, got %d", len(leaves))
+	}
+	for _, leaf := range leaves {
+		if leaf.node.Name == "r1" {
+			t.Error("domain resolution returned the node named \"r1\" instead of the rack's leaves")
+		}
+	}
+
+	// Control: with hostname declared as the lowest level, usage domains are
+	// the leaves themselves and the leaf lookup must keep working.
+	declaredTree := newTopologyTree([]string{rackLabel, corev1.LabelHostname}, []*corev1.Node{
+		makeRackNode("node-a", "r1"),
+		makeRackNode("node-b", "r1"),
+	}, 0)
+	declaredSnapshot := newTASFlavorSnapshot(log, "tas-topology", declaredTree, nil, &defaultChecker{})
+	declaredLeaves := declaredSnapshot.leavesForUsageDomain("node-a")
+	if len(declaredLeaves) != 1 || declaredLeaves[0].node.Name != "node-a" {
+		t.Errorf("declared hostname level must resolve leaf domains directly, got %d leaves", len(declaredLeaves))
+	}
+}
+
+// Removing one Workload's usage must not erase the usage of Workloads that
+// remain admitted. This holds only when the snapshot records usage per
+// Workload: rounded-up per-leaf shares are not additive, so an
+// aggregate-initialized snapshot loses the survivor's usage on removal and
+// Fits overreports free capacity.
+func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
+	const blockLabel = "cloud.provider.com/topology-block"
+	const rackLabel = "cloud.provider.com/topology-rack"
+	dev := corev1.ResourceName("example.com/device")
+	g := gomega.NewWithT(t)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	for _, name := range []string{"n1", "n2"} {
+		tasCache.SyncNode(node.MakeNode(name).
+			Label(blockLabel, "b1").
+			Label(rackLabel, "r1").
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{dev: resource.MustParse("1")}).
+			Ready().
+			Obj())
+	}
+	fc := tasCache.NewTASFlavorCache(
+		topologyInformation{Levels: []string{blockLabel, rackLabel}},
+		flavorInformation{TopologyName: "default"},
+	)
+	singleDevice := func() []workload.TopologyDomainRequests {
+		return []workload.TopologyDomainRequests{{
+			Values: []string{"b1", "r1"},
+			SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+				dev: 1,
+			}),
+			Count: 1,
+		}}
+	}
+	bothDevices := workload.TASFlavorUsage{{
+		Values: []string{"b1", "r1"},
+		SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+			dev: 1,
+		}),
+		Count: 2,
+	}}
+
+	empty, err := fc.snapshot(ctx, log, nil)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+	// Control: with no usage recorded, both devices are free.
+	g.Expect(empty.Fits(bothDevices)).To(gomega.BeTrue())
+
+	fc.addUsage(log, "wl1", singleDevice())
+	fc.addUsage(log, "wl2", singleDevice())
+	snapshot, err := fc.snapshot(ctx, log, nil)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+	g.Expect(snapshot.Fits(bothDevices)).To(gomega.BeFalse())
+
+	// Preemption simulation removes one Workload; the other still holds a device.
+	for _, tr := range singleDevice() {
+		snapshot.updateTASUsage(tas.DomainID(tr.Values), tr.TotalRequests(), subtract, tr.Count)
+	}
+	g.Expect(snapshot.Fits(bothDevices)).To(gomega.BeFalse())
+}
+
 // newObservedLogger returns a logger that discards output and an observer of its entries.
 func newObservedLogger(level zapcore.Level) (logr.Logger, *observer.ObservedLogs) {
 	logsObserver, observedLogs := observer.New(level)
