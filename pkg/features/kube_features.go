@@ -77,7 +77,7 @@ const (
 	FairSharingPrioritizeNonBorrowing featuregate.Feature = "FairSharingPrioritizeNonBorrowing"
 
 	// owner: @apullo777
-	// kep: https://github.com/kubernetes-sigs/kueue/issues/9345
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/9345
 	//
 	// In fair sharing, when a workload is admitted, pop the next workload
 	// from the same ClusterQueue so it joins the running scheduling cycle
