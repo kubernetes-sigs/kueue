@@ -77,13 +77,14 @@ func WithNewCache(c cache.NewCacheFunc) ManagerOption {
 }
 
 type Framework struct {
-	DepCRDPaths            []string
-	WebhookPath            string
-	APIServerFeatureGates  []string
-	APIServerRuntimeConfig []string
-	testEnv                *envtest.Environment
-	cancel                 context.CancelFunc
-	scheme                 *runtime.Scheme
+	DepCRDPaths               []string
+	WebhookPath               string
+	APIServerFeatureGates     []string
+	APIServerRuntimeConfig    []string
+	APIServerAdmissionPlugins []string
+	testEnv                   *envtest.Environment
+	cancel                    context.CancelFunc
+	scheme                    *runtime.Scheme
 
 	managerCancel context.CancelFunc
 	managerDone   <-chan struct{}
@@ -120,6 +121,10 @@ func (f *Framework) Init() *rest.Config {
 
 		if len(f.APIServerRuntimeConfig) > 0 {
 			f.testEnv.ControlPlane.GetAPIServer().Configure().Append("runtime-config", strings.Join(f.APIServerRuntimeConfig, ","))
+		}
+
+		if len(f.APIServerAdmissionPlugins) > 0 {
+			f.testEnv.ControlPlane.GetAPIServer().Configure().Append("enable-admission-plugins", strings.Join(f.APIServerAdmissionPlugins, ","))
 		}
 
 		if level, err := strconv.Atoi(os.Getenv("API_LOG_LEVEL")); err == nil && level > 0 {
