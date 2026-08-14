@@ -2856,6 +2856,99 @@ func TestValidateDeviceClassMappings(t *testing.T) {
 	}
 }
 
+func TestValidateClientConnection(t *testing.T) {
+	testCases := map[string]struct {
+		cfg     *configapi.Configuration
+		wantErr field.ErrorList
+	}{
+		"nil clientConnection": {
+			cfg: &configapi.Configuration{},
+		},
+		"valid qps and burst": {
+			cfg: &configapi.Configuration{
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100)), Burst: new(int32(200))},
+			},
+		},
+		"negative qps disables rate limiting": {
+			cfg: &configapi.Configuration{
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(-1)), Burst: new(int32(0))},
+			},
+		},
+		"nil qps is ignored": {
+			cfg: &configapi.Configuration{
+				ClientConnection: &configapi.ClientConnection{Burst: new(int32(200))},
+			},
+		},
+		"omitted burst passes, defaulting fills it": {
+			cfg: &configapi.Configuration{
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100))},
+			},
+		},
+		"zero burst is rejected": {
+			cfg: &configapi.Configuration{
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100)), Burst: new(int32(0))},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "clientConnection.burst",
+					Detail: "must be greater than 0 when client-side rate limiting is enabled",
+				},
+			},
+		},
+		"negative burst is rejected": {
+			cfg: &configapi.Configuration{
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100)), Burst: new(int32(-1))},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "clientConnection.burst",
+					Detail: "must be greater than 0 when client-side rate limiting is enabled",
+				},
+			},
+		},
+		"zero qps is rejected": {
+			cfg: &configapi.Configuration{
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(0)), Burst: new(int32(100))},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "clientConnection.qps",
+					Detail: "must be greater than 0, or negative to disable client-side rate limiting",
+				},
+			},
+		},
+		"zero qps and zero burst report both fields": {
+			cfg: &configapi.Configuration{
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(0)), Burst: new(int32(0))},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "clientConnection.qps",
+					Detail: "must be greater than 0, or negative to disable client-side rate limiting",
+				},
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "clientConnection.burst",
+					Detail: "must be greater than 0 when client-side rate limiting is enabled",
+				},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got := validateClientConnection(tc.cfg)
+			if diff := cmp.Diff(tc.wantErr, got, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
+				t.Errorf("validateClientConnection() returned unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestValidateCustomLabels(t *testing.T) {
 	testCases := map[string]struct {
 		cfg     *configapi.Configuration

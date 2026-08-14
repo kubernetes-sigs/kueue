@@ -225,20 +225,23 @@ Defaults to 1.</p>
 <tbody>
     
   
-<tr><td><code>qps</code> <B>[Required]</B><br/>
+<tr><td><code>qps</code><br/>
 <code>float32</code>
 </td>
 <td>
-   <p>QPS controls the number of queries per second allowed for K8S api server
-connection.</p>
-<p>Setting this to a negative value will disable client-side ratelimiting.</p>
+   <p>QPS controls the number of queries per second allowed for Kubernetes API
+server connections.</p>
+<p>A negative value disables client-side rate limiting. Zero is invalid.
+Defaults to 300.</p>
 </td>
 </tr>
-<tr><td><code>burst</code> <B>[Required]</B><br/>
+<tr><td><code>burst</code><br/>
 <code>int32</code>
 </td>
 <td>
-   <p>Burst allows extra queries to accumulate when a client is exceeding its rate.</p>
+   <p>Burst controls the token bucket capacity.
+It must be greater than 0 when client-side rate limiting is enabled.
+Defaults to 500.</p>
 </td>
 </tr>
 </tbody>

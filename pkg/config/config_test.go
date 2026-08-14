@@ -48,6 +48,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	configapiv1beta1 "sigs.k8s.io/kueue/apis/config/v1beta1"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -98,6 +99,94 @@ func defaultControlOptions(namespace string) ctrl.Options {
 		LeaseDuration:                 new(configapi.DefaultLeaderElectionLeaseDuration),
 		RenewDeadline:                 new(configapi.DefaultLeaderElectionRenewDeadline),
 		RetryPeriod:                   new(configapi.DefaultLeaderElectionRetryPeriod),
+	}
+}
+
+// TestLoadAndValidateClientConnection exercises the production path
+// (decode -> default -> convert -> validate) for both config versions, so that
+// omitted values are defaulted and explicit zeros survive to validation.
+func TestLoadAndValidateClientConnection(t *testing.T) {
+	testScheme := runtime.NewScheme()
+	if err := configapiv1beta1.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := configapi.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]struct {
+		config   string
+		wantErrs []string
+	}{
+		"v1beta2 omitted burst defaults and passes": {
+			config: `
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+clientConnection:
+  qps: 100
+`,
+		},
+		"v1beta2 zero qps is rejected": {
+			config: `
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+clientConnection:
+  qps: 0
+  burst: 100
+`,
+			wantErrs: []string{"clientConnection.qps"},
+		},
+		"v1beta2 zero burst is rejected": {
+			config: `
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+clientConnection:
+  qps: 100
+  burst: 0
+`,
+			wantErrs: []string{"clientConnection.burst"},
+		},
+		"v1beta1 zero qps is rejected after conversion": {
+			config: `
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+clientConnection:
+  qps: 0
+  burst: 100
+`,
+			wantErrs: []string{"clientConnection.qps"},
+		},
+		"v1beta1 zero burst is rejected after conversion": {
+			config: `
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+clientConnection:
+  qps: 100
+  burst: 0
+`,
+			wantErrs: []string{"clientConnection.burst"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(file, []byte(tc.config), os.FileMode(0600)); err != nil {
+				t.Fatal(err)
+			}
+			_, cfg, err := Load(testScheme, file)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			var gotErrs []string
+			for _, e := range validateClientConnection(&cfg) {
+				gotErrs = append(gotErrs, e.Field)
+			}
+			if diff := cmp.Diff(tc.wantErrs, gotErrs, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("validateClientConnection after Load (-want +got):\n%s", diff)
+			}
+			if len(tc.wantErrs) == 0 && (cfg.ClientConnection == nil || cfg.ClientConnection.Burst == nil) {
+				t.Errorf("Load did not default the client connection burst")
+			}
+		})
 	}
 }
 
