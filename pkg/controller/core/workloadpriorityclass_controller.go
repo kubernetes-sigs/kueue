@@ -98,7 +98,7 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 		wlLog := log.WithValues("workload", klog.KObj(wl))
 
 		if !ownsPriority(wl) {
-			wlLog.V(3).Info("Workload's priority is not this cluster's to write")
+			wlLog.V(3).Info("Workload priority not owned by this controller")
 			continue
 		}
 
@@ -154,9 +154,10 @@ func (r *WorkloadPriorityClassReconciler) Generic(e event.TypedGenericEvent[*kue
 	return false
 }
 
-// ownsPriority reports whether this cluster decides the Workload's priority. A
-// Workload MultiKueue created here carries the manager's resolution, and a class
-// of the same name on this cluster is not the one it was resolved from.
+// ownsPriority reports whether this WorkloadPriorityClass controller owns
+// synchronizing the Workload's priority. A Workload MultiKueue created here
+// carries the manager's resolution, and a class of the same name on this
+// cluster is not the one it was resolved from.
 func ownsPriority(wl *kueue.Workload) bool {
 	_, isMultiKueueRemote := wl.Labels[kueue.MultiKueueOriginLabel]
 	return !isMultiKueueRemote && workload.IsWorkloadPriorityClass(wl)
