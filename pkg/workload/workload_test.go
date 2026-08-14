@@ -1020,9 +1020,9 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
-		// The next two are a pair. A multiplier the lookup finds at zero and one it
-		// does not find at all are different answers, and which of the two an
-		// excluded resource becomes is decided upstream of here.
+		// A multiplier the lookup finds at zero and one it does not find at all are
+		// different answers, and which of the two an excluded resource becomes is
+		// decided upstream of here.
 		"transformExcludedMultiplierAtZeroIsNotAMissingMultiplier": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
