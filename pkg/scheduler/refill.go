@@ -94,57 +94,99 @@ func (s *Scheduler) newRefillPass(iterator entryIterator, snapshot *schdcache.Sn
 	}
 }
 
+// refillStopReason values are the labels a future refill_stops_total{reason}
+// would inherit. Unlike a qcache.RequeueReason they decide nothing.
+type refillStopReason string
+
+const (
+	// refillContinue means a successor joined the cycle, so nothing stopped.
+	refillContinue refillStopReason = ""
+	// The entry was not admitted, so it freed no head slot.
+	refillStopNotAdmitted refillStopReason = "EntryNotAdmitted"
+	// The entry already held quota before this cycle, so its admission freed
+	// no head slot either.
+	refillStopSecondPass refillStopReason = "SecondPassAdmission"
+	refillStopBudget     refillStopReason = "BudgetExhausted"
+	refillStopQueueEmpty refillStopReason = "QueueEmpty"
+	// The successor was popped but got no assignment: it either parks as
+	// inadmissible or is already accounted in the cache.
+	refillStopSuccessorNotNominated refillStopReason = "SuccessorNotNominated"
+)
+
 // afterEntryProcessed is the refill hook, called after processEntry for
 // every popped entry. Safe to call on a nil receiver.
 func (r *refillPass) afterEntryProcessed(ctx context.Context, e *entry) {
-	if r == nil || e.status != assumed {
+	if r == nil {
 		return
 	}
-	// Second-pass workloads already held quota before this cycle; their
-	// admission does not free up a head slot for their ClusterQueue.
-	if workload.HasQuotaReservation(e.Obj) {
+	reason, refilled := r.tryRefill(ctx, e)
+	// Entries that were never admitted say nothing about refill and are the
+	// common case; logging them would bury the real stop reasons.
+	if reason == refillStopNotAdmitted {
 		return
 	}
 	log := ctrl.LoggerFrom(ctx)
-	if r.budget <= 0 {
-		// Log only when a successor actually exists in the heap, so the
-		// count measures how often the budget binds rather than how often
-		// admissions happen after exhaustion.
-		if r.scheduler.queues.HasQueuedWorkloads(e.ClusterQueue) {
-			log.V(3).Info("Refill budget exhausted; the ClusterQueue's next workload waits for the next cycle",
-				"clusterQueue", klog.KRef("", string(e.ClusterQueue)))
-		}
+	if refilled != nil {
+		log = log.WithValues("workload", klog.KObj(refilled.Obj))
+	}
+	if reason == refillContinue {
+		log.V(3).Info("Refilled the ClusterQueue's next workload into the running cycle",
+			"clusterQueue", klog.KRef("", string(e.ClusterQueue)),
+			"remainingBudget", r.budget)
 		return
+	}
+	log.V(3).Info("Refill stopped after an admission",
+		"reason", reason,
+		"clusterQueue", klog.KRef("", string(e.ClusterQueue)),
+		"remainingBudget", r.budget)
+}
+
+// tryRefill pops the ClusterQueue's next workload into the cycle, or reports
+// where the chain stopped and which entry it stopped on.
+func (r *refillPass) tryRefill(ctx context.Context, e *entry) (refillStopReason, *entry) {
+	// Only a fresh admission frees a head slot for its ClusterQueue.
+	if e.status != assumed {
+		return refillStopNotAdmitted, nil
+	}
+	// Second-pass workloads already held quota before this cycle, so their
+	// admission does not free a slot the successor could take.
+	if workload.HasQuotaReservation(e.Obj) {
+		return refillStopSecondPass, nil
+	}
+	if r.budget <= 0 {
+		// Kept apart so BudgetExhausted measures how often the budget
+		// actually binds, not how often it is merely spent.
+		if !r.scheduler.queues.HasQueuedWorkloads(e.ClusterQueue) {
+			return refillStopQueueEmpty, nil
+		}
+		return refillStopBudget, nil
 	}
 	wl := r.scheduler.queues.PopFrom(e.ClusterQueue)
 	if wl == nil {
-		return
+		return refillStopQueueEmpty, nil
 	}
 	// A popped workload consumes budget regardless of its nomination outcome,
 	// so the total per-cycle work stays bounded.
 	r.budget--
-	wlLog := log.WithValues("workload", klog.KObj(wl.Obj), "clusterQueue", klog.KRef("", string(wl.ClusterQueue)))
-	if r.scheduler.dropIfAlreadyAccounted(wlLog, *wl) {
-		return
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl.Obj), "clusterQueue", klog.KRef("", string(wl.ClusterQueue)))
+	if r.scheduler.dropIfAlreadyAccounted(log, *wl) {
+		// Already accounted in the cache, so it leaves the cycle without
+		// being requeued; the drop released its inflight claim.
+		return refillStopSuccessorNotNominated, &entry{Head: *wl}
 	}
-	ne, nominated := r.scheduler.nominateWorkload(ctx, wlLog, *wl, r.snapshot)
-	ne.refilled = true
-	refilled := &ne
-	if !nominated {
-		r.inadmissibleEntries = append(r.inadmissibleEntries, refilled)
-		log.V(3).Info("Refilled workload cannot be nominated in this cycle",
-			"workload", klog.KObj(refilled.Obj),
-			"clusterQueue", klog.KRef("", string(refilled.ClusterQueue)),
-			"reason", refilled.inadmissibleMsg,
-			"remainingBudget", r.budget)
-		return
+	refilled, nominated := r.scheduler.nominateWorkload(ctx, log, *wl, r.snapshot)
+	refilled.refilled = true
+	if nominated {
+		// The tournament reranks it against the remaining entries on the
+		// next pop.
+		r.entries = append(r.entries, &refilled)
+		r.iterator.push(&refilled)
+		return refillContinue, &refilled
 	}
-	r.entries = append(r.entries, refilled)
-	r.iterator.push(refilled)
-	log.V(3).Info("Refilled the ClusterQueue's next workload into the running cycle",
-		"workload", klog.KObj(refilled.Obj),
-		"clusterQueue", klog.KRef("", string(refilled.ClusterQueue)),
-		"remainingBudget", r.budget)
+	// Parks with its inadmissibleMsg; the cycle's requeue step reaches
+	// it through refilledInadmissible.
+	r.inadmissibleEntries = append(r.inadmissibleEntries, &refilled)
+	return refillStopSuccessorNotNominated, &refilled
 }
 
 // nominatedEntries returns the refilled entries that competed for admission
