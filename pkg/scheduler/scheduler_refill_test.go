@@ -1444,11 +1444,79 @@ func TestRefillDeferralClearsFlavorScanProgress(t *testing.T) {
 	}
 }
 
-// TestRefillNotTriggeredWhenPodsReadyBlocksAdmission covers refill under
-// WaitForPodsReady with blockAdmission: after the cycle's first fresh
-// admission, that workload is itself admitted-but-not-ready, so a refill pop
-// would send the successor straight into the admission block. Refill leaves
-// the backlog in the heap instead.
+// TestNewRefillPass pins the conditions under which a cycle gets a refill hook
+// at all, including that WaitForPodsReady with blockAdmission is settled here
+// rather than re-asked on every admission.
+func TestNewRefillPass(t *testing.T) {
+	cases := map[string]struct {
+		refillEnabled     bool
+		podsReadyTracking bool
+		fairSharing       bool
+		wantHook          bool
+	}{
+		"fair sharing, gate on, no pods-ready tracking": {
+			refillEnabled: true,
+			fairSharing:   true,
+			wantHook:      true,
+		},
+		"the feature gate is off": {
+			fairSharing: true,
+		},
+		"pods-ready tracking blocks admission": {
+			refillEnabled:     true,
+			podsReadyTracking: true,
+			fairSharing:       true,
+		},
+		"the classical iterator is not supported": {
+			refillEnabled: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.FairSharingRefill: tc.refillEnabled,
+			})
+
+			cqCache := schdcache.New(utiltesting.NewFakeClient(),
+				schdcache.WithPodsReadyTracking(tc.podsReadyTracking))
+			// Not defaultRefillBudget, so a constructor ignoring the
+			// configured budget is caught.
+			s := &Scheduler{cache: cqCache, refillBudget: defaultRefillBudget + 1}
+			iterator := makeIterator(ctx, nil, workload.Ordering{}, tc.fairSharing)
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Building the snapshot: %v", err)
+			}
+
+			got := s.newRefillPass(iterator, snapshot)
+			if (got != nil) != tc.wantHook {
+				t.Fatalf("newRefillPass() returned a hook: %t, want %t", got != nil, tc.wantHook)
+			}
+			if got == nil {
+				return
+			}
+			// The hook is useless unless the cycle's own state reached it.
+			if got.iterator != iterator {
+				t.Error("The hook does not hold the cycle's iterator")
+			}
+			if got.snapshot != snapshot {
+				t.Error("The hook does not hold the cycle's snapshot")
+			}
+			if got.budget != s.refillBudget {
+				t.Errorf("The hook's budget = %d, want %d", got.budget, s.refillBudget)
+			}
+			if got.scheduler != s {
+				t.Error("The hook does not hold the scheduler")
+			}
+		})
+	}
+}
+
+// TestRefillNotTriggeredWhenPodsReadyBlocksAdmission covers the end-to-end
+// consequence of the constructor's pods-ready condition: the cycle has no
+// refill hook, so the successor stays in the heap and its status is never
+// touched.
 //
 // Not expressible as a scheduleTestCase: the harness does not enable
 // pods-ready tracking on the scheduler cache.

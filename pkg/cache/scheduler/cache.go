@@ -240,6 +240,12 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 	}
 }
 
+// PodsReadyTracking reports whether the cache maintains each ClusterQueue's set
+// of admitted-but-not-ready workloads, as requested through WithPodsReadyTracking.
+func (c *Cache) PodsReadyTracking() bool {
+	return c.podsReadyTracking
+}
+
 func (c *Cache) PodsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
 	if !c.podsReadyTracking {
 		return true
