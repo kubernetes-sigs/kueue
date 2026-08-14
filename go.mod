@@ -12,7 +12,7 @@ require (
 	github.com/kubeflow/spark-operator/v2 v2.5.2
 	github.com/kubeflow/trainer/v2 v2.2.1
 	github.com/kubeflow/training-operator v1.9.3
-	github.com/onsi/ginkgo/v2 v2.32.0
+	github.com/onsi/ginkgo/v2 v2.32.1
 	github.com/onsi/gomega v1.42.1
 	github.com/open-policy-agent/cert-controller v0.16.0
 	github.com/project-codeflare/appwrapper v1.2.2
