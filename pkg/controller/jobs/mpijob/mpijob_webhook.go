@@ -155,7 +155,7 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 		return nil, err
 	}
 	allErrs = append(allErrs, validationErrs...)
-	slices.SortFunc(validationErrs, func(a, b *field.Error) int {
+	slices.SortFunc(allErrs, func(a, b *field.Error) int {
 		return cmp.Compare(a.Field, b.Field)
 	})
 	return nil, allErrs.ToAggregate()
