@@ -1105,4 +1105,31 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.It("should offset the Worker of a runLauncherAsWorker MPIJob carrying a third replica spec", func() {
+		mpiJob := testingmpijob.MakeMPIJob(jobName, ns.Name).
+			Queue(localQueue.Name).
+			GenericLauncherAndWorker().
+			RunLauncherAsWorker(true).
+			Request(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
+			Request(kfmpi.MPIReplicaTypeWorker, corev1.ResourceCPU, "100m").
+			Obj()
+		mpiJob.Spec.MPIReplicaSpecs["Extra"] = mpiJob.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].DeepCopy()
+
+		ginkgo.By("creating the MPIJob", func() {
+			util.MustCreate(ctx, k8sClient, mpiJob)
+		})
+
+		// The key surviving the create is half of what this checks: it is what
+		// makes the shape reachable rather than only representable in Go.
+		ginkgo.By("verify the third spec is stored and the Worker still gets the offset", func() {
+			createdMPIJob := &kfmpi.MPIJob{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: jobName, Namespace: ns.Name}, createdMPIJob)).Should(gomega.Succeed())
+				g.Expect(createdMPIJob.Spec.MPIReplicaSpecs).Should(gomega.HaveKey(kfmpi.MPIReplicaType("Extra")))
+				g.Expect(createdMPIJob.Spec.MPIReplicaSpecs[kfmpi.MPIReplicaTypeWorker].Template.Annotations).Should(
+					gomega.HaveKeyWithValue(kueue.PodIndexOffsetAnnotation, "1"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })
