@@ -684,6 +684,14 @@ func TestReconciler(t *testing.T) {
 	// SparkApp variants used by the PodsReady cases.
 	sparkAppDriverRunningOnly := withDriverRunningOnly(withUID(testSparkApp.DeepCopy()), 2)
 	sparkAppAllExecutorsReady := withExecutorsRunning(withUID(testSparkApp.DeepCopy()), 2)
+	// Dynamic allocation variant: Instances=10, MinExecutors=5, 5 executors Running.
+	// PodsReady should use MinExecutors (5) as the expected count, not Instances (10).
+	sparkAppDynamicAllocation := withExecutorsRunning(withUID(testSparkApp.DeepCopy()), 5)
+	sparkAppDynamicAllocation.Spec.Executor.Instances = new(int32(10))
+	sparkAppDynamicAllocation.Spec.DynamicAllocation = &sparkappv1beta2.DynamicAllocation{
+		Enabled:      true,
+		MinExecutors: new(int32(5)),
+	}
 
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
@@ -739,6 +747,27 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*makeAdmittedWorkload(sparkAppAllExecutorsReady).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					}).
+					Obj(),
+			},
+		},
+		"PodsReady becomes True/Started with dynamic allocation when MinExecutors executors are ready": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
+			},
+			sparkApp: sparkAppDynamicAllocation,
+			workloads: []kueue.Workload{
+				*makeAdmittedWorkload(sparkAppDynamicAllocation).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*makeAdmittedWorkload(sparkAppDynamicAllocation).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadPodsReady,
 						Status:  metav1.ConditionTrue,
