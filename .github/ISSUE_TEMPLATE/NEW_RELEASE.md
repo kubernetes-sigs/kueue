@@ -14,11 +14,7 @@ Please do not remove items from the checklist
   At least two for minor or major releases. At least one for a patch release.
 - [ ] Verify that the changelog in this issue and the CHANGELOG folder is up-to-date
   - [ ] Use `/sync-release-notes` to generate and publish the release notes
-- [ ] For major or minor releases (v$MAJ.$MIN.0), create a new release branch.
-  - [ ] An OWNER creates a vanilla release branch with
-        `git branch release-$MAJ.$MIN main`
-  - [ ] An OWNER pushes the new release branch with
-        `git push upstream release-$MAJ.$MIN`
+- [ ] For major or minor releases (`v$MAJ.$MIN.0`), use the `/create-release-branch` ChatOps command to create a new release branch.
 - [ ] Update the release branch:
   - [ ] Ensure there are no unstaged changes in your directory (the script adds everything)
   - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION`
