@@ -41,21 +41,38 @@ type WatchExtensionPlugin interface {
 	ReconcilerBuilders() []runtime.ReconcilerBuilder
 }
 
+// EnforcePodGroupPolicyPlugin configures gang-scheduling parameters declared in the
+// runtime `.spec.podGroupPolicy` on the Info object.
 type EnforcePodGroupPolicyPlugin interface {
 	Plugin
 	EnforcePodGroupPolicy(info *runtime.Info, trainJob *trainer.TrainJob) error
 }
 
+// EnforceMLPolicyPlugin configures the ML framework specific parameters declared in
+// the runtime `.spec.mlPolicy` on the Info object.
 type EnforceMLPolicyPlugin interface {
 	Plugin
 	EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) error
 }
 
-type PodNetworkPlugin interface {
+// EnforcePodSpecPlugin mutates the PodSpec of a TrainJob's PodSets for
+// concerns that are not driven by MLPolicy or PodGroupPolicy APIs.
+type EnforcePodSpecPlugin interface {
 	Plugin
-	IdentifyPodNetwork(info *runtime.Info, trainJob *trainer.TrainJob) error
+	EnforcePodSpec(podSets runtime.PodSets, trainJob *trainer.TrainJob) error
 }
 
+// PreComponentBuilderPlugin consolidates the Info object with the concrete runtime
+// template before any component is materialized. Only the plugin that owns the runtime
+// template (e.g. JobSet) can implement it, since consolidation requires knowledge of the
+// template shape.
+type PreComponentBuilderPlugin interface {
+	Plugin
+	PreBuildSync(info *runtime.Info, trainJob *trainer.TrainJob) error
+}
+
+// ComponentBuilderPlugin materializes the Kubernetes objects for a TrainJob from the
+// consolidated Info object.
 type ComponentBuilderPlugin interface {
 	Plugin
 	Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error)

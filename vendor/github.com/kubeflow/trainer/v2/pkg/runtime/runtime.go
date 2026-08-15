@@ -42,7 +42,7 @@ type Info struct {
 	// Scheduler parameters to add to the RuntimeJobTemplate.
 	Scheduler *Scheduler
 	// TemplateSpec is TrainingRuntime Template object.
-	// ObjApply podSpecs and this PodSets should be kept in sync by info.SyncPodSetsToTemplateSpec().
+	// ObjApply PodSpecs and PodSets should be kept in sync by PreComponentBuilderPlugin.PreBuildSync.
 	TemplateSpec TemplateSpec
 }
 
@@ -57,8 +57,11 @@ type TemplateSpec struct {
 	ObjApply any
 	// PodSets is a set of Pod extracted from ObjApply.
 	// This is abstract concept to represent multiple PodSpec as a unit.
-	PodSets []PodSet
+	PodSets PodSets
 }
+
+// PodSets is the collection of PodSet extracted from the runtime template.
+type PodSets []PodSet
 
 type PodSet struct {
 	// PodSet name is the name to identify PodSpec.
@@ -159,6 +162,8 @@ func toPodSetContainer(containerApply ...corev1ac.ContainerApplyConfiguration) i
 		for _, cApply := range containerApply {
 			container := Container{
 				Name:         ptr.Deref(cApply.Name, ""),
+				Image:        ptr.Deref(cApply.Image, ""),
+				Command:      cApply.Command,
 				Env:          cApply.Env,
 				Ports:        cApply.Ports,
 				VolumeMounts: cApply.VolumeMounts,
@@ -212,15 +217,37 @@ func (i *Info) FindContainerByPodSetAncestorContainerName(psAncestor, containerN
 }
 
 func (i *Info) FindPodSetByAncestor(ancestor string) *PodSet {
-	if idx := slices.IndexFunc(i.TemplateSpec.PodSets, func(ps PodSet) bool { return ptr.Equal(ps.Ancestor, &ancestor) }); idx != -1 {
-		return &i.TemplateSpec.PodSets[idx]
-	}
-	return nil
+	return i.TemplateSpec.PodSets.FindByAncestor(ancestor)
 }
 
 func (i *Info) FindPodSetByName(psName string) *PodSet {
 	if idx := slices.IndexFunc(i.TemplateSpec.PodSets, func(ps PodSet) bool { return ps.Name == psName }); idx != -1 {
 		return &i.TemplateSpec.PodSets[idx]
+	}
+	return nil
+}
+
+// FindContainerByPodSetName finds a runtime.Container within the named PodSet,
+// searching regular containers before init containers; returns nil if no match.
+func (i *Info) FindContainerByPodSetName(psName, containerName string) *Container {
+	ps := i.FindPodSetByName(psName)
+	if ps == nil {
+		return nil
+	}
+	if idx := slices.IndexFunc(ps.Containers, func(c Container) bool { return c.Name == containerName }); idx != -1 {
+		return &ps.Containers[idx]
+	}
+	if idx := slices.IndexFunc(ps.InitContainers, func(c Container) bool { return c.Name == containerName }); idx != -1 {
+		return &ps.InitContainers[idx]
+	}
+	return nil
+}
+
+// FindByAncestor finds the PodSet built from the given
+// `trainer.kubeflow.org/trainjob-ancestor-step` label value.
+func (ps PodSets) FindByAncestor(ancestor string) *PodSet {
+	if idx := slices.IndexFunc(ps, func(p PodSet) bool { return ptr.Equal(p.Ancestor, &ancestor) }); idx != -1 {
+		return &ps[idx]
 	}
 	return nil
 }

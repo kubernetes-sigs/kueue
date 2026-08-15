@@ -166,13 +166,6 @@ func getChildJobSet(ctx context.Context, c client.Client, t *TrainJob) (*jobseta
 		return nil, err
 	}
 
-	// Jobset replicaJob parallelism/completions are set outside of the jobset builder
-	for psIdx, ps := range info.TemplateSpec.PodSets {
-		if ps.Count != nil {
-			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Parallelism = ps.Count
-			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Completions = ps.Count
-		}
-	}
 
 	jobsetApply := kftrainerjobset.NewBuilder(jobsetapplyapi.JobSet(t.Name, t.Namespace).
 		WithSpec(jobSetSpec)).Initializer(trainJob).Trainer(info, trainJob).PodLabels(info.Scheduler.PodLabels).Build()
