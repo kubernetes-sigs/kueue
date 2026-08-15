@@ -430,9 +430,9 @@ The label 'result' can have the following values:
 			Help: `The total number of preemption target recomputations triggered when a workload's preemption
 targets overlap with targets selected by another workload in the same scheduling cycle.
 The label 'outcome' can have the following values:
-- '` + PreemptionTargetRecomputationOutcomeNewTargets + `' means the recomputation resolved the overlap by selecting non-overlapping targets.
-- '` + PreemptionTargetRecomputationOutcomeDeferredFit + `' means the workload will fit only after earlier preemptions in the cycle complete.
-- '` + PreemptionTargetRecomputationOutcomeSkipped + `' means the recomputation did not resolve the overlap and the workload was skipped.`,
+- 'new_targets' means the recomputation resolved the overlap by selecting non-overlapping targets.
+- 'deferred_fit' means the workload will fit only after earlier preemptions in the cycle complete.
+- 'skipped' means the recomputation did not resolve the overlap and the workload was skipped.`,
 		}, append([]string{"cluster_queue", "outcome", "replica_role"}, clusterQueueMetricsLabels...),
 	)
 
