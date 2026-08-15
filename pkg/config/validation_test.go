@@ -78,15 +78,13 @@ func TestValidate(t *testing.T) {
 		},
 		"invalid quota release strategy": {
 			cfg: &configapi.Configuration{
-				Integrations: defaultIntegrations,
-				Scheduling: &configapi.Scheduling{
-					QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseStrategy("onTerminal")),
-				},
+				Integrations:         defaultIntegrations,
+				QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseStrategy("InvalidStrategy")),
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeNotSupported,
-					Field: "scheduling.quotaReleaseStrategy",
+					Field: "quotaReleaseStrategy",
 				},
 			},
 		},
