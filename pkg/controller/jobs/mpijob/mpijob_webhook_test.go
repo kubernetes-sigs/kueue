@@ -367,6 +367,10 @@ func TestDefault(t *testing.T) {
 	nilLauncherJob := runLauncherAsWorkerJob.Clone()
 	nilLauncherJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeLauncher] = nil
 
+	// The Worker half of the guard has the same dereference behind it.
+	nilWorkerJob := runLauncherAsWorkerJob.Clone()
+	nilWorkerJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker] = nil
+
 	testCases := []struct {
 		name           string
 		mpiJob         *v2beta1.MPIJob
@@ -642,6 +646,12 @@ func TestDefault(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			mpiJob:       nilLauncherJob.Clone().Obj(),
 			want:         nilLauncherJob.Clone().Obj(),
+		},
+		{
+			name:         "TAS enabled, RunLauncherAsWorker true with a nil Worker replica spec",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			mpiJob:       nilWorkerJob.Clone().Obj(),
+			want:         nilWorkerJob.Clone().Obj(),
 		},
 		{
 			name:         "TAS enabled, RunLauncherAsWorker false",
