@@ -84,8 +84,13 @@ jobs:
           fi
           echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
           
-          CHANGELOG=$(echo "ISSUE_BODY" | sed -n '/^```markdown$/,/^```$/p' | sed '/^```markdown$/d;/^```$/d')
-          echo "changelog=$CHANGELOG" >> "$GITHUB_OUTPUT"
+          CHANGELOG="$(echo "$ISSUE_BODY" | sed -n '/^```markdown$/,/^```$/p' | sed '/^```markdown$/d;/^```$/d')"
+          EOF_DELIM="$(openssl rand -hex 16)"
+          {
+            echo "changelog<<${EOF_DELIM}"
+            printf '%s\n' "$CHANGELOG"
+            echo "${EOF_DELIM}"
+          } >> "$GITHUB_OUTPUT"
 
   sync-notes:
     name: Sync Release Notes
