@@ -1412,7 +1412,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 	// Release quota only once the stop is real: IsActive can be a stale false, and an async
 	// controller may still create pods from a view older than the stop.
 	// TODO(#13308,#13163): obey QuotaReleaseStrategy here so OutOfSync matches eviction.
-	if job.IsActive() || !stopAcknowledged(job) {
+	if !stopSettled(job) {
 		return prebuiltWaitingForStop, nil
 	}
 	// The job may have finished while stopping; re-read before writing OutOfSync, which is
@@ -1426,10 +1426,21 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 	if _, _, finished := job.Finished(ctx); finished {
 		return prebuiltUseWorkload, nil
 	}
+	// Again on what the re-read returned. The check above ran against the object this reconcile
+	// started with, and the whole reason to re-read is that it may have moved since.
+	if !stopSettled(job) {
+		return prebuiltWaitingForStop, nil
+	}
 	if err := workloadfinish.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock); err != nil {
 		return prebuiltWaitingForStop, err
 	}
 	return prebuiltUseWorkload, nil
+}
+
+// stopSettled reports whether the stop is done with: nothing running, and, where the integration
+// can say so, its own controller agreeing.
+func stopSettled(job GenericJob) bool {
+	return !job.IsActive() && stopAcknowledged(job)
 }
 
 // stopAcknowledged reports whether an async stop has been confirmed by its controller. Without it

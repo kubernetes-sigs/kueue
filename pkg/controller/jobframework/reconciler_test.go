@@ -1257,6 +1257,11 @@ type prebuiltJobState struct {
 	// that completes while stopping. finishedCalls counts the calls to detect the reload.
 	finishedOnReread bool
 	finishedCalls    int
+	// activeOnReread makes IsActive report running only from the reload on, modeling a
+	// controller that created a pod from a view older than the stop. activeCalls counts the
+	// calls the same way.
+	activeOnReread bool
+	activeCalls    int
 }
 
 // countingStopJob wraps a GenericJob mock and implements JobWithCustomStop so a second stop is
@@ -1302,7 +1307,10 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 		mgj.EXPECT().GVK().Return(gvk).AnyTimes()
 		mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(jobPodSets, nil).AnyTimes()
 		mgj.EXPECT().IsSuspended().DoAndReturn(func() bool { return st.suspended }).AnyTimes()
-		mgj.EXPECT().IsActive().DoAndReturn(func() bool { return st.active }).AnyTimes()
+		mgj.EXPECT().IsActive().DoAndReturn(func() bool {
+			st.activeCalls++
+			return st.active || (st.activeOnReread && st.activeCalls >= 2)
+		}).AnyTimes()
 		mgj.EXPECT().Suspend().Do(func() { st.suspended = true }).AnyTimes()
 		mgj.EXPECT().RestorePodSetsInfo(gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, info []podset.PodSetInfo) bool {
@@ -1450,6 +1458,22 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 		}
 		if reason := finishedReason(t, ctx, cl); reason != kueue.WorkloadFinishedReasonSucceeded {
 			t.Errorf("finished for %q, want %q", reason, kueue.WorkloadFinishedReasonSucceeded)
+		}
+	})
+
+	t.Run("a job that is running again at the reload is waited for, not marked OutOfSync", func(t *testing.T) {
+		// IsActive is false at the first check and true from the reload on: the external
+		// controller created a pod from a view older than the stop. The reload is the whole
+		// reason the second check exists — the first one ran against the object this reconcile
+		// started with, which is by then stale.
+		st := &prebuiltJobState{activeOnReread: true}
+		ctx, cl, r, mgj, req := setup(t, st, false)
+
+		if _, err := r.ReconcileGenericJob(ctx, req, mgj); err != nil {
+			t.Fatalf("reconcile: %v", err)
+		}
+		if reason := finishedReason(t, ctx, cl); reason != "" {
+			t.Errorf("finished for %q, want the workload still unfinished", reason)
 		}
 	})
 
