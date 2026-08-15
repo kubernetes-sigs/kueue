@@ -31,6 +31,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -2363,10 +2364,11 @@ func TestQueueSecondPassRefreshesDelayedTopologyWorkload(t *testing.T) {
 func TestQueueSecondPassRefreshAdjustsResources(t *testing.T) {
 	now := time.Now()
 	queuedWl := makeSecondPassDelayedTopologyWorkload(now)
-	containerResources := &queuedWl.Spec.PodSets[0].Template.Spec.Containers[0].Resources
-	containerResources.Limits = containerResources.Requests
-	containerResources.Requests = nil
 	latestWl := queuedWl.DeepCopy()
+	containerResources := &latestWl.Spec.PodSets[0].Template.Spec.Containers[0].Resources
+	containerResources.Limits = corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}
+	containerResources.Requests = nil
+	latestWl.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU] = resource.MustParse("2")
 
 	ctx, _ := utiltesting.ContextWithLog(t)
 	fakeClock := testingclock.NewFakeClock(now)
@@ -2386,8 +2388,8 @@ func TestQueueSecondPassRefreshAdjustsResources(t *testing.T) {
 		t.Fatalf("expected one ready workload, got %d", len(ready))
 	}
 	cpuRequest := ready[0].Obj.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU]
-	if got := cpuRequest.MilliValue(); got != 1000 {
-		t.Errorf("CPU request = %dm, want 1000m copied from the limit", got)
+	if got := cpuRequest.MilliValue(); got != 2000 {
+		t.Errorf("CPU request = %dm, want 2000m copied from the refreshed limit", got)
 	}
 }
 
@@ -2404,7 +2406,7 @@ func TestQueueSecondPassRetriesWorkloadRefresh(t *testing.T) {
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 				getCalls++
-				if getCalls == 1 {
+				if getCalls <= 2 {
 					return refreshErr
 				}
 				return cl.Get(ctx, key, obj, opts...)
@@ -2432,6 +2434,12 @@ func TestQueueSecondPassRetriesWorkloadRefresh(t *testing.T) {
 	}
 
 	waitForFakeClockWaiter(t, fakeClock)
+	fakeClock.Step(initialBackoff)
+	if ready := manager.secondPassQueue.takeAllReady(); len(ready) != 0 {
+		t.Fatalf("expected no ready workloads after the second refresh error, got %d", len(ready))
+	}
+
+	waitForFakeClockWaiter(t, fakeClock)
 	fakeClock.Step(2 * initialBackoff)
 	ready := manager.secondPassQueue.takeAllReady()
 	if len(ready) != 1 {
@@ -2440,8 +2448,11 @@ func TestQueueSecondPassRetriesWorkloadRefresh(t *testing.T) {
 	if diff := cmp.Diff(latestWl.Status.UnhealthyNodes, ready[0].Obj.Status.UnhealthyNodes); diff != "" {
 		t.Errorf("unexpected unhealthy nodes (-want,+got):\n%s", diff)
 	}
-	if getCalls != 2 {
-		t.Errorf("Get calls = %d, want 2", getCalls)
+	if ready[0].SecondPassIteration != 1 {
+		t.Errorf("SecondPassIteration = %d, want 1 after refresh retries", ready[0].SecondPassIteration)
+	}
+	if getCalls != 3 {
+		t.Errorf("Get calls = %d, want 3", getCalls)
 	}
 }
 

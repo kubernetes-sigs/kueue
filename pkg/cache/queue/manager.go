@@ -1014,22 +1014,22 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 func (m *Manager) scheduleSecondPass(ctx context.Context, w *kueue.Workload, iteration int) time.Duration {
 	delay := m.secondPassQueue.nextDelay(iteration)
 	m.clock.AfterFunc(delay, func() {
-		m.queueSecondPass(ctx, w, iteration)
+		m.queueSecondPass(ctx, w, iteration, 0)
 	})
 	return delay
 }
 
-func (m *Manager) rescheduleSecondPass(ctx context.Context, w *kueue.Workload, iteration int) time.Duration {
-	delay := m.secondPassQueue.nextDelay(iteration)
+func (m *Manager) rescheduleSecondPass(ctx context.Context, w *kueue.Workload, iteration, refreshIteration int) time.Duration {
+	delay := m.secondPassQueue.nextDelay(refreshIteration)
 	// Clock callbacks aren't guaranteed to support registering another timer
 	// synchronously from inside the callback.
 	go m.clock.AfterFunc(delay, func() {
-		m.queueSecondPass(ctx, w, iteration)
+		m.queueSecondPass(ctx, w, iteration, refreshIteration)
 	})
 	return delay
 }
 
-func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration int) {
+func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration, refreshIteration int) {
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(w)
 	var latest kueue.Workload
@@ -1038,8 +1038,8 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 		case apierrors.IsNotFound(err), ctx.Err() != nil:
 			m.deleteSecondPassForWorkload(w)
 		default:
-			iteration++
-			delay := m.rescheduleSecondPass(ctx, w, iteration)
+			refreshIteration++
+			delay := m.rescheduleSecondPass(ctx, w, iteration, refreshIteration)
 			log.Error(err, "Failed to refresh workload before the second pass; retrying", "workload", wlKey, "delay", delay)
 		}
 		return
