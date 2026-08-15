@@ -42,6 +42,7 @@ var _ jobframework.GenericJob = (*KubeflowJob)(nil)
 var _ jobframework.JobWithPriorityClass = (*KubeflowJob)(nil)
 var _ jobframework.JobWithCustomValidation = (*KubeflowJob)(nil)
 var _ jobframework.JobWithManagedBy = (*KubeflowJob)(nil)
+var _ jobframework.JobWithStopAcknowledgement = (*KubeflowJob)(nil)
 
 func (j *KubeflowJob) Object() client.Object {
 	return j.KFJobControl.Object()
@@ -138,6 +139,22 @@ func (j *KubeflowJob) IsActive() bool {
 		}
 	}
 	return false
+}
+
+// StopAcknowledged reports whether the training operator carried out the suspend. It zeroes the
+// replicas' active counts in the same status write that sets Suspended, so only a reported "not
+// suspended" holds.
+func (j *KubeflowJob) StopAcknowledged() bool {
+	status := j.KFJobControl.JobStatus()
+	if status == nil {
+		return true
+	}
+	for _, c := range status.Conditions {
+		if c.Type == kftraining.JobSuspended {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return true
 }
 
 func (j *KubeflowJob) PodsReady(ctx context.Context, _ client.Client) bool {
