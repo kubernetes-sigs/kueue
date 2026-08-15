@@ -419,7 +419,10 @@ func (s *Scheduler) processEntry(
 	// We may also recompute in case of overlapping preemption targets with another workload.
 	// Recompute when needed so CQs considered later in the cycle don't repeatedly
 	// lose to earlier CQs and starve for prolonged periods.
-	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
+	usage, fits, overlapRecomputeOutcome := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
+	if overlapRecomputeOutcome != "" {
+		metrics.ReportPreemptionTargetRecomputation(e.ClusterQueue, overlapRecomputeOutcome, s.customLabels.CQGet(e.ClusterQueue), s.roleTracker)
+	}
 	mode := e.assignment.RepresentativeMode()
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
@@ -709,7 +712,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	e *entry,
 	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
-	preemptedWorkloads preemption.PreemptedWorkloads) (workload.Usage, bool) {
+	preemptedWorkloads preemption.PreemptedWorkloads) (workload.Usage, bool, string) {
 	usage := e.assignmentUsage(log)
 	fitsCheck := fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
 
@@ -728,7 +731,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
 	default:
 		// Short-circuit, nothing to recompute.
-		return usage, schdcache.FitsCheckOk == fitsCheck
+		return usage, schdcache.FitsCheckOk == fitsCheck, ""
 	}
 	// Clear the last assignment so that we can start from the first flavor again and
 	// reach all flavors from the nomination.
@@ -750,7 +753,20 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	// clear the assignment flavors as they are only used within a single scheduling cycle
 	e.NominationMapping = nil
 
-	return usage, schdcache.FitsCheckOk == fitsCheck
+	// Determine the overlap recomputation outcome for metrics reporting.
+	overlapRecomputeOutcome := ""
+	if needsOverlapRecompute {
+		switch {
+		case e.assignment.RepresentativeMode() == flavorassigner.DeferredFit:
+			overlapRecomputeOutcome = metrics.PreemptionTargetRecomputationOutcomeDeferredFit
+		case fitsCheck == schdcache.FitsCheckOk && !preemptedWorkloads.HasAny(newTargets):
+			overlapRecomputeOutcome = metrics.PreemptionTargetRecomputationOutcomeNewTargets
+		default:
+			overlapRecomputeOutcome = metrics.PreemptionTargetRecomputationOutcomeSkipped
+		}
+	}
+
+	return usage, schdcache.FitsCheckOk == fitsCheck, overlapRecomputeOutcome
 }
 
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,

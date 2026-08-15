@@ -48,6 +48,16 @@ const (
 	PendingStatusActive       = "active"
 	PendingStatusInadmissible = "inadmissible"
 
+	// PreemptionTargetRecomputationOutcomeNewTargets is recorded when the
+	// recomputation selects non-overlapping preemption targets.
+	PreemptionTargetRecomputationOutcomeNewTargets = "new_targets"
+	// PreemptionTargetRecomputationOutcomeDeferredFit is recorded when the
+	// workload will fit only after earlier preemptions in the cycle complete.
+	PreemptionTargetRecomputationOutcomeDeferredFit = "deferred_fit"
+	// PreemptionTargetRecomputationOutcomeSkipped is recorded when the
+	// recomputation does not resolve the overlap and the workload is skipped.
+	PreemptionTargetRecomputationOutcomeSkipped = "skipped"
+
 	// CQStatusPending means the ClusterQueue is accepted but not yet active,
 	// this can be because of:
 	// - a missing ResourceFlavor referenced by the ClusterQueue
@@ -87,6 +97,10 @@ var (
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
 	AdmissionCyclePreemptionSkips *prometheus.GaugeVec
+
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",outcome="one of `new_targets`, `deferred_fit`, or `skipped`",replica_role="one of `leader`, `follower`, or `standalone`"
+	PreemptionTargetRecomputationsTotal *prometheus.CounterVec
 
 	// Metrics tied to the queue system.
 
@@ -408,6 +422,19 @@ The label 'result' can have the following values:
 		}, append([]string{"cluster_queue", "replica_role"}, clusterQueueMetricsLabels...),
 	)
 	trackGaugeVec(AdmissionCyclePreemptionSkips, gaugeCleanupScopeClusterQueue)
+
+	PreemptionTargetRecomputationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "preemption_target_recomputations_total",
+			Help: `The total number of preemption target recomputations triggered when a workload's preemption
+targets overlap with targets selected by another workload in the same scheduling cycle.
+The label 'outcome' can have the following values:
+- '` + PreemptionTargetRecomputationOutcomeNewTargets + `' means the recomputation resolved the overlap by selecting non-overlapping targets.
+- '` + PreemptionTargetRecomputationOutcomeDeferredFit + `' means the workload will fit only after earlier preemptions in the cycle complete.
+- '` + PreemptionTargetRecomputationOutcomeSkipped + `' means the recomputation did not resolve the overlap and the workload was skipped.`,
+		}, append([]string{"cluster_queue", "outcome", "replica_role"}, clusterQueueMetricsLabels...),
+	)
 
 	buildInfo = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -1459,6 +1486,15 @@ func ReportAdmissionCyclePreemptionSkips(cqName kueue.ClusterQueueReference, cou
 	AdmissionCyclePreemptionSkips.WithLabelValues(labels...).Set(float64(count))
 }
 
+// ReportPreemptionTargetRecomputation increments the counter for a preemption
+// target recomputation outcome. The outcome must be one of
+// PreemptionTargetRecomputationOutcomeNewTargets, PreemptionTargetRecomputationOutcomeDeferredFit,
+// or PreemptionTargetRecomputationOutcomeSkipped.
+func ReportPreemptionTargetRecomputation(cqName kueue.ClusterQueueReference, outcome string, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), outcome, roletracker.GetRole(tracker)}, customLabelValues...)
+	PreemptionTargetRecomputationsTotal.WithLabelValues(labels...).Inc()
+}
+
 func clearScopedGaugeMetrics(scope gaugeCleanupScope, lbls prometheus.Labels) {
 	for _, g := range gaugeVecsByScope[scope] {
 		g.DeletePartialMatch(lbls)
@@ -1532,6 +1568,7 @@ func Register() {
 		MultiKueueWorkloadsDispatchedTotal,
 		MultiKueueWorkloadsAdmittedTotal,
 		AdmissionCyclePreemptionSkips,
+		PreemptionTargetRecomputationsTotal,
 		PendingWorkloads,
 		PendingSchedulingHashes,
 		FinishedWorkloads,
