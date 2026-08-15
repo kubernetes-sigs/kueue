@@ -19,27 +19,43 @@ set -o nounset
 set -o pipefail
 
 function usage() {
-  echo "${0} [-p|--prod] <version>"
+  echo "${0} [-p|--prod] [-t|--timeout <duration>] <version>"
   echo
   echo "  Wait for images"
   echo
   echo "  Options:"
-  echo "    -p, --prod  Check production registry (default: staging)"
+  echo "    -p, --prod               Check production registry (default: staging)"
+  echo "    -t, --timeout <duration> Maximum time to wait (e.g., 3600 or 3600s). Default: no timeout."
   echo
   echo "  Example:"
   echo "    $0 v0.13.2"
   echo "    $0 -p v0.13.2"
-  echo "    $0 --prod v0.13.2"
+  echo "    $0 --prod --timeout 3600s v0.13.2"
   echo
   exit 2
 }
 
 IMAGE_REGISTRY="us-central1-docker.pkg.dev/k8s-staging-images/kueue"
+TIMEOUT_SECONDS=0
+
 while [[ $# -gt 0 ]]; do
   case $1 in
     -p|--prod)
       IMAGE_REGISTRY="registry.k8s.io/kueue"
       shift
+      ;;
+    -t|--timeout)
+      if [[ -z "${2:-}" ]]; then
+        echo "!!! Error: --timeout requires an argument."
+        usage
+      fi
+      # Strip trailing 's' if present (e.g., 3600s -> 3600)
+      TIMEOUT_SECONDS="${2%s}"
+      if [[ ! "$TIMEOUT_SECONDS" =~ ^[0-9]+$ ]]; then
+        echo "!!! Error: Timeout must be a positive integer."
+        exit 1
+      fi
+      shift 2
       ;;
     -*)
       usage
@@ -61,8 +77,8 @@ if [[ ! "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+\.[0-9]+)?$ 
   exit 1
 fi
 
-if ! command -v gcloud >/dev/null 2>&1; then
-  echo "!!! gcloud is not installed. Please install the Google Cloud SDK. See https://cloud.google.com/sdk/docs/install for details."
+if ! command -v crane >/dev/null 2>&1; then
+  echo "!!! crane is not installed. Please install it or use the github action step."
   exit 1
 fi
 
@@ -73,13 +89,11 @@ function check_image() {
   local version="$2"
   local full_image_name="${IMAGE_REGISTRY}/${image_name}:${version}"
   echo "  Checking if \"${full_image_name}\" is available."
-  local image_details
-  image_details=$(gcloud container images describe "${full_image_name}" --verbosity error --format json || true)
-  if [ -n "$image_details" ]; then
-    image_name_with_digest=$(echo "$image_details" | jq -r '.image_summary.fully_qualified_digest')
-    echo "    ✅ Image \"${image_name_with_digest}\" is available."
-    hash=$(echo "$image_name_with_digest" | grep -o -E "sha256:.+")
-    echo "    $hash"
+
+  local digest
+  if digest=$(crane digest "${full_image_name}" 2>/dev/null); then
+    echo "    ✅ Image \"${full_image_name}@${digest}\" is available."
+    echo "    ${digest}"
     return 0
   else
     echo "    🚫 Image \"${full_image_name}\" is not found."
@@ -96,7 +110,7 @@ function check_images() {
       kueue-priority-booster
   )
 
-    local charts=(
+  local charts=(
       kueue
       kueue-populator
       kueue-priority-booster
@@ -114,18 +128,26 @@ function check_images() {
   echo "Charts:"
   for chart in "${charts[@]}"; do
     echo ""
-    # Charts require tag without `v` prefix.
     if ! check_image "charts/${chart}" "${RELEASE_VERSION#v}"; then
       return 1
     fi
   done
-
 }
+
+# The built-in $SECONDS variable resets to 0 here to keep time tracking accurate
+SECONDS=0
 
 while true; do
   if check_images; then
     break
   fi
+
+  # Verify if a timeout was requested and if we exceeded it
+  if [[ "$TIMEOUT_SECONDS" -gt 0 && "$SECONDS" -ge "$TIMEOUT_SECONDS" ]]; then
+    echo "!!! Error: Timed out waiting for images after ${TIMEOUT_SECONDS}s."
+    exit 1
+  fi
+
   echo "Try again in 5 seconds..."
   sleep 5
 done
