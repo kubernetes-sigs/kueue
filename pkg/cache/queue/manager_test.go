@@ -3237,7 +3237,7 @@ func TestForgetInflight(t *testing.T) {
 		t.Fatalf("Failed adding clusterQueue: %v", err)
 	}
 
-	popped := manager.PopFrom(ctx, "cq")
+	popped := manager.PopFrom("cq")
 	if popped == nil || workload.Key(popped.Obj) != "earth/a" {
 		t.Fatalf("PopFrom returned %v, want earth/a", popped)
 	}
@@ -3288,7 +3288,7 @@ func TestRequeueWorkloadWhileInflight(t *testing.T) {
 				t.Fatalf("Failed adding clusterQueue: %v", err)
 			}
 		}
-		popped := manager.PopFrom(ctx, "cq")
+		popped := manager.PopFrom("cq")
 		if popped == nil || workload.Key(popped.Obj) != "earth/a" {
 			t.Fatalf("PopFrom returned %v, want earth/a", popped)
 		}
@@ -3385,7 +3385,7 @@ func TestDeleteLocalQueueReleasesInflight(t *testing.T) {
 		t.Fatalf("Failed adding clusterQueue: %v", err)
 	}
 
-	popped := manager.PopFrom(ctx, "cq")
+	popped := manager.PopFrom("cq")
 	if popped == nil || workload.Key(popped.Obj) != "earth/a" {
 		t.Fatalf("PopFrom returned %v, want earth/a", popped)
 	}
