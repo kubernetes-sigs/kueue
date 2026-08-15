@@ -106,7 +106,9 @@ type JobWithCustomStop interface {
 // alone, which is where every integration was before this interface existed, so one whose
 // controller can still act on a pre-stop view is only as covered as its IsActive makes it.
 type JobWithStopAcknowledgement interface {
-	// StopAcknowledged reports whether the stop is complete: no pods remain or will be recreated.
+	// StopAcknowledged reports whether the controller that owns the job has reported acting on
+	// the stop. How far down its own children that reaches is up to the integration, so this is
+	// read together with IsActive rather than on its own.
 	StopAcknowledged() bool
 }
 

@@ -212,10 +212,15 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 		}
 	}
 
+	// An already stopped job comes back here on every reconcile that waits for it, so report
+	// whether there is anything left to write rather than patching an unchanged object.
 	if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
-		j.RestorePodSetsInfo(ctx, podSetsInfo)
-		delete(j.Annotations, StoppingAnnotation)
-		return true, nil
+		changed := j.RestorePodSetsInfo(ctx, podSetsInfo)
+		if _, stopping := j.Annotations[StoppingAnnotation]; stopping {
+			delete(j.Annotations, StoppingAnnotation)
+			changed = true
+		}
+		return changed, nil
 	}); err != nil {
 		return false, fmt.Errorf("restore info: %w", err)
 	}

@@ -4364,10 +4364,10 @@ func TestReconciler(t *testing.T) {
 
 				features.AssignQueueLabelsForPods: true,
 			},
+			// Already suspended, and the Job controller has acknowledged it, so this reconcile
+			// decides rather than submitting the stop.
 			job: baseJobWrapper.
 				Clone().
-				Suspend(false).
-				// The Job controller has acknowledged the suspend, so the workload may finish.
 				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
 				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
@@ -4411,12 +4411,6 @@ func TestReconciler(t *testing.T) {
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",
-					Reason:    "Stopped",
-					Message:   "The prebuilt workload is out of sync with its user job",
-				},
-				{
-					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
-					EventType: "Normal",
 					Reason:    "FinishedWorkload",
 					Message:   "Workload 'ns/prebuilt-workload' is declared finished",
 				},
@@ -4427,11 +4421,10 @@ func TestReconciler(t *testing.T) {
 				features.TopologyAwareScheduling:  false,
 				features.AssignQueueLabelsForPods: true,
 			},
-			// No JobSuspended condition: the Job controller has not confirmed the stop, so the
-			// workload keeps its quota and finalizer instead of being finished as OutOfSync.
+			// Suspended already, but with no JobSuspended condition: the Job controller has not
+			// confirmed the stop, so the workload keeps its quota and finalizer.
 			job: baseJobWrapper.
 				Clone().
-				Suspend(false).
 				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
@@ -4461,14 +4454,6 @@ func TestReconciler(t *testing.T) {
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
 					Obj(),
-			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "Stopped",
-					Message:   "The prebuilt workload is out of sync with its user job",
-				},
 			},
 		},
 		"the workload is not admitted, tolerations and node selector change": {

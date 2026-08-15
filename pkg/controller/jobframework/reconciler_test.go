@@ -1251,20 +1251,26 @@ type prebuiltJobState struct {
 	success   bool
 	restored  bool
 	// suspendedAtWrite is what suspended was when the workload's status was
-	// last written, which is how the order between the two is asserted.
+	// last written, and workloadWritten records that it was written at all.
 	suspendedAtWrite bool
+	workloadWritten  bool
 	// finishedOnReread makes Finished report terminal only from the reload on, modeling a job
-	// that completes while stopping. finishedCalls counts the calls to detect the reload.
+	// that completes while stopping. finishedCalls counts the calls to find the reload: the
+	// first pass reads it once before stopping, the second once more before the reload.
 	finishedOnReread bool
 	finishedCalls    int
-	// finishedAfterWrite makes Finished report terminal only from the read that follows the
-	// OutOfSync write, modeling a job that ends while that write is in flight.
+	// finishedAfterWrite makes Finished report terminal only once the workload's status has been
+	// written, modeling a job that ends while the OutOfSync write is in flight.
 	finishedAfterWrite bool
 	// activeOnReread makes IsActive report running only from the reload on, modeling a
 	// controller that created a pod from a view older than the stop. activeCalls counts the
 	// calls the same way.
 	activeOnReread bool
 	activeCalls    int
+	// uidChangesOnReload models a job deleted and recreated under the same name between the
+	// reconcile's own read and the reload. jobGets counts the reads to tell the two apart.
+	uidChangesOnReload bool
+	jobGets            int
 }
 
 // countingStopJob wraps a GenericJob mock and implements JobWithCustomStop so a second stop is
@@ -1290,6 +1296,12 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 		countStops bool
 		// podsGoAway drops IsActive and reconciles again, which is how the wait ends.
 		podsGoAway bool
+		// secondPass reconciles again without changing anything. The pass that submits the stop
+		// never decides, so every case that reaches a decision needs one.
+		secondPass bool
+		// finishedOutOfSync starts the workload already finished as out of sync, which is what
+		// an earlier pass leaves behind when the correction could not be written.
+		finishedOutOfSync bool
 
 		wantErr           bool
 		wantStopped       bool
@@ -1309,6 +1321,7 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 		// The job has no pods at this instant but is not suspended, so it is free to
 		// create one. Stopping it is what makes finishing the workload safe.
 		"a job with no pods yet is stopped before its workload is finished": {
+			secondPass:        true,
 			wantStopped:       true,
 			wantRestored:      true,
 			wantReason:        kueue.WorkloadFinishedReasonOutOfSync,
@@ -1333,6 +1346,7 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 		// retry decision — never OutOfSync.
 		"a job that finishes while stopping keeps its own reason, not OutOfSync": {
 			state:        prebuiltJobState{finishedOnReread: true, success: true},
+			secondPass:   true,
 			wantStopped:  true,
 			wantRestored: true,
 			wantReason:   kueue.WorkloadFinishedReasonSucceeded,
@@ -1342,6 +1356,7 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 		// after the write has to put the job's own reason back.
 		"a job that ends while the OutOfSync write is in flight has its reason corrected": {
 			state:             prebuiltJobState{finishedAfterWrite: true, success: true},
+			secondPass:        true,
 			wantStopped:       true,
 			wantRestored:      true,
 			wantReason:        kueue.WorkloadFinishedReasonSucceeded,
@@ -1353,8 +1368,26 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 		// started with, which is by then stale.
 		"a job that is running again at the reload is waited for, not marked OutOfSync": {
 			state:        prebuiltJobState{activeOnReread: true},
+			secondPass:   true,
 			wantStopped:  true,
 			wantRestored: true,
+		},
+		// Without the UID check the reload would hand this reconcile a different job that happens
+		// to carry the same name, and the workload it holds is not that job's.
+		// It falls through to the no-workload path, which is where a prebuilt job whose workload
+		// is not its own belongs, and that path reports the workload as not found.
+		"a job replaced under the same name between the read and the reload is not usable": {
+			state:       prebuiltJobState{suspended: true, uidChangesOnReload: true},
+			wantErr:     true,
+			wantStopped: true,
+		},
+		// An earlier pass finished the workload as out of sync and could not write the
+		// correction. The finalizer is still on, so the reason the job ended with can replace it.
+		"a workload already finished as OutOfSync is corrected before it is finalized": {
+			state:             prebuiltJobState{finished: true, success: true},
+			finishedOutOfSync: true,
+			wantReason:        kueue.WorkloadFinishedReasonSucceeded,
+			wantFinalizerGone: true,
 		},
 		// The old bool return turned "waiting" into wl==nil, so the reconciler fell into
 		// handleJobWithNoWorkload and stopped the job a second time as "missing workload".
@@ -1382,12 +1415,20 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 				PrebuiltWorkloadLabel(wlName).
 				Suspend(st.suspended).
 				Obj()
-			wl := utiltestingapi.MakeWorkload(wlName, "ns").
+			wlWrapper := utiltestingapi.MakeWorkload(wlName, "ns").
 				PodSets(wlPodSets...).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
 				Finalizers(kueue.ResourceInUseFinalizerName).
-				ControllerReference(gvk, "job-1", "job-1").
-				Obj()
+				ControllerReference(gvk, "job-1", "job-1")
+			if tc.finishedOutOfSync {
+				wlWrapper = wlWrapper.Condition(metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadFinishedReasonOutOfSync,
+					Message: "The prebuilt workload is out of sync with its user job",
+				})
+			}
+			wl := wlWrapper.Obj()
 
 			mgj := mocks.NewMockGenericJob(mockctrl)
 			mgj.EXPECT().Object().Return(job).AnyTimes()
@@ -1408,8 +1449,8 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 				DoAndReturn(func(context.Context) (string, bool, bool) {
 					st.finishedCalls++
 					finished := st.finished ||
-						(st.finishedOnReread && st.finishedCalls >= 2) ||
-						(st.finishedAfterWrite && st.finishedCalls >= 3)
+						(st.finishedOnReread && st.finishedCalls >= 3) ||
+						(st.finishedAfterWrite && st.workloadWritten)
 					return "by the job", st.success, finished
 				}).AnyTimes()
 
@@ -1419,6 +1460,18 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 				WithStatusSubresource(job, wl).
 				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(gvk), indexer.WorkloadOwnerIndexFunc(gvk)).
 				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if err := c.Get(ctx, key, obj, opts...); err != nil {
+							return err
+						}
+						if reloaded, isJob := obj.(*batchv1.Job); isJob {
+							st.jobGets++
+							if st.uidChangesOnReload && st.jobGets >= 2 {
+								reloaded.UID = "a-different-job"
+							}
+						}
+						return nil
+					},
 					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 						if _, isJob := obj.(*batchv1.Job); isJob && tc.failStop {
 							return errors.New("the job could not be stopped")
@@ -1428,6 +1481,7 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 					SubResourcePatch: func(ctx context.Context, c client.Client, sub string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 						if _, isWorkload := obj.(*kueue.Workload); isWorkload {
 							st.suspendedAtWrite = st.suspended
+							st.workloadWritten = true
 						}
 						return c.SubResource(sub).Patch(ctx, obj, patch, opts...)
 					},
@@ -1447,13 +1501,13 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 				t.Fatalf("ReconcileGenericJob() error = %v, wantErr %v", err, tc.wantErr)
 			}
 
-			if tc.podsGoAway {
+			if tc.podsGoAway || tc.secondPass {
 				var mid kueue.Workload
 				if err := cl.Get(ctx, wlKey, &mid); err != nil {
 					t.Fatalf("getting the workload: %v", err)
 				}
 				if cond := apimeta.FindStatusCondition(mid.Status.Conditions, kueue.WorkloadFinished); cond != nil && cond.Status == metav1.ConditionTrue {
-					t.Errorf("the workload was finished for %q while its pods were running", cond.Reason)
+					t.Errorf("the workload was finished for %q on the pass that submitted the stop", cond.Reason)
 				}
 				st.active = false
 				// The workload is handled here, so the reconcile has nothing left to

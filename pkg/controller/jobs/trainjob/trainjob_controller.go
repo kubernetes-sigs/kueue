@@ -127,8 +127,9 @@ func (t *TrainJob) IsActive() bool {
 	return false
 }
 
-// StopAcknowledged reports whether the trainer controller carried out the suspend. The JobsStatus
-// active counts trail the child JobSet, so only a reported "not suspended" holds.
+// StopAcknowledged reports whether the trainer controller has run since the suspend: it applies the
+// child JobSet and only then sets this condition from the parent spec. The JobSet and the Jobs under
+// it still have to act, which is what IsActive is read for.
 func (t *TrainJob) StopAcknowledged() bool {
 	cond := apimeta.FindStatusCondition(t.Status.Conditions, kftrainer.TrainJobSuspended)
 	return cond == nil || cond.Status == metav1.ConditionTrue

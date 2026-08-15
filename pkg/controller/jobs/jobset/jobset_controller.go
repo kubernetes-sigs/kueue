@@ -100,9 +100,9 @@ func (j *JobSet) IsActive() bool {
 	return false
 }
 
-// StopAcknowledged reports whether the JobSet controller carried out the suspend. IsActive sums the
-// child Jobs' active counts, which are zero before those Jobs exist as well as after they are gone.
-// Only a reported "not suspended" holds; an absent condition is not a reading.
+// StopAcknowledged reports whether the JobSet controller has suspended the child Jobs it saw: it
+// writes their spec and sets this condition in the same call. The Job controllers still have to act
+// on that, which is what IsActive is read for. Only a reported "not suspended" holds.
 func (j *JobSet) StopAcknowledged() bool {
 	cond := apimeta.FindStatusCondition(j.Status.Conditions, string(jobsetapi.JobSetSuspended))
 	return cond == nil || cond.Status == metav1.ConditionTrue

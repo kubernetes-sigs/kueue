@@ -471,7 +471,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// and drop the finalizer.
 	if wl != nil && !wl.DeletionTimestamp.IsZero() {
 		log.V(2).Info("The workload is marked for deletion")
-		err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted")
+		_, err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted")
 		if err != nil {
 			log.Error(err, "Suspending job with deleted workload")
 		} else {
@@ -599,7 +599,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 6. handle eviction
 	if evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evCond != nil && evCond.Status == metav1.ConditionTrue {
 		log.V(3).Info("Handling a job with evicted condition")
-		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadEvicted, evCond.Message); err != nil {
+		if _, err := r.stopJob(ctx, job, wl, StopReasonWorkloadEvicted, evCond.Message); err != nil {
 			return ctrl.Result{}, err
 		}
 		if workload.HasQuotaReservation(wl) {
@@ -678,7 +678,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, nil
 		}
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
-		err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Not admitted by cluster queue")
+		_, err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Not admitted by cluster queue")
 		if err != nil {
 			log.Error(err, "Suspending job with non admitted workload")
 		}
@@ -1115,7 +1115,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, key types.Namespa
 			} else {
 				msg = "No matching Workload; restoring pod templates according to existent Workload"
 			}
-			if err := r.stopJob(ctx, job, w, StopReasonNoMatchingWorkload, msg); err != nil {
+			if _, err := r.stopJob(ctx, job, w, StopReasonNoMatchingWorkload, msg); err != nil {
 				return nil, fmt.Errorf("stopping job with no matching workload: %w", err)
 			}
 		}
@@ -1400,14 +1400,26 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 		return prebuiltUseWorkload, nil
 	}
 
-	// A finished job keeps the reason it ended with, which the caller writes.
+	// A finished job keeps the reason it ended with, which the caller writes. An earlier pass may
+	// have already written OutOfSync from a view taken before the job ended, and the caller is
+	// about to drop the finalizer on that reason, so this is the last place it can be put right.
 	if _, _, finished := job.Finished(ctx); finished {
+		if err := r.correctOutOfSync(ctx, wl, job); err != nil {
+			return prebuiltWaitingForStop, err
+		}
 		return prebuiltUseWorkload, nil
 	}
 
+	uid := job.Object().GetUID()
 	msg := "The prebuilt workload is out of sync with its user job"
-	if err := r.stopJob(ctx, job, wl, StopReasonNoMatchingWorkload, msg); err != nil {
+	stoppedNow, err := r.stopJob(ctx, job, wl, StopReasonNoMatchingWorkload, msg)
+	if err != nil {
 		return prebuiltWaitingForStop, err
+	}
+	// Nothing read in this pass can reflect a stop this pass submitted, so end it here. The stop
+	// is a spec change on the job we watch, which is what brings the next one.
+	if stoppedNow {
+		return prebuiltWaitingForStop, nil
 	}
 	// Release quota only once the stop is real: IsActive can be a stale false, and an async
 	// controller may still create pods from a view older than the stop.
@@ -1420,7 +1432,9 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 	reloadKey := key
 	if gone, err := r.loadJob(ctx, &reloadKey, job); err != nil {
 		return prebuiltWaitingForStop, err
-	} else if gone {
+	} else if gone || job.Object().GetUID() != uid {
+		// A job deleted and recreated under the same name is a different job, and the workload
+		// this one carries is not its own.
 		return prebuiltNoUsableWorkload, nil
 	}
 	if _, _, finished := job.Finished(ctx); finished {
@@ -1440,7 +1454,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 	postWriteKey := key
 	if gone, err := r.loadJob(ctx, &postWriteKey, job); err != nil {
 		return prebuiltWaitingForStop, err
-	} else if !gone {
+	} else if !gone && job.Object().GetUID() == uid {
 		if err := r.correctOutOfSync(ctx, wl, job); err != nil {
 			return prebuiltWaitingForStop, err
 		}
@@ -1616,8 +1630,9 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 }
 
 // stopJob will suspend the job, and also restore node affinity, reset job status if needed.
-// Returns whether any operation was done to stop the job or an error.
-func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.Workload, stopReason StopReason, eventMsg string) error {
+// It reports whether this call is what stopped the job, so a caller that has just changed the
+// object does not go on to read a status that cannot have caught up with the change yet.
+func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.Workload, stopReason StopReason, eventMsg string) (bool, error) {
 	object := job.Object()
 
 	info := GetPodSetsInfoFromWorkload(wl)
@@ -1627,7 +1642,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		if stoppedNow {
 			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
 		}
-		return err
+		return stoppedNow, err
 	}
 
 	if jws, implements := job.(ComposableJob); implements {
@@ -1641,11 +1656,11 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		for _, objStoppedNow := range stoppedNow {
 			r.record.Eventf(objStoppedNow, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
 		}
-		return err
+		return len(stoppedNow) > 0, err
 	}
 
 	if job.IsSuspended() {
-		return nil
+		return false, nil
 	}
 
 	if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
@@ -1655,11 +1670,11 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		}
 		return true, nil
 	}); err != nil {
-		return err
+		return false, err
 	}
 
 	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
-	return nil
+	return true, nil
 }
 
 func (r *JobReconciler) finalizeJob(ctx context.Context, job GenericJob) error {
@@ -1896,7 +1911,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object())
 	if prebuiltWorkload != "" {
 		// Stop the job if not already suspended
-		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
+		if _, stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
 			return stopErr
 		}
 	}
