@@ -77,6 +77,7 @@ type JobSet jobsetapi.JobSet
 var _ jobframework.GenericJob = (*JobSet)(nil)
 var _ jobframework.JobWithReclaimablePods = (*JobSet)(nil)
 var _ jobframework.JobWithManagedBy = (*JobSet)(nil)
+var _ jobframework.JobWithStopAcknowledgement = (*JobSet)(nil)
 
 func fromObject(obj runtime.Object) *JobSet {
 	return (*JobSet)(obj.(*jobsetapi.JobSet))
@@ -97,6 +98,14 @@ func (j *JobSet) IsActive() bool {
 		}
 	}
 	return false
+}
+
+// StopAcknowledged reports whether the JobSet controller carried out the suspend. IsActive sums the
+// child Jobs' active counts, which are zero before those Jobs exist as well as after they are gone.
+// Only a reported "not suspended" holds; an absent condition is not a reading.
+func (j *JobSet) StopAcknowledged() bool {
+	cond := apimeta.FindStatusCondition(j.Status.Conditions, string(jobsetapi.JobSetSuspended))
+	return cond == nil || cond.Status == metav1.ConditionTrue
 }
 
 func (j *JobSet) Suspend() {
