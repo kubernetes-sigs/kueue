@@ -103,19 +103,18 @@ func (w *MpiJobWebhook) Default(ctx context.Context, obj *v2beta1.MPIJob) error 
 
 	jobframework.ApplyDefaultForManagedBy(mpiJob, w.queues, w.cache, log)
 
-	if features.Enabled(features.TopologyAwareScheduling) && ptr.Deref(mpiJob.Spec.RunLauncherAsWorker, false) {
-		replicaSpecs := mpiJob.Spec.MPIReplicaSpecs
-		launcherSpec := replicaSpecs[v2beta1.MPIReplicaTypeLauncher]
-		workerSpec := replicaSpecs[v2beta1.MPIReplicaTypeWorker]
-		if launcherSpec != nil && workerSpec != nil {
+	if replicaSpecs := mpiJob.Spec.MPIReplicaSpecs; features.Enabled(features.TopologyAwareScheduling) && ptr.Deref(mpiJob.Spec.RunLauncherAsWorker, false) {
+		if launcherSpec, workerSpec := replicaSpecs[v2beta1.MPIReplicaTypeLauncher], replicaSpecs[v2beta1.MPIReplicaTypeWorker]; launcherSpec != nil && workerSpec != nil {
 			// The offset is handled as PodSet group scheduling mechanism separately in topology-unGater
 			// when the MPIJob constructs PodSet group across Launcher and Worker.
-			if _, isPodSetGroup := launcherSpec.Template.Annotations[kueue.PodSetGroupName]; !isPodSetGroup {
-				if workerSpec.Template.Annotations == nil {
-					workerSpec.Template.Annotations = make(map[string]string)
-				}
-				workerSpec.Template.Annotations[kueue.PodIndexOffsetAnnotation] = "1"
+			if _, isPodSetGroup := launcherSpec.Template.Annotations[kueue.PodSetGroupName]; isPodSetGroup {
+				return nil
 			}
+
+			if workerSpec.Template.Annotations == nil {
+				workerSpec.Template.Annotations = make(map[string]string)
+			}
+			workerSpec.Template.Annotations[kueue.PodIndexOffsetAnnotation] = "1"
 		}
 	}
 
