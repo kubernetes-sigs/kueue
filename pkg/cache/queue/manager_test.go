@@ -3220,9 +3220,8 @@ func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
 
 // TestForgetInflight verifies that a popped workload whose inflight entry is
 // explicitly forgotten becomes visible to PushOrUpdate again. Without the
-// cleanup, the stale inflight entry would make PushOrUpdate ignore every
-// future update for the workload (the entry is no longer overwritten by a
-// later Pop since inflight became a map).
+// cleanup, the stale entry would make PushOrUpdate ignore every future update
+// for the workload.
 func TestForgetInflight(t *testing.T) {
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()

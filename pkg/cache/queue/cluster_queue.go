@@ -749,6 +749,12 @@ func (c *ClusterQueue) DumpInadmissible() ([]workload.Reference, bool) {
 	return c.workloads.DumpInadmissible()
 }
 
+func (c *ClusterQueue) DumpInflight() ([]workload.Reference, bool) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.workloads.DumpInflight()
+}
+
 // Snapshot returns a copy of pending workloads in queue order.
 // When fair-sharing is enabled, FS usage is pre-computed per LocalQueue
 // from a point-in-time copy of AFS state before sorting.
