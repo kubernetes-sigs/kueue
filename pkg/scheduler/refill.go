@@ -158,7 +158,7 @@ func (r *refillPass) tryRefill(ctx context.Context, e *entry) (refillStopReason,
 		}
 		return refillStopBudget, nil
 	}
-	wl := r.scheduler.queues.PopFrom(ctx, e.ClusterQueue)
+	wl := r.scheduler.queues.PopFrom(e.ClusterQueue)
 	if wl == nil {
 		return refillStopQueueEmpty, nil
 	}

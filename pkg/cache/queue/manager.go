@@ -962,23 +962,33 @@ func (m *Manager) heads() []workload.Info {
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 			continue
 		}
-		wl := cq.Pop()
-		reportCQPendingWorkloads(m, cq)
-		if wl == nil {
-			continue
+		if wl := m.takePopped(cq, cq.Pop()); wl != nil {
+			workloads = append(workloads, *wl)
 		}
-		wlKey := workload.Key(wl.Obj)
-		wlCopy := *wl
-		wlCopy.ClusterQueue = cqName
-		workloads = append(workloads, wlCopy)
-
-		qKey := m.workloadAssignedQueues[wlKey]
-		q := m.localQueues[qKey]
-		delete(q.items, wlKey)
-
-		reportLQPendingWorkloads(m, q)
 	}
 	return workloads
+}
+
+// takePopped brings the rest of the queue layer in line with a pop that has
+// already moved the workload off the ClusterQueue's heap: it refreshes the
+// pending counters and drops the workload from its LocalQueue, which is what
+// AddFromLocalQueue would otherwise replay. Returns the workload stamped with
+// its ClusterQueue, or nil when the pop found nothing.
+func (m *Manager) takePopped(cq *ClusterQueue, wl *workload.Info) *workload.Info {
+	reportCQPendingWorkloads(m, cq)
+	if wl == nil {
+		return nil
+	}
+	wlCopy := *wl
+	wlCopy.ClusterQueue = cq.GetName()
+	// Defensive: deleting a LocalQueue removes its workloads from the heap
+	// under the same lock, so q is expected to exist here.
+	wlKey := workload.Key(wl.Obj)
+	if q := m.localQueues[m.workloadAssignedQueues[wlKey]]; q != nil {
+		delete(q.items, wlKey)
+		reportLQPendingWorkloads(m, q)
+	}
+	return &wlCopy
 }
 
 // PopFrom pops the head of the given ClusterQueue so it can join the running
@@ -987,7 +997,7 @@ func (m *Manager) heads() []workload.Info {
 // workloads returned by Heads, must be requeued or deleted by the caller
 // before the end of the cycle. Returns nil if the ClusterQueue is unknown,
 // inactive, or has no pending workloads.
-func (m *Manager) PopFrom(ctx context.Context, cqName kueue.ClusterQueueReference) *workload.Info {
+func (m *Manager) PopFrom(cqName kueue.ClusterQueueReference) *workload.Info {
 	m.Lock()
 	defer m.Unlock()
 	cq := m.hm.ClusterQueue(cqName)
@@ -998,21 +1008,7 @@ func (m *Manager) PopFrom(ctx context.Context, cqName kueue.ClusterQueueReferenc
 	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 		return nil
 	}
-	wl := cq.PopMidCycle()
-	reportCQPendingWorkloads(m, cq)
-	if wl == nil {
-		return nil
-	}
-	wlKey := workload.Key(wl.Obj)
-	wlCopy := *wl
-	wlCopy.ClusterQueue = cqName
-	// Defensive: deleting a LocalQueue removes its workloads from the heap
-	// under the same lock, so q is expected to exist here.
-	if q := m.localQueues[m.workloadAssignedQueues[wlKey]]; q != nil {
-		delete(q.items, wlKey)
-		reportLQPendingWorkloads(m, q)
-	}
-	return &wlCopy
+	return m.takePopped(cq, cq.PopMidCycle())
 }
 
 // HasQueuedWorkloads reports whether the ClusterQueue has a workload waiting
