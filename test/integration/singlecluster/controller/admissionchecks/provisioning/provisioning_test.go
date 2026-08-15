@@ -18,6 +18,7 @@ package provisioning
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -30,7 +31,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -43,6 +46,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -1596,6 +1600,195 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			})
 		})
 	})
+
+	// These specs exercise the ProvisioningRequest side of elastic Jobs:
+	// a scale-up admits a replacement Workload that
+	// points back at the previously admitted origin slice via the
+	// kueue.x-k8s.io/workload-slice-replacement-for annotation, and the
+	// provisioning controller must only ask the cluster-autoscaler for the
+	// incremental capacity beyond what the origin already holds. Regression
+	// coverage for a bug where a scale-down fully covered by the origins
+	// admission produced a ProvisioningRequest with an empty (invalid)
+	// Spec.PodSets instead of being treated as NoRequestNeeded.
+	ginkgo.When("A replacement workload slice reuses capacity from its previous admission", func() {
+		var (
+			ns  *corev1.Namespace
+			ac  *kueue.AdmissionCheck
+			prc *kueue.ProvisioningRequestConfig
+			rf  *kueue.ResourceFlavor
+			cq  *kueue.ClusterQueue
+			lq  *kueue.LocalQueue
+		)
+
+		ginkgo.JustBeforeEach(func() {
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-slices-")
+
+			prc = baseConfig.Clone().RetryLimit(0).Obj()
+			util.MustCreate(ctx, k8sClient, prc)
+
+			ac = utiltestingapi.MakeAdmissionCheck("ac-prov-slices").
+				ControllerName(kueue.ProvisioningRequestControllerName).
+				Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", prc.Name).
+				Obj()
+			util.MustCreate(ctx, k8sClient, ac)
+
+			rf = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
+			util.MustCreate(ctx, k8sClient, rf)
+
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue-slices").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
+					Resource(corev1.ResourceCPU, "10").Obj()).
+				AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cq)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+			lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.MustCreate(ctx, k8sClient, lq)
+			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ac, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
+		})
+
+		// admitOriginSlice creates a Workload standing in for an elastic Jobs
+		// first workload slice and drives it all the way to Admitted: quota
+		// reserved, its ProvisioningRequest accepted and provisioned, so the
+		// admission check goes Ready. This mirrors what a real cluster does
+		// end-to-end and gives later specs a genuinely admitted predecessor to
+		// subtract from.
+		admitOriginSlice := func(name string, count int) *kueue.Workload {
+			origin := utiltestingapi.MakeWorkload(name, ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				PodSets(*utiltestingapi.MakePodSet("workers", count).
+					Request(corev1.ResourceCPU, "1").
+					Image("image").
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, origin)
+
+			originAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment("workers").
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), strconv.Itoa(count)).
+					Count(int32(count)).
+					Obj()).
+				Obj()
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(origin), originAdmission)
+
+			originProvReqKey := types.NamespacedName{
+				Namespace: ns.Name,
+				Name:      provisioning.ProvisioningRequestName(origin.Name, kueue.AdmissionCheckReference(ac.Name), 1),
+			}
+			gomega.Eventually(func(g gomega.Gomega) {
+				var originRequest autoscaling.ProvisioningRequest
+				g.Expect(k8sClient.Get(ctx, originProvReqKey, &originRequest)).Should(gomega.Succeed())
+				apimeta.SetStatusCondition(&originRequest.Status.Conditions, metav1.Condition{
+					Type:   autoscaling.Accepted,
+					Status: metav1.ConditionTrue,
+					Reason: "Reason",
+				})
+				apimeta.SetStatusCondition(&originRequest.Status.Conditions, metav1.Condition{
+					Type:   autoscaling.Provisioned,
+					Status: metav1.ConditionTrue,
+					Reason: autoscaling.Provisioned,
+				})
+				g.Expect(k8sClient.Status().Update(ctx, &originRequest)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, origin)
+			return origin
+		}
+
+		makeReplacement := func(origin *kueue.Workload, count int) *kueue.Workload {
+			replacement := utiltestingapi.MakeWorkload("replacement", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Annotations(map[string]string{
+					workloadslicing.WorkloadSliceReplacementFor: string(workload.Key(origin)),
+				}).
+				PodSets(*utiltestingapi.MakePodSet("workers", count).
+					Request(corev1.ResourceCPU, "1").
+					Image("image").
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, replacement)
+			return replacement
+		}
+
+		ginkgo.It("Should mark the admission check ready without creating a provisioning request when the replacement is fully covered", framework.SlowSpec, func() {
+			ginkgo.By("admitting an origin slice with 3 workers")
+			origin := admitOriginSlice("origin", 3)
+
+			ginkgo.By("creating a replacement slice that scales down to 2 workers")
+			replacement := makeReplacement(origin, 2)
+			replacementKey := client.ObjectKeyFromObject(replacement)
+
+			ginkgo.By("setting the quota reservation on the replacement slice", func() {
+				replacementAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment("workers").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "2").
+						Count(2).
+						Obj()).
+					Obj()
+				util.SetQuotaReservation(ctx, k8sClient, replacementKey, replacementAdmission)
+			})
+
+			ginkgo.By("checking that no provisioning request is created for the replacement, since its 2 workers are already covered by the origin's 3", func() {
+				replacementProvReqKey := types.NamespacedName{
+					Namespace: ns.Name,
+					Name:      provisioning.ProvisioningRequestName(replacement.Name, kueue.AdmissionCheckReference(ac.Name), 1),
+				}
+				var createdRequest autoscaling.ProvisioningRequest
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, replacementProvReqKey, &createdRequest)).Should(utiltesting.BeNotFoundError())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking the admission check is Ready because no incremental capacity is needed", func() {
+				util.ExpectAdmissionCheckStateWithMessage(ctx, k8sClient, replacementKey, ac.Name, kueue.CheckStateReady, provisioning.NoRequestNeeded)
+			})
+
+			ginkgo.By("checking the replacement slice becomes admitted despite never getting its own provisioning request", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacement)
+			})
+		})
+
+		ginkgo.It("Should request only the incremental PodSet count when the replacement scales beyond the previous admission", framework.SlowSpec, func() {
+			ginkgo.By("admitting an origin slice with 2 workers")
+			origin := admitOriginSlice("origin", 2)
+
+			ginkgo.By("creating a replacement slice that scales up to 5 workers")
+			replacement := makeReplacement(origin, 5)
+			replacementKey := client.ObjectKeyFromObject(replacement)
+
+			ginkgo.By("setting the quota reservation on the replacement slice", func() {
+				replacementAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment("workers").
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "5").
+						Count(5).
+						Obj()).
+					Obj()
+				util.SetQuotaReservation(ctx, k8sClient, replacementKey, replacementAdmission)
+			})
+
+			ginkgo.By("checking that the provisioning request only asks for the 3 new workers, not all 5", func() {
+				replacementProvReqKey := types.NamespacedName{
+					Namespace: ns.Name,
+					Name:      provisioning.ProvisioningRequestName(replacement.Name, kueue.AdmissionCheckReference(ac.Name), 1),
+				}
+				var createdRequest autoscaling.ProvisioningRequest
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, replacementProvReqKey, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				gomega.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
+				gomega.Expect(createdRequest.Spec.PodSets[0].Count).To(gomega.Equal(int32(3)))
+			})
+		})
+	})
 })
 
 var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller:provisioning", "area:admissionchecks", "feature:provisioning"), func() {
@@ -2088,6 +2281,205 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 						corev1.ResourceMemory: flavor2Ref,
 					}))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	// This exercises a real elastic batch/v1 Job end to end through the actual
+	// job reconciler, scheduler and ProvisioningRequest admission check, rather
+	// than a hand-built Workload/annotation fixture: it is the integration-level
+	// counterpart to the unit tests covering incremental-capacity requests for
+	// WorkloadSlice replacements.
+	ginkgo.When("An elastic Job scales up while a ProvisioningRequest admission check is enabled", func() {
+		ginkgo.It("Should request only the incremental PodSet count for the replacement slice", framework.SlowSpec, func() {
+			// Reuse the shared outer cq/lq vars (rather than shadowing them with a
+			// local declaration) so the shared AfterEach's cleanup - which deletes
+			// cq/lq before checking that rf1/rf2 are no longer in use - actually
+			// tears down this ClusterQueue/LocalQueue instead of silently no-oping
+			// on nil and leaving rf1 (referenced by this CQ) stuck "still in use".
+			ginkgo.By("Set up ClusterQueue and LocalQueue", func() {
+				cq = utiltestingapi.MakeClusterQueue("cluster-queue-elastic").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf1.Name).Resource(corev1.ResourceCPU, "10").Obj()).
+					AdmissionChecks(ac1Ref).
+					Obj()
+				util.MustCreate(ctx, k8sClient, cq)
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+				lq = utiltestingapi.MakeLocalQueue("queue-elastic", ns.Name).ClusterQueue(cq.Name).Obj()
+				util.MustCreate(ctx, k8sClient, lq)
+				util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			})
+
+			var job *batchv1.Job
+			var originKey types.NamespacedName
+			ginkgo.By("submitting an elastic Job with 2 workers", func() {
+				job = testingjob.MakeJob("elastic-job", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Parallelism(2).
+					Completions(10).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				util.MustCreate(ctx, k8sClient, job)
+				ginkgo.DeferCleanup(func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, job, true)
+				})
+				// Elastic jobs fold the job's generation into the workload name hash
+				// (see newWorkloadName in pkg/controller/jobframework/reconciler.go), so the
+				// plain GetWorkloadNameForJob helper doesn't reproduce it. Discover the
+				// origin workload by listing instead of predicting its name.
+				gomega.Eventually(func(g gomega.Gomega) {
+					workloads := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+					g.Expect(workloads.Items).To(gomega.HaveLen(1))
+					originKey = client.ObjectKeyFromObject(&workloads.Items[0])
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("awaiting the origin slice's ProvisioningRequest and marking it Provisioned", func() {
+				originReqKey := types.NamespacedName{
+					Namespace: ns.Name,
+					Name:      provisioning.ProvisioningRequestName(originKey.Name, ac1Ref, 1),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, originReqKey, &createdRequest)).Should(gomega.Succeed())
+					g.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
+					g.Expect(createdRequest.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Accepted,
+						Status: metav1.ConditionTrue,
+						Reason: "Reason",
+					})
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("awaiting the origin slice to be Admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, originKey, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("scaling the Job up to 4 workers", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+					job.Spec.Parallelism = ptr.To[int32](4)
+					g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			var replacementKey types.NamespacedName
+			ginkgo.By("awaiting a replacement slice created by the real job controller, referencing the origin", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					workloads := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+					for i := range workloads.Items {
+						wl := &workloads.Items[i]
+						if wl.Name == originKey.Name {
+							continue
+						}
+						if workloadslicing.ReplacementForKey(wl) != nil {
+							replacementKey = client.ObjectKeyFromObject(wl)
+							g.Expect(wl.Annotations).To(gomega.HaveKeyWithValue(
+								workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(&wlObj))))
+							g.Expect(wl.Annotations).To(gomega.HaveKeyWithValue(
+								workloadslicing.PreviousPodSetCountsAnnotation, `{"main":2}`))
+							return
+						}
+					}
+					g.Expect(replacementKey).ToNot(gomega.Equal(types.NamespacedName{}), "no replacement slice found yet")
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking the replacement's ProvisioningRequest asks for only the incremental 2 workers, not the full 4", func() {
+				replacementReqKey := types.NamespacedName{
+					Namespace: ns.Name,
+					Name:      provisioning.ProvisioningRequestName(replacementKey.Name, ac1Ref, 1),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, replacementReqKey, &createdRequest)).Should(gomega.Succeed())
+					g.Expect(createdRequest.Spec.PodSets).To(gomega.HaveLen(1))
+					g.Expect(createdRequest.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)),
+						"expected only the incremental delta (4-2=2), not the full replacement count")
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Accepted,
+						Status: metav1.ConditionTrue,
+						Reason: "Reason",
+					})
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("awaiting the replacement slice to become Admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, replacementKey, &wlObj)).Should(gomega.Succeed())
+					g.Expect(workload.Status(&wlObj)).To(gomega.Equal(workload.StatusAdmitted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking the Job itself stays running, unaffected by the metadata refresh on the running elastic job", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+					g.Expect(job.Spec.Suspend).ToNot(gomega.HaveValue(gomega.BeTrue()))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+
+			// TopologyAwareScheduling defaults to enabled (since v0.14), so
+			// getPodSetsInfoFromStatus always stamps the elastic PodSet info with
+			// kueue.WorkloadAnnotation = <admitted workload's name>. That name is the
+			// replacement slice's on this resize, differing from what's already on the
+			// Job's pod template (the origin slice's name) - a genuine field change, not
+			// a noop. The running Job's pod template is immutable once unsuspended, so
+			// the real API server rejects RunWithPodSetsInfo's patch with Invalid, and
+			// ReconcileGenericJob's elastic refresh path swallows that error instead of
+			// erroring every reconcile (see apierrors.IsInvalid handling in
+			// ReconcileGenericJob). Assert the template is actually left stale, not just
+			// that the Job survives: a unit test can't see this since RunWithPodSetsInfo
+			// is mocked there, only a real API server enforces Job immutability.
+			ginkgo.By("checking the Job's pod template keeps the stale origin-slice identity, since a running batch/v1 Job's pod template is immutable", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+					g.Expect(job.Spec.Template.Annotations).To(gomega.HaveKeyWithValue(kueue.WorkloadAnnotation, originKey.Name))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+
+			// batch/v1 Job deletion is defaulted to the legacy "orphan" propagation
+			// policy, which makes the API server stamp the Job with the built-in
+			// metav1.FinalizerOrphanDependents finalizer; only the (non-running-in-envtest)
+			// garbage-collector controller ever clears that finalizer once dependents are
+			// orphaned, so left alone the Job would stay in Terminating forever here. Force-clear
+			// it directly (the same fallback util.DeleteNamespace's own cleanup uses for other
+			// resources) rather than waiting on a controller that envtest never starts.
+			ginkgo.By("deleting the Job and clearing its workloads", func() {
+				gomega.Expect(client.IgnoreNotFound(util.DeleteObject(ctx, k8sClient, job))).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					newJob := &batchv1.Job{}
+					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(job), newJob)
+					if err == nil && controllerutil.RemoveFinalizer(newJob, metav1.FinalizerOrphanDependents) {
+						g.Expect(k8sClient.Update(ctx, newJob)).Should(gomega.Succeed())
+					}
+					g.Expect(err).Should(utiltesting.BeNotFoundError())
+				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				// Kueue only marks orphaned Workloads Finished and releases their quota;
+				// it never deletes them (that's left to the separate, unconfigured-here
+				// workload-retention controller), so wait for the Finished condition rather
+				// than for the Workloads to disappear.
+				workloads := &kueue.WorkloadList{}
+				gomega.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				for i := range workloads.Items {
+					util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, client.ObjectKeyFromObject(&workloads.Items[i]), util.LongTimeout)
+				}
 			})
 		})
 	})
