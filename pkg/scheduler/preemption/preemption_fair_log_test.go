@@ -193,34 +193,6 @@ func targetClusterQueueName(t *testing.T, decoded map[string]any) string {
 	return name
 }
 
-// strategyEvaluations reads the strategyEvaluations array field back out of a
-// decoded log entry.
-func strategyEvaluations(t *testing.T, decoded map[string]any) []map[string]any {
-	t.Helper()
-	// When a nested DRS is a raw +Inf float, json.Marshal of the array fails
-	// and zapcore replaces the whole field with strategyEvaluationsError.
-	if err, ok := decoded["strategyEvaluationsError"]; ok {
-		t.Fatalf("strategyEvaluations failed to serialize: %v", err)
-	}
-	raw, ok := decoded["strategyEvaluations"]
-	if !ok {
-		t.Fatalf("log entry is missing the strategyEvaluations array field: %v", decoded)
-	}
-	rawEvaluations, ok := raw.([]any)
-	if !ok {
-		t.Fatalf("strategyEvaluations has unexpected type %T", raw)
-	}
-	evaluations := make([]map[string]any, 0, len(rawEvaluations))
-	for _, rawEvaluation := range rawEvaluations {
-		evaluation, ok := rawEvaluation.(map[string]any)
-		if !ok {
-			t.Fatalf("evaluation has unexpected type %T", rawEvaluation)
-		}
-		evaluations = append(evaluations, evaluation)
-	}
-	return evaluations
-}
-
 // decodeLogEntry renders an observed log entry through zap's JSON encoder,
 // which is what the production logging stack does, and decodes the result.
 // This is the form that reaches a log index, so it is the form in which the
@@ -325,7 +297,16 @@ func TestRunFirstFsStrategyLogging(t *testing.T) {
 
 			if tc.wantNoArrayBuilt {
 				// A disabled strategy log must not accumulate entries even as record is called.
-				candCQ := firstCandidateClusterQueue(t, fixture)
+				ctx := fixture.preemptionCtx
+				ordering := fairsharing.MakeClusterQueueOrdering(ctx.preemptorCQ, fixture.candidates, ctx.log, ctx.clock)
+				var candCQ *fairsharing.TargetClusterQueue
+				for cq := range ordering.Iter() {
+					candCQ = cq
+					break
+				}
+				if candCQ == nil {
+					t.Fatalf("the target ordering yielded no candidate ClusterQueue")
+				}
 				preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 				strategyLog := newFsStrategyLog(log, candCQ, preemptorNewShare, targetOldShare)
 				if strategyLog.enabled {
@@ -396,7 +377,21 @@ func TestRunFirstFsStrategyLogging(t *testing.T) {
 					}
 				}
 
-				evaluations := strategyEvaluations(t, decoded)
+				if err, ok := decoded["strategyEvaluationsError"]; ok {
+					t.Fatalf("strategyEvaluations failed to serialize: %v", err)
+				}
+				rawEvaluations, ok := decoded["strategyEvaluations"].([]any)
+				if !ok {
+					t.Fatalf("log entry is missing the strategyEvaluations array: %v", decoded)
+				}
+				evaluations := make([]map[string]any, 0, len(rawEvaluations))
+				for _, rawEvaluation := range rawEvaluations {
+					evaluation, ok := rawEvaluation.(map[string]any)
+					if !ok {
+						t.Fatalf("evaluation has unexpected type %T", rawEvaluation)
+					}
+					evaluations = append(evaluations, evaluation)
+				}
 				gotEvaluationsByCQ[targetCQ] = len(evaluations)
 				for _, evaluation := range evaluations {
 					if tc.wantEvaluationsByCQ != nil {
@@ -473,17 +468,4 @@ func TestRunSecondFsStrategyLog(t *testing.T) {
 			}
 		})
 	}
-}
-
-// firstCandidateClusterQueue returns the first TargetClusterQueue that the
-// target ordering yields for the fixture's candidates.
-func firstCandidateClusterQueue(t *testing.T, fixture fsLogFixture) *fairsharing.TargetClusterQueue {
-	t.Helper()
-	ctx := fixture.preemptionCtx
-	ordering := fairsharing.MakeClusterQueueOrdering(ctx.preemptorCQ, fixture.candidates, ctx.log, ctx.clock)
-	for candCQ := range ordering.Iter() {
-		return candCQ
-	}
-	t.Fatalf("the target ordering yielded no candidate ClusterQueue")
-	return nil
 }
