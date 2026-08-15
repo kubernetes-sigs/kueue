@@ -99,6 +99,7 @@ var _ jobframework.GenericJob = (*TrainJob)(nil)
 var _ jobframework.JobWithCustomStop = (*TrainJob)(nil)
 var _ jobframework.JobWithReclaimablePods = (*TrainJob)(nil)
 var _ jobframework.JobWithManagedBy = (*TrainJob)(nil)
+var _ jobframework.JobWithStopAcknowledgement = (*TrainJob)(nil)
 
 func NewJob() jobframework.GenericJob {
 	return &TrainJob{}
@@ -124,6 +125,13 @@ func (t *TrainJob) IsActive() bool {
 		}
 	}
 	return false
+}
+
+// StopAcknowledged reports whether the trainer controller carried out the suspend. The JobsStatus
+// active counts trail the child JobSet, so only a reported "not suspended" holds.
+func (t *TrainJob) StopAcknowledged() bool {
+	cond := apimeta.FindStatusCondition(t.Status.Conditions, kftrainer.TrainJobSuspended)
+	return cond == nil || cond.Status == metav1.ConditionTrue
 }
 
 func (t *TrainJob) Suspend() {
