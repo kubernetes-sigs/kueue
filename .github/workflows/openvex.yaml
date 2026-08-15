@@ -19,7 +19,7 @@ jobs:
           TAG=${{ github.event.inputs.tag }}
           echo "TAG=$TAG" >> "$GITHUB_ENV"
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: openvex/generate-vex@c59881b41451d7ccba5c3b74cd195382b8971fcd
         name: Run vexctl
         with:
