@@ -157,11 +157,14 @@ func TestAmountArithmetic(t *testing.T) {
 				}
 			},
 		},
-		"Add saturates on bounded overflow becomes Unlimited": {
+		"Add saturates on bounded overflow stays below the sentinel": {
 			run: func(t *testing.T) {
 				got := NewAmount(math.MaxInt64 - 5).Add(NewAmount(100))
-				if !got.isUnlimited() {
-					t.Errorf("bounded saturated overflow should become Unlimited (MaxInt64 sentinel), got %v", got)
+				if got.isUnlimited() {
+					t.Errorf("bounded saturated overflow must stay below the Unlimited sentinel, got Unlimited")
+				}
+				if got.Int64() != math.MaxInt64-1 {
+					t.Errorf("bounded saturated overflow = %d, want MaxInt64-1", got.Int64())
 				}
 			},
 		},
@@ -214,11 +217,27 @@ func TestAmountArithmetic(t *testing.T) {
 				}
 			},
 		},
-		"AddInt64 saturates": {
+		"AddInt64 saturates below the sentinel": {
 			run: func(t *testing.T) {
 				got := NewAmount(math.MaxInt64 - 1).AddInt64(100)
-				if got.Int64() != math.MaxInt64 {
-					t.Errorf("got %d, want MaxInt64", got.Int64())
+				if got.isUnlimited() {
+					t.Errorf("AddInt64 bounded overflow must not become the Unlimited sentinel")
+				}
+				if got.Int64() != math.MaxInt64-1 {
+					t.Errorf("got %d, want MaxInt64-1", got.Int64())
+				}
+			},
+		},
+		"AddInt64 of a MaxInt64 request stays countable usage (#14105)": {
+			run: func(t *testing.T) {
+				// A PodSet request can reach MaxInt64 via a saturating Mul by the count;
+				// counted as usage it must stay bounded, or the CQ stops counting others.
+				got := NewAmount(0).AddInt64(math.MaxInt64)
+				if got.isUnlimited() {
+					t.Errorf("a MaxInt64 request must be counted as bounded usage, not Unlimited")
+				}
+				if got.Int64() != math.MaxInt64-1 {
+					t.Errorf("got %d, want MaxInt64-1", got.Int64())
 				}
 			},
 		},

@@ -109,13 +109,22 @@ func (a Amount) AsApproximateFloat64(name corev1.ResourceName) float64 {
 	return float64(a.value)
 }
 
-// Add returns a + b, propagating Unlimited and saturating bounded overflow at
-// math.MaxInt64.
+// boundedAmount keeps a saturated result one below the math.MaxInt64 Unlimited
+// sentinel, so a bounded total is never mistaken for "no limit".
+func boundedAmount(v int64) Amount {
+	if v == math.MaxInt64 {
+		v = math.MaxInt64 - 1
+	}
+	return Amount{value: v}
+}
+
+// Add returns a + b, propagating Unlimited and saturating bounded overflow just
+// below the math.MaxInt64 Unlimited sentinel.
 func (a Amount) Add(b Amount) Amount {
 	if a.isUnlimited() || b.isUnlimited() {
 		return Unlimited
 	}
-	return Amount{value: utilmath.SaturatingAdd(a.value, b.value)}
+	return boundedAmount(utilmath.SaturatingAdd(a.value, b.value))
 }
 
 // AddInt64 returns a + v.
@@ -123,7 +132,7 @@ func (a Amount) AddInt64(v int64) Amount {
 	if a.isUnlimited() {
 		return a
 	}
-	return Amount{value: utilmath.SaturatingAdd(a.value, v)}
+	return boundedAmount(utilmath.SaturatingAdd(a.value, v))
 }
 
 // Sub returns a - b. If a is Unlimited and b is bounded, the result stays
