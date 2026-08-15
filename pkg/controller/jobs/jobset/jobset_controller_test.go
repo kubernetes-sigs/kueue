@@ -412,9 +412,6 @@ func TestRestorePodSetsInfo(t *testing.T) {
 }
 
 func TestStopAcknowledged(t *testing.T) {
-	suspended := func(status metav1.ConditionStatus) []metav1.Condition {
-		return []metav1.Condition{{Type: string(jobset.JobSetSuspended), Status: status}}
-	}
 	testCases := map[string]struct {
 		conditions []metav1.Condition
 		want       bool
@@ -430,12 +427,18 @@ func TestStopAcknowledged(t *testing.T) {
 			want: true,
 		},
 		"suspended false: the controller reports it running, so the stop is not carried out": {
-			conditions: suspended(metav1.ConditionFalse),
-			want:       false,
+			conditions: []metav1.Condition{{
+				Type:   string(jobset.JobSetSuspended),
+				Status: metav1.ConditionFalse,
+			}},
+			want: false,
 		},
 		"suspended true: the controller carried out the stop": {
-			conditions: suspended(metav1.ConditionTrue),
-			want:       true,
+			conditions: []metav1.Condition{{
+				Type:   string(jobset.JobSetSuspended),
+				Status: metav1.ConditionTrue,
+			}},
+			want: true,
 		},
 	}
 

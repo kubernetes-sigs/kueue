@@ -1280,219 +1280,200 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 	const wlName = "prebuilt"
 	gvk := batchv1.SchemeGroupVersion.WithKind("Job")
 
-	setup := func(t *testing.T, st *prebuiltJobState, failStop bool) (context.Context, client.Client, *JobReconciler, *mocks.MockGenericJob, controllerruntime.Request) {
-		t.Helper()
-		ctx, _ := utiltesting.ContextWithLog(t)
-		mockctrl := gomock.NewController(t)
+	testCases := map[string]struct {
+		state    prebuiltJobState
+		failStop bool
+		// countStops swaps in a JobWithCustomStop so a second stop is observable.
+		countStops bool
+		// podsGoAway drops IsActive and reconciles again, which is how the wait ends.
+		podsGoAway bool
 
-		// The job wants one pod against two reserved, so the pair no longer matches.
-		jobPodSets := []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).Obj()}
-		wlPodSets := []kueue.PodSet{*utiltestingapi.MakePodSet("main", 2).Obj()}
-
-		job := testingjob.MakeJob("job-1", "ns").
-			Queue("cq").
-			UID("job-1").
-			PrebuiltWorkloadLabel(wlName).
-			Suspend(st.suspended).
-			Obj()
-		wl := utiltestingapi.MakeWorkload(wlName, "ns").
-			PodSets(wlPodSets...).
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
-			Finalizers(kueue.ResourceInUseFinalizerName).
-			ControllerReference(gvk, "job-1", "job-1").
-			Obj()
-
-		mgj := mocks.NewMockGenericJob(mockctrl)
-		mgj.EXPECT().Object().Return(job).AnyTimes()
-		mgj.EXPECT().GVK().Return(gvk).AnyTimes()
-		mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(jobPodSets, nil).AnyTimes()
-		mgj.EXPECT().IsSuspended().DoAndReturn(func() bool { return st.suspended }).AnyTimes()
-		mgj.EXPECT().IsActive().DoAndReturn(func() bool {
-			st.activeCalls++
-			return st.active || (st.activeOnReread && st.activeCalls >= 2)
-		}).AnyTimes()
-		mgj.EXPECT().Suspend().Do(func() { st.suspended = true }).AnyTimes()
-		mgj.EXPECT().RestorePodSetsInfo(gomock.Any(), gomock.Any()).
-			DoAndReturn(func(_ context.Context, info []podset.PodSetInfo) bool {
-				st.restored = len(info) > 0
-				return true
-			}).AnyTimes()
-		mgj.EXPECT().Finished(gomock.Any()).
-			DoAndReturn(func(context.Context) (string, bool, bool) {
-				st.finishedCalls++
-				finished := st.finished || (st.finishedOnReread && st.finishedCalls >= 2)
-				return "by the job", st.success, finished
-			}).AnyTimes()
-
-		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
-		builder := utiltesting.NewClientBuilder().
-			WithObjects(job, wl, ns).
-			WithStatusSubresource(job, wl).
-			WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(gvk), indexer.WorkloadOwnerIndexFunc(gvk))
-		builder = builder.WithInterceptorFuncs(interceptor.Funcs{
-			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-				if _, isJob := obj.(*batchv1.Job); isJob && failStop {
-					return errors.New("the job could not be stopped")
-				}
-				return c.Patch(ctx, obj, patch, opts...)
-			},
-			SubResourcePatch: func(ctx context.Context, c client.Client, sub string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-				if _, isWorkload := obj.(*kueue.Workload); isWorkload {
-					st.suspendedAtWrite = st.suspended
-				}
-				return c.SubResource(sub).Patch(ctx, obj, patch, opts...)
-			},
-		})
-		cl := builder.Build()
-		return ctx, cl, NewReconciler(cl, &utiltesting.EventRecorder{}), mgj,
-			controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "job-1"}}
-	}
-
-	finishedReason := func(t *testing.T, ctx context.Context, cl client.Client) string {
-		t.Helper()
-		var got kueue.Workload
-		if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: wlName}, &got); err != nil {
-			t.Fatalf("getting the workload: %v", err)
-		}
-		cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadFinished)
-		if cond == nil || cond.Status != metav1.ConditionTrue {
-			return ""
-		}
-		return cond.Reason
-	}
-
-	t.Run("the job is stopped and the workload waits for its pods", func(t *testing.T) {
-		st := &prebuiltJobState{active: true}
-		ctx, cl, r, mgj, req := setup(t, st, false)
-
-		if _, err := r.ReconcileGenericJob(ctx, req, mgj); err != nil {
-			t.Fatalf("first reconcile: %v", err)
-		}
-		if !st.suspended {
-			t.Error("the job was not stopped")
-		}
-		if !st.restored {
-			t.Error("the pod set info was not restored, so the workload was not handed to the stop")
-		}
-		if reason := finishedReason(t, ctx, cl); reason != "" {
-			t.Errorf("the workload was finished for %q while its pods were running", reason)
-		}
-
-		st.active = false
-		// The workload is handled here, so the reconcile has nothing left to
-		// report, rather than the not-found it used to retry on.
-		if _, err := r.ReconcileGenericJob(ctx, req, mgj); err != nil {
-			t.Fatalf("second reconcile: %v", err)
-		}
-		if reason := finishedReason(t, ctx, cl); reason != kueue.WorkloadFinishedReasonOutOfSync {
-			t.Errorf("finished for %q, want %q", reason, kueue.WorkloadFinishedReasonOutOfSync)
-		}
-		if !st.suspendedAtWrite {
-			t.Error("the workload was finished before the job was stopped")
-		}
-		var got kueue.Workload
-		if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: wlName}, &got); err != nil {
-			t.Fatalf("getting the workload: %v", err)
-		}
-		if len(got.Finalizers) != 0 {
-			t.Errorf("the finished workload kept its finalizers: %v", got.Finalizers)
-		}
-	})
-
-	// The job has no pods at this instant but is not suspended, so it is free to
-	// create one. Stopping it is what makes finishing the workload safe.
-	t.Run("a job with no pods yet is stopped before its workload is finished", func(t *testing.T) {
-		st := &prebuiltJobState{}
-		ctx, cl, r, mgj, req := setup(t, st, false)
-
-		if _, err := r.ReconcileGenericJob(ctx, req, mgj); err != nil {
-			t.Errorf("reconcile: %v", err)
-		}
-		if reason := finishedReason(t, ctx, cl); reason != kueue.WorkloadFinishedReasonOutOfSync {
-			t.Errorf("finished for %q, want %q", reason, kueue.WorkloadFinishedReasonOutOfSync)
-		}
-		if !st.suspendedAtWrite {
-			t.Error("the workload was finished before the job was stopped")
-		}
-	})
-
-	t.Run("a job that cannot be stopped keeps its quota", func(t *testing.T) {
-		st := &prebuiltJobState{}
-		ctx, cl, r, mgj, req := setup(t, st, true)
-
-		if _, err := r.ReconcileGenericJob(ctx, req, mgj); err == nil {
-			t.Fatal("the reconcile reported success although the job could not be stopped")
-		}
-		if reason := finishedReason(t, ctx, cl); reason != "" {
-			t.Errorf("the workload was finished for %q although the stop failed", reason)
-		}
-	})
-
-	for name, success := range map[string]bool{"succeeded": true, "failed": false} {
-		t.Run("a job that "+name+" keeps its own reason", func(t *testing.T) {
-			st := &prebuiltJobState{finished: true, success: success}
-			ctx, cl, r, mgj, req := setup(t, st, false)
-
-			if _, err := r.ReconcileGenericJob(ctx, req, mgj); err != nil {
-				t.Fatalf("reconcile: %v", err)
-			}
-			want := kueue.WorkloadFinishedReasonSucceeded
-			if !success {
-				want = kueue.WorkloadFinishedReasonFailed
-			}
-			if reason := finishedReason(t, ctx, cl); reason != want {
-				t.Errorf("finished for %q, want %q", reason, want)
-			}
-		})
-	}
-
-	t.Run("a job that finishes while stopping keeps its own reason, not OutOfSync", func(t *testing.T) {
+		wantErr           bool
+		wantStopped       bool
+		wantRestored      bool
+		wantReason        string
+		wantFinalizerGone bool
+		wantStops         int
+	}{
+		"a job with running pods is stopped, and its workload waits until they are gone": {
+			state:             prebuiltJobState{active: true},
+			podsGoAway:        true,
+			wantStopped:       true,
+			wantRestored:      true,
+			wantReason:        kueue.WorkloadFinishedReasonOutOfSync,
+			wantFinalizerGone: true,
+		},
+		// The job has no pods at this instant but is not suspended, so it is free to
+		// create one. Stopping it is what makes finishing the workload safe.
+		"a job with no pods yet is stopped before its workload is finished": {
+			wantStopped:       true,
+			wantRestored:      true,
+			wantReason:        kueue.WorkloadFinishedReasonOutOfSync,
+			wantFinalizerGone: true,
+		},
+		"a job that cannot be stopped keeps its quota": {
+			failStop:     true,
+			wantErr:      true,
+			wantStopped:  true,
+			wantRestored: true,
+		},
+		"a job that succeeded keeps its own reason": {
+			state:      prebuiltJobState{finished: true, success: true},
+			wantReason: kueue.WorkloadFinishedReasonSucceeded,
+		},
+		"a job that failed keeps its own reason": {
+			state:      prebuiltJobState{finished: true},
+			wantReason: kueue.WorkloadFinishedReasonFailed,
+		},
 		// Finished is false at the first check and true from the reload on: the job completed
-		// while stopping. The workload must finish as Succeeded — the input to MultiKueue's retry
-		// decision — never OutOfSync.
-		st := &prebuiltJobState{finishedOnReread: true, success: true}
-		ctx, cl, r, mgj, req := setup(t, st, false)
-
-		if _, err := r.ReconcileGenericJob(ctx, req, mgj); err != nil {
-			t.Fatalf("reconcile: %v", err)
-		}
-		if reason := finishedReason(t, ctx, cl); reason != kueue.WorkloadFinishedReasonSucceeded {
-			t.Errorf("finished for %q, want %q", reason, kueue.WorkloadFinishedReasonSucceeded)
-		}
-	})
-
-	t.Run("a job that is running again at the reload is waited for, not marked OutOfSync", func(t *testing.T) {
+		// while stopping. The workload must finish as Succeeded — the input to MultiKueue's
+		// retry decision — never OutOfSync.
+		"a job that finishes while stopping keeps its own reason, not OutOfSync": {
+			state:        prebuiltJobState{finishedOnReread: true, success: true},
+			wantStopped:  true,
+			wantRestored: true,
+			wantReason:   kueue.WorkloadFinishedReasonSucceeded,
+		},
 		// IsActive is false at the first check and true from the reload on: the external
 		// controller created a pod from a view older than the stop. The reload is the whole
 		// reason the second check exists — the first one ran against the object this reconcile
 		// started with, which is by then stale.
-		st := &prebuiltJobState{activeOnReread: true}
-		ctx, cl, r, mgj, req := setup(t, st, false)
-
-		if _, err := r.ReconcileGenericJob(ctx, req, mgj); err != nil {
-			t.Fatalf("reconcile: %v", err)
-		}
-		if reason := finishedReason(t, ctx, cl); reason != "" {
-			t.Errorf("finished for %q, want the workload still unfinished", reason)
-		}
-	})
-
-	t.Run("the job is stopped exactly once and waiting never enters the missing-workload path", func(t *testing.T) {
-		st := &prebuiltJobState{active: true}
-		ctx, cl, r, mgj, req := setup(t, st, false)
-		stops := 0
+		"a job that is running again at the reload is waited for, not marked OutOfSync": {
+			state:        prebuiltJobState{activeOnReread: true},
+			wantStopped:  true,
+			wantRestored: true,
+		},
 		// The old bool return turned "waiting" into wl==nil, so the reconciler fell into
 		// handleJobWithNoWorkload and stopped the job a second time as "missing workload".
-		job := &countingStopJob{MockGenericJob: mgj, stops: &stops}
+		"the job is stopped exactly once and waiting never enters the missing-workload path": {
+			state:      prebuiltJobState{active: true},
+			countStops: true,
+			wantStops:  1,
+		},
+	}
 
-		if _, err := r.ReconcileGenericJob(ctx, req, job); err != nil {
-			t.Fatalf("reconcile: %v", err)
-		}
-		if stops != 1 {
-			t.Errorf("stopped %d times, want exactly 1", stops)
-		}
-		if reason := finishedReason(t, ctx, cl); reason != "" {
-			t.Errorf("workload finished for %q while its pods were still running", reason)
-		}
-	})
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			mockctrl := gomock.NewController(t)
+			st := tc.state
+			wlKey := types.NamespacedName{Namespace: "ns", Name: wlName}
+
+			// The job wants one pod against two reserved, so the pair no longer matches.
+			jobPodSets := []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).Obj()}
+			wlPodSets := []kueue.PodSet{*utiltestingapi.MakePodSet("main", 2).Obj()}
+
+			job := testingjob.MakeJob("job-1", "ns").
+				Queue("cq").
+				UID("job-1").
+				PrebuiltWorkloadLabel(wlName).
+				Suspend(st.suspended).
+				Obj()
+			wl := utiltestingapi.MakeWorkload(wlName, "ns").
+				PodSets(wlPodSets...).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				ControllerReference(gvk, "job-1", "job-1").
+				Obj()
+
+			mgj := mocks.NewMockGenericJob(mockctrl)
+			mgj.EXPECT().Object().Return(job).AnyTimes()
+			mgj.EXPECT().GVK().Return(gvk).AnyTimes()
+			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(jobPodSets, nil).AnyTimes()
+			mgj.EXPECT().IsSuspended().DoAndReturn(func() bool { return st.suspended }).AnyTimes()
+			mgj.EXPECT().IsActive().DoAndReturn(func() bool {
+				st.activeCalls++
+				return st.active || (st.activeOnReread && st.activeCalls >= 2)
+			}).AnyTimes()
+			mgj.EXPECT().Suspend().Do(func() { st.suspended = true }).AnyTimes()
+			mgj.EXPECT().RestorePodSetsInfo(gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, info []podset.PodSetInfo) bool {
+					st.restored = len(info) > 0
+					return true
+				}).AnyTimes()
+			mgj.EXPECT().Finished(gomock.Any()).
+				DoAndReturn(func(context.Context) (string, bool, bool) {
+					st.finishedCalls++
+					finished := st.finished || (st.finishedOnReread && st.finishedCalls >= 2)
+					return "by the job", st.success, finished
+				}).AnyTimes()
+
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(job, wl, ns).
+				WithStatusSubresource(job, wl).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(gvk), indexer.WorkloadOwnerIndexFunc(gvk)).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if _, isJob := obj.(*batchv1.Job); isJob && tc.failStop {
+							return errors.New("the job could not be stopped")
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+					SubResourcePatch: func(ctx context.Context, c client.Client, sub string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						if _, isWorkload := obj.(*kueue.Workload); isWorkload {
+							st.suspendedAtWrite = st.suspended
+						}
+						return c.SubResource(sub).Patch(ctx, obj, patch, opts...)
+					},
+				}).
+				Build()
+			r := NewReconciler(cl, &utiltesting.EventRecorder{})
+			req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "job-1"}}
+
+			var genericJob GenericJob = mgj
+			stops := 0
+			if tc.countStops {
+				genericJob = &countingStopJob{MockGenericJob: mgj, stops: &stops}
+			}
+
+			_, err := r.ReconcileGenericJob(ctx, req, genericJob)
+			if gotErr := err != nil; gotErr != tc.wantErr {
+				t.Fatalf("ReconcileGenericJob() error = %v, wantErr %v", err, tc.wantErr)
+			}
+
+			if tc.podsGoAway {
+				var mid kueue.Workload
+				if err := cl.Get(ctx, wlKey, &mid); err != nil {
+					t.Fatalf("getting the workload: %v", err)
+				}
+				if cond := apimeta.FindStatusCondition(mid.Status.Conditions, kueue.WorkloadFinished); cond != nil && cond.Status == metav1.ConditionTrue {
+					t.Errorf("the workload was finished for %q while its pods were running", cond.Reason)
+				}
+				st.active = false
+				// The workload is handled here, so the reconcile has nothing left to
+				// report, rather than the not-found it used to retry on.
+				if _, err := r.ReconcileGenericJob(ctx, req, genericJob); err != nil {
+					t.Fatalf("second reconcile: %v", err)
+				}
+			}
+
+			var got kueue.Workload
+			if err := cl.Get(ctx, wlKey, &got); err != nil {
+				t.Fatalf("getting the workload: %v", err)
+			}
+			gotReason := ""
+			if cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadFinished); cond != nil && cond.Status == metav1.ConditionTrue {
+				gotReason = cond.Reason
+			}
+			if gotReason != tc.wantReason {
+				t.Errorf("the workload finished for %q, want %q", gotReason, tc.wantReason)
+			}
+			if st.suspended != tc.wantStopped {
+				t.Errorf("the job was stopped = %v, want %v", st.suspended, tc.wantStopped)
+			}
+			if st.restored != tc.wantRestored {
+				t.Errorf("the pod set info was restored = %v, want %v, which is how the workload reaches the stop", st.restored, tc.wantRestored)
+			}
+			if tc.wantReason == kueue.WorkloadFinishedReasonOutOfSync && !st.suspendedAtWrite {
+				t.Error("the workload was finished before the job was stopped")
+			}
+			if gone := len(got.Finalizers) == 0; gone != tc.wantFinalizerGone {
+				t.Errorf("the workload finalizers %v, want gone = %v", got.Finalizers, tc.wantFinalizerGone)
+			}
+			if stops != tc.wantStops {
+				t.Errorf("the job was stopped %d times, want %d", stops, tc.wantStops)
+			}
+		})
+	}
 }

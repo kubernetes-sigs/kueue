@@ -179,9 +179,6 @@ func TestPriorityClass(t *testing.T) {
 }
 
 func TestStopAcknowledged(t *testing.T) {
-	suspended := func(status corev1.ConditionStatus) []kftraining.JobCondition {
-		return []kftraining.JobCondition{{Type: kftraining.JobSuspended, Status: status}}
-	}
 	testcases := map[string]struct {
 		conditions []kftraining.JobCondition
 		want       bool
@@ -194,12 +191,18 @@ func TestStopAcknowledged(t *testing.T) {
 			want:       true,
 		},
 		"suspended false: the operator reports it running, so the stop is not carried out": {
-			conditions: suspended(corev1.ConditionFalse),
-			want:       false,
+			conditions: []kftraining.JobCondition{{
+				Type:   kftraining.JobSuspended,
+				Status: corev1.ConditionFalse,
+			}},
+			want: false,
 		},
 		"suspended true: the operator carried out the stop": {
-			conditions: suspended(corev1.ConditionTrue),
-			want:       true,
+			conditions: []kftraining.JobCondition{{
+				Type:   kftraining.JobSuspended,
+				Status: corev1.ConditionTrue,
+			}},
+			want: true,
 		},
 	}
 
