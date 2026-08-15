@@ -6,7 +6,7 @@ jobs:
   sync-notes:
     name: Sync Release Notes
     runs-on: ubuntu-latest
-    if: ${{ startsWith(github.event.comment.body, '/sync-release-notes') }}
+    if: ${{ contains(github.event.comment.body, '/sync-release-notes') }}
     permissions:
       contents: read
       issues: write
@@ -42,8 +42,8 @@ jobs:
           BODY: ${{ github.event.comment.body }}
           TITLE: ${{ github.event.issue.title }}
         run: |
-          if [[ ! "$BODY" =~ ^/sync-release-notes[[:space:]]*$ ]]; then
-            echo "Error: Invalid command format. Use /sync-release-notes without arguments."
+          if ! printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/sync-release-notes[[:space:]]*$'; then
+            echo "Error: Invalid command format. Use /sync-release-notes on its own line without arguments."
             exit 1
           fi
 
