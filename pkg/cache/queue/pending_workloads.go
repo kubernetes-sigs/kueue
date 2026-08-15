@@ -53,12 +53,16 @@ type PendingWorkloads struct {
 	inadmissible        inadmissibleWorkloads
 	inadmissibleTracker *metrics.LabelValsTracker
 
-	// inflight holds workloads that have been popped by the scheduler but not
-	// yet requeued, deleted, or released because they could not be placed back
-	// into a queue, keyed by workload reference. With fair sharing refill the
-	// scheduler may pop more than one workload per ClusterQueue in a single
-	// cycle, so more than one workload can be inflight at once. Entries are
-	// cleared per key.
+	// inflight holds workloads the scheduler has popped and not yet returned.
+	// While a key is here the ClusterQueue refuses to re-add it (PushOrUpdate is
+	// a no-op), so the scheduler's copy is the one that comes back; updates still
+	// reach the LocalQueue copy, see Get below. Fair sharing refill pops more than
+	// once per ClusterQueue per cycle, hence a map.
+	//
+	// Invariant: every popped workload must leave, by requeue, delete, or
+	// ForgetInflight. Only deleting the LocalQueue releases keys in bulk, and
+	// nothing reclaims one on its own, so a leftover key silently keeps its
+	// workload out of scheduling until the object is deleted.
 	inflight map[workload.Reference]*workload.Info
 
 	// schedulingHashes tracks the scheduling equivalence hashes of pending
@@ -468,6 +472,22 @@ func (p *PendingWorkloads) DumpInadmissible() ([]workload.Reference, bool) {
 	elements := make([]workload.Reference, 0, p.inadmissible.len())
 	for _, info := range p.inadmissible {
 		elements = append(elements, workload.Key(info.Obj))
+	}
+	return elements, true
+}
+
+// DumpInflight produces a dump of the workloads this ClusterQueue has handed to
+// the scheduler and not got back. It returns false if there are none.
+func (p *PendingWorkloads) DumpInflight() ([]workload.Reference, bool) {
+	p.RLock()
+	defer p.RUnlock()
+
+	if len(p.inflight) == 0 {
+		return nil, false
+	}
+	elements := make([]workload.Reference, 0, len(p.inflight))
+	for key := range p.inflight {
+		elements = append(elements, key)
 	}
 	return elements, true
 }
