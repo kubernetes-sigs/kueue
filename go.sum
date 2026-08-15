@@ -24,8 +24,6 @@ github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UF
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/chai2010/gettext-go v1.0.3 h1:9liNh8t+u26xl5ddmWLmsOsdNLwkdRTg5AG+JnTiM80=
 github.com/chai2010/gettext-go v1.0.3/go.mod h1:y+wnP2cHYaVj19NZhYKAwEMH2CI1gNHeQQ+5AjwawxA=
-github.com/coreos/go-oidc/v3 v3.18.0 h1:V9orjXynvu5wiC9SemFTWnG4F45v403aIcjWo0d41+A=
-github.com/coreos/go-oidc/v3 v3.18.0/go.mod h1:DYCf24+ncYi+XkIH97GY1+dqoRlbaSI26KVTCI9SrY4=
 github.com/coreos/go-oidc/v3 v3.20.0 h1:EtE0WIBHk03N+DqGkY4+UONzzZHk7amKt6IyNd7OsZE=
 github.com/coreos/go-oidc/v3 v3.20.0/go.mod h1:DYCf24+ncYi+XkIH97GY1+dqoRlbaSI26KVTCI9SrY4=
 github.com/coreos/go-semver v0.3.1 h1:yi21YpKnrx1gt5R+la8n5WgS0kCrsPp33dmEyHReZr4=
@@ -167,8 +165,6 @@ github.com/kubeflow/mpi-operator v0.8.2 h1:7PVtV31iX3LSVW0BqRQ64w/NYNfAgP86Bmua2
 github.com/kubeflow/mpi-operator v0.8.2/go.mod h1:bQrsQ1PNkj5WFkx/IwqfvWxAS22f/LgH1owoDH9DpuE=
 github.com/kubeflow/spark-operator/v2 v2.5.2 h1:6nX2UhwSfnYi1mtwczgFfJTMeLSL/1ajTvkFe8R7Vdc=
 github.com/kubeflow/spark-operator/v2 v2.5.2/go.mod h1:+GLXPGpGCfCJRPGyUCHmFCAZvf7Z0ZOV88M+CzmdEPE=
-github.com/kubeflow/trainer/v2 v2.2.1 h1:GsM80cgxnLnd8j8+lrX/Dpcvw7DYqpxkL0ni4XA/U7Y=
-github.com/kubeflow/trainer/v2 v2.2.1/go.mod h1:vdt+Q4altnU16a5pPV5X+3Ym34gWKfxu8EaRu8T8FqM=
 github.com/kubeflow/trainer/v2 v2.3.0 h1:Je+e7zvTLzB4qW09J1fB7pZrqvPtWuGng2NqdN5p5QU=
 github.com/kubeflow/trainer/v2 v2.3.0/go.mod h1:7R2Eib9BHAbPniXQR11CuMAF72/847Ogznj7od5q6DY=
 github.com/kubeflow/training-operator v1.9.3 h1:aaSHqskOtCY8Dn8sVd+l9p5XAczW6O0nYMPjVLAw/lc=
@@ -473,8 +469,6 @@ sigs.k8s.io/randfill v1.0.0 h1:JfjMILfT8A6RbawdsK2JXGBR5AQVfd+9TbzrlneTyrU=
 sigs.k8s.io/randfill v1.0.0/go.mod h1:XeLlZ/jmk4i1HRopwe7/aU3H5n1zNUcX6TM94b3QxOY=
 sigs.k8s.io/scheduler-library v0.1.0-alpha1 h1:pOwwBxTDaQMmEioiZ5JkHEAPVCzTd0blVHVlxTk2FSI=
 sigs.k8s.io/scheduler-library v0.1.0-alpha1/go.mod h1:oELLIhfTHZ1bO/TDn9Bjxk+SP6+mzdyXR1T3Su5XeTg=
-sigs.k8s.io/scheduler-plugins v0.34.7 h1:GENSA4rKpCKBrPvNSo2AV2QHU7j3a6LT14kNlHhXfeg=
-sigs.k8s.io/scheduler-plugins v0.34.7/go.mod h1:V1Tbv7SoBokUVAFKx5xh5tL/9erbopjYiKo3a7Jo2vI=
 sigs.k8s.io/scheduler-plugins v0.35.4-devel h1:K1/Zj+d8llWPlNz/axgOq/BirLil2fuLMW6cr7SlBv8=
 sigs.k8s.io/scheduler-plugins v0.35.4-devel/go.mod h1:FePkYC6IPpew3SVz6x+6k80bcZwi7NsJKVWthTol6OI=
 sigs.k8s.io/structured-merge-diff/v6 v6.4.2 h1:qdOxHwrl2Kaag1aQEarlYcOA9vSyGCp3CIki3aW8c4Q=
