@@ -289,23 +289,23 @@ type Scheduling struct {
 // QuotaReleaseStrategy defines when Kueue releases quota for a terminating workload.
 //
 // Valid values are:
-// - "OnTermination" (default): releases quota as soon as all pods have a deletionTimestamp set.
-// - "OnTerminalBestEffort": holds quota until all underlying pods have fully reached a terminal phase (Succeeded or Failed).
+// - "OnTerminating" (default): releases quota as soon as all pods have a deletionTimestamp set.
+// - "OnTerminal": holds quota until all underlying pods have fully reached a terminal phase (Succeeded or Failed).
 //
-// +kubebuilder:validation:Enum=OnTermination;OnTerminalBestEffort
+// +kubebuilder:validation:Enum=OnTerminating;OnTerminal
 // +enum
 type QuotaReleaseStrategy string
 
 const (
-	// QuotaReleaseOnTermination releases quota as soon as all pods have a
+	// QuotaReleaseOnTerminating releases quota as soon as all pods have a
 	// deletionTimestamp set. This is the default and matches the existing
 	// behaviour of the batch/v1 Job integration.
-	QuotaReleaseOnTermination QuotaReleaseStrategy = "OnTermination"
-	// QuotaReleaseOnTerminalBestEffort holds quota until all underlying pods
+	QuotaReleaseOnTerminating QuotaReleaseStrategy = "OnTerminating"
+	// QuotaReleaseOnTerminal holds quota until all underlying pods
 	// have fully reached a terminal phase (Succeeded or Failed). This prevents
 	// scheduling failures for TopologyAwareScheduling (TAS) workloads where new
 	// pods cannot be placed until old pods physically release the hardware.
-	QuotaReleaseOnTerminalBestEffort QuotaReleaseStrategy = "OnTerminalBestEffort"
+	QuotaReleaseOnTerminal QuotaReleaseStrategy = "OnTerminal"
 )
 
 // WaitForPodsReady defines configuration for the Wait For Pods Ready feature,

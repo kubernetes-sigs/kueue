@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -162,7 +162,7 @@ func (j *Job) IsActive(ctx context.Context) bool {
 	if j.Status.Active != 0 {
 		return true
 	}
-	return jobframework.GetQuotaReleaseStrategy(ctx) == configapi.QuotaReleaseOnTerminalBestEffort &&
+	return jobframework.GetQuotaReleaseStrategy(ctx) == configapi.QuotaReleaseOnTerminal &&
 		ptr.Deref(j.Status.Terminating, 0) > 0
 }
 

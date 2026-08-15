@@ -41,7 +41,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	configapiv1beta1 "sigs.k8s.io/kueue/apis/config/v1beta1"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -7115,7 +7114,7 @@ func TestPod_IsActive(t *testing.T) {
 	}
 	tests := map[string]struct {
 		fields   fields
-		strategy configapiv1beta1.QuotaReleaseStrategy
+		strategy configapi.QuotaReleaseStrategy
 		want     bool
 	}{
 
@@ -7180,7 +7179,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_PodWithDeletionTimestamp_Inactive": {
-			strategy: configapiv1beta1.QuotaReleaseOnTermination,
+			strategy: configapi.QuotaReleaseOnTerminating,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -7198,7 +7197,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: false,
 		},
 		"FastQuotaRelease_Disabled_PodWithDeletionTimestampWithinGrace_Active": {
-			strategy: configapiv1beta1.QuotaReleaseOnTerminalBestEffort,
+			strategy: configapi.QuotaReleaseOnTerminal,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -7216,7 +7215,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_MixedGroup_SomeTerminating_SomeRunning": {
-			strategy: configapiv1beta1.QuotaReleaseOnTermination,
+			strategy: configapi.QuotaReleaseOnTerminating,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -7238,7 +7237,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_AllTerminating": {
-			strategy: configapiv1beta1.QuotaReleaseOnTermination,
+			strategy: configapi.QuotaReleaseOnTerminating,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{

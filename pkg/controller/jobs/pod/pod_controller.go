@@ -45,7 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -448,7 +448,7 @@ func (p *Pod) IsActive(ctx context.Context) bool {
 
 		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {
 			strategy := jobframework.GetQuotaReleaseStrategy(ctx)
-			if strategy == configapi.QuotaReleaseOnTermination {
+			if strategy == configapi.QuotaReleaseOnTerminating {
 				continue
 			}
 		}

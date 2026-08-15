@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	configapiv1beta1 "sigs.k8s.io/kueue/apis/config/v1beta1"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -5022,49 +5021,49 @@ func TestJob_IsActive(t *testing.T) {
 	tests := map[string]struct {
 		active      int32
 		terminating *int32
-		strategy    configapiv1beta1.QuotaReleaseStrategy
+		strategy    configapi.QuotaReleaseStrategy
 		want        bool
 	}{
-		"Active == 0, Terminating == nil, OnTermination": {
+		"Active == 0, Terminating == nil, OnTerminating": {
 			active:      0,
 			terminating: nil,
-			strategy:    configapiv1beta1.QuotaReleaseOnTermination,
+			strategy:    configapi.QuotaReleaseOnTerminating,
 			want:        false,
 		},
-		"Active == 0, Terminating == 0, OnTermination": {
+		"Active == 0, Terminating == 0, OnTerminating": {
 			active:      0,
 			terminating: ptr.To[int32](0),
-			strategy:    configapiv1beta1.QuotaReleaseOnTermination,
+			strategy:    configapi.QuotaReleaseOnTerminating,
 			want:        false,
 		},
-		"Active > 0, Terminating == 0, OnTermination": {
+		"Active > 0, Terminating == 0, OnTerminating": {
 			active:      2,
 			terminating: ptr.To[int32](0),
-			strategy:    configapiv1beta1.QuotaReleaseOnTermination,
+			strategy:    configapi.QuotaReleaseOnTerminating,
 			want:        true,
 		},
-		"Active > 0, Terminating == nil, OnTerminalBestEffort": {
+		"Active > 0, Terminating == nil, OnTerminal": {
 			active:      1,
 			terminating: nil,
-			strategy:    configapiv1beta1.QuotaReleaseOnTerminalBestEffort,
+			strategy:    configapi.QuotaReleaseOnTerminal,
 			want:        true,
 		},
-		"Active == 0, Terminating > 0, OnTermination": {
+		"Active == 0, Terminating > 0, OnTerminating": {
 			active:      0,
 			terminating: ptr.To[int32](2),
-			strategy:    configapiv1beta1.QuotaReleaseOnTermination,
+			strategy:    configapi.QuotaReleaseOnTerminating,
 			want:        false,
 		},
-		"Active == 0, Terminating > 0, OnTerminalBestEffort": {
+		"Active == 0, Terminating > 0, OnTerminal": {
 			active:      0,
 			terminating: ptr.To[int32](2),
-			strategy:    configapiv1beta1.QuotaReleaseOnTerminalBestEffort,
+			strategy:    configapi.QuotaReleaseOnTerminal,
 			want:        true,
 		},
-		"Active > 0, Terminating > 0, OnTerminalBestEffort": {
+		"Active > 0, Terminating > 0, OnTerminal": {
 			active:      1,
 			terminating: ptr.To[int32](1),
-			strategy:    configapiv1beta1.QuotaReleaseOnTerminalBestEffort,
+			strategy:    configapi.QuotaReleaseOnTerminal,
 			want:        true,
 		},
 	}

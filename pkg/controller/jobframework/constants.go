@@ -19,7 +19,7 @@ package jobframework
 import (
 	"context"
 
-	configapi "sigs.k8s.io/kueue/apis/config/v1beta1"
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
 type contextKey int
@@ -35,7 +35,7 @@ const (
 func GetQuotaReleaseStrategy(ctx context.Context) configapi.QuotaReleaseStrategy {
 	strategy, ok := ctx.Value(quotaReleaseStrategyKey).(configapi.QuotaReleaseStrategy)
 	if !ok {
-		return configapi.QuotaReleaseOnTermination
+		return configapi.QuotaReleaseOnTerminating
 	}
 	return strategy
 }

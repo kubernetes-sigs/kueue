@@ -49,7 +49,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	configapi1 "sigs.k8s.io/kueue/apis/config/v1beta1"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -320,7 +319,7 @@ func NewReconciler(
 }
 
 func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Request, job GenericJob) (result ctrl.Result, err error) {
-	ctx = ContextWithQuotaReleaseStrategy(ctx, configapi1.QuotaReleaseStrategy(r.quotaReleaseStrategy))
+	ctx = ContextWithQuotaReleaseStrategy(ctx, configapi.QuotaReleaseStrategy(r.quotaReleaseStrategy))
 	object := job.Object()
 	log := ctrl.LoggerFrom(ctx).WithValues("job", req.String(), "gvk", job.GVK())
 	ctx = ctrl.LoggerInto(ctx, log)
@@ -609,7 +608,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 		if workload.HasQuotaReservation(wl) {
-			ctx = ContextWithQuotaReleaseStrategy(ctx, configapi1.QuotaReleaseStrategy(r.quotaReleaseStrategy))
+			ctx = ContextWithQuotaReleaseStrategy(ctx, configapi.QuotaReleaseStrategy(r.quotaReleaseStrategy))
 			if !job.IsActive(ctx) {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
 				err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
@@ -1813,7 +1812,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	// Wait until there are no active pods, unless this is a workload-slice job.
 	// For workload-slice enabled jobs, we allow the job to remain "Active" to accommodate
 	// the scale-up case, where the new workload slice replaces the old workload slice.
-	ctx = ContextWithQuotaReleaseStrategy(ctx, configapi1.QuotaReleaseStrategy(r.quotaReleaseStrategy))
+	ctx = ContextWithQuotaReleaseStrategy(ctx, configapi.QuotaReleaseStrategy(r.quotaReleaseStrategy))
 	if job.IsActive(ctx) && !WorkloadSliceEnabled(job) {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
 		return nil
