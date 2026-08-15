@@ -271,14 +271,24 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		priorityErr = jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, sts, nil, wl)
 	}
 
-	var lifecycleErr error
+	// Releasing the reservation on scale-down is independent of the priority
+	// result: the workload is going away from admission either way.
 	if shouldReleaseReservation {
-		lifecycleErr = r.releaseScaleDownReservation(ctx, wl)
-	} else if shouldClearOnHold {
-		lifecycleErr = r.clearOnHold(ctx, wl)
+		return errors.Join(priorityErr, r.releaseScaleDownReservation(ctx, wl))
 	}
 
-	return errors.Join(priorityErr, lifecycleErr)
+	// Scale-up must wait: clearing OnHold after a failed priority sync would
+	// send the workload back into admission carrying the old priority, and the
+	// retry cannot repair it because the hold is already gone.
+	if priorityErr != nil {
+		return priorityErr
+	}
+
+	if shouldClearOnHold {
+		return r.clearOnHold(ctx, wl)
+	}
+
+	return nil
 }
 
 func (r *Reconciler) clearOnHold(ctx context.Context, wl *kueue.Workload) error {
