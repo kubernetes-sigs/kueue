@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Job controller with QuotaReleaseStrategy OnTerminalBestEffort", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Job controller with QuotaReleaseStrategy OnTerminal", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns          *corev1.Namespace
 		wlLookupKey types.NamespacedName
@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("Job controller with QuotaReleaseStrategy OnTerminalBest
 
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(
-			jobframework.WithQuotaReleaseStrategy(ptr.To(configapi.QuotaReleaseOnTerminalBestEffort)),
+			jobframework.WithQuotaReleaseStrategy(ptr.To(configapi.QuotaReleaseOnTerminal)),
 		))
 	})
 	ginkgo.AfterAll(func() {
