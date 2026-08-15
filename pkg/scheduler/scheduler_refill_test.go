@@ -30,10 +30,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -1817,5 +1819,150 @@ func TestRefillNotTriggeredWhenPodsReadyBlocksAdmission(t *testing.T) {
 	}
 	if len(gotNext.Status.Conditions) != 0 {
 		t.Errorf("The successor's status was patched during the cycle: %v", gotNext.Status.Conditions)
+	}
+}
+
+// TestRefillPopKeepsMidCycleRequeueSignal covers the mid-cycle pop's effect on
+// the epoch counter end to end. A workload that cannot be admitted goes back to
+// the active heap, rather than being parked, when a requeue event arrived after
+// the cycle's heads were popped. That event is edge-triggered, so a refilled
+// workload whose pop hides it waits for the next one instead of for the next
+// cycle. TestPopMidCycleDoesNotConsumeRequeueSignal pins this on the queue
+// primitive, but nothing showed the scheduler holding on to the signal.
+//
+// The namespaceSelector turns the refilled workload away because the Fit-only
+// rule leaves no other way in: it requeues every refilled entry that got an
+// assignment with a reason that never reads the counter, so only a failed
+// nomination reaches it.
+//
+// Not expressible as a scheduleTestCase because the harness runs a single
+// schedule() call and cannot fire an event mid-cycle.
+func TestRefillPopKeepsMidCycleRequeueSignal(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.FairSharingRefill: true})
+
+	now := time.Now().Truncate(time.Second)
+	flavor := utiltestingapi.MakeResourceFlavor("default").Obj()
+	clusterQueue := utiltestingapi.MakeClusterQueue("signal-cq").
+		Cohort("signal").
+		NamespaceSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"signal": "admit"}}).
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+			Resource(corev1.ResourceCPU, "2", "0").Obj()).
+		Obj()
+	// Two LocalQueues in different namespaces feed the one ClusterQueue, so the
+	// head passes the selector while its successor does not.
+	headQueue := utiltestingapi.MakeLocalQueue("signal-head-lq", "signal-admit").ClusterQueue("signal-cq").Obj()
+	nextQueue := utiltestingapi.MakeLocalQueue("signal-next-lq", "signal-hold").ClusterQueue("signal-cq").Obj()
+	head := utiltestingapi.MakeWorkload("signal-head", "signal-admit").
+		Queue("signal-head-lq").
+		Creation(now.Add(-2 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		Obj()
+	next := utiltestingapi.MakeWorkload("signal-next", "signal-hold").
+		Queue("signal-next-lq").
+		Creation(now.Add(-1 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		Obj()
+
+	// The requeue event has to land between the heads pop and the refill pop,
+	// which is the window the counter is about. A nomination that reaches
+	// admissibility validation reads its namespace, so the head's validation is
+	// a hook into that window which costs the production code nothing.
+	var fired bool
+	fireOnce := func() {}
+	cl := utiltesting.NewClientBuilder().
+		WithLists(
+			&kueue.WorkloadList{Items: []kueue.Workload{*head, *next}},
+			&kueue.LocalQueueList{Items: []kueue.LocalQueue{*headQueue, *nextQueue}},
+		).
+		WithObjects(
+			utiltesting.MakeNamespaceWrapper("signal-admit").Label("signal", "admit").Obj(),
+			utiltesting.MakeNamespaceWrapper("signal-hold").Obj(),
+		).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*corev1.Namespace); ok && !fired {
+					fired = true
+					fireOnce()
+				}
+				return cl.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	cqCache := schdcache.New(cl)
+	qManager, requeuer := qcache.NewManagerForUnitTestsWithRequeuer(cl, cqCache,
+		qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	fireOnce = func() {
+		qcache.NotifyRetryInadmissible(qManager, sets.New[kueue.ClusterQueueReference]("signal-cq"))
+		requeuer.ProcessRequeues(ctx)
+	}
+	cqCache.AddOrUpdateResourceFlavor(log, flavor)
+	if err := cqCache.AddClusterQueue(ctx, clusterQueue); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in cache: %v", clusterQueue.Name, err)
+	}
+	if err := qManager.AddClusterQueue(ctx, clusterQueue); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in manager: %v", clusterQueue.Name, err)
+	}
+	for _, lq := range []*kueue.LocalQueue{headQueue, nextQueue} {
+		if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+			t.Fatalf("Inserting localQueue %s in manager: %v", lq.Name, err)
+		}
+	}
+
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{},
+		WithFairSharing(&config.FairSharing{}),
+		WithClock(t, testingclock.NewFakeClock(now)),
+		WithPreemptionExpectations(preemptexpectations.New()),
+	)
+	wg := sync.WaitGroup{}
+	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+		func() { wg.Add(1) },
+		func() { wg.Done() },
+	))
+	ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+	defer cancel()
+	go qManager.CleanUpOnContext(ctx)
+
+	// Cycle 1: signal-head admits and the refilled signal-next fails the
+	// selector. The requeue event fired while the cycle was running, so
+	// signal-next belongs back on the active heap.
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	if !fired {
+		t.Fatal("The mid-cycle requeue event never fired; the fixture no longer hooks a nomination")
+	}
+	wantHeap := map[kueue.ClusterQueueReference][]workload.Reference{
+		"signal-cq": {"signal-hold/signal-next"},
+	}
+	if diff := cmp.Diff(wantHeap, qManager.Dump(), cmpDump...); diff != "" {
+		t.Errorf("Unexpected heap after the first cycle (-want,+got):\n%s", diff)
+	}
+	if got := qManager.DumpInadmissible(); len(got) != 0 {
+		t.Errorf("Refilled workload parked as inadmissible, so the mid-cycle event was lost: %v", got)
+	}
+
+	// Cycle 2: the namespace now matches, so a signal-next that stayed on the
+	// heap admits. One that had been parked would still be waiting for an event
+	// that already happened.
+	ns := utiltesting.MakeNamespaceWrapper("signal-hold").Label("signal", "admit").Obj()
+	if err := cl.Update(ctx, ns); err != nil {
+		t.Fatalf("Labelling the successor's namespace: %v", err)
+	}
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	var gotNext kueue.Workload
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(next), &gotNext); err != nil {
+		t.Fatalf("Getting the successor workload: %v", err)
+	}
+	if !workload.HasQuotaReservation(&gotNext) {
+		t.Errorf("Workload %s has no quota reservation after the second cycle", next.Name)
 	}
 }
