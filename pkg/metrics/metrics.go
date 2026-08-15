@@ -432,7 +432,8 @@ targets overlap with targets selected by another workload in the same scheduling
 The label 'outcome' can have the following values:
 - 'new_targets' means the recomputation resolved the overlap by selecting non-overlapping targets.
 - 'deferred_fit' means the workload will fit only after earlier preemptions in the cycle complete.
-- 'skipped' means the recomputation did not resolve the overlap and the workload was skipped.`,
+- 'skipped' means recomputation produced neither a deferred fit nor a fit with non-overlapping targets, including cases where overlap is removed but the workload still fails the fit check.
+Globally configured custom ClusterQueue labels are also appended to the base labels.`,
 		}, append([]string{"cluster_queue", "outcome", "replica_role"}, clusterQueueMetricsLabels...),
 	)
 
