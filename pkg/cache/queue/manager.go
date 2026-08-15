@@ -756,12 +756,15 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	m.Lock()
 	defer m.Unlock()
 
+	log := ctrl.LoggerFrom(ctx)
+	wlKey := workload.Key(info.Obj)
+
 	// This call decides where the workload goes, so the claim taken by Pop does
-	// not survive it. Releasing it up front also covers the returns below that
-	// never reach the ClusterQueue: a claim left behind makes PushOrUpdate a
-	// no-op, keeping the workload out of the queues even once it could be added
-	// again. Read before info.Update, which resets info.ClusterQueue.
-	m.forgetInflight(info.ClusterQueue, workload.Key(info.Obj))
+	// not survive it: a claim left behind makes PushOrUpdate a no-op, keeping
+	// the workload out of the queues even once it could be added again.
+	// Releasing it unconditionally here means no branch below has to be audited
+	// for it. Read before info.Update, which resets info.ClusterQueue.
+	m.forgetInflight(info.ClusterQueue, wlKey)
 
 	var w kueue.Workload
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
@@ -772,14 +775,14 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	// records it left in the queues are dropped here; which of them survive
 	// depends on whether the object itself is gone.
 	if apierrors.IsNotFound(err) {
-		m.deleteAndForgetWorkloadWithoutLock(ctrl.LoggerFrom(ctx), workload.Key(info.Obj))
+		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
 		return false
 	}
 	if err != nil {
 		// Unexpected with a cached client; the object may still exist, so
 		// clear only the queue-side bookkeeping and keep the records owned
 		// by the workload controller.
-		m.deleteWorkloadWithoutLock(ctrl.LoggerFrom(ctx), workload.Key(info.Obj))
+		m.deleteWorkloadWithoutLock(log, wlKey)
 		return false
 	}
 	if !workload.IsAdmissible(&w) {
@@ -787,12 +790,10 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		// while inflight), so keep its finished/unadmitted records and queue
 		// assignment: the workload controller owns their lifecycle and only
 		// forgets them when the object is deleted.
-		m.deleteWorkloadWithoutLock(ctrl.LoggerFrom(ctx), workload.Key(info.Obj))
+		m.deleteWorkloadWithoutLock(log, wlKey)
 		return false
 	}
 
-	log := ctrl.LoggerFrom(ctx)
-	wlKey := workload.Key(&w)
 	qKey := queue.KeyFromWorkload(&w)
 	if assignedQueue, ok := m.workloadAssignedQueues[wlKey]; ok && assignedQueue != qKey {
 		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
