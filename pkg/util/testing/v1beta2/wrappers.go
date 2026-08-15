@@ -1809,13 +1809,11 @@ func (cpw *ClusterProfileWrapper) ClusterManager(clusterManagerName string) *Clu
 	return cpw
 }
 
-// CustomLabelWrapper builds a ControllerMetricsCustomLabel. The label is a named field
-// (not embedded) so the setters can mirror the API field names.
+// CustomLabelWrapper wraps a ControllerMetricsCustomLabel.
 type CustomLabelWrapper struct {
 	label configapi.ControllerMetricsCustomLabel
 }
 
-// MakeCustomLabel starts a wrapper for the label with the given name.
 func MakeCustomLabel(name string) *CustomLabelWrapper {
 	return &CustomLabelWrapper{label: configapi.ControllerMetricsCustomLabel{Name: name}}
 }
@@ -1840,15 +1838,7 @@ func (w *CustomLabelWrapper) TrackedValues(values ...string) *CustomLabelWrapper
 	return w
 }
 
-// Obj returns the built ControllerMetricsCustomLabel. Like the ResourceGroup and
-// FlavorQuotas builders, it panics on local construction mistakes; the full API
-// validation lives in pkg/config.
+// Obj returns the built ControllerMetricsCustomLabel.
 func (w *CustomLabelWrapper) Obj() configapi.ControllerMetricsCustomLabel {
-	if w.label.SourceLabelKey != "" && w.label.SourceAnnotationKey != "" {
-		panic(fmt.Sprintf("CustomLabel %q: sourceLabelKey and sourceAnnotationKey are mutually exclusive", w.label.Name))
-	}
-	if w.label.SourceKind != nil && *w.label.SourceKind == configapi.SourceKindWorkload && len(w.label.TrackedValues) == 0 {
-		panic(fmt.Sprintf("CustomLabel %q: trackedValues are required when sourceKind is Workload", w.label.Name))
-	}
 	return w.label
 }
