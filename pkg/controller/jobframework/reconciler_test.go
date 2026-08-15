@@ -1257,6 +1257,9 @@ type prebuiltJobState struct {
 	// that completes while stopping. finishedCalls counts the calls to detect the reload.
 	finishedOnReread bool
 	finishedCalls    int
+	// finishedAfterWrite makes Finished report terminal only from the read that follows the
+	// OutOfSync write, modeling a job that ends while that write is in flight.
+	finishedAfterWrite bool
 	// activeOnReread makes IsActive report running only from the reload on, modeling a
 	// controller that created a pod from a view older than the stop. activeCalls counts the
 	// calls the same way.
@@ -1334,6 +1337,16 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 			wantRestored: true,
 			wantReason:   kueue.WorkloadFinishedReasonSucceeded,
 		},
+		// The job ends while the OutOfSync write is in flight, so both checks before it read a
+		// running job. The reason left behind is what MultiKueue re-dispatches on, so the read
+		// after the write has to put the job's own reason back.
+		"a job that ends while the OutOfSync write is in flight has its reason corrected": {
+			state:             prebuiltJobState{finishedAfterWrite: true, success: true},
+			wantStopped:       true,
+			wantRestored:      true,
+			wantReason:        kueue.WorkloadFinishedReasonSucceeded,
+			wantFinalizerGone: true,
+		},
 		// IsActive is false at the first check and true from the reload on: the external
 		// controller created a pod from a view older than the stop. The reload is the whole
 		// reason the second check exists — the first one ran against the object this reconcile
@@ -1394,7 +1407,9 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 			mgj.EXPECT().Finished(gomock.Any()).
 				DoAndReturn(func(context.Context) (string, bool, bool) {
 					st.finishedCalls++
-					finished := st.finished || (st.finishedOnReread && st.finishedCalls >= 2)
+					finished := st.finished ||
+						(st.finishedOnReread && st.finishedCalls >= 2) ||
+						(st.finishedAfterWrite && st.finishedCalls >= 3)
 					return "by the job", st.success, finished
 				}).AnyTimes()
 

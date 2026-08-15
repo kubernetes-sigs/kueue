@@ -1434,7 +1434,37 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 	if err := workloadfinish.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock); err != nil {
 		return prebuiltWaitingForStop, err
 	}
+	// The job can end during that write, and the caller finalizes on the reason it leaves behind,
+	// so read the job once more now that the write has been away and back. A job that is gone is
+	// past correcting. Load rewrites the key it is given, so this starts from the request's own.
+	postWriteKey := key
+	if gone, err := r.loadJob(ctx, &postWriteKey, job); err != nil {
+		return prebuiltWaitingForStop, err
+	} else if !gone {
+		if err := r.correctOutOfSync(ctx, wl, job); err != nil {
+			return prebuiltWaitingForStop, err
+		}
+	}
 	return prebuiltUseWorkload, nil
+}
+
+// correctOutOfSync puts the reason a job ended with back on a workload that was finished as out of
+// sync from a view taken before it ended. The reason is read rather than displayed: MultiKueue
+// re-dispatches on OutOfSync, so an already finished job would be run a second time.
+func (r *JobReconciler) correctOutOfSync(ctx context.Context, wl *kueue.Workload, job GenericJob) error {
+	message, success, finished := job.Finished(ctx)
+	if !finished {
+		return nil
+	}
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
+	if cond == nil || cond.Reason != kueue.WorkloadFinishedReasonOutOfSync {
+		return nil
+	}
+	reason := kueue.WorkloadFinishedReasonSucceeded
+	if !success {
+		reason = kueue.WorkloadFinishedReasonFailed
+	}
+	return workloadfinish.Rewrite(ctx, r.client, wl, reason, message, r.clock)
 }
 
 // stopSettled reports whether the stop is done with: nothing running, and, where the integration
