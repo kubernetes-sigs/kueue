@@ -408,7 +408,9 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 // finishEntry takes an entry down the terminal path its status calls for, and reports
 // whether the cycle counts as a successful admission attempt. Entries the scheduler
-// evicted skip the requeue: the workload controller finalizes the eviction.
+// evicted skip the requeue: the workload controller finalizes the eviction. That
+// leaves no inflight claim behind only because markEvicted is reachable just for
+// workloads that already hold a topology assignment, which never came off a heap.
 func (s *Scheduler) finishEntry(ctx context.Context, log logr.Logger, e *entry) bool {
 	logAdmissionAttemptIfVerbose(log, e)
 	if e.status == assumed || e.status == evicted {
@@ -1267,6 +1269,8 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		e.requeueReason = qcache.RequeueReasonFailedAfterNomination
 	}
 
+	// Returning here leaves no inflight claim behind only because a second pass
+	// requires a quota reservation, which a heap-popped workload never has.
 	if s.queues.QueueSecondPassIfNeeded(ctx, e.Obj, e.SecondPassIteration) {
 		log.V(2).
 			Info("Workload re-queued for second pass", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "status", e.status)
