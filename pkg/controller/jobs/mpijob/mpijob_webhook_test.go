@@ -358,8 +358,9 @@ func TestDefault(t *testing.T) {
 	extraSpecJob := runLauncherAsWorkerJob.Clone()
 	extraSpecJob.Spec.MPIReplicaSpecs["Extra"] = extraSpecJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].DeepCopy()
 
-	// Admission delivers a missing key rather than a nil value: the CRD does not
-	// mark the map value nullable, so a Launcher set to null is pruned.
+	// Two entries with no Launcher is the shape that reached the dereference, so
+	// the extra key has to stay. Admission drops the key rather than passing nil,
+	// since the CRD does not mark the map value nullable.
 	noLauncherJob := extraSpecJob.Clone()
 	delete(noLauncherJob.Spec.MPIReplicaSpecs, v2beta1.MPIReplicaTypeLauncher)
 
