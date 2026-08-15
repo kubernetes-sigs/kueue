@@ -338,47 +338,34 @@ func TestValidateCreate(t *testing.T) {
 	}
 }
 
-// mpiJobWithNilLauncher builds a RunLauncherAsWorker MPIJob whose Launcher spec is nil.
-func mpiJobWithNilLauncher() *v2beta1.MPIJob {
-	j := testingutil.MakeMPIJob("job", "default").
+func TestDefault(t *testing.T) {
+	runLauncherAsWorkerJob := testingutil.MakeMPIJob("job", "default").
 		Queue("queue").
 		MPIJobReplicaSpecs(
-			testingutil.MPIJobReplicaSpecRequirement{ReplicaType: v2beta1.MPIReplicaTypeLauncher, ReplicaCount: 1},
-			testingutil.MPIJobReplicaSpecRequirement{ReplicaType: v2beta1.MPIReplicaTypeWorker, ReplicaCount: 3},
-		).
-		RunLauncherAsWorker(true).
-		Obj()
-	j.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeLauncher] = nil
-	return j
-}
-
-const extraMPIReplicaType v2beta1.MPIReplicaType = "Extra"
-
-// mpiJobWithExtraReplicaSpec builds a RunLauncherAsWorker MPIJob carrying a
-// replica spec besides Launcher and Worker. The map key is a plain string and
-// the operator's validator only reads the two it knows, so one can be set.
-func mpiJobWithExtraReplicaSpec() *testingutil.MPIJobWrapper {
-	j := testingutil.MakeMPIJob("job", "default").
-		Queue("queue").
-		MPIJobReplicaSpecs(
-			testingutil.MPIJobReplicaSpecRequirement{ReplicaType: v2beta1.MPIReplicaTypeLauncher, ReplicaCount: 1},
-			testingutil.MPIJobReplicaSpecRequirement{ReplicaType: v2beta1.MPIReplicaTypeWorker, ReplicaCount: 3},
+			testingutil.MPIJobReplicaSpecRequirement{
+				ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+				ReplicaCount: 1,
+			},
+			testingutil.MPIJobReplicaSpecRequirement{
+				ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+				ReplicaCount: 3,
+			},
 		).
 		RunLauncherAsWorker(true)
-	j.Spec.MPIReplicaSpecs[extraMPIReplicaType] = j.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].DeepCopy()
-	return j
-}
 
-// mpiJobWithoutLauncher drops the key rather than nilling it, which is the shape
-// admission delivers: the CRD does not mark the map value nullable, so a
-// Launcher set to null is stripped before the webhook sees it.
-func mpiJobWithoutLauncher() *v2beta1.MPIJob {
-	j := mpiJobWithExtraReplicaSpec().Obj()
-	delete(j.Spec.MPIReplicaSpecs, v2beta1.MPIReplicaTypeLauncher)
-	return j
-}
+	// MPIReplicaType is a plain string, so the map can hold a key besides
+	// Launcher and Worker. The copy keeps it from aliasing the Worker.
+	extraSpecJob := runLauncherAsWorkerJob.Clone()
+	extraSpecJob.Spec.MPIReplicaSpecs["Extra"] = extraSpecJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker].DeepCopy()
 
-func TestDefault(t *testing.T) {
+	// Admission delivers a missing key rather than a nil value: the CRD does not
+	// mark the map value nullable, so a Launcher set to null is pruned.
+	noLauncherJob := extraSpecJob.Clone()
+	delete(noLauncherJob.Spec.MPIReplicaSpecs, v2beta1.MPIReplicaTypeLauncher)
+
+	nilLauncherJob := runLauncherAsWorkerJob.Clone()
+	nilLauncherJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeLauncher] = nil
+
 	testCases := []struct {
 		name           string
 		mpiJob         *v2beta1.MPIJob
@@ -636,24 +623,24 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		{
-			name:         "TAS enabled, RunLauncherAsWorker true with a replica spec besides Launcher and Worker",
+			name:         "TAS enabled, RunLauncherAsWorker true with 3 replica specs",
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			mpiJob:       mpiJobWithExtraReplicaSpec().Obj(),
-			want: mpiJobWithExtraReplicaSpec().
+			mpiJob:       extraSpecJob.Clone().Obj(),
+			want: extraSpecJob.Clone().
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").
 				Obj(),
 		},
 		{
-			name:         "TAS enabled, RunLauncherAsWorker true with no Launcher key at all",
+			name:         "TAS enabled, RunLauncherAsWorker true without the Launcher replica spec",
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			mpiJob:       mpiJobWithoutLauncher(),
-			want:         mpiJobWithoutLauncher(),
+			mpiJob:       noLauncherJob.Clone().Obj(),
+			want:         noLauncherJob.Clone().Obj(),
 		},
 		{
-			name:         "TAS enabled, RunLauncherAsWorker true but the Launcher spec is nil does not panic",
+			name:         "TAS enabled, RunLauncherAsWorker true with a nil Launcher replica spec",
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
-			mpiJob:       mpiJobWithNilLauncher(),
-			want:         mpiJobWithNilLauncher(),
+			mpiJob:       nilLauncherJob.Clone().Obj(),
+			want:         nilLauncherJob.Clone().Obj(),
 		},
 		{
 			name:         "TAS enabled, RunLauncherAsWorker false",
