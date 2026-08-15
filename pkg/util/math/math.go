@@ -105,3 +105,12 @@ func SaturatingMul(a, b int64) int64 {
 	}
 	return res
 }
+
+// SaturatingDiv divides a by f but leaves the math.MaxInt64 / math.MinInt64
+// sentinels unchanged, so a saturated total stays saturated when scaled down.
+func SaturatingDiv(a, f int64) int64 {
+	if a == stdmath.MaxInt64 || a == stdmath.MinInt64 {
+		return a
+	}
+	return a / f
+}
