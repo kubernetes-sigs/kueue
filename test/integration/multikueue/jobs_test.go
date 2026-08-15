@@ -353,6 +353,23 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				}
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
 		})
+
+		ginkgo.By("the stale remote workload is dropped so the Job can be dispatched again", func() {
+			// An OutOfSync remote stays Finished forever. If it survived, every later
+			// reconcile would match it again and stop before the dispatch phase, so the Job
+			// could never be re-dispatched once the reset moved the check off Ready.
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteWl := &kueue.Workload{}
+				err := worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, remoteWl)
+				if apierrors.IsNotFound(err) {
+					return
+				}
+				g.Expect(err).To(gomega.Succeed())
+				// A remote that is present again is a freshly dispatched one, never the
+				// OutOfSync leftover.
+				g.Expect(apimeta.FindStatusCondition(remoteWl.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
 	})
 
 	ginkgo.It("Should run a job on worker if admitted (ManagedBy)", func() {
