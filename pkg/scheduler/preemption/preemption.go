@@ -422,19 +422,12 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 		}
 
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
+		strategyLog := newFsStrategyLog(preemptionCtx.log, candCQ, preemptorNewShare, targetOldShare)
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
 			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
 			passed := strategy(preemptorNewShare, targetOldShare, targetNewShare)
-			if logV := preemptionCtx.log.V(4); logV.Enabled() {
-				logV.Info("Evaluating FairSharing strategy",
-					"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
-					"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
-					"targetWorkload", klog.KObj(candWl.Obj),
-					"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
-					"targetNewShare", schdcache.DRS(targetNewShare).PreciseWeightedShare(),
-					"strategyPassed", passed)
-			}
+			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
 				preemptionCtx.snapshot.RemoveWorkload(candWl)
 				targets = append(targets, &Target{
@@ -443,6 +436,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 					WorkloadCq:   candCQ.GetTargetCq(),
 				})
 				if workloadFitsForFairSharing(preemptionCtx) {
+					strategyLog.flush()
 					return true, targets, nil
 				}
 				// Might need to pick a different CQ due to changing values.
@@ -451,6 +445,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 				retryCandidates = append(retryCandidates, candWl)
 			}
 		}
+		strategyLog.flush()
 	}
 	return false, targets, retryCandidates
 }
@@ -466,10 +461,10 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 		candWl := candCQ.PopWorkload()
 		if logV := preemptionCtx.log.V(4); logV.Enabled() {
 			logV.Info("Evaluating FairSharing strategy",
-				"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
+				"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShareSerialized(),
 				"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
 				"targetWorkload", klog.KObj(candWl.Obj),
-				"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
+				"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShareSerialized(),
 				"strategyPassed", passed)
 		}
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
