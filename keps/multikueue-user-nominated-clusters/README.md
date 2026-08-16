@@ -23,22 +23,32 @@ Today, per-Workload cluster placement in MultiKueue is either:
 The external dispatcher is the only way to pin a Workload to a specific cluster,
 which is heavyweight for the common "I already know the target cluster" case.
 
-### Motivating use case: co-located async checkpoint eval
+### Motivating use case: async checkpoint eval with checkpoint data locality
 
 A training job runs as a `RayCluster` on some worker cluster. Every N steps the
-user's orchestrator launches a separate `RayJob` to run an async checkpoint eval,
-which must run **on the same worker cluster** as the training job (checkpoint data
-locality).
+user's orchestrator writes a checkpoint (to storage local to that worker cluster)
+and launches a separate `RayJob` to run an async eval over it.
 
-The orchestrator already knows the training cluster at launch time (it reads the
-training Workload's `.status.clusterName`, or it placed training on a known
-cluster). So it does not need Kueue to resolve cross-Workload affinity; it only
-needs a simple, declarative way to tell Kueue "put this eval on cluster X".
+The eval's real constraint is **checkpoint data locality**: it must run on the
+worker cluster where that checkpoint lives — not "wherever the training job
+currently is". These are usually the same cluster, but they can diverge:
 
-Cross-Workload affinity ("co-locate with Workload Y", resolved by Kueue) is a
-larger, separate feature and is out of scope here. This proposal is the smaller
-building block that already satisfies the use case when the caller resolves the
-target cluster itself.
+- If the training job is later **preempted and relocated to a different worker
+  cluster**, the eval for an earlier checkpoint must still run on the **original**
+  cluster, because the checkpoint data is there.
+
+So the target is a **specific, fixed cluster** (the checkpoint's cluster),
+determined by the caller at eval-launch time — not a live reference that follows
+the training Workload. The orchestrator already knows that cluster (it is where
+training was running when the checkpoint was written), so it only needs a simple,
+declarative way to tell Kueue "put this eval on cluster X".
+
+This is precisely why a **static** cluster selection is the right primitive here,
+and why cross-Workload affinity ("co-locate with training Workload Y", resolved by
+Kueue and following it as it moves) would be **incorrect** for this use case: it
+would drag the eval to the training job's new cluster, away from the checkpoint
+data. Affinity is a larger, separate feature (see Non-goals); this proposal is the
+smaller building block that directly matches the data-locality requirement.
 
 ## Goals
 
@@ -49,9 +59,11 @@ target cluster itself.
 
 ## Non-goals
 
-- Cross-Workload cluster affinity ("same cluster as Workload Y") resolved by
-  Kueue. (Possible future work; the internal `getComponentWorkloadsClusterName`
-  primitive shows it is feasible.)
+- Cross-Workload cluster affinity ("same cluster as Workload Y", following Y as it
+  moves) resolved by Kueue. This is both a larger feature and semantically
+  different from the motivating use case, which needs a fixed target cluster (the
+  checkpoint's cluster), not a live reference. (Possible future work; the internal
+  `getComponentWorkloadsClusterName` primitive shows affinity is feasible.)
 - Preferred / soft ordering with fallback (future; would build on `Incremental`).
 - A typed `Workload.Spec` field (future graduation from the annotation).
 
