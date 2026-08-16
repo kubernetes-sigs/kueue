@@ -410,6 +410,15 @@ func TestValidateUpdate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
 		{
+			name:   "pod-index-offset added on update",
+			oldJob: baseJob().Obj(),
+			newJob: baseJob().PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(workerOffsetAnnotationPath, "1", "field is immutable"),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
 			name:         "pod-index-offset removed on update, TAS disabled",
 			oldJob:       baseJob().PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
 			newJob:       baseJob().Obj(),
