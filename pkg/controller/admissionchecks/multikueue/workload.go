@@ -949,9 +949,6 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	if clusterName := workload.ClusterName(group.local); group.IsElasticWorkload() && clusterName != "" {
 		nominatedWorkers = []string{clusterName}
 	} else if requested, ok := userNominatedClusters(group.local); ok {
-		// The user restricted the target clusters via the MultiKueueClusterNames
-		// annotation. Honor it, but only within the authorized set (group.remotes),
-		// so the user can narrow the candidates, never widen them.
 		nominatedWorkers = intersectAuthorizedClusters(requested, group.remotes)
 		if len(nominatedWorkers) == 0 {
 			log.V(2).Info("None of the user-requested MultiKueue clusters are authorized for this workload; leaving it unscheduled",
