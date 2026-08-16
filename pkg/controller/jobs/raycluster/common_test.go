@@ -43,6 +43,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	testingrayjobutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -459,6 +460,26 @@ func TestUpdatePodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
+		},
+		// On a MultiKueue manager the child RayCluster only exists on the worker
+		// cluster; its counts are reflected as an annotation by the MultiKueue
+		// workload controller and used as the fallback source.
+		"child raycluster absent - counts fall back to the MultiKueue runtime annotation": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
+			object: testingrayjobutil.MakeJob("rayjob-owner", "ns").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation("kueue.x-k8s.io/elastic-job", "true").
+				Annotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers","count":5}]`).
+				Obj(),
+			enableInTreeAutoscaling: new(true),
+			rayClusterName:          "nonexistent-child",
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 5).Obj(),
 			},
 		},
 		"empty rayClusterName - no update": {
@@ -1363,7 +1384,10 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				RayClusterGenerationAnnotation: "0",
 			},
 		},
-		"raycluster not found returns annotations with empty generation": {
+		// On a MultiKueue manager the child RayCluster only exists on the worker
+		// cluster; the generation annotation is maintained by the MultiKueue
+		// workload controller there and must not be clobbered with an empty value.
+		"raycluster not found preserves the generation annotation": {
 			annotations: map[string]string{
 				workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
 			},
@@ -1373,9 +1397,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			},
 			rayClusterName:  "nonexistent-raycluster",
 			registerRayType: true,
-			wantAnnotation: map[string]string{
-				RayClusterGenerationAnnotation: "",
-			},
+			wantAnnotation:  nil,
 		},
 		"other get error returns error": {
 			annotations: map[string]string{

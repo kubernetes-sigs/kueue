@@ -21,7 +21,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/go-logr/logr"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -207,9 +209,17 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 				if apierrors.IsNotFound(err) {
 					log.V(2).Info("RayCluster does not exist, do not update podsets",
 						"rayCluster", rayClusterName)
-				} else {
-					return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
+					// On a MultiKueue manager the child RayCluster only exists on
+					// the worker cluster; its per-group counts are reflected here
+					// as an annotation by the MultiKueue workload controller.
+					// Anywhere else NotFound is transient (the child is not
+					// created yet) and the spec-derived counts stand.
+					if isManagedByMultiKueue(object) {
+						return applyRuntimeCountsAnnotation(log, podSets, object), nil
+					}
+					return podSets, nil
 				}
+				return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
 			} else {
 				// Create a map of podSets from Ray object spec for quick lookup by name
 				podSetMap := make(map[kueue.PodSetReference]*kueue.PodSet)
@@ -400,6 +410,39 @@ func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSe
 	return false
 }
 
+// isManagedByMultiKueue reports whether the job is the manager cluster's copy
+// of a MultiKueue-dispatched job. Worker copies have spec.managedBy cleared.
+func isManagedByMultiKueue(object client.Object) bool {
+	rj, ok := object.(*rayv1.RayJob)
+	return ok && ptr.Deref(rj.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
+}
+
+// applyRuntimeCountsAnnotation overrides worker-group PodSet counts from the
+// RayClusterPodsetReplicaSizesAnnotation, when present. It is the
+// manager-side fallback of UpdatePodSets for jobs whose runtime child
+// RayCluster lives only on the worker cluster.
+func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, object client.Object) []kueue.PodSet {
+	annotation := object.GetAnnotations()[RayClusterPodsetReplicaSizesAnnotation]
+	if annotation == "" {
+		return podSets
+	}
+	counts, err := ParsePodSetReplicaSizes(annotation)
+	if err != nil {
+		log.V(2).Info("Ignoring malformed runtime replica-sizes annotation",
+			"rayObject", object.GetName(), "error", err.Error())
+		return podSets
+	}
+	for i := range podSets {
+		if count, ok := counts[podSets[i].Name]; ok && count >= 0 && podSets[i].Count != count {
+			log.V(2).Info("Updated PodSet worker count from MultiKueue runtime annotation",
+				"rayObject", object.GetName(), "podSet", podSets[i].Name,
+				"oldCount", podSets[i].Count, "newCount", count)
+			podSets[i].Count = count
+		}
+	}
+	return podSets
+}
+
 // ParsePodSetReplicaSizes parses the PodsetReplicaSizesAnnotation value into a map.
 // Returns an empty map if the annotation is absent or empty.
 func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32, error) {
@@ -417,6 +460,61 @@ func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32
 	return counts, nil
 }
 
+// WorkerGroupPodCounts returns the effective per-worker-group pod count of the
+// given RayClusterSpec, keyed by PodSet reference (replicas scaled by
+// NumOfHosts, matching BuildPodSets).
+func WorkerGroupPodCounts(spec *rayv1.RayClusterSpec) map[kueue.PodSetReference]int32 {
+	counts := make(map[kueue.PodSetReference]int32, len(spec.WorkerGroupSpecs))
+	for i := range spec.WorkerGroupSpecs {
+		wgs := &spec.WorkerGroupSpecs[i]
+		counts[kueue.NewPodSetReference(wgs.GroupName)] = effectiveWorkerCount(wgs)
+	}
+	return counts
+}
+
+// SetRuntimeWorkerStateAnnotations records the worker-side runtime replica
+// counts and a revision on the manager object as annotations:
+// RayClusterPodsetReplicaSizesAnnotation feeds the manager's PodSet
+// derivation and RayClusterGenerationAnnotation feeds the elastic workload-slice
+// name. Equality is decided on the counts alone, so count-neutral revision bumps
+// do not mint replacement slices. Returns whether any annotation changed.
+func SetRuntimeWorkerStateAnnotations(obj client.Object, counts map[kueue.PodSetReference]int32, revision string) bool {
+	serialized, err := serializeWorkerGroupCounts(counts)
+	if err != nil {
+		// Counts are plain name/count pairs; serialization cannot realistically
+		// fail, but never propagate a broken value.
+		return false
+	}
+	annotations := obj.GetAnnotations()
+	if annotations[RayClusterPodsetReplicaSizesAnnotation] == serialized {
+		return false
+	}
+	if annotations == nil {
+		annotations = make(map[string]string, 2)
+	}
+	annotations[RayClusterPodsetReplicaSizesAnnotation] = serialized
+	annotations[RayClusterGenerationAnnotation] = revision
+	obj.SetAnnotations(annotations)
+	return true
+}
+
+// serializeWorkerGroupCounts serializes per-group counts into the JSON format of
+// the replica-sizes annotations, sorted by name for a deterministic value.
+func serializeWorkerGroupCounts(counts map[kueue.PodSetReference]int32) (string, error) {
+	sizes := make([]jobframework.PodSetReplicaSize, 0, len(counts))
+	for name, count := range counts {
+		sizes = append(sizes, jobframework.PodSetReplicaSize{Name: name, Count: count})
+	}
+	slices.SortFunc(sizes, func(a, b jobframework.PodSetReplicaSize) int {
+		return strings.Compare(string(a.Name), string(b.Name))
+	})
+	out, err := json.Marshal(sizes)
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
 func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client.Client, jobObject client.Object, rayClusterName string) (map[string]string, error) {
 	if workloadslicing.Enabled(jobObject) {
 		log := ctrl.LoggerFrom(ctx)
@@ -431,7 +529,12 @@ func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client
 		}, &rayClusterObj)
 		if err != nil {
 			if apierrors.IsNotFound(err) {
-				log.V(3).Info("RayCluster not found, skipping generation annotation", "rayCluster", rayClusterName)
+				log.V(3).Info("RayCluster not found, preserving any existing generation annotation", "rayCluster", rayClusterName)
+				// On a MultiKueue manager the child RayCluster only exists on the
+				// worker cluster and the generation annotation is maintained by
+				// the MultiKueue workload controller from the worker's child.
+				// Writing an empty value here would clobber it.
+				includeRayClusterGeneration = false
 			} else {
 				return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
 			}

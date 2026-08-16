@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -103,7 +104,19 @@ func (j *RayCluster) PodLabelSelector() string {
 }
 
 func (j *RayCluster) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
-	return BuildPodSets(&j.Spec, j.Annotations)
+	podSets, err := BuildPodSets(&j.Spec, j.Annotations)
+	if err != nil {
+		return nil, err
+	}
+	// On a MultiKueue manager an autoscaling RayCluster's worker replicas are
+	// owned by the worker cluster: the manager spec keeps the user-declared
+	// values and the live per-group counts are reflected here as an annotation
+	// by the MultiKueue workload controller. Non-autoscaling scaling edits the
+	// spec directly, so BuildPodSets already reflects it.
+	if ptr.Deref(j.Spec.ManagedBy, "") == kueue.MultiKueueControllerName && ptr.Deref(j.Spec.EnableInTreeAutoscaling, false) {
+		podSets = applyRuntimeCountsAnnotation(ctrl.LoggerFrom(ctx), podSets, j.Object())
+	}
+	return podSets, nil
 }
 
 func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
@@ -133,6 +146,16 @@ func (j *RayCluster) Finished(ctx context.Context) (message string, success, fin
 
 func (j *RayCluster) PodsReady(ctx context.Context, _ client.Client) bool {
 	return j.Status.State == rayv1.Ready
+}
+
+// GetWorkloadNameExtraPart folds the worker-reflected RayCluster generation
+// (RayClusterGenerationAnnotation) into the elastic workload-slice name. A
+// worker-side autoscale reflects the new size onto the manager as an annotation,
+// which never bumps the manager RayCluster's metadata.generation; without this the
+// slice name would key on that generation alone, so a second scale-up would recompute
+// an already-existing slice name and fail to mint its replacement.
+func (j *RayCluster) GetWorkloadNameExtraPart() string {
+	return GetWorkloadNameExtraPart(j.Object())
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {

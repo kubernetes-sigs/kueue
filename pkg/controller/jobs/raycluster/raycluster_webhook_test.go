@@ -157,20 +157,18 @@ func TestValidateCreate(t *testing.T) {
 				),
 			}.ToAggregate(),
 		},
-		"invalid managed - elastic MultiKueue job with auto scaler": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		"multikueue elastic autoscaling - variable-size worker group is valid": {
+			// The autoscaler runs on the worker and its resizes are written back
+			// to the manager, so a range (minReplicas < maxReplicas) is allowed.
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				ManagedBy(kueue.MultiKueueControllerName).
-				SchedulingGate(kueue.ElasticJobSchedulingGate).
 				WithEnableAutoscaling(new(true)).
+				FirstWorkerGroupReplicas(1, 1, 5).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
 				Obj(),
-			wantErr: field.ErrorList{
-				field.Forbidden(
-					field.NewPath("spec", "enableInTreeAutoscaling"),
-					"in-tree autoscaling is not supported for a MultiKueue-managed elastic RayCluster",
-				),
-			}.ToAggregate(),
+			wantErr: nil,
 		},
 		"valid managed - elastic MultiKueue job without auto scaler": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},

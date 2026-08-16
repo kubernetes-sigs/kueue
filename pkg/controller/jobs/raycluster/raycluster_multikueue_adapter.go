@@ -17,6 +17,9 @@ limitations under the License.
 package raycluster
 
 import (
+	"context"
+	"fmt"
+
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -44,30 +47,44 @@ func copyJobSpec(dst, src *rayv1.RayCluster) {
 }
 
 // elasticReplicaSync wires the RayCluster-specific hooks used by the shared Ray
-// MultiKueue adapter to propagate manager-driven worker replica changes.
+// MultiKueue adapter: Spec pushes manager-driven (non-autoscaling) replica edits
+// to the worker copy, and Runtime reflects worker-side autoscaler resizes back
+// onto the manager as annotations (leaving the manager spec untouched).
 func elasticReplicaSync() *ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCluster] {
 	return &ray.ElasticReplicaSync[*rayv1.RayCluster, rayv1.RayCluster]{
-		SyncReplicas:          syncWorkerReplicas,
-		WorkerReplicas:        workerReplicaCounts,
+		SyncReplicas: syncWorkerReplicas,
+		WorkerReplicas: func(rc *rayv1.RayCluster) map[kueue.PodSetReference]int32 {
+			return WorkerGroupPodCounts(&rc.Spec)
+		},
+		Runtime: &ray.RuntimeReplicaSync[*rayv1.RayCluster]{
+			Fetch: fetchOwnWorkerState,
+			Apply: SetRuntimeWorkerStateAnnotations,
+		},
 		WorkloadNameExtraPart: func(rc *rayv1.RayCluster) string { return GetWorkloadNameExtraPart(rc) },
+		AutoscalingEnabled:    func(rc *rayv1.RayCluster) bool { return ptr.Deref(rc.Spec.EnableInTreeAutoscaling, false) },
 	}
 }
 
-// workerReplicaCounts returns the effective worker pod count per worker group,
-// matching how BuildPodSets derives PodSet counts (replicas scaled by NumOfHosts).
-func workerReplicaCounts(rc *rayv1.RayCluster) map[kueue.PodSetReference]int32 {
-	counts := make(map[kueue.PodSetReference]int32, len(rc.Spec.WorkerGroupSpecs))
-	for i := range rc.Spec.WorkerGroupSpecs {
-		wgs := &rc.Spec.WorkerGroupSpecs[i]
-		counts[kueue.NewPodSetReference(wgs.GroupName)] = effectiveWorkerCount(wgs)
+// fetchOwnWorkerState reads the effective per-worker-group pod counts from the
+// remote RayCluster — the worker's copy is where the Ray Autoscaler resizes
+// worker groups — plus a revision derived from the remote's UID and generation.
+// The UID keeps the revision, and with it the workload-slice name, unique when
+// the remote is recreated and its generation restarts.
+//
+// A suspended remote is skipped (found=false): its replica counts were restored
+// by the worker's Kueue while stopping the job, not set by the autoscaler.
+func fetchOwnWorkerState(_ context.Context, _ client.Client, remoteCluster *rayv1.RayCluster) (map[kueue.PodSetReference]int32, string, bool, error) {
+	if ptr.Deref(remoteCluster.Spec.Suspend, false) {
+		return nil, "", false, nil
 	}
-	return counts
+	revision := fmt.Sprintf("%s-%d", remoteCluster.UID, remoteCluster.Generation)
+	return WorkerGroupPodCounts(&remoteCluster.Spec), revision, true, nil
 }
 
 // syncWorkerReplicas copies each worker group's Replicas and NumOfHosts from
 // src into dst, matching groups by name, and returns whether dst changed. Both
 // fields feed the effective per-group pod count that needElasticSync compares
-// (see workerReplicaCounts), so both must be propagated to keep the remote in
+// (see WorkerGroupPodCounts), so both must be propagated to keep the remote in
 // sync when either changes.
 func syncWorkerReplicas(dst, src *rayv1.RayCluster) bool {
 	type groupSize struct {
