@@ -17,6 +17,7 @@ limitations under the License.
 package trainjob
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -26,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -55,10 +57,9 @@ var (
 	}
 )
 
-func TestStopIsIdempotent(t *testing.T) {
-	// The framework reads the returned bool as "this call is what stopped the job" and ends the
-	// reconcile when it is true, so a stop that keeps reporting true never lets the workload
-	// finish.
+func TestStop(t *testing.T) {
+	// JobWithCustomStop requires Stop to be idempotent and to make no API calls once the job is
+	// stopped, and the framework reads the returned bool as "this call is what stopped it".
 	trainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").
 		Suspend(true).
 		RuntimePatches([]kftrainerapi.RuntimePatch{
@@ -70,7 +71,20 @@ func TestStopIsIdempotent(t *testing.T) {
 		Obj()
 
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cl := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme).WithObjects(trainJob).Build()
+	writes := 0
+	cl := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme).
+		WithObjects(trainJob).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				writes++
+				return c.Update(ctx, obj, opts...)
+			},
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				writes++
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+		}).
+		Build()
 	job := (*TrainJob)(trainJob)
 
 	stoppedNow, err := job.Stop(ctx, cl, nil, jobframework.StopReasonNoMatchingWorkload, "out of sync")
@@ -80,13 +94,20 @@ func TestStopIsIdempotent(t *testing.T) {
 	if !stoppedNow {
 		t.Error("the first Stop did not report stopping the job")
 	}
+	if writes == 0 {
+		t.Error("the first Stop wrote nothing, so it cannot have restored the pod set info")
+	}
 
+	writes = 0
 	stoppedNow, err = job.Stop(ctx, cl, nil, jobframework.StopReasonNoMatchingWorkload, "out of sync")
 	if err != nil {
 		t.Fatalf("second Stop: %v", err)
 	}
 	if stoppedNow {
 		t.Error("the second Stop reported stopping an already stopped job, so the wait never ends")
+	}
+	if writes != 0 {
+		t.Errorf("the second Stop made %d API calls against an already stopped job", writes)
 	}
 }
 
@@ -423,6 +444,40 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				Obj(),
 			wantReturn: true,
 		},
+		"should report no change when the kueue RuntimePatch is already cleared": {
+			trainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
+				}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+						EmptyMetadata().
+						Obj(),
+				}).
+				Obj(),
+			wantReturn: false,
+		},
+		"should report no change when only another manager holds a RuntimePatch": {
+			trainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch("example.com/user-manager").
+						ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("user-provided").Obj()).
+						Obj(),
+				}).
+				Obj(),
+			wantTrainJob: testTrainJob.Clone().
+				RuntimePatches([]kftrainerapi.RuntimePatch{
+					testingtrainjob.MakeRuntimePatch("example.com/user-manager").
+						ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("user-provided").Obj()).
+						Obj(),
+				}).
+				Obj(),
+			wantReturn: false,
+		},
 	}
 
 	for name, tc := range cases {
@@ -430,10 +485,10 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			kTrainJob := (*TrainJob)(tc.trainJob)
 			ret := kTrainJob.RestorePodSetsInfo(t.Context(), []podset.PodSetInfo{})
 			if ret != tc.wantReturn {
-				t.Errorf("RunWithPodSetsInfo() unexpected return value. got: %v. want :%v", ret, tc.wantReturn)
+				t.Errorf("RestorePodSetsInfo() unexpected return value. got: %v. want :%v", ret, tc.wantReturn)
 			}
 			if diff := cmp.Diff(tc.wantTrainJob, tc.trainJob, tjobCmpOpts); diff != "" {
-				t.Errorf("RunWithPodSetsInfo() mismatch (-want,+got):\n%s", diff)
+				t.Errorf("RestorePodSetsInfo() mismatch (-want,+got):\n%s", diff)
 			}
 		})
 	}

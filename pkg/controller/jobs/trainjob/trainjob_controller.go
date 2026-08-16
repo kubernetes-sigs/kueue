@@ -311,9 +311,7 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 		return false, errors.New("jobs are still active")
 	}
 
-	// A job that is already stopped comes back here on every reconcile that waits for it, so the
-	// restore reports whether it had anything to undo and the return says whether this call is
-	// what stopped the job.
+	// An already stopped job comes back here on every reconcile that waits for it.
 	restored := false
 	if err := clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
 		restored = t.RestorePodSetsInfo(ctx, podSetsInfo)

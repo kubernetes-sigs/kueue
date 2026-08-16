@@ -17,6 +17,7 @@ limitations under the License.
 package job
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -587,6 +588,52 @@ var (
 		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 	}
 )
+
+func TestStop(t *testing.T) {
+	// JobWithCustomStop requires Stop to be idempotent and to make no API calls once the job is
+	// stopped, and the framework reads the returned bool as "this call is what stopped it".
+	batchJob := utiltestingjob.MakeJob("job", "ns").Suspend(false).Obj()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	writes := 0
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(batchJob).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				writes++
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+			SubResourcePatch: func(ctx context.Context, c client.Client, sub string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+				writes++
+				return c.SubResource(sub).Patch(ctx, obj, patch, opts...)
+			},
+		}).
+		Build()
+	job := fromObject(batchJob)
+
+	stoppedNow, err := job.Stop(ctx, cl, nil, jobframework.StopReasonNoMatchingWorkload, "out of sync")
+	if err != nil {
+		t.Fatalf("first Stop: %v", err)
+	}
+	if !stoppedNow {
+		t.Error("the first Stop did not report stopping the job")
+	}
+	if writes == 0 {
+		t.Error("the first Stop wrote nothing, so it cannot have suspended the job")
+	}
+
+	writes = 0
+	stoppedNow, err = job.Stop(ctx, cl, nil, jobframework.StopReasonNoMatchingWorkload, "out of sync")
+	if err != nil {
+		t.Fatalf("second Stop: %v", err)
+	}
+	if stoppedNow {
+		t.Error("the second Stop reported stopping an already stopped job, so the wait never ends")
+	}
+	if writes != 0 {
+		t.Errorf("the second Stop made %d API calls against an already stopped job", writes)
+	}
+}
 
 func TestReconciler(t *testing.T) {
 	// the clock is primarily used with second rounded times

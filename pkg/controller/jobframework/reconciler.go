@@ -316,8 +316,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err = r.ignoreUnretryableError(log, err)
 	}()
 
-	// loadJob normalizes req.NamespacedName in place (pod groups rewrite it to the lead pod),
-	// so keep the original for a later reload of the same job.
+	// loadJob normalizes this in place, so keep the original for a later reload of the same job.
 	reconcileKey := req.NamespacedName
 	shouldFinalize, err := r.loadJob(ctx, &req.NamespacedName, job)
 	if err != nil {
@@ -1396,10 +1395,8 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 	if err != nil {
 		return prebuiltWaitingForStop, err
 	}
-	// An earlier pass may have written OutOfSync from a view taken before the job ended, and the
-	// caller is about to drop the finalizer on that reason. This runs before every path that
-	// returns, including the equivalent one, because a pair that matches again is still carrying
-	// the reason that pass left behind.
+	// Ahead of every path that returns, including the equivalent one: a pair that matches again
+	// still carries whatever reason an earlier pass left on the workload.
 	if err := r.correctOutOfSync(ctx, wl, job); err != nil {
 		return prebuiltWaitingForStop, err
 	}

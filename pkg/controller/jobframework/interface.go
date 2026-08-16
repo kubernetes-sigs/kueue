@@ -98,17 +98,11 @@ type JobWithCustomStop interface {
 	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) (bool, error)
 }
 
-// JobWithStopAcknowledgement is implemented by integrations whose stop is carried out
-// asynchronously by another controller, so the framework can wait for that controller to confirm
-// it before releasing resources rather than trusting that submitting the stop removed the pods.
-//
-// Leaving it out is not a claim that the stop is synchronous. The framework then holds on IsActive
-// alone, which is where every integration was before this interface existed, so one whose
-// controller can still act on a pre-stop view is only as covered as its IsActive makes it.
+// JobWithStopAcknowledgement is implemented by integrations whose stop is another controller's
+// work, so the framework can wait for it. Leaving it out falls back to IsActive alone.
 type JobWithStopAcknowledgement interface {
-	// StopAcknowledged reports whether the controller that owns the job has reported acting on
-	// the stop. How far down its own children that reaches is up to the integration, so this is
-	// read together with IsActive rather than on its own.
+	// StopAcknowledged reports whether that controller has said it acted on the stop. How far it
+	// reaches into the job's own children is up to the integration, so IsActive is read with it.
 	StopAcknowledged() bool
 }
 

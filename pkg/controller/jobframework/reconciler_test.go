@@ -1255,16 +1255,14 @@ type prebuiltJobState struct {
 	suspendedAtWrite bool
 	workloadWritten  bool
 	// finishedOnReread makes Finished report terminal only from the reload on, modeling a job
-	// that completes while stopping. finishedCalls counts the calls to find the reload: the
-	// first pass reads it once before stopping, the second once more before the reload.
+	// that completes while stopping. finishedCalls finds the reload: it is the third read.
 	finishedOnReread bool
 	finishedCalls    int
 	// finishedAfterWrite makes Finished report terminal only once the workload's status has been
 	// written, modeling a job that ends while the OutOfSync write is in flight.
 	finishedAfterWrite bool
-	// activeOnReread makes IsActive report running only from the reload on, modeling a
-	// controller that created a pod from a view older than the stop. activeCalls counts the
-	// calls the same way.
+	// activeOnReread makes IsActive report running only from the reload on, modeling a controller
+	// that created a pod from a view older than the stop. activeCalls counts them the same way.
 	activeOnReread bool
 	activeCalls    int
 	// uidChangesOnReload models a job deleted and recreated under the same name between the
