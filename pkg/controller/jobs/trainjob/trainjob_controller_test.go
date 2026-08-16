@@ -238,6 +238,9 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 				Obj(),
 			podsetsInfo: []podset.PodSetInfo{
 				{
+					Name: "user-provided",
+				},
+				{
 					Name: "node",
 					Annotations: map[string]string{
 						"test-annotation": "new-value",
@@ -260,6 +263,17 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 					testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
 						EmptyMetadata().
 						ReplicatedJobs(
+							kftrainerapi.ReplicatedJobPatch{
+								Name: "user-provided",
+								Template: &kftrainerapi.JobTemplatePatch{
+									Spec: &kftrainerapi.JobSpecPatch{
+										Template: &kftrainerapi.PodTemplatePatch{
+											Metadata: &metav1.ObjectMeta{},
+											Spec:     &kftrainerapi.PodSpecPatch{},
+										},
+									},
+								},
+							},
 							testingtrainjob.MakeReplicatedJobPatch("node").
 								PodAnnotation("test-annotation", "new-value").
 								PodLabel(constants.PodSetLabel, "node").
