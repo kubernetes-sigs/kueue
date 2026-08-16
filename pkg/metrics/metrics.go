@@ -1038,8 +1038,9 @@ func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, custom
 	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
 }
 
-func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration, tracker *roletracker.RoleTracker) {
-	PodSchedulingGateRemovalSeconds.WithLabelValues(name, string(clusterQueue), strconv.FormatBool(isGroup), roletracker.GetRole(tracker)).Observe(latency.Seconds())
+func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{name, string(clusterQueue), strconv.FormatBool(isGroup), roletracker.GetRole(tracker)}, customLabelValues...)
+	PodSchedulingGateRemovalSeconds.WithLabelValues(labels...).Observe(latency.Seconds())
 }
 
 func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
