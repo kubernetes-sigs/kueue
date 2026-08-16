@@ -157,10 +157,10 @@ var _ = ginkgo.Describe("NetworkPolicies", func() {
 	ginkgo.It("should deny a port the policy does not list", func() {
 		listener := newPolicyCoveredListener()
 		util.MustCreate(ctx, k8sClient, listener)
-		util.WaitForPodRunning(ctx, k8sClient, listener)
 		ginkgo.DeferCleanup(func() {
 			gomega.Expect(util.DeleteObject(ctx, k8sClient, listener)).To(gomega.Succeed())
 		})
+		util.WaitForPodRunning(ctx, k8sClient, listener)
 
 		listenerIP := podIP(listener)
 
@@ -214,10 +214,15 @@ func newPolicyCoveredListener() *corev1.Pod {
 	return listener
 }
 
+// Selecting on the chart label as well as the policy label keeps this from picking up the
+// listener, which carries only the policy label.
 func managerPodIP() string {
 	pods := &corev1.PodList{}
 	gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(kueueNS),
-		client.MatchingLabels(managerSelector))).To(gomega.Succeed())
+		client.MatchingLabels{
+			"control-plane":          managerSelector["control-plane"],
+			"app.kubernetes.io/name": "kueue",
+		})).To(gomega.Succeed())
 	gomega.Expect(pods.Items).NotTo(gomega.BeEmpty())
 	return pods.Items[0].Status.PodIP
 }
