@@ -92,6 +92,8 @@ var (
 	errWatchEstablishTimeout    = errors.New("watch establishment timed out")
 	errWatchEstablishInProgress = errors.New("watch establishment is already in progress")
 
+	kubeconfigKey = "kubeconfig"
+
 	establishBackoff = utilwait.NewBackoff(initialEstablishTimeout, maxEstablishTimeout, 2, 0)
 )
 
@@ -288,6 +290,13 @@ func (rc *remoteClient) increaseFailedConnAttempt() *time.Duration {
 	return &d
 }
 
+func (rc *remoteClient) deferConnAttempt(d time.Duration) *time.Duration {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.retryConnNextAttempt = metav1.NewTime(rc.clock.Now().Add(d))
+	return &d
+}
+
 // updateConfigAndRefreshWatchers - will try to recreate the k8s client and restart watching if the new config is different than
 // the one currently used, a reconnect was requested, or the client was marked as disconnected.
 // If the encountered error is not permanent the duration after which a retry should be done is returned.
@@ -334,6 +343,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 
 	startWatcher, err := rc.establishWatcher(watchCtx, kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
+		if errors.Is(err, errWatchEstablishInProgress) {
+			return rc.deferConnAttempt(retryIncrement), err
+		}
 		return rc.increaseFailedConnAttempt(), err
 	}
 	startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
@@ -346,6 +358,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		}
 		startWatcher, err := rc.establishWatcher(watchCtx, kind, watcher)
 		if err != nil {
+			if errors.Is(err, errWatchEstablishInProgress) {
+				return rc.deferConnAttempt(retryIncrement), err
+			}
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to establish the watcher", "kind", kind)
 			// however let's not accept this for now.
@@ -385,7 +400,7 @@ func (cw *cancelOnStopWatcher) Stop() {
 // timeout. On timeout the in-flight Watch is canceled and
 // errWatchEstablishTimeout is returned so the caller falls back to the
 // standard failedConnAttempts / retryAfter backoff in updateConfigAndRefreshWatchers.
-func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, origin string, timeout time.Duration, establishing *atomic.Bool) (watch.Interface, error) {
+func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, origin string, timeout time.Duration, establishing *atomic.Bool, shouldWatchHonorsCancellation bool) (watch.Interface, error) {
 	if !establishing.CompareAndSwap(false, true) {
 		return nil, errWatchEstablishInProgress
 	}
@@ -414,19 +429,25 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 		return &cancelOnStopWatcher{Interface: r.w, cancel: cancel}, nil
 	case <-time.After(timeout):
 		cancel()
-		go func() {
+		cleanup := func() {
 			defer establishing.Store(false)
 			if r := <-resultCh; r.w != nil {
 				r.w.Stop()
 			}
-		}()
+		}
+		if shouldWatchHonorsCancellation {
+			go cleanup()
+		} else {
+			cleanup()
+		}
 		return nil, errWatchEstablishTimeout
 	}
 }
 
 func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) (func(), error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1), &rc.watchEstablishing)
+	shouldWatchHonorsCancellation := rc.config == nil || rc.config.RestConfig == nil || rc.config.RestConfig.ExecProvider == nil
+	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1), &rc.watchEstablishing, shouldWatchHonorsCancellation)
 	if err != nil {
 		return nil, err
 	}
