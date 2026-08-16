@@ -74,5 +74,10 @@ if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:promethe
     deploy_kueue_prometheus_config ""
 fi
 
+if [[ -n ${NETWORK_POLICIES_VERSION:-} ]]; then
+    install_network_policies_enforcement ""
+    deploy_kueue_network_policies ""
+fi
+
 run_e2e_ginkgo --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
 "$ROOT_DIR/bin/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"

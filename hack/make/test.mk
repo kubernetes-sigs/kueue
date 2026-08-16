@@ -60,6 +60,7 @@ E2E_USE_HELM ?= false
 E2E_MODE ?= ci
 E2E_SKIP_REINSTALL ?= false
 PROMETHEUS_OPERATOR_VERSION ?= v0.89.0
+NETWORK_POLICIES_VERSION ?= v1.1.1
 # When truthy, force re-installing external operators (MPI, Ray, etc.) on each run, even in E2E_MODE=dev.
 E2E_ENFORCE_OPERATOR_UPDATE ?= false
 
@@ -342,6 +343,9 @@ test-tas-was-e2e-extended-helm: test-tas-e2e-extended-helm
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager e2e test suite.
 
+.PHONY: test-e2e-networkpolicy
+test-e2e-networkpolicy: setup-e2e-env run-test-e2e-networkpolicy-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the NetworkPolicy e2e test suite.
+
 ## Label Taxonomy:
 ##   Features: admissionfairsharing, certs, failurerecoverypolicy, localqueuemetrics, managejobswithoutqueuename, objectretentionpolicies, podintegrationautoenablement, reconcile, visibility, waitforpodsready
 ## Examples:
@@ -526,6 +530,20 @@ run-test-e2e-certmanager-%:
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="certmanager" \
 		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
 		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-test.sh
+
+run-test-e2e-networkpolicy-%: K8S_VERSION = $(@:run-test-e2e-networkpolicy-%=%)
+run-test-e2e-networkpolicy-%:
+	@echo Running NetworkPolicy e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="networkpolicy" \
+		NETWORK_POLICIES_VERSION=$(NETWORK_POLICIES_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
