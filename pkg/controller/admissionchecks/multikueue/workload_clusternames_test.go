@@ -92,8 +92,8 @@ func TestUserNominatedClusters(t *testing.T) {
 		},
 		"multiple clusters": {
 			featureEnabled: true,
-			wl:             wlWith(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "worker1,worker2"}),
-			want:           []string{"worker1", "worker2"},
+			wl:             wlWith(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "worker1,worker2,worker3"}),
+			want:           []string{"worker1", "worker2", "worker3"},
 			wantOK:         true,
 		},
 	}
