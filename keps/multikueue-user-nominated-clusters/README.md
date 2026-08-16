@@ -43,12 +43,27 @@ the training Workload. The orchestrator already knows that cluster (it is where
 training was running when the checkpoint was written), so it only needs a simple,
 declarative way to tell Kueue "put this eval on cluster X".
 
-This is precisely why a **static** cluster selection is the right primitive here,
-and why cross-Workload affinity ("co-locate with training Workload Y", resolved by
-Kueue and following it as it moves) would be **incorrect** for this use case: it
-would drag the eval to the training job's new cluster, away from the checkpoint
-data. Affinity is a larger, separate feature (see Non-goals); this proposal is the
-smaller building block that directly matches the data-locality requirement.
+The primitive needed here is therefore **pin to a fixed cluster** (the
+checkpoint's), resolved at eval-launch, that does **not** follow the training job
+if it later moves. The relevant axis is *pin-once* vs *continuously follow*, not
+"static vs affinity":
+
+- A **continuously-following** affinity ("track training Workload Y's current
+  cluster") is the wrong semantics: if the training job is preempted and
+  re-admitted on a new cluster while the eval is still pending admission, it would
+  re-point the eval away from the checkpoint. (Once the eval is admitted its
+  `status.clusterName` is immutable, so in the common case where it lands before
+  the training job moves, even a follow-style affinity coincidentally stays put —
+  but that is not something to rely on.)
+- A **resolve-once-and-pin** affinity would give the correct result — and is
+  functionally equivalent to this proposal, just with Kueue doing the "which
+  cluster is the checkpoint on" lookup (by reading Y) instead of the caller.
+
+So this proposal — the caller resolves the fixed target cluster and passes it — is
+the simplest form of the pin-once primitive. A reference-based one-time resolution
+is possible future sugar on top of it; a continuously-following affinity is a
+different feature for a different need (keeping related workloads together as they
+move) and does not fit data locality.
 
 ## Goals
 
@@ -59,11 +74,13 @@ smaller building block that directly matches the data-locality requirement.
 
 ## Non-goals
 
-- Cross-Workload cluster affinity ("same cluster as Workload Y", following Y as it
-  moves) resolved by Kueue. This is both a larger feature and semantically
-  different from the motivating use case, which needs a fixed target cluster (the
-  checkpoint's cluster), not a live reference. (Possible future work; the internal
-  `getComponentWorkloadsClusterName` primitive shows affinity is feasible.)
+- Continuously-following cross-Workload affinity ("track Workload Y to whatever
+  cluster it is currently on") resolved by Kueue. That serves keeping related
+  workloads together as they move, which is a different need from the fixed-cluster
+  data-locality case here (see Motivation for the pin-once vs follow distinction).
+  A *resolve-once-and-pin* variant would build on this proposal rather than replace
+  it. (Possible future work; the internal `getComponentWorkloadsClusterName`
+  primitive shows reference resolution is feasible.)
 - Preferred / soft ordering with fallback (future; would build on `Incremental`).
 - A typed `Workload.Spec` field (future graduation from the annotation).
 
