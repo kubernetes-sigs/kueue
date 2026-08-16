@@ -36,9 +36,13 @@ import (
 )
 
 const (
-	metricsPort    = 8443
-	connectTimeout = "5s"
+	managerPolicyName = "kueue-controller-manager-ingress"
+	metricsPort       = 8443
+	unlistedPort      = 9999
+	connectTimeout    = "5s"
 )
+
+var managerSelector = map[string]string{"control-plane": "controller-manager"}
 
 var _ = ginkgo.Describe("NetworkPolicies", func() {
 	const defaultFlavor = "default-flavor"
@@ -76,10 +80,22 @@ var _ = ginkgo.Describe("NetworkPolicies", func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultRF, true)
 	})
 
-	ginkgo.It("should have the policies applied to the ControllerManager", func() {
-		policies := &networkingv1.NetworkPolicyList{}
-		gomega.Expect(k8sClient.List(ctx, policies, client.InNamespace(kueueNS))).To(gomega.Succeed())
-		gomega.Expect(policies.Items).NotTo(gomega.BeEmpty())
+	ginkgo.It("should have the ControllerManager policy applied", func() {
+		policy := &networkingv1.NetworkPolicy{}
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{
+			Namespace: kueueNS, Name: managerPolicyName,
+		}, policy)).To(gomega.Succeed())
+
+		gomega.Expect(policy.Spec.PodSelector.MatchLabels).To(gomega.Equal(managerSelector))
+		gomega.Expect(policy.Spec.PolicyTypes).To(gomega.Equal([]networkingv1.PolicyType{networkingv1.PolicyTypeIngress}))
+
+		var allowed []int32
+		for _, rule := range policy.Spec.Ingress {
+			for _, port := range rule.Ports {
+				allowed = append(allowed, port.Port.IntVal)
+			}
+		}
+		gomega.Expect(allowed).To(gomega.ConsistOf(int32(9443), int32(8082), int32(metricsPort), int32(8081)))
 	})
 
 	ginkgo.It("should still admit a Job, so the webhook stays reachable", func() {
@@ -137,14 +153,82 @@ var _ = ginkgo.Describe("NetworkPolicies", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.It("should deny a port the policy does not list", func() {
+		listener := newPolicyCoveredListener()
+		util.MustCreate(ctx, k8sClient, listener)
+		util.WaitForPodRunning(ctx, k8sClient, listener)
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, listener)).To(gomega.Succeed())
+		})
+
+		listenerIP := podIP(listener)
+
+		probe := testingpod.MakePod("netpol-probe", ns.Name).
+			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
+			Obj()
+		util.MustCreate(ctx, k8sClient, probe)
+		util.WaitForPodRunning(ctx, k8sClient, probe)
+
+		container := probe.Spec.Containers[0].Name
+
+		ginkgo.By("Reaching the listed port, which shows the listener is up", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				_, _, err := util.KExecute(ctx, cfg, restClient, ns.Name, probe.Name, container,
+					connectCmd(listenerIP, metricsPort))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Failing to reach the unlisted port on the same pod", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				_, _, err := util.KExecute(ctx, cfg, restClient, ns.Name, probe.Name, container,
+					connectCmd(listenerIP, unlistedPort))
+				g.Expect(err).To(gomega.HaveOccurred())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+	})
 })
+
+// The listener carries the label the ControllerManager policy selects on, so the policy
+// covers it. It serves one listed and one unlisted port, which keeps the denial scoped to
+// the port rather than to whether the pod is up. The failing readiness probe keeps it out
+// of the Kueue Services, which select on that same label.
+func newPolicyCoveredListener() *corev1.Pod {
+	listener := testingpod.MakePod("netpol-listener", kueueNS).
+		Image(util.GetAgnHostImage(), []string{"netexec", fmt.Sprintf("--http-port=%d", metricsPort)}).
+		Label("control-plane", managerSelector["control-plane"]).
+		TerminationGracePeriod(1).
+		Obj()
+	listener.Spec.Containers[0].ReadinessProbe = &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			Exec: &corev1.ExecAction{Command: []string{"false"}},
+		},
+	}
+	listener.Spec.Containers = append(listener.Spec.Containers, corev1.Container{
+		Name:  "unlisted",
+		Image: util.GetAgnHostImage(),
+		Args:  []string{"netexec", fmt.Sprintf("--http-port=%d", unlistedPort)},
+	})
+	return listener
+}
 
 func managerPodIP() string {
 	pods := &corev1.PodList{}
 	gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(kueueNS),
-		client.MatchingLabels{"control-plane": "controller-manager"})).To(gomega.Succeed())
+		client.MatchingLabels(managerSelector))).To(gomega.Succeed())
 	gomega.Expect(pods.Items).NotTo(gomega.BeEmpty())
 	return pods.Items[0].Status.PodIP
+}
+
+func podIP(pod *corev1.Pod) string {
+	created := &corev1.Pod{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), created)).To(gomega.Succeed())
+		g.Expect(created.Status.PodIP).NotTo(gomega.BeEmpty())
+	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	return created.Status.PodIP
 }
 
 func connectCmd(host string, port int) []string {
