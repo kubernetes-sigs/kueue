@@ -32,6 +32,14 @@ const (
 	// the management cluster on remote objects.
 	MultiKueueOriginUIDAnnotation = "kueue.x-k8s.io/multikueue-origin-uid"
 
+	// MultiKueueClusterNamesAnnotation restricts, on a Job or Workload, the set of
+	// MultiKueue worker clusters the Workload may be dispatched to. The value is a
+	// comma-separated list of MultiKueueCluster names. The requested clusters are
+	// always intersected with the clusters the Workload's ClusterQueue is authorized
+	// for, so a user can only narrow the authorized set, never widen it. Gated by the
+	// MultiKueueClusterNames feature gate.
+	MultiKueueClusterNamesAnnotation = "kueue.x-k8s.io/multikueue-cluster-names"
+
 	// MultiKueueControllerName is the name used by the MultiKueue
 	// admission check controller.
 	MultiKueueControllerName = "kueue.x-k8s.io/multikueue"

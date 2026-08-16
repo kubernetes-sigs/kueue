@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -846,6 +847,44 @@ func nominatedClusterSetsEqual(stored, current []string) bool {
 	return slices.Equal(stored, current)
 }
 
+// userNominatedClusters returns the MultiKueue cluster names the user requested via
+// the MultiKueueClusterNames annotation on the workload, if the feature is enabled
+// and the annotation is present and non-empty.
+func userNominatedClusters(wl *kueue.Workload) ([]string, bool) {
+	if !features.Enabled(features.MultiKueueClusterNames) {
+		return nil, false
+	}
+	raw, ok := wl.Annotations[kueue.MultiKueueClusterNamesAnnotation]
+	if !ok {
+		return nil, false
+	}
+	clusters := make([]string, 0)
+	for _, c := range strings.Split(raw, ",") {
+		if c = strings.TrimSpace(c); c != "" {
+			clusters = append(clusters, c)
+		}
+	}
+	if len(clusters) == 0 {
+		return nil, false
+	}
+	return clusters, true
+}
+
+// intersectAuthorizedClusters keeps only the requested clusters that are in the
+// workload's authorized set (the remotes derived from its MultiKueueConfig). A user
+// can only narrow the authorized set, never widen it. The result is sorted and
+// deduplicated for a stable nomination.
+func intersectAuthorizedClusters(requested []string, authorized map[string]*kueue.Workload) []string {
+	out := make([]string, 0, len(requested))
+	for _, c := range requested {
+		if _, ok := authorized[c]; ok {
+			out = append(out, c)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
 func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
@@ -909,6 +948,24 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	// supporting preferred or required placement constraints.
 	if clusterName := workload.ClusterName(group.local); group.IsElasticWorkload() && clusterName != "" {
 		nominatedWorkers = []string{clusterName}
+	} else if requested, ok := userNominatedClusters(group.local); ok {
+		// The user restricted the target clusters via the MultiKueueClusterNames
+		// annotation. Honor it, but only within the authorized set (group.remotes),
+		// so the user can narrow the candidates, never widen them.
+		nominatedWorkers = intersectAuthorizedClusters(requested, group.remotes)
+		if len(nominatedWorkers) == 0 {
+			log.V(2).Info("None of the user-requested MultiKueue clusters are authorized for this workload; leaving it unscheduled",
+				"workload", klog.KObj(group.local), "requestedClusters", requested)
+		}
+		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+				wl.Status.NominatedClusterNames = nominatedWorkers
+				return true, nil
+			}); err != nil {
+				log.V(2).Error(err, "Failed to patch user-nominated clusters", "workload", klog.KObj(group.local))
+				return reconcile.Result{}, err
+			}
+		}
 	} else if w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
