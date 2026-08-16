@@ -1219,6 +1219,14 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 			inClient:     true,
 			wantRequeued: true,
 		},
+		"existing queue and obj with non-existent runtime class": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				RuntimeClass("non-existent-rc").
+				Obj(),
+			inClient:     true,
+			wantRequeued: true,
+		},
 		"non existing queue": {
 			workload:     utiltestingapi.MakeWorkload("wl", "").Queue("baz").Obj(),
 			inClient:     true,

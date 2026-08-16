@@ -89,7 +89,7 @@ func (l *LimitRanges) GetForNamespace(ns string) []corev1.LimitRange {
 	}
 	res := make([]corev1.LimitRange, 0, len(l.store[ns]))
 	for _, lr := range l.store[ns] {
-		res = append(res, *lr)
+		res = append(res, *lr.DeepCopy())
 	}
 	return res
 }
