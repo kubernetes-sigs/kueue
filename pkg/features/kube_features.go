@@ -540,9 +540,7 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/14540
 	//
 	// Enables users to restrict, via the kueue.x-k8s.io/multikueue-cluster-names annotation,
-	// which MultiKueue worker clusters a Workload may be dispatched to. The requested clusters
-	// are always intersected with the clusters the Workload's ClusterQueue is authorized for, so
-	// the annotation can only narrow the authorized set, never widen it.
+	// which MultiKueue worker clusters a Workload may be dispatched to.
 	MultiKueueClusterNames featuregate.Feature = "MultiKueueClusterNames"
 
 	// owner: @pajakd
