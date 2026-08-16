@@ -422,7 +422,7 @@ func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 
 // IsActive reports whether a Pod or PodGroup should be considered active.
 //
-// For regular Pod, return value is always false.
+// For a regular Pod, return true if that Pod itself is active.
 //
 // For Pod group, return true if there is at least a single Active pod in the group.
 // A Pod is considered active if it is in the Running phase and has not exceeded
@@ -681,6 +681,10 @@ func getRoleHash(p corev1.Pod) (string, error) {
 
 // Load loads all pods in the group
 func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error) {
+	// Reloading the same wrapper must not report an emptied group as still present.
+	p.isFound, p.isGroup = false, false
+	p.pod, p.list = corev1.Pod{}, corev1.PodList{}
+
 	nsKey := strings.Split(key.Namespace, "/")
 
 	if len(nsKey) == 1 {

@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -6892,6 +6893,60 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 
 			if diff := cmp.Diff([]kueue.Workload{*wantWl}, gotWorkloads.Items, defaultWorkloadCmpOpts...); diff != "" {
 				t.Errorf("Workloads after second reconcile (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestLoad(t *testing.T) {
+	const groupName = "grp"
+
+	cases := map[string]struct {
+		// emptiedOnReload deletes every member before the second load, which is what a group whose
+		// pods were finalized between two loads of the same wrapper looks like.
+		emptiedOnReload      bool
+		wantRemoveFinalizers bool
+	}{
+		"a group emptied between two loads of the same wrapper is reported gone": {
+			emptiedOnReload:      true,
+			wantRemoveFinalizers: true,
+		},
+		"a group that kept a member is still reported present": {},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			podA := testingpod.MakePod("pod-a", "ns").Label(podconstants.GroupNameLabel, groupName).Obj()
+			podB := testingpod.MakePod("pod-b", "ns").Label(podconstants.GroupNameLabel, groupName).Obj()
+
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(podA, podB).
+				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName).
+				Build()
+
+			p := &Pod{excessPodExpectations: expectations.NewStore("test")}
+			key := types.NamespacedName{Name: groupName, Namespace: "group/ns"}
+			if _, err := p.Load(ctx, cl, &key); err != nil {
+				t.Fatalf("first Load: %v", err)
+			}
+
+			if err := cl.Delete(ctx, podA); err != nil {
+				t.Fatalf("deleting pod-a: %v", err)
+			}
+			if tc.emptiedOnReload {
+				if err := cl.Delete(ctx, podB); err != nil {
+					t.Fatalf("deleting pod-b: %v", err)
+				}
+			}
+
+			reloadKey := types.NamespacedName{Name: groupName, Namespace: "group/ns"}
+			gotRemoveFinalizers, err := p.Load(ctx, cl, &reloadKey)
+			if err != nil {
+				t.Fatalf("second Load: %v", err)
+			}
+			if gotRemoveFinalizers != tc.wantRemoveFinalizers {
+				t.Errorf("the reload reported removeFinalizers = %v, want %v", gotRemoveFinalizers, tc.wantRemoveFinalizers)
 			}
 		})
 	}
