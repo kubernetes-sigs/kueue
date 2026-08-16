@@ -1396,17 +1396,19 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 	if err != nil {
 		return prebuiltWaitingForStop, err
 	}
+	// An earlier pass may have written OutOfSync from a view taken before the job ended, and the
+	// caller is about to drop the finalizer on that reason. This runs before every path that
+	// returns, including the equivalent one, because a pair that matches again is still carrying
+	// the reason that pass left behind.
+	if err := r.correctOutOfSync(ctx, wl, job); err != nil {
+		return prebuiltWaitingForStop, err
+	}
 	if equivalent {
 		return prebuiltUseWorkload, nil
 	}
 
-	// A finished job keeps the reason it ended with, which the caller writes. An earlier pass may
-	// have already written OutOfSync from a view taken before the job ended, and the caller is
-	// about to drop the finalizer on that reason, so this is the last place it can be put right.
+	// A finished job keeps the reason it ended with, which the caller writes.
 	if _, _, finished := job.Finished(ctx); finished {
-		if err := r.correctOutOfSync(ctx, wl, job); err != nil {
-			return prebuiltWaitingForStop, err
-		}
 		return prebuiltUseWorkload, nil
 	}
 

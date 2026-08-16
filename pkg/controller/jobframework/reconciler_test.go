@@ -1302,6 +1302,8 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 		// finishedOutOfSync starts the workload already finished as out of sync, which is what
 		// an earlier pass leaves behind when the correction could not be written.
 		finishedOutOfSync bool
+		// matching gives the job the pod set the workload reserved, so the pair is equivalent.
+		matching bool
 
 		wantErr           bool
 		wantStopped       bool
@@ -1381,6 +1383,15 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 			wantErr:     true,
 			wantStopped: true,
 		},
+		// The pair matches again, which every other path treats as nothing to do. The reason an
+		// earlier pass left behind still has to be put right before the finalizer comes off.
+		"a workload finished as OutOfSync is corrected even once the pair matches again": {
+			state:             prebuiltJobState{finished: true, success: true},
+			matching:          true,
+			finishedOutOfSync: true,
+			wantReason:        kueue.WorkloadFinishedReasonSucceeded,
+			wantFinalizerGone: true,
+		},
 		// An earlier pass finished the workload as out of sync and could not write the
 		// correction. The finalizer is still on, so the reason the job ended with can replace it.
 		"a workload already finished as OutOfSync is corrected before it is finalized": {
@@ -1406,7 +1417,11 @@ func TestReconcileGenericJob_PrebuiltOutOfSync(t *testing.T) {
 			wlKey := types.NamespacedName{Namespace: "ns", Name: wlName}
 
 			// The job wants one pod against two reserved, so the pair no longer matches.
-			jobPodSets := []kueue.PodSet{*utiltestingapi.MakePodSet("main", 1).Obj()}
+			jobCount := 1
+			if tc.matching {
+				jobCount = 2
+			}
+			jobPodSets := []kueue.PodSet{*utiltestingapi.MakePodSet("main", jobCount).Obj()}
 			wlPodSets := []kueue.PodSet{*utiltestingapi.MakePodSet("main", 2).Obj()}
 
 			job := testingjob.MakeJob("job-1", "ns").

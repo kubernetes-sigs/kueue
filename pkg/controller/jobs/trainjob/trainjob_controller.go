@@ -298,31 +298,41 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 }
 
 func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
+	suspended := false
 	if !t.IsSuspended() {
 		t.Suspend()
 		if err := c.Update(ctx, t.Object()); err != nil {
 			return false, fmt.Errorf("error suspending trainjob: %w", err)
 		}
+		suspended = true
 	}
 
 	if t.IsActive() {
 		return false, errors.New("jobs are still active")
 	}
 
+	// A job that is already stopped comes back here on every reconcile that waits for it, so the
+	// restore reports whether it had anything to undo and the return says whether this call is
+	// what stopped the job.
+	restored := false
 	if err := clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
-		if !t.RestorePodSetsInfo(ctx, podSetsInfo) {
-			return false, errors.New("error restoring info to the trainjob")
-		}
-		return true, nil
+		restored = t.RestorePodSetsInfo(ctx, podSetsInfo)
+		return restored, nil
 	}); err != nil {
 		return false, err
 	}
-	return true, nil
+	return suspended || restored, nil
 }
 
 func (t *TrainJob) RestorePodSetsInfo(_ context.Context, _ []podset.PodSetInfo) bool {
 	kueueRuntimePatch := getKueueRuntimePatch(t)
-	if kueueRuntimePatch == nil {
+	// The manager is a plain string the user can also set, so the patch this finds is not
+	// necessarily one this controller built.
+	if kueueRuntimePatch == nil ||
+		kueueRuntimePatch.TrainingRuntimeSpec == nil ||
+		kueueRuntimePatch.TrainingRuntimeSpec.Template == nil ||
+		kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec == nil ||
+		len(kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs) == 0 {
 		return false
 	}
 	kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs = nil

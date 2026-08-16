@@ -55,6 +55,41 @@ var (
 	}
 )
 
+func TestStopIsIdempotent(t *testing.T) {
+	// The framework reads the returned bool as "this call is what stopped the job" and ends the
+	// reconcile when it is true, so a stop that keeps reporting true never lets the workload
+	// finish.
+	trainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").
+		Suspend(true).
+		RuntimePatches([]kftrainerapi.RuntimePatch{
+			testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+				EmptyMetadata().
+				ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").Obj()).
+				Obj(),
+		}).
+		Obj()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cl := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme).WithObjects(trainJob).Build()
+	job := (*TrainJob)(trainJob)
+
+	stoppedNow, err := job.Stop(ctx, cl, nil, jobframework.StopReasonNoMatchingWorkload, "out of sync")
+	if err != nil {
+		t.Fatalf("first Stop: %v", err)
+	}
+	if !stoppedNow {
+		t.Error("the first Stop did not report stopping the job")
+	}
+
+	stoppedNow, err = job.Stop(ctx, cl, nil, jobframework.StopReasonNoMatchingWorkload, "out of sync")
+	if err != nil {
+		t.Fatalf("second Stop: %v", err)
+	}
+	if stoppedNow {
+		t.Error("the second Stop reported stopping an already stopped job, so the wait never ends")
+	}
+}
+
 func TestStopAcknowledged(t *testing.T) {
 	testCases := map[string]struct {
 		conditions []metav1.Condition
