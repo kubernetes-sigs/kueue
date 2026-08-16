@@ -939,27 +939,27 @@ The two DRA paths resolve quota independently:
 7. Admits the Workload against the resulting requests, which is the mapped logical
    name together with any contribution still standing under the original one
 
-The container contribution is read from the workload spec as it stands, before any
-filtering, so that what is charged is what the Pods will ask for. Where it is taken
-back from is a later view. The processing order:
-1. The container contribution on each translated extended resource is read from the
-   original spec
+The extended resource translation reads directly from the workload spec before
+`excludeResourcePrefixes` filtering is applied, so that what is charged is what the
+Pods will ask for. Where it is taken back from is a later view. The processing order:
+1. Extended resource translation runs first, reading the original spec. The container
+   contribution it aggregates under each translated name is the figure step 4 takes back
 2. `excludeResourcePrefixes` filters the pod's `resources.requests`
-3. Resource transformations run
-4. The container contribution is subtracted from what is still retained under that name,
-   so pod overhead and anything a transformation added under it survive. A name an
-   excluded prefix removed, or a `Replace` transformation consumed, has nothing left to
-   subtract from. A transformation may still generate a contribution under the same
-   name, and generated contributions are not touched by the subtraction
+3. Resource transformations run over what that filtering left, which is still the pod's
+   own requests. The translated resource is not among them
+4. The container contribution is subtracted from what is still retained under the
+   original name, so pod overhead and anything a transformation added under it survive.
+   A name an excluded prefix removed, or a `Replace` transformation consumed, has nothing
+   left to subtract from. A transformation may still generate a contribution under the
+   same name, and generated contributions are not touched by the subtraction
 5. Translated resource is added through `preprocessedDRAResources`
 
-These steps run during DRA preprocessing, before Kueue's accounting exclusions and resource
-transformations; what they produce is merged in later, when `TotalRequests` is built from the
-same spec. The container contribution is the figure step 1 computes, so the charge and the
-subtraction come from the same aggregation. For a name whose requests are valid and whose
-DeviceClass resolution holds for the length of preprocessing, the amount subtracted is the
-amount charged. Each name is aggregated under its own name before any mapping, so two names
-reaching one logical resource are charged and subtracted alike.
+Step 1 runs during DRA preprocessing, and what it produces is merged in at step 5, when
+`TotalRequests` is built from the same spec. The charge and the subtraction therefore come
+from one aggregation: for a name whose requests are valid and whose DeviceClass resolution
+holds for the length of preprocessing, the amount subtracted is the amount charged. Each
+name is aggregated under its own name before any mapping, so two names reaching one logical
+resource are charged and subtracted alike.
 
 This keeps the extended resource from being counted twice under its own name. It does not
 reach a resource transformation naming the same resource: a `Replace` consuming a DRA-backed
