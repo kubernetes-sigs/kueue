@@ -150,9 +150,26 @@ the authorized set are dropped (and, if that empties the set, handled as above).
 - **External dispatcher** (exists): fully general but requires running a custom
   controller and owning nomination for all Workloads. Overkill for the
   "caller knows the cluster" case.
-- **Queue routing** (exists, no code change): pre-create one LocalQueue per worker
-  cluster (each ClusterQueue → single-cluster `MultiKueueConfig`) and have the
-  caller pick the queue. Works today but requires N per-cluster queues and a
-  cluster→queue mapping in the caller.
+- **Node-label + nodeSelector / ResourceFlavor targeting** (exists, no code
+  change): label each worker cluster's nodes with a distinct key, define a
+  `ResourceFlavor` per worker whose `nodeLabels` match that key (on both the
+  manager and the workers), and set the Job's `nodeSelector` to the target
+  cluster's label. Kueue's flavor assignment then admits the Workload only on the
+  cluster whose ClusterQueue has a matching flavor — each worker assigns flavors
+  independently, so a non-matching worker cannot admit — effectively routing it
+  there.
+
+  This works today and is more idiomatic than per-cluster queues, but it is
+  fragile and indirect:
+  - It requires per-cluster, mutually-exclusive restrictive flavors on **every**
+    cluster (manager included). Any permissive/catch-all flavor (empty
+    `nodeLabels`) lets a non-target cluster admit the Workload and then leaves its
+    pods unschedulable (no matching node).
+  - It encodes cluster identity indirectly via node labels rather than selecting a
+    `MultiKueueCluster` directly.
+
+  These are the main reasons to prefer an explicit cluster-selection API: it
+  targets a `MultiKueueCluster` directly and does not depend on every cluster's
+  flavor configuration being exactly right.
 - **Cross-Workload affinity** (future): "same cluster as Workload Y" resolved by
   Kueue; larger feature, out of scope here.
