@@ -831,6 +831,28 @@ func TestStopAcknowledged(t *testing.T) {
 			},
 			want: true,
 		},
+		// Older KubeRay reports the state, not the condition, but still reports other conditions.
+		"an unrelated condition does not hide the legacy suspended state": {
+			status: rayv1.RayClusterStatus{
+				State: rayv1.Suspended,
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.HeadPodReady),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: true,
+		},
+		// KubeRay writes the generation into the same status as the condition.
+		"suspended reported without a generation: not acknowledged": {
+			generation: 2,
+			status: rayv1.RayClusterStatus{
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.RayClusterSuspended),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: false,
+		},
 	}
 
 	for name, tc := range testCases {

@@ -621,8 +621,9 @@ func TestStopAcknowledged(t *testing.T) {
 		RayClusterStatus: rayv1.RayClusterStatus{Conditions: []metav1.Condition{{Type: string(rayv1.RayClusterSuspended), Status: metav1.ConditionTrue}}},
 	}
 	testCases := map[string]struct {
-		status rayv1.RayServiceStatuses
-		want   bool
+		generation int64
+		status     rayv1.RayServiceStatuses
+		want       bool
 	}{
 		"not acknowledged - Ready is false but an active RayCluster still exists": {
 			status: rayv1.RayServiceStatuses{ActiveServiceStatus: activeCluster},
@@ -640,10 +641,24 @@ func TestStopAcknowledged(t *testing.T) {
 			status: rayv1.RayServiceStatuses{},
 			want:   true,
 		},
+		// KubeRay writes the slots and the generation it read in the same status.
+		"not acknowledged - the slots were not written for this generation": {
+			generation: 2,
+			status:     rayv1.RayServiceStatuses{ObservedGeneration: 1},
+			want:       false,
+		},
+		"not acknowledged - a service KubeRay has not reported on at all": {
+			generation: 1,
+			status:     rayv1.RayServiceStatuses{},
+			want:       false,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			j := (*RayService)(&rayv1.RayService{Status: tc.status})
+			j := (*RayService)(&rayv1.RayService{
+				ObjectMeta: metav1.ObjectMeta{Generation: tc.generation},
+				Status:     tc.status,
+			})
 			if got := j.StopAcknowledged(); got != tc.want {
 				t.Errorf("StopAcknowledged() = %v, want %v", got, tc.want)
 			}

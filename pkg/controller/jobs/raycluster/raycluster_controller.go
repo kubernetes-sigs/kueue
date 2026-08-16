@@ -23,6 +23,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -92,17 +93,11 @@ func (j *RayCluster) IsActive() bool {
 	return j.Status.State == rayv1.Ready
 }
 
-// StopAcknowledged reports whether KubeRay finished the suspend: RayClusterSuspended is set only
-// after every pod is deleted. A status KubeRay wrote for an earlier generation says nothing about
-// this stop, since a resume it has not caught up with yet still reads suspended. An observed
-// generation of zero is not a reading, so it is left alone; older KubeRay without the condition
-// falls back to the Suspended state.
+// StopAcknowledged reports whether KubeRay deleted every pod: it sets RayClusterSuspended only
+// then, for the generation it read. Older KubeRay reports no such condition; read the state.
 func (j *RayCluster) StopAcknowledged() bool {
-	if j.Status.ObservedGeneration != 0 && j.Status.ObservedGeneration < j.Generation {
-		return false
-	}
-	if len(j.Status.Conditions) > 0 {
-		return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayClusterSuspended))
+	if cond := meta.FindStatusCondition(j.Status.Conditions, string(rayv1.RayClusterSuspended)); cond != nil {
+		return j.Status.ObservedGeneration == j.Generation && cond.Status == metav1.ConditionTrue
 	}
 	return j.Status.State == rayv1.Suspended
 }

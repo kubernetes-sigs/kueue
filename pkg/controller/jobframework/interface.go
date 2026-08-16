@@ -99,10 +99,11 @@ type JobWithCustomStop interface {
 }
 
 // JobWithStopAcknowledgement is implemented by integrations whose stop is another controller's
-// work, so the framework can wait for it. Leaving it out falls back to IsActive alone.
+// work, so the framework can wait for it. What the report proves varies by integration: it cannot
+// tell this stop from an earlier one, and how far it reaches into the job's own children is up to
+// the integration. IsActive is read with it, and leaving it out falls back to IsActive alone.
 type JobWithStopAcknowledgement interface {
-	// StopAcknowledged reports whether that controller has said it acted on the stop. How far it
-	// reaches into the job's own children is up to the integration, so IsActive is read with it.
+	// StopAcknowledged reports whether that controller has said it acted on a stop.
 	StopAcknowledged() bool
 }
 

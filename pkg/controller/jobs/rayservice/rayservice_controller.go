@@ -142,9 +142,12 @@ func (j *RayService) IsActive() bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayServiceReady))
 }
 
-// StopAcknowledged reports whether neither the active nor pending RayCluster still holds pods.
-// RayServiceReady is serve-readiness, not pod existence, so the cluster slots are tracked instead.
+// StopAcknowledged reports whether neither cluster slot still holds pods. RayServiceReady is
+// serve-readiness, so read the slots instead, and only for the generation KubeRay reported.
 func (j *RayService) StopAcknowledged() bool {
+	if j.Status.ObservedGeneration != j.Generation {
+		return false
+	}
 	return !rayServiceClusterActive(j.Status.ActiveServiceStatus) &&
 		!rayServiceClusterActive(j.Status.PendingServiceStatus)
 }
