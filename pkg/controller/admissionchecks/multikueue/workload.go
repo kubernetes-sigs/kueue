@@ -968,8 +968,11 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
-	if persistNomination && !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+	if persistNomination {
 		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			if nominatedClusterSetsEqual(wl.Status.NominatedClusterNames, nominatedWorkers) {
+				return false, nil
+			}
 			wl.Status.NominatedClusterNames = nominatedWorkers
 			return true, nil
 		}); err != nil {
