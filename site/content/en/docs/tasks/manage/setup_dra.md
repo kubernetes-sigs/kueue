@@ -158,7 +158,10 @@ auto-discovers the mapping by indexing `DeviceClass` objects.
 ### 2. Add the extended resource to your ClusterQueue
 
 The `coveredResources` must include the extended resource name that matches
-`spec.extendedResourceName` on the `DeviceClass`:
+`spec.extendedResourceName` on the `DeviceClass`. Where a `deviceClassMappings`
+entry remaps that name, cover the mapped name instead, and the original one only
+for whatever is left standing under it. See
+[What is charged where when the name is remapped](#what-is-charged-where-when-the-name-is-remapped).
 
 {{< include "examples/dra/sample-dra-queues.yaml" "yaml" >}}
 

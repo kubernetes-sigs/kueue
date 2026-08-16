@@ -905,7 +905,7 @@ The two DRA paths resolve quota independently:
    name instead to unify quota with the ResourceClaimTemplate path. If the mapping has
    counter sources configured, the workload is marked inadmissible because extended resources
    do not carry the profile-level information needed for counter-based charging.
-2. **ResourceClaimTemplates** (`DynamicResourceAllocation` gate): uses `deviceClassMappings`
+2. **ResourceClaimTemplates** (`KueueDRAIntegration` gate): uses `deviceClassMappings`
    to map DeviceClass names to logical resource names. When the mapping has counter sources
    configured, charges counter units instead of device count.
 

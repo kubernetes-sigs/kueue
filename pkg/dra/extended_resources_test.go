@@ -636,6 +636,66 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 		},
 		{
+			// The same two init containers the other way round. Nothing is running
+			// beside the ordinary one this time, so its own 5 stands against the 2
+			// and 1 that outlive it.
+			name: "an ordinary init container declared before the sidecar does not run with it",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								InitContainers: []corev1.Container{
+									{
+										Name:  "init1",
+										Image: "pause",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("5"),
+											},
+										},
+									},
+									{
+										Name:          "sidecar",
+										Image:         "pause",
+										RestartPolicy: new(corev1.ContainerRestartPolicyAlways),
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("2"),
+											},
+										},
+									},
+								},
+								Containers: []corev1.Container{
+									{
+										Name:  "c1",
+										Image: "pause",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("1"),
+											},
+										},
+									},
+								},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"example.com/gpu": resource.MustParse("5"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		},
+		{
 			// vendor.example/a and vendor.example/b both map to the "gpu-claims" quota
 			// key, but each is charged against the OTHER container kind (init vs.
 			// regular), so the max/sum aggregation only ever sees one contribution
