@@ -95,6 +95,7 @@ var (
 func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationManager *jobframework.IntegrationManager) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, validateWaitForPodsReady(c)...)
+	allErrs = append(allErrs, validatePartialPreemption(c)...)
 	allErrs = append(allErrs, validateIntegrations(c, scheme, integrationManager)...)
 	allErrs = append(allErrs, validateMultiKueue(c, integrationManager)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
@@ -153,6 +154,18 @@ func validateInternalCertManagement(c *configapi.Configuration) field.ErrorList 
 		if errs := apimachineryutilvalidation.IsDNS1123Subdomain(*secName); len(errs) != 0 {
 			allErrs = append(allErrs, field.Invalid(internalCertManagementPath.Child("webhookSecretName"), secName, strings.Join(errs, ",")))
 		}
+	}
+	return allErrs
+}
+
+func validatePartialPreemption(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.PartialPreemption == nil || c.PartialPreemption.Timeout == nil {
+		return allErrs
+	}
+	if c.PartialPreemption.Timeout.Duration < 0 {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("partialPreemption").Child("timeout"),
+			c.PartialPreemption.Timeout, apimachineryvalidation.IsNegativeErrorMsg))
 	}
 	return allErrs
 }

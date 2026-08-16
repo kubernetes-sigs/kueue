@@ -257,3 +257,13 @@ type JobWithCustomQueueNameChange interface {
 	// to customize the workload queue-name using custom logic.
 	CustomQueueNameChange(ctx context.Context, c client.Client, wl *kueue.Workload) error
 }
+
+// JobWithPartialPreemption is an optional interface for jobs that can respond
+// to partial preemption by scaling down their parallelism to the requested
+// ReclaimTargetCount without being fully evicted.
+type JobWithPartialPreemption interface {
+	// RespondToPartialPreemption is called when the Workload's admission has a
+	// pending ReclaimTargetCount, signalling that the job should scale down its
+	// parallelism to match the requested target.
+	RespondToPartialPreemption(ctx context.Context, c client.Client, wl *kueue.Workload) error
+}

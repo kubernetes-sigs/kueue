@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -165,7 +166,10 @@ func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
 		} else if int32(v) >= job.podsCount() || v <= 0 {
 			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, int(v), fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
 		}
-		if workloadslicing.Enabled(job.Object()) {
+		if workloadslicing.Enabled(job.Object()) && (!features.Enabled(features.PartialPreemption) || job.Annotations[constants.PartialPreemptionAnnotation] != "true") {
+			// TODO: Partial preemption (kueue.x-k8s.io/partial-preemption=true) reuses
+			// job-min-parallelism as the scale-down floor, not as a partial-admission
+			// minimum. We should use another annotation later.
 			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, strVal, "partial admission and elastic job cannot be used together"))
 		}
 	}
@@ -237,7 +241,7 @@ func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (f
 func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 	var allErrs field.ErrorList
 	if _, found := oldJob.Annotations[JobMinParallelismAnnotation]; found {
-		if !ptr.Deref(oldJob.Spec.Suspend, false) && ptr.Deref(oldJob.Spec.Parallelism, 1) != ptr.Deref(newJob.Spec.Parallelism, 1) {
+		if !ptr.Deref(oldJob.Spec.Suspend, false) && ptr.Deref(oldJob.Spec.Parallelism, 1) != ptr.Deref(newJob.Spec.Parallelism, 1) && !isPartialPreemptionScaleDown(oldJob, newJob) {
 			allErrs = append(allErrs, field.Forbidden(field.NewPath("spec", "parallelism"), "cannot change when partial admission is enabled and the job is not suspended"))
 		}
 	}
@@ -245,6 +249,19 @@ func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 		allErrs = append(allErrs, field.Forbidden(syncCompletionAnnotationsPath, fmt.Sprintf("%s while the job is not suspended", apivalidation.FieldImmutableErrorMsg)))
 	}
 	return allErrs
+}
+
+func isPartialPreemptionScaleDown(oldJob, newJob *Job) bool {
+	if !features.Enabled(features.PartialPreemption) ||
+		oldJob.Annotations[constants.PartialPreemptionAnnotation] != "true" {
+		return false
+	}
+	minCount := oldJob.minPodsCount()
+	if minCount == nil {
+		return false
+	}
+	return ptr.Deref(newJob.Spec.Parallelism, 1) < ptr.Deref(oldJob.Spec.Parallelism, 1) &&
+		ptr.Deref(newJob.Spec.Parallelism, 1) >= *minCount
 }
 
 func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job *Job) (field.ErrorList, error) {

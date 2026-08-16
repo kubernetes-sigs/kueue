@@ -28,6 +28,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+// PartialPreemptionTarget holds the parameters of a partial preemption request:
+// instead of evicting the victim entirely, Kueue asks it to scale down one PodSet
+// to ReclaimTargetCount pods.
+type PartialPreemptionTarget struct {
+	PodSet             kueue.PodSetReference
+	ReclaimTargetCount int32
+}
+
 // Target represents a workload selected for preemption.
 type Target struct {
 	WorkloadInfo *workload.Info
@@ -37,6 +45,15 @@ type Target struct {
 	// ConfigurablePreemptionReasonData stores data which resulted in eviction.
 	// Specified only when eviction is due to configurable preemption.
 	ConfigurablePreemptionReasonData *ConfigurablePreemptionReasonData
+
+	// PartialPreemption is set when the victim is asked to scale down a PodSet
+	// rather than be evicted entirely. Nil for a whole-eviction target.
+	PartialPreemption *PartialPreemptionTarget
+
+	// ReducedInfo is the workload.Info representing the victim after the requested
+	// scale-down. It is used to adjust the snapshot during preemption search, and
+	// is kept here so applyPreemption can install/remove it atomically with the target.
+	ReducedInfo *workload.Info
 }
 
 type ConfigurablePreemptionReasonData struct {
@@ -63,9 +80,15 @@ type yieldCandidate = func(*Target) bool
 
 // YieldFromSnapshot wraps a candidate (Target) yielder with
 // logic removing the candidate from the provided snapshot.
+// For a partial preemption target (ReducedInfo != nil) it replaces the full
+// workload with its reduced copy, freeing only the reclaimed replicas, so that
+// subsequent fits() checks reflect partial rather than full eviction.
 func YieldFromSnapshot(snapshot *scheduler.Snapshot, yield yieldCandidate) yieldCandidate {
 	return func(t *Target) bool {
 		snapshot.RemoveWorkload(t.WorkloadInfo)
+		if t.ReducedInfo != nil {
+			snapshot.AddWorkload(t.ReducedInfo)
+		}
 		return yield(t)
 	}
 }

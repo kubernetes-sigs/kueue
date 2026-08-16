@@ -190,16 +190,50 @@ func (s *Snapshot) SimulateWorkloadUsageRemoval(workloads []*workload.Info) func
 	}
 }
 
-// SimulateWorkloadRemoval modifies the snapshot by removing the list
-// of workloads from workloads' respective ClusterQueues. It returns a
-// function which can be used to restore these workloads.
-func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
-	for _, w := range workloads {
-		s.RemoveWorkload(w)
+// WorkloadReplacement describes a workload removal. Reduced is the workload
+// retained after partial preemption; nil means full eviction.
+type WorkloadReplacement struct {
+	Full    *workload.Info
+	Reduced *workload.Info
+}
+
+// SimulateWorkloadRemoval temporarily removes each full workload from the
+// snapshot. For partial preemption, it replaces the full workload with Reduced.
+// It returns a function that restores the original workloads and usage.
+func (s *Snapshot) SimulateWorkloadRemoval(replacements []WorkloadReplacement) func() {
+	return s.simulateWorkloadRemoval(replacements, false)
+}
+
+// SimulateWorkloadRemovalWithHiddenReplacements temporarily removes each full
+// workload from the snapshot. For partial preemption, it retains Reduced's
+// usage without exposing the reduced workload through ClusterQueue.Workloads.
+// This prevents targets already selected in the current scheduling cycle from
+// being selected again while preserving their post-preemption resource usage.
+func (s *Snapshot) SimulateWorkloadRemovalWithHiddenReplacements(replacements []WorkloadReplacement) func() {
+	return s.simulateWorkloadRemoval(replacements, true)
+}
+
+func (s *Snapshot) simulateWorkloadRemoval(replacements []WorkloadReplacement, hideReplacements bool) func() {
+	for _, replacement := range replacements {
+		s.RemoveWorkload(replacement.Full)
+		if replacement.Reduced != nil {
+			if hideReplacements {
+				s.ClusterQueue(replacement.Reduced.ClusterQueue).AddUsage(replacement.Reduced.Usage())
+			} else {
+				s.AddWorkload(replacement.Reduced)
+			}
+		}
 	}
 	return func() {
-		for _, w := range workloads {
-			s.AddWorkload(w)
+		for _, replacement := range slices.Backward(replacements) {
+			if replacement.Reduced != nil {
+				if hideReplacements {
+					s.ClusterQueue(replacement.Reduced.ClusterQueue).RemoveUsage(replacement.Reduced.Usage())
+				} else {
+					s.RemoveWorkload(replacement.Reduced)
+				}
+			}
+			s.AddWorkload(replacement.Full)
 		}
 	}
 }

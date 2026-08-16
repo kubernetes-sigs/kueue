@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
@@ -142,6 +143,7 @@ var _ jobframework.GenericJob = (*Job)(nil)
 var _ jobframework.JobWithReclaimablePods = (*Job)(nil)
 var _ jobframework.JobWithCustomStop = (*Job)(nil)
 var _ jobframework.JobWithManagedBy = (*Job)(nil)
+var _ jobframework.JobWithPartialPreemption = (*Job)(nil)
 
 func (j *Job) Object() client.Object {
 	return (*batchv1.Job)(j)
@@ -476,6 +478,41 @@ func (j *Job) syncCompletionWithParallelism() bool {
 		}
 	}
 	return false
+}
+
+// RespondToPartialPreemption implements jobframework.JobWithPartialPreemption.
+// When the scheduler has requested a partial preemption scale-down (indicated by a
+// non-nil ReclaimTargetCount on the Workload's first PodSet assignment), this method
+// patches spec.parallelism to the requested count so the Job releases excess quota
+// without being fully evicted.
+func (j *Job) RespondToPartialPreemption(ctx context.Context, c client.Client, wl *kueue.Workload) error {
+	if j.minPodsCount() == nil {
+		// Job does not support elastic sizing; partial preemption requires the
+		// kueue.x-k8s.io/job-min-parallelism annotation.
+		return nil
+	}
+
+	targetCount, ok := workload.ReclaimTargetCount(wl, kueue.DefaultPodSetName)
+	if !ok {
+		return nil
+	}
+
+	currentParallelism := ptr.Deref(j.Spec.Parallelism, 1)
+	if currentParallelism <= targetCount {
+		// Already at or below the target; nothing to do.
+		return nil
+	}
+
+	if err := clientutil.Patch(ctx, c, j.Object(), func() (bool, error) {
+		j.Spec.Parallelism = &targetCount
+		if j.syncCompletionWithParallelism() {
+			j.Spec.Completions = &targetCount
+		}
+		return true, nil
+	}, clientutil.WithLoose()); err != nil {
+		return fmt.Errorf("scaling down parallelism for partial preemption: %w", err)
+	}
+	return nil
 }
 
 func SetupIndexes(ctx context.Context, fieldIndexer client.FieldIndexer) error {

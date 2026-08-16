@@ -5439,3 +5439,121 @@ func TestReclaimablePods(t *testing.T) {
 		})
 	}
 }
+
+func TestRespondToPartialPreemption(t *testing.T) {
+	baseJob := func(parallelism int32, annotations map[string]string) *batchv1.Job {
+		j := utiltestingjob.MakeJob("test-job", "default").
+			Parallelism(parallelism).
+			Obj()
+		if annotations != nil {
+			j.Annotations = annotations
+		}
+		return j
+	}
+
+	makeWlWithReclaimTarget := func(reclaimTarget int32) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("test-wl", "default").
+			Annotation(constants.PartialPreemptionAnnotation, "true").
+			PodSets(kueue.PodSet{Name: kueue.DefaultPodSetName, Count: 4}).
+			Admission(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference("cq")).
+				PodSets(kueue.PodSetAssignment{
+					Name:               kueue.DefaultPodSetName,
+					Count:              new(int32(4)),
+					ReclaimTargetCount: new(reclaimTarget),
+				}).Obj()).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		job             *batchv1.Job
+		wl              *kueue.Workload
+		wantParallelism *int32
+		wantChanged     bool
+	}{
+		"no min-parallelism annotation — noop": {
+			job:             baseJob(4, nil),
+			wl:              makeWlWithReclaimTarget(2),
+			wantParallelism: new(int32(4)),
+			wantChanged:     false,
+		},
+		"min-parallelism set, reclaim target below current — scales down": {
+			job: baseJob(4, map[string]string{
+				JobMinParallelismAnnotation: "1",
+			}),
+			wl:              makeWlWithReclaimTarget(2),
+			wantParallelism: new(int32(2)),
+			wantChanged:     true,
+		},
+		"already at target — noop": {
+			job: baseJob(2, map[string]string{
+				JobMinParallelismAnnotation: "1",
+			}),
+			wl:              makeWlWithReclaimTarget(2),
+			wantParallelism: new(int32(2)),
+			wantChanged:     false,
+		},
+		"already below target — noop": {
+			job: baseJob(1, map[string]string{
+				JobMinParallelismAnnotation: "1",
+			}),
+			wl:              makeWlWithReclaimTarget(2),
+			wantParallelism: new(int32(1)),
+			wantChanged:     false,
+		},
+		"no reclaim target on workload — noop": {
+			job: baseJob(4, map[string]string{
+				JobMinParallelismAnnotation: "1",
+			}),
+			wl: utiltestingapi.MakeWorkload("test-wl", "default").
+				Annotation(constants.PartialPreemptionAnnotation, "true").
+				PodSets(kueue.PodSet{Name: kueue.DefaultPodSetName, Count: 4}).
+				Admission(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference("cq")).
+					PodSets(kueue.PodSetAssignment{
+						Name:  kueue.DefaultPodSetName,
+						Count: new(int32(4)),
+					}).Obj()).
+				Obj(),
+			wantParallelism: new(int32(4)),
+			wantChanged:     false,
+		},
+		"sync-completions annotation set — also updates Completions": {
+			job: baseJob(4, map[string]string{
+				JobMinParallelismAnnotation:              "1",
+				JobCompletionsEqualParallelismAnnotation: "true",
+			}),
+			wl:              makeWlWithReclaimTarget(2),
+			wantParallelism: new(int32(2)),
+			wantChanged:     true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			j := (*Job)(tc.job)
+			c := utiltesting.NewClientBuilder().
+				WithObjects(tc.job).
+				Build()
+
+			err := j.RespondToPartialPreemption(t.Context(), c, tc.wl)
+			if err != nil {
+				t.Fatalf("RespondToPartialPreemption() returned error: %v", err)
+			}
+
+			// Re-fetch to verify server-side state.
+			got := &batchv1.Job{}
+			if fetchErr := c.Get(t.Context(), types.NamespacedName{Name: tc.job.Name, Namespace: tc.job.Namespace}, got); fetchErr != nil {
+				t.Fatalf("failed to get job after call: %v", fetchErr)
+			}
+
+			if diff := cmp.Diff(tc.wantParallelism, got.Spec.Parallelism); diff != "" {
+				t.Errorf("Parallelism mismatch (-want +got):\n%s", diff)
+			}
+
+			if tc.wantChanged && tc.job.Annotations[JobCompletionsEqualParallelismAnnotation] == "true" {
+				if diff := cmp.Diff(tc.wantParallelism, got.Spec.Completions); diff != "" {
+					t.Errorf("Completions mismatch (-want +got):\n%s", diff)
+				}
+			}
+		})
+	}
+}

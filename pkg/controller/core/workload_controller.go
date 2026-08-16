@@ -840,6 +840,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	}
 
 	if workload.HasQuotaReservation(&wl) {
+		if updated, err := r.reconcileResizeScaleDown(ctx, &wl); updated || err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+
 		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
@@ -1519,6 +1523,51 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 	r.reconcileAfsPenaltiesOnUpdate(log, e, wl, active, status, prevStatus, prevQueue)
 	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 	return true
+}
+
+// reconcileResizeScaleDown clears satisfied partial-preemption reclaim targets after a
+// workload-slices scale-down.
+func (r *WorkloadReconciler) reconcileResizeScaleDown(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	if !workload.IsPartialPreemptionJob(wl) || wl.Status.Admission == nil {
+		return false, nil
+	}
+	updated := false
+	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		// Recompute from scratch: PatchAdmissionStatus may re-invoke this closure against a freshly
+		// fetched Workload on a patch conflict, so reset the result each pass.
+		updated = false
+		effectiveCounts := workload.PodSetsCountsAfterReclaim(wl)
+		pending := false
+		for i := range wl.Status.Admission.PodSetAssignments {
+			psa := &wl.Status.Admission.PodSetAssignments[i]
+			if psa.ReclaimTargetCount != nil {
+				if effectiveCounts[psa.Name] <= *psa.ReclaimTargetCount {
+					psa.ReclaimTargetCount = nil
+					updated = true
+				} else {
+					pending = true
+				}
+			}
+		}
+		if updated && !pending {
+			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPreempted)
+			if cond != nil && cond.Status == metav1.ConditionTrue {
+				apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+					Type:               kueue.WorkloadPreempted,
+					Status:             metav1.ConditionFalse,
+					Reason:             "PartialPreemptionReclaimed",
+					Message:            api.TruncateConditionMessage("Previously: " + cond.Message),
+					ObservedGeneration: wl.Generation,
+					LastTransitionTime: metav1.NewTime(r.clock.Now()),
+				})
+			}
+		}
+		return updated, nil
+	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict())
+	if err != nil {
+		return false, err
+	}
+	return updated, nil
 }
 
 // reconcileAfsPenaltiesOnUpdate advances the AFS entry-penalty lifecycle against

@@ -93,6 +93,13 @@ and passing the readiness probe) within the specified time. If the timeout
 is exceeded, then the workload is evicted.</p>
 </td>
 </tr>
+<tr><td><code>partialPreemption</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-PartialPreemption"><code>PartialPreemption</code></a>
+</td>
+<td>
+   <p>PartialPreemption controls partial preemption behavior.</p>
+</td>
+</tr>
 <tr><td><code>clientConnection</code> <B>[Required]</B><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-ClientConnection"><code>ClientConnection</code></a>
 </td>
@@ -1226,6 +1233,44 @@ the expected format is <code>kind.version.group</code>.</p>
 <td>
    <p>Workloads configures retention for Workloads.
 A nil value disables automatic deletion of Workloads.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PartialPreemption`     {#config-kueue-x-k8s-io-v1beta2-PartialPreemption}
+    
+
+**Appears in:**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
+
+
+<p>PartialPreemption defines configuration for partial preemption.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>timeout</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>Timeout defines how long Kueue waits for a partial-preemption target to converge
+before falling back to whole-workload preemption. A zero value disables the timeout.</p>
+</td>
+</tr>
+<tr><td><code>enableOnDemandPreemption</code><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>EnableOnDemandPreemption controls how a partial-preemption target count is chosen.
+When true, Kueue reclaims only the smallest number of replicas needed to admit the
+preemptor (on-demand). When false (the default), each scheduling round reclaims a
+fixed number of replicas, bounded by the per-workload
+&quot;kueue.x-k8s.io/partial-preemption-max-reclaimed-count&quot; annotation or minCount.</p>
 </td>
 </tr>
 </tbody>

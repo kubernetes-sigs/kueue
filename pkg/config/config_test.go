@@ -1597,3 +1597,74 @@ func TestSetLeaderElectionConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadPartialPreemption(t *testing.T) {
+	testScheme := runtime.NewScheme()
+	if err := configapi.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+
+	tmpDir := t.TempDir()
+
+	writeConfig := func(name, body string) string {
+		path := filepath.Join(tmpDir, name)
+		if err := os.WriteFile(path, []byte(body), os.FileMode(0600)); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+
+	unsetConfig := writeConfig("partial-preemption-unset.yaml", `
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+`)
+	onDemandConfig := writeConfig("partial-preemption-on-demand.yaml", `
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+partialPreemption:
+  timeout: 30s
+  enableOnDemandPreemption: true
+`)
+	timeoutOnlyConfig := writeConfig("partial-preemption-timeout-only.yaml", `
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+partialPreemption:
+  timeout: 1m
+`)
+
+	testCases := map[string]struct {
+		configFile string
+		want       *configapi.PartialPreemption
+	}{
+		"unset leaves PartialPreemption nil": {
+			configFile: unsetConfig,
+			want:       nil,
+		},
+		"on-demand with timeout round-trips both fields": {
+			configFile: onDemandConfig,
+			want: &configapi.PartialPreemption{
+				Timeout:                  &metav1.Duration{Duration: 30 * time.Second},
+				EnableOnDemandPreemption: true,
+			},
+		},
+		"timeout only defaults EnableOnDemandPreemption to false": {
+			configFile: timeoutOnlyConfig,
+			want: &configapi.PartialPreemption{
+				Timeout:                  &metav1.Duration{Duration: time.Minute},
+				EnableOnDemandPreemption: false,
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			_, cfg, err := Load(testScheme, tc.configFile)
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			if diff := cmp.Diff(tc.want, cfg.PartialPreemption); diff != "" {
+				t.Errorf("unexpected PartialPreemption (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

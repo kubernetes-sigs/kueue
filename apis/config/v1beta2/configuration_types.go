@@ -78,6 +78,10 @@ type Configuration struct {
 	// is exceeded, then the workload is evicted.
 	WaitForPodsReady *WaitForPodsReady `json:"waitForPodsReady,omitempty"`
 
+	// PartialPreemption controls partial preemption behavior.
+	// +optional
+	PartialPreemption *PartialPreemption `json:"partialPreemption,omitempty"`
+
 	// ClientConnection provides additional configuration options for Kubernetes
 	// API server client.
 	ClientConnection *ClientConnection `json:"clientConnection,omitempty"`
@@ -297,6 +301,22 @@ type ControllerConfigurationSpec struct {
 	// Defaults to 2 minutes if not set.
 	// +optional
 	CacheSyncTimeout *time.Duration `json:"cacheSyncTimeout,omitempty"`
+}
+
+// PartialPreemption defines configuration for partial preemption.
+type PartialPreemption struct {
+	// Timeout defines how long Kueue waits for a partial-preemption target to converge
+	// before falling back to whole-workload preemption. A zero value disables the timeout.
+	// +optional
+	Timeout *metav1.Duration `json:"timeout,omitempty"`
+
+	// EnableOnDemandPreemption controls how a partial-preemption target count is chosen.
+	// When true, Kueue reclaims only the smallest number of replicas needed to admit the
+	// preemptor (on-demand). When false (the default), each scheduling round reclaims a
+	// fixed number of replicas, bounded by the per-workload
+	// "kueue.x-k8s.io/partial-preemption-max-reclaimed-count" annotation or minCount.
+	// +optional
+	EnableOnDemandPreemption bool `json:"enableOnDemandPreemption,omitempty"`
 }
 
 // WaitForPodsReady defines configuration for the Wait For Pods Ready feature,

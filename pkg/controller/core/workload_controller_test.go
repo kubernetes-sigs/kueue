@@ -43,6 +43,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -3585,5 +3586,100 @@ func TestRepeatedAfsSettlementFoldsPenaltyOnce(t *testing.T) {
 	}
 	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
 		t.Errorf("penalty still pending after settlement: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
+	}
+}
+
+func TestReconcileResizeScaleDown(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.PartialPreemption, true)
+	now := time.Now().Truncate(time.Second)
+
+	makeWorkload := func(specCount int32, targetCount *int32, preempted bool) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("victim", "default").
+			ResourceVersion("1").
+			Annotations(map[string]string{constants.PartialPreemptionAnnotation: "true"}).
+			PodSets(*utiltestingapi.MakePodSet("main", int(specCount)).
+				Request(corev1.ResourceCPU, "1").
+				SetMinimumCount(1).
+				Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").
+					Assignment(corev1.ResourceCPU, "default", "5").
+					Count(5).
+					Obj()).
+				Obj(), now).
+			Obj()
+		wl.Status.Admission.PodSetAssignments[0].ReclaimTargetCount = targetCount
+		if preempted {
+			apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+				Type:               kueue.WorkloadPreempted,
+				Status:             metav1.ConditionTrue,
+				Reason:             "InClusterQueue",
+				Message:            "preempted to accommodate a workload",
+				LastTransitionTime: metav1.NewTime(now.Add(-time.Minute)),
+			})
+		}
+		return wl
+	}
+
+	cases := map[string]struct {
+		specCount     int32
+		targetCount   *int32
+		preempted     bool
+		wantTarget    *int32
+		wantPreempted metav1.ConditionStatus
+	}{
+		"spec reached the target clears it and resets the Preempted condition": {
+			specCount:     1,
+			targetCount:   ptr.To[int32](1),
+			preempted:     true,
+			wantPreempted: metav1.ConditionFalse,
+		},
+		"spec still above the target leaves it pending": {
+			specCount:     3,
+			targetCount:   ptr.To[int32](1),
+			preempted:     true,
+			wantTarget:    ptr.To[int32](1),
+			wantPreempted: metav1.ConditionTrue,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			wl := makeWorkload(tc.specCount, tc.targetCount, tc.preempted)
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(wl).
+				WithStatusSubresource(wl).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
+				Build()
+			r := &WorkloadReconciler{client: cl, clock: testingclock.NewFakeClock(now)}
+
+			if _, err := r.reconcileResizeScaleDown(ctx, wl); err != nil {
+				t.Fatalf("reconcileResizeScaleDown() error = %v", err)
+			}
+
+			got := &kueue.Workload{}
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
+				t.Fatalf("getting workload: %v", err)
+			}
+			psa := got.Status.Admission.PodSetAssignments[0]
+			if diff := cmp.Diff(tc.wantTarget, psa.ReclaimTargetCount); diff != "" {
+				t.Errorf("ReclaimTargetCount (-want,+got):\n%s", diff)
+			}
+			// The admission count must never be rewritten: workloadslicing derives
+			// effective usage from the spec count, so the admission count stays at
+			// its original value.
+			if count := ptr.Deref(psa.Count, -1); count != 5 {
+				t.Errorf("admission count = %d, want 5 (must not be rewritten)", count)
+			}
+			if cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadPreempted); tc.preempted {
+				if cond == nil {
+					t.Fatalf("WorkloadPreempted condition missing")
+				}
+				if cond.Status != tc.wantPreempted {
+					t.Errorf("WorkloadPreempted status = %q, want %q", cond.Status, tc.wantPreempted)
+				}
+			}
+		})
 	}
 }

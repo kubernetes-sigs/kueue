@@ -133,7 +133,7 @@ func fairPreemptionStrategy(
 			interrupted := preemptionCtx.configurableEvaluator.FindCandidates(
 				preemptionCtx.snapshot,
 				preemptionCtx.frsNeedPreemption,
-				func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
+				func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing, false) },
 				yieldAndRecord,
 			)
 			cont = !interrupted
@@ -260,16 +260,26 @@ func iterateWithFirstFsStrategy(
 	for candCQ := range ordering.Iter() {
 		if candCQ.InClusterQueuePreemption() {
 			candWl := candCQ.PopWorkload()
-			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InClusterQueueReason, WorkloadCq: candCQ.GetTargetCq()}) {
+			plan := planPreemption(preemptionCtx, candWl, kueue.InClusterQueueReason, true, true)
+			plan.target.WorkloadCq = candCQ.GetTargetCq()
+			if !yield(plan.target) {
 				return
+			}
+			if plan.partial && !plan.pending {
+				candCQ.RequeueWorkload(candWl)
 			}
 			continue
 		}
 
 		if preemptorWithinNominal {
 			candWl := candCQ.PopWorkload()
-			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortReclamationReason, WorkloadCq: candCQ.GetTargetCq()}) {
+			plan := planPreemption(preemptionCtx, candWl, kueue.InCohortReclamationReason, true, true)
+			plan.target.WorkloadCq = candCQ.GetTargetCq()
+			if !yield(plan.target) {
 				return
+			}
+			if plan.partial && !plan.pending {
+				candCQ.RequeueWorkload(candWl)
 			}
 			continue
 		}
@@ -294,13 +304,18 @@ func iterateWithFirstFsStrategy(
 		strategyLog := newFsStrategyLog(log, candCQ, preemptorNewShare, targetOldShare)
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
-			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
+			plan := planPreemption(preemptionCtx, candWl, kueue.InCohortFairSharingReason, true, true)
+			targetNewShare := candCQ.ComputeTargetShareAfterRemovalUsage(plan.freedQuotaUsage())
 			passed := fsStrategy(preemptorNewShare, targetOldShare, targetNewShare)
 			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
-				if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}) {
+				plan.target.WorkloadCq = candCQ.GetTargetCq()
+				if !yield(plan.target) {
 					strategyLog.flush()
 					return
+				}
+				if plan.partial && !plan.pending {
+					candCQ.RequeueWorkload(candWl)
 				}
 				// Might need to pick a different CQ due to changing values.
 				break
@@ -339,8 +354,14 @@ func iterateWithSecondFsStrategy(
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
 		if passed {
-			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}) {
+			plan := planPreemption(preemptionCtx, candWl, kueue.InCohortFairSharingReason, true, true)
+			plan.target.WorkloadCq = candCQ.GetTargetCq()
+			if !yield(plan.target) {
 				return false
+			}
+			if plan.partial && !plan.pending {
+				candCQ.RequeueWorkload(candWl)
+				continue
 			}
 		}
 		// There doesn't seem to be an scenario where

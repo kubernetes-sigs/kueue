@@ -133,7 +133,7 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "at most one podSet can use minCount"))
 	}
 
-	if variableCountPodSets > 0 && !elasticPartialScaleUp && workloadslicing.Enabled(obj) {
+	if variableCountPodSets > 0 && !elasticPartialScaleUp && workloadslicing.Enabled(obj) && !workload.IsPartialPreemptionJob(obj) {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "partial admission and elastic job cannot be used together"))
 	}
 
@@ -407,6 +407,13 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 		for i := range new.PodSetAssignments {
 			old.PodSetAssignments[i].TopologyAssignment = new.PodSetAssignments[i].TopologyAssignment
 			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
+		}
+	}
+	if features.Enabled(features.PartialPreemption) && len(new.PodSetAssignments) == len(old.PodSetAssignments) {
+		// Kueue owns reclaimTargetCount and updates it on an already-admitted Workload to request (or
+		// clear) a partial-preemption scale-down; allow it to change.
+		for i := range new.PodSetAssignments {
+			old.PodSetAssignments[i].ReclaimTargetCount = new.PodSetAssignments[i].ReclaimTargetCount
 		}
 	}
 	return apivalidation.ValidateImmutableField(new, old, path)
