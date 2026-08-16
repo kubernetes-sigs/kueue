@@ -1291,9 +1291,10 @@ func TestEstablishWatch(t *testing.T) {
 	errBoom := errors.New("boom")
 
 	cases := map[string]struct {
-		interceptor interceptor.Funcs
-		wantErr     error
-		maxElapsed  time.Duration
+		interceptor  interceptor.Funcs
+		establishing *atomic.Bool
+		wantErr      error
+		maxElapsed   time.Duration
 	}{
 		"hung Watch times out": {
 			interceptor: interceptor.Funcs{
@@ -1313,6 +1314,14 @@ func TestEstablishWatch(t *testing.T) {
 			},
 			wantErr: errBoom,
 		},
+		"watch establishment in progress returns error": {
+			establishing: func() *atomic.Bool {
+				b := &atomic.Bool{}
+				b.Store(true)
+				return b
+			}(),
+			wantErr: errWatchEstablishInProgress,
+		},
 		"success returns without waiting": {
 			maxElapsed: testTimeout,
 		},
@@ -1322,8 +1331,13 @@ func TestEstablishWatch(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c := getClientBuilder(ctx).WithInterceptorFuncs(tc.interceptor).Build()
 
+			establishing := tc.establishing
+			if establishing == nil {
+				establishing = &atomic.Bool{}
+			}
+
 			start := time.Now()
-			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, establishing)
 			elapsed := time.Since(start)
 
 			if !errors.Is(err, tc.wantErr) {
@@ -1353,8 +1367,9 @@ func TestEstablishWatch(t *testing.T) {
 			},
 		}).Build()
 
+		var establishing atomic.Bool
 		start := time.Now()
-		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing)
 		elapsed := time.Since(start)
 		if !errors.Is(err, errWatchEstablishTimeout) {
 			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
@@ -1365,12 +1380,63 @@ func TestEstablishWatch(t *testing.T) {
 		if elapsed >= 2*testTimeout {
 			t.Fatalf("took %v, expected < %v; establishWatch blocked on the late watch call", elapsed, 2*testTimeout)
 		}
-		for start := time.Now(); !fw.IsStopped() && time.Since(start) < 5*testTimeout; {
-			time.Sleep(10 * time.Millisecond)
-		}
-		if !fw.IsStopped() {
+		select {
+		case _, ok := <-fw.ResultChan():
+			if ok {
+				t.Fatal("unexpected event before watcher was stopped")
+			}
+		case <-time.After(5 * testTimeout):
 			t.Fatal("racing watcher was not Stop()ed; would leak")
 		}
+	})
+
+	t.Run("watch establishment in progress blocks concurrent attempt until finished", func(t *testing.T) {
+		fw := watch.NewFake()
+		c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+			Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+				time.Sleep(2 * testTimeout)
+				return fw, nil
+			},
+		}).Build()
+
+		var establishing atomic.Bool
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing)
+		if !errors.Is(err, errWatchEstablishTimeout) {
+			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
+		}
+		if w != nil {
+			t.Fatalf("want nil watcher, got: %v", w)
+		}
+
+		// Subsequent attempt while background watch establishment is still running must fail with errWatchEstablishInProgress.
+		w2, err2 := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing)
+		if !errors.Is(err2, errWatchEstablishInProgress) {
+			t.Fatalf("want errWatchEstablishInProgress, got: %v", err2)
+		}
+		if w2 != nil {
+			t.Fatalf("want nil watcher, got: %v", w2)
+		}
+
+		// Wait for the background watch to complete and clean up.
+		select {
+		case _, ok := <-fw.ResultChan():
+			if ok {
+				t.Fatal("unexpected event before watcher was stopped")
+			}
+		case <-time.After(5 * testTimeout):
+			t.Fatal("racing watcher was not Stop()ed; would leak")
+		}
+
+		// Now that the late watch is cleaned up and establishing reset to false, another attempt should succeed.
+		cFast := getClientBuilder(ctx).Build()
+		w3, err3 := establishWatch(ctx, cFast, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing)
+		if err3 != nil {
+			t.Fatalf("unexpected error establishing watch after background finished: %v", err3)
+		}
+		if w3 == nil {
+			t.Fatal("expected non-nil watcher")
+		}
+		w3.Stop()
 	})
 }
 

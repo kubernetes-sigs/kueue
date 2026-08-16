@@ -28,6 +28,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -88,7 +89,8 @@ const (
 )
 
 var (
-	errWatchEstablishTimeout = errors.New("watch establishment timed out")
+	errWatchEstablishTimeout    = errors.New("watch establishment timed out")
+	errWatchEstablishInProgress = errors.New("watch establishment is already in progress")
 
 	establishBackoff = utilwait.NewBackoff(initialEstablishTimeout, maxEstablishTimeout, 2, 0)
 )
@@ -128,6 +130,8 @@ type remoteClient struct {
 	config       *clientConfig
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
+
+	watchEstablishing atomic.Bool
 
 	connState connectionState
 
@@ -381,7 +385,10 @@ func (cw *cancelOnStopWatcher) Stop() {
 // timeout. On timeout the in-flight Watch is canceled and
 // errWatchEstablishTimeout is returned so the caller falls back to the
 // standard failedConnAttempts / retryAfter backoff in updateConfigAndRefreshWatchers.
-func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, origin string, timeout time.Duration) (watch.Interface, error) {
+func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, origin string, timeout time.Duration, establishing *atomic.Bool) (watch.Interface, error) {
+	if !establishing.CompareAndSwap(false, true) {
+		return nil, errWatchEstablishInProgress
+	}
 	type result struct {
 		w   watch.Interface
 		err error
@@ -399,6 +406,7 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 
 	select {
 	case r := <-resultCh:
+		establishing.Store(false)
 		if r.err != nil {
 			cancel()
 			return nil, r.err
@@ -407,6 +415,7 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 	case <-time.After(timeout):
 		cancel()
 		go func() {
+			defer establishing.Store(false)
 			if r := <-resultCh; r.w != nil {
 				r.w.Stop()
 			}
@@ -417,7 +426,7 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 
 func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) (func(), error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1))
+	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1), &rc.watchEstablishing)
 	if err != nil {
 		return nil, err
 	}
