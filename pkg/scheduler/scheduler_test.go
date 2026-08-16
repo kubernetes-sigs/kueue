@@ -103,7 +103,7 @@ type scheduleTestCase struct {
 
 	wantSkippedPreemptions map[string]int
 
-	// wantPreemptionTargetRecomputations is a map of (cluster_queue, outcome) -> expected counter value
+	// wantPreemptionTargetRecomputations is a map of (cluster_queue, result) -> expected counter value
 	// for the preemption_target_recomputations_total metric.
 	wantPreemptionTargetRecomputations map[string]map[string]int
 }
@@ -340,22 +340,20 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 						if err != nil {
 							t.Fatalf("Couldn't get value for metric admission_cycle_preemption_skips for %q: %v", cqName, err)
 						}
-						got := int(val)
-						if want != got {
-							t.Errorf("Counted %d skips for %q, want %d", got, cqName, want)
+						if want != int(val) {
+							t.Errorf("Counted %d skips for %q, want %d", int(val), cqName, want)
 						}
 					}
 
-					for cqName, outcomeWants := range tc.wantPreemptionTargetRecomputations {
-						for outcome, want := range outcomeWants {
-							lvs := []string{cqName, outcome, roletracker.RoleStandalone}
+					for cqName, resultWants := range tc.wantPreemptionTargetRecomputations {
+						for result, want := range resultWants {
+							lvs := []string{cqName, result, roletracker.RoleStandalone}
 							val, err := testutil.GetCounterMetricValue(metrics.PreemptionTargetRecomputationsTotal.WithLabelValues(lvs...))
 							if err != nil {
-								t.Fatalf("Couldn't get value for metric preemption_target_recomputations_total for cq=%q outcome=%q: %v", cqName, outcome, err)
+								t.Fatalf("Couldn't get value for metric preemption_target_recomputations_total for cq=%q result=%q: %v", cqName, result, err)
 							}
-							got := int(val)
-							if want != got {
-								t.Errorf("preemption_target_recomputations_total: cq=%q outcome=%q: got %d, want %d", cqName, outcome, got, want)
+							if want != int(val) {
+								t.Errorf("preemption_target_recomputations_total: cq=%q result=%q: got %d, want %d", cqName, result, int(val), want)
 							}
 						}
 					}
