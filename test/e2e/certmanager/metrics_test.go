@@ -242,6 +242,10 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 				}, util.VeryLongTimeout, util.LongInterval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("waiting for controller manager certificate reload", func() {
+				time.Sleep(3 * time.Second)
+			})
+
 			ginkgo.By("checking that the metrics are still available", func() {
 				expectedMetric := []string{
 					"kueue_quota_reserved_workloads_total",
@@ -278,5 +282,5 @@ func expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName string
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 
 		g.Expect(string(metricsOutput)).Should(utiltesting.ContainMetrics(metrics))
-	}, timeout, util.Interval).Should(gomega.Succeed())
+	}, timeout, 2*time.Second).Should(gomega.Succeed())
 }
