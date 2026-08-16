@@ -92,8 +92,6 @@ var (
 	errWatchEstablishTimeout    = errors.New("watch establishment timed out")
 	errWatchEstablishInProgress = errors.New("watch establishment is already in progress")
 
-	kubeconfigKey = "kubeconfig"
-
 	establishBackoff = utilwait.NewBackoff(initialEstablishTimeout, maxEstablishTimeout, 2, 0)
 )
 
@@ -400,7 +398,15 @@ func (cw *cancelOnStopWatcher) Stop() {
 // timeout. On timeout the in-flight Watch is canceled and
 // errWatchEstablishTimeout is returned so the caller falls back to the
 // standard failedConnAttempts / retryAfter backoff in updateConfigAndRefreshWatchers.
-func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, origin string, timeout time.Duration, establishing *atomic.Bool, shouldWatchHonorsCancellation bool) (watch.Interface, error) {
+func establishWatch(
+	ctx context.Context,
+	c client.WithWatch,
+	obj client.ObjectList,
+	origin string,
+	timeout time.Duration,
+	establishing *atomic.Bool,
+	shouldWatchHonorsCancellation bool,
+) (watch.Interface, error) {
 	if !establishing.CompareAndSwap(false, true) {
 		return nil, errWatchEstablishInProgress
 	}
