@@ -35,6 +35,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -1337,7 +1338,7 @@ func TestEstablishWatch(t *testing.T) {
 			}
 
 			start := time.Now()
-			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, establishing)
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, establishing, true)
 			elapsed := time.Since(start)
 
 			if !errors.Is(err, tc.wantErr) {
@@ -1360,16 +1361,18 @@ func TestEstablishWatch(t *testing.T) {
 	// establishWatch must return immediately without blocking on the late Watch call.
 	t.Run("racing watcher is stopped on timeout", func(t *testing.T) {
 		fw := watch.NewFake()
+		releaseWatch := make(chan struct{})
 		c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
 			Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
 				time.Sleep(2 * testTimeout)
+				<-releaseWatch
 				return fw, nil
 			},
 		}).Build()
 
 		var establishing atomic.Bool
 		start := time.Now()
-		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing)
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
 		elapsed := time.Since(start)
 		if !errors.Is(err, errWatchEstablishTimeout) {
 			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
@@ -1380,6 +1383,7 @@ func TestEstablishWatch(t *testing.T) {
 		if elapsed >= 2*testTimeout {
 			t.Fatalf("took %v, expected < %v; establishWatch blocked on the late watch call", elapsed, 2*testTimeout)
 		}
+		close(releaseWatch)
 		select {
 		case _, ok := <-fw.ResultChan():
 			if ok {
@@ -1387,6 +1391,12 @@ func TestEstablishWatch(t *testing.T) {
 			}
 		case <-time.After(5 * testTimeout):
 			t.Fatal("racing watcher was not Stop()ed; would leak")
+		}
+
+		if err := wait.PollUntilContextTimeout(ctx, 10*time.Millisecond, 5*testTimeout, true, func(context.Context) (bool, error) {
+			return !establishing.Load(), nil
+		}); err != nil {
+			t.Fatal("watch establishment guard was not released")
 		}
 	})
 
@@ -1400,16 +1410,15 @@ func TestEstablishWatch(t *testing.T) {
 		}).Build()
 
 		var establishing atomic.Bool
-		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing)
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
 		if !errors.Is(err, errWatchEstablishTimeout) {
 			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
 		}
 		if w != nil {
 			t.Fatalf("want nil watcher, got: %v", w)
 		}
-
 		// Subsequent attempt while background watch establishment is still running must fail with errWatchEstablishInProgress.
-		w2, err2 := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing)
+		w2, err2 := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
 		if !errors.Is(err2, errWatchEstablishInProgress) {
 			t.Fatalf("want errWatchEstablishInProgress, got: %v", err2)
 		}
@@ -1429,7 +1438,7 @@ func TestEstablishWatch(t *testing.T) {
 
 		// Now that the late watch is cleaned up and establishing reset to false, another attempt should succeed.
 		cFast := getClientBuilder(ctx).Build()
-		w3, err3 := establishWatch(ctx, cFast, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing)
+		w3, err3 := establishWatch(ctx, cFast, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
 		if err3 != nil {
 			t.Fatalf("unexpected error establishing watch after background finished: %v", err3)
 		}
