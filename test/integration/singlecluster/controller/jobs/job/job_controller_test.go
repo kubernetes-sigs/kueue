@@ -28,6 +28,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -1633,6 +1634,84 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotTaintedFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotUntaintedFlavor, true)
+	})
+
+	// These specs pin the API server behaviour the guard in UpdateWorkloadPriority
+	// exists for. The unit tests cover the guard itself, by asserting no write is
+	// attempted; they cannot cover this, because they build their client with
+	// utiltesting.NewClientBuilder, which does not evaluate CEL. If these rules are
+	// ever relaxed, these specs fail and the guard can be revisited.
+	ginkgo.When("A workload has reserved quota", func() {
+		var (
+			reservedWPC   *kueue.WorkloadPriorityClass
+			reservedPodPC *schedulingv1.PriorityClass
+		)
+
+		ginkgo.BeforeEach(func() {
+			reservedWPC = utiltestingapi.MakeWorkloadPriorityClass("reserved-wpc").PriorityValue(100).Obj()
+			util.MustCreate(ctx, k8sClient, reservedWPC)
+
+			reservedPodPC = &schedulingv1.PriorityClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "reserved-podpc"},
+				Value:      50,
+			}
+			util.MustCreate(ctx, k8sClient, reservedPodPC)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(k8sClient.Delete(ctx, reservedWPC)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, reservedPodPC)).To(gomega.Succeed())
+		})
+
+		// Returns a workload that carries reservedWPC and has reserved quota.
+		reservedWorkload := func(jobName string) (*kueue.Workload, types.NamespacedName) {
+			job := testingjob.MakeJob(jobName, ns.Name).
+				WorkloadPriorityClass(reservedWPC.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+			util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, reservedWPC.Name, reservedWPC.Value, wlKey)
+			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(devClusterQ.Name)).Obj())
+
+			createdWl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
+				g.Expect(createdWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			return createdWl, wlKey
+		}
+
+		// What the owner dropping its WorkloadPriorityClass label resolves to when a
+		// Pod PriorityClass is left on the template. Different group and kind.
+		ginkgo.It("refuses to move its priorityClassRef to a pod priority class", func() {
+			createdWl, wlKey := reservedWorkload("reserved-group-kind")
+
+			createdWl.Spec.PriorityClassRef = kueue.NewPodPriorityClassRef(reservedPodPC.Name)
+			createdWl.Spec.Priority = ptr.To(reservedPodPC.Value)
+			err := k8sClient.Update(ctx, createdWl)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("priorityClassRef.group is immutable while workload quota reserved"))
+
+			gomega.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
+			gomega.Expect(createdWl.Spec.PriorityClassRef.Name).To(gomega.Equal(reservedWPC.Name))
+		})
+
+		// What it resolves to when there is nothing to fall back to at all.
+		ginkgo.It("refuses to remove its priorityClassRef", func() {
+			createdWl, wlKey := reservedWorkload("reserved-removal")
+
+			createdWl.Spec.PriorityClassRef = nil
+			createdWl.Spec.Priority = ptr.To(int32(0))
+			err := k8sClient.Update(ctx, createdWl)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("priorityClassRef is immutable while workload quota reserved"))
+
+			gomega.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
+			gomega.Expect(createdWl.Spec.PriorityClassRef).ToNot(gomega.BeNil())
+		})
 	})
 
 	ginkgo.When("Substitute WorkloadPriorityClass", func() {
