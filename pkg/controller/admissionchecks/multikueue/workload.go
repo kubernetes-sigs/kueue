@@ -936,6 +936,11 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	}
 
 	var nominatedWorkers []string
+	// persistNomination controls whether the computed nomination is written back to
+	// Status.NominatedClusterNames below. Elastic workloads already have
+	// Status.ClusterName set (mutually exclusive with NominatedClusterNames), and the
+	// incremental/external dispatchers own the field, so neither persists here.
+	persistNomination := false
 
 	// For elastic workloads, retrieve the remote cluster where the original workload was scheduled.
 	// For now, new workload slices will continue to be assigned to the same cluster.
@@ -952,32 +957,25 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			log.V(2).Info("None of the user-requested MultiKueue clusters are authorized for this workload; leaving it unscheduled",
 				"workload", klog.KObj(group.local), "requestedClusters", requested)
 		}
-		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
-				wl.Status.NominatedClusterNames = nominatedWorkers
-				return true, nil
-			}); err != nil {
-				log.V(2).Error(err, "Failed to patch user-nominated clusters", "workload", klog.KObj(group.local))
-				return reconcile.Result{}, err
-			}
-		}
+		persistNomination = true
 	} else if w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
-
-		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
-				wl.Status.NominatedClusterNames = nominatedWorkers
-				return true, nil
-			}); err != nil {
-				log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
-				return reconcile.Result{}, err
-			}
-		}
+		persistNomination = true
 	} else {
 		// Incremental dispatcher and External dispatcher path
 		nominatedWorkers = group.local.Status.NominatedClusterNames
+	}
+
+	if persistNomination && !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			wl.Status.NominatedClusterNames = nominatedWorkers
+			return true, nil
+		}); err != nil {
+			log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
+			return reconcile.Result{}, err
+		}
 	}
 
 	var errs []error
