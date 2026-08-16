@@ -123,7 +123,7 @@ type Reconciler struct {
 const controllerName = "v1_pod"
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock)))
+	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock), WithRoleTracker(r.RoleTracker())))
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -164,6 +164,7 @@ type Pod struct {
 	excessPodExpectations *expectations.Store
 	satisfiedExcessPods   bool
 	clock                 clock.Clock
+	roleTracker           *roletracker.RoleTracker
 }
 
 var (
@@ -193,6 +194,14 @@ func WithExcessPodExpectations(store *expectations.Store) PodOption {
 func WithClock(clock clock.Clock) PodOption {
 	return func(pod *Pod) {
 		pod.clock = clock
+	}
+}
+
+// WithRoleTracker sets the roleTracker field of the Pod, used to label
+// metrics with the replica role of the reporting instance.
+func WithRoleTracker(tracker *roletracker.RoleTracker) PodOption {
+	return func(pod *Pod) {
+		pod.roleTracker = tracker
 	}
 }
 
@@ -287,7 +296,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 			recorder.Eventf(&p.pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
-		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup)
+		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.roleTracker)
 	}
 
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
@@ -326,7 +335,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
-		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup)
+		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.roleTracker)
 
 		return nil
 	})

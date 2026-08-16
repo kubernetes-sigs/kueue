@@ -35,6 +35,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
 // HasGate checks if the pod has a scheduling gate with a specified name.
@@ -180,13 +181,13 @@ func IsTerminated(p *corev1.Pod) bool {
 	return p.Status.Phase == corev1.PodFailed || p.Status.Phase == corev1.PodSucceeded
 }
 
-func RecordPodSchedulingGateRemovalSeconds(cl clock.Clock, name string, wl *kueue.Workload, isGroup bool) {
+func RecordPodSchedulingGateRemovalSeconds(cl clock.Clock, name string, wl *kueue.Workload, isGroup bool, tracker *roletracker.RoleTracker) {
 	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 	if cond == nil || cond.Status != metav1.ConditionTrue {
 		return
 	}
 	latency := cl.Now().Sub(cond.LastTransitionTime.Time)
-	metrics.RecordPodSchedulingGateRemovalSeconds(name, wl.Status.Admission.ClusterQueue, isGroup, latency)
+	metrics.RecordPodSchedulingGateRemovalSeconds(name, wl.Status.Admission.ClusterQueue, isGroup, latency, tracker)
 }
 
 // GetPodGroupName returns the pod group name for the given pod. It reads the
