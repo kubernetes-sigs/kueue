@@ -21,6 +21,7 @@ type StopReason string
 const (
 	StopReasonWorkloadDeleted    StopReason = "WorkloadDeleted"
 	StopReasonWorkloadEvicted    StopReason = "WorkloadEvicted"
+	StopReasonWorkloadFinished   StopReason = "WorkloadFinished"
 	StopReasonNoMatchingWorkload StopReason = "NoMatchingWorkload"
 	StopReasonNotAdmitted        StopReason = "NotAdmitted"
 )

@@ -424,8 +424,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 1. Attempt to retrieve an existing workload (if any) for this job.
 	wl, err := r.ensureOneWorkload(ctx, reconcileKey, job, object)
 	if err != nil {
-		// A prebuilt job still stopping ends the reconcile; its status change re-triggers us.
-		if errors.Is(err, errWaitingForStop) {
+		// Neither is retryable; only the stopping one is worth coming back to.
+		switch {
+		case errors.Is(err, errWaitingForStop):
+			return ctrl.Result{RequeueAfter: stopWaitRequeueAfter}, nil
+		case errors.Is(err, errFinishedJobGone):
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
@@ -1029,6 +1032,12 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, key types.Namespa
 			return nil, errWaitingForStop
 		case state == prebuiltNoUsableWorkload:
 			return nil, nil
+		case state == prebuiltFinishedJobGone:
+			// Removed here because every caller path that would do it reads the job first.
+			if err := workload.RemoveFinalizer(ctx, r.client, wl); err != nil {
+				return nil, err
+			}
+			return nil, errFinishedJobGone
 		}
 		return wl, nil
 	}
@@ -1374,10 +1383,17 @@ const (
 	prebuiltUseWorkload      prebuiltSyncState = iota // carry on with the workload
 	prebuiltWaitingForStop                            // job is stopping; end the reconcile
 	prebuiltNoUsableWorkload                          // job is gone; fall back to the no-workload path
+	prebuiltFinishedJobGone                           // workload is finished; its job is gone or replaced
 )
 
 // errWaitingForStop ends the reconcile while a prebuilt job stops; its status change re-triggers us.
 var errWaitingForStop = errors.New("waiting for the job to stop")
+
+// stopWaitRequeueAfter polls a stopping prebuilt job, in case its status update never comes.
+const stopWaitRequeueAfter = 2 * time.Second
+
+// errFinishedJobGone ends the reconcile so nothing downstream reads a job that is not the workload's.
+var errFinishedJobGone = errors.New("the finished workload's job is gone")
 
 // ensurePrebuiltWorkloadInSync decides what to do with a prebuilt workload that may no longer
 // match its job. A mismatched workload is finished only after the job is stopped and its pods are
@@ -1400,7 +1416,10 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 	if err := r.correctOutOfSync(ctx, wl, job); err != nil {
 		return prebuiltWaitingForStop, err
 	}
-	if equivalent {
+	// Checked after the correction, which clears it for an ended job. A match does not restore the
+	// quota an earlier out-of-sync finish released, so the job still has to be stopped.
+	recovering := finishedOutOfSync(wl)
+	if equivalent && !recovering {
 		return prebuiltUseWorkload, nil
 	}
 
@@ -1411,7 +1430,12 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 
 	uid := job.Object().GetUID()
 	msg := "The prebuilt workload is out of sync with its user job"
-	stoppedNow, err := r.stopJob(ctx, job, wl, StopReasonNoMatchingWorkload, msg)
+	stopReason, stopMsg := StopReasonNoMatchingWorkload, msg
+	if recovering {
+		// The finish an earlier pass wrote is what stops the job now, not the mismatch.
+		stopReason, stopMsg = StopReasonWorkloadFinished, "The prebuilt workload is already finished"
+	}
+	stoppedNow, err := r.stopJob(ctx, job, wl, stopReason, stopMsg)
 	if err != nil {
 		return prebuiltWaitingForStop, err
 	}
@@ -1453,12 +1477,23 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 	postWriteKey := key
 	if gone, err := r.loadJob(ctx, &postWriteKey, job); err != nil {
 		return prebuiltWaitingForStop, err
-	} else if !gone && job.Object().GetUID() == uid {
-		if err := r.correctOutOfSync(ctx, wl, job); err != nil {
-			return prebuiltWaitingForStop, err
-		}
+	} else if gone || job.Object().GetUID() != uid {
+		// Deleted, deleting, or replaced: finalizing it would strip another job's pod finalizer. A
+		// ComposableJob's UID is one member's, so a group that lost a member also lands here.
+		ctrl.LoggerFrom(ctx).V(3).Info("Releasing a finished prebuilt workload without finalizing its job, which the reload did not return",
+			"workload", klog.KObj(wl))
+		return prebuiltFinishedJobGone, nil
+	} else if err := r.correctOutOfSync(ctx, wl, job); err != nil {
+		return prebuiltWaitingForStop, err
 	}
 	return prebuiltUseWorkload, nil
+}
+
+// finishedOutOfSync reports whether wl finished with the out-of-sync reason.
+func finishedOutOfSync(wl *kueue.Workload) bool {
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
+	return cond != nil && cond.Status == metav1.ConditionTrue &&
+		cond.Reason == kueue.WorkloadFinishedReasonOutOfSync
 }
 
 // correctOutOfSync puts the reason a job ended with back on a workload that was finished as out of
@@ -1466,11 +1501,7 @@ func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key ty
 // re-dispatches on OutOfSync, so an already finished job would be run a second time.
 func (r *JobReconciler) correctOutOfSync(ctx context.Context, wl *kueue.Workload, job GenericJob) error {
 	message, success, finished := job.Finished(ctx)
-	if !finished {
-		return nil
-	}
-	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
-	if cond == nil || cond.Reason != kueue.WorkloadFinishedReasonOutOfSync {
+	if !finished || !finishedOutOfSync(wl) {
 		return nil
 	}
 	reason := kueue.WorkloadFinishedReasonSucceeded
