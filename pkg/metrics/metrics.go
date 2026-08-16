@@ -209,7 +209,7 @@ var (
 	WorkloadCreationLatency *prometheus.HistogramVec
 
 	// +metricsdoc:group=health
-	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",is_group="whether the gate removal applies to a pod group or a single pod",name="one of `kueue.x-k8s.io/topology`, `kueue.x-k8s.io/admission`, or `kueue.x-k8s.io/elastic-job`"
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",is_group="whether the gate removal applies to a pod group or a single pod",name="one of `kueue.x-k8s.io/topology`, `kueue.x-k8s.io/admission`, or `kueue.x-k8s.io/elastic-job`",replica_role="one of `leader`, `follower`, or `standalone`"
 	PodSchedulingGateRemovalSeconds *prometheus.HistogramVec
 
 	// Metrics tied to the cache.
@@ -624,7 +624,7 @@ The label 'underlying_cause' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "pod_scheduling_gate_removal_seconds",
 			Help:      "Duration from Workload admission to removal of a Pod scheduling gate.",
-		}, append([]string{"name", "cluster_queue", "is_group"}, clusterQueueMetricsLabels...),
+		}, append([]string{"name", "cluster_queue", "is_group", "replica_role"}, clusterQueueMetricsLabels...),
 	)
 
 	EvictedWorkloadsTotal = prometheus.NewCounterVec(
@@ -996,8 +996,8 @@ func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, custom
 	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
 }
 
-func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration) {
-	PodSchedulingGateRemovalSeconds.WithLabelValues(name, string(clusterQueue), strconv.FormatBool(isGroup)).Observe(latency.Seconds())
+func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration, tracker *roletracker.RoleTracker) {
+	PodSchedulingGateRemovalSeconds.WithLabelValues(name, string(clusterQueue), strconv.FormatBool(isGroup), roletracker.GetRole(tracker)).Observe(latency.Seconds())
 }
 
 func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
