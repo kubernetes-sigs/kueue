@@ -174,7 +174,7 @@ func resolveQuotaKey(
 	return quotaKey, nil
 }
 
-// containerExtendedResourceRequests pairs a container's non-zero extended resource
+// containerExtendedResourceRequests pairs a container's positive extended resource
 // requests, keyed by original (unmapped) resource name, with the field path used to
 // report errors against that container.
 type containerExtendedResourceRequests struct {
