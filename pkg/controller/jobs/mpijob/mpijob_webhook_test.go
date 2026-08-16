@@ -595,6 +595,77 @@ func TestDefault(t *testing.T) {
 				Obj(),
 		},
 		{
+			name:         "TAS enabled, RunLauncherAsWorker true with 3 replica specs",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericLauncherAndWorker().
+				Parallelism(3).
+				GenericReplicaSpec("Extra", &v2beta1.ReplicaSpec{}).
+				RunLauncherAsWorker(true).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericLauncherAndWorker().
+				Parallelism(3).
+				GenericReplicaSpec("Extra", &v2beta1.ReplicaSpec{}).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").
+				Obj(),
+		},
+		{
+			// Worker alone leaves one entry, which never reached the dereference,
+			// so the extra spec is what makes this case a regression.
+			name:         "TAS enabled, RunLauncherAsWorker true without the Launcher replica spec",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericWorker().
+				GenericReplicaSpec("Extra", &v2beta1.ReplicaSpec{}).
+				RunLauncherAsWorker(true).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericWorker().
+				GenericReplicaSpec("Extra", &v2beta1.ReplicaSpec{}).
+				RunLauncherAsWorker(true).
+				Obj(),
+		},
+		{
+			name:         "TAS enabled, RunLauncherAsWorker true with a nil Launcher replica spec",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericWorker().
+				Parallelism(3).
+				GenericReplicaSpec(v2beta1.MPIReplicaTypeLauncher, nil).
+				RunLauncherAsWorker(true).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericWorker().
+				Parallelism(3).
+				GenericReplicaSpec(v2beta1.MPIReplicaTypeLauncher, nil).
+				RunLauncherAsWorker(true).
+				Obj(),
+		},
+		{
+			name:         "TAS enabled, RunLauncherAsWorker true with a nil Worker replica spec",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericLauncher().
+				GenericReplicaSpec(v2beta1.MPIReplicaTypeWorker, nil).
+				RunLauncherAsWorker(true).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericLauncher().
+				GenericReplicaSpec(v2beta1.MPIReplicaTypeWorker, nil).
+				RunLauncherAsWorker(true).
+				Obj(),
+		},
+		{
 			name:         "TAS enabled, RunLauncherAsWorker false",
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			mpiJob: testingutil.MakeMPIJob("job", "default").
