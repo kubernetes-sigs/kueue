@@ -537,7 +537,6 @@ const (
 	MultiKueueRemoteSpecSync featuregate.Feature = "MultiKueueRemoteSpecSync"
 
 	// owner: @kevin85421
-	// issue: https://github.com/kubernetes-sigs/kueue/issues/14540
 	//
 	// Enables users to restrict, via the kueue.x-k8s.io/multikueue-cluster-names annotation,
 	// which MultiKueue worker clusters a Workload may be dispatched to.
