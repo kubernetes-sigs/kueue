@@ -93,8 +93,14 @@ func (j *RayCluster) IsActive() bool {
 }
 
 // StopAcknowledged reports whether KubeRay finished the suspend: RayClusterSuspended is set only
-// after every pod is deleted. Older KubeRay without the condition falls back to the Suspended state.
+// after every pod is deleted. A status KubeRay wrote for an earlier generation says nothing about
+// this stop, since a resume it has not caught up with yet still reads suspended. An observed
+// generation of zero is not a reading, so it is left alone; older KubeRay without the condition
+// falls back to the Suspended state.
 func (j *RayCluster) StopAcknowledged() bool {
+	if j.Status.ObservedGeneration != 0 && j.Status.ObservedGeneration < j.Generation {
+		return false
+	}
 	if len(j.Status.Conditions) > 0 {
 		return meta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.RayClusterSuspended))
 	}

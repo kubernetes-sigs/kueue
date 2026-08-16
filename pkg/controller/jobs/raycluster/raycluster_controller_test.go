@@ -765,9 +765,32 @@ func TestReconciler(t *testing.T) {
 
 func TestStopAcknowledged(t *testing.T) {
 	testCases := map[string]struct {
-		status rayv1.RayClusterStatus
-		want   bool
+		generation int64
+		status     rayv1.RayClusterStatus
+		want       bool
 	}{
+		"suspended, but reported for an earlier generation: not acknowledged": {
+			generation: 2,
+			status: rayv1.RayClusterStatus{
+				ObservedGeneration: 1,
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.RayClusterSuspended),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: false,
+		},
+		"suspended and reported for this generation: acknowledged": {
+			generation: 2,
+			status: rayv1.RayClusterStatus{
+				ObservedGeneration: 2,
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.RayClusterSuspended),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: true,
+		},
 		"provisioning, no conditions yet: stop not acknowledged": {
 			status: rayv1.RayClusterStatus{State: ""},
 			want:   false,
@@ -812,7 +835,10 @@ func TestStopAcknowledged(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			j := (*RayCluster)(&rayv1.RayCluster{Status: tc.status})
+			j := (*RayCluster)(&rayv1.RayCluster{
+				ObjectMeta: metav1.ObjectMeta{Generation: tc.generation},
+				Status:     tc.status,
+			})
 			if got := j.StopAcknowledged(); got != tc.want {
 				t.Errorf("StopAcknowledged() = %v, want %v", got, tc.want)
 			}
