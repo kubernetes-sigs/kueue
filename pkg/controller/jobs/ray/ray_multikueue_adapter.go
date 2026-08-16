@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -320,9 +319,32 @@ func (a *adapter[PtrT, T]) WorkloadKeysFor(o runtime.Object) ([]types.Namespaced
 	}
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(job)
-	if prebuiltWorkload == "" {
-		return nil, fmt.Errorf("no prebuilt workload found for %s: %s", a.gvk.Kind, klog.KObj(job))
+	if prebuiltWorkload != "" {
+		return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.GetNamespace()}}, nil
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.GetNamespace()}}, nil
+	if !workloadslicing.Enabled(job) {
+		return []types.NamespacedName{{
+			Name:      jobframework.GetWorkloadNameForOwnerWithGVK(job.GetName(), job.GetUID(), a.gvk),
+			Namespace: job.GetNamespace(),
+		}}, nil
+	}
+
+	gen := job.GetGeneration()
+	keys := []types.NamespacedName{
+		{
+			Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), a.gvk, gen),
+			Namespace: job.GetNamespace(),
+		},
+	}
+	// Scale-down does not create a new Workload slice: the job's generation
+	// increments (N→N+1) while the Workload retains the gen-N name.
+	// Include the previous generation so the ownership check still passes.
+	if gen > 0 {
+		keys = append(keys, types.NamespacedName{
+			Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), a.gvk, gen-1),
+			Namespace: job.GetNamespace(),
+		})
+	}
+	return keys, nil
 }

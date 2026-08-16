@@ -299,12 +299,14 @@ var _ = ginkgo.Describe(
 				)
 				raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 					Queue(managerLq.Name).
+					ManagedBy(kueue.MultiKueueControllerName).
 					Obj()
 				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
 				wlLookupKey := types.NamespacedName{
 					Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
 					Namespace: managerNs.Name,
 				}
+
 				util.SetQuotaReservation(
 					managerTestCluster.ctx,
 					managerTestCluster.client,
@@ -362,6 +364,7 @@ var _ = ginkgo.Describe(
 				)
 				raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 					Queue(managerLq.Name).
+					ManagedBy(kueue.MultiKueueControllerName).
 					Obj()
 				// The owner UID exists only on the manager, so a worker GC would delete a copy that kept it.
 				raycluster.OwnerReferences = []metav1.OwnerReference{{
@@ -407,6 +410,7 @@ var _ = ginkgo.Describe(
 					Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
 					Namespace: managerNs.Name,
 				}
+
 				util.SetQuotaReservation(
 					managerTestCluster.ctx,
 					managerTestCluster.client,
@@ -458,16 +462,19 @@ var _ = ginkgo.Describe(
 				func() {
 					raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 						Queue(managerLq.Name).
+						ManagedBy(kueue.MultiKueueControllerName).
 						Obj()
 					util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
 					rayclusterLookupKey := client.ObjectKeyFromObject(raycluster)
 					createdRayCluster := &rayv1.RayCluster{}
+					gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, rayclusterLookupKey, createdRayCluster)).To(gomega.Succeed())
 
-					createdWorkload := &kueue.Workload{}
 					wlLookupKey := types.NamespacedName{
 						Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
 						Namespace: managerNs.Name,
 					}
+
+					createdWorkload := &kueue.Workload{}
 
 					ginkgo.By("setting workload reservation in the management cluster", func() {
 						admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).PodSets(

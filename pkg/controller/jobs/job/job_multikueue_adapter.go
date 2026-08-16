@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -224,11 +223,30 @@ func (*multiKueueAdapter) WorkloadKeysFor(o runtime.Object) ([]types.NamespacedN
 	}
 
 	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(job)
-	if prebuiltWorkload == "" {
-		return nil, fmt.Errorf("no prebuilt workload found for job: %s", klog.KObj(job))
+	if prebuiltWorkload != "" {
+		return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.Namespace}}, nil
 	}
 
-	return []types.NamespacedName{{Name: prebuiltWorkload, Namespace: job.Namespace}}, nil
+	keys := []types.NamespacedName{
+		{Name: jobframework.GetWorkloadNameForOwnerWithGVK(job.GetName(), job.GetUID(), gvk), Namespace: job.Namespace},
+	}
+	if workloadslicing.Enabled(job) {
+		gen := job.GetGeneration()
+		keys = append(keys, types.NamespacedName{
+			Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), gvk, gen),
+			Namespace: job.Namespace,
+		})
+		// Scale-down does not create a new Workload slice: the Job's generation
+		// increments (N→N+1) while the Workload retains the gen-N name.
+		// Include the previous generation so the ownership check still passes.
+		if gen > 0 {
+			keys = append(keys, types.NamespacedName{
+				Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(job.GetName(), job.GetUID(), gvk, gen-1),
+				Namespace: job.Namespace,
+			})
+		}
+	}
+	return keys, nil
 }
 
 // needElasticJobSync determines if a remote Job requires synchronization due to elastic job features.

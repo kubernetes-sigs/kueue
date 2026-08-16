@@ -261,6 +261,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: MultiKueueStrictValidation
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: PartialAdmission
   versionedSpecs:
   - default: false

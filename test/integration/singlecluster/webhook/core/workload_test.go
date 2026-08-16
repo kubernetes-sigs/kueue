@@ -605,7 +605,8 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 					Message:            "admitted",
 					LastTransitionTime: metav1.NewTime(time.Now()),
 				})
-				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(utiltesting.BeForbiddenError())
+				err := k8sClient.Status().Update(ctx, wl)
+				g.Expect(err).Should(utiltesting.BeForbiddenError())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
