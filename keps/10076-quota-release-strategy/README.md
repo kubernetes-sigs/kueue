@@ -68,8 +68,22 @@ waitForPodsReady:
 #### Story 1: TAS Bare-Metal GPU Cluster Administrator
 As a cluster admin running 8x A100 GPU nodes with Topology-Aware Scheduling, I want Kueue to keep host capacity reserved while pods are terminating so that newly admitted workloads are not assigned to hosts currently occupied by terminating pods.
 
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+namespace: kueue-system
+quotaReleaseStrategy: OnTerminal
+```
+
 #### Story 2: Standard Batch Workload Administrator
 As a cluster admin running standard batch workloads, I want quota released immediately when deletion is initiated (`OnTerminating`) so subsequent workloads can be admitted without waiting for pod teardown.
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+namespace: kueue-system
+quotaReleaseStrategy: OnTerminating
+```
 
 ### Risks and Mitigations
 
