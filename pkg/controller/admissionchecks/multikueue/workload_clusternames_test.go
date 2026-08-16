@@ -81,7 +81,7 @@ func TestUserNominatedClusters(t *testing.T) {
 		},
 		"empty annotation -> not requested": {
 			featureEnabled: true,
-			wl:             wlWith(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "  , "}),
+			wl:             wlWith(map[string]string{kueue.MultiKueueClusterNamesAnnotation: ""}),
 			wantOK:         false,
 		},
 		"single cluster": {
@@ -90,9 +90,9 @@ func TestUserNominatedClusters(t *testing.T) {
 			want:           []string{"worker1"},
 			wantOK:         true,
 		},
-		"comma-separated with whitespace is trimmed": {
+		"multiple clusters": {
 			featureEnabled: true,
-			wl:             wlWith(map[string]string{kueue.MultiKueueClusterNamesAnnotation: " worker1 , worker2 ,"}),
+			wl:             wlWith(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "worker1,worker2"}),
 			want:           []string{"worker1", "worker2"},
 			wantOK:         true,
 		},

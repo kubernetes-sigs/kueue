@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +54,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	"sigs.k8s.io/kueue/pkg/util/csv"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -858,12 +858,7 @@ func userNominatedClusters(wl *kueue.Workload) ([]string, bool) {
 	if !ok {
 		return nil, false
 	}
-	clusters := make([]string, 0)
-	for _, c := range strings.Split(raw, ",") {
-		if c = strings.TrimSpace(c); c != "" {
-			clusters = append(clusters, c)
-		}
-	}
+	clusters := csv.Parse(raw)
 	if len(clusters) == 0 {
 		return nil, false
 	}
