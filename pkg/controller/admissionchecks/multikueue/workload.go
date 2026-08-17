@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -841,14 +842,7 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 // nominatedClusterSetsEqual reports whether stored and current contain the same set of cluster names,
 // independent of order.
 func nominatedClusterSetsEqual(stored, current []string) bool {
-	if len(stored) != len(current) {
-		return false
-	}
-	s := slices.Clone(stored)
-	c := slices.Clone(current)
-	slices.Sort(s)
-	slices.Sort(c)
-	return slices.Equal(s, c)
+	return sets.New(stored...).Equal(sets.New(current...))
 }
 
 func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
