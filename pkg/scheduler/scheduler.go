@@ -820,6 +820,13 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	var revertRemoval func()
 	switch {
 	case needsOverlapRecompute:
+		// The recompute can only turn a Fit into a DeferredFit, and refill
+		// requeues every mode but Fit anyway, so an entry that is not already
+		// fitting has nothing to gain from it. One that is fitting still needs
+		// it: the rewrite is how refill defers it.
+		if e.refilled && e.assignment.RepresentativeMode() != flavorassigner.Fit {
+			return usage, schdcache.FitsCheckOk == fitsCheck
+		}
 		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
 		// To get the projected cluster state after other preemptions complete,
 		// we simulate the removal of their victims.
