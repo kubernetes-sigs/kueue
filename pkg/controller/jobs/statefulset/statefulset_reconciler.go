@@ -99,11 +99,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	// cancel it, and its own lookups would then fail as cancelled rather than
 	// for the reason they were about to find. The reconcile context still
 	// carries shutdown and any deadline.
-	//
-	// The Pod list is only needed by the pod branch (queue-label sync and
-	// finalization), so it is fetched inside that branch: a failure there
-	// must not keep the Workload branch, which resolves its own workload
-	// name, from running.
 	var eg errgroup.Group
 
 	eg.Go(func() error {
