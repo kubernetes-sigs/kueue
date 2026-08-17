@@ -840,7 +840,7 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 }
 
 // nominatedClusterSetsEqual reports whether stored and current contain the same set of cluster names,
-// independent of order. It does not mutate its arguments.
+// independent of order.
 func nominatedClusterSetsEqual(stored, current []string) bool {
 	if len(stored) != len(current) {
 		return false
