@@ -249,6 +249,93 @@ func TestPushOrUpdateSkipsInflightWorkload(t *testing.T) {
 	}
 }
 
+// TestInflightUpdateCapture covers the lifecycle of the Info that PushOrUpdate
+// captures instead of dropping while a workload is inflight. For DRA-backed
+// workloads that Info is the only carrier of the preprocessed quota charges, so
+// it must survive until requeue consumes it — and never past that, or a later
+// cycle would be charged for a workload shape nobody asked for.
+func TestInflightUpdateCapture(t *testing.T) {
+	now := time.Now()
+	const wlName = "workload-1"
+
+	// afterPop runs once the workload is inflight and the update has been
+	// captured; wantCapturedGeneration is what a subsequent requeue should find.
+	cases := map[string]struct {
+		draEnabled             bool
+		afterPop               func(ctx context.Context, log logr.Logger, cq *ClusterQueue)
+		wantCapturedGeneration int64
+	}{
+		"update while inflight is captured": {
+			draEnabled:             true,
+			wantCapturedGeneration: 2,
+		},
+		"nothing is captured while the DRA integration is disabled": {
+			draEnabled: false,
+		},
+		"capture is dropped when the workload is deleted": {
+			draEnabled: true,
+			afterPop: func(_ context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.Delete(log, workload.Reference(defaultNamespace+"/"+wlName))
+			},
+		},
+		"capture is dropped when the workload is requeued": {
+			draEnabled: true,
+			afterPop: func(ctx context.Context, _ logr.Logger, cq *ClusterQueue) {
+				wl := utiltestingapi.MakeWorkload(wlName, defaultNamespace).Creation(now).Generation(2).Obj()
+				cq.RequeueIfNotPresent(ctx, workload.NewInfo(wl), RequeueReasonGeneric, "")
+			},
+		},
+		"capture is dropped when another workload is popped": {
+			draEnabled: true,
+			afterPop: func(_ context.Context, _ logr.Logger, cq *ClusterQueue) {
+				other := utiltestingapi.MakeWorkload("workload-2", defaultNamespace).Creation(now).Obj()
+				cq.PushOrUpdate(workload.NewInfo(other))
+				cq.Pop()
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, tc.draEnabled)
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := newClusterQueueImpl(ctx, nil, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+			wl := utiltestingapi.MakeWorkload(wlName, defaultNamespace).Creation(now).Generation(1).Obj()
+			cq.PushOrUpdate(workload.NewInfo(wl))
+			if head := cq.Pop(); head == nil {
+				t.Fatal("expected to pop workload")
+			}
+
+			// The workload controller re-pushes a newer generation while the
+			// scheduler still owns the workload.
+			updated := utiltestingapi.MakeWorkload(wlName, defaultNamespace).Creation(now).Generation(2).Obj()
+			cq.PushOrUpdate(workload.NewInfo(updated))
+
+			if tc.afterPop != nil {
+				tc.afterPop(ctx, log, cq)
+			}
+
+			captured := cq.workloads.ConsumeInflightUpdate(workload.Key(wl))
+			if tc.wantCapturedGeneration == 0 {
+				if captured != nil {
+					t.Fatalf("expected no captured update, got generation %d", captured.Obj.Generation)
+				}
+				return
+			}
+			if captured == nil {
+				t.Fatalf("expected a captured update of generation %d, got none", tc.wantCapturedGeneration)
+			}
+			if captured.Obj.Generation != tc.wantCapturedGeneration {
+				t.Errorf("captured generation = %d, want %d", captured.Obj.Generation, tc.wantCapturedGeneration)
+			}
+			if again := cq.workloads.ConsumeInflightUpdate(workload.Key(wl)); again != nil {
+				t.Error("captured update was returned twice; it must be cleared once consumed")
+			}
+		})
+	}
+}
+
 func TestPushOrUpdateGenerationChanged(t *testing.T) {
 	now := time.Now()
 
