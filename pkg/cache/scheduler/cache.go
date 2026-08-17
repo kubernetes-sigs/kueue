@@ -188,9 +188,6 @@ func New(client client.Client, options ...Option) *Cache {
 }
 
 func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clusterQueue, error) {
-	// updateClusterQueue below can fail and leave this ClusterQueue in the hierarchy
-	// manager, so NamespaceSelector is defaulted here: callers matching Namespaces
-	// against every cached ClusterQueue must never see a nil selector.
 	cqImpl := &clusterQueue{
 		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[workload.Reference]*workload.Info),
@@ -465,13 +462,8 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	}
 	log := ctrl.LoggerFrom(ctx)
 	cqImpl, updateErr := c.newClusterQueue(log, cq)
-	if updateErr != nil {
-		if !errors.Is(updateErr, ErrCohortHasCycle) {
-			return updateErr
-		}
-		// The ClusterQueue is already cached when a Cohort cycle is detected. Finish
-		// the restart-order backfill using cycle-local accounting; repairing the
-		// Cohort will rebuild the aggregate hierarchy.
+	if updateErr != nil && !errors.Is(updateErr, ErrCohortHasCycle) {
+		return updateErr
 	}
 
 	// On controller restart, an add ClusterQueue event may come after
@@ -530,6 +522,10 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 	updateErr := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, oldParent)
 	if updateErr != nil && !errors.Is(updateErr, ErrCohortHasCycle) {
 		return updateErr
+	}
+	if oldParent != cqImpl.Parent() {
+		c.resyncCohortTreeMetricsIfNoCycle(oldParent)
+		c.resyncCohortTreeMetricsIfNoCycle(cqImpl.Parent())
 	}
 	c.handleParentUpdate(oldParent)
 	for _, qImpl := range cqImpl.localQueues {
@@ -637,7 +633,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 
 	if parent != nil {
 		if updatedParent := c.hm.Cohort(parent.Name); updatedParent != nil {
-			c.updateCohortTreeAndInfoMetricsIfNoCycle(updatedParent)
+			c.updateCohortTreeResourcesAndMetricsIfNoCycle(updatedParent)
 			parent = updatedParent
 		}
 		c.handleParentUpdate(parent)
@@ -652,11 +648,15 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	cohort := c.hm.Cohort(cohortName)
 	oldParent := cohort.Parent()
 	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
-	if err := cohort.updateCohort(apiCohort, oldParent); err != nil {
-		return err
+	updateErr := cohort.updateCohort(apiCohort, oldParent)
+	if oldParent != cohort.Parent() {
+		c.resyncCohortTreeMetricsIfNoCycle(oldParent)
 	}
 	c.handleParentUpdate(oldParent)
-	c.updateCohortTreeAndInfoMetricsIfNoCycle(cohort)
+	if updateErr != nil {
+		return updateErr
+	}
+	c.updateCohortTreeResourcesAndMetricsIfNoCycle(cohort)
 
 	return nil
 }
@@ -687,7 +687,7 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	}
 
 	if parent != nil {
-		c.updateCohortTreeAndInfoMetricsIfNoCycle(parent)
+		c.updateCohortTreeResourcesAndMetricsIfNoCycle(parent)
 	}
 
 	c.handleParentUpdate(parent)

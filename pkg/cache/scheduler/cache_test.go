@@ -3512,15 +3512,96 @@ func TestCohortCycles(t *testing.T) {
 	})
 
 	t.Run("clusterqueue add backfills existing objects while cohort has cycle", func(t *testing.T) {
+		now := time.Now().Truncate(time.Second)
+		lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+		reserving := utiltestingapi.MakeWorkload("reserving", "ns").
+			Queue("lq").
+			Request(corev1.ResourceCPU, "1").
+			SimpleReserveQuota("cq", "f1", now).
+			Obj()
+		admitted := utiltestingapi.MakeWorkload("admitted", "ns").
+			Queue("lq").
+			Request(corev1.ResourceCPU, "1").
+			SimpleReserveQuota("cq", "f1", now).
+			AdmittedAt(true, now).
+			Obj()
+		cq := utiltestingapi.MakeClusterQueue("cq").
+			Cohort("cycle").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f1").
+				Resource(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
+		wantCQUsage := &ClusterQueueUsageStats{
+			ReservedResources: []kueue.FlavorUsage{{
+				Name: "f1",
+				Resources: []kueue.ResourceUsage{{
+					Name:     corev1.ResourceCPU,
+					Total:    resource.MustParse("2"),
+					Borrowed: resource.MustParse("1"),
+				}},
+			}},
+			ReservingWorkloads: 2,
+			AdmittedResources: []kueue.FlavorUsage{{
+				Name: "f1",
+				Resources: []kueue.ResourceUsage{{
+					Name:  corev1.ResourceCPU,
+					Total: resource.MustParse("1"),
+				}},
+			}},
+			AdmittedWorkloads: 1,
+			WeightedShare:     1000,
+		}
+		wantLQUsage := &LocalQueueUsageStats{
+			ReservedResources: []kueue.LocalQueueFlavorUsage{{
+				Name: "f1",
+				Resources: []kueue.LocalQueueResourceUsage{{
+					Name:  corev1.ResourceCPU,
+					Total: resource.MustParse("2"),
+				}},
+			}},
+			ReservingWorkloads: 2,
+			AdmittedResources: []kueue.LocalQueueFlavorUsage{{
+				Name: "f1",
+				Resources: []kueue.LocalQueueResourceUsage{{
+					Name:  corev1.ResourceCPU,
+					Total: resource.MustParse("1"),
+				}},
+			}},
+			AdmittedWorkloads: 1,
+		}
 		cases := map[string]struct {
-			repair func(*Cache) error
+			localQueue        *kueue.LocalQueue
+			reservingWorkload *kueue.Workload
+			admittedWorkload  *kueue.Workload
+			clusterQueue      *kueue.ClusterQueue
+			cycleCohort       *kueue.Cohort
+			wantCQUsage       *ClusterQueueUsageStats
+			wantLQUsage       *LocalQueueUsageStats
+			wantWorkloads     sets.Set[workload.Reference]
+			repair            func(*Cache) error
 		}{
 			"updating the cohort": {
+				localQueue:        lq.DeepCopy(),
+				reservingWorkload: reserving.DeepCopy(),
+				admittedWorkload:  admitted.DeepCopy(),
+				clusterQueue:      cq.DeepCopy(),
+				cycleCohort:       cycleCohort.DeepCopy(),
+				wantCQUsage:       wantCQUsage,
+				wantLQUsage:       wantLQUsage,
+				wantWorkloads:     sets.New(workload.Key(reserving), workload.Key(admitted)),
 				repair: func(cache *Cache) error {
 					return cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cycle").Obj())
 				},
 			},
 			"deleting the cohort": {
+				localQueue:        lq.DeepCopy(),
+				reservingWorkload: reserving.DeepCopy(),
+				admittedWorkload:  admitted.DeepCopy(),
+				clusterQueue:      cq.DeepCopy(),
+				cycleCohort:       cycleCohort.DeepCopy(),
+				wantCQUsage:       wantCQUsage,
+				wantLQUsage:       wantLQUsage,
+				wantWorkloads:     sets.New(workload.Key(reserving), workload.Key(admitted)),
 				repair: func(cache *Cache) error {
 					cache.DeleteCohort("cycle")
 					return nil
@@ -3529,38 +3610,26 @@ func TestCohortCycles(t *testing.T) {
 		}
 		for name, tc := range cases {
 			t.Run(name, func(t *testing.T) {
-				metrics.ClearCohortAdmittedWorkloadsMetrics("cycle")
+				cqName := kueue.ClusterQueueReference(tc.clusterQueue.Name)
+				cohortName := kueue.CohortReference(tc.cycleCohort.Name)
+				metrics.ClearCohortAdmittedWorkloadsMetrics(cohortName)
 				t.Cleanup(func() {
-					metrics.ClearClusterQueueMetricsOnLabelChange("cq")
-					metrics.ClearCohortAdmittedWorkloadsMetrics("cycle")
+					metrics.ClearClusterQueueMetricsOnLabelChange(cqName)
+					metrics.ClearClusterQueueResourceMetrics(string(cqName))
+					metrics.ClearCohortAdmittedWorkloadsMetrics(cohortName)
 				})
-				now := time.Now().Truncate(time.Second)
-				lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
-				reserving := utiltestingapi.MakeWorkload("reserving", "ns").
-					Queue("lq").
-					Request(corev1.ResourceCPU, "1").
-					SimpleReserveQuota("cq", "f1", now).
-					Obj()
-				admitted := utiltestingapi.MakeWorkload("admitted", "ns").
-					Queue("lq").
-					Request(corev1.ResourceCPU, "1").
-					SimpleReserveQuota("cq", "f1", now).
-					AdmittedAt(true, now).
-					Obj()
-				cache := New(utiltesting.NewFakeClient(lq, reserving, admitted), WithFairSharing(true))
+				cache := New(
+					utiltesting.NewFakeClient(tc.localQueue, tc.reservingWorkload, tc.admittedWorkload),
+					WithFairSharing(true),
+					WithResourceMetrics(true),
+				)
 				ctx, log := utiltesting.ContextWithLog(t)
 				cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("f1").Obj())
 
-				cycleCohort := utiltestingapi.MakeCohort("cycle").Parent("cycle").Obj()
-				if err := cache.AddOrUpdateCohort(cycleCohort); !errors.Is(err, ErrCohortHasCycle) {
+				if err := cache.AddOrUpdateCohort(tc.cycleCohort); !errors.Is(err, ErrCohortHasCycle) {
 					t.Fatalf("Expected cohort cycle error, got %v", err)
 				}
-				cq := utiltestingapi.MakeClusterQueue("cq").
-					Cohort("cycle").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f1").
-						Resource(corev1.ResourceCPU, "1").Obj()).
-					Obj()
-				if err := cache.AddClusterQueue(ctx, cq); !errors.Is(err, ErrCohortHasCycle) {
+				if err := cache.AddClusterQueue(ctx, tc.clusterQueue); !errors.Is(err, ErrCohortHasCycle) {
 					t.Fatalf("Expected cohort cycle error when adding cq, got %v", err)
 				}
 
@@ -3568,7 +3637,7 @@ func TestCohortCycles(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Creating snapshot before repair: %v", err)
 				}
-				if snapshot.ClusterQueue("cq") != nil {
+				if snapshot.ClusterQueue(cqName) != nil {
 					t.Fatal("Expected ClusterQueue with a cohort cycle to be excluded from snapshot")
 				}
 
@@ -3576,57 +3645,19 @@ func TestCohortCycles(t *testing.T) {
 					t.Fatalf("Repairing cohort cycle: %v", err)
 				}
 
-				wantCQUsage := &ClusterQueueUsageStats{
-					ReservedResources: []kueue.FlavorUsage{{
-						Name: "f1",
-						Resources: []kueue.ResourceUsage{{
-							Name:     corev1.ResourceCPU,
-							Total:    resource.MustParse("2"),
-							Borrowed: resource.MustParse("1"),
-						}},
-					}},
-					ReservingWorkloads: 2,
-					AdmittedResources: []kueue.FlavorUsage{{
-						Name: "f1",
-						Resources: []kueue.ResourceUsage{{
-							Name:  corev1.ResourceCPU,
-							Total: resource.MustParse("1"),
-						}},
-					}},
-					AdmittedWorkloads: 1,
-					WeightedShare:     1000,
-				}
-				cqUsage, err := cache.Usage(cq)
+				cqUsage, err := cache.Usage(tc.clusterQueue)
 				if err != nil {
 					t.Fatalf("Getting ClusterQueue usage: %v", err)
 				}
-				if diff := cmp.Diff(wantCQUsage, cqUsage); diff != "" {
+				if diff := cmp.Diff(tc.wantCQUsage, cqUsage); diff != "" {
 					t.Errorf("Unexpected ClusterQueue usage (-want,+got):\n%s", diff)
 				}
 
-				wantLQUsage := &LocalQueueUsageStats{
-					ReservedResources: []kueue.LocalQueueFlavorUsage{{
-						Name: "f1",
-						Resources: []kueue.LocalQueueResourceUsage{{
-							Name:  corev1.ResourceCPU,
-							Total: resource.MustParse("2"),
-						}},
-					}},
-					ReservingWorkloads: 2,
-					AdmittedResources: []kueue.LocalQueueFlavorUsage{{
-						Name: "f1",
-						Resources: []kueue.LocalQueueResourceUsage{{
-							Name:  corev1.ResourceCPU,
-							Total: resource.MustParse("1"),
-						}},
-					}},
-					AdmittedWorkloads: 1,
-				}
-				lqUsage, err := cache.LocalQueueUsage(lq)
+				lqUsage, err := cache.LocalQueueUsage(tc.localQueue)
 				if err != nil {
 					t.Fatalf("Getting LocalQueue usage: %v", err)
 				}
-				if diff := cmp.Diff(wantLQUsage, lqUsage); diff != "" {
+				if diff := cmp.Diff(tc.wantLQUsage, lqUsage); diff != "" {
 					t.Errorf("Unexpected LocalQueue usage (-want,+got):\n%s", diff)
 				}
 
@@ -3634,12 +3665,11 @@ func TestCohortCycles(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Creating snapshot after repair: %v", err)
 				}
-				cqSnapshot := snapshot.ClusterQueue("cq")
+				cqSnapshot := snapshot.ClusterQueue(cqName)
 				if cqSnapshot == nil {
 					t.Fatal("Expected repaired ClusterQueue in snapshot")
 				}
-				wantWorkloads := sets.New(workload.Key(reserving), workload.Key(admitted))
-				if diff := cmp.Diff(wantWorkloads, sets.KeySet(cqSnapshot.Workloads)); diff != "" {
+				if diff := cmp.Diff(tc.wantWorkloads, sets.KeySet(cqSnapshot.Workloads)); diff != "" {
 					t.Errorf("Unexpected Workloads in snapshot (-want,+got):\n%s", diff)
 				}
 				fr := resources.FlavorResource{Flavor: "f1", Resource: corev1.ResourceCPU}
@@ -3652,11 +3682,11 @@ func TestCohortCycles(t *testing.T) {
 				if got := cqSnapshot.Fits(usage); got != FitsCheckNoQuota {
 					t.Errorf("Got Fits result %v, want %v", got, FitsCheckNoQuota)
 				}
-				if got := cache.hm.Cohort("cycle").admittedWorkloadsCount; got != 1 {
+				if got := cache.hm.Cohort(cohortName).admittedWorkloadsCount; got != 1 {
 					t.Errorf("Got cohort admitted workloads count %d, want 1", got)
 				}
 				cohortActiveMetrics := utiltestingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeAdmittedActiveWorkloads, map[string]string{
-					"cohort":       "cycle",
+					"cohort":       string(cohortName),
 					"replica_role": "standalone",
 				})
 				if got := len(cohortActiveMetrics); got != 1 {
@@ -3665,13 +3695,13 @@ func TestCohortCycles(t *testing.T) {
 				if got := cohortActiveMetrics[0].Value; got != 1 {
 					t.Errorf("Got Cohort active workload metric %v after repair, want 1", got)
 				}
-				if got := cache.hm.Cohort("cycle").resourceNode.Usage[fr]; got.CmpInt64(2_000) != 0 {
+				if got := cache.hm.Cohort(cohortName).resourceNode.Usage[fr]; got.CmpInt64(2_000) != 0 {
 					t.Errorf("Got cohort CPU usage %v, want 2000m", got)
 				}
 				weightedShareMetricValue := func() float64 {
 					weightedShareMetrics := utiltestingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueWeightedShare, map[string]string{
-						"cluster_queue": "cq",
-						"cohort":        "cycle",
+						"cluster_queue": string(cqName),
+						"cohort":        string(cohortName),
 						"replica_role":  "standalone",
 					})
 					if got := len(weightedShareMetrics); got != 1 {
@@ -3679,24 +3709,23 @@ func TestCohortCycles(t *testing.T) {
 					}
 					return weightedShareMetrics[0].Value
 				}
-				cache.RecordClusterQueueResourceMetrics(log, "cq")
 				if got := weightedShareMetricValue(); got != 1_000 {
-					t.Fatalf("Got ClusterQueue weighted share metric %v before the Cohort cycle, want 1000", got)
+					t.Fatalf("Got ClusterQueue weighted share metric %v after Cohort repair, want 1000", got)
 				}
 
 				// Re-form the cycle after the tree has been initialized with borrowing
 				// usage, so the fair-sharing paths would recurse without their guards.
-				if err := cache.AddOrUpdateCohort(cycleCohort); !errors.Is(err, ErrCohortHasCycle) {
+				if err := cache.AddOrUpdateCohort(tc.cycleCohort); !errors.Is(err, ErrCohortHasCycle) {
 					t.Fatalf("Expected cohort cycle error after repair, got %v", err)
 				}
-				cqUsage, err = cache.Usage(cq)
+				cqUsage, err = cache.Usage(tc.clusterQueue)
 				if err != nil {
 					t.Fatalf("Getting ClusterQueue usage with a cohort cycle: %v", err)
 				}
 				if cqUsage.WeightedShare != 0 {
 					t.Errorf("Got ClusterQueue weighted share %v with a cohort cycle, want 0", cqUsage.WeightedShare)
 				}
-				cohortUsage, err := cache.CohortStats(cycleCohort)
+				cohortUsage, err := cache.CohortStats(tc.cycleCohort)
 				if err != nil {
 					t.Fatalf("Getting Cohort usage with a cycle: %v", err)
 				}
@@ -3704,9 +3733,31 @@ func TestCohortCycles(t *testing.T) {
 					t.Errorf("Got Cohort weighted share %v with a cycle, want 0", cohortUsage.WeightedShare)
 				}
 				// Metrics recording must not recurse while the Cohort cycle exists.
-				cache.RecordClusterQueueResourceMetrics(log, "cq")
+				cache.RecordClusterQueueResourceMetrics(log, cqName)
 				if got := weightedShareMetricValue(); got != 0 {
 					t.Errorf("Got ClusterQueue weighted share metric %v with a Cohort cycle, want 0", got)
+				}
+
+				if err := tc.repair(cache); err != nil {
+					t.Fatalf("Repairing re-formed cohort cycle: %v", err)
+				}
+				if got := weightedShareMetricValue(); got != 1_000 {
+					t.Errorf("Got ClusterQueue weighted share metric %v after second Cohort repair, want 1000", got)
+				}
+
+				if err := cache.DeleteWorkload(log, workload.Key(tc.reservingWorkload)); err != nil {
+					t.Fatalf("Deleting reserving Workload: %v", err)
+				}
+				if err := cache.DeleteWorkload(log, workload.Key(tc.admittedWorkload)); err != nil {
+					t.Fatalf("Deleting admitted Workload: %v", err)
+				}
+				cache.DeleteClusterQueue(tc.clusterQueue)
+				cohortActiveMetrics = utiltestingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeAdmittedActiveWorkloads, map[string]string{
+					"cohort":       string(cohortName),
+					"replica_role": "standalone",
+				})
+				if got := len(cohortActiveMetrics); got != 0 {
+					t.Errorf("Got %d Cohort active workload metrics after deleting the last ClusterQueue, want 0", got)
 				}
 			})
 		}

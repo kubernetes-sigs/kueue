@@ -225,22 +225,30 @@ func (c *Cache) recordCQInfo(cq *clusterQueue, parentCohort kueue.CohortReferenc
 	metrics.ReportClusterQueueInfo(cq.Name, parentCohort, rootCohort, customLabels, c.roleTracker)
 }
 
-// updateCohortResourceAndInfoMetrics updates subtree resources then records info metrics.
-func (c *Cache) updateCohortResourceAndInfoMetrics(cohort *cohort, root *cohort) {
+func (c *Cache) updateCohortTreeResourcesAndMetrics(cohort *cohort, root *cohort) {
 	updateCohortResourceNode(cohort)
-	c.resyncTreeActiveWorkloadMetrics(cohort)
+	c.resyncCohortTreeMetrics(cohort)
 	c.recordTreeInfoMetrics(cohort, root)
 }
 
-// resyncTreeActiveWorkloadMetrics refreshes Cohort gauges that workload updates
-// cannot safely report while the hierarchy has a cycle.
-func (c *Cache) resyncTreeActiveWorkloadMetrics(cohort *cohort) {
+func (c *Cache) resyncCohortTreeMetrics(cohort *cohort) {
+	metrics.ClearCohortAdmittedActiveWorkloadsMetrics(cohort.Name)
 	for _, child := range cohort.ChildCQs() {
 		child.reportActiveWorkloads()
+		if c.resourceMetricsEnabled {
+			child.reportResourceMetrics(c.fairSharingEnabled)
+		}
 	}
 	for _, child := range cohort.ChildCohorts() {
-		c.resyncTreeActiveWorkloadMetrics(child)
+		c.resyncCohortTreeMetrics(child)
 	}
+}
+
+func (c *Cache) resyncCohortTreeMetricsIfNoCycle(cohort *cohort) {
+	if cohort == nil || hierarchy.HasCycle(cohort) {
+		return
+	}
+	c.resyncCohortTreeMetrics(cohort.getRootUnsafe())
 }
 
 // recordTreeInfoMetrics records cohort and cluster queue info metrics for the subtree.
@@ -258,11 +266,10 @@ func (c *Cache) recordTreeInfoMetrics(cohort *cohort, root *cohort) {
 	}
 }
 
-// updateCohortTreeAndInfoMetricsIfNoCycle updates subtree resources and metrics
-// only if there's no cycle.
-func (c *Cache) updateCohortTreeAndInfoMetricsIfNoCycle(cohort *cohort) {
-	if !hierarchy.HasCycle(cohort) {
-		root := cohort.getRootUnsafe()
-		c.updateCohortResourceAndInfoMetrics(root, root)
+func (c *Cache) updateCohortTreeResourcesAndMetricsIfNoCycle(cohort *cohort) {
+	if cohort == nil || hierarchy.HasCycle(cohort) {
+		return
 	}
+	root := cohort.getRootUnsafe()
+	c.updateCohortTreeResourcesAndMetrics(root, root)
 }

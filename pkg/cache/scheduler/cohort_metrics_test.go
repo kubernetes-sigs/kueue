@@ -18,8 +18,10 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
@@ -341,6 +343,11 @@ func TestAddOrUpdateCohort_Table(t *testing.T) {
 			run: func(t *testing.T, cache *Cache) {
 				clearCohortMetricsForTest(t, "child", "new-root")
 				clearClusterQueueInfoMetricsForTest(t, "cq1")
+				clearClusterQueueCacheMetricsForTest(t, "cq1")
+				kueuemetrics.ClearCohortAdmittedActiveWorkloadsMetrics("root")
+				t.Cleanup(func() {
+					kueuemetrics.ClearCohortAdmittedActiveWorkloadsMetrics("root")
+				})
 
 				newRoot := utiltestingapi.MakeCohort("new-root").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
@@ -349,6 +356,10 @@ func TestAddOrUpdateCohort_Table(t *testing.T) {
 				if err := cache.AddOrUpdateCohort(newRoot); err != nil {
 					t.Fatalf("adding new-root: %v", err)
 				}
+				if added := cache.AddOrUpdateWorkload(logr.Discard(), makeAdmittedWorkloadForCohortMetrics("cq1")); !added {
+					t.Fatal("adding admitted Workload")
+				}
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, cohortActiveWorkloadsMetricLabels("root"), 1)
 
 				child := utiltestingapi.MakeCohort("child").Parent("new-root").Obj()
 				if err := cache.AddOrUpdateCohort(child); err != nil {
@@ -359,6 +370,8 @@ func TestAddOrUpdateCohort_Table(t *testing.T) {
 				expectGaugeValue(t, kueuemetrics.CohortInfo, cohortMetricInfoLabels("new-root", "", "new-root"), 1)
 				expectGaugeValue(t, kueuemetrics.CohortInfo, cohortMetricInfoLabels("child", "new-root", "new-root"), 1)
 				expectGaugeValue(t, kueuemetrics.ClusterQueueInfo, cqMetricInfoLabels("cq1", "child", "new-root"), 1)
+				expectGaugeCount(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, 0, cohortActiveWorkloadsMetricLabels("root"))
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, cohortActiveWorkloadsMetricLabels("new-root"), 1)
 				// root is explicit: handleParentUpdate must not clear its CohortInfo even though child moved away.
 				expectGaugeValue(t, kueuemetrics.CohortInfo, cohortMetricInfoLabels("root", "", "root"), 1)
 			},
@@ -407,6 +420,34 @@ func TestAddOrUpdateCohort_Table(t *testing.T) {
 					t.Fatal("implicit-old should be removed from hierarchy manager")
 				}
 				expectGaugeCount(t, kueuemetrics.CohortInfo, 0, cohortMetricInfoLabels("implicit-old", "", "implicit-old"))
+			},
+		},
+		{
+			name: "ClearsMetricsForRemovedImplicitOldParentOnCycleError",
+			run: func(t *testing.T, cache *Cache) {
+				clearCohortMetricsForTest(t, "implicit-old", "child", "root")
+				kueuemetrics.ClearCohortAdmittedWorkloadsMetrics("implicit-old")
+				t.Cleanup(func() {
+					kueuemetrics.ClearCohortAdmittedWorkloadsMetrics("implicit-old")
+				})
+
+				childWithImplicitParent := utiltestingapi.MakeCohort("child").Parent("implicit-old").Obj()
+				if err := cache.AddOrUpdateCohort(childWithImplicitParent); err != nil {
+					t.Fatalf("setting child parent to implicit-old: %v", err)
+				}
+				kueuemetrics.ReportCohortSubtreeAdmittedWorkload("implicit-old", "priority", nil, nil)
+				kueuemetrics.ReportCohortSubtreeAdmittedActiveWorkloads("implicit-old", 1, nil, nil)
+
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("child").Parent("child").Obj()); !errors.Is(err, ErrCohortHasCycle) {
+					t.Fatalf("expected cohort cycle error, got %v", err)
+				}
+
+				if cache.hm.Cohort("implicit-old") != nil {
+					t.Fatal("implicit-old should be removed from hierarchy manager")
+				}
+				expectGaugeCount(t, kueuemetrics.CohortInfo, 0, cohortMetricInfoLabels("implicit-old", "", "implicit-old"))
+				expectGaugeCount(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, 0, cohortActiveWorkloadsMetricLabels("implicit-old"))
+				expectGaugeCount(t, kueuemetrics.CohortSubtreeAdmittedWorkloadsTotal, 0, map[string]string{"cohort": "implicit-old"})
 			},
 		},
 	}
@@ -474,6 +515,7 @@ func TestUpdateClusterQueue_Table(t *testing.T) {
 			run: func(t *testing.T, cache *Cache, ctx context.Context, log logr.Logger) {
 				clearCohortMetricsForTest(t, "source", "dest")
 				clearClusterQueueInfoMetricsForTest(t, "cq1")
+				clearClusterQueueCacheMetricsForTest(t, "cq1")
 
 				setupRecordMetricsHierarchy(ctx, t, log, cache,
 					[]*kueue.ResourceFlavor{
@@ -497,8 +539,12 @@ func TestUpdateClusterQueue_Table(t *testing.T) {
 							Obj(),
 					},
 				)
+				if added := cache.AddOrUpdateWorkload(log, makeAdmittedWorkloadForCohortMetrics("cq1")); !added {
+					t.Fatal("adding admitted Workload")
+				}
 
 				expectGaugeValue(t, kueuemetrics.CohortInfo, cohortMetricInfoLabels("source", "", "source"), 1)
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, cohortActiveWorkloadsMetricLabels("source"), 1)
 
 				updatedCQ := utiltestingapi.MakeClusterQueue("cq1").
 					Cohort("dest").
@@ -511,6 +557,8 @@ func TestUpdateClusterQueue_Table(t *testing.T) {
 
 				// source is explicit: its CohortInfo must be retained even though cq1 left.
 				expectGaugeValue(t, kueuemetrics.CohortInfo, cohortMetricInfoLabels("source", "", "source"), 1)
+				expectGaugeCount(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, 0, cohortActiveWorkloadsMetricLabels("source"))
+				expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, cohortActiveWorkloadsMetricLabels("dest"), 1)
 			},
 		},
 	}
@@ -626,6 +674,16 @@ func setupRecordMetricsHierarchy(
 	}
 }
 
+func makeAdmittedWorkloadForCohortMetrics(cqName kueue.ClusterQueueReference) *kueue.Workload {
+	now := time.Now().Truncate(time.Second)
+	return utiltestingapi.MakeWorkload("workload", "ns").
+		Queue("local-queue").
+		Request(corev1.ResourceCPU, "1").
+		SimpleReserveQuota(cqName, "default", now).
+		AdmittedAt(true, now).
+		Obj()
+}
+
 type usageChange struct {
 	cqName kueue.ClusterQueueReference
 	fr     resources.FlavorResource
@@ -645,6 +703,7 @@ func clearCohortMetricsForTest(t *testing.T, cohorts ...kueue.CohortReference) {
 	for _, cohort := range cohorts {
 		if cohort != "" {
 			kueuemetrics.ClearCohortMetrics(cohort)
+			kueuemetrics.ClearCohortAdmittedActiveWorkloadsMetrics(cohort)
 			kueuemetrics.ClearCohortInfo(cohort)
 		}
 	}
@@ -652,6 +711,7 @@ func clearCohortMetricsForTest(t *testing.T, cohorts ...kueue.CohortReference) {
 		for _, cohort := range cohorts {
 			if cohort != "" {
 				kueuemetrics.ClearCohortMetrics(cohort)
+				kueuemetrics.ClearCohortAdmittedActiveWorkloadsMetrics(cohort)
 				kueuemetrics.ClearCohortInfo(cohort)
 			}
 		}
@@ -673,11 +733,30 @@ func clearClusterQueueInfoMetricsForTest(t *testing.T, cqs ...kueue.ClusterQueue
 	})
 }
 
+func clearClusterQueueCacheMetricsForTest(t *testing.T, cqs ...kueue.ClusterQueueReference) {
+	t.Helper()
+	for _, cq := range cqs {
+		kueuemetrics.ClearCacheMetrics(string(cq))
+	}
+	t.Cleanup(func() {
+		for _, cq := range cqs {
+			kueuemetrics.ClearCacheMetrics(string(cq))
+		}
+	})
+}
+
 func cohortQuotaMetricLabels(cohortName kueue.CohortReference, fr resources.FlavorResource) map[string]string {
 	return map[string]string{
 		"cohort":       string(cohortName),
 		"flavor":       string(fr.Flavor),
 		"resource":     string(fr.Resource),
+		"replica_role": "standalone",
+	}
+}
+
+func cohortActiveWorkloadsMetricLabels(cohortName kueue.CohortReference) map[string]string {
+	return map[string]string{
+		"cohort":       string(cohortName),
 		"replica_role": "standalone",
 	}
 }

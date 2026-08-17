@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -896,7 +897,6 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 		})
 	})
 
-	// cycle-update-cohort --parent--> cycle-update-cohort
 	ginkgo.When("Updating a ClusterQueue whose Cohort has a cycle", func() {
 		var (
 			cq     *kueue.ClusterQueue
@@ -909,37 +909,30 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 		})
 
 		ginkgo.It("Should refresh independent ClusterQueue fields", func() {
-			cycleErrorLogCount := func(message string) int {
-				return fwk.ObservedLogs.Filter(func(entry observer.LoggedEntry) bool {
-					errText, ok := entry.ContextMap()["error"].(string)
-					return entry.Message == message && ok && errText == "cohort has a cycle"
-				}).Len()
-			}
-
 			cohort = utiltestingapi.MakeCohort("cycle-update-cohort").Obj()
+			cq = utiltestingapi.MakeClusterQueue("cycle-update-cq").
+				Cohort(kueue.CohortReference(cohort.Name)).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("cycle-update-old-flavor").
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()
 			util.MustCreate(ctx, k8sClient, cohort)
 
-			cohortCycleErrorCount := cycleErrorLogCount("Error adding or updating cohort in the cache")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var got kueue.Cohort
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &got)).To(gomega.Succeed())
 				got.Spec.ParentName = kueue.CohortReference(got.Name)
 				g.Expect(k8sClient.Update(ctx, &got)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Eventually(func() int {
-				return cycleErrorLogCount("Error adding or updating cohort in the cache")
-			}, util.Timeout, util.Interval).Should(gomega.BeNumerically(">", cohortCycleErrorCount))
+			gomega.Eventually(func(g gomega.Gomega) {
+				_, err := cCache.ClusterQueueAncestors(cq)
+				g.Expect(err).To(gomega.MatchError(schdcache.ErrCohortHasCycle))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			clusterQueueCycleErrorCount := cycleErrorLogCount("Failed to add clusterQueue to cache")
-			cq = utiltestingapi.MakeClusterQueue("cycle-update-cq").
-				Cohort(kueue.CohortReference(cohort.Name)).
-				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("cycle-update-old-flavor").
-					Resource(corev1.ResourceCPU, "1").Obj()).
-				Obj()
 			util.MustCreate(ctx, k8sClient, cq)
-			gomega.Eventually(func() int {
-				return cycleErrorLogCount("Failed to add clusterQueue to cache")
-			}, util.Timeout, util.Interval).Should(gomega.BeNumerically(">", clusterQueueCycleErrorCount))
+			gomega.Eventually(func(g gomega.Gomega) {
+				_, err := cCache.Usage(cq)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Updating a Namespace while the ClusterQueue remains cached with a Cohort cycle")
 			gomega.Eventually(func(g gomega.Gomega) {

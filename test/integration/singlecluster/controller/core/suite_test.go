@@ -48,6 +48,7 @@ var (
 	ctx       context.Context
 	fwk       *framework.Framework
 	qManager  *qcache.Manager
+	cCache    *schdcache.Cache
 )
 
 func TestAPIs(t *testing.T) {
@@ -138,7 +139,7 @@ func managerAndControllerSetup(
 			qcache.WithResourceMetrics(controllersCfg.Metrics.EnableClusterQueueResources),
 		}
 
-		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
+		cCache = schdcache.New(mgr.GetClient(), cacheOpts...)
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOpts...)
 		qManager = queues
 

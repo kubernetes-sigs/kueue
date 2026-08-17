@@ -172,9 +172,6 @@ func (c *clusterQueue) updateClusterQueue(
 				if !errors.Is(err, ErrCohortHasCycle) {
 					return err
 				}
-				// A ClusterQueue remains cached when its Cohort has a cycle. Refresh
-				// its local resource node without traversing cyclic parents, then keep
-				// updating independent fields while the cycle is being repaired.
 				updateClusterQueueResourceNode(c)
 				cohortUpdateErr = err
 			}
