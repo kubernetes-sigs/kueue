@@ -839,11 +839,16 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 }
 
 // nominatedClusterSetsEqual reports whether stored and current contain the same set of cluster names,
-// independent of order.
+// independent of order. It does not mutate its arguments.
 func nominatedClusterSetsEqual(stored, current []string) bool {
-	slices.Sort(stored)
-	slices.Sort(current)
-	return slices.Equal(stored, current)
+	if len(stored) != len(current) {
+		return false
+	}
+	s := slices.Clone(stored)
+	c := slices.Clone(current)
+	slices.Sort(s)
+	slices.Sort(c)
+	return slices.Equal(s, c)
 }
 
 func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
@@ -913,6 +918,10 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
+		// group.remotes is a map, so iteration order is non-deterministic; sort for a
+		// stable persisted nomination instead of relying on a side effect of the
+		// set-equality check.
+		slices.Sort(nominatedWorkers)
 
 		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
 			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
