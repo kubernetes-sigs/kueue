@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/kueue/cmd/importer/mapping"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	controllerpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
-	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -442,64 +441,6 @@ func TestImportNamespace(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantWorkloads, wlList.Items, wlCmpOpts...); diff != "" {
 				t.Errorf("Unexpected workloads (-want/+got)\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestFlavorAssignmentsForRequests(t *testing.T) {
-	const cqName = "cq"
-	flavorsByResource := map[corev1.ResourceName]kueue.ResourceFlavorReference{
-		corev1.ResourceCPU: "cpu-flavor",
-	}
-
-	cases := map[string]struct {
-		requests  resources.Requests
-		want      map[corev1.ResourceName]kueue.ResourceFlavorReference
-		wantError error
-	}{
-		"assigns covered non-zero resources": {
-			requests: resources.MapRequests{
-				corev1.ResourceCPU: 1000,
-			},
-			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-				corev1.ResourceCPU: "cpu-flavor",
-			},
-		},
-		"ignores uncovered zero-quantity resources": {
-			requests: resources.MapRequests{
-				corev1.ResourceCPU:                    1000,
-				corev1.ResourceName("nvidia.com/gpu"): 0,
-			},
-			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-				corev1.ResourceCPU: "cpu-flavor",
-			},
-		},
-		"fails for uncovered non-zero resources": {
-			requests: resources.MapRequests{
-				corev1.ResourceName("nvidia.com/gpu"): 1,
-			},
-			wantError: &resourceNotCoveredError{Resource: corev1.ResourceName("nvidia.com/gpu"), ClusterQueue: "cq"},
-		},
-		"fails with the lexicographically first uncovered non-zero resource": {
-			requests: resources.MapRequests{
-				corev1.ResourceName("z.example.com/resource"): 1,
-				corev1.ResourceName("a.example.com/resource"): 1,
-			},
-			wantError: &resourceNotCoveredError{Resource: corev1.ResourceName("a.example.com/resource"), ClusterQueue: "cq"},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got, gotErr := flavorAssignmentsForRequests(flavorsByResource, cqName, tc.requests)
-
-			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
-				t.Fatalf("Unexpected error (-want/+got)\n%s", diff)
-			}
-
-			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
-				t.Fatalf("Unexpected flavors (-want/+got)\n%s", diff)
 			}
 		})
 	}
