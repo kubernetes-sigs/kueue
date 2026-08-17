@@ -3402,6 +3402,39 @@ func TestDeleteLocalQueueReleasesInflight(t *testing.T) {
 	}
 }
 
+// TestPopFromSkipsInactiveClusterQueue verifies that a mid-cycle pop and its
+// HasQueuedWorkloads probe honor the ClusterQueue status. The snapshot's set of
+// inactive ClusterQueues is frozen at the start of the cycle, so without this
+// check the scheduler could admit into a ClusterQueue that became inactive while
+// the cycle was running.
+func TestPopFromSkipsInactiveClusterQueue(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	// fakeStatusChecker reports only names containing "active-" as active.
+	for _, cqName := range []kueue.ClusterQueueReference{"stopped-cq", "active-cq"} {
+		t.Run(string(cqName), func(t *testing.T) {
+			cq := utiltestingapi.MakeClusterQueue(string(cqName)).Obj()
+			lq := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue(string(cqName)).Obj()
+			wl := utiltestingapi.MakeWorkload("a", "earth").Queue("foo").Obj()
+			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(wl, lq, cq), &fakeStatusChecker{})
+			if err := manager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("Failed adding clusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding queue: %v", err)
+			}
+
+			wantPopped := cqName == "active-cq"
+			if got := manager.HasQueuedWorkloads(cqName); got != wantPopped {
+				t.Errorf("HasQueuedWorkloads returned %t, want %t", got, wantPopped)
+			}
+			popped := manager.PopFrom(cqName)
+			if (popped != nil) != wantPopped {
+				t.Errorf("PopFrom returned %v, want popped=%v", popped, wantPopped)
+			}
+		})
+	}
+}
+
 // TestAddOrUpdateWorkloadCarriesLastAssignmentMultiInflight covers the
 // LastAssignment carry-over with several inflight workloads, as during a
 // refill cycle: the carry must come from the updated workload's own record.
