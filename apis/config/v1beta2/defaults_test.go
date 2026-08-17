@@ -23,7 +23,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
+	"k8s.io/utils/ptr"
 )
 
 const (
@@ -142,6 +144,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"defaulting ControllerManager": {
@@ -189,6 +192,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"should not default ControllerManager": {
@@ -256,6 +260,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"should not set LeaderElectionID": {
@@ -303,6 +308,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"defaulting InternalCertManagement": {
@@ -323,6 +329,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"should not default InternalCertManagement": {
@@ -344,6 +351,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"should not default values in custom ClientConnection": {
@@ -372,6 +380,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"should default empty custom ClientConnection": {
@@ -394,11 +403,13 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: overwriteNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"defaulting waitForPodsReady values": {
 			original: &Configuration{
 				WaitForPodsReady: &WaitForPodsReady{},
+				Scheduler:        &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
@@ -428,6 +439,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+       Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"defaulting waitForPodsReady recoveryTimeout to timeout": {
@@ -460,6 +472,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+       Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"respecting provided waitForPodsReady values": {
@@ -498,6 +511,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+       Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"disabling waitForPodsReady recoveryTimeout with zero value": {
@@ -531,6 +545,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				MultiKueue:                   defaultMultiKueue,
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
+       Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"integrations": {
@@ -556,6 +571,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"multiKueue": {
@@ -590,6 +606,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"multiKueue origin is an empty value": {
@@ -621,6 +638,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"multiKueue GCInterval 0": {
@@ -650,6 +668,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"set object retention policy for workloads": {
@@ -682,6 +701,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				VisibilityServer: defaultVisibilityServer,
 				WaitForPodsReady: defaultWaitForPodsReady,
+       Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 		"resources.transformations strategy": {
@@ -716,6 +736,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 				VisibilityServer: defaultVisibilityServer,
 				WaitForPodsReady: defaultWaitForPodsReady,
+       Scheduler:                    &Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 		},
 	}

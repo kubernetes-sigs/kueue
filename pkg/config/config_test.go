@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/rest"
 	clienttesting "k8s.io/client-go/testing"
+	"k8s.io/utils/ptr"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/component-base/featuregate"
@@ -478,6 +479,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -497,6 +499,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -536,6 +539,7 @@ objectRetentionPolicies:
 				},
 				VisibilityServer: defaultVisibility,
 				WaitForPodsReady: defaultWaitForPodsReady,
+				Scheduler:        &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			wantOptions: defaultControlOptions("kueue-tenant-a"),
 		},
@@ -556,6 +560,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -593,6 +598,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -615,6 +621,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -635,6 +642,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions("kueue-system"),
@@ -673,6 +681,7 @@ objectRetentionPolicies:
 						BackoffMaxSeconds:  new(int32(1800)),
 					},
 				},
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
@@ -701,6 +710,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -724,6 +734,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -772,6 +783,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -817,6 +829,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -857,6 +870,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -877,6 +891,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 				Resources: &configapi.Resources{
 					Transformations: []configapi.ResourceTransformation{
 						{
@@ -932,6 +947,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				Scheduler:                    &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
 						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
@@ -1038,6 +1054,7 @@ webhook:
 					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
+				Scheduler:        &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
 					Burst: new(configapi.DefaultClientConnectionBurst),
@@ -1087,6 +1104,7 @@ webhook:
 					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
+				Scheduler:        &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
@@ -1267,6 +1285,9 @@ func TestEncode(t *testing.T) {
 					},
 					"timeout": "30m0s",
 				},
+				"scheduler": map[string]any{
+					"workloadsPerClusterQueue": int64(1),
+				},
 			},
 		},
 	}
@@ -1305,6 +1326,7 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 		"waitforpodsready.Enabled() is false when DisableWaitForPodsReady feature gate is enabled": {
 			cfg: &configapi.Configuration{
 				WaitForPodsReady: defaultWaitForPodsReady,
+				Scheduler:        &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.DisableWaitForPodsReady: true,
@@ -1315,6 +1337,7 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 		"waitforpodsready.Enabled() is true when DisableWaitForPodsReady feature gate is disabled": {
 			cfg: &configapi.Configuration{
 				WaitForPodsReady: defaultWaitForPodsReady,
+				Scheduler:        &configapi.Scheduler{WorkloadsPerClusterQueue: ptr.To[int32](1)},
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.DisableWaitForPodsReady: false,

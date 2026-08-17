@@ -372,6 +372,7 @@ func main() {
 	if draBackedResources != nil {
 		queueOptions = append(queueOptions, qcache.WithDRABackedResources(draBackedResources))
 	}
+	queueOptions = append(queueOptions, qcache.WithWorkloadsPerClusterQueue(int(ptr.Deref(cfg.Scheduler.WorkloadsPerClusterQueue, 1))))
 	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions...)
 
 	resourceSliceAPIAvailable := utildra.CheckResourceSliceAPIAvailable(mgr)

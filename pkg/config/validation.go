@@ -108,6 +108,18 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationMan
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
+	allErrs = append(allErrs, validateScheduler(c)...)
+	return allErrs
+}
+
+func validateScheduler(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.Scheduler != nil && c.Scheduler.WorkloadsPerClusterQueue != nil {
+		if *c.Scheduler.WorkloadsPerClusterQueue < 1 {
+			allErrs = append(allErrs, field.Invalid(field.NewPath("scheduler", "workloadsPerClusterQueue"),
+				*c.Scheduler.WorkloadsPerClusterQueue, "must be greater than or equal to 1"))
+		}
+	}
 	return allErrs
 }
 

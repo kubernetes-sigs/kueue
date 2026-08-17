@@ -112,6 +112,18 @@ type Configuration struct {
 	// VisibilityServer configures the visibility server.
 	// +optional
 	VisibilityServer *VisibilityServerConfiguration `json:"visibilityServer,omitempty"`
+
+	// Scheduler configures the scheduler behavior.
+	// +optional
+	Scheduler *Scheduler `json:"scheduler,omitempty"`
+}
+
+type Scheduler struct {
+	// WorkloadsPerClusterQueue configures the maximum number of active Workloads
+	// selected from each active ClusterQueue during one scheduling cycle.
+	// The field is a positive integer, defaults to 1.
+	// +optional
+	WorkloadsPerClusterQueue *int32 `json:"workloadsPerClusterQueue,omitempty"`
 }
 
 type ControllerManager struct {

@@ -947,7 +947,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 
 			inHeap := cq.workloads.active.GetByKey(key) != nil
 			inInadmissible := cq.workloads.inadmissible.hasKey(key)
-			inInflight := cq.workloads.inflight != nil && workloadKey(cq.workloads.inflight) == key
+			_, inInflight := cq.workloads.inflight[key]
 			if inHeap != tc.wantInHeap {
 				t.Errorf("in heap = %v, want %v", inHeap, tc.wantInHeap)
 			}
@@ -2224,7 +2224,7 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 				cq.Pop()
 			},
 			wantPending: map[[6]string]int{
-				labelVals1: 0,
+				labelVals1: 1, // 1 inflight
 				labelVals2: 2, // 1 on heap + 1 inflight
 			},
 			wantInadmissible: map[[6]string]int{},

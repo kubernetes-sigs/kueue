@@ -114,6 +114,13 @@ func WithCustomLabels(cl *metrics.CustomLabels) Option {
 	}
 }
 
+// WithWorkloadsPerClusterQueue sets the maximum number of workloads popped per cluster queue.
+func WithWorkloadsPerClusterQueue(n int) Option {
+	return func(m *Manager) {
+		m.workloadsPerClusterQueue = n
+	}
+}
+
 // WithLocalQueueMetrics sets the configuration for local queue metrics.
 func WithLocalQueueMetrics(value *metrics.LocalQueueMetricsConfig) Option {
 	return func(m *Manager) {
@@ -197,6 +204,8 @@ type Manager struct {
 	// Once the Evicted condition is observed by scheduler the expectation
 	// can be removed - the expectation is satisfied.
 	preemptionExpectations *expectations.Store
+
+	workloadsPerClusterQueue int
 }
 
 // NewManager is a factory for cache.queue.Manager. For tests,
@@ -222,6 +231,7 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		AfsUsageLedger:         queueafs.NewAfsUsageLedger(),
 		requeuer:               requeuer,
 		resourceFormatter:      resources.NewResourceFormatter(),
+		workloadsPerClusterQueue: 1,
 	}
 	for _, option := range options {
 		option(m)
@@ -920,21 +930,23 @@ func (m *Manager) heads() []workload.Info {
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 			continue
 		}
-		wl := cq.Pop()
+		wls := cq.PopN(m.workloadsPerClusterQueue)
 		reportCQPendingWorkloads(m, cq)
-		if wl == nil {
+		if len(wls) == 0 {
 			continue
 		}
-		wlKey := workload.Key(wl.Obj)
-		wlCopy := *wl
-		wlCopy.ClusterQueue = cqName
-		workloads = append(workloads, wlCopy)
+		for _, wl := range wls {
+			wlKey := workload.Key(wl.Obj)
+			wlCopy := *wl
+			wlCopy.ClusterQueue = cqName
+			workloads = append(workloads, wlCopy)
 
-		qKey := m.workloadAssignedQueues[wlKey]
-		q := m.localQueues[qKey]
-		delete(q.items, wlKey)
+			qKey := m.workloadAssignedQueues[wlKey]
+			q := m.localQueues[qKey]
+			delete(q.items, wlKey)
 
-		reportLQPendingWorkloads(m, q)
+			reportLQPendingWorkloads(m, q)
+		}
 	}
 	return workloads
 }

@@ -22,6 +22,8 @@ controller:
 clientConnection:
   qps: 300
   burst: 500
+#scheduler:
+#  workloadsPerClusterQueue: 1
 #pprofBindAddress: :8083
 #waitForPodsReady:
 #  timeout: 5m

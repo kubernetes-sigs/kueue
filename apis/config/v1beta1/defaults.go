@@ -138,4 +138,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 			cfg.Resources.Transformations[idx].Strategy = new(cmp.Or(ptr.Deref(cfg.Resources.Transformations[idx].Strategy, ""), DefaultResourceTransformationStrategy))
 		}
 	}
+
+	cfg.Scheduler = cmp.Or(cfg.Scheduler, &Scheduler{})
+	cfg.Scheduler.WorkloadsPerClusterQueue = cmp.Or(cfg.Scheduler.WorkloadsPerClusterQueue, ptr.To[int32](1))
 }
