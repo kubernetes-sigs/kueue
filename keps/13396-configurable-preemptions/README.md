@@ -214,7 +214,7 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 
 ### Non-Goals
 1. Full defragmentation of the cluster.
-2. One advanced preemption strategy to fullfil all premption needs.
+2. One advanced preemption config to fullfil all premption needs.
 3. Support for preemptions using arbitrary Workload fields - this KEP aims to
 create a good baseline for configurations that can be extended in the future. it does not aim to be comprehensive for any possible scenario.
 4. Complete replacement of current preemption strategies.
@@ -222,27 +222,27 @@ create a good baseline for configurations that can be extended in the future. it
 
 ## Proposal
 
-Introduce a new CRD **PreemptionStrategy** that will be used to define:
+Introduce a new CRD **PreemptionConfig** that will be used to define:
 - triggers when preemption should occur (e.g. insufficient topology to schedule the workload)
 - rules defining which workloads should be considered for preemption
 - order in which workloads should be preempted (until considered workload cane be scheduled)
 
-The **PreemptionStrategy** object is cluster-wide resource that can be referenced by multiple ClusterQueues.
+The **PreemptionConfig** object is cluster-wide resource that can be referenced by multiple ClusterQueues.
 
-The new **PreemptionStrategy** object will be referencable in the **ClusterQueueSpec** in the following way:
+The new **PreemptionConfig** object will be referencable in the **ClusterQueueSpec** in the following way:
 
 ```go
-	// preemption defines the preemption policies. Must be null if PreemptionStrategyName is specified.
+	// preemption defines the preemption policies. Must be null if PreemptionConfigName is specified.
 	// +kubebuilder:default={}
 	// +optional
 	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
 
-	// Reference to the PreemptionStrategy to be used. If specified, Preemption
-	// must be null. Settings in PreemptionStrategy overwrite any preemption
-  // defaults that may be in the system. Indicated strategy defines which workloads
+	// Reference to the PreemptionConfig to be used. If specified, Preemption
+	// must be null. Settings in PreemptionConfig overwrite any preemption
+  // defaults that may be in the system. Indicated config defines which workloads
   // will be considered for preemption if workload from this cluster queue cannot be
   // scheduled due to resource or topology constraints.
-	PreemptionStrategyName string
+	PreemptionConfigName string
 
 ```
 
@@ -273,16 +273,16 @@ nitty-gritty.
 
 ### User Stories
 
-Each of the user stories mentioned in motivations can be fullfilled by appropriate strategy and/or preemption limits. Strategies and limits for each of them  can be found below in appropriate subsections.
+Each of the user stories mentioned in motivations can be fullfilled by appropriate config and/or preemption limits. Strategies and limits for each of them  can be found below in appropriate subsections.
 
 #### Story 1 - Defragmentation
 
-User can define a strategy with InsufficientTopology trigger that will allow preemption of workloads blocking specific topologies when scheduling of workload from connected cluster queue requires it. To avoid "flappy" preemption issues, the rules should be limited in a way that guarantes asymetry, if A can preempt B, B shouldn't be able to preempt A. This can be done in various ways, for example:
+User can define a config with InsufficientTopology trigger that will allow preemption of workloads blocking specific topologies when scheduling of workload from connected cluster queue requires it. To avoid "flappy" preemption issues, the rules should be limited in a way that guarantes asymetry, if A can preempt B, B shouldn't be able to preempt A. This can be done in various ways, for example:
 * Only allow preemption of workloads with strictly smaller priority
-* Only allow preemption of workloads that require smaller topologies (e.g. via podset slice size)
+* Only allow preemption of workloads that require smaller topologies (e.g. using custom numeric label)
 * Only allow preemption of workloads that should be preemptible according to FairSharing rules.
 
-Example strategy based on priority and slice size can look like this:
+Example config based on priority and slice size can look like this:
 ```
 spec:
   rules:
@@ -291,22 +291,21 @@ spec:
 			candidates:
 			- relativeWorkloadPriority: "LowerOrEqual"
 				relationRequirement: "AnyClusterQueue"
-				topology:
-					relation: "SameTopologyLevels"
-					relativeMaxPodsetSliceSize: "LowerOrEqual"
+				TODO numeric label selector
+
 			order:
 				- orderingField: "Priority"
       
 ```
 
-As it has "AnyClusterQueue" relation it can preempt workloads even if they are not related in any way to the preemptor cluster queue. In combination with relativeMaxPodsetSliceSize and relativeWorkloadPriority this should result in eviction of smaller less important workloads blocking larger topologies, even if they are within the guaranted quota. Effectively if they are re-admitted again they should be placed in smaller domains(where considered workload cannot be scheduled), thereby defragmenting the cluster.
+As it has "AnyClusterQueue" relation it can preempt workloads even if they are not related in any way to the preemptor cluster queue. In combination with custom numeric label selector this should result in eviction of smaller less important workloads blocking larger topologies, even if they are within the guaranted quota. Effectively if they are re-admitted again they should be placed in smaller domains(where  considered workload cannot be scheduled), thereby defragmenting the cluster.
 
 #### Story 2 (Optional)
 
 ### Notes
 
 There are many possible extensions of the proposed selectors in the rules. For now we propose to support only those that for us seemed most common and natural, but the design allows for extensibility. Examples of possible extensions are:
-- more advanced topology comparison selectors extending just max podset slice size comparison - e.g. "require same podset required levels for considered workloads"
+-  advanced topology comparison selectors extending custom numeric label based selector - e.g. "require same podset required levels for considered workloads"
 - resource requests/limits based selectors - "only preempt workloads that request less than X amount of resources"
 
 As the scope of the design is already broad we leave them as separate implemetation effort and not part of initial KEP proposal.
@@ -328,8 +327,8 @@ Given extensive nature of **PreemptionStrategies** defined below, the API introd
 
 #### Cascading preemptions due to misconfiguration
 One inherent risk is users deploying ill-defined preemption strategies that could lead to cluster instability (e.g. cascading preemptions). The design includes the following mitigations:
-1. **Global limits** - cluster administrators have additonal safety measure that can be used to rollout new strategies or rules gradually, by limiting number of preemptions they permitted by particular strategy or rule.
-2. **Restrictive default preemption configuration** - By default empty strategy does not lead to any preemptions as candidate selection rules will be empty.
+1. **Global limits** - cluster administrators have additonal safety measure that can be used to rollout new strategies or rules gradually, by limiting number of preemptions they permitted by particular config or rule.
+2. **Restrictive default preemption configuration** - By default empty config does not lead to any preemptions as candidate selection rules will be empty.
 3. **Documentation** - Comprehensive documentation will be provided to help users understand the risks and benefits of each configuration option, including examples of common preemption scenarios and how to configure them.
 
 #### Performance degradation
@@ -345,16 +344,16 @@ The documation will also clearly indicate that creation of large number of compl
 
 ## Design Details
 
-### Proposed API PreemptionStrategy
+### Proposed API PreemptionConfig
 
 ```go
-type PreemptionStrategy struct {
+type PreemptionConfig struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec PreemptionRuleSetSpec `json:"spec,omitempty"`
+	Spec PreemptionConfigSpec `json:"spec,omitempty"`
 }
 
-type PreemptionStrategySpec {
+type PreemptionConfigSpec {
 	// Rules to select preemption candidates.
 	Rules []PreemptionRule
 	// Ordering of the preemption candidates.
@@ -417,32 +416,6 @@ const (
 	DRSAllStrategies QuotaConstraint = "DRSAllStrategies"
 )
 
-type TopologyLevelsRelation string
-
-const (
-	// Preemptor and candidate have the same topology levels
-	SameTopologyLevels TopologyLevelsRelation = "SameTopologyLevels"
-	// Preemptor has more specific topology than the candidate
-	MoreSpecificTopologyLevels TopologyLevelsRelation = "MoreSpecificTopologyLevels"
-	// Preemptor has less specific topology than the candidate
-	LessSpecificTopologyLevels TopologyLevelsRelation = "LessSpecificTopologyLevels"
-	// Candidate workload has no topology requirements
-	NoTopology TopologyLevelsRelation = "NoTopology"
-)
-
-type TopologyConstraint struct {
-	// Accepts any relation between topologies if not set.
-	// Determines if workload is considered as a candidate for
-	// preemption based on relation between preemptor and candidate
-	// topologies.
-	TopologyLevels *TopologyLevelsRelation
-
-	// Considers only workloads with maximum podset slice size
-	// matching selected relative constraint. If not set,
-	// all podset slice sizes are considered as preemption candidates.
-	// If podset slice size is not set on the the workload is is treated as 1.
-	RelativeMaxPodsetSliceSize  *RelativeConstraint
-}
 
 
 type PreemptionCandidateSelector struct{
@@ -453,8 +426,6 @@ type PreemptionCandidateSelector struct{
 	// Cannot be set if RelationRequirement is SameLocalQueue or SamleClustrQueue.
 	Quota QuotaConstraint
 
-	// Accepts all if not set.
-	Topology TopologyConstraint
 
 	// Accepts all if not set.
 	ClusterQueueSelector metav1.LabelSelector
@@ -560,7 +531,7 @@ type PreemptionLimitSpec struct {
 	Scope PreemptionLimitScope
 
 	// If empty, it applies to all PreemptionStrategies
-	StrategySelector metav1.LabelSelector
+	ConfigSelector metav1.LabelSelector
 	
 	// If empty, it applies to all CQ that may want to preempt.
 	ClusterQueueSelector metav1.LabelSelector
@@ -588,7 +559,7 @@ Conditions []metav1.Condition
 PreemptionLimit limits the number of preemptions that happen for the specified set of rules. The PreemptionCode evaluates proposed preemptions against defined limit objects, allowing them to proceed only if adequate preemption quota remains. If preemption is in scope of multiple limits, quota must exist in all of them.
 To track this, a list of preemption rule names responsible for selecting each candidate must be maintained.
 
-To manage this data, Kueue stores a comprehensive preemption map in memory, which is isolated per PreemptionLimit. This map tracks all preemption event timestamps under a specific cq/workload key, capturing events that occurred within the designated LimitWindowSeconds. Moreover, it tracks only events that are in scope of the specific limit, if preemption does not match the defined strategy or rules selector it will be not tracked in particular instance of the preemption map.
+To manage this data, Kueue stores a comprehensive preemption map in memory, which is isolated per PreemptionLimit. This map tracks all preemption event timestamps under a specific cq/workload key, capturing events that occurred within the designated LimitWindowSeconds. Moreover, it tracks only events that are in scope of the specific limit, if preemption does not match the defined config or rules selector it will be not tracked in particular instance of the preemption map.
 This list is dynamically trimmed upon each retrieval to filter out expired timestamps.
 
 Furthermore, the status of the PreemptionLimit is refreshed periodically—approximately every minute—to write the aggregated totals into the count map.
@@ -735,7 +706,7 @@ Ruled out because:
 - will not allow for defining fine-grained global preemption limits
 
 
-4. Consolidation of **PreemptionStrategy** and **PreemptionLimit** to single CRD.
+4. Consolidation of **PreemptionConfig** and **PreemptionLimit** to single CRD.
 Ruled out because:
 - it will not allow to limit preemptions globally
 - it will make configurations like "this cluster queue should be never preempted" unintuitive
