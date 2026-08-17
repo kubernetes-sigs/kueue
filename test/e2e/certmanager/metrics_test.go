@@ -258,8 +258,7 @@ func getKueueMetricsSecure(curlPodName, curlContainerName string) ([]byte, error
 		[]string{
 			"/bin/sh", "-c",
 			fmt.Sprintf(
-				"curl -s --connect-timeout 5 --max-time 15 --cacert %s/ca.crt -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
-				metricsServiceName,
+				"curl -s --connect-timeout 5 --max-time 15 --cacert %s/ca.crt -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics", metricsServiceName,
 				kueueNS,
 			),
 		})
