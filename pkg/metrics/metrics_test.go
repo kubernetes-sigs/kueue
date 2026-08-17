@@ -25,6 +25,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
+	corev1 "k8s.io/api/core/v1"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -349,6 +351,17 @@ func TestReportAndCleanupPreemptionTargetRecomputations(t *testing.T) {
 
 	ClearClusterQueueMetrics("cluster_queue1")
 	expectFilteredMetricsCount(t, PreemptionTargetRecomputationsTotal, 0, "cluster_queue", "cluster_queue1")
+}
+
+func TestReportAndCleanupReclaimBackoffArmed(t *testing.T) {
+	ReportReclaimBackoffArmed("cluster_queue1", "flavor1", corev1.ResourceCPU, nil, nil)
+	ReportReclaimBackoffArmed("cluster_queue1", "flavor1", corev1.ResourceMemory, nil, nil)
+
+	expectFilteredMetricsCount(t, ReclaimBackoffArmedTotal, 2, "cluster_queue", "cluster_queue1")
+	expectFilteredMetricsCount(t, ReclaimBackoffArmedTotal, 1, "cluster_queue", "cluster_queue1", "flavor", "flavor1", "resource", "cpu")
+
+	ClearClusterQueueMetrics("cluster_queue1")
+	expectFilteredMetricsCount(t, ReclaimBackoffArmedTotal, 0, "cluster_queue", "cluster_queue1")
 }
 
 func TestReportAndCleanupLocalQueueEvictedNumber(t *testing.T) {

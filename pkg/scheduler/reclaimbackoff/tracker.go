@@ -92,14 +92,10 @@ func (t *Tracker) RecordReclaim(cq kueue.ClusterQueueReference, fr resources.Fla
 	// Prune entries whose cooldown has expired and whose reset window has also
 	// passed: a subsequent reclaim would reset their count anyway, so they are
 	// indistinguishable from no entry at all. This keeps the map bounded by the
-	// number of pairs reclaimed within a reset window instead of growing with
-	// every pair ever reclaimed. Entries still backing off are kept even past
-	// the reset window, since max may be configured larger than reset.
-	for k, e := range t.state {
-		if !now.Before(e.backoffUntil) && now.Sub(e.lastReclaim) > t.reset {
-			delete(t.state, k)
-		}
-	}
+	// number of distinct pairs in the system instead of growing with every pair
+	// ever reclaimed. Entries still backing off are kept even past the reset
+	// window, since max may be configured larger than reset.
+	t.pruneExpiredLocked(now)
 
 	k := key{cq: cq, fr: fr}
 	e := t.state[k]
@@ -119,29 +115,53 @@ func (t *Tracker) IsBackingOff(cq kueue.ClusterQueueReference, fr resources.Flav
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	e, ok := t.state[key{cq: cq, fr: fr}]
+	k := key{cq: cq, fr: fr}
+	e, ok := t.state[k]
 	if !ok {
 		return false
 	}
-	return t.clock.Now().Before(e.backoffUntil)
+	now := t.clock.Now()
+	if t.expired(now, e) {
+		delete(t.state, k)
+		return false
+	}
+	return now.Before(e.backoffUntil)
 }
 
-// MaxRemaining returns the longest time until any FlavorResource on cq leaves
-// its cooldown, or zero if nothing on cq is currently backing off. It is used to
-// schedule the next retry of a deferred workload.
-func (t *Tracker) MaxRemaining(cq kueue.ClusterQueueReference) time.Duration {
+// MinRemaining returns the shortest time until any active cooldown on cq
+// expires, or zero if nothing on cq is currently backing off. It is used to
+// schedule the next retry of deferred workloads: workloads still blocked by
+// longer cooldowns defer again and re-arm the wake-up, so waking at the
+// earliest deadline never strands them.
+func (t *Tracker) MinRemaining(cq kueue.ClusterQueueReference) time.Duration {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	now := t.clock.Now()
-	var maxRemaining time.Duration
+	t.pruneExpiredLocked(now)
+	var minRemaining time.Duration
 	for k, e := range t.state {
 		if k.cq != cq {
 			continue
 		}
-		if remaining := e.backoffUntil.Sub(now); remaining > maxRemaining {
-			maxRemaining = remaining
+		if remaining := e.backoffUntil.Sub(now); remaining > 0 && (minRemaining == 0 || remaining < minRemaining) {
+			minRemaining = remaining
 		}
 	}
-	return maxRemaining
+	return minRemaining
+}
+
+// expired reports whether the entry is past both its cooldown and its reset
+// window, making it indistinguishable from no entry at all.
+func (t *Tracker) expired(now time.Time, e entry) bool {
+	return !now.Before(e.backoffUntil) && now.Sub(e.lastReclaim) > t.reset
+}
+
+// pruneExpiredLocked drops all expired entries. Callers must hold t.mu.
+func (t *Tracker) pruneExpiredLocked(now time.Time) {
+	for k, e := range t.state {
+		if t.expired(now, e) {
+			delete(t.state, k)
+		}
+	}
 }

@@ -201,3 +201,78 @@ func TestRecordReclaimBackoffOnlyArmsIssuedTargets(t *testing.T) {
 		t.Error("expected cq-b not to be backing off: its eviction failed, nothing was reclaimed")
 	}
 }
+
+// TestRecordReclaimBackoffArmsOncePerPairPerCycle verifies that a preemption
+// batch evicting several victims that borrowed the same FlavorResource on the
+// same ClusterQueue grows the consecutive-reclaim counter only once: the
+// cooldown must track distinct reclamation events, not the victim count of a
+// single event.
+func TestRecordReclaimBackoffArmsOncePerPairPerCycle(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	cpuFR := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	cohort := utiltestingapi.MakeCohort("root").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+			Resource(corev1.ResourceCPU, "16").Obj()).Obj()
+	cqA := *utiltestingapi.MakeClusterQueue("cq-a").
+		Cohort("root").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+			Resource(corev1.ResourceCPU, "2").Obj()).
+		Obj()
+
+	cache := schdcache.New(utiltesting.NewFakeClient())
+	if err := cache.AddOrUpdateCohort(cohort); err != nil {
+		t.Fatalf("Couldn't add Cohort to cache: %v", err)
+	}
+	if err := cache.AddClusterQueue(ctx, &cqA); err != nil {
+		t.Fatalf("Failed to add CQ to cache: %v", err)
+	}
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	// Push cq-a into borrowing (4 > nominal 2).
+	snapshot.ClusterQueue("cq-a").AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+		cpuFR: resources.NewAmount(4_000),
+	}}})
+
+	victim := func(name string) *workload.Info {
+		return &workload.Info{
+			Obj: utiltestingapi.MakeWorkload(name, "ns").Obj(),
+			TotalRequests: []workload.PodSetResources{{
+				Name: kueue.DefaultPodSetName,
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU: "default",
+				},
+			}},
+			ClusterQueue: "cq-a",
+		}
+	}
+	victim1 := victim("victim-1")
+	victim2 := victim("victim-2")
+
+	targets := []*preemption.Target{
+		{WorkloadInfo: victim1, Reason: kueue.InCohortReclamationReason, WorkloadCq: snapshot.ClusterQueue("cq-a")},
+		{WorkloadInfo: victim2, Reason: kueue.InCohortReclamationReason, WorkloadCq: snapshot.ClusterQueue("cq-a")},
+	}
+	issuedTargets := sets.New(
+		types.NamespacedName{Name: victim1.Obj.Name, Namespace: victim1.Obj.Namespace},
+		types.NamespacedName{Name: victim2.Obj.Name, Namespace: victim2.Obj.Namespace},
+	)
+
+	tracker := reclaimbackoff.New(time.Minute, time.Hour, 10*time.Minute, clock.RealClock{})
+	s := &Scheduler{
+		reclaimBackoff: tracker,
+		queues:         qcache.NewManagerForUnitTests(utiltesting.NewFakeClient(), nil),
+	}
+	s.recordReclaimBackoff(log, targets, issuedTargets)
+
+	// Two victims on the same (cq-a, cpu) pair in one cycle must arm once:
+	// cooldown ~base (60s), not ~2*base (120s).
+	if got := tracker.MinRemaining("cq-a"); got < time.Minute || got >= 61*time.Second {
+		t.Errorf("MinRemaining = %v, want ~1m: one arming per (ClusterQueue, FlavorResource) per cycle, not per victim", got)
+	}
+}

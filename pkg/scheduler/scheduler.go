@@ -597,10 +597,17 @@ func (s *Scheduler) issuePreemptions(ctx context.Context, log logr.Logger, e *en
 // observation from an earlier cycle was armed when its eviction was issued, and
 // re-arming it would keep growing the cooldown while the same preemption is
 // still in flight; a target whose eviction failed reclaimed nothing.
+//
+// Each (ClusterQueue, FlavorResource) pair is armed at most once per call: if
+// one preemption batch evicts several victims that were borrowing the same
+// resource on the same ClusterQueue, the consecutive-reclaim counter grows by
+// one, so the cooldown tracks distinct reclamation events rather than the
+// victim count of a single event.
 func (s *Scheduler) recordReclaimBackoff(log logr.Logger, preemptionTargets []*preemption.Target, issuedTargets sets.Set[types.NamespacedName]) {
 	if s.reclaimBackoff == nil {
 		return
 	}
+	armed := make(map[kueue.ClusterQueueReference]sets.Set[resources.FlavorResource])
 	for _, target := range preemptionTargets {
 		if !isReclaimReason(target.Reason) {
 			continue
@@ -612,17 +619,23 @@ func (s *Scheduler) recordReclaimBackoff(log logr.Logger, preemptionTargets []*p
 		if cq == nil {
 			continue
 		}
+		frs := borrowedFlavorResources(target.WorkloadInfo, cq)
+		if armed[cq.Name] == nil {
+			armed[cq.Name] = sets.New[resources.FlavorResource]()
+		}
+		armed[cq.Name].Insert(frs.UnsortedList()...)
+	}
+	for cqName, frs := range armed {
 		var maxCooldown time.Duration
-		for fr := range borrowedFlavorResources(target.WorkloadInfo, cq) {
-			cooldown := s.reclaimBackoff.RecordReclaim(cq.Name, fr)
-			metrics.ReportReclaimBackoffArmed(cq.Name, fr.Flavor, fr.Resource, s.customLabels.CQGet(cq.Name), s.roleTracker)
+		for fr := range frs {
+			cooldown := s.reclaimBackoff.RecordReclaim(cqName, fr)
+			metrics.ReportReclaimBackoffArmed(cqName, fr.Flavor, fr.Resource, s.customLabels.CQGet(cqName), s.roleTracker)
 			maxCooldown = max(maxCooldown, cooldown)
 		}
 		if maxCooldown > 0 {
-			log.V(3).Info("Armed reclaim backoff for reclaimed workload",
-				"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
-				"clusterQueue", cq.Name, "cooldown", maxCooldown)
-			s.scheduleReclaimBackoffRetry(cq.Name)
+			log.V(3).Info("Armed reclaim backoff for reclaimed workloads",
+				"clusterQueue", cqName, "flavorResources", frs.UnsortedList(), "cooldown", maxCooldown)
+			s.scheduleReclaimBackoffRetry(cqName)
 		}
 	}
 }
@@ -633,16 +646,17 @@ func (s *Scheduler) recordReclaimBackoff(log logr.Logger, preemptionTargets []*p
 // instant.
 const reclaimBackoffWakeupMargin = 100 * time.Millisecond
 
-// scheduleReclaimBackoffRetry wakes cq shortly after its longest reclaim
-// cooldown elapses, so a workload deferred by the backoff is retried without
+// scheduleReclaimBackoffRetry wakes cq shortly after its earliest-expiring
+// reclaim cooldown, so a workload deferred by the backoff is retried without
 // waiting for an unrelated quota-freeing event. It is safe to call repeatedly:
-// every deferral reschedules, so an early or coalesced wake-up simply defers
-// again and arms the next retry.
+// a workload still blocked by a longer cooldown defers again when the wake-up
+// fires and reschedules the next retry, so waking at the earliest deadline
+// never strands it.
 func (s *Scheduler) scheduleReclaimBackoffRetry(cqName kueue.ClusterQueueReference) {
 	if s.reclaimBackoff == nil {
 		return
 	}
-	if remaining := s.reclaimBackoff.MaxRemaining(cqName); remaining > 0 {
+	if remaining := s.reclaimBackoff.MinRemaining(cqName); remaining > 0 {
 		s.queues.NotifyRetryInadmissibleAfter(cqName, remaining+reclaimBackoffWakeupMargin)
 	}
 }
