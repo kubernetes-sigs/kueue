@@ -1543,8 +1543,9 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	// ever relaxed, these specs fail and the guard can be revisited.
 	ginkgo.When("A workload has reserved quota", func() {
 		var (
-			reservedWPC   *kueue.WorkloadPriorityClass
-			reservedPodPC *schedulingv1.PriorityClass
+			reservedWPC        *kueue.WorkloadPriorityClass
+			reservedPodPC      *schedulingv1.PriorityClass
+			reservedOtherPodPC *schedulingv1.PriorityClass
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -1556,11 +1557,18 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				Value:      50,
 			}
 			util.MustCreate(ctx, k8sClient, reservedPodPC)
+
+			reservedOtherPodPC = &schedulingv1.PriorityClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "reserved-podpc-other"},
+				Value:      25,
+			}
+			util.MustCreate(ctx, k8sClient, reservedOtherPodPC)
 		})
 
 		ginkgo.AfterEach(func() {
 			gomega.Expect(k8sClient.Delete(ctx, reservedWPC)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, reservedPodPC)).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Delete(ctx, reservedOtherPodPC)).To(gomega.Succeed())
 		})
 
 		// Returns a workload that carries reservedWPC and has reserved quota.
@@ -1611,6 +1619,42 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 			gomega.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
 			gomega.Expect(createdWl.Spec.PriorityClassRef).ToNot(gomega.BeNil())
+		})
+
+		// The remaining rule the guard implements. A workload on a pod priority
+		// class cannot be renamed onto another one. It is not reachable through
+		// UpdateWorkloadPriority, since the classifier drops these before the write,
+		// so the guard is defensive and this is what justifies keeping it.
+		ginkgo.It("refuses to rename its pod priority class", func() {
+			job := testingjob.MakeJob("reserved-podpc-rename", ns.Name).
+				PriorityClass(reservedPodPC.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+			createdWl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
+				g.Expect(createdWl.Spec.PriorityClassRef).ToNot(gomega.BeNil())
+				g.Expect(createdWl.Spec.PriorityClassRef.Kind).To(gomega.Equal(kueue.PodPriorityClassKind))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			util.SetQuotaReservation(ctx, k8sClient, wlKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(devClusterQ.Name)).Obj())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
+				g.Expect(createdWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			createdWl.Spec.PriorityClassRef = kueue.NewPodPriorityClassRef(reservedOtherPodPC.Name)
+			createdWl.Spec.Priority = new(reservedOtherPodPC.Value)
+			err := k8sClient.Update(ctx, createdWl)
+			gomega.Expect(err).To(gomega.HaveOccurred())
+			gomega.Expect(err.Error()).To(gomega.ContainSubstring("priorityClassRef.name is immutable for scheduling.k8s.io/priorityclass while workload quota reserved"))
+
+			gomega.Expect(k8sClient.Get(ctx, wlKey, createdWl)).To(gomega.Succeed())
+			gomega.Expect(createdWl.Spec.PriorityClassRef.Name).To(gomega.Equal(reservedPodPC.Name))
 		})
 	})
 
