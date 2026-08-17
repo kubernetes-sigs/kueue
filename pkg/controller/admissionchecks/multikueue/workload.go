@@ -840,12 +840,6 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 	return reconcile.Result{}, errors.Join(errs...)
 }
 
-// nominatedClusterSetsEqual reports whether stored and current contain the same set of cluster names,
-// independent of order.
-func nominatedClusterSetsEqual(stored, current []string) bool {
-	return sets.New(stored...).Equal(sets.New(current...))
-}
-
 // userNominatedClusters returns the MultiKueue cluster names the user requested via
 // the MultiKueueClusterNames annotation on the workload, if the feature is enabled
 // and the annotation is present and non-empty.
@@ -969,7 +963,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 
 	if persistNomination {
 		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
-			if nominatedClusterSetsEqual(wl.Status.NominatedClusterNames, nominatedWorkers) {
+			if sets.New(wl.Status.NominatedClusterNames...).Equal(sets.New(nominatedWorkers...)) {
 				return false, nil
 			}
 			wl.Status.NominatedClusterNames = nominatedWorkers
