@@ -305,6 +305,7 @@ func newClusterQueueImpl(ctx context.Context, cl *metrics.CustomLabels, wo workl
 			pendingResourcesTotal: make(map[corev1.ResourceName]resources.Amount),
 			schedulingHashes:      newSchedulingHashCounts(),
 			inflight:              make(map[workload.Reference]*workload.Info),
+			inflightUpdates:       make(map[workload.Reference]*workload.Info),
 		},
 		hashToBulkMoveReason:   make(map[workload.EquivalenceHash]QuotaReservedReason),
 		finishedWorkloads:      sets.New[workload.Reference](),
@@ -383,8 +384,12 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
 	// Skip if the scheduler is actively processing this workload.
-	// RequeueWorkload will handle placement with the latest version.
+	// RequeueWorkload will handle placement with the latest version, and consumes
+	// the captured Info so it can pair the object with charges computed for it.
 	if c.workloads.HasInflight(key) {
+		if features.Enabled(features.KueueDRAIntegration) {
+			c.workloads.CaptureInflightUpdate(wInfo)
+		}
 		return
 	}
 	if oldInfo := c.workloads.GetInadmissible(key); oldInfo != nil {
