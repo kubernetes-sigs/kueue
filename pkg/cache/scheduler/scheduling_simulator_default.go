@@ -38,17 +38,21 @@ func newDefaultSimulator() simulator.SchedulingSimulator {
 	return &defaultSimulator{}
 }
 
-func (s *defaultSimulator) NewFeasibilityChecker(_ context.Context, _ []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
-	return &defaultChecker{}, nil
+func newDefaultSimulatorSnapshot() simulator.SimulatorSnapshot {
+	return &defaultSimulatorSnapshot{}
+}
+
+type defaultSimulatorSnapshot struct{}
+
+func (s *defaultSimulator) Snapshot(_ context.Context, _ []*corev1.Node) (simulator.SimulatorSnapshot, error) {
+	return &defaultSimulatorSnapshot{}, nil
 }
 
 func (s *defaultSimulator) TrackPod(_ *corev1.Pod) {}
 
 func (s *defaultSimulator) UntrackPod(_ client.ObjectKey) {}
 
-type defaultChecker struct{}
-
-func (c *defaultChecker) FindFeasibleNodes(
+func (s *defaultSimulatorSnapshot) FindFeasibleNodes(
 	ctx context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	requirements *simulator.PodRequirements,
