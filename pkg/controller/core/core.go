@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/reclaimbackoff"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
@@ -51,6 +52,7 @@ type SetupControllersOpts struct {
 	DRABackedResources        *dra.ExtendedResourceCache
 	ResourceFormatter         *resources.ResourceFormatter
 	ResourceSliceAPIAvailable bool
+	ReclaimBackoff            *reclaimbackoff.Tracker
 }
 
 // SetupControllers sets up the core controllers. It returns the name of the
@@ -98,6 +100,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		WithWatchers(watchers...),
 		WithClusterQueueRoleTracker(opts.RoleTracker),
 		WithClusterQueueCustomLabels(opts.CustomLabels),
+		WithReclaimBackoff(opts.ReclaimBackoff),
 	)
 	rfRec.AddUpdateWatcher(cqRec)
 	acRec.AddUpdateWatchers(cqRec)

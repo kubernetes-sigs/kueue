@@ -190,8 +190,37 @@ func TestRecordReclaimStaysCappedOverLongSequence(t *testing.T) {
 	tr := New(10*time.Second, max, time.Hour, fakeClock)
 
 	// 10s, 20s, 40s, then capped at 60s for the remaining reclaims.
-	for _, want := range []time.Duration{10, 20, 40, 60, 60, 60, 60, 60} {
-		assertCooldown(t, tr.RecordReclaim(testCQ, testFR), want*time.Second)
+	for _, want := range []time.Duration{10 * time.Second, 20 * time.Second, 40 * time.Second, time.Minute, time.Minute, time.Minute, time.Minute, time.Minute} {
+		assertCooldown(t, tr.RecordReclaim(testCQ, testFR), want)
+	}
+}
+
+func TestDeleteClusterQueue(t *testing.T) {
+	fakeClock := testingclock.NewFakeClock(time.Now())
+	tr := New(10*time.Second, time.Hour, time.Hour, fakeClock)
+
+	tr.RecordReclaim(testCQ, testFR)
+	tr.RecordReclaim(testCQ, otherFR)
+	tr.RecordReclaim("cq-b", testFR)
+
+	// Deleting the ClusterQueue purges its entries even while their cooldowns
+	// are still active; other ClusterQueues are unaffected.
+	tr.DeleteClusterQueue(testCQ)
+
+	if got := len(tr.state); got != 1 {
+		t.Fatalf("expected only cq-b's entry to survive, got %d entries", got)
+	}
+	if tr.IsBackingOff(testCQ, testFR) {
+		t.Error("entries of the deleted ClusterQueue must be purged before their cooldown expires")
+	}
+	if !tr.IsBackingOff("cq-b", testFR) {
+		t.Error("another ClusterQueue's entries must not be affected")
+	}
+
+	// Deleting an unknown ClusterQueue is a no-op.
+	tr.DeleteClusterQueue("cq-unknown")
+	if !tr.IsBackingOff("cq-b", testFR) {
+		t.Error("deleting an unknown ClusterQueue must be a no-op")
 	}
 }
 

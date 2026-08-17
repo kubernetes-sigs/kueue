@@ -151,6 +151,21 @@ func (t *Tracker) MinRemaining(cq kueue.ClusterQueueReference) time.Duration {
 	return minRemaining
 }
 
+// DeleteClusterQueue drops all entries for cq, so state does not outlive a
+// deleted ClusterQueue. Entries keyed on a deleted ResourceFlavor under a live
+// ClusterQueue need no explicit cleanup: once their cooldown and reset window
+// pass they are pruned by the next record or read anywhere.
+func (t *Tracker) DeleteClusterQueue(cq kueue.ClusterQueueReference) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for k := range t.state {
+		if k.cq == cq {
+			delete(t.state, k)
+		}
+	}
+}
+
 // expired reports whether the entry is past both its cooldown and its reset
 // window, making it indistinguishable from no entry at all.
 func (t *Tracker) expired(now time.Time, e entry) bool {

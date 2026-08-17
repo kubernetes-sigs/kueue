@@ -419,6 +419,7 @@ func main() {
 		DRABackedResources:        draBackedResources,
 		ResourceFormatter:         resourceFormatter,
 		ResourceSliceAPIAvailable: resourceSliceAPIAvailable,
+		ReclaimBackoff:            reclaimBackoffTracker(&cfg),
 	}
 	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, integrationManager, controllerOpts); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
@@ -442,7 +443,9 @@ func main() {
 		}()
 	}
 
-	if err := setupScheduler(mgr, cCache, queues, &cfg, roleTracker, preemptionExpectations, customLabels, resourceFormatter); err != nil {
+	// The tracker instance must be shared with the ClusterQueue reconciler so
+	// that deleting a ClusterQueue purges the entries the scheduler armed for it.
+	if err := setupScheduler(mgr, cCache, queues, &cfg, roleTracker, preemptionExpectations, customLabels, resourceFormatter, controllerOpts.ReclaimBackoff); err != nil {
 		setupLog.Error(err, "Could not setup scheduler")
 		os.Exit(1)
 	}
@@ -674,6 +677,7 @@ func setupScheduler(
 	preemptionExpectations *expectations.Store,
 	customLabels *metrics.CustomLabels,
 	resourceFormatter *resources.ResourceFormatter,
+	reclaimBackoff *reclaimbackoff.Tracker,
 ) error {
 	sched := scheduler.New(
 		queues,
@@ -688,7 +692,7 @@ func setupScheduler(
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
 		scheduler.WithCustomLabels(customLabels),
 		scheduler.WithResourceFormatter(resourceFormatter),
-		scheduler.WithReclaimBackoff(reclaimBackoffTracker(cfg)),
+		scheduler.WithReclaimBackoff(reclaimBackoff),
 	)
 	if err := mgr.Add(sched); err != nil {
 		return fmt.Errorf("unable to add scheduler to manager: %w", err)
