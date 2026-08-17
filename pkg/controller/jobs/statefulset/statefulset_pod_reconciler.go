@@ -42,7 +42,6 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
-	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
 )
 
 type PodReconciler struct {
@@ -86,15 +85,8 @@ func (r *PodReconciler) Reconcile(ctx context.Context, req reconcile.Request) (r
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile StatefulSet Pod")
 
-	if utilstatefulset.ShouldFinalizePod(pod) {
-		err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-			removed := utilstatefulset.FinalizePod(pod)
-			if removed {
-				log.V(3).Info("Finalizing statefulset pod in group", "pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
-			}
-			return removed, nil
-		}))
-		return ctrl.Result{}, err
+	if utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil {
+		return ctrl.Result{}, nil
 	}
 
 	err = client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
