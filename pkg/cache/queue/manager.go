@@ -349,8 +349,8 @@ func (m *Manager) DeleteCohort(cohortName kueue.CohortReference) {
 	// so that future delta reports are correct.
 	if implicit := m.hm.Cohort(cohortName); implicit != nil {
 		for _, cq := range implicit.ChildCQs() {
-			implicit.pendingActiveCount += cq.lastReportedCohortActive
-			implicit.pendingInadmissibleCount += cq.lastReportedCohortInadmissible
+			implicit.pendingActiveCount += cq.lastReportedCohort.active
+			implicit.pendingInadmissibleCount += cq.lastReportedCohort.inadmissible
 		}
 		for _, child := range implicit.ChildCohorts() {
 			implicit.pendingActiveCount += child.pendingActiveCount
