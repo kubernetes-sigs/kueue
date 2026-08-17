@@ -23,6 +23,8 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -272,20 +274,71 @@ func TestNodesCacheGeneration(t *testing.T) {
 	}
 }
 
-func TestNodesCacheWithSchedulerLibraryIntegration(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
+func TestNodesCacheSync(t *testing.T) {
+	nodeWrapper := node.MakeNode("test")
 
-	nc := newNodesCache()
-	unreadyNode := node.MakeNode("unready-node").DeepCopy()
-	unschedNode := node.MakeNode("unsched-node").Unschedulable().Obj()
-
-	nc.sync(unreadyNode)
-	nc.sync(unschedNode)
-
-	if _, found := nc.nodes["unready-node"]; !found {
-		t.Errorf("expected unready-node to be cached when SchedulerLibraryIntegration is enabled")
+	testCases := map[string]struct {
+		enableSchedulerLibraryIntegration bool
+		prime                             []corev1.Node
+		op                                func(nc *nodesCache)
+		wantNodes                         []corev1.Node
+		wantSchedulableAndReady           []string
+	}{
+		"FG disabled: sync not ready removes node": {
+			op: func(nc *nodesCache) {
+				nc.sync(nodeWrapper.DeepCopy())
+			},
+		},
+		"FG disabled: sync ready adds node": {
+			op: func(nc *nodesCache) {
+				nc.sync(nodeWrapper.Clone().Ready().Obj())
+			},
+			wantNodes:               []corev1.Node{*nodeWrapper.Clone().Ready().Obj()},
+			wantSchedulableAndReady: []string{"test"},
+		},
+		"FG enabled: sync not ready keeps node in cache but not in schedulableAndReady": {
+			enableSchedulerLibraryIntegration: true,
+			op: func(nc *nodesCache) {
+				nc.sync(nodeWrapper.DeepCopy())
+			},
+			wantNodes: []corev1.Node{*nodeWrapper.DeepCopy()},
+		},
+		"FG enabled: sync unschedulable keeps node in cache but not in schedulableAndReady": {
+			enableSchedulerLibraryIntegration: true,
+			op: func(nc *nodesCache) {
+				nc.sync(nodeWrapper.Clone().Ready().Unschedulable().Obj())
+			},
+			wantNodes: []corev1.Node{*nodeWrapper.Clone().Ready().Unschedulable().Obj()},
+		},
+		"FG enabled: sync ready adds node to cache and schedulableAndReady": {
+			enableSchedulerLibraryIntegration: true,
+			op: func(nc *nodesCache) {
+				nc.sync(nodeWrapper.Clone().Ready().Obj())
+			},
+			wantNodes:               []corev1.Node{*nodeWrapper.Clone().Ready().Obj()},
+			wantSchedulableAndReady: []string{"test"},
+		},
 	}
-	if _, found := nc.nodes["unsched-node"]; !found {
-		t.Errorf("expected unsched-node to be cached when SchedulerLibraryIntegration is enabled")
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, tc.enableSchedulerLibraryIntegration)
+			nc := newNodesCache()
+			for i := range tc.prime {
+				nc.sync(&tc.prime[i])
+			}
+			tc.op(nc)
+
+			wantNodesMap := make(map[string]*corev1.Node, len(tc.wantNodes))
+			for i := range tc.wantNodes {
+				wantNodesMap[tc.wantNodes[i].Name] = copyAndStripNode(&tc.wantNodes[i])
+			}
+			if diff := cmp.Diff(wantNodesMap, nc.nodes); diff != "" {
+				t.Errorf("Unexpected nodes (-want,+got):\n%s", diff)
+			}
+			wantSet := sets.New(tc.wantSchedulableAndReady...)
+			if diff := cmp.Diff(wantSet, nc.schedulableAndReadyNodes); diff != "" {
+				t.Errorf("Unexpected schedulableAndReadyNodes (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
