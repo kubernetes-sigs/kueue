@@ -189,12 +189,14 @@ func TestIsTopologyAssignmentStale(t *testing.T) {
 		"existing hostname leaf is not stale": {
 			tree: hostnameLowest,
 			assignment: &tas.TopologyAssignment{
+				Levels:  []string{corev1.LabelHostname},
 				Domains: []tas.TopologyDomainAssignment{{Values: []string{"n1"}}},
 			},
 		},
 		"missing hostname leaf is stale": {
 			tree: hostnameLowest,
 			assignment: &tas.TopologyAssignment{
+				Levels:  []string{corev1.LabelHostname},
 				Domains: []tas.TopologyDomainAssignment{{Values: []string{"n2"}}},
 			},
 			wantStale:       true,
@@ -203,6 +205,7 @@ func TestIsTopologyAssignmentStale(t *testing.T) {
 		"deleted node is stale even when its hostname matches an existing root domain ID": {
 			tree: hostnameLowest,
 			assignment: &tas.TopologyAssignment{
+				Levels:  []string{corev1.LabelHostname},
 				Domains: []tas.TopologyDomainAssignment{{Values: []string{"b1"}}},
 			},
 			wantStale:       true,
@@ -211,12 +214,14 @@ func TestIsTopologyAssignmentStale(t *testing.T) {
 		"existing non-hostname leaf is not stale": {
 			tree: rackLowest,
 			assignment: &tas.TopologyAssignment{
+				Levels:  []string{blockLabel, rackLabel},
 				Domains: []tas.TopologyDomainAssignment{{Values: []string{"b1", "r1"}}},
 			},
 		},
 		"missing non-hostname leaf is stale": {
 			tree: rackLowest,
 			assignment: &tas.TopologyAssignment{
+				Levels:  []string{blockLabel, rackLabel},
 				Domains: []tas.TopologyDomainAssignment{{Values: []string{"b1", "r2"}}},
 			},
 			wantStale:       true,
@@ -1497,6 +1502,162 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 			g.Expect(snapshot.Fits(flavorUsage)).To(gomega.BeTrue())
 		})
 	}
+}
+
+func TestFitsNonHostnameLowestLevel(t *testing.T) {
+	const blockLabel = "cloud.provider.com/topology-block"
+	const rackLabel = "cloud.provider.com/topology-rack"
+
+	makeRackNode := func(name string) *corev1.Node {
+		return node.MakeNode(name).
+			Label(blockLabel, "b1").
+			Label(rackLabel, "r1").
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("8"),
+			}).
+			Ready().
+			Obj()
+	}
+
+	cases := map[string]struct {
+		count int32
+		want  bool
+	}{
+		"pods fit across the rack's nodes": {
+			count: 2,
+			want:  true,
+		},
+		// The rack aggregates 16 CPU, but each node fits only one 5-CPU pod.
+		"pods fit in the rack's aggregate but not per node": {
+			count: 3,
+			want:  false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			g := gomega.NewWithT(t)
+			_, log := utiltesting.ContextWithLog(t)
+			tree := newTopologyTree([]string{blockLabel, rackLabel}, []*corev1.Node{makeRackNode("n1"), makeRackNode("n2")}, 0)
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, &defaultChecker{})
+
+			flavorUsage := workload.TASFlavorUsage{{
+				Values: []string{"b1", "r1"},
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 5000,
+				}),
+				Count: tc.count,
+			}}
+			g.Expect(snapshot.Fits(flavorUsage)).To(gomega.Equal(tc.want))
+		})
+	}
+}
+
+// Usage domain IDs reference the user-lowest level while the hostname level
+// is virtual; a node whose name equals a domain ID must not capture the
+// domain's usage.
+func TestLeavesForUsageDomainIgnoresNameCollision(t *testing.T) {
+	const rackLabel = "cloud.provider.com/topology-rack"
+	_, log := utiltesting.ContextWithLog(t)
+	makeRackNode := func(name, rack string) *corev1.Node {
+		return node.MakeNode(name).
+			Label(rackLabel, rack).
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}).
+			Ready().
+			Obj()
+	}
+	// Rack r1 holds two nodes; a third node is named like the rack itself
+	// but lives in rack r2.
+	tree := newTopologyTree([]string{rackLabel}, []*corev1.Node{
+		makeRackNode("node-a", "r1"),
+		makeRackNode("node-b", "r1"),
+		makeRackNode("r1", "r2"),
+	}, 0)
+	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, &defaultChecker{})
+	leaves := snapshot.leavesForUsageDomain("r1")
+	if len(leaves) != 2 {
+		t.Fatalf("domain \"r1\" must resolve to rack r1's 2 leaves, got %d", len(leaves))
+	}
+	for _, leaf := range leaves {
+		if leaf.node.Name == "r1" {
+			t.Error("domain resolution returned the node named \"r1\" instead of the rack's leaves")
+		}
+	}
+
+	// Control: with hostname declared as the lowest level, usage domains are
+	// the leaves themselves and the leaf lookup must keep working.
+	declaredTree := newTopologyTree([]string{rackLabel, corev1.LabelHostname}, []*corev1.Node{
+		makeRackNode("node-a", "r1"),
+		makeRackNode("node-b", "r1"),
+	}, 0)
+	declaredSnapshot := newTASFlavorSnapshot(log, "tas-topology", declaredTree, nil, &defaultChecker{})
+	declaredLeaves := declaredSnapshot.leavesForUsageDomain("node-a")
+	if len(declaredLeaves) != 1 || declaredLeaves[0].node.Name != "node-a" {
+		t.Errorf("declared hostname level must resolve leaf domains directly, got %d leaves", len(declaredLeaves))
+	}
+}
+
+// Removing one Workload's usage must not erase the usage of Workloads that
+// remain admitted. This holds only when the snapshot records usage per
+// Workload: rounded-up per-leaf shares are not additive, so an
+// aggregate-initialized snapshot loses the survivor's usage on removal and
+// Fits overreports free capacity.
+func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
+	const blockLabel = "cloud.provider.com/topology-block"
+	const rackLabel = "cloud.provider.com/topology-rack"
+	dev := corev1.ResourceName("example.com/device")
+	g := gomega.NewWithT(t)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	for _, name := range []string{"n1", "n2"} {
+		tasCache.SyncNode(node.MakeNode(name).
+			Label(blockLabel, "b1").
+			Label(rackLabel, "r1").
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{dev: resource.MustParse("1")}).
+			Ready().
+			Obj())
+	}
+	fc := tasCache.NewTASFlavorCache(
+		topologyInformation{Levels: []string{blockLabel, rackLabel}},
+		flavorInformation{TopologyName: "default"},
+	)
+	singleDevice := func() []workload.TopologyDomainRequests {
+		return []workload.TopologyDomainRequests{{
+			Values: []string{"b1", "r1"},
+			SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+				dev: 1,
+			}),
+			Count: 1,
+		}}
+	}
+	bothDevices := workload.TASFlavorUsage{{
+		Values: []string{"b1", "r1"},
+		SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+			dev: 1,
+		}),
+		Count: 2,
+	}}
+
+	empty, err := fc.snapshot(ctx, log, nil)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+	// Control: with no usage recorded, both devices are free.
+	g.Expect(empty.Fits(bothDevices)).To(gomega.BeTrue())
+
+	fc.addUsage(log, "wl1", singleDevice())
+	fc.addUsage(log, "wl2", singleDevice())
+	snapshot, err := fc.snapshot(ctx, log, nil)
+	g.Expect(err).ToNot(gomega.HaveOccurred())
+	g.Expect(snapshot.Fits(bothDevices)).To(gomega.BeFalse())
+
+	// Preemption simulation removes one Workload; the other still holds a device.
+	for _, tr := range singleDevice() {
+		snapshot.updateTASUsage(tas.DomainID(tr.Values), tr.TotalRequests(), subtract, tr.Count)
+	}
+	g.Expect(snapshot.Fits(bothDevices)).To(gomega.BeFalse())
 }
 
 // newObservedLogger returns a logger that discards output and an observer of its entries.

@@ -41,6 +41,53 @@ const (
 	treeTestRackLabel  = "cloud.provider.com/topology-rack"
 )
 
+// The virtual hostname level must identify nodes by name: hostname labels
+// are neither unique nor immutable, and two nodes sharing one label must
+// not merge into a single leaf with pooled capacity.
+func TestTreeVirtualLevelKeyedByNodeName(t *testing.T) {
+	makeLabeledNode := func(name, hostnameLabel string) *corev1.Node {
+		return testingnode.MakeNode(name).
+			Label(treeTestBlockLabel, "b1").
+			Label(treeTestRackLabel, "r1").
+			Label(corev1.LabelHostname, hostnameLabel).
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}).
+			Ready().
+			Obj()
+	}
+	testCases := map[string]struct {
+		hostnameLabels []string
+	}{
+		"distinct hostname labels": {
+			hostnameLabels: []string{"node-a", "node-b"},
+		},
+		"duplicate hostname labels": {
+			hostnameLabels: []string{"dup", "dup"},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			tree := newTopologyTree(
+				[]string{treeTestBlockLabel, treeTestRackLabel},
+				[]*corev1.Node{
+					makeLabeledNode("node-a", tc.hostnameLabels[0]),
+					makeLabeledNode("node-b", tc.hostnameLabels[1]),
+				},
+				0,
+			)
+			if len(tree.leaves) != 2 {
+				t.Fatalf("expected one leaf per node, got %d leaves for 2 nodes", len(tree.leaves))
+			}
+			seen := map[string]bool{}
+			for _, leaf := range tree.leaves {
+				seen[leaf.node.Name] = true
+			}
+			if !seen["node-a"] || !seen["node-b"] {
+				t.Errorf("expected leaves backed by node-a and node-b, got %v", seen)
+			}
+		})
+	}
+}
+
 func makeTreeTestNode(name, block, rack string) *corev1.Node {
 	return testingnode.MakeNode(name).
 		Label(treeTestBlockLabel, block).
@@ -576,13 +623,64 @@ func TestNewTopologyTree(t *testing.T) {
 				{Level: 1, ID: "b1,r1"}: {
 					LevelValues: []string{"b1", "r1"},
 					Parent:      domainKey{Level: 0, ID: "b1"},
-					Leaf:        true,
-					CPUCapacity: 8000,
+					Children:    []domainKey{{Level: 2, ID: "n1"}, {Level: 2, ID: "n2"}},
 				},
 				{Level: 1, ID: "b1,r2"}: {
 					LevelValues: []string{"b1", "r2"},
 					Parent:      domainKey{Level: 0, ID: "b1"},
+					Children:    []domainKey{{Level: 2, ID: "n3"}},
+				},
+				{Level: 2, ID: "n1"}: {
+					LevelValues: []string{"b1", "r1", "n1"},
+					Parent:      domainKey{Level: 1, ID: "b1,r1"},
 					Leaf:        true,
+					NodeName:    "n1",
+					CPUCapacity: 4000,
+				},
+				{Level: 2, ID: "n2"}: {
+					LevelValues: []string{"b1", "r1", "n2"},
+					Parent:      domainKey{Level: 1, ID: "b1,r1"},
+					Leaf:        true,
+					NodeName:    "n2",
+					CPUCapacity: 4000,
+				},
+				{Level: 2, ID: "n3"}: {
+					LevelValues: []string{"b1", "r2", "n3"},
+					Parent:      domainKey{Level: 1, ID: "b1,r2"},
+					Leaf:        true,
+					NodeName:    "n3",
+					CPUCapacity: 4000,
+				},
+			},
+		},
+		"node without hostname label on a non-hostname topology falls back to node name": {
+			levels: []string{treeTestBlockLabel, treeTestRackLabel},
+			nodes: []*corev1.Node{
+				testingnode.MakeNode("n1").
+					Label(treeTestBlockLabel, "b1").
+					Label(treeTestRackLabel, "r1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("4"),
+					}).
+					Ready().
+					Obj(),
+			},
+			want: map[domainKey]topologyTreeDomainDump{
+				{Level: 0, ID: "b1"}: {
+					LevelValues: []string{"b1"},
+					Children:    []domainKey{{Level: 1, ID: "b1,r1"}},
+					Root:        true,
+				},
+				{Level: 1, ID: "b1,r1"}: {
+					LevelValues: []string{"b1", "r1"},
+					Parent:      domainKey{Level: 0, ID: "b1"},
+					Children:    []domainKey{{Level: 2, ID: "n1"}},
+				},
+				{Level: 2, ID: "n1"}: {
+					LevelValues: []string{"b1", "r1", "n1"},
+					Parent:      domainKey{Level: 1, ID: "b1,r1"},
+					Leaf:        true,
+					NodeName:    "n1",
 					CPUCapacity: 4000,
 				},
 			},
