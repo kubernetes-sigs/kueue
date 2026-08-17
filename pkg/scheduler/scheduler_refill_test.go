@@ -42,6 +42,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -294,10 +295,10 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 		}).
 		Admission(resvWorkAAdmission)
 
-	// DeferredFit fixture (dfit-*): dfit-work admits its head and refills
-	// dfit-work-b, whose nomination targets the borrowing dfit-victim-active;
-	// dfit-preempt's head preempts that victim first, so dfit-work-b's
-	// recomputed assignment lands on DeferredFit.
+	// Overlapping-targets fixture (dfit-*): dfit-work admits its head and
+	// refills dfit-work-b, whose nomination targets the borrowing
+	// dfit-victim-active; dfit-preempt's head preempts that victim first, so
+	// dfit-work-b's targets overlap and it takes the Fit-only requeue.
 	dfitClusterQueues := []kueue.ClusterQueue{
 		*utiltestingapi.MakeClusterQueue("dfit-preempt").
 			Cohort("dfit").
@@ -880,10 +881,11 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 		},
 		// Fit-only rule, reservation source #2 (the #13863 interaction): the
 		// refilled dfit-work-b's nomination targets the same victim as
-		// dfit-preempt's head, so its recomputed assignment is DeferredFit.
-		// The refilled entry must not take the DeferredFit branch (which would
-		// reserve capacity mid-cycle); it is requeued back to the heap.
-		"a refilled workload whose recomputed assignment is DeferredFit is requeued": {
+		// dfit-preempt's head. The overlap recompute is skipped, because it can
+		// only end in DeferredFit for a refilled entry, which the Fit-only rule
+		// requeues anyway; dfit-work-b is requeued back to the heap on its
+		// nomination instead, and reserves no capacity mid-cycle.
+		"a refilled workload with overlapping preemption targets is requeued without recomputing": {
 			enableFairSharing:       true,
 			featureGates:            map[featuregate.Feature]bool{features.FairSharingRefill: true},
 			additionalClusterQueues: dfitClusterQueues,
@@ -939,7 +941,7 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload was evaluated mid-cycle and is deferred to the next scheduling cycle",
+						Message:            "Workload was evaluated mid-cycle and is deferred to the next scheduling cycle: couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 2 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -970,6 +972,14 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 			// The overlapping targets defer via the Fit-only rule, not via
 			// the skipped-preemption path.
 			wantSkippedPreemptions: map[string]int{"dfit-preempt": 0, "dfit-work": 0, "dfit-victim": 0},
+			// No recompute runs for the refilled entry, so none is reported.
+			wantPreemptionTargetRecomputations: map[string]map[string]int{
+				"dfit-work": {
+					string(metrics.PreemptionTargetRecomputationResultDeferredFit): 0,
+					string(metrics.PreemptionTargetRecomputationResultNewTargets):  0,
+					string(metrics.PreemptionTargetRecomputationResultSkipped):     0,
+				},
+			},
 		},
 		// Fit-only rule with genuine scarcity: the refilled fitonly-next has a
 		// real lower-priority preemption candidate, but a refilled workload
