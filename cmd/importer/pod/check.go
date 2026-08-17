@@ -135,9 +135,6 @@ func checkPodWorkload(ctx context.Context, c client.Client, importCache *cache.I
 	maps.Copy(wl.Labels, importCache.AddLabels)
 
 	info := workload.NewInfo(wl, importCache.WorkloadInfoOptions()...)
-	if len(info.TotalRequests) == 0 {
-		return nil, fmt.Errorf("workload has no total requests: %w", cache.ErrPodInvalid)
-	}
 	flavors, err := flavorAssignmentsForRequests(importCache.FlavorsByResourceForClusterQueue(kueue.ClusterQueueReference(cq.Name)), cq.Name, info.TotalRequests[0].Requests)
 	if err != nil {
 		return nil, err
