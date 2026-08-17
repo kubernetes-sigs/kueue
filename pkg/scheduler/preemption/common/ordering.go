@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	"sigs.k8s.io/kueue/pkg/util/priority"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -87,7 +88,7 @@ func resourceUsagePreemptionEnabled(a, b *workload.Info) bool {
 	// we can compare their LocalQueue usage.
 	// If the LocalQueueUsage is not nil for both Workloads, it means the feature gate has been enabled, and the
 	// AdmissionScope of the ClusterQueue is set to UsageBasedFairSharing. We inherit this information from the snapshot initialization.
-	return a.ClusterQueue == b.ClusterQueue && a.Obj.Spec.QueueName != b.Obj.Spec.QueueName && a.LocalQueueFSUsage != nil && b.LocalQueueFSUsage != nil
+	return a.ClusterQueue == b.ClusterQueue && utilqueue.KeyFromWorkload(a.Obj) != utilqueue.KeyFromWorkload(b.Obj) && a.LocalQueueFSUsage != nil && b.LocalQueueFSUsage != nil
 }
 
 func quotaReservationTime(wl *kueue.Workload, now time.Time) time.Time {
