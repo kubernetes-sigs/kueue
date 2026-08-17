@@ -100,6 +100,11 @@ The cooldown for the n-th consecutive reclaim is about `b*2^(n-1)+Rand`, where
 `waitForPodsReady.requeuingStrategy` backoff. If the pair is not reclaimed
 again within `backoffResetSeconds`, the counter restarts from the base.
 
+The implementation reuses the Kubernetes `wait.Backoff` primitive, the same one
+backing the requeue backoff: the jitter is multiplicative at 0.01%, and the cap
+is applied to the exponential term before the jitter is added, so the effective
+cooldown exceeds `backoffMaxSeconds` by at most the jitter fraction.
+
 A workload deferred this way gets the `ReclaimBackoff` pending reason in its
 `QuotaReserved` condition, and the scheduler schedules a delayed requeue of the
 ClusterQueue's inadmissible workloads for when the cooldown expires, so the
@@ -144,11 +149,12 @@ phenomenon and persisting the state would add API write pressure (see
   inadmissible-workload retries are triggered by quota-freeing events, which
   may not occur while the cohort is idle. Mitigation: arming the backoff and
   every deferral both schedule a delayed requeue of the affected ClusterQueue
-  (and its cohort tree) shortly after the longest active cooldown expires.
+  (and its cohort tree) shortly after the earliest-expiring active cooldown.
 - **Unbounded state growth.** The tracker keeps one entry per (ClusterQueue,
   FlavorResource) pair. Mitigation: entries whose cooldown has expired and
-  whose reset window has also passed are pruned on every record, bounding the
-  map by the number of pairs reclaimed within a reset window.
+  whose reset window has also passed are pruned on every record and when
+  encountered on the read path, so the map stays bounded by the number of
+  distinct pairs in the system and shrinks back once reclamation stops.
 - **Arming on preemptions that never happened.** If eviction fails, or the
   target was already evicted in an earlier cycle, nothing was reclaimed in
   this cycle. Mitigation: only targets whose eviction was actually issued in
@@ -239,6 +245,13 @@ victim occupies that its ClusterQueue was borrowing at scheduling time (usage
 above nominal). Arming records the cooldown and emits the
 `kueue_reclaim_backoff_armed_total` metric.
 
+A scheduling cycle records at most one increment per (ClusterQueue,
+FlavorResource) pair: if a single preemption batch evicts several victims that
+were borrowing the same resource on the same ClusterQueue, the pair is armed
+once, and the metric is emitted once. The cooldown therefore grows with the
+number of distinct reclamation events, not with the victim count of a single
+event.
+
 ### Deferring assignments
 
 The read side lives in the flavor assigner. When evaluating whether a
@@ -267,9 +280,12 @@ Ordinary inadmissible-workload retries fire on quota-freeing events, which may
 never occur while the cohort is idle. To guarantee a deferred workload is
 retried, the scheduler schedules a delayed requeue of the ClusterQueue (or its
 root cohort, matching the existing requeue notification semantics) for the
-longest remaining cooldown on that ClusterQueue plus a small margin. This
-happens both when the backoff is armed and whenever an assignment is deferred,
-so repeated deferrals simply re-arm the next wake-up.
+earliest-expiring active cooldown on that ClusterQueue plus a small margin.
+This happens both when the backoff is armed and whenever an assignment is
+deferred. When the wake-up fires, workloads still blocked by longer cooldowns
+on other resources defer again and re-arm the next wake-up, so using the
+earliest deadline never strands a deferred workload, and a workload blocked
+only by the shortest cooldown is retried as soon as it can succeed.
 
 ### Backoff state tracker
 
@@ -278,7 +294,11 @@ a mutex-guarded map keyed by (ClusterQueue, FlavorResource), holding the
 consecutive-reclaim count, the cooldown deadline, and the last reclaim time.
 Recording a reclaim resets the count if the pair was quiet for longer than the
 reset window, and prunes entries whose cooldown and reset window have both
-expired. The clock is injectable for deterministic tests.
+expired. Expired entries are also dropped when encountered on the read path
+(cooldown checks and wake-up computation), so entries do not linger when the
+system goes idle after a storm. The map is bounded by the number of distinct
+(ClusterQueue, FlavorResource) pairs in the system. The clock is injectable for
+deterministic tests.
 
 ### Metrics
 
@@ -306,18 +326,27 @@ ClusterQueue metrics.
 
 #### Unit tests
 
-- `pkg/scheduler/reclaimbackoff`: exponential growth, cap at max, reset after
-  the quiet period, cooldown expiry, key isolation, and pruning of dead
-  entries (including keeping an active cooldown past the reset window).
+- `pkg/scheduler/reclaimbackoff`: exponential growth, cap at max (delays stay
+  capped over long consecutive-reclaim sequences), reset after the quiet
+  period, cooldown expiry, key isolation, and pruning of dead entries both on
+  record and on the read path (including keeping an active cooldown past the
+  reset window).
 - `pkg/scheduler/flavorassigner`: a borrowing assignment is deferred with the
   `ReclaimBackoff` reason while backing off; assignments within nominal quota
   are unaffected; a nil tracker (feature disabled) leaves behavior unchanged.
 - `pkg/scheduler`: only preemption targets whose eviction was actually issued
   arm the backoff; only FlavorResources the victim's ClusterQueue was
-  borrowing are armed.
+  borrowing are armed; a preemption batch evicting multiple victims on the
+  same pair arms it once; the wake-up is scheduled for the earliest-expiring
+  cooldown and re-armed when a workload defers again (two-resource case with
+  different deadlines).
 - `pkg/config`: validation of the `reclaimBackoff` block, including the
   cross-field checks with partially defaulted values and rejection of invalid
   values when the feature is disabled.
+- `pkg/metrics`: the armed-total counter is reported only when
+  `Configuration.ReclaimBackoff` is set and only for cohort-reclamation
+  arming, carries the fixed and custom ClusterQueue labels, and its series
+  are cleaned up when the ClusterQueue is removed.
 
 #### Integration tests
 
