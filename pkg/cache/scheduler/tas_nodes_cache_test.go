@@ -22,6 +22,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -153,20 +156,189 @@ func TestNodesCacheFind(t *testing.T) {
 	}
 }
 
-func TestNodesCacheWithSchedulerLibraryIntegration(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
-
-	nc := newNodesCache()
-	unreadyNode := node.MakeNode("unready-node").DeepCopy()
-	unschedNode := node.MakeNode("unsched-node").Unschedulable().Obj()
-
-	nc.sync(unreadyNode)
-	nc.sync(unschedNode)
-
-	if _, found := nc.nodes["unready-node"]; !found {
-		t.Errorf("expected unready-node to be cached when SchedulerLibraryIntegration is enabled")
+func TestNodesCacheGeneration(t *testing.T) {
+	baseNode := func() *node.NodeWrapper {
+		return node.MakeNode("gen-test").
+			Label("cloud.provider.com/zone", "us-east-1a").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("16Gi"),
+			}).
+			Ready()
 	}
-	if _, found := nc.nodes["unsched-node"]; !found {
-		t.Errorf("expected unsched-node to be cached when SchedulerLibraryIntegration is enabled")
+
+	testCases := map[string]struct {
+		prime     []*corev1.Node
+		op        func(nc *nodesCache)
+		wantDelta int64
+	}{
+		"sync of a new ready node bumps": {
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().Obj())
+			},
+			wantDelta: 1,
+		},
+		"re-sync of an identical node does not bump": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().Obj())
+			},
+			wantDelta: 0,
+		},
+		"heartbeat-only update does not bump": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().
+					ResourceVersion("2").
+					ConditionHeartbeat(corev1.NodeReady, metav1.Now()).
+					Obj())
+			},
+			wantDelta: 0,
+		},
+		"equivalent allocatable expressed in different units does not bump": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4000m"),
+					corev1.ResourceMemory: resource.MustParse("16Gi"),
+				}).Obj())
+			},
+			wantDelta: 0,
+		},
+		"label change bumps": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().Label("cloud.provider.com/zone", "us-east-1b").Obj())
+			},
+			wantDelta: 1,
+		},
+		"allocatable change bumps": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("8"),
+					corev1.ResourceMemory: resource.MustParse("16Gi"),
+				}).Obj())
+			},
+			wantDelta: 1,
+		},
+		"taint change bumps": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().Taints(corev1.Taint{
+					Key:    "example.com/gpu",
+					Effect: corev1.TaintEffectNoSchedule,
+				}).Obj())
+			},
+			wantDelta: 1,
+		},
+		"transition to unschedulable removes the node and bumps": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.sync(baseNode().Unschedulable().Obj())
+			},
+			wantDelta: 1,
+		},
+		"sync of an absent not-ready node does not bump": {
+			op: func(nc *nodesCache) {
+				nc.sync(node.MakeNode("gen-test").Obj())
+			},
+			wantDelta: 0,
+		},
+		"delete of an existing node bumps": {
+			prime: []*corev1.Node{baseNode().Obj()},
+			op: func(nc *nodesCache) {
+				nc.delete("gen-test")
+			},
+			wantDelta: 1,
+		},
+		"delete of an absent node does not bump": {
+			op: func(nc *nodesCache) {
+				nc.delete("other")
+			},
+			wantDelta: 0,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			nc := newNodesCache()
+			for _, n := range tc.prime {
+				nc.sync(n)
+			}
+			before := nc.currentGeneration()
+			tc.op(nc)
+			if delta := nc.currentGeneration() - before; delta != tc.wantDelta {
+				t.Errorf("unexpected generation delta: got %d, want %d", delta, tc.wantDelta)
+			}
+		})
+	}
+}
+
+func TestNodesCacheSync(t *testing.T) {
+	nodeWrapper := node.MakeNode("test")
+
+	testCases := map[string]struct {
+		enableSchedulerLibraryIntegration bool
+		prime                             []corev1.Node
+		op                                func(nc *nodesCache)
+		wantNodes                         []corev1.Node
+		wantSchedulableAndReady           []string
+	}{
+		"FG disabled: sync not ready removes node": {
+			op: func(nc *nodesCache) {
+				nc.sync(nodeWrapper.DeepCopy())
+			},
+		},
+		"FG disabled: sync ready adds node": {
+			op: func(nc *nodesCache) {
+				nc.sync(nodeWrapper.Clone().Ready().Obj())
+			},
+			wantNodes:               []corev1.Node{*nodeWrapper.Clone().Ready().Obj()},
+			wantSchedulableAndReady: []string{"test"},
+		},
+		"FG enabled: sync not ready keeps node in cache but not in schedulableAndReady": {
+			enableSchedulerLibraryIntegration: true,
+			op: func(nc *nodesCache) {
+				nc.sync(nodeWrapper.DeepCopy())
+			},
+			wantNodes: []corev1.Node{*nodeWrapper.DeepCopy()},
+		},
+		"FG enabled: sync unschedulable keeps node in cache but not in schedulableAndReady": {
+			enableSchedulerLibraryIntegration: true,
+			op: func(nc *nodesCache) {
+				nc.sync(nodeWrapper.Clone().Ready().Unschedulable().Obj())
+			},
+			wantNodes: []corev1.Node{*nodeWrapper.Clone().Ready().Unschedulable().Obj()},
+		},
+		"FG enabled: sync ready adds node to cache and schedulableAndReady": {
+			enableSchedulerLibraryIntegration: true,
+			op: func(nc *nodesCache) {
+				nc.sync(nodeWrapper.Clone().Ready().Obj())
+			},
+			wantNodes:               []corev1.Node{*nodeWrapper.Clone().Ready().Obj()},
+			wantSchedulableAndReady: []string{"test"},
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, tc.enableSchedulerLibraryIntegration)
+			nc := newNodesCache()
+			for i := range tc.prime {
+				nc.sync(&tc.prime[i])
+			}
+			tc.op(nc)
+
+			wantNodesMap := make(map[string]*corev1.Node, len(tc.wantNodes))
+			for i := range tc.wantNodes {
+				wantNodesMap[tc.wantNodes[i].Name] = copyAndStripNode(&tc.wantNodes[i])
+			}
+			if diff := cmp.Diff(wantNodesMap, nc.nodes); diff != "" {
+				t.Errorf("Unexpected nodes (-want,+got):\n%s", diff)
+			}
+			wantSet := sets.New(tc.wantSchedulableAndReady...)
+			if diff := cmp.Diff(wantSet, nc.schedulableAndReadyNodes); diff != "" {
+				t.Errorf("Unexpected schedulableAndReadyNodes (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }

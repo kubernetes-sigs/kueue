@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -41,32 +42,47 @@ type nodesCache struct {
 	// when a node is added or removed, or when its labels, taints, or allocatable
 	// resources change - not on every Node update event.
 	generation int64
+
+	// schedulableAndReadyNodes tracks node names that are both schedulable and ready
+	schedulableAndReadyNodes sets.Set[string]
 }
 
 func newNodesCache() *nodesCache {
 	return &nodesCache{
-		nodes: make(map[string]*corev1.Node),
+		nodes:                    make(map[string]*corev1.Node),
+		schedulableAndReadyNodes: sets.New[string](),
 	}
 }
 
 func (t *nodesCache) sync(node *corev1.Node) {
+	schedulableAndReady := !node.Spec.Unschedulable &&
+		utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)
 	t.lock.Lock()
 	defer t.lock.Unlock()
-	if !features.Enabled(features.SchedulerLibraryIntegration) {
-		schedulableAndReady := !node.Spec.Unschedulable &&
-			utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)
-		if !schedulableAndReady {
-			t.deleteWithoutLock(node.Name)
-			return
-		}
-	}
 
-	stripped := copyAndStripNode(node)
-	if existing, found := t.nodes[node.Name]; found && strippedNodesEqual(existing, stripped) {
+	if !features.Enabled(features.SchedulerLibraryIntegration) && !schedulableAndReady {
+		t.deleteWithoutLock(node.Name)
 		return
 	}
 
-	t.nodes[node.Name] = stripped
+	availabilityChanged := t.schedulableAndReadyNodes.Has(node.Name) != schedulableAndReady
+	if schedulableAndReady {
+		t.schedulableAndReadyNodes.Insert(node.Name)
+	} else {
+		t.schedulableAndReadyNodes.Delete(node.Name)
+	}
+
+	stripped := copyAndStripNode(node)
+	existing, found := t.nodes[node.Name]
+	nodeChanged := !found || !strippedNodesEqual(existing, stripped)
+
+	if !nodeChanged && !availabilityChanged {
+		return
+	}
+
+	if nodeChanged {
+		t.nodes[node.Name] = stripped
+	}
 	t.generation++
 }
 
@@ -79,6 +95,7 @@ func (t *nodesCache) delete(nodeName string) {
 func (t *nodesCache) deleteWithoutLock(nodeName string) {
 	if _, found := t.nodes[nodeName]; found {
 		delete(t.nodes, nodeName)
+		t.schedulableAndReadyNodes.Delete(nodeName)
 		t.generation++
 	}
 }
@@ -90,7 +107,14 @@ func (t *nodesCache) find(nodeLabels map[string]string, levels []string) ([]*cor
 	t.lock.RLock()
 	defer t.lock.RUnlock()
 	filteredNodes := make([]*corev1.Node, 0, len(t.nodes))
+	shouldExcludeUnschedulableAndNotReadyNodes :=
+		features.Enabled(features.SchedulerLibraryIntegration) &&
+			(len(levels) == 0 || !utiltas.IsLowestLevelHostname(levels))
+
 	for _, node := range t.nodes {
+		if shouldExcludeUnschedulableAndNotReadyNodes && !t.schedulableAndReadyNodes.Has(node.Name) {
+			continue
+		}
 		if utiltas.NodeMatchesFlavor(node.Labels, nodeLabels, levels) {
 			filteredNodes = append(filteredNodes, node)
 		}
