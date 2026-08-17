@@ -1,0 +1,83 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: specifiedcapacities.kueue.x-k8s.io
+spec:
+  group: kueue.x-k8s.io
+  names:
+    kind: SpecifiedCapacity
+    listKind: SpecifiedCapacityList
+    plural: specifiedcapacities
+    shortNames:
+    - scap
+    singular: specifiedcapacity
+  scope: Cluster
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: SpecifiedCapacity is the Schema for the specifiedcapacities API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: spec is the specification of the SpecifiedCapacity.
+            properties:
+              flavors:
+                description: flavors contains capacity per flavor and resource.
+                items:
+                  properties:
+                    name:
+                      description: name is the name of the ResourceFlavor.
+                      maxLength: 253
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                      type: string
+                    resources:
+                      additionalProperties:
+                        anyOf:
+                        - type: integer
+                        - type: string
+                        pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                        x-kubernetes-int-or-string: true
+                      description: resources contains total capacity by resource name.
+                      type: object
+                      x-kubernetes-validations:
+                      - message: resource capacity must have between 1 and 64 entries
+                        rule: size(self) >= 1 && size(self) <= 64
+                      - message: resource capacity must be non-negative
+                        rule: 'self.all(r, type(self[r]) == string ? quantity(self[r]).sign()
+                          >= 0 : self[r] >= 0)'
+                  required:
+                  - name
+                  - resources
+                  type: object
+                maxItems: 64
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            required:
+            - flavors
+            type: object
+        type: object
+    served: true
+    storage: true

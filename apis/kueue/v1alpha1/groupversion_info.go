@@ -37,7 +37,11 @@ var (
 )
 
 func addKnownTypes(scheme *runtime.Scheme) error {
-	scheme.AddKnownTypes(SchemeGroupVersion /* Add types, e.g. &Configuration{} */)
+	scheme.AddKnownTypes(SchemeGroupVersion,
+		&CapacityProvider{}, &CapacityProviderList{},
+		&DynamicQuotaOrchestrator{}, &DynamicQuotaOrchestratorList{},
+		&SpecifiedCapacity{}, &SpecifiedCapacityList{},
+	)
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil
 }
