@@ -1457,10 +1457,14 @@ func TestRefillDeferralClearsFlavorScanProgress(t *testing.T) {
 // TestScheduleForFairSharingRefill.
 func TestTryRefillStopsBeforePopping(t *testing.T) {
 	cases := map[string]struct {
-		entryStatus     entryStatus
-		quotaReserved   bool
-		queuedSuccessor bool
-		want            refillStopReason
+		entryStatus   entryStatus
+		quotaReserved bool
+		// variant makes the admitted workload a concurrent admission variant;
+		// concurrentAdmission enables the gate, so the two can be set apart.
+		variant             bool
+		concurrentAdmission bool
+		queuedSuccessor     bool
+		want                refillStopReason
 		// Spelled out rather than derived from want, so renaming a constant
 		// cannot move the expectation with it.
 		wantLabel string
@@ -1500,6 +1504,23 @@ func TestTryRefillStopsBeforePopping(t *testing.T) {
 			want:          refillStopSecondPass,
 			wantLabel:     "SecondPassAdmission",
 		},
+		"the admission was a concurrent admission variant": {
+			entryStatus:         assumed,
+			variant:             true,
+			concurrentAdmission: true,
+			queuedSuccessor:     true,
+			want:                refillStopVariantAdmitted,
+			wantLabel:           "VariantAdmitted",
+		},
+		// The guard reads the workload only when the gate is on: with it off,
+		// a Workload-kind owner reference is not refill's business.
+		"a variant is admitted with concurrent admission disabled": {
+			entryStatus:     assumed,
+			variant:         true,
+			queuedSuccessor: true,
+			want:            refillStopBudget,
+			wantLabel:       "BudgetExhausted",
+		},
 		"the budget is spent and a successor is waiting": {
 			entryStatus:     assumed,
 			queuedSuccessor: true,
@@ -1514,6 +1535,7 @@ func TestTryRefillStopsBeforePopping(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ConcurrentAdmission, tc.concurrentAdmission)
 			ctx, log := utiltesting.ContextWithLog(t)
 			now := time.Now().Truncate(time.Second)
 
@@ -1527,6 +1549,9 @@ func TestTryRefillStopsBeforePopping(t *testing.T) {
 				PodSets(*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "1").Obj())
 			if tc.quotaReserved {
 				admitted.ReserveQuotaAt(utiltestingapi.MakeAdmission("stop-cq").Obj(), now)
+			}
+			if tc.variant {
+				admitted.ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent-uid")
 			}
 			var pending []kueue.Workload
 			if tc.queuedSuccessor {
@@ -1600,6 +1625,7 @@ func TestRefillStopReasonLabels(t *testing.T) {
 		refillContinue:                  "",
 		refillStopNotAdmitted:           "EntryNotAdmitted",
 		refillStopSecondPass:            "SecondPassAdmission",
+		refillStopVariantAdmitted:       "VariantAdmitted",
 		refillStopBudget:                "BudgetExhausted",
 		refillStopQueueEmpty:            "QueueEmpty",
 		refillStopSuccessorNotNominated: "SuccessorNotNominated",
