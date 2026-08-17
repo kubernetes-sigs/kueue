@@ -242,10 +242,6 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 				}, util.VeryLongTimeout, util.LongInterval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("waiting for controller manager certificate reload", func() {
-				time.Sleep(3 * time.Second)
-			})
-
 			ginkgo.By("checking that the metrics are still available", func() {
 				expectedMetric := []string{
 					"kueue_quota_reserved_workloads_total",
@@ -262,8 +258,7 @@ func getKueueMetricsSecure(curlPodName, curlContainerName string) ([]byte, error
 		[]string{
 			"/bin/sh", "-c",
 			fmt.Sprintf(
-				"curl -s --cacert %s/ca.crt -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
-				certMountPath,
+				"curl -s --connect-timeout 5 --max-time 15 --cacert %s/ca.crt -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
 				metricsServiceName,
 				kueueNS,
 			),
@@ -282,5 +277,5 @@ func expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName string
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 
 		g.Expect(string(metricsOutput)).Should(utiltesting.ContainMetrics(metrics))
-	}, timeout, 2*time.Second).Should(gomega.Succeed())
+	}, timeout, util.Interval).Should(gomega.Succeed())
 }
