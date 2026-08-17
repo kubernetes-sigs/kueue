@@ -101,10 +101,10 @@ func reportCohortSubtreePendingWorkloads(m *Manager, cq *ClusterQueue, newActive
 		return
 	}
 
-	activeDelta := newActive - cq.lastReportedCohortActive
-	inadmissibleDelta := newInadmissible - cq.lastReportedCohortInadmissible
-	cq.lastReportedCohortActive = newActive
-	cq.lastReportedCohortInadmissible = newInadmissible
+	activeDelta := newActive - cq.lastReportedCohort.active
+	inadmissibleDelta := newInadmissible - cq.lastReportedCohort.inadmissible
+	cq.lastReportedCohort.active = newActive
+	cq.lastReportedCohort.inadmissible = newInadmissible
 
 	cohort.updatePendingWorkloadsCount(activeDelta, inadmissibleDelta)
 
