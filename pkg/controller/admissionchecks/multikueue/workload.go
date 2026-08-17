@@ -907,18 +907,18 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
 		// group.remotes is a map, so iteration order is non-deterministic; sort for a
-		// stable persisted nomination instead of relying on a side effect of the
-		// set-equality check.
+		// stable persisted nomination.
 		slices.Sort(nominatedWorkers)
 
-		if !sets.New(group.local.Status.NominatedClusterNames...).Equal(sets.New(nominatedWorkers...)) {
-			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
-				wl.Status.NominatedClusterNames = nominatedWorkers
-				return true, nil
-			}); err != nil {
-				log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
-				return reconcile.Result{}, err
+		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			if sets.New(wl.Status.NominatedClusterNames...).Equal(sets.New(nominatedWorkers...)) {
+				return false, nil
 			}
+			wl.Status.NominatedClusterNames = nominatedWorkers
+			return true, nil
+		}); err != nil {
+			log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
+			return reconcile.Result{}, err
 		}
 	} else {
 		// Incremental dispatcher and External dispatcher path
