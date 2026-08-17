@@ -25,6 +25,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 )
 
 // defaultRefillBudget keeps cycle length and time-to-fresh-snapshot predictable
@@ -85,16 +86,12 @@ type refillStopReason string
 
 const (
 	// refillContinue means a successor joined the cycle, so nothing stopped.
-	refillContinue refillStopReason = ""
-	// The entry was not admitted, so it freed no head slot.
-	refillStopNotAdmitted refillStopReason = "EntryNotAdmitted"
-	// The entry already held quota before this cycle, so its admission freed
-	// no head slot either.
-	refillStopSecondPass refillStopReason = "SecondPassAdmission"
-	refillStopBudget     refillStopReason = "BudgetExhausted"
-	refillStopQueueEmpty refillStopReason = "QueueEmpty"
-	// The successor was popped but got no assignment: it either parks as
-	// inadmissible or is already accounted in the cache.
+	refillContinue                  refillStopReason = ""
+	refillStopNotAdmitted           refillStopReason = "EntryNotAdmitted"
+	refillStopSecondPass            refillStopReason = "SecondPassAdmission"
+	refillStopVariantAdmitted       refillStopReason = "VariantAdmitted"
+	refillStopBudget                refillStopReason = "BudgetExhausted"
+	refillStopQueueEmpty            refillStopReason = "QueueEmpty"
 	refillStopSuccessorNotNominated refillStopReason = "SuccessorNotNominated"
 )
 
@@ -140,6 +137,11 @@ func (r *refillPass) tryRefill(ctx context.Context, e *entry) (refillStopReason,
 	// admission does not free a slot the successor could take.
 	if workload.HasQuotaReservation(e.Obj) {
 		return refillStopSecondPass, nil
+	}
+	// The sibling scan reads the snapshot, which lacks this cycle's admissions,
+	// so a refill here could admit a second variant of the same parent.
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
+		return refillStopVariantAdmitted, nil
 	}
 	if r.budget <= 0 {
 		// Kept apart so BudgetExhausted measures how often the budget
