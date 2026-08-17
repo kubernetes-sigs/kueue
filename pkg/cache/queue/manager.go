@@ -758,6 +758,13 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(info.Obj)
 
+	// Ending the checkout below also drops any update captured while the
+	// workload was inflight, so take it first.
+	var captured *workload.Info
+	if cq := m.hm.ClusterQueue(info.ClusterQueue); cq != nil {
+		captured = cq.workloads.ConsumeInflightUpdate(wlKey)
+	}
+
 	// The scheduler is giving this workload back. End its checkout first,
 	// unconditionally, so every branch below starts from the same state: the
 	// queue will accept this workload again. End it while we still remember
@@ -796,10 +803,19 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	}
 	fresh := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	options := append(slices.Clone(m.workloadInfoOptions), workload.WithEffectivePodSpecs(fresh.EffectivePodSpecs))
+	paired := true
 	if dra.NeedsDRAReconcile(fresh, m.draBackedResources) {
-		options = append(options, workload.WithPreserveTotalRequests())
+		var opt workload.InfoOption
+		opt, paired = draRequeueOption(log, info, &w, captured)
+		options = append(options, opt)
 	}
 	info.Update(log, &w, options...)
+	if !paired {
+		// The scheduling hash would describe neither the charges nor the
+		// object alone, and an equivalence class bulk-moves other workloads,
+		// so opt this workload out of equivalence hashing for the cycle.
+		info.SchedulingHash = workload.SchedulingHashUnknown
+	}
 	m.addWorkload(info, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
@@ -827,6 +843,32 @@ func (m *Manager) forgetInflight(cqName kueue.ClusterQueueReference, key workloa
 	if q := m.localQueues[m.workloadAssignedQueues[key]]; q != nil {
 		reportLQPendingWorkloads(m, q)
 	}
+}
+
+// draRequeueOption decides where the TotalRequests of a requeued DRA-backed
+// workload come from, and reports whether they are known to describe w.
+//
+// DRA quota charges are resolved by the workload controller and cannot be
+// rebuilt here, because the spec carries resourceClaims rather than the quota
+// keys they translate to; rebuilding would requeue the workload asking for
+// almost nothing. So the charges are reused, but only from a computation made
+// for the same generation as the object being requeued:
+//
+//   - an update that arrived while the workload was inflight was dropped by
+//     PushOrUpdate and captured instead; it carries both the newer object and
+//     the charges preprocessed for it, so it is preferred;
+//   - otherwise the charges this Info already holds are correct as long as the
+//     object has not moved on since the scheduler took it.
+func draRequeueOption(log logr.Logger, info *workload.Info, w *kueue.Workload, captured *workload.Info) (workload.InfoOption, bool) {
+	if captured != nil && captured.Obj.Generation == w.Generation {
+		return workload.WithTotalRequestsFrom(captured.TotalRequests), true
+	}
+	if info.Obj.Generation == w.Generation {
+		return workload.WithPreserveTotalRequests(), true
+	}
+	log.V(3).Info("Requeuing DRA workload with quota charges preprocessed for an older generation; the reconcile for the current generation will re-push it",
+		"workload", klog.KObj(w), "generation", w.Generation, "chargedGeneration", info.Obj.Generation)
+	return workload.WithPreserveTotalRequests(), false
 }
 
 // Delete the workload from queue or cluster queue.
