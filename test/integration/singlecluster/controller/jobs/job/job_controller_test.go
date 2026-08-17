@@ -1690,7 +1690,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			createdWl, wlKey := reservedWorkload("reserved-group-kind")
 
 			createdWl.Spec.PriorityClassRef = kueue.NewPodPriorityClassRef(reservedPodPC.Name)
-			createdWl.Spec.Priority = ptr.To(reservedPodPC.Value)
+			createdWl.Spec.Priority = new(reservedPodPC.Value)
 			err := k8sClient.Update(ctx, createdWl)
 			gomega.Expect(err).To(gomega.HaveOccurred())
 			gomega.Expect(err.Error()).To(gomega.ContainSubstring("priorityClassRef.group is immutable while workload quota reserved"))
@@ -1704,7 +1704,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 			createdWl, wlKey := reservedWorkload("reserved-removal")
 
 			createdWl.Spec.PriorityClassRef = nil
-			createdWl.Spec.Priority = ptr.To(int32(0))
+			createdWl.Spec.Priority = new(int32(0))
 			err := k8sClient.Update(ctx, createdWl)
 			gomega.Expect(err).To(gomega.HaveOccurred())
 			gomega.Expect(err.Error()).To(gomega.ContainSubstring("priorityClassRef is immutable while workload quota reserved"))

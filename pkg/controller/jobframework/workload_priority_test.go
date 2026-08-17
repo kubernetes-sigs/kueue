@@ -541,3 +541,83 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 		})
 	}
 }
+
+// TestPriorityRefTransitionAllowed covers the rules directly, including the Pod
+// PriorityClass name case. That one is not reachable through
+// UpdateWorkloadPriority today, because the classifier already drops workloads
+// that are on a Pod PriorityClass, so it is guarded here rather than through the
+// reconciler.
+func TestPriorityRefTransitionAllowed(t *testing.T) {
+	reserved := func(ref *kueue.PriorityClassRef) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("wl", "ns").
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadQuotaReserved,
+				Status:             metav1.ConditionTrue,
+				Reason:             "AdmittedByTest",
+				Message:            "reserved",
+				LastTransitionTime: metav1.Now(),
+			}).Obj()
+		wl.Spec.PriorityClassRef = ref
+		return wl
+	}
+	free := func(ref *kueue.PriorityClassRef) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("wl", "ns").Obj()
+		wl.Spec.PriorityClassRef = ref
+		return wl
+	}
+
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		ref  *kueue.PriorityClassRef
+		want bool
+	}{
+		"no reservation, anything goes": {
+			wl:   free(kueue.NewWorkloadPriorityClassRef("high")),
+			ref:  kueue.NewPodPriorityClassRef("system-node-critical"),
+			want: true,
+		},
+		"reserved, unchanged": {
+			wl:   reserved(kueue.NewWorkloadPriorityClassRef("high")),
+			ref:  kueue.NewWorkloadPriorityClassRef("high"),
+			want: true,
+		},
+		"reserved, workload priority class renamed": {
+			wl:   reserved(kueue.NewWorkloadPriorityClassRef("high")),
+			ref:  kueue.NewWorkloadPriorityClassRef("low"),
+			want: true,
+		},
+		"reserved, pod priority class renamed": {
+			wl:   reserved(kueue.NewPodPriorityClassRef("high")),
+			ref:  kueue.NewPodPriorityClassRef("low"),
+			want: false,
+		},
+		"reserved, group and kind change": {
+			wl:   reserved(kueue.NewWorkloadPriorityClassRef("high")),
+			ref:  kueue.NewPodPriorityClassRef("high"),
+			want: false,
+		},
+		"reserved, ref removed": {
+			wl:   reserved(kueue.NewWorkloadPriorityClassRef("high")),
+			ref:  nil,
+			want: false,
+		},
+		"reserved, ref added": {
+			wl:   reserved(nil),
+			ref:  kueue.NewWorkloadPriorityClassRef("high"),
+			want: false,
+		},
+		"reserved, no ref either side": {
+			wl:   reserved(nil),
+			ref:  nil,
+			want: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := priorityRefTransitionAllowed(tc.wl, tc.ref); got != tc.want {
+				t.Errorf("priorityRefTransitionAllowed() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
