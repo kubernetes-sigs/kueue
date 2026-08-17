@@ -1131,6 +1131,63 @@ func TestUpdateWithRebuild(t *testing.T) {
 				Count:    1,
 			}},
 		},
+		"WithTotalRequestsFrom adopts DRA requests preprocessed for the newer object": {
+			initial: utiltestingapi.MakeWorkload("wl", "ns").
+				Request("example.com/gpu", "1").Obj(),
+			initialOptions: []InfoOption{
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{
+						kueue.DefaultPodSetName: {"gpu": resource.MustParse("1")},
+					},
+					map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+						kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
+					},
+				),
+			},
+			updated: utiltestingapi.MakeWorkload("wl", "ns").
+				Request("example.com/gpu", "2").Obj(),
+			updateOptions: []InfoOption{WithTotalRequestsFrom([]PodSetResources{{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 2}),
+				Count:    1,
+			}})},
+			// Neither the preserved charge (gpu: 1) nor a rebuild from the spec
+			// (example.com/gpu: 2, the untranslated request).
+			wantRequests: []PodSetResources{{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 2}),
+				Count:    1,
+			}},
+		},
+		"WithTotalRequestsFrom takes precedence over WithPreserveTotalRequests": {
+			initial: utiltestingapi.MakeWorkload("wl", "ns").
+				Request("example.com/gpu", "1").Obj(),
+			initialOptions: []InfoOption{
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{
+						kueue.DefaultPodSetName: {"gpu": resource.MustParse("1")},
+					},
+					map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+						kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
+					},
+				),
+			},
+			updated: utiltestingapi.MakeWorkload("wl", "ns").
+				Request("example.com/gpu", "2").Obj(),
+			updateOptions: []InfoOption{
+				WithPreserveTotalRequests(),
+				WithTotalRequestsFrom([]PodSetResources{{
+					Name:     kueue.DefaultPodSetName,
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 2}),
+					Count:    1,
+				}}),
+			},
+			wantRequests: []PodSetResources{{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 2}),
+				Count:    1,
+			}},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1149,6 +1206,36 @@ func TestUpdateWithRebuild(t *testing.T) {
 				t.Errorf("TotalRequests after Update (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestUpdateWithTotalRequestsFromClones guards the aliasing hazard of adopting
+// another Info's requests: requests are mutated in place elsewhere (Mul,
+// Divide, FloorToZero), so a shallow adoption would let the source Info silently
+// change the charges of the Info that adopted them.
+func TestUpdateWithTotalRequestsFromClones(t *testing.T) {
+	source := []PodSetResources{{
+		Name:     kueue.DefaultPodSetName,
+		Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 2}),
+		Count:    1,
+		Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{"gpu": "flavor"},
+	}}
+
+	info := NewInfo(utiltestingapi.MakeWorkload("wl", "ns").Request("example.com/gpu", "2").Obj())
+	info.Update(logr.Discard(), utiltestingapi.MakeWorkload("wl", "ns").Request("example.com/gpu", "2").Obj(),
+		WithTotalRequestsFrom(source))
+
+	source[0].Requests.Mul(4)
+	source[0].Flavors["gpu"] = "other-flavor"
+
+	want := []PodSetResources{{
+		Name:     kueue.DefaultPodSetName,
+		Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 2}),
+		Count:    1,
+		Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{"gpu": "flavor"},
+	}}
+	if diff := cmp.Diff(want, info.TotalRequests, cmp.Comparer(resources.Equal)); diff != "" {
+		t.Errorf("TotalRequests changed after mutating the source (-want,+got):\n%s", diff)
 	}
 }
 
