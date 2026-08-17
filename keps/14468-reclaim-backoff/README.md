@@ -153,8 +153,9 @@ phenomenon and persisting the state would add API write pressure (see
 - **Unbounded state growth.** The tracker keeps one entry per (ClusterQueue,
   FlavorResource) pair. Mitigation: entries whose cooldown has expired and
   whose reset window has also passed are pruned on every record and when
-  encountered on the read path, so the map stays bounded by the number of
-  distinct pairs in the system and shrinks back once reclamation stops.
+  encountered on the read path, and a deleted ClusterQueue's entries are purged
+  on the delete event, so the map stays bounded by the number of distinct pairs
+  in the system and shrinks back once reclamation stops.
 - **Arming on preemptions that never happened.** If eviction fails, or the
   target was already evicted in an earlier cycle, nothing was reclaimed in
   this cycle. Mitigation: only targets whose eviction was actually issued in
@@ -296,9 +297,12 @@ Recording a reclaim resets the count if the pair was quiet for longer than the
 reset window, and prunes entries whose cooldown and reset window have both
 expired. Expired entries are also dropped when encountered on the read path
 (cooldown checks and wake-up computation), so entries do not linger when the
-system goes idle after a storm. The map is bounded by the number of distinct
-(ClusterQueue, FlavorResource) pairs in the system. The clock is injectable for
-deterministic tests.
+system goes idle after a storm. Deleting a ClusterQueue purges its entries
+immediately via the ClusterQueue reconciler's delete path; entries keyed on a
+deleted ResourceFlavor under a live ClusterQueue need no explicit cleanup and
+fall out via the same time-based pruning. The map is therefore bounded by the
+number of distinct (ClusterQueue, FlavorResource) pairs in the system. The
+clock is injectable for deterministic tests.
 
 ### Metrics
 
@@ -326,11 +330,13 @@ ClusterQueue metrics.
 
 #### Unit tests
 
-- `pkg/scheduler/reclaimbackoff`: exponential growth, cap at max (delays stay
-  capped over long consecutive-reclaim sequences), reset after the quiet
-  period, cooldown expiry, key isolation, and pruning of dead entries both on
-  record and on the read path (including keeping an active cooldown past the
-  reset window).
+- `pkg/scheduler/reclaimbackoff`: exponential growth, the cap applied before
+  jitter (over long consecutive-reclaim sequences delays stay within the
+  documented post-jitter bound, `backoffMaxSeconds` plus up to the 0.01%
+  jitter), reset after the quiet period, cooldown expiry, key isolation,
+  pruning of dead entries both on record and on the read path (including
+  keeping an active cooldown past the reset window), and purging a deleted
+  ClusterQueue's entries before their cooldown expires.
 - `pkg/scheduler/flavorassigner`: a borrowing assignment is deferred with the
   `ReclaimBackoff` reason while backing off; assignments within nominal quota
   are unaffected; a nil tracker (feature disabled) leaves behavior unchanged.
