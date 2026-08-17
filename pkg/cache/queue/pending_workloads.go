@@ -57,6 +57,15 @@ type PendingWorkloads struct {
 	// back into a queue.
 	inflight *workload.Info
 
+	// inflightUpdate holds the newest Info the workload controller produced for
+	// the inflight workload while the scheduler owned it. Such an Info cannot be
+	// placed without breaking the invariant above, and for DRA-backed workloads
+	// the Info is the sole carrier of the preprocessed quota charges: dropping it
+	// would leave requeue pairing the newest object with charges computed for an
+	// older generation. Only set while KueueDRAIntegration is enabled, and always
+	// set and cleared together with inflight.
+	inflightUpdate *workload.Info
+
 	// schedulingHashes tracks the scheduling equivalence hashes of pending
 	// workloads for the pending_scheduling_hashes metric.
 	schedulingHashes *schedulingHashCounts
@@ -108,8 +117,7 @@ func (p *PendingWorkloads) PopActive() *workload.Info {
 	defer p.Unlock()
 
 	if p.active.Len() == 0 {
-		p.inflight = nil
-		p.schedulingHashes.clearInflight()
+		p.clearInflight()
 		return nil
 	}
 
@@ -117,9 +125,53 @@ func (p *PendingWorkloads) PopActive() *workload.Info {
 	metrics.UntrackWorkload(p.customLabels, p.activeTracker, wl.Obj)
 	p.schedulingHashes.moveActiveToInflight(wl)
 	p.subtractPendingResources(wl)
-	p.inflight = wl
-	p.inflight.LastEvaluatedGeneration = p.inflight.Obj.Generation
+	p.setInflight(wl)
 	return p.inflight
+}
+
+// setInflight marks wl as the workload the scheduler is processing. Any update
+// captured for the previous inflight workload is dropped: it describes a
+// workload the scheduler no longer owns. Must be called with the lock held.
+func (p *PendingWorkloads) setInflight(wl *workload.Info) {
+	p.inflight = wl
+	p.inflightUpdate = nil
+	p.inflight.LastEvaluatedGeneration = p.inflight.Obj.Generation
+}
+
+// clearInflight must be called with the lock held.
+func (p *PendingWorkloads) clearInflight() {
+	p.inflight = nil
+	p.inflightUpdate = nil
+	p.schedulingHashes.clearInflight()
+}
+
+// CaptureInflightUpdate keeps wInfo as the newest Info produced for the inflight
+// workload, so requeue can pair the object with charges computed for it. It is a
+// no-op unless wInfo is the workload currently inflight, which is rechecked here
+// because callers test HasInflight under a separate acquisition of this lock.
+func (p *PendingWorkloads) CaptureInflightUpdate(wInfo *workload.Info) {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.inflight == nil || workloadKey(p.inflight) != workloadKey(wInfo) {
+		return
+	}
+	p.inflightUpdate = wInfo
+}
+
+// ConsumeInflightUpdate returns the Info captured for ref while it was inflight,
+// and clears it so it cannot be replayed into a later scheduling cycle. Returns
+// nil when no update arrived during the cycle.
+func (p *PendingWorkloads) ConsumeInflightUpdate(ref workload.Reference) *workload.Info {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.inflightUpdate == nil || workloadKey(p.inflightUpdate) != ref {
+		return nil
+	}
+	captured := p.inflightUpdate
+	p.inflightUpdate = nil
+	return captured
 }
 
 func (p *PendingWorkloads) activeIterator() iter.Seq[*workload.Info] {
@@ -203,8 +255,7 @@ func (p *PendingWorkloads) ForgetInflightByKey(ref workload.Reference) {
 	defer p.Unlock()
 
 	if p.inflight != nil && workloadKey(p.inflight) == ref {
-		p.inflight = nil
-		p.schedulingHashes.clearInflight()
+		p.clearInflight()
 	}
 }
 
