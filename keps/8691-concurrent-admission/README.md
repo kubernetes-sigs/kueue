@@ -53,7 +53,6 @@ tags, and then generate with `hack/update-toc.sh`.
     - [StrictFIFO](#strictfifo)
   - [Risks and Mitigations](#risks-and-mitigations)
   - [FlavorFungibility Misinterpretation](#flavorfungibility-misinterpretation)
-  - [Limitations](#limitations)
   - [Misconfiguration](#misconfiguration)
   - [Test Plan](#test-plan)
       - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -609,10 +608,6 @@ At the same time if a single Variant can be scheduled onto multiple flavors due 
 the `FlavorFungibility` config.
 
 This may lead to confusion, so we need to address this use-case directly in the documentation.
-
-### Limitations
-
-- Partial admission is not supported for concurrent admission.
 
 ### Misconfiguration
 
