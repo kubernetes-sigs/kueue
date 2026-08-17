@@ -110,9 +110,9 @@ func checkError(err error) (retry, reload bool, timeout time.Duration) {
 }
 
 // waitForRetry blocks for timeout, or returns early with an error if ctx is
-// done first. A negative timeout returns immediately.
+// done first. A non-positive timeout returns immediately.
 func waitForRetry(ctx context.Context, timeout time.Duration) error {
-	if timeout < 0 {
+	if timeout <= 0 {
 		return nil
 	}
 	t := time.NewTimer(timeout)
@@ -202,9 +202,6 @@ func admitWorkload(
 	resourceFormatter := resources.NewResourceFormatter()
 	update := func(wl *kueue.Workload) (bool, error) {
 		info := workload.NewInfo(wl, workloadInfoOptions...)
-		if len(info.TotalRequests) == 0 {
-			return false, fmt.Errorf("workload has no total requests: %w", cache.ErrPodInvalid)
-		}
 		admission := kueue.Admission{
 			ClusterQueue: kueue.ClusterQueueReference(cq.Name),
 			PodSetAssignments: []kueue.PodSetAssignment{
@@ -236,6 +233,9 @@ func admitWorkload(
 	const maxAttempts = 5
 	for range maxAttempts {
 		err := workloadpatching.PatchAdmissionStatus(ctx, c, wl, realClock, update, workloadpatching.WithForceApply())
+		if err == nil {
+			return nil
+		}
 		retry, reload, timeout := checkError(err)
 		if !retry {
 			return err
