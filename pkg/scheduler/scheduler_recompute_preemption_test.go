@@ -304,6 +304,11 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 				"cq-hero": {"eng-alpha/wl-hero"},
 				"cq-tiny": {"eng-alpha/wl-tiny-pending"},
 			},
+			// wl-hero initially targeted wl-rest-admitted (same as wl-tiny-pending), then
+			// recomputed and found wl-noisy-admitted as a non-overlapping alternative.
+			wantPreemptionTargetRecomputations: map[string]map[string]int{
+				"cq-hero": {"new_targets": 1},
+			},
 		},
 		"with fair sharing: two workloads reclaim nominal quota; RecomputePreemptionTargetsUponOverlap enabled": {
 			enableFairSharing: true,
@@ -461,6 +466,11 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-rest": {"eng-alpha/wl-rest-pending"},
 			},
+			// wl-hero overlapped with wl-tiny-pending on wl-rest-admitted, recomputed, but
+			// can only fit after the earlier preemptions (from wl-tiny-pending) complete.
+			wantPreemptionTargetRecomputations: map[string]map[string]int{
+				"cq-hero": {"deferred_fit": 1},
+			},
 		},
 		"two workloads reclaim nominal quota; RecomputePreemptionTargetsUponOverlap enabled": {
 			enableFairSharing: false,
@@ -578,6 +588,11 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-hero": {"eng-alpha/wl-hero"},
 				"cq-tiny": {"eng-alpha/wl-tiny-pending"},
+			},
+			// wl-hero overlapped with wl-tiny-pending on wl-rest-admitted, recomputed, but
+			// can only fit after the earlier preemptions (from wl-tiny-pending) complete.
+			wantPreemptionTargetRecomputations: map[string]map[string]int{
+				"cq-hero": {"deferred_fit": 1},
 			},
 		},
 
@@ -773,6 +788,12 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 			},
 			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"cq-1": {"default/wl-pending-high-prio-1"},
+			},
+			// wl-pending-high-prio-1 overlapped on the default flavor with wl-pending-high-prio-2's
+			// preemption target, recomputed with flavor stickiness enabled, but still couldn't
+			// resolve the overlap — skipped.
+			wantPreemptionTargetRecomputations: map[string]map[string]int{
+				"cq-1": {"skipped": 1},
 			},
 		},
 

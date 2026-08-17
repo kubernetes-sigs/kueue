@@ -231,9 +231,10 @@ func (r *PodUsageReconciler) drainPendingNodes(ctx context.Context) {
 		}
 	}
 	if cqNames.Len() > 0 {
-		log.V(3).
-			Info("Requeueing inadmissible workloads after non-TAS pod freed capacity",
+		if logV := log.V(3); logV.Enabled() {
+			logV.Info("Requeueing inadmissible workloads after non-TAS pod freed capacity",
 				"nodes", sets.List(nodes), "clusterQueues", sets.List(cqNames))
+		}
 		qcache.NotifyRetryInadmissible(r.queues, cqNames)
 	}
 }

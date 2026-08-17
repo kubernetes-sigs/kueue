@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 SHELL ["/bin/bash", "-c"]
 
-RUN pip3 install --no-cache-dir ray[default,serve]==${RAY_VERSION} \
+# TODO(ray-project/ray#65507): drop jinja2 once ray[serve] declares it.
+RUN pip3 install --no-cache-dir ray[default,serve]==${RAY_VERSION} jinja2 \
     && rm -rf ~/.cache
 
 RUN useradd -ms /bin/bash -d /home/ray ray --uid $RAY_UID --gid $RAY_GID || echo "Group already exists" \

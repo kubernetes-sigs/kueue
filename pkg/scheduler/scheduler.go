@@ -750,6 +750,20 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	// clear the assignment flavors as they are only used within a single scheduling cycle
 	e.NominationMapping = nil
 
+	// Determine the overlap recomputation result for metrics reporting.
+	if needsOverlapRecompute {
+		var overlapRecomputeResult metrics.PreemptionTargetRecomputationResult
+		switch {
+		case e.assignment.RepresentativeMode() == flavorassigner.DeferredFit:
+			overlapRecomputeResult = metrics.PreemptionTargetRecomputationResultDeferredFit
+		case len(newTargets) > 0 && fitsCheck == schdcache.FitsCheckOk && !preemptedWorkloads.HasAny(newTargets):
+			overlapRecomputeResult = metrics.PreemptionTargetRecomputationResultNewTargets
+		default:
+			overlapRecomputeResult = metrics.PreemptionTargetRecomputationResultSkipped
+		}
+		metrics.ReportPreemptionTargetRecomputation(e.ClusterQueue, overlapRecomputeResult, s.customLabels.CQGet(e.ClusterQueue), s.roleTracker)
+	}
+
 	return usage, schdcache.FitsCheckOk == fitsCheck
 }
 

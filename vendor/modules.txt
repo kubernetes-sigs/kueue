@@ -43,7 +43,7 @@ github.com/chai2010/gettext-go
 github.com/chai2010/gettext-go/mo
 github.com/chai2010/gettext-go/plural
 github.com/chai2010/gettext-go/po
-# github.com/coreos/go-oidc/v3 v3.18.0
+# github.com/coreos/go-oidc/v3 v3.20.0
 ## explicit; go 1.25.0
 github.com/coreos/go-oidc/v3/oidc
 # github.com/coreos/go-semver v0.3.1
@@ -240,7 +240,7 @@ github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1
 github.com/kubeflow/spark-operator/v2/api/v1beta2
 github.com/kubeflow/spark-operator/v2/pkg/common
 github.com/kubeflow/spark-operator/v2/pkg/util
-# github.com/kubeflow/trainer/v2 v2.2.1
+# github.com/kubeflow/trainer/v2 v2.3.0
 ## explicit; go 1.26.0
 github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1
 github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1
@@ -267,6 +267,7 @@ github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/xgboost
 github.com/kubeflow/trainer/v2/pkg/runtime/indexer
 github.com/kubeflow/trainer/v2/pkg/statusserver
 github.com/kubeflow/trainer/v2/pkg/util/cert
+github.com/kubeflow/trainer/v2/pkg/util/tlsconfig
 github.com/kubeflow/trainer/v2/pkg/util/trainingruntime
 github.com/kubeflow/trainer/v2/pkg/util/trainjob
 # github.com/kubeflow/training-operator v1.9.3
@@ -301,7 +302,7 @@ github.com/monochromegane/go-gitignore
 # github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822
 ## explicit
 github.com/munnerz/goautoneg
-# github.com/onsi/ginkgo/v2 v2.32.0
+# github.com/onsi/ginkgo/v2 v2.32.1
 ## explicit; go 1.25.0
 github.com/onsi/ginkgo/v2
 github.com/onsi/ginkgo/v2/config
@@ -1956,8 +1957,8 @@ sigs.k8s.io/scheduler-library/pkg/simulator
 sigs.k8s.io/scheduler-library/pkg/state
 sigs.k8s.io/scheduler-library/pkg/upstreamsync
 sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot
-# sigs.k8s.io/scheduler-plugins v0.34.7
-## explicit; go 1.24.0
+# sigs.k8s.io/scheduler-plugins v0.35.4-devel
+## explicit; go 1.25.0
 sigs.k8s.io/scheduler-plugins/apis/scheduling
 sigs.k8s.io/scheduler-plugins/apis/scheduling/v1alpha1
 sigs.k8s.io/scheduler-plugins/pkg/generated/applyconfiguration/scheduling/v1alpha1
