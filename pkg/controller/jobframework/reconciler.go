@@ -1235,7 +1235,7 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 // atomic: a failed repair leaves the class names still mismatched for the retry
 // to find.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
-	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
+	sameClassName, needsClassChange := ClassifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), obj, wls)
 
 	// Resolving only when a class name must change keeps steady-state reconciles
 	// from re-resolving and overwriting the mutable priority value. A stale value
@@ -1268,7 +1268,7 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 // to be what obj resolved to in this reconcile: neither is checked here.
 func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
 	priorityClassRef *kueue.PriorityClassRef, priority int32, wls ...*kueue.Workload) error {
-	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
+	sameClassName, needsClassChange := ClassifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), obj, wls)
 	// Same rule as UpdateWorkloadPriority: skip when no class name changes, so a
 	// lookup another set forced does not cause a write here.
 	if len(needsClassChange) == 0 {
@@ -1314,21 +1314,13 @@ func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventR
 	return nil
 }
 
-// WorkloadsNeedingPriorityClassChange returns the subset of wls whose priority
-// class name does not match obj's and that this package may move to it. A caller
-// batching a whole set uses it to leave the ones already on the name alone;
-// their value is not this reconcile's to replace.
-func WorkloadsNeedingPriorityClassChange(log logr.Logger, obj client.Object, wls []*kueue.Workload) []*kueue.Workload {
-	_, needsClassChange := classifyWorkloadsForPriorityUpdate(log, WorkloadPriorityClassName(obj), wls)
-	return needsClassChange
-}
-
-// classifyWorkloadsForPriorityUpdate splits the workloads this helper may manage
+// ClassifyWorkloadsForPriorityUpdate splits the workloads this helper may manage
 // into those that already carry the object's class name, whose value may still be
 // stale, and those whose class name has to transition. The rest are left out: a
 // Pod PriorityClass-backed workload does not follow the label at all, and one that
 // reserved quota without a priorityClassRef can no longer be given one.
-func classifyWorkloadsForPriorityUpdate(log logr.Logger, jobPriorityClassName string, wls []*kueue.Workload) (sameClassName, needsClassChange []*kueue.Workload) {
+func ClassifyWorkloadsForPriorityUpdate(log logr.Logger, obj client.Object, wls []*kueue.Workload) (sameClassName, needsClassChange []*kueue.Workload) {
+	jobPriorityClassName := WorkloadPriorityClassName(obj)
 	for _, wl := range wls {
 		if wl == nil {
 			continue
