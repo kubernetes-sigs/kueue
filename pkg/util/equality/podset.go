@@ -52,11 +52,26 @@ func comparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) b
 	return equality.Semantic.DeepEqual(a.Containers, b.Containers)
 }
 
+// hasTopologyConstraint excludes derived indexing fields, which can be present
+// for non-TAS Jobs and absent from older Workloads.
+func hasTopologyConstraint(r *kueue.PodSetTopologyRequest) bool {
+	return r != nil && (r.Required != nil ||
+		r.Preferred != nil ||
+		r.Unconstrained != nil ||
+		r.PodSetSliceRequiredTopology != nil ||
+		r.PodSetSliceSize != nil ||
+		len(r.PodsetSliceRequiredTopologyConstraints) != 0)
+}
+
 func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
 	if a.Count != b.Count {
 		return false
 	}
 	if ptr.Deref(a.MinCount, -1) != ptr.Deref(b.MinCount, -1) {
+		return false
+	}
+	if (hasTopologyConstraint(a.TopologyRequest) || hasTopologyConstraint(b.TopologyRequest)) &&
+		!equality.Semantic.DeepEqual(a.TopologyRequest, b.TopologyRequest) {
 		return false
 	}
 

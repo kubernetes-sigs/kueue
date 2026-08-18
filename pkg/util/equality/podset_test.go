@@ -48,6 +48,42 @@ func TestComparePodSetSlices(t *testing.T) {
 			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).NodeSelector(map[string]string{"key": "val"}).Obj()},
 			wantEquivalent: true,
 		},
+		"same required topology": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelHostname).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelHostname).Obj()},
+			wantEquivalent: true,
+		},
+		"different required topology": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelHostname).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelTopologyZone).Obj()},
+			wantEquivalent: false,
+		},
+		"topology request present on one side": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelHostname).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Obj()},
+			wantEquivalent: false,
+		},
+		"required and preferred topology": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelHostname).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).PreferredTopologyRequest(corev1.LabelHostname).Obj()},
+			wantEquivalent: false,
+		},
+		"derived pod index without topology constraint": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).PodIndexLabel(new("index")).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Obj()},
+			wantEquivalent: true,
+		},
+		"different pod index under topology constraint": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				PodIndexLabel(new("index-a")).
+				Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				PodIndexLabel(new("index-b")).
+				Obj()},
+			wantEquivalent: false,
+		},
 		"different requests": {
 			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Request("res", "1").Obj()},
 			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Request("res", "2").Obj()},
