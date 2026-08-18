@@ -380,6 +380,33 @@ files:
           {{- end }}
         onFileCondition: '.kind == "ValidatingWebhookConfiguration"'
         onItemCondition: '.webhooks.[].clientConfig.service.path == "/validate-apps-v1-statefulset"'
+  - path: ./config/components/map/manifests.yaml
+    outputDir: ./charts/kueue/templates/map/
+    removeComments: true
+    continueOnError: true
+    operations:
+      - type: INSERT_TEXT
+        key: .apiVersion
+        position: BEGIN
+        value: |
+          {{- if and .Values.enableMutatingAdmissionPolicy (.Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/MutatingAdmissionPolicy") }}
+      - type: INSERT_TEXT
+        key: .metadata.name
+        position: END
+        value: |
+          {{- end }}
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: INSERT_TEXT
+        key: .metadata.name
+        value: |
+          labels:
+            {{- include "kueue.labels" . | nindent 4 }}
+      - type: APPEND
+        key: .spec.policyName
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "MutatingAdmissionPolicyBinding"'
   - path: ./config/components/kueueviz/*.yaml
     outputDir: ./charts/kueue/templates/kueueviz
     removeComments: true

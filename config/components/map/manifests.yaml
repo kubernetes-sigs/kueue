@@ -12,20 +12,19 @@ spec:
         apiVersions:
           - v1beta2
         operations:
-          - CREATE
           - UPDATE
         resources:
           - workloads
           - workloads/status
   matchConditions:
     - name: has-nominated-clusters
-      expression: "has(object.status.nominatedClusterNames) && size(object.status.nominatedClusterNames) > 0"
+      expression: "has(object.status) && has(object.status.nominatedClusterNames) && size(object.status.nominatedClusterNames) > 0"
     - name: trigger
       expression: >-
-        (has(object.status.clusterName) && (!has(oldObject.status.clusterName) || oldObject.status.clusterName == ''))
+        (has(object.status.clusterName) && (!has(oldObject.status) || !has(oldObject.status.clusterName) || oldObject.status.clusterName == ''))
         ||
         (has(object.status.conditions) && object.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True') &&
-         (!has(oldObject.status.conditions) || !oldObject.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True')))
+         (!has(oldObject.status) || !has(oldObject.status.conditions) || !oldObject.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True')))
   mutations:
     - patchType: JSONPatch
       jsonPatch:
