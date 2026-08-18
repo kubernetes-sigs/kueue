@@ -1264,17 +1264,18 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 // This prevents multiple lookups of the same class in one reconcile from
 // producing mixed priority values.
 //
-// Every workload passed has to belong to obj, and the reference and value have
-// to be what obj resolved to in this reconcile: neither is checked here.
+// Pass the workloads whose class name has to change, which is the second result
+// of ClassifyWorkloadsForPriorityUpdate. The ones already on the name are not
+// this call's to write: their value is theirs, and a lookup another set forced is
+// not a reason to replace it. Every workload has to belong to obj, and the
+// reference and value have to be what obj resolved to in this reconcile: none of
+// that is checked here.
 func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
-	priorityClassRef *kueue.PriorityClassRef, priority int32, wls ...*kueue.Workload) error {
-	sameClassName, needsClassChange := ClassifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), obj, wls)
-	// Same rule as UpdateWorkloadPriority: skip when no class name changes, so a
-	// lookup another set forced does not cause a write here.
-	if len(needsClassChange) == 0 {
+	priorityClassRef *kueue.PriorityClassRef, priority int32, targetsToUpdate ...*kueue.Workload) error {
+	if len(targetsToUpdate) == 0 {
 		return nil
 	}
-	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, sameClassName, needsClassChange)
+	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, nil, targetsToUpdate)
 }
 
 // applyResolvedPriority contains the common write path shared by
