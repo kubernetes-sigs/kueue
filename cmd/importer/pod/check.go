@@ -117,7 +117,7 @@ func checkPodWorkload(ctx context.Context, c client.Client, importCache *cache.I
 
 	kp := pod.FromObject(podForWorkload)
 	// Note: the recorder is not used for single pods, we can just pass nil for now.
-	wl, err := kp.ConstructComposableWorkload(ctx, c, nil, nil, nil)
+	wl, err := kp.ConstructComposableWorkload(ctx, c, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("construct workload: %w", err)
 	}

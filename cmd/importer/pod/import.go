@@ -29,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -37,7 +36,6 @@ import (
 	"sigs.k8s.io/kueue/cmd/importer/cache"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -199,7 +197,6 @@ func admitWorkload(
 	flavors map[corev1.ResourceName]kueue.ResourceFlavorReference,
 	workloadInfoOptions []workload.InfoOption,
 ) error {
-	resourceFormatter := resources.NewResourceFormatter()
 	update := func(wl *kueue.Workload) (bool, error) {
 		info := workload.NewInfo(wl, workloadInfoOptions...)
 		admission := kueue.Admission{
@@ -207,9 +204,9 @@ func admitWorkload(
 			PodSetAssignments: []kueue.PodSetAssignment{
 				{
 					Name:          info.TotalRequests[0].Name,
-					Flavors:       make(map[corev1.ResourceName]kueue.ResourceFlavorReference),
+					Flavors:       flavors,
 					ResourceUsage: info.TotalRequests[0].Requests.ToResourceList(),
-					Count:         ptr.To[int32](1),
+					Count:         new(int32(1)),
 				},
 			},
 		}
@@ -232,7 +229,7 @@ func admitWorkload(
 
 	const maxAttempts = 5
 	for range maxAttempts {
-		err := workloadpatching.PatchAdmissionStatus(ctx, c, wl, realClock, update, workloadpatching.WithForceApply())
+		err := workload.PatchAdmissionStatus(ctx, c, wl, realClock, update, workload.WithForceApply())
 		if err == nil {
 			return nil
 		}
