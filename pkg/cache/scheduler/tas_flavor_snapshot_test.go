@@ -2166,7 +2166,7 @@ func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
 	}}
 
 	// Control: with no usage recorded, both devices are free.
-	empty, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	empty, err := fc.snapshot(ctx, log, tasCache.nodesCache.snapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot() error = %v", err)
 	}
@@ -2176,7 +2176,7 @@ func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
 
 	fc.addUsage(log, "wl1", singleDevice)
 	fc.addUsage(log, "wl2", singleDevice)
-	snapshot, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	snapshot, err := fc.snapshot(ctx, log, tasCache.nodesCache.snapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot() error = %v", err)
 	}

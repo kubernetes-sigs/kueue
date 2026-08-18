@@ -142,7 +142,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 		// cache-hit-only benchmark and gives the update modes a tree to
 		// invalidate.
 		for _, flavorCache := range flavorCaches {
-			if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+			if _, err := flavorCache.snapshot(b.Context(), log, tasCache.nodesCache.snapshot(), nil); err != nil {
 				b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 			}
 		}
@@ -170,7 +170,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 				tasCache.SyncNode(invalidatingNodes[update%len(invalidatingNodes)])
 			}
 			for _, flavorCache := range flavorCaches {
-				if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+				if _, err := flavorCache.snapshot(b.Context(), log, tasCache.nodesCache.snapshot(), nil); err != nil {
 					b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 				}
 			}
@@ -225,10 +225,11 @@ func runBenchmarkTASFlavorAssignment(b *testing.B, tc assignmentBenchCase) {
 			topologyInformation{Levels: levels},
 			flavorInformation{TopologyName: "default"},
 		)
-		snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil)
+		snapshot, err := flavorCache.snapshot(b.Context(), log, tasCache.nodesCache.snapshot(), nil)
 		if err != nil {
 			b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 		}
+		snapshot.simulatorSnapshot = newDefaultSimulatorSnapshot()
 
 		requests := balancedPlacementBenchRequests(topo, tc.withLeader)
 		result := snapshot.FindTopologyAssignmentsForFlavor(b.Context(), requests)
@@ -327,11 +328,12 @@ func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
 						Count:             1,
 					}})
 				}
-				if _, err := fc.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+				nodesSnapshot := tasCache.nodesCache.snapshot()
+				if _, err := fc.snapshot(b.Context(), log, nodesSnapshot, nil); err != nil {
 					b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 				}
 				for b.Loop() {
-					if _, err := fc.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+					if _, err := fc.snapshot(b.Context(), log, nodesSnapshot, nil); err != nil {
 						b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 					}
 				}

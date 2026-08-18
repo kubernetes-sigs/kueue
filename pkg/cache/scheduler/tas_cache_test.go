@@ -9253,12 +9253,13 @@ func TestFindTopologyAssignments(t *testing.T) {
 				snapshot, err := tasFlavorCache.snapshot(
 					ctx,
 					log,
-					newDefaultSimulatorSnapshot(),
+					tasFlavorCache.nodesCache.snapshot(),
 					aggregatedDomainUsage,
 				)
 				if err != nil {
 					t.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 				}
+				snapshot.simulatorSnapshot = newDefaultSimulatorSnapshot()
 				flavorTASRequests := make([]TASPodSetRequests, 0, len(tc.podSets))
 				wantResult := make(TASAssignmentsResult)
 				for _, ps := range tc.podSets {
