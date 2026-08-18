@@ -6,8 +6,10 @@
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-  - [User Stories](#user-stories)
+  - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
+  - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
+  - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Kueue Configuration API](#kueue-configuration-api)
   - [UnscheduledPodsTracker controller](#unscheduledpodstracker-controller)
@@ -15,9 +17,16 @@
   - [Timeout interaction](#timeout-interaction)
   - [Eviction and requeue](#eviction-and-requeue)
   - [Test Plan](#test-plan)
+    - [Prerequisite testing updates](#prerequisite-testing-updates)
+    - [Unit tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+    - [e2e tests](#e2e-tests)
+  - [Graduation Criteria](#graduation-criteria)
   - [Backward compatibility](#backward-compatibility)
-- [Alternatives](#alternatives)
 - [Implementation History](#implementation-history)
+- [Drawbacks](#drawbacks)
+- [Alternatives](#alternatives)
+  - [Per-integration <code>PodsScheduled</code> on <code>GenericJob</code>](#per-integration-podsscheduled-on-genericjob)
 <!-- /toc -->
 
 ## Summary
@@ -61,7 +70,7 @@ admitted Workload, distinguishes unscheduled pods from scheduled-but-not-ready p
 a new `PodsReady` condition reason `WaitForScheduling`. The workload controller enforces the
 shorter timeout when that reason is active and `unscheduledTimeout` is configured.
 
-### User Stories
+### User Stories (Optional)
 
 #### Story 1
 
@@ -69,6 +78,27 @@ An operator configures `waitForPodsReady.timeout: 30m` and `unscheduledTimeout: 
 A workload is admitted but its pods remain Pending because of a transient scheduler glitch.
 After 5 minutes Kueue evicts and requeues the workload. A pod that is scheduled but still
 pulling an image is allowed the full 30 minutes from the moment all pods are scheduled.
+
+### Notes/Constraints/Caveats (Optional)
+
+- `unscheduledTimeout` does not change kube-scheduler behavior or MultiKueue `PodScheduled`
+  status sync.
+- For `WaitForStart` when `unscheduledTimeout` is set, the startup timer uses reconciliation
+  observation time (`PodsReady.LastTransitionTime` when the reason changes), not the latest
+  pod `PodScheduled=True` transition.
+- When a running workload loses a scheduled pod, `WaitForRecovery` and `recoveryTimeout`
+  take precedence over `WaitForScheduling`.
+- `UnscheduledPodsTracker` and the job framework must coordinate updates to the `PodsReady`
+  condition so scheduling and readiness state do not conflict.
+
+### Risks and Mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| Evict a healthy workload on a transient list/index error | Do not set `WaitForScheduling` or evict on client errors; retry on the next reconcile |
+| Increased requeue churn when `unscheduledTimeout` is too low | Operator tuning; existing `requeuingStrategy` backoff |
+| Consumers break on the new `WaitForScheduling` reason | Document in backward compatibility; reason is set even when `unscheduledTimeout` is disabled |
+| Controller and job framework both update `PodsReady` | Clear ownership: tracker reports scheduling; job framework reports readiness |
 
 ## Design Details
 
@@ -177,18 +207,46 @@ Eviction uses `WorkloadEvictedByPodsReadyTimeout` with underlying cause
 
 ### Test Plan
 
-- Unit tests for `UnscheduledPodsTracker`: pod listing, required-pod counting per PodSet,
+[x] I/we understand the owners of the involved components may require updates to
+existing tests to make this code solid enough prior to committing the changes necessary
+to implement this enhancement.
+
+#### Prerequisite testing updates
+
+Existing integration coverage for `waitForPodsReady` in job controller integration tests
+and workload controller unit tests in `pkg/controller/core/workload_controller_test.go`
+provide the foundation for this enhancement.
+
+#### Unit tests
+
+- `UnscheduledPodsTracker`: pod index listing, required-pod counting per PodSet,
   `PodScheduled` evaluation, list/index errors, terminated-pod exclusion, and condition
   transitions (`WaitForScheduling` ↔ `WaitForStart`).
-- Unit tests for workload-controller timeout math with `WaitForScheduling` reason and
-  `unscheduledTimeout` boundary values (unset, `0s`, equal to `timeout`, greater than
+- Workload controller: timeout math with `WaitForScheduling` reason and
+  `unscheduledTimeout` boundary values (unset, `0s`, equal to `timeout`; greater than
   `timeout` rejected at validation).
-- Integration tests: unschedulable Job evicted on `unscheduledTimeout`; scheduled-but-not-ready
-  Job uses full `timeout` from the `WaitForStart` transition; one representative operator
-  integration (e.g. RayJob or MPIJob) for index-based pod discovery.
-- Integration test: running workload whose pod is deleted keeps `WaitForRecovery` and
-  `recoveryTimeout` precedence.
+
+#### Integration tests
+
+- Unschedulable Job evicted on `unscheduledTimeout`.
+- Scheduled-but-not-ready Job uses full `timeout` from the `WaitForStart` transition.
+- One representative operator integration (e.g. RayJob or MPIJob) for index-based pod
+  discovery.
+- Running workload whose pod is deleted keeps `WaitForRecovery` and `recoveryTimeout`
+  precedence.
 - Regression: existing `waitForPodsReady` tests pass with `unscheduledTimeout` omitted.
+
+#### e2e tests
+
+Extend existing `waitforpodsready` e2e coverage in the implementation PR ([#13614](https://github.com/kubernetes-sigs/kueue/pull/13614)).
+
+### Graduation Criteria
+
+- **Beta** in Kueue **v0.20** (see `kep.yaml`).
+- No feature gate; behavior is enabled when `unscheduledTimeout` is set to a positive value
+  on a ClusterQueue's `waitForPodsReady` configuration.
+- **Stable** when the feature is implemented, tested, documented in the user guide, and has
+  run in at least one release without critical issues.
 
 ### Backward compatibility
 
@@ -197,6 +255,19 @@ Eviction uses `WorkloadEvictedByPodsReadyTimeout` with underlying cause
 - `WaitForScheduling` is a new `PodsReady` reason for unscheduled pods; consumers that
   inspect `PodsReady` reason must tolerate it even when `unscheduledTimeout` is disabled.
 - `blockAdmission`, `recoveryTimeout`, deactivation, and feature gate behavior unchanged.
+
+## Implementation History
+
+- 2026-07-27: Initial KEP for issue #13502.
+- 2026-08-12: Adopt TopologyUngater-style `UnscheduledPodsTracker` as primary mechanism;
+  move per-integration `PodsScheduled` to Alternatives.
+- 2026-08-18: Restore KEP template sections and fix TOC for CI verify.
+
+## Drawbacks
+
+- Adds a cluster-scoped controller with pod watches (additional operational surface).
+- Central tracking couples scheduling detection with the job framework's readiness path.
+- `WaitForScheduling` is visible in workload status even when the short timeout is disabled.
 
 ## Alternatives
 
@@ -219,9 +290,3 @@ RayJob, RayCluster, RayService, TrainJob) implements
 This approach was prototyped in the implementation branch for
 [#13614](https://github.com/kubernetes-sigs/kueue/pull/13614) and may be reconsidered
 only if the central controller proves too invasive during implementation.
-
-## Implementation History
-
-- 2026-07-27: Initial KEP for issue #13502.
-- 2026-08-12: Adopt TopologyUngater-style `UnscheduledPodsTracker` as primary mechanism;
-  move per-integration `PodsScheduled` to Alternatives.
