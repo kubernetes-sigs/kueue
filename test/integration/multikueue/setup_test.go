@@ -190,6 +190,17 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 			gomega.Expect(err.Error()).To(gomega.ContainSubstring("must be unique"))
 		})
 
+		// A ClusterQueue referencing the check, so the worker cluster's status is
+		// reported under it. It stays inactive while the check is, which is fine.
+		testingCq := utiltestingapi.MakeClusterQueue("testing-cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
+			AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
+			Obj()
+		ginkgo.By("creating a ClusterQueue referencing the check", func() {
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, testingCq)
+			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, testingCq) })
+		})
+
 		config := utiltestingapi.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster").Obj()
 		ginkgo.By("creating the config, the admission check's state is updated", func() {
 			gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, config)).Should(gomega.Succeed())
@@ -228,7 +239,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectMultiKueueClusterStatusMetric("testing-cluster", metav1.ConditionFalse)
+				util.ExpectMultiKueueClusterStatusMetric("testing-cq", "testing-cluster", metav1.ConditionFalse)
 			})
 
 			ginkgo.By("wait for the check's active state update", func() {
@@ -267,7 +278,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-				util.ExpectMultiKueueClusterStatusMetric("testing-cluster", metav1.ConditionTrue)
+				util.ExpectMultiKueueClusterStatusMetric("testing-cq", "testing-cluster", metav1.ConditionTrue)
 			})
 
 			ginkgo.By("wait for the check's active state update", func() {

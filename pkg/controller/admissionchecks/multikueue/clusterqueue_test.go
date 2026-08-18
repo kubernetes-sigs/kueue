@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,7 +35,9 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -677,5 +680,89 @@ func TestCQReconciler_EventHandlers(t *testing.T) {
 				t.Fatalf("expected 0 items in workqueue, got %d", len(mockQ.Items))
 			}
 		})
+	}
+}
+
+func expectCQClusterStatusMetric(t *testing.T, cqName, cluster string, want metav1.ConditionStatus) {
+	t.Helper()
+	for _, status := range metrics.ConditionStatusValues {
+		wantV := 0.0
+		if status == want {
+			wantV = 1.0
+		}
+		got := testutil.ToFloat64(metrics.MultiKueueClusterByStatus.WithLabelValues(cqName, cluster, string(status), roletracker.RoleStandalone))
+		if got != wantV {
+			t.Errorf("cluster_status{cluster_queue=%q, cluster=%q, active=%s}: want %v, got %v", cqName, cluster, status, wantV, got)
+		}
+	}
+}
+
+func TestCQReconcilerReportsClusterStatusMetric(t *testing.T) {
+	metrics.MultiKueueClusterByStatus.Reset()
+	t.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	cq := utiltestingapi.MakeClusterQueue("cq1").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource("cpu", "0").Obj()).
+		AdmissionChecks("ac1").
+		Obj()
+	ac := utiltestingapi.MakeAdmissionCheck("ac1").
+		ControllerName(kueue.MultiKueueControllerName).
+		Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+		Obj()
+	cfg := utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1", "worker2").Obj()
+	// worker1 is connected, worker2 is not.
+	worker1 := utiltestingapi.MakeMultiKueueCluster("worker1").Active(metav1.ConditionTrue, "Active", "Connected", 1).Obj()
+	worker2 := utiltestingapi.MakeMultiKueueCluster("worker2").Active(metav1.ConditionFalse, "ClientConnectionFailed", "connection lost", 1).Obj()
+
+	c := utiltesting.NewClientBuilder().
+		WithObjects(cq, ac, cfg, worker1, worker2).
+		WithIndex(&kueue.AdmissionCheck{}, AdmissionCheckControllerNameKey, admissionCheckControllerNameIndexerFunc).
+		WithIndex(&kueue.AdmissionCheck{}, AdmissionCheckUsingConfigKey, admissioncheck.IndexerByConfigFunction(kueue.MultiKueueControllerName, configGVK)).
+		WithIndex(&kueue.ClusterQueue{}, ClusterQueueAdmissionChecksKey, clusterQueueAdmissionChecksIndexerFunc).
+		WithStatusSubresource(cq).
+		Build()
+	helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	cRec := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, &utiltesting.EventRecorder{})
+	reconciler := newCQReconciler(c, helper, cRec, nil, 100*time.Millisecond)
+
+	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cq1"}}
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("unexpected reconcile error: %v", err)
+	}
+
+	// Each worker is reported under the ClusterQueue that references it.
+	expectCQClusterStatusMetric(t, "cq1", "worker1", metav1.ConditionTrue)
+	expectCQClusterStatusMetric(t, "cq1", "worker2", metav1.ConditionFalse)
+
+	// Dropping worker2 from the config must stop reporting it, otherwise a cluster
+	// a ClusterQueue no longer uses would linger as if it were still relevant.
+	updatedCfg := &kueue.MultiKueueConfig{}
+	if err := c.Get(ctx, types.NamespacedName{Name: "config1"}, updatedCfg); err != nil {
+		t.Fatalf("unexpected error reading the config: %v", err)
+	}
+	updatedCfg.Spec.Clusters = []string{"worker1"}
+	if err := c.Update(ctx, updatedCfg); err != nil {
+		t.Fatalf("unexpected error updating the config: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("unexpected reconcile error after config change: %v", err)
+	}
+	if got := testutil.CollectAndCount(metrics.MultiKueueClusterByStatus); got != len(metrics.ConditionStatusValues) {
+		t.Errorf("expected only worker1 series to remain, got %d series", got)
+	}
+	expectCQClusterStatusMetric(t, "cq1", "worker1", metav1.ConditionTrue)
+
+	// Deleting the ClusterQueue drops its series entirely.
+	if err := c.Delete(ctx, cq); err != nil {
+		t.Fatalf("unexpected error deleting the ClusterQueue: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("unexpected reconcile error after deletion: %v", err)
+	}
+	if got := testutil.CollectAndCount(metrics.MultiKueueClusterByStatus); got != 0 {
+		t.Errorf("expected all series to be cleared, got %d", got)
 	}
 }

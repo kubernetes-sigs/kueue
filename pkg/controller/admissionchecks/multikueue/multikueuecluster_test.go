@@ -1834,62 +1834,6 @@ func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
 	}
 }
 
-func expectClusterStatusMetric(t *testing.T, cluster string, want metav1.ConditionStatus) {
-	t.Helper()
-	for _, status := range metrics.ConditionStatusValues {
-		wantV := 0.0
-		if status == want {
-			wantV = 1.0
-		}
-		got := testutil.ToFloat64(metrics.MultiKueueClusterByStatus.WithLabelValues(cluster, string(status), roletracker.RoleStandalone))
-		if got != wantV {
-			t.Errorf("cluster_status{cluster=%q, active=%s}: want %v, got %v", cluster, status, wantV, got)
-		}
-	}
-}
-
-func TestUpdateStatusReportsClusterStatusMetric(t *testing.T) {
-	metrics.MultiKueueClusterByStatus.Reset()
-	t.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
-
-	ctx, _ := utiltesting.ContextWithLog(t)
-	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").Obj()
-
-	c := getClientBuilder(ctx).
-		WithLists(&kueue.MultiKueueClusterList{Items: []kueue.MultiKueueCluster{*cluster}}).
-		WithStatusSubresource(cluster).
-		Build()
-
-	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, &utiltesting.EventRecorder{})
-
-	// Read back the stored object so the status updates below do not conflict.
-	if err := c.Get(ctx, client.ObjectKeyFromObject(cluster), cluster); err != nil {
-		t.Fatalf("unexpected error reading the cluster: %v", err)
-	}
-
-	// Becoming active reports True.
-	if err := reconciler.updateStatus(ctx, cluster, true, "Active", "Connected"); err != nil {
-		t.Fatalf("unexpected error making the cluster active: %v", err)
-	}
-	expectClusterStatusMetric(t, "worker1", metav1.ConditionTrue)
-
-	// Reporting must happen even when the condition is already up to date and
-	// updateStatus returns early, otherwise the gauge would stay empty after a
-	// manager restart.
-	metrics.MultiKueueClusterByStatus.Reset()
-	if err := reconciler.updateStatus(ctx, cluster, true, "Active", "Connected"); err != nil {
-		t.Fatalf("unexpected error on the no-op update: %v", err)
-	}
-	expectClusterStatusMetric(t, "worker1", metav1.ConditionTrue)
-
-	// Losing the connection flips the one-hot value to False.
-	if err := reconciler.updateStatus(ctx, cluster, false, "ClientConnectionFailed", "connection lost"); err != nil {
-		t.Fatalf("unexpected error making the cluster inactive: %v", err)
-	}
-	expectClusterStatusMetric(t, "worker1", metav1.ConditionFalse)
-}
-
 func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
 	metrics.MultiKueueClusterByStatus.Reset()
 	t.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
@@ -1898,8 +1842,9 @@ func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 	reconciler := newClustersReconciler(getClientBuilder(ctx).Build(), TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, &utiltesting.EventRecorder{})
 
-	metrics.ReportMultiKueueClusterStatus("worker1", metav1.ConditionTrue, nil)
-	metrics.ReportMultiKueueClusterStatus("worker2", metav1.ConditionTrue, nil)
+	// The same ClusterQueue references both workers.
+	metrics.ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, nil)
+	metrics.ReportMultiKueueClusterStatus("cq1", "worker2", metav1.ConditionTrue, nil)
 
 	reconciler.stopAndRemoveCluster("worker1")
 
@@ -1908,5 +1853,7 @@ func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
 	if got := testutil.CollectAndCount(metrics.MultiKueueClusterByStatus); got != len(metrics.ConditionStatusValues) {
 		t.Errorf("expected only worker2 series to remain, got %d series", got)
 	}
-	expectClusterStatusMetric(t, "worker2", metav1.ConditionTrue)
+	if got := testutil.ToFloat64(metrics.MultiKueueClusterByStatus.WithLabelValues("cq1", "worker2", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
+		t.Errorf("expected worker2 to still be reported as active, got %v", got)
+	}
 }
