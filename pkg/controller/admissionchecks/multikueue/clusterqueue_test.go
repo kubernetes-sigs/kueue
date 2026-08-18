@@ -755,6 +755,16 @@ func TestCQReconcilerReportsClusterStatusMetric(t *testing.T) {
 	}
 	expectCQClusterStatusMetric(t, "cq1", "worker1", metav1.ConditionTrue)
 
+	// A cluster the ClusterQueue still references but that no longer exists is a stale
+	// configuration, reported as Unknown rather than silently dropped.
+	if err := c.Delete(ctx, worker1); err != nil {
+		t.Fatalf("unexpected error deleting the worker cluster: %v", err)
+	}
+	if _, err := reconciler.Reconcile(ctx, req); err != nil {
+		t.Fatalf("unexpected reconcile error after cluster deletion: %v", err)
+	}
+	expectCQClusterStatusMetric(t, "cq1", "worker1", metav1.ConditionUnknown)
+
 	// Deleting the ClusterQueue drops its series entirely.
 	if err := c.Delete(ctx, cq); err != nil {
 		t.Fatalf("unexpected error deleting the ClusterQueue: %v", err)

@@ -191,14 +191,22 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 
 		// A ClusterQueue referencing the check, so the worker cluster's status is
-		// reported under it. It stays inactive while the check is, which is fine.
+		// reported under it. It stays inactive, which is fine: the metric is reported
+		// from the admission check and its config, not from the ClusterQueue's state.
+		// It deliberately uses its own ResourceFlavor reference rather than the shared
+		// one, so it can never hold that flavor in use and block the suite cleanup.
 		testingCq := utiltestingapi.MakeClusterQueue("testing-cq").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(string(multikueueTestFlavor)).Resource(corev1.ResourceCPU, "5").Obj()).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("testing-flavor").Resource(corev1.ResourceCPU, "5").Obj()).
 			AdmissionChecks(kueue.AdmissionCheckReference(ac.Name)).
 			Obj()
 		ginkgo.By("creating a ClusterQueue referencing the check", func() {
 			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, testingCq)
-			ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, testingCq) })
+			// Wait for the ClusterQueue to be gone, not just for the delete to be
+			// accepted: while it lingers it holds the ResourceFlavor in use and the
+			// suite-level cleanup of that flavor fails.
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, testingCq, true)
+			})
 		})
 
 		config := utiltestingapi.MakeMultiKueueConfig("testing-config").Clusters("testing-cluster").Obj()

@@ -190,7 +190,7 @@ multikueue_cluster_status{active="False"} == 1
 To alert when a worker has been unusable for 5 minutes:
 
 ```promql
-min_over_time(multikueue_cluster_status{active="True"}[5m]) == 0
+max_over_time(multikueue_cluster_status{active="True"}[5m]) == 0
 ```
 
 To count **distinct** healthy worker clusters across the whole fleet:
@@ -206,9 +206,10 @@ Use `max by (cluster)` when counting distinct clusters — a plain
 rather than workers, and silently returns a larger number than expected.
 {{% /alert %}}
 
-To compare dispatched against admitted workloads for one team, and correlate them
-with the health of the workers that team uses, filter all three metrics by the same
-`cluster_queue`:
+To compare dispatched against admitted workloads for one team, filter both workload
+metrics by the same `cluster_queue`. Because `multikueue_cluster_status` carries the
+same label, the queries above let you correlate a low admission ratio with an
+unhealthy worker:
 
 ```promql
 sum by (cluster) (rate(multikueue_workloads_admitted_total{cluster_queue="team-a-cq"}[5m]))
