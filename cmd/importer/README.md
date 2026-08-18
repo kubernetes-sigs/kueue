@@ -80,17 +80,17 @@ Usage:
   importer import [flags]
 
 Flags:
-      --add-labels stringToString     additional label=value pairs to be added to the imported pods and created workloads (default [])
-      --exclude-resource-prefixes strings  resource name prefixes ignored by Kueue during workload quota accounting
-      --burst int                     client Burst, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit (default 50)
-  -c, --concurrent-workers uint       number of concurrent import workers (default 8)
-      --dry-run                       don't import, check the config only (default true)
-  -h, --help                          help for import
-  -n, --namespace strings             target namespaces (at least one should be provided)
-      --qps float32                   client QPS, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit (default 50)
-      --queuelabel string             label used to identify the target local queue
-      --queuemapping stringToString   mapping from "queuelabel" label values to local queue names (default [])
-      --queuemapping-file string      yaml file containing extra mappings from "queuelabel" label values to local queue names
+      --add-labels stringToString           additional label=value pairs to be added to the imported pods and created workloads (default [])
+      --burst int                           client Burst, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit (default 50)
+  -c, --concurrent-workers uint             number of concurrent import workers (default 8)
+      --dry-run                             don't import, check the config only (default true)
+      --exclude-resource-prefixes strings   resource name prefixes ignored by Kueue during workload quota accounting
+  -h, --help                                help for import
+  -n, --namespace strings                   target namespaces (at least one should be provided)
+      --qps float32                         client QPS, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit (default 50)
+      --queuelabel string                   label used to identify the target local queue
+      --queuemapping stringToString         mapping from "queuelabel" label values to local queue names (default [])
+      --queuemapping-file string            yaml file containing extra mappings from "queuelabel" label values to local queue names
 
 Global Flags:
   -v, --verbose count   verbosity (specify multiple times to increase the log level)
