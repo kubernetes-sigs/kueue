@@ -866,8 +866,22 @@ func (m *Manager) forgetInflight(cqName kueue.ClusterQueueReference, key workloa
 //   - an update that arrived while the workload was inflight was dropped by
 //     PushOrUpdate and captured instead; it carries both the newer object and
 //     the charges preprocessed for it, so it is preferred;
-//   - otherwise the charges this Info already holds are correct as long as the
-//     object has not moved on since the scheduler took it.
+//   - otherwise the charges this Info already holds are reused while the object
+//     has not moved on since the scheduler took it.
+//
+// A matching generation is less than it sounds for DRA extended resources, where
+// the charge is not a function of the object alone: resolveQuotaKey derives the
+// quota key from the DeviceClasses matching the requested extended resource and
+// from deviceClassMappings, so a DeviceClass created or changed while the workload
+// is inflight moves the charge with metadata.generation untouched. The capture
+// normally carries such a change, but deviceClassHandler.reconcileWorkloads only
+// pushes to the queue directly when !NeedsDRAReconcile, which is false for a
+// workload requesting a resource the extended-resource cache already knows, so
+// that workload reaches the controller only through the delayed requeue. A requeue
+// landing inside that window finds no capture and a matching generation, so the
+// charges are reused although they predate the DeviceClass. The effect is the same
+// single cycle described above, and the reconcile that follows re-pushes the
+// workload with the current charges.
 func draRequeueOption(log logr.Logger, info *workload.Info, w *kueue.Workload, captured *workload.Info) (workload.InfoOption, bool) {
 	if captured != nil && captured.Obj.Generation == w.Generation {
 		return workload.WithTotalRequestsFrom(captured.TotalRequests), true
