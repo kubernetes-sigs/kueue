@@ -125,6 +125,7 @@ type PodSet struct {
   // If not provided, partial admission for the current PodSet is not
   // enabled.
   // +optional
+  // +kubebuilder:validation:Minimum=0
   MinCount *int32 `json:"minCount,omitempty"`
 }
 
@@ -153,7 +154,7 @@ The workload for the full capacity should be created despite the feature gate is
 
 #### WorkloadSlice Name
 
-The newly created workload for opportunistic scale up should have a different name from the admitted workload. This will be done by adding an extra suffix "full-scaleup-probe", that will modify the hash suffix.
+The newly created workload for opportunistic scale up should have a different name from the admitted workload. This will be done by adding an extra parameter "full-scaleup-probe" when calculating the hash suffix.
 
 #### StrictFIFO Constraint
 
