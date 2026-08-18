@@ -884,6 +884,11 @@ const (
 	// Verifies fair sharing preemption targets after fillBackWorkloads
 	// to prevent preemption loops caused by temporary share deflation.
 	FairSharingVerifyFinalTargets featuregate.Feature = "FairSharingVerifyFinalTargets"
+	// owner: @kevin85421
+	//
+	// Enables users to restrict, via the kueue.x-k8s.io/multikueue-cluster-names annotation,
+	// which MultiKueue worker clusters a Workload may be dispatched to.
+	MultiKueueClusterNames featuregate.Feature = "MultiKueueClusterNames"
 )
 
 func init() {
@@ -1366,6 +1371,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	PodIntegrationVerifyRoleRequests: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	MultiKueueClusterNames: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
