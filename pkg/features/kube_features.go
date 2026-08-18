@@ -547,6 +547,13 @@ const (
 	// for the considered workload to get it. We don't immediately admit this workload as we have
 	// to wait for these preemptions to complete.
 	RecomputeAssignmentUponPreemptionTargetsOverlap featuregate.Feature = "RecomputeAssignmentUponPreemptionTargetsOverlap"
+
+	// owner: @kshalot
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13320
+	//
+	// Enable recomputing assignments if the assigned quota was exhausted
+	// by a workload earlier in the same scheduling cycle.
+	RecomputeAssignmentUponQuotaExhaustion featuregate.Feature = "RecomputeAssignmentUponQuotaExhaustion"
 )
 
 func init() {
@@ -850,6 +857,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	RecomputeAssignmentUponPreemptionTargetsOverlap: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	RecomputeAssignmentUponQuotaExhaustion: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
