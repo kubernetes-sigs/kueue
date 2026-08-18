@@ -2896,6 +2896,9 @@ func TestReconcilerResolvesPriorityClassOnceForTheSet(t *testing.T) {
 	if err := kClient.List(ctx, &got, client.InNamespace(testNS)); err != nil {
 		t.Fatalf("Listing workloads: %v", err)
 	}
+	if len(got.Items) != 2 {
+		t.Fatalf("got %d workloads, want 2", len(got.Items))
+	}
 	for _, wl := range got.Items {
 		if wl.Spec.PriorityClassRef == nil || wl.Spec.PriorityClassRef.Name != "new-wpc" {
 			t.Errorf("%s: priorityClassRef = %v, want new-wpc", wl.Name, wl.Spec.PriorityClassRef)
