@@ -245,6 +245,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 
 		workloadName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
 		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
+			OwnerReference(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
 			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
 			GroupNameLabel(workloadName).
 			GroupTotalCount("1").
@@ -253,9 +254,6 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			Gate(kueue.TopologySchedulingGate).
 			KueueFinalizer().
 			Obj()
-		pod.OwnerReferences = []metav1.OwnerReference{
-			*metav1.NewControllerRef(createdSTS, appsv1.SchemeGroupVersion.WithKind("StatefulSet")),
-		}
 		util.MustCreate(ctx, k8sClient, pod)
 
 		ginkgo.By("Verifying the Pod is ungated while its legacy finalizer remains untouched")
@@ -286,6 +284,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 
 		workloadName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
 		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
+			OwnerReference(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet")).
 			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
 			GroupNameLabel(workloadName).
 			GroupTotalCount("1").
@@ -294,9 +293,6 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			Gate(kueue.TopologySchedulingGate).
 			KueueFinalizer().
 			Obj()
-		pod.OwnerReferences = []metav1.OwnerReference{
-			*metav1.NewControllerRef(createdSTS, appsv1.SchemeGroupVersion.WithKind("StatefulSet")),
-		}
 		util.MustCreate(ctx, k8sClient, pod)
 
 		ginkgo.By("Verifying the update-revision Pod retains both scheduling gates")
@@ -308,7 +304,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 				corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
 			))
 			g.Expect(gotPod.Finalizers).Should(gomega.ConsistOf(constants.PodFinalizer))
-		}, util.LongConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 })
 

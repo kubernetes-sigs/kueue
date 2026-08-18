@@ -23,21 +23,22 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 )
 
 func TestUngatePod(t *testing.T) {
-	currentStatefulSet := &appsv1.StatefulSet{
-		Status: appsv1.StatefulSetStatus{
-			CurrentRevision: "current",
-			UpdateRevision:  "current",
-		},
-	}
-	updatingStatefulSet := currentStatefulSet.DeepCopy()
-	updatingStatefulSet.Status.UpdateRevision = "update"
+	currentStatefulSet := statefulsettesting.MakeStatefulSet("sts", "ns").
+		CurrentRevision("current").
+		UpdateRevision("current").
+		Obj()
+	updatingStatefulSet := statefulsettesting.MakeStatefulSet("sts", "ns").
+		CurrentRevision("current").
+		UpdateRevision("update").
+		Obj()
 
 	testCases := map[string]struct {
 		statefulSet *appsv1.StatefulSet
@@ -48,33 +49,49 @@ func TestUngatePod(t *testing.T) {
 	}{
 		"current revision is unchanged": {
 			statefulSet: currentStatefulSet,
-			pod:         podWithGates("current", podconstants.SchedulingGateName),
-			wantGates:   []corev1.PodSchedulingGate{{Name: podconstants.SchedulingGateName}},
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(appsv1.ControllerRevisionHashLabelKey, "current").
+				KueueSchedulingGate().
+				KueueFinalizer().
+				Obj(),
+			wantGates: []corev1.PodSchedulingGate{{Name: podconstants.SchedulingGateName}},
 		},
 		"current revision during rollout is ungated": {
 			statefulSet: updatingStatefulSet,
-			pod:         podWithGates("current", podconstants.SchedulingGateName),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(appsv1.ControllerRevisionHashLabelKey, "current").
+				KueueSchedulingGate().
+				KueueFinalizer().
+				Obj(),
 			wantChanged: true,
 		},
 		"current revision topology gate is removed during rollout": {
 			statefulSet: updatingStatefulSet,
-			pod:         podWithGates("current", kueue.TopologySchedulingGate),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(appsv1.ControllerRevisionHashLabelKey, "current").
+				TopologySchedulingGate().
+				KueueFinalizer().
+				Obj(),
 			wantChanged: true,
 		},
 		"all current revision gates are removed during rollout": {
 			statefulSet: updatingStatefulSet,
-			pod: podWithGates("current",
-				podconstants.SchedulingGateName,
-				kueue.TopologySchedulingGate,
-			),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(appsv1.ControllerRevisionHashLabelKey, "current").
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				KueueFinalizer().
+				Obj(),
 			wantChanged: true,
 		},
 		"update revision during rollout keeps gates": {
 			statefulSet: updatingStatefulSet,
-			pod: podWithGates("update",
-				podconstants.SchedulingGateName,
-				kueue.TopologySchedulingGate,
-			),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(appsv1.ControllerRevisionHashLabelKey, "update").
+				KueueSchedulingGate().
+				TopologySchedulingGate().
+				KueueFinalizer().
+				Obj(),
 			wantGates: []corev1.PodSchedulingGate{
 				{Name: podconstants.SchedulingGateName},
 				{Name: kueue.TopologySchedulingGate},
@@ -82,7 +99,11 @@ func TestUngatePod(t *testing.T) {
 		},
 		"force ungates current revision": {
 			statefulSet: currentStatefulSet,
-			pod:         podWithGates("current", podconstants.SchedulingGateName),
+			pod: testingjobspod.MakePod("pod", "ns").
+				Label(appsv1.ControllerRevisionHashLabelKey, "current").
+				KueueSchedulingGate().
+				KueueFinalizer().
+				Obj(),
 			force:       true,
 			wantChanged: true,
 		},
@@ -101,19 +122,4 @@ func TestUngatePod(t *testing.T) {
 			}
 		})
 	}
-}
-
-func podWithGates(revision string, gates ...string) *corev1.Pod {
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Labels: map[string]string{
-				appsv1.ControllerRevisionHashLabelKey: revision,
-			},
-			Finalizers: []string{podconstants.PodFinalizer},
-		},
-	}
-	for _, gate := range gates {
-		pod.Spec.SchedulingGates = append(pod.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: gate})
-	}
-	return pod
 }
