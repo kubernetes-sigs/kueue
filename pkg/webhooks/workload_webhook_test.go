@@ -1451,3 +1451,46 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateWorkloadUpdatePartialPreemptionReclaimTargetCount verifies that Kueue may set/change
+// the admission reclaimTargetCount (the partial-preemption scale-down request) on an already-admitted
+// Workload only when the PartialPreemption feature gate is enabled; otherwise it stays immutable.
+func TestValidateWorkloadUpdatePartialPreemptionReclaimTargetCount(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	admittedWL := func() *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			PodSets(*utiltestingapi.MakePodSet("main", 5).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Count(5).
+						Obj()).
+					Obj(), now,
+			).
+			Obj()
+	}
+	withReclaimTargetCount := func(wl *kueue.Workload, tc int32) *kueue.Workload {
+		out := wl.DeepCopy()
+		out.Status.Admission.PodSetAssignments[0].ReclaimTargetCount = new(tc)
+		return out
+	}
+	cases := map[string]struct {
+		gate    bool
+		wantErr bool
+	}{
+		"gate on: setting reclaimTargetCount is allowed":               {gate: true, wantErr: false},
+		"gate off: setting reclaimTargetCount is rejected (immutable)": {gate: false, wantErr: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.PartialPreemption, tc.gate)
+			before := admittedWL()
+			after := withReclaimTargetCount(before, 1)
+			errList := ValidateWorkloadUpdate(after, before)
+			if gotErr := len(errList) > 0; gotErr != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() error = %v (wantErr %v): %v", gotErr, tc.wantErr, errList)
+			}
+		})
+	}
+}

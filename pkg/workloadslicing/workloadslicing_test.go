@@ -1308,7 +1308,7 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tt.featureGates)
 			targets, wl := ReplacedWorkloadSlice(tt.args.wl, tt.args.snap)
-			if diff := cmp.Diff(tt.want.targets, targets); diff != "" {
+			if diff := cmp.Diff(tt.want.targets, targets, cmpopts.IgnoreUnexported(preemption.Target{})); diff != "" {
 				t.Errorf("ReplacedWorkloadSlice() targets (+want,-got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.want.wl, wl); diff != "" {

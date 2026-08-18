@@ -396,6 +396,13 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
 		}
 	}
+	if features.Enabled(features.PartialPreemption) && len(new.PodSetAssignments) == len(old.PodSetAssignments) {
+		// Kueue owns reclaimTargetCount and updates it on an already-admitted Workload to request (or
+		// clear) a partial-preemption scale-down; allow it to change.
+		for i := range new.PodSetAssignments {
+			old.PodSetAssignments[i].ReclaimTargetCount = new.PodSetAssignments[i].ReclaimTargetCount
+		}
+	}
 	return apivalidation.ValidateImmutableField(new, old, path)
 }
 

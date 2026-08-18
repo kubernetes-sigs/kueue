@@ -1699,6 +1699,12 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 
 	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
 
+	// Propagate the partial-preemption opt-in from the job to the workload so the scheduler can
+	// decide partial preemption at the workload level (without accessing the Job).
+	if job.Object().GetAnnotations()[constants.PartialPreemptionAnnotation] == "true" {
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, constants.PartialPreemptionAnnotation, "true")
+	}
+
 	if WorkloadSliceEnabled(job) {
 		return prepareWorkloadSlice(ctx, r.client, job, wl)
 	}
@@ -1947,7 +1953,7 @@ func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 // clearMinCountsIfFeatureDisabled sets the minCount for all podSets to nil if the PartialAdmission feature is not enabled
 func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
-	if features.Enabled(features.PartialAdmission) || len(in) == 0 {
+	if features.Enabled(features.PartialAdmission) || features.Enabled(features.PartialPreemption) || len(in) == 0 {
 		return in
 	}
 	for i := range in {
