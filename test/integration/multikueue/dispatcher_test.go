@@ -542,7 +542,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 		}),
 		ginkgo.Entry("when status update does not trigger clusterName or Evicted condition (negative test)", mapTestCase{
 			updateStatus: func(wl *kueue.Workload) {
-				wl.Status.RequeueState = &kueue.RequeueState{Count: ptr.To(int32(1))}
+				wl.Status.RequeueState = &kueue.RequeueState{Count: ptr.To[int32](1)}
 			},
 			expectCleared: false,
 		}),
