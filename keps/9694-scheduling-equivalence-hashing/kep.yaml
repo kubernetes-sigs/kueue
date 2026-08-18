@@ -24,6 +24,7 @@ milestone:
 
 feature-gates:
   - name: SchedulingEquivalenceHashing
+  - name: FlavorFungibilityPreserveScanProgress
 disable-supported: true
 
 metrics:

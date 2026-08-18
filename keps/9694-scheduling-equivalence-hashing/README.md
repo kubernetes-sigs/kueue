@@ -15,6 +15,7 @@
     - [Incomplete scheduling shape](#incomplete-scheduling-shape)
       - [ElasticJobsViaWorkloadSlices](#elasticjobsviaworkloadslices)
       - [UsageBasedAdmissionFairSharing](#usagebasedadmissionfairsharing)
+      - [FlavorFungibilityPreserveScanProgress](#flavorfungibilitypreservescanprogress)
     - [Overly broad failure classification](#overly-broad-failure-classification)
     - [Stale failed-class records](#stale-failed-class-records)
     - [Identifier collision](#identifier-collision)
@@ -24,6 +25,7 @@
 - [Design Details](#design-details)
   - [Equivalence Class Construction](#equivalence-class-construction)
   - [Recording and Bulk Movement](#recording-and-bulk-movement)
+  - [Flavor-Scan Progress Guard](#flavor-scan-progress-guard)
   - [Observability](#observability)
   - [Notable Changes by Version](#notable-changes-by-version)
   - [Test Plan](#test-plan)
@@ -162,6 +164,7 @@ diagnostics, or add overhead, but cannot admit a Workload incorrectly.
 |---|---|---|---|
 | [ElasticJobsViaWorkloadSlices shape gap](#elasticjobsviaworkloadslices) | A schedulable replacement is repeatedly deferred | Model replacement state or exclude replacements | **Open** |
 | [UsageBasedAdmissionFairSharing timestamp gap](#usagebasedadmissionfairsharing) | A Workload that can preempt is repeatedly deferred | Include the timestamp or exclude the combination | **Open** |
+| [FlavorFungibilityPreserveScanProgress resume gap](#flavorfungibilitypreservescanprogress) | A schedulable class member is deferred until the next retry | Restart the scan on relevant changes | **Open** |
 | [Overly broad failure classification](#overly-broad-failure-classification) | Valid class members are deferred | Allowlist class-wide requeue reasons | Mitigated |
 | [Stale failed-class records](#stale-failed-class-records) | A class remains deferred after conditions change | Clear failed records on retry or restart | Mitigated |
 | [Identifier collision](#identifier-collision) | A colliding shape is repeatedly delayed or starved | Use a 64-bit SHA-256 prefix | Accepted |
@@ -169,7 +172,7 @@ diagnostics, or add overhead, but cannot admit a Workload incorrectly.
 | [Reduced diagnostics for bypassed Workloads](#reduced-diagnostics-for-bypassed-workloads) | A bypassed Workload lacks a detailed diagnosis | Preserve the representative's reason | Mitigated |
 | [Additional memory and queue work](#additional-memory-and-queue-work) | Pending state and heap scans add overhead | Bound records to classes between retries | Accepted |
 
-Only the two scheduling-shape gaps are open. The subsections below provide the
+Only the three scheduling-shape gaps are open. The subsections below provide the
 trigger, user impact, mitigation, and residual risk for each row.
 
 #### Incomplete scheduling shape
@@ -184,7 +187,7 @@ trigger, user impact, mitigation, and residual risk for each row.
 3. **Mitigation:** Every new scheduling input must either be represented in the
    shape or cause the affected outcome to be excluded from class-wide handling.
 4. **Residual risk:** The current shape includes Pod placement and effective
-   requests, but does not model every input used by all scheduling paths. Two
+   requests, but does not model every input used by all scheduling paths. Three
    known cases remain.
 
 ##### ElasticJobsViaWorkloadSlices
@@ -229,6 +232,41 @@ trigger, user impact, mitigation, and residual risk for each row.
    handling.
 4. **Residual risk:** Until then, B can record PreemptionNoCandidates and defer
    A despite A being able to preempt V.
+
+##### FlavorFungibilityPreserveScanProgress
+
+1. **Triggering scenario:** A representative's flavor scan spans multiple
+   scheduling cycles under FlavorFungibilityPreserveScanProgress, and capacity
+   becomes available on an already-rejected flavor before the scan completes.
+   The scan does not start over because the preserved progress is
+   intentionally retained for one cycle after a generation advance, and the
+   generation does not advance when capacity is released elsewhere in the
+   Cohort or when node capacity used by Topology Aware Scheduling placement
+   changes.
+2. **User impact:** The resume position is per-Workload state outside the
+   scheduling shape. A representative that resumes mid-list evaluates only
+   the remaining flavors, while a fresh Workload in the same class would
+   start from the first flavor. Workloads in the same class can therefore
+   produce different scheduling outcomes:
+
+   | Workload | Scan starts at | Flavor A, capacity freed mid-scan | Flavor B | Fits? |
+   |---|---|---|---|---|
+   | W1 | flavor B, resumed | not revisited | no fit | no |
+   | W2 | flavor A, fresh | fit | not reached | yes |
+
+3. **Mitigation:** A requeue with untried flavors remaining returns the
+   Workload to the active heap instead of the inadmissible pool, so only a
+   representative whose scan has exhausted the flavor list can create a
+   failed-class record. Recorded progress is also discarded when the Workload's
+   own identifier changes. Before stable, restart the scan when relevant
+   conditions change so that an exhausted scan reflects a single consistent
+   state, following the flavor-scan state refactor tracked in
+   [#13974](https://github.com/kubernetes-sigs/kueue/issues/13974).
+4. **Residual risk:** Until then, a NoFit result from W1 can defer W2 without
+   evaluating it even though W2 fits. The incorrect deferral does not persist
+   past the next retry. An exhausted scan stores no resume position, so the
+   representative's next evaluation starts from the first flavor. A subsequent
+   scan can span multiple cycles again and reproduce the condition.
 
 #### Overly broad failure classification
 
@@ -437,6 +475,49 @@ the scheduler normally nominates one head Workload per ClusterQueue in a cycle,
 the record remains useful across cycles and avoids later heap pops and
 scheduling snapshot construction for the rest of the class.
 
+### Flavor-Scan Progress Guard
+
+The equivalence identifier serves one purpose outside class-wide failure
+handling. FlavorFungibility records the progress of the flavor scan for each
+Workload, and FlavorFungibilityPreserveScanProgress retains that progress
+across scheduling cycles and Workload updates. The recorded position controls
+these transitions:
+
+```mermaid
+stateDiagram-v2
+    state "Active heap" as Heap
+    state "Flavor assignment" as Assign
+    state "TAS placement" as TAS
+    state "Admitted" as Admitted
+    state "Inadmissible pool" as Pool
+
+    Heap --> Assign: (1) pop, scan resumes from the next untried flavor
+    Assign --> Admitted: (2a) quota fits on a non-TAS flavor
+    Assign --> TAS: (2b) quota fits on a TAS flavor
+    Assign --> Pool: (2c) every flavor tried, NoFit
+    Assign --> Heap: (2d) skipped on in-cycle contention, progress kept
+    TAS --> Admitted: (3a) placement fits
+    TAS --> Heap: (3b) placement fails, progress kept
+```
+
+A Topology Aware Scheduling placement failure on a flavor whose quota fits
+no longer restarts the scan. The recorded position survives the requeue at
+(3b), so the next evaluation continues from the following flavor instead of
+re-nominating the flavor whose placement already failed.
+
+The recorded position is reused at (1) only while it still describes the
+current state. The scan state stores the Workload's identifier because the
+position is valid only for the shape it was computed for. The scan starts
+from the first flavor again when the identifier no longer matches, or when
+the progress is older than the preceding cycle and the ClusterQueue
+generation has advanced. When either identifier is unknown (e.g.,
+SchedulingEquivalenceHashing is disabled), the identifier comparison is
+skipped and the two features remain independent.
+
+The resume position itself is not part of the scheduling shape. The resulting
+[resume gap](#flavorfungibilitypreservescanprogress) is described under Risks
+and Mitigations.
+
 ### Observability
 
 The representative can receive the full diagnostic result of its scheduling
@@ -471,6 +552,7 @@ move an entire class without evaluating its remaining Workloads.
 | v0.19.0 | Failed-class records began retaining the representative's high-level reason for bypassed Workloads | observability |
 | v0.19.0 | Equivalence identifier corrected to include Pod-level resource requests when the field is set | bugfix |
 | v0.20.0 | Added the `kueue_pending_scheduling_hashes` gauge, reporting unique active and inadmissible classes per ClusterQueue | observability |
+| v0.20.0 | Equivalence identifiers began guarding flavor-scan progress reuse under FlavorFungibilityPreserveScanProgress | behavior |
 
 ### Test Plan
 
@@ -510,8 +592,9 @@ group of equivalent, unschedulable Workloads precedes a schedulable Workload.
 It must also verify that relevant cluster-state changes retry the deferred group
 and that namespace, preemption, and observability boundaries retain their
 existing behavior. Before stable, it must exercise the resolved behavior for
-Workload-slice replacement and LowerOrNewerEqualPriority under usage-based
-admission fair sharing.
+Workload-slice replacement, for LowerOrNewerEqualPriority under usage-based
+admission fair sharing, and for class-wide handling of failures recorded by
+resumed flavor scans.
 
 #### End-to-End Tests
 
@@ -545,6 +628,11 @@ Graduation to stable requires:
   UsageBasedAdmissionFairSharing is combined with LowerOrNewerEqualPriority,
   and a decision to either include the queue-order timestamp in the scheduling
   shape or exclude this combination from class-wide handling
+- reevaluation of class-wide handling for failures recorded by flavor scans
+  resumed under FlavorFungibilityPreserveScanProgress, and a decision to
+  restart the scan when relevant conditions change, aligned with the
+  flavor-scan state refactor tracked in
+  [#13974](https://github.com/kubernetes-sigs/kueue/issues/13974)
 - validated retry triggers for quota, cohort, flavor, topology, admission
   checks, and relevant Pod-capacity changes
 - an explicit decision on whether the current digest size is sufficient for
@@ -577,3 +665,6 @@ Graduation to stable requires:
 - 2026-08-07: Metrics and the KEP were added.
   - [#12520: Pending scheduling hashes metric](https://github.com/kubernetes-sigs/kueue/pull/12520)
   - [#13973: KEP](https://github.com/kubernetes-sigs/kueue/pull/13973)
+- 2026-08-07: Flavor-scan progress began persisting across scheduling cycles,
+  guarded by the equivalence identifier.
+  - [#13956: Flavor-scan progress preservation](https://github.com/kubernetes-sigs/kueue/pull/13956)
