@@ -495,7 +495,6 @@ const (
 	//
 	// PrioritizePreemptorWorkloads enables prioritization of workloads waiting for preemption
 	// to complete to prevent quota stealing and thrashing during desynchronized evictions.
-	// Requires UnadmittedWorkloadsObservability to be enabled to take effect.
 	PrioritizePreemptorWorkloads featuregate.Feature = "PrioritizePreemptorWorkloads"
 
 	// owner: @ivnovakov
