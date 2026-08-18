@@ -82,7 +82,7 @@ func TestFlavorsByResourceFrom(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := flavorsByResourceFrom(resourceGroupsFrom(tc.clusterQueue))
+			got := flavorsByResourceFrom(tc.clusterQueue.Spec.ResourceGroups)
 			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected flavors (-want/+got)\n%s", diff)
 			}
@@ -104,7 +104,7 @@ func TestValidateFlavors(t *testing.T) {
 				Obj(),
 		).Obj()
 
-	rgs := resourceGroupsFrom(cq)
+	rgs := cq.Spec.ResourceGroups
 
 	t.Run("returns nil when all referenced flavors exist", func(t *testing.T) {
 		err := validateFlavors(cq.Name, rgs, map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{

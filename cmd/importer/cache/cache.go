@@ -30,7 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/importer/mapping"
-	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -98,10 +98,9 @@ func Load(ctx context.Context, c client.Client, namespaces []string, mappingRule
 	ret.flavorsByResource = make(map[kueue.ClusterQueueReference]map[corev1.ResourceName]kueue.ResourceFlavorReference, len(cqList.Items))
 	for i := range cqList.Items {
 		cq := &cqList.Items[i]
-		rgs := resourceGroupsFrom(cq)
 		cqRef := kueue.ClusterQueueReference(cq.Name)
-		ret.flavorsByResource[cqRef] = flavorsByResourceFrom(rgs)
-		ret.flavorValidation[cqRef] = validateFlavors(cq.Name, rgs, ret.ResourceFlavors)
+		ret.flavorsByResource[cqRef] = flavorsByResourceFrom(cq.Spec.ResourceGroups)
+		ret.flavorValidation[cqRef] = validateFlavors(cq.Name, cq.Spec.ResourceGroups, ret.ResourceFlavors)
 	}
 
 	return &ret, nil
@@ -111,34 +110,17 @@ func (ic *ImportCache) WorkloadInfoOptions() []workload.InfoOption {
 	return slices.Clone(ic.workloadInfoOptions)
 }
 
-// resourceGroupsFrom converts cq's API resource groups to the ResourceGroup
-// representation used by pkg/util/resourcegroups.
-func resourceGroupsFrom(cq *kueue.ClusterQueue) []resourcegroups.ResourceGroup {
-	rgs := make([]resourcegroups.ResourceGroup, 0, len(cq.Spec.ResourceGroups))
-	for _, rg := range cq.Spec.ResourceGroups {
+// flavorsByResourceFrom returns, for every resource covered by rgs, the first
+// flavor listed in its resource group.
+func flavorsByResourceFrom(rgs []kueue.ResourceGroup) map[corev1.ResourceName]kueue.ResourceFlavorReference {
+	m := make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
+	for _, rg := range rgs {
 		if len(rg.Flavors) == 0 {
 			continue
 		}
-		flavors := make([]kueue.ResourceFlavorReference, len(rg.Flavors))
-		for i, f := range rg.Flavors {
-			flavors[i] = f.Name
-		}
-		rgs = append(rgs, resourcegroups.ResourceGroup{
-			CoveredResources: sets.New(rg.CoveredResources...),
-			Flavors:          flavors,
-		})
-	}
-	return rgs
-}
-
-// flavorsByResourceFrom returns, for every resource covered by rgs, the first
-// flavor listed in its resource group.
-func flavorsByResourceFrom(rgs []resourcegroups.ResourceGroup) map[corev1.ResourceName]kueue.ResourceFlavorReference {
-	m := make(map[corev1.ResourceName]kueue.ResourceFlavorReference)
-	for _, rg := range rgs {
-		for resource := range rg.CoveredResources {
+		for _, resource := range rg.CoveredResources {
 			if _, exists := m[resource]; !exists {
-				m[resource] = rg.Flavors[0]
+				m[resource] = rg.Flavors[0].Name
 			}
 		}
 	}
@@ -146,9 +128,9 @@ func flavorsByResourceFrom(rgs []resourcegroups.ResourceGroup) map[corev1.Resour
 }
 
 // validateFlavors checks that every ResourceFlavor referenced by rgs is known.
-func validateFlavors(cqName string, rgs []resourcegroups.ResourceGroup, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) error {
+func validateFlavors(cqName string, rgs []kueue.ResourceGroup, resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor) error {
 	// Sorted for a deterministic error message; AllFlavors returns a set.
-	flavors := sets.List(resourcegroups.AllFlavors(rgs))
+	flavors := sets.List(utilqueue.AllFlavors(rgs))
 	missing := make([]kueue.ResourceFlavorReference, 0)
 	for _, flavor := range flavors {
 		if _, found := resourceFlavors[flavor]; !found {
