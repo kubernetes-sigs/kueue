@@ -214,3 +214,7 @@ func TestTASCacheUpdateTopologyLevelsPreservesUsage(t *testing.T) {
 		t.Error("Topology tree was rebuilt after re-applying unchanged topology levels")
 	}
 }
+
+func (c *TASFlavorCache) cachedOrBuiltTree() (*topologyTree, bool) {
+	return c.cachedOrBuiltTreeForNodes(c.nodesCache.snapshot(), true)
+}
