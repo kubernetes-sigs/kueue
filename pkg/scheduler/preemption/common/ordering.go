@@ -38,7 +38,9 @@ import (
 // same ClusterQueue as the preemptor.
 // 2. (AdmissionFairSharing only) Workloads with lower LocalQueue's usage first
 // 3. Workloads with lower priority first.
-// 4. Workloads admitted more recently first.
+// 4. Partial-preemptible workloads first (elastic jobs that can shed replicas
+// towards minCount without failing the whole job — a lower-cost preemption).
+// 5. Workloads admitted more recently first.
 func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, cq kueue.ClusterQueueReference, now time.Time) int {
 	return cmputil.LazyOr(
 		func() int {
@@ -68,6 +70,17 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 			return cmp.Compare(
 				priority.EffectivePriority(log, a.Obj),
 				priority.EffectivePriority(log, b.Obj),
+			)
+		},
+		func() int {
+			// Among equal-priority candidates, preempt partial-preemptible ones first: shedding
+			// an elastic job's replicas down to minCount keeps it running, whereas evicting a
+			// non-partial candidate fails the whole job. Placed after priority so it never
+			// overrides priority protection. No-op when the PartialPreemption gate is off
+			// (IsPartialPreemptible is false for both).
+			return cmputil.CompareBool(
+				workload.IsPartialPreemptible(a.Obj),
+				workload.IsPartialPreemptible(b.Obj),
 			)
 		},
 		func() int {

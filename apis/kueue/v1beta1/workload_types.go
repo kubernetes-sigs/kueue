@@ -253,6 +253,17 @@ type PodSetAssignment struct {
 	//
 	// +optional
 	DelayedTopologyRequest *DelayedTopologyRequestState `json:"delayedTopologyRequest,omitempty"`
+
+	// reclaimTargetCount, when set and lower than count, requests the elastic job to scale this
+	// PodSet down to reclaimTargetCount so partial preemption can reclaim its quota. Kueue owns
+	// this field; the job runtime reads it and sheds pods down to reclaimTargetCount. It is
+	// re-derived on every scheduling decision (equal to count when no partial preemption is
+	// requested), so it never holds a stale value.
+	// This is an alpha field and requires enabling the PartialPreemption feature gate.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	ReclaimTargetCount *int32 `json:"reclaimTargetCount,omitempty"`
 }
 
 // DelayedTopologyRequestState indicates the state of the delayed TopologyRequest.
