@@ -572,7 +572,6 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASMultiLayerTopology:                       {TopologyAwareScheduling},
 	TASRespectNodeAffinityPreferred:             {TopologyAwareScheduling},
 	UnadmittedWorkloadsExplicitStatus:           {UnadmittedWorkloadsObservability},
-	PrioritizePreemptorWorkloads:                {UnadmittedWorkloadsObservability},
 	TASHandleOverlappingFlavors:                 {TopologyAwareScheduling},
 	TASProfileMixed:                             {TopologyAwareScheduling},
 	TASRecomputeAssignmentWithinSchedulingCycle: {TopologyAwareScheduling},

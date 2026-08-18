@@ -1940,19 +1940,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
-		"PrioritizePreemptorWorkloads requires UnadmittedWorkloadsObservability": {
-			featureGateMap: map[string]bool{
-				string(features.PrioritizePreemptorWorkloads):     true,
-				string(features.UnadmittedWorkloadsObservability): false,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "PrioritizePreemptorWorkloads is enabled, but depends on features that are disabled: [UnadmittedWorkloadsObservability]",
-				},
-			},
-		},
+
 		"TASHandleOverlappingFlavors requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,

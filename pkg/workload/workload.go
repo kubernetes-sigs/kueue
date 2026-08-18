@@ -1677,11 +1677,19 @@ func IsElasticWorkload(wl *kueue.Workload) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && wl.GetAnnotations()[constants.ElasticJobAnnotation] == "true"
 }
 
-// UnadmittedWorkloadReasonWithFallback returns the granularReason if the UnadmittedWorkloadsObservability
-// feature gate is enabled, otherwise it returns the fallback.
+// UnadmittedWorkloadReasonWithFallback returns the granularReason if it should be exposed
+// (via UnadmittedWorkloadsObservability or PrioritizePreemptorWorkloads), otherwise returns fallback.
 func UnadmittedWorkloadReasonWithFallback(granularReason, fallback string) string {
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+	if shouldExposeGranularReason(granularReason) {
 		return granularReason
 	}
 	return fallback
+}
+
+func shouldExposeGranularReason(reason string) bool {
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		return true
+	}
+	return reason == kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads &&
+		features.Enabled(features.PrioritizePreemptorWorkloads)
 }
