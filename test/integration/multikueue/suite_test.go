@@ -17,7 +17,12 @@ limitations under the License.
 package multikueue
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -26,7 +31,9 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/util/sets"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/rest"
@@ -523,6 +530,27 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	managersConfigNamespace = utiltesting.MakeNamespace("kueue-system")
 	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
+
+	ginkgo.By("deploying MutatingAdmissionPolicy manifests to manager cluster", func() {
+		mapManifestPath := filepath.Join(util.ProjectBaseDir, "config", "components", "map", "manifests.yaml")
+		manifestBytes, err := os.ReadFile(mapManifestPath)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		decoder := utilyaml.NewYAMLOrJSONDecoder(bytes.NewReader(manifestBytes), 4096)
+		for {
+			var rawObj unstructured.Unstructured
+			if err := decoder.Decode(&rawObj); err != nil {
+				if errors.Is(err, io.EOF) {
+					break
+				}
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			if len(rawObj.Object) == 0 {
+				continue
+			}
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, &rawObj)
+		}
+	})
 })
 
 var _ = ginkgo.AfterSuite(func() {
