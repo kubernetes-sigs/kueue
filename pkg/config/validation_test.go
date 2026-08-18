@@ -1940,7 +1940,6 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
-
 		"TASHandleOverlappingFlavors requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
