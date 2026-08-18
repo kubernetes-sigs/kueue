@@ -17,13 +17,16 @@
   - [Workload API](#workload-api)
   - [Scheduler / Flavorassignment](#scheduler--flavorassignment)
   - [Opportunistic scale up when capacity is freed](#opportunistic-scale-up-when-capacity-is-freed)
+    - [WorkloadSlice Name](#workloadslice-name)
+    - [StrictFIFO Constraint](#strictfifo-constraint)
     - [Example: Two-Step Scale Up under Quota Constraints (with Partial Admission)](#example-two-step-scale-up-under-quota-constraints-with-partial-admission)
       - [Step 0: Job Creation (Initial Size: 5)](#step-0-job-creation-initial-size-5)
       - [Step 1: Scale Up from 5 to 10 (Quota Constraint: 7), partial admission of scale up](#step-1-scale-up-from-5-to-10-quota-constraint-7-partial-admission-of-scale-up)
       - [Step 2: Scale Up to 12 (Quota Constraint: 7), scale up isn't admitted](#step-2-scale-up-to-12-quota-constraint-7-scale-up-isnt-admitted)
       - [Step 3: Quota increases to 12, opportunistic scale up when capacity is freed](#step-3-quota-increases-to-12-opportunistic-scale-up-when-capacity-is-freed)
+      - [Step 4: Scale Down (e.g. from 12 to 8)](#step-4-scale-down-eg-from-12-to-8)
   - [RayJob/RayService/RayCluster controller](#rayjobrayserviceraycluster-controller)
-    - [Partial ScaleUp for multiple PodSets](#partial-scaleup-for-multiple-podsets)
+  - [Partial ScaleUp for multiple PodSets](#partial-scaleup-for-multiple-podsets)
     - [Order-Based policy (<code>order-based</code>)](#order-based-policy-order-based)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
@@ -50,7 +53,7 @@ In elastic workloads (such as RayJob with autoscaling), jobs dynamically scale u
 
 - Partial admission for initial job creation when only partial scale-up is configured.
 - Support for `batch/v1 Job` (`batch.job`) integration.
-- Respecting pod indexing when ungating pods.
+- Respecting pod indexing when ungating pods. Specifically, this means that only single-host worker replicas are supported in RayCluster (NumOfHosts = 1)
 
 ## Proposal
 
@@ -81,7 +84,7 @@ Also, a new Workload representing the full job will be created and added to the 
 
 Partial ScaleUp for elastic jobs in Kueue is enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. At the cluster level, the ElasticJobWithPartialScaleUp feature (disabled by default) must be enabled via the corresponding Kueue feature gate.
 
-Once the feature gate is enabled, individual Job objects can opt into partial admission by including the `kueue.x-k8s.io/elastic-job-scale-up="partial"` annotation. 
+Once the feature gate is enabled, individual Job objects can opt into partial admission by including the `kueue.x-k8s.io/elastic-job-scale-up="partial"` annotation. If the annotation is not set, the default value is `"atomic"`.
 When both conditions are met, Kueue treats the Workload as eligible for partial scale up. 
 
 #### Features
@@ -92,11 +95,16 @@ When both conditions are met, Kueue treats the Workload as eligible for partial 
 
 #### ElasticJob ScaleUp Annotation
 ```go
+type ElasticJobScaleUpAnnotationValue string
+
 const (
-  // ElasticJobScaleUpAnnotationKey refers to the annotation key present on Jobs that support
-  // partial scale up.
-  // This annotation is alpha-level.
-  ElasticJobScaleUpAnnotationKey = "kueue.x-k8s.io/elastic-job-scale-up"
+	// ElasticJobScaleUpAnnotationKey refers to the annotation key present on Jobs that support
+	// partial scale up.
+	// This annotation is alpha-level.
+	ElasticJobScaleUpAnnotationKey = "kueue.x-k8s.io/elastic-job-scale-up"
+
+	ElasticJobScaleUpAtomic  ElasticJobScaleUpAnnotationValue = "atomic"
+	ElasticJobScaleUpPartial ElasticJobScaleUpAnnotationValue = "partial"
 )
 ```
 The proposal relies on following existing API:
@@ -141,7 +149,17 @@ The partial admission mechanism will be applied for the workload that represents
 ### Opportunistic scale up when capacity is freed
 
 In order to schedule remaining pods after partial scale up, the workload controller will create a new workload representing the full job and add it to the queue. The scheduler will admit the new workload and replace the old workload via the workload slice mechanism as capacity becomes available.
-The newly created workload for opportunistic scale up should have a different name from the admitted workload.
+The workload for the full capacity should be created despite the feature gate is enabled, in order to have consistent behaviour in case user disable feature gate. 
+
+#### WorkloadSlice Name
+
+The newly created workload for opportunistic scale up should have a different name from the admitted workload. This will be done by adding an extra suffix "full-scaleup-probe", that will modify the hash suffix.
+
+#### StrictFIFO Constraint
+
+When a Job scale-up is partially admitted, Kueue creates a new Workload representing the remaining scale-up capacity. In a `StrictFIFO` queue, if another Job is submitted before this new Workload is created and enqueued, the newly submitted Job will take precedence in the queue. Consequently, the remaining scale-up request will not be admitted until all preceding jobs in the queue are processed.
+
+This is a constraint of partial scale-up that users should be aware of when using `StrictFIFO` queues.
 
 #### Example: Two-Step Scale Up under Quota Constraints (with Partial Admission)
 
@@ -208,13 +226,24 @@ If the available quota in the ClusterQueue increases to 12 (or more) in the futu
   1. In the next scheduler loop, the Kueue scheduler evaluates and admits `wl-C`.
   2. **ElasticJobUngater Controller**: Detects that `wl-C` is admitted with count 12 and removes the scheduling gate from the remaining 5 pods.
 
+##### Step 4: Scale Down (e.g. from 12 to 8)
+* **RayCluster worker group replicas**: 8
+* **Workloads**:
+  * `wl-C` (Updated/Replaced):
+    * `spec.podSets.count` = 8
+    * `spec.podSets.minCount` = 8
+    * `status.admission.count` = 8
+* **Controller Actions**:
+  1. **KubeRay Controller**: Decreases worker group replica count to 8 and deletes 4 running pods.
+  2. **Workload Controller**: Detects the scale down and updates the admitted Workload `wl-C` to set `spec.podSets.count = 8`, `spec.podSets.minCount` and `status.admission.count = 8`.
+
 ### RayJob/RayService/RayCluster controller
 
 Only `RayJob`, `RayService`, and `RayCluster` integrations support the partial scale up feature (`batch/v1 Job` is not supported).
 
-The `RayCluster.workerGroupSpec[i].replicas * numOfHosts` will be translated to `PodSet.Count`. For the initial workload, `spec.podSets[i].minCount` will be equal to `PodSet.Count` to disable partial admission. For workloads representing scale up, `spec.podSets[i].minCount` will be equal to the currently admitted pods count increased by 1 for worker groups that are scaling up.
+The `RayCluster.workerGroupSpec[i].replicas * numOfHosts` will be translated to `PodSet.Count`. Only RayCluster WorkingGroups with minCount value will be considered for partial scale up. For those WorkingGroups the `spec.podSets[i].minCount` will be equal to `PodSet.Count` for the initial Workload in order to prevent partial admission. For workloads representing scale up, `spec.podSets[i].minCount` will be equal to the currently admitted pods count increased by 1 for worker groups that are scaling up.
 
-#### Partial ScaleUp for multiple PodSets
+### Partial ScaleUp for multiple PodSets
 
 There are multiple ways how to approach multiple podsets shrinking in case of insufficient quota. For simplicity reasons we'll start with the order-based one and will expand options if needed in future.
 

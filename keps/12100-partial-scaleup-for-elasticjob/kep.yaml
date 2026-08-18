@@ -20,3 +20,4 @@ milestone:
 
 feature-gates:
   - name: ElasticJobWithPartialScaleUp
+disable-supported: true
