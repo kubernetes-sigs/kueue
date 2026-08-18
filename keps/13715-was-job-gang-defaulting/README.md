@@ -212,7 +212,7 @@ Eligibility does not depend on `completionMode`; Indexed and NonIndexed Jobs of 
 | Kueue TAS | Not combined. This KEP writes no `schedulingConstraints`. |
 | MultiKueue | Every worker cluster must preserve the field; version and gate skew must be reported. |
 | Preemption and eviction | The injected `disruptionMode.all` makes the compiled `PodGroup` one disruption unit on the scheduler side, which matches Kueue's Job-granularity eviction. Which system decides, and on whose priority, is out of scope for this KEP. |
-| `ProvisioningRequest` | Open, tracked as [OQ8](#open-questions). |
+| `ProvisioningRequest` | No interaction defined in alpha. Provisioning is unaware of WAS, and what it writes back are Pod template updates rather than WAS fields, so the two compose as they are. What alpha does not analyze is timing: the booking is not retried once the Workload is admitted, so a gang that cannot be placed can outlive it, which is the same window as [OQ3](#open-questions). |
 | CronJob | Each scheduled Job is defaulted on its own, since the fields can only be set at creation. A CronJob-created Job has no Kueue-managed ancestor, so it receives the default whenever Kueue manages it and its shape qualifies. |
 | BYO PodGroup ([KEP-13150](/keps/13150-bring-your-own-podgroup)) | `gang.minCount` is a floor, not the group size, so deriving `PodSet.Count` from it under-reserves quota by up to `parallelism - minCount`. A Kueue-injected gang is unaffected, because Kueue writes no `minCount` and the floor then equals `parallelism` ([OQ2](#open-questions)). |
 | DRA `resourceClaims` | Out of scope. This KEP writes none. |
@@ -265,7 +265,6 @@ That work depends on upstream settling what a partially specified `spec.scheduli
 | OQ4 | What carries the administrator's cluster-level choice once `GangSchedulingByDefault` graduates? | Open. Alpha needs nothing, since the gate is default-off and enabling it is itself the administrator's choice. Once the gate defaults on, the behavior becomes cluster-wide with only a per-Job opt-out. `WorkloadPriorityClass` defaulting has a second switch, the presence of a `WorkloadPriorityClass` named `default`, and gang has no object whose presence can carry the same intent. |
 | OQ5 | Should defaulting be skipped when workload slices are enabled? | Yes for alpha, because the Kueue-side slice semantics are unverified. |
 | OQ6 | How can Kueue reliably detect that the apiserver preserves `spec.scheduling`? | Not from REST mapping or OpenAPI. Blocks implementation together with rule 6. |
-| OQ8 | How do `ProvisioningRequest` and gang placement interact? | Open. Provisioning reserves capacity before admission while the gang decides placement at scheduling time, and alpha does not define what the combination should do. |
 
 ### Upstream dependencies
 
