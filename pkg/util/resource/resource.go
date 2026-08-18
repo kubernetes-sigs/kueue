@@ -114,20 +114,6 @@ func MulByFloat(q corev1.ResourceList, f float64) corev1.ResourceList {
 	return ret
 }
 
-func IsZero(rl corev1.ResourceList) bool {
-	if len(rl) != 0 {
-		return false
-	}
-
-	for _, qty := range rl {
-		if !qty.IsZero() {
-			return false
-		}
-	}
-
-	return true
-}
-
 // IsExtendedResourceName returns true if the resource name is an extended resource.
 // An extended resource is a fully-qualified resource name with a domain prefix
 // that is not in the kubernetes.io namespace and is not a standard resource.
