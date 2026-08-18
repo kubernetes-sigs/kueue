@@ -280,43 +280,33 @@ func TestNodesCacheSync(t *testing.T) {
 	testCases := map[string]struct {
 		enableSchedulerLibraryIntegration bool
 		prime                             []corev1.Node
-		op                                func(nc *nodesCache)
+		node                              *corev1.Node
 		wantNodes                         []corev1.Node
 		wantSchedulableAndReady           []string
 	}{
 		"FG disabled: sync not ready removes node": {
-			op: func(nc *nodesCache) {
-				nc.sync(nodeWrapper.DeepCopy())
-			},
+			node: nodeWrapper.DeepCopy(),
 		},
 		"FG disabled: sync ready adds node": {
-			op: func(nc *nodesCache) {
-				nc.sync(nodeWrapper.Clone().Ready().Obj())
-			},
+			node:                    nodeWrapper.Clone().Ready().Obj(),
 			wantNodes:               []corev1.Node{*nodeWrapper.Clone().Ready().Obj()},
 			wantSchedulableAndReady: []string{"test"},
 		},
 		"FG enabled: sync not ready keeps node in cache but not in schedulableAndReady": {
 			enableSchedulerLibraryIntegration: true,
-			op: func(nc *nodesCache) {
-				nc.sync(nodeWrapper.DeepCopy())
-			},
-			wantNodes: []corev1.Node{*nodeWrapper.DeepCopy()},
+			node:                              nodeWrapper.DeepCopy(),
+			wantNodes:                         []corev1.Node{*nodeWrapper.DeepCopy()},
 		},
 		"FG enabled: sync unschedulable keeps node in cache but not in schedulableAndReady": {
 			enableSchedulerLibraryIntegration: true,
-			op: func(nc *nodesCache) {
-				nc.sync(nodeWrapper.Clone().Ready().Unschedulable().Obj())
-			},
-			wantNodes: []corev1.Node{*nodeWrapper.Clone().Ready().Unschedulable().Obj()},
+			node:                              nodeWrapper.Clone().Ready().Unschedulable().Obj(),
+			wantNodes:                         []corev1.Node{*nodeWrapper.Clone().Ready().Unschedulable().Obj()},
 		},
 		"FG enabled: sync ready adds node to cache and schedulableAndReady": {
 			enableSchedulerLibraryIntegration: true,
-			op: func(nc *nodesCache) {
-				nc.sync(nodeWrapper.Clone().Ready().Obj())
-			},
-			wantNodes:               []corev1.Node{*nodeWrapper.Clone().Ready().Obj()},
-			wantSchedulableAndReady: []string{"test"},
+			node:                              nodeWrapper.Clone().Ready().Obj(),
+			wantNodes:                         []corev1.Node{*nodeWrapper.Clone().Ready().Obj()},
+			wantSchedulableAndReady:           []string{"test"},
 		},
 	}
 	for name, tc := range testCases {
@@ -326,17 +316,18 @@ func TestNodesCacheSync(t *testing.T) {
 			for i := range tc.prime {
 				nc.sync(&tc.prime[i])
 			}
-			tc.op(nc)
+			nc.sync(tc.node)
 
-			wantNodesMap := make(map[string]*corev1.Node, len(tc.wantNodes))
+			wantNodeNameNodes := make(map[string]*corev1.Node, len(tc.wantNodes))
 			for i := range tc.wantNodes {
-				wantNodesMap[tc.wantNodes[i].Name] = copyAndStripNode(&tc.wantNodes[i])
+				wantNodeNameNodes[tc.wantNodes[i].Name] = copyAndStripNode(&tc.wantNodes[i])
 			}
-			if diff := cmp.Diff(wantNodesMap, nc.nodes); diff != "" {
+			if diff := cmp.Diff(wantNodeNameNodes, nc.nodes, cmpopts.SortMaps(func(a, b string) bool {
+				return a < b
+			})); diff != "" {
 				t.Errorf("Unexpected nodes (-want,+got):\n%s", diff)
 			}
-			wantSet := sets.New(tc.wantSchedulableAndReady...)
-			if diff := cmp.Diff(wantSet, nc.schedulableAndReadyNodes); diff != "" {
+			if diff := cmp.Diff(sets.New(tc.wantSchedulableAndReady...), nc.schedulableAndReadyNodes); diff != "" {
 				t.Errorf("Unexpected schedulableAndReadyNodes (-want,+got):\n%s", diff)
 			}
 		})
