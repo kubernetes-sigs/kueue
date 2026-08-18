@@ -594,6 +594,100 @@ func TestScheduleForTAS(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
+		"second pass replacement must not take a domain claimed by another workload in the same cycle": {
+			// "replaced" keeps its admission while its node is unhealthy, so the
+			// second pass looks for a replacement domain. "contender" is a pending
+			// workload admitted in the same cycle. The replacement must not land on
+			// the node contender just took, which would pin its pod to a full node
+			// for good.
+			//
+			// Neither state of TASFailedNodeReplacementFailFast prevents this: the
+			// fail-fast eviction is guarded on mode != Fit, and a skipped fits check
+			// is what leaves the mode at Fit.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label("tas-node", "true").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label("tas-node", "true").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("replaced", "default").
+					UnhealthyNodes("x1").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("contender", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/replaced": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+				"default/contender": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1").
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "contender", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "contender", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
 		"workload with unhealthyNode annotation; second pass; baseline scenario": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
