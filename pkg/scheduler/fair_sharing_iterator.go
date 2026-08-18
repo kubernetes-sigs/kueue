@@ -175,7 +175,7 @@ type entryComparer struct {
 
 func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bool {
 	// 1. Process workloads pending preemption if the feature is enabled.
-	if features.Enabled(features.PrioritizeWorkloadsPendingPreemption) {
+	if features.Enabled(features.PrioritizePreemptorWorkloads) {
 		aPendingPreempt := workload.IsPendingPreemption(a.Obj)
 		bPendingPreempt := workload.IsPendingPreemption(b.Obj)
 		if aPendingPreempt != bPendingPreempt {

@@ -7095,11 +7095,11 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			name:  "Some workloads are pending preemption; PrioritizeWorkloadsPendingPreemption is disabled",
+			name:  "Some workloads are pending preemption; PrioritizePreemptorWorkloads is disabled",
 			input: inputForOrderingPendingPreemptionWorkloads,
 			featureGates: map[featuregate.Feature]bool{
-				features.PrioritySortingWithinCohort:          true,
-				features.PrioritizeWorkloadsPendingPreemption: false,
+				features.PrioritySortingWithinCohort:  true,
+				features.PrioritizePreemptorWorkloads: false,
 			},
 			wantOrder: []string{
 				"not-pending-preemption-not-borrowing",
@@ -7108,11 +7108,11 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			name:  "Some workloads are pending preemption; PrioritizeWorkloadsPendingPreemption is enabled",
+			name:  "Some workloads are pending preemption; PrioritizePreemptorWorkloads is enabled",
 			input: inputForOrderingPendingPreemptionWorkloads,
 			featureGates: map[featuregate.Feature]bool{
-				features.PrioritySortingWithinCohort:          true,
-				features.PrioritizeWorkloadsPendingPreemption: true,
+				features.PrioritySortingWithinCohort:  true,
+				features.PrioritizePreemptorWorkloads: true,
 			},
 			wantOrder: []string{
 				"pending-preemption-not-borrowing",
@@ -8532,7 +8532,7 @@ func TestEntryComparerLess(t *testing.T) {
 				"default/not-pending-nominal": {cpuDefault: resources.NewAmount(1)},
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.PrioritizeWorkloadsPendingPreemption: true,
+				features.PrioritizePreemptorWorkloads: true,
 			},
 			wantLess: true,
 		},
@@ -8576,7 +8576,7 @@ func TestEntryComparerLess(t *testing.T) {
 				"default/not-pending-nominal": {cpuDefault: resources.NewAmount(1)},
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.PrioritizeWorkloadsPendingPreemption: false,
+				features.PrioritizePreemptorWorkloads: false,
 			},
 			wantLess: false,
 		},
@@ -8629,7 +8629,7 @@ func TestEntryComparerLess(t *testing.T) {
 				"default/pending-nominal":   {cpuDefault: resources.NewAmount(1)},
 			},
 			featureGates: map[featuregate.Feature]bool{
-				features.PrioritizeWorkloadsPendingPreemption: true,
+				features.PrioritizePreemptorWorkloads: true,
 			},
 			wantLess: false,
 		},

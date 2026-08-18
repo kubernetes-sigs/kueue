@@ -1940,16 +1940,16 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
-		"PrioritizeWorkloadsPendingPreemption requires UnadmittedWorkloadsObservability": {
+		"PrioritizePreemptorWorkloads requires UnadmittedWorkloadsObservability": {
 			featureGateMap: map[string]bool{
-				string(features.PrioritizeWorkloadsPendingPreemption): true,
-				string(features.UnadmittedWorkloadsObservability):     false,
+				string(features.PrioritizePreemptorWorkloads):     true,
+				string(features.UnadmittedWorkloadsObservability): false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
-					Detail: "PrioritizeWorkloadsPendingPreemption is enabled, but depends on features that are disabled: [UnadmittedWorkloadsObservability]",
+					Detail: "PrioritizePreemptorWorkloads is enabled, but depends on features that are disabled: [UnadmittedWorkloadsObservability]",
 				},
 			},
 		},

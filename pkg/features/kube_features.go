@@ -493,10 +493,10 @@ const (
 	// owner: @Nilsachy
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/13662
 	//
-	// PrioritizeWorkloadsPendingPreemption enables prioritization of workloads pending preemption
-	// to prevent quota stealing and thrashing during desynchronized evictions.
+	// PrioritizePreemptorWorkloads enables prioritization of workloads waiting for preemption
+	// to complete to prevent quota stealing and thrashing during desynchronized evictions.
 	// Requires UnadmittedWorkloadsObservability to be enabled to take effect.
-	PrioritizeWorkloadsPendingPreemption featuregate.Feature = "PrioritizeWorkloadsPendingPreemption"
+	PrioritizePreemptorWorkloads featuregate.Feature = "PrioritizePreemptorWorkloads"
 
 	// owner: @ivnovakov
 	//
@@ -572,7 +572,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASMultiLayerTopology:                       {TopologyAwareScheduling},
 	TASRespectNodeAffinityPreferred:             {TopologyAwareScheduling},
 	UnadmittedWorkloadsExplicitStatus:           {UnadmittedWorkloadsObservability},
-	PrioritizeWorkloadsPendingPreemption:        {UnadmittedWorkloadsObservability},
+	PrioritizePreemptorWorkloads:                {UnadmittedWorkloadsObservability},
 	TASHandleOverlappingFlavors:                 {TopologyAwareScheduling},
 	TASProfileMixed:                             {TopologyAwareScheduling},
 	TASRecomputeAssignmentWithinSchedulingCycle: {TopologyAwareScheduling},
@@ -842,7 +842,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
-	PrioritizeWorkloadsPendingPreemption: {
+	PrioritizePreemptorWorkloads: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 

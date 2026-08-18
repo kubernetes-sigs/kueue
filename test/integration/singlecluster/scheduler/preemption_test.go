@@ -1428,7 +1428,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.It("Should prevent other workloads from stealing quota when a preemptor is waiting for multiple evictions", func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PrioritizeWorkloadsPendingPreemption, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PrioritizePreemptorWorkloads, true)
 
 			ginkgo.By("Creating initial workloads in cohort to consume all quota")
 			wlA := utiltestingapi.MakeWorkload("wl-a", ns.Name).
