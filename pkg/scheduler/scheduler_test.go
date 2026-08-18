@@ -6973,12 +6973,12 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 	}
-	inputForOrderingPendingPreemptionWorkloads := []entry{
+	inputForOrderingPreemptorWorkloads := []entry{
 		{
 			Info: workload.Info{
 				Obj: &kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:              "pending-preemption-borrowing",
+						Name:              "preemptor-borrowing",
 						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
 					},
 					Spec: kueue.WorkloadSpec{
@@ -7003,7 +7003,7 @@ func TestEntryOrdering(t *testing.T) {
 			Info: workload.Info{
 				Obj: &kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:              "pending-preemption-not-borrowing",
+						Name:              "preemptor-not-borrowing",
 						CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
 					},
 					Spec: kueue.WorkloadSpec{
@@ -7025,7 +7025,7 @@ func TestEntryOrdering(t *testing.T) {
 			Info: workload.Info{
 				Obj: &kueue.Workload{
 					ObjectMeta: metav1.ObjectMeta{
-						Name:              "not-pending-preemption-not-borrowing",
+						Name:              "not-preemptor-not-borrowing",
 						CreationTimestamp: metav1.NewTime(now),
 					},
 					Spec: kueue.WorkloadSpec{
@@ -7095,29 +7095,29 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			name:  "Some workloads are pending preemption; PrioritizePreemptorWorkloads is disabled",
-			input: inputForOrderingPendingPreemptionWorkloads,
+			name:  "Some workloads are preemptors; PrioritizePreemptorWorkloads is disabled",
+			input: inputForOrderingPreemptorWorkloads,
 			featureGates: map[featuregate.Feature]bool{
 				features.PrioritySortingWithinCohort:  true,
 				features.PrioritizePreemptorWorkloads: false,
 			},
 			wantOrder: []string{
-				"not-pending-preemption-not-borrowing",
-				"pending-preemption-not-borrowing",
-				"pending-preemption-borrowing",
+				"not-preemptor-not-borrowing",
+				"preemptor-not-borrowing",
+				"preemptor-borrowing",
 			},
 		},
 		{
-			name:  "Some workloads are pending preemption; PrioritizePreemptorWorkloads is enabled",
-			input: inputForOrderingPendingPreemptionWorkloads,
+			name:  "Some workloads are preemptors; PrioritizePreemptorWorkloads is enabled",
+			input: inputForOrderingPreemptorWorkloads,
 			featureGates: map[featuregate.Feature]bool{
 				features.PrioritySortingWithinCohort:  true,
 				features.PrioritizePreemptorWorkloads: true,
 			},
 			wantOrder: []string{
-				"pending-preemption-not-borrowing",
-				"pending-preemption-borrowing",
-				"not-pending-preemption-not-borrowing",
+				"preemptor-not-borrowing",
+				"preemptor-borrowing",
+				"not-preemptor-not-borrowing",
 			},
 		},
 	} {
@@ -8493,12 +8493,12 @@ func TestEntryComparerLess(t *testing.T) {
 			wantLess: true,
 		},
 		{
-			name: "a pending preemption, b not, feature enabled",
+			name: "a is preemptor, b not, feature enabled",
 			a: &entry{
 				Info: workload.Info{
 					Obj: &kueue.Workload{
 						ObjectMeta: metav1.ObjectMeta{
-							Name:      "pending-borrowing",
+							Name:      "preemptor-borrowing",
 							Namespace: "default",
 						},
 						Status: kueue.WorkloadStatus{
@@ -8517,19 +8517,19 @@ func TestEntryComparerLess(t *testing.T) {
 				Info: workload.Info{
 					Obj: &kueue.Workload{
 						ObjectMeta: metav1.ObjectMeta{
-							Name:      "not-pending-nominal",
+							Name:      "not-preemptor-nominal",
 							Namespace: "default",
 						},
 					},
 				},
 			},
 			drsValues: map[drsKey]schdcache.DRS{
-				{parentCohort: cohort, workloadKey: "default/pending-borrowing"}:   schdcache.BorrowingDRS(cpuDefault),
-				{parentCohort: cohort, workloadKey: "default/not-pending-nominal"}: {},
+				{parentCohort: cohort, workloadKey: "default/preemptor-borrowing"}:   schdcache.BorrowingDRS(cpuDefault),
+				{parentCohort: cohort, workloadKey: "default/not-preemptor-nominal"}: {},
 			},
 			requestedFRs: map[workload.Reference]resources.FlavorResourceQuantities{
-				"default/pending-borrowing":   {cpuDefault: resources.NewAmount(1)},
-				"default/not-pending-nominal": {cpuDefault: resources.NewAmount(1)},
+				"default/preemptor-borrowing":   {cpuDefault: resources.NewAmount(1)},
+				"default/not-preemptor-nominal": {cpuDefault: resources.NewAmount(1)},
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.PrioritizePreemptorWorkloads: true,
@@ -8537,12 +8537,12 @@ func TestEntryComparerLess(t *testing.T) {
 			wantLess: true,
 		},
 		{
-			name: "a pending preemption, b not, feature disabled",
+			name: "a is preemptor, b not, feature disabled",
 			a: &entry{
 				Info: workload.Info{
 					Obj: &kueue.Workload{
 						ObjectMeta: metav1.ObjectMeta{
-							Name:      "pending-borrowing",
+							Name:      "preemptor-borrowing",
 							Namespace: "default",
 						},
 						Status: kueue.WorkloadStatus{
@@ -8561,19 +8561,19 @@ func TestEntryComparerLess(t *testing.T) {
 				Info: workload.Info{
 					Obj: &kueue.Workload{
 						ObjectMeta: metav1.ObjectMeta{
-							Name:      "not-pending-nominal",
+							Name:      "not-preemptor-nominal",
 							Namespace: "default",
 						},
 					},
 				},
 			},
 			drsValues: map[drsKey]schdcache.DRS{
-				{parentCohort: cohort, workloadKey: "default/pending-borrowing"}:   schdcache.BorrowingDRS(cpuDefault),
-				{parentCohort: cohort, workloadKey: "default/not-pending-nominal"}: {},
+				{parentCohort: cohort, workloadKey: "default/preemptor-borrowing"}:   schdcache.BorrowingDRS(cpuDefault),
+				{parentCohort: cohort, workloadKey: "default/not-preemptor-nominal"}: {},
 			},
 			requestedFRs: map[workload.Reference]resources.FlavorResourceQuantities{
-				"default/pending-borrowing":   {cpuDefault: resources.NewAmount(1)},
-				"default/not-pending-nominal": {cpuDefault: resources.NewAmount(1)},
+				"default/preemptor-borrowing":   {cpuDefault: resources.NewAmount(1)},
+				"default/not-preemptor-nominal": {cpuDefault: resources.NewAmount(1)},
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.PrioritizePreemptorWorkloads: false,
@@ -8581,12 +8581,12 @@ func TestEntryComparerLess(t *testing.T) {
 			wantLess: false,
 		},
 		{
-			name: "both pending preemption, feature enabled",
+			name: "both are preemptors, feature enabled",
 			a: &entry{
 				Info: workload.Info{
 					Obj: &kueue.Workload{
 						ObjectMeta: metav1.ObjectMeta{
-							Name:      "pending-borrowing",
+							Name:      "preemptor-borrowing",
 							Namespace: "default",
 						},
 						Status: kueue.WorkloadStatus{
@@ -8605,7 +8605,7 @@ func TestEntryComparerLess(t *testing.T) {
 				Info: workload.Info{
 					Obj: &kueue.Workload{
 						ObjectMeta: metav1.ObjectMeta{
-							Name:      "pending-nominal",
+							Name:      "preemptor-nominal",
 							Namespace: "default",
 						},
 						Status: kueue.WorkloadStatus{
@@ -8621,12 +8621,12 @@ func TestEntryComparerLess(t *testing.T) {
 				},
 			},
 			drsValues: map[drsKey]schdcache.DRS{
-				{parentCohort: cohort, workloadKey: "default/pending-borrowing"}: schdcache.BorrowingDRS(cpuDefault),
-				{parentCohort: cohort, workloadKey: "default/pending-nominal"}:   {},
+				{parentCohort: cohort, workloadKey: "default/preemptor-borrowing"}: schdcache.BorrowingDRS(cpuDefault),
+				{parentCohort: cohort, workloadKey: "default/preemptor-nominal"}:   {},
 			},
 			requestedFRs: map[workload.Reference]resources.FlavorResourceQuantities{
-				"default/pending-borrowing": {cpuDefault: resources.NewAmount(1)},
-				"default/pending-nominal":   {cpuDefault: resources.NewAmount(1)},
+				"default/preemptor-borrowing": {cpuDefault: resources.NewAmount(1)},
+				"default/preemptor-nominal":   {cpuDefault: resources.NewAmount(1)},
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.PrioritizePreemptorWorkloads: true,

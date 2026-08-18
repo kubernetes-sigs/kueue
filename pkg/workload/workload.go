@@ -1322,8 +1322,8 @@ func IsOnHold(w *kueue.Workload) bool {
 	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadOnHold
 }
 
-// IsPendingPreemption returns true if the workload is waiting for preemption to complete.
-func IsPendingPreemption(w *kueue.Workload) bool {
+// IsPreemptor returns true if the workload is waiting for preemption to complete.
+func IsPreemptor(w *kueue.Workload) bool {
 	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
 	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 }
@@ -1334,7 +1334,7 @@ func IsPendingPreemption(w *kueue.Workload) bool {
 // - 1 if b is waiting for preemption and a is not
 // - 0 if both or neither are waiting for preemption
 func CompareWaitingForPreemption(a, b *kueue.Workload) int {
-	return cmputil.CompareBool(IsPendingPreemption(a), IsPendingPreemption(b))
+	return cmputil.CompareBool(IsPreemptor(a), IsPreemptor(b))
 }
 
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
