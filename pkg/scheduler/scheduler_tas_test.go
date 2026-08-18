@@ -596,10 +596,13 @@ func TestScheduleForTAS(t *testing.T) {
 		},
 		"second pass replacement must not take a domain claimed by another workload in the same cycle": {
 			// "replaced" keeps its admission while its node is unhealthy, so the
-			// second pass looks for a replacement domain. "contender" is a pending
-			// workload admitted in the same cycle. The replacement must not land on
-			// the node contender just took, which would pin its pod to a full node
-			// for good.
+			// second pass looks for a replacement domain. It is processed ahead of
+			// the pending "contender", because the classical iterator sorts
+			// quota-reserved entries first so they can be considered for a second
+			// pass. The replacement takes x2, and contender then has to observe x2
+			// as claimed and land on x3 instead. Without recording the replacement's
+			// claim, contender is admitted onto the same node and its pod is pinned
+			// to a full node for good.
 			//
 			// Neither state of TASFailedNodeReplacementFailFast prevents this: the
 			// fail-fast eviction is guarded on mode != Fit, and a skipped fits check
