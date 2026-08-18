@@ -17,7 +17,6 @@ limitations under the License.
 package jobframework
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -49,7 +48,7 @@ func TestExpectedRunningPodSetsKeepsImplicitTASRequestInSync(t *testing.T) {
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").PodSets(assignment).Obj(), time.Now()).
 		Obj()
 
-	got := expectedRunningPodSets(context.Background(), utiltesting.NewClientBuilder().Build(), wl)
+	got := expectedRunningPodSets(t.Context(), utiltesting.NewClientBuilder().Build(), wl)
 	if len(got) != 1 {
 		t.Fatalf("expected one running PodSet, got %d", len(got))
 	}

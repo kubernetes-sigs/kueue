@@ -1407,7 +1407,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 			if ps.TopologyRequest == nil {
 				ps.TopologyRequest = &kueue.PodSetTopologyRequest{}
 			}
-			ps.TopologyRequest.Unconstrained = ptr.To(true)
+			ps.TopologyRequest.Unconstrained = new(true)
 		}
 		if canBePartiallyAdmitted && ps.MinCount != nil {
 			// update the expected running count
