@@ -21,6 +21,7 @@ package was
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -199,6 +200,74 @@ func TestNodePortsFeasibility(t *testing.T) {
 				if !gotNames[n] {
 					t.Errorf("expected node %s to be feasible, got %v", n, gotNames)
 				}
+			}
+		})
+	}
+}
+
+func TestNodeUnschedulableFeasibility(t *testing.T) {
+	ctx := t.Context()
+
+	node1 := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node1", Labels: map[string]string{corev1.LabelHostname: "node1"}},
+		Spec:       corev1.NodeSpec{Unschedulable: true},
+	}
+	node2 := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{Name: "node2", Labels: map[string]string{corev1.LabelHostname: "node2"}},
+		Spec:       corev1.NodeSpec{Unschedulable: false},
+	}
+
+	tests := map[string]struct {
+		nodes        []*corev1.Node
+		candidatePod corev1.PodTemplateSpec
+		wantFeasible map[string]bool
+	}{
+		"unschedulable node is excluded": {
+			nodes:        []*corev1.Node{node1, node2},
+			candidatePod: corev1.PodTemplateSpec{},
+			wantFeasible: map[string]bool{"node2": true},
+		},
+		"all schedulable nodes are feasible": {
+			nodes:        []*corev1.Node{node2},
+			candidatePod: corev1.PodTemplateSpec{},
+			wantFeasible: map[string]bool{"node2": true},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			sim, err := NewWASSimulatorForTest(ctx)
+			if err != nil {
+				t.Fatalf("NewWASSimulatorForTest failed: %v", err)
+			}
+
+			candidates := func(yield func(simulator.Candidate) bool) {
+				for _, n := range tc.nodes {
+					if !yield(&testCandidate{node: n, id: utiltas.TopologyDomainID(n.Name)}) {
+						return
+					}
+				}
+			}
+
+			snapshot, err := sim.Snapshot(ctx, tc.nodes)
+			if err != nil {
+				t.Fatalf("Snapshot failed: %v", err)
+			}
+
+			results, err := snapshot.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+				PodTemplate: &tc.candidatePod,
+			}, &simulator.NodeExclusionStats{})
+			if err != nil {
+				t.Fatalf("FindFeasibleNodes failed: %v", err)
+			}
+
+			gotNames := make(map[string]bool)
+			for _, r := range results {
+				gotNames[r.GetNode().Name] = true
+			}
+
+			if diff := cmp.Diff(tc.wantFeasible, gotNames); diff != "" {
+				t.Errorf("Unexpected feasible nodes (-want,+got):\n%s", diff)
 			}
 		})
 	}
