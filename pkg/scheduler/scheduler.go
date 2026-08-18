@@ -1107,13 +1107,8 @@ func makeClassicalIterator(log logr.Logger, entries []entry, workloadOrdering wo
 
 		// 1. Process workloads pending preemption if the feature is enabled.
 		if features.Enabled(features.PrioritizePreemptorWorkloads) {
-			aPendingPreempt := workload.IsPendingPreemption(a.Obj)
-			bPendingPreempt := workload.IsPendingPreemption(b.Obj)
-			if aPendingPreempt != bPendingPreempt {
-				if aPendingPreempt {
-					return -1
-				}
-				return 1
+			if cmp := workload.CompareWaitingForPreemption(a.Obj, b.Obj); cmp != 0 {
+				return cmp
 			}
 		}
 
