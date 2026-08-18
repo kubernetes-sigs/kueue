@@ -78,12 +78,6 @@ type workloadToCreate struct {
 	index int
 }
 
-// resolvedPriority holds one lookup of the LeaderWorkerSet's priority class,
-// shared across a reconcile's branches so every Workload it creates or moves to
-// another class gets the same reference and value; a second lookup could return
-// a different value and split them. It does not touch the rest: a component
-// already on the class keeps its value, and one whose own update failed is not
-// written.
 type resolvedPriority struct {
 	classRef *kueue.PriorityClassRef
 	priority int32
@@ -332,7 +326,7 @@ func (r *Reconciler) applyPriority(ctx context.Context, lws *leaderworkersetv1.L
 			return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wls[i])
 		})
 	}
-	targets := jobframework.WorkloadsNeedingPriorityClassChange(ctrl.LoggerFrom(ctx), lws, wls)
+	_, targets := jobframework.ClassifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), lws, wls)
 	if len(targets) == 0 {
 		return nil
 	}
