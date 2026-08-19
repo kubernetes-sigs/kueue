@@ -252,6 +252,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should create workload when replicas > 0 and workload doesn't exist": {
+			wantEvents:   createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -281,9 +282,30 @@ func TestReconciler(t *testing.T) {
 					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
 					Obj(),
 			},
-			wantEvents: createdWorkloadEvents,
+		},
+		"should report a missing workload priority class and create no workload": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				WorkloadPriorityClass("missing-wpc").
+				Obj(),
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				WorkloadPriorityClass("missing-wpc").
+				DeepCopy(),
+			// missing-wpc is deliberately never created.
+			wantErr: cmpopts.AnyError,
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "sts", Namespace: "ns"},
+				EventType: corev1.EventTypeWarning,
+				Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
+				Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+			}},
 		},
 		"should create workload with TAS topology request when TAS enabled": {
+			wantEvents:   createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -319,7 +341,6 @@ func TestReconciler(t *testing.T) {
 					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
 					Obj(),
 			},
-			wantEvents: createdWorkloadEvents,
 		},
 		"should not create workload when replicas == 0": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
@@ -445,6 +466,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"statefulset with single AdmissionGatedBy gate should propagate to workload": {
+			wantEvents: createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 				features.AdmissionGatedBy:        true,
@@ -480,9 +502,9 @@ func TestReconciler(t *testing.T) {
 					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
 					Obj(),
 			},
-			wantEvents: createdWorkloadEvents,
 		},
 		"statefulset with multiple AdmissionGatedBy gates should propagate to workload": {
+			wantEvents: createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 				features.AdmissionGatedBy:        true,
@@ -518,7 +540,6 @@ func TestReconciler(t *testing.T) {
 					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1,example.com/controller2").
 					Obj(),
 			},
-			wantEvents: createdWorkloadEvents,
 		},
 		"should emit an event when the AdmissionGatedBy annotation is propagated to an existing workload": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
@@ -665,6 +686,7 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"statefulset with AdmissionGatedBy annotation but feature gate disabled should not propagate": {
+			wantEvents:   createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false, features.AdmissionGatedBy: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -696,7 +718,6 @@ func TestReconciler(t *testing.T) {
 					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
 					Obj(),
 			},
-			wantEvents: createdWorkloadEvents,
 		},
 	}
 	for name, tc := range cases {
@@ -767,7 +788,7 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 
-			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.EquateEmpty(), cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {
 				t.Errorf("Events after reconcile (-want,+got):\n%s", diff)
 			}
 		})

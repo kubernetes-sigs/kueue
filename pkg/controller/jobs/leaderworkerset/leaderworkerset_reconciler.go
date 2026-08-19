@@ -315,7 +315,7 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 		return err
 	}
 
-	err = jobframework.PrepareWorkloadPriority(ctx, r.client, lws, createdWorkload, nil)
+	err = jobframework.PrepareWorkloadPriority(ctx, r.client, r.record, lws, createdWorkload, nil)
 	if err != nil {
 		log.Error(err, "Failed to prepare Workload priority")
 		return err
