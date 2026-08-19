@@ -83,14 +83,14 @@ var (
 	realClock = clock.RealClock{}
 )
 
-// preemptorWorkload is the workload at the ClusterQueue head which is 
-// currently preempting workloads. For BestEffortFIFO policy, isSticky is 
-// set to true and prevents skipped over ineligible workloads from going back 
+// preemptorWorkload is the workload at the ClusterQueue head which is
+// currently preempting workloads. For BestEffortFIFO policy, isSticky is
+// set to true and prevents skipped over ineligible workloads from going back
 // to the head of the queue. A workload is considered a preemptor until it is
 // admitted, unschedulable, or deleted.
 // See Kueue#6929 and Kueue#7101 for motivation.
 //
-// The workloadName field is accessed concurrently and drives both the CQ heap
+// The state field is accessed concurrently and drives both the CQ heap
 // ordering and the Snapshot ordering used by the visibility server. Two
 // mechanisms keep every sort transitive (see Kueue#12740):
 //   - Writes (set/clear) happen under the ClusterQueue's rwm lock, so heap
@@ -102,21 +102,23 @@ var (
 // The field holds a single whole value (nil means no preemptor workload), so an
 // atomic.Pointer keeps individual reads and writes memory-safe on top of the
 // ordering guarantees above.
-type preemptorWorkload struct {
-	workloadName atomic.Pointer[workload.Reference]
+type preemptorWorkloadState struct {
+	workloadName workload.Reference
 	isSticky     bool
 }
 
+type preemptorWorkload struct {
+	state atomic.Pointer[preemptorWorkloadState]
+}
+
 func (p *preemptorWorkload) matches(workload workload.Reference) bool {
-	name := p.workloadName.Load()
-	return name != nil && *name == workload
+	state := p.state.Load()
+	return state != nil && state.workloadName == workload
 }
 
 func (p *preemptorWorkload) stickyMatches(workload workload.Reference) bool {
-	if !p.isSticky {
-		return false
-	}
-	return p.matches(workload)
+	state := p.state.Load()
+	return state != nil && state.isSticky && state.workloadName == workload
 }
 
 // capturedStickyMatcher captures the current sticky workload once and returns a
@@ -124,27 +126,25 @@ func (p *preemptorWorkload) stickyMatches(workload workload.Reference) bool {
 // predicate stays transitive even if set/clear runs concurrently, because every
 // comparison in that sort observes the same sticky workload. See Kueue#12740.
 func (p *preemptorWorkload) capturedStickyMatcher() func(workload.Reference) bool {
-	if !p.isSticky {
+	state := p.state.Load()
+	if state == nil || !state.isSticky {
 		return func(workload.Reference) bool { return false }
 	}
-	name := p.workloadName.Load()
-	if name == nil {
-		return func(workload.Reference) bool { return false }
-	}
-	captured := *name
+	captured := state.workloadName
 	return func(key workload.Reference) bool {
 		return captured == key
 	}
 }
 
 func (p *preemptorWorkload) clear() {
-	p.workloadName.Store(nil)
-	p.isSticky = false
+	p.state.Store(nil)
 }
 
 func (p *preemptorWorkload) set(workload workload.Reference, isSticky bool) {
-	p.workloadName.Store(&workload)
-	p.isSticky = isSticky
+	p.state.Store(&preemptorWorkloadState{
+		workloadName: workload,
+		isSticky:     isSticky,
+	})
 }
 
 func logStickyWorkloadSelectionIfVerbose(log logr.Logger, wl *kueue.Workload) {
@@ -545,8 +545,8 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
-	// When preemptions are in-progress, track the preempting workload (see documentation 
-	// of preemptorWorkload). For BestEffortFIFO queues, this also makes it sticky at the head. 
+	// When preemptions are in-progress, track the preempting workload (see documentation
+	// of preemptorWorkload). For BestEffortFIFO queues, this also makes it sticky at the head.
 	// The preemptor workload is set under the lock so heap operations, which also hold the lock,
 	// never observe it changing mid-sort. See Kueue#12740.
 	if reason == RequeueReasonPendingPreemption || reason == RequeueReasonPendingMigration {

@@ -660,8 +660,8 @@ func TestHeapOrderingStableOnLocalQueueLookupError(t *testing.T) {
 }
 
 // TestSnapshotConcurrentWithRequeueNoDataRace guards against a data race on the
-// sticky workload: Snapshot sorts a copy of the pending workloads through the
-// comparator (which reads stickyWorkload.workloadName) without holding the
+// preemptor workload: Snapshot sorts a copy of the pending workloads through the
+// comparator (which reads preemptorWorkload.state) without holding the
 // ClusterQueue lock, while RequeueIfNotPresent writes that field during a
 // BestEffortFIFO preemption requeue. Run with -race to detect regressions.
 func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
