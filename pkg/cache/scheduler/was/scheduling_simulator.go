@@ -207,7 +207,7 @@ func (t *podTracker) track(pod *corev1.Pod) {
 	wl := workloadName(pod)
 	wlKey := types.NamespacedName{Namespace: ns, Name: wl}
 	if _, ok := t.data.workloadPods[wlKey]; !ok {
-		t.data.workloadPods[wlKey] = make(map[types.NamespacedName]*corev1.Pod)
+		t.data.workloadPods[wlKey] = make(podSet)
 	}
 	t.data.workloadPods[wlKey][podKey] = pod
 }
