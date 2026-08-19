@@ -92,6 +92,7 @@ spec:
 ```
 
 The mutation applies only when the feature is enabled and the Job satisfies the [Defaulting rules](#defaulting-rules).
+The webhook also stamps a Kueue-owned annotation recording that it defaulted, which is what makes a later loss of the field detectable; see [Feature gate and API availability](#feature-gate-and-api-availability).
 
 Kueue and the upstream scheduling API both define a `Workload`.
 This document writes `kueue.Workload` for the Kueue queueing unit and `scheduling.Workload` for the upstream object the Job controller compiles.
@@ -120,7 +121,7 @@ What carries the administrator's intent once the gate graduates is [OQ4](#open-q
 - **Kueue does not write `minCount`.**
   The Job controller resolves it from `parallelism`.
   Writing it would couple partial admission to upstream validation and would make a Kueue-set value indistinguishable from a user-set one.
-- **API support must be verified before mutating.**
+- **API support constrains when Kueue may mutate.**
   A cluster that does not honor the field discards it silently at write time, and it cannot be restored on that Job afterwards.
   See [Feature gate and API availability](#feature-gate-and-api-availability).
 
@@ -133,7 +134,7 @@ The comparison is not exact: that feature also requires a `WorkloadPriorityClass
 
 **Silent loss of the field.**
 A create request can succeed while `spec.scheduling` is discarded, with no error, warning, or condition.
-Kueue must not default unless it can verify in advance that the cluster preserves the field; see [Feature gate and API availability](#feature-gate-and-api-availability).
+Kueue skips clusters below the required version and reports the ones that discard the field anyway; see [Feature gate and API availability](#feature-gate-and-api-availability).
 
 **Replacement Pods can wait for the full gang.**
 Upstream evaluates gang satisfaction over the lifetime of the group, and the alternatives are still under discussion (`kubernetes/kubernetes#136334`).
@@ -159,16 +160,17 @@ On a Job CREATE request, Kueue injects `schedulingPolicy.gang: {}` and `disrupti
 1. `GangSchedulingByDefault` is enabled.
 2. The Job is managed by Kueue.
 3. The Job has no Kueue-managed ancestor.
-4. The Job expresses no scheduling intent of its own, meaning `spec.scheduling` is unset and its Pod template does not set `schedulingGroup`.
-5. The Job is eligible.
-6. Kueue can verify that the target cluster will preserve the field.
+4. The Job is not a copy dispatched by a MultiKueue manager.
+5. The Job expresses no scheduling intent of its own, meaning `spec.scheduling` is unset and its Pod template does not set `schedulingGroup`.
+6. The Job is eligible.
+7. The target cluster's API server is at or above the version that serves the field.
 
 Rule 2 reuses the Job integration's existing managed-job decision, including `manageJobsWithoutQueueName` and `managedJobsNamespaceSelector` from [KEP-3589](/keps/3589-manage-jobs-selectively), and runs after LocalQueue defaulting.
 Rule 3 reuses the existing Kueue-managed-ancestor check, preventing child Jobs from receiving a second scheduling intent when their root controller owns compilation.
 A Pod template that sets `schedulingGroup` counts as user intent for the same reason: upstream treats it as a bring-your-own `PodGroup` and the Job controller compiles nothing for such a Job, so an injected policy would never take effect.
 Consuming user-provided `PodGroup`s belongs to [KEP-13150](/keps/13150-bring-your-own-podgroup).
 
-Rule 4 keys on the presence of `spec.scheduling`, not on the scheduling policy inside it.
+Rule 5 keys on the presence of `spec.scheduling`, not on the scheduling policy inside it.
 Presence means presence in the admission request, which is the only version of the object a webhook sees; on a cluster that does not preserve the field, the request carries it and the stored Job does not.
 A Job that sets any part of the field owns all of it, so Kueue writes the two fields together or not at all.
 What Kueue should do with the contents of a user-set `spec.scheduling`, for example a `gang.minCount` that differs from `parallelism` or `schedulingConstraints` on their own, is deliberately left to the follow-up in [Future extensions](#future-extensions).
@@ -204,13 +206,13 @@ Eligibility does not depend on `completionMode`; Indexed and NonIndexed Jobs of 
 | Interaction | Behavior |
 |---|---|
 | Partial admission, Kueue-injected gang | Supported. Kueue leaves `minCount` unset, so the gang follows the admitted `parallelism`. |
-| Partial admission, user-set `minCount` | Excluded in alpha. Rule 4 never defaults such a Job, and Kueue does not reduce its `parallelism` either, so partial admission never meets a gang Kueue did not write. `parallelism` itself is mutable, but lowering it alone is rejected because the resulting state would have `minCount > parallelism`; lowering both in one request is validated against the final state and accepted. Whether beta adds that atomic update is [OQ1](#open-questions). |
+| Partial admission, user-set `minCount` | Excluded in alpha. Rule 5 never defaults such a Job, and Kueue does not reduce its `parallelism` either, so partial admission never meets a gang Kueue did not write. `parallelism` itself is mutable, but lowering it alone is rejected because the resulting state would have `minCount > parallelism`; lowering both in one request is validated against the final state and accepted. Whether beta adds that atomic update is [OQ1](#open-questions). |
 | Workload slices | Excluded in alpha, following the existing exclusion between partial admission and elastic Jobs. Upstream does rescale a gang in place; what is unverified is the Kueue-side slice semantics ([OQ5](#open-questions)). |
 | Suspend, eviction, requeue | The Kueue side is unchanged: eviction suspends the Job, its Pods are deleted, the `kueue.Workload` is requeued, and re-admission resumes the Job; the injected policy is immutable and survives the cycle. What is upstream dependent is the compiled-object lifecycle: suspending a Job does not currently delete the compiled objects, and beta is expected to delete and recreate them. |
 | `waitForPodsReady` | The scheduler keeps the group Pending while Kueue can still evict it after the timeout ([OQ3](#open-questions)). |
 | JobSet | Child Jobs of a Kueue-managed JobSet are excluded by rule 3. The only child Jobs that remain eligible are those whose parent JobSet is not managed by Kueue and that are admitted individually through the Job integration. This KEP does not select a JobSet queueing model. |
 | Kueue TAS | Not combined. This KEP writes no `schedulingConstraints`. |
-| MultiKueue | Every worker cluster must preserve the field; version and gate skew must be reported. |
+| MultiKueue | Defaulted on the manager only. Neither availability check reaches a worker, and rule 4 keeps the worker-side webhook off the dispatched copy ([Feature gate and API availability](#feature-gate-and-api-availability)). |
 | Preemption and eviction | The injected `disruptionMode.all` makes the compiled `PodGroup` one disruption unit on the scheduler side, which matches Kueue's Job-granularity eviction. Which system decides, and on whose priority, is out of scope for this KEP. |
 | `ProvisioningRequest` | No interaction defined in alpha. Provisioning is unaware of WAS, and what it writes back are Pod template updates rather than WAS fields, so the two compose as they are. What alpha does not analyze is timing: the booking is not retried once the Workload is admitted, so a gang that cannot be placed can outlive it, which is the same window as [OQ3](#open-questions). |
 | CronJob | Each scheduled Job is defaulted on its own, since the fields can only be set at creation. A CronJob-created Job has no Kueue-managed ancestor, so it receives the default whenever Kueue manages it and its shape qualifies. |
@@ -221,26 +223,50 @@ Eligibility does not depend on `completionMode`; Indexed and NonIndexed Jobs of 
 
 `GangSchedulingByDefault` is alpha and disabled by default.
 
-The implementation must verify that the target cluster preserves `batch/v1 Job.spec.scheduling` before defaulting.
-REST mapping and OpenAPI are insufficient, because the Job resource and the field schema remain visible even when the field is not preserved.
+**Kueue can only write a field it is built against.**
+The Job mutating webhook is a typed `admission.Defaulter[*batchv1.Job]`, so it can emit only what the vendored `k8s.io/api/batch/v1` declares, and Kueue is on `k8s.io/api v0.36.3` while `spec.scheduling` first appears in 1.37.
+Implementation therefore follows Kueue's Kubernetes dependency bump: until that lands, the feature is not implementable in that defaulter, rather than implemented and switched off.
+Writing the field through an untyped patch is possible, and Kueue already reads the compiled objects through unstructured clients in its WAS tests, but it would put a hand-built patch on the Job admission path for the length of one release, which alpha does not need.
+The reverse skew is safe on the cluster the user writes to: a Kueue built against an older API does not strip a user-set `spec.scheduling` on a 1.37 cluster, because controller-runtime drops the patch operations that remove fields only its own scheme is missing and Kueue does not opt into `DefaulterRemoveUnknownOrOmitableFields`.
+MultiKueue is the exception, and is covered at the end of this section.
+
+**A Kueue built against 1.37 still meets clusters that discard the field.**
+REST mapping and OpenAPI cannot detect them, because the Job resource and the field schema remain visible even when the field is not preserved.
 The presence of the `scheduling.k8s.io` API group is also only a proxy, because it is governed by `GenericWorkload` rather than by `WorkloadWithJob`, which is the gate that decides whether the Job field survives.
-The check therefore targets the observable itself rather than any particular gate: every state that loses the field, whether the cluster predates it or the API server runs with `WorkloadWithJob` disabled, collapses into the same symptom, the field is not preserved, and the same behavior, skipping the mutation and reporting the reason.
-Kueue therefore needs a preflight mechanism, such as a dry-run create that carries the field followed by inspection of the returned object.
-Whatever mechanism is selected must run outside the admission path, since a dry-run create passes through Kueue's own mutating webhook and the probe object must be excluded from defaulting, and its result must be cached rather than re-verified on every request.
-The cached result is keyed per target cluster, including each MultiKueue worker; observed field loss or a change in cluster version or gate posture invalidates it, and an unverified state fails closed.
-Selecting the mechanism, including the rest of the cache contract, is [OQ6](#open-questions) and blocks implementation, because rule 6 depends on it.
+Alpha therefore splits the problem: rule 7 keeps Kueue off the clusters that cannot serve the field at all, and a check after creation reports the ones that serve it and drop it anyway.
 
-Independently, a controller-side comparison after creation should report unexpected loss of the field, including on a MultiKueue worker.
-That is defensive reporting, not a substitute: once the field is dropped it cannot be restored on that Job.
+Rule 7 is the API server version, taken from the existing `ServerVersionFetcher`, which Kueue fetches once during startup and refreshes every ten minutes, and already passes to job webhooks through `jobframework.WithKubeServerVersion`, although no production path makes a decision from it today.
+A cluster below the first version that serves the field is unsupported, and the webhook skips the mutation and reports the reason.
+Version is necessary but not sufficient, since a supported version can still run with `WorkloadWithJob` disabled.
 
-The preflight covers the API-server side of the contract only, because `WorkloadWithJob` takes effect per component: the API-server gate decides whether the field is preserved, while the controller-manager gate decides whether the Job controller compiles the `scheduling.Workload` and `PodGroup`.
-A cluster with the API-server gate enabled and the controller-manager gate disabled preserves the field but never compiles it, so the preservation probe passes while the injected policy stays inert.
-No API-level probe can detect that skew in advance; the controller-side check above is the detection point and should also report a defaulted gang Job whose compiled objects never appear.
+The remaining states are detected after creation, in the Job reconciler.
+Detection needs a trace that outlives the field, because the API server discards `spec.scheduling` after admission: a stored Job that Kueue defaulted on a cluster with the gate disabled is indistinguishable from one Kueue never touched, and, under rule 5, also from one whose user-set opt-out was discarded the same way.
+The webhook therefore records the mutation in a Kueue-owned annotation, provisionally `kueue.x-k8s.io/gang-defaulted`, which the field's feature gate does not cover; Kueue's Pod integration stamps `kueue.x-k8s.io/managed` from its own webhook for the same reason.
+A Job that carries the annotation and no `spec.scheduling` proves that the cluster discarded the field, and Kueue reports it.
+The same trace does not exist for a Job whose own `spec.scheduling` the cluster discarded, because Kueue does not mutate such a Job and leaves nothing on it.
+Alpha accepts that limit rather than stamping Jobs it otherwise leaves untouched.
+Alpha reports per Job rather than suppressing further defaulting cluster-wide, because a webhook cannot observe an administrator enabling the gate afterwards, so a cluster-level stop would need a re-arm path this design does not have.
+The behavior until an administrator acts is the pre-feature behavior, a Job scheduled Pod by Pod, because once the field is dropped it cannot be restored on that Job.
+
+A dry-run create carrying the field, followed by inspection of the returned object, would detect the same states before the first Job is admitted.
+It is not proposed for alpha because it must run outside the admission path, its probe object must be excluded from Kueue's own defaulting, and its result needs a cache contract per target cluster that is invalidated by observed field loss or by a change of version or gate posture.
+Whether beta adds it is [OQ6](#open-questions).
+
+Neither check covers the per-component skew, because `WorkloadWithJob` takes effect separately in each component: the API-server gate decides whether the field is preserved, while the controller-manager gate decides whether the Job controller compiles the `scheduling.Workload` and `PodGroup`.
+A cluster with the API-server gate enabled and the controller-manager gate disabled preserves the field but never compiles it, so any preservation check passes while the injected policy stays inert.
+The reconciler is the only detection point, and it should also report a defaulted gang Job whose compiled objects never appear.
+
+**MultiKueue is not covered by either check.**
+Both observe the cluster Kueue runs against: the version comes from the manager's own API server, and the reconciler compares the manager's copy of the Job, which keeps the field.
+The remote Job is built from the manager's typed spec, so a manager below the required version drops `spec.scheduling` on the way to the worker, including one the user set.
+Alpha therefore leaves the dispatched copy alone, which is rule 4: the remote Job already carries the `kueue.x-k8s.io/multikueue-origin` label, and the worker-side webhook has to skip on it, so a Job's policy, or its absence, is decided once on the manager.
+No webhook reads that label today, so this is a check to add rather than one to reuse.
+Checking workers independently is a beta item, with the rest of MultiKueue behavior.
 
 ### Observability
 
 The Job shows that gang scheduling was requested but not the resolved `minCount`; the compiled `PodGroup` is the source of truth for the effective group size.
-The implementation should surface successful defaulting, defaulting skipped for an unsupported cluster, and loss of the field on a MultiKueue worker.
+The implementation should surface successful defaulting, defaulting skipped for an unsupported cluster, and a defaulted Job whose stored object lost the field.
 The specific observability mechanism is deferred until the KEP becomes implementable.
 
 ### Future extensions
@@ -264,14 +290,14 @@ That work depends on upstream settling what a partially specified `spec.scheduli
 | OQ3 | Do gang waiting and `waitForPodsReady.timeout` need coordination? | Probably not a hard constraint, but Kueue should distinguish an unplaceable gang from ordinary startup delay. |
 | OQ4 | What carries the administrator's cluster-level choice once `GangSchedulingByDefault` graduates? | Open. Alpha needs nothing, since the gate is default-off and enabling it is itself the administrator's choice. Once the gate defaults on, the behavior becomes cluster-wide with only a per-Job opt-out. `WorkloadPriorityClass` defaulting has a second switch, the presence of a `WorkloadPriorityClass` named `default`, and gang has no object whose presence can carry the same intent. |
 | OQ5 | Should defaulting be skipped when workload slices are enabled? | Yes for alpha, because the Kueue-side slice semantics are unverified. |
-| OQ6 | How can Kueue reliably detect that the apiserver preserves `spec.scheduling`? | Not from REST mapping or OpenAPI. Blocks implementation together with rule 6. |
+| OQ6 | Should a preflight probe replace the check after creation for clusters that discard the field? | Beta. The version rule and the annotation comparison in [Feature gate and API availability](#feature-gate-and-api-availability) are enough while the gate is default-off; a probe buys pre-admission detection, and a per-cluster result that MultiKueue workers could be checked against, at the cost of a cache contract. |
 
 ### Upstream dependencies
 
 The design relies on the following upstream behavior, documented in the Kubernetes Job documentation for `WorkloadWithJob` and in [KEP-5547](https://github.com/kubernetes/enhancements/issues/5547):
 
 - An omitted `spec.scheduling` means `Basic`, and an omitted `gang.minCount` defaults to `.spec.parallelism`.
-  That resolution happens during validation and compilation rather than being persisted, so a Job whose author left the field alone does not acquire it; rule 4 depends on this.
+  That resolution happens during validation and compilation rather than being persisted, so a Job whose author left the field alone does not acquire it; rule 5 depends on this.
 - Every `spec.scheduling` field is immutable after creation except `schedulingPolicy.gang.minCount`, and a `minCount` greater than `parallelism` is rejected.
   Immutability covers whether a field is set at all, so neither the policy nor `disruptionMode` can be added to an existing Job.
 - The `Basic` policy and `disruptionMode.all` are rejected together, and for a Job an unset policy resolves to `Basic`.
@@ -280,7 +306,8 @@ The design relies on the following upstream behavior, documented in the Kubernet
 - The Job controller compiles the `scheduling.Workload` and `PodGroup` as soon as the Job exists, including while it is suspended, and recompiles `gang.minCount` when `parallelism` changes.
 
 These assumptions were verified against `v1.37.0-rc.0` on a cluster with both gates enabled, and must be revalidated before implementation.
-Kueue cannot depend on that version yet: `sigs.k8s.io/scheduler-library` has a single published version, `v0.1.0-alpha1`, whose `go.mod` pins `k8s.io/kubernetes v1.36.0`.
+Writing the field needs `k8s.io/api` at 1.37, as described under [Feature gate and API availability](#feature-gate-and-api-availability), and that bump is larger than `k8s.io/api`: Kueue also depends directly on `k8s.io/kubernetes`, and on `sigs.k8s.io/scheduler-library`, which the WAS scheduling simulator compiles against and which has a single published version, `v0.1.0-alpha1`, whose `go.mod` pins `k8s.io/kubernetes v1.36.0`.
+Tests can reach the compiled objects through unstructured clients while that version lags, as the existing WAS end-to-end test already does.
 
 ## Test Plan
 
@@ -295,12 +322,13 @@ The field first appears in `v1.37.0-rc.0`; until 1.37 is released and Kueue can 
 
 ### Unit tests
 
-Table-driven Job webhook tests cover the gate disabled, ineligible Job shapes, a child Job with a Kueue-managed ancestor, a Job not managed by Kueue, idempotent reinvocation, and a target cluster that does not preserve the field, covering both an absent API and a schema that is served while the API server drops the field.
-Rule 4 is covered by every shape of a user-set `spec.scheduling`, each expecting no mutation: an explicit `gang`, an explicit `basic`, a `disruptionMode` alone, `disruptionMode.all` with no policy, `schedulingConstraints` alone, and a nil `schedulingPolicy`.
+Table-driven Job webhook tests cover the gate disabled, ineligible Job shapes, a child Job with a Kueue-managed ancestor, a Job not managed by Kueue, a Job carrying the MultiKueue origin label, idempotent reinvocation, and a cluster version that does not serve the field.
+Rule 5 is covered by every shape of a user-set `spec.scheduling`, each expecting no mutation: an explicit `gang`, an explicit `basic`, a `disruptionMode` alone, `disruptionMode.all` with no policy, `schedulingConstraints` alone, and a nil `schedulingPolicy`.
 
 ### Integration tests
 
-Using an `envtest` that serves the field with `WorkloadWithJob` enabled: defaulting enabled and disabled, explicit opt-out, child Job exclusion, unsupported API behavior, eviction of a defaulted Job followed by resume with the injected policy unchanged, and observability for applied defaulting, skipped defaulting, and a preserved but never-compiled policy.
+Using an `envtest` that serves the field with `WorkloadWithJob` enabled: defaulting enabled and disabled, explicit opt-out, child Job exclusion, eviction of a defaulted Job followed by resume with the injected policy unchanged, and observability for applied defaulting, skipped defaulting, and a preserved but never-compiled policy.
+A second `envtest` with the gate disabled on the API server covers the check after creation: the stored Job carries the annotation and no `spec.scheduling`, and the loss is reported.
 
 ### e2e tests
 
@@ -316,17 +344,17 @@ Using an `envtest` that serves the field with `WorkloadWithJob` enabled: default
 
 #### Alpha
 
-- OQ6 is settled before implementation starts.
+- Kueue's vendored `k8s.io/api` declares `batch/v1 Job.spec.scheduling`; implementation starts after that dependency bump.
 - `GangSchedulingByDefault` is implemented behind a default-off feature gate, with no additional Kueue configuration field.
-- Defaulting of both fields, opt-out, eligibility, and child Job exclusion have unit, integration, and end-to-end coverage.
-- An unsupported cluster is handled safely and observably: Kueue does not default when the preflight check fails, and reports why.
+- Every defaulting rule has unit and integration coverage, including the annotation and the MultiKueue skip; defaulting, opt-out, and partial admission additionally have end-to-end coverage.
+- An unsupported cluster is handled safely and observably: the webhook skips the mutation below the required version, and the reconciler reports a field that the cluster discarded.
 - Partial admission is not performed for Jobs carrying an explicit `gang.minCount`.
 - The WAS Job test from #13533 is re-enabled.
 
 #### Beta
 
 - The upstream Job integration has stable suspend and resume semantics for Kueue eviction and requeue.
-- OQ1, OQ2, and OQ3 are resolved and implemented.
+- OQ1 through OQ6 are resolved and implemented; OQ4 in particular cannot outlive the gate's graduation.
 - Observability is finalized.
 - MultiKueue behavior is defined and tested.
 
@@ -335,8 +363,11 @@ Using an `envtest` that serves the field with `WorkloadWithJob` enabled: default
 - Enabling the feature affects only Jobs created afterwards; existing Jobs cannot be backfilled.
 - Disabling it does not modify existing Jobs.
   Jobs that already carry the gang policy keep it, and the field cannot be cleared.
-- Each target cluster must preserve the field, checked independently for MultiKueue workers.
-  A cluster that silently drops it is unsupported and must be reported; affected Jobs have to be recreated once the cluster supports the field.
+- A cluster that serves the field and silently drops it is unsupported.
+  The loss is reported per Job, and affected Jobs have to be recreated once the cluster supports the field.
+- MultiKueue is not defaulted in alpha, and a manager below the required version does not carry a user-set `spec.scheduling` to its workers.
+- Kueue older than the Kubernetes dependency bump cannot write the field at all, and does not strip one the user wrote.
+  A Kueue that can write it skips the mutation below the required API server version.
 
 ## Implementation History
 
@@ -349,7 +380,7 @@ The default-off feature gate, the eligibility rules, and the object-level opt-ou
 Because the gate is the only control, an administrator cannot narrow the default to part of the cluster except by narrowing which Jobs Kueue manages.
 The implementation also depends on an upstream field whose availability varies across clusters, which adds version and gate checks to both single-cluster and MultiKueue operation.
 
-Keying rule 4 on the presence of `spec.scheduling` also gives up reach, and does so unpredictably when another mutating webhook writes the same field.
+Keying rule 5 on the presence of `spec.scheduling` also gives up reach, and does so unpredictably when another mutating webhook writes the same field.
 A Job that reaches Kueue with `schedulingConstraints` already added loses the default; a Job that reaches Kueue without them, and acquires them afterwards, keeps the injected gang and ends up with the combination this KEP says it does not produce.
 Which of the two happens is decided by the order of the webhook chain, and Kueue runs with `reinvocationPolicy: Never`, which is both the chart's default and the API server's, so it is not reinvoked to notice the second case.
 
