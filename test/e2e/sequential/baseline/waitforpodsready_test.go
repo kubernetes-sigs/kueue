@@ -488,7 +488,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 			})
 		})
 
-		ginkgo.By("verifying that the wait time metrics count remained 1", func() {
+		ginkgo.By("verifying that the time-to-readiness metrics were not re-emitted after recovery", func() {
 			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
 				{"kueue_ready_wait_time_seconds_count", cq.Name, "} 1"},
 				{"kueue_admitted_until_ready_wait_time_seconds_count", cq.Name, "} 1"},
