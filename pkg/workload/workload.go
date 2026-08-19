@@ -1321,7 +1321,6 @@ func IsOnHold(w *kueue.Workload) bool {
 
 // IsPreemptor returns true if the workload is waiting for preemption to complete.
 
-
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
 func HasDRA(w *kueue.Workload) bool {
 	return HasResourceClaim(w) || HasResourceClaimTemplates(w)
@@ -1662,19 +1661,11 @@ func IsElasticWorkload(wl *kueue.Workload) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && wl.GetAnnotations()[constants.ElasticJobAnnotation] == "true"
 }
 
-// UnadmittedWorkloadReasonWithFallback returns the granularReason if it should be exposed
-// (via UnadmittedWorkloadsObservability or PrioritizePreemptorWorkloads), otherwise returns fallback.
+// UnadmittedWorkloadReasonWithFallback returns the granularReason if the UnadmittedWorkloadsObservability
+// feature gate is enabled, otherwise it returns the fallback.
 func UnadmittedWorkloadReasonWithFallback(granularReason, fallback string) string {
-	if shouldExposeGranularReason(granularReason) {
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		return granularReason
 	}
 	return fallback
-}
-
-func shouldExposeGranularReason(reason string) bool {
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		return true
-	}
-	return reason == kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads &&
-		features.Enabled(features.PrioritizePreemptorWorkloads)
 }
