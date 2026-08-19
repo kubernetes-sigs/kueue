@@ -409,7 +409,7 @@ test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VE
 .PHONY: test-e2e-multikueue-map
 test-e2e-multikueue-map: E2E_MAP_K8S_VERSION ?= 1.36.1
 test-e2e-multikueue-map: setup-e2e-env
-	@$(MAKE) run-test-multikueue-e2e-map-$(E2E_MAP_K8S_VERSION) ## Run the MultiKueue MutatingAdmissionPolicy e2e test suite (Kubernetes 1.36+).
+	@$(MAKE) run-test-multikueue-e2e-map-$(E2E_MAP_K8S_VERSION) ## Run the MultiKueue MutatingAdmissionPolicy e2e test suite (Kubernetes 1.36).
 
 run-test-e2e-baseline-%: K8S_VERSION = $(@:run-test-e2e-baseline-%=%)
 run-test-e2e-baseline-%:
@@ -648,7 +648,7 @@ run-test-multikueue-e2e-map-%: K8S_VERSION = $(@:run-test-multikueue-e2e-map-%=%
 run-test-multikueue-e2e-map-%:
 	@echo Running MAP multikueue e2e for k8s ${K8S_VERSION}
 	@if [ "$$(echo $(K8S_VERSION) | cut -d. -f1,2)" != "1.36" ]; then \
-		echo "Error: MutatingAdmissionPolicy MultiKueue e2e tests require Kubernetes 1.36+ (got $(K8S_VERSION))"; \
+		echo "Error: MutatingAdmissionPolicy MultiKueue e2e tests require Kubernetes 1.36 (got $(K8S_VERSION))"; \
 		exit 1; \
 	fi
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
