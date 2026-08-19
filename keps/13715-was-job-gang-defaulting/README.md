@@ -129,7 +129,7 @@ What carries the administrator's intent once the gate graduates is [OQ4](#open-q
 
 **Changing scheduling semantics without a per-Job request.**
 The feature is disabled by default and requires an administrator to enable the gate; a Job that sets `spec.scheduling` is never modified, and `basic: {}` is the documented object-level opt-out.
-This follows the existing defaulting pattern from [KEP-10765](/keps/10765-workload-priority-class-defaulting), a gated creation-time mutation that preserves explicit user values, which graduated to beta in v0.20.
+This follows the existing defaulting pattern from [KEP-10765](/keps/10765-workload-priority-class-defaulting), a gated creation-time mutation that preserves explicit user values, and which is itself still alpha and default-off.
 The comparison is not exact: that feature also requires a `WorkloadPriorityClass` named `default` to exist, so its gate alone changes nothing, while here the gate is the whole switch ([OQ4](#open-questions)).
 
 **Silent loss of the field.**
