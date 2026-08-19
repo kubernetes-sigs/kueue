@@ -337,6 +337,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: PodIntegrationValidateGroupOwner
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: PriorityBoost
   versionedSpecs:
   - default: false
