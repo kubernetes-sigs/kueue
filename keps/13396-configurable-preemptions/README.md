@@ -273,7 +273,7 @@ nitty-gritty.
 
 ### User Stories
 
-Each of the user stories mentioned in motivations can be fullfilled by appropriate config and/or preemption limits. Strategies and limits for each of them  can be found below in appropriate subsections.
+Each of the user stories mentioned in motivations can be fullfilled by appropriate config and/or preemption limits. Configs and limits for each of them  can be found below in appropriate subsections.
 
 #### Story 1 - Defragmentation
 
@@ -316,7 +316,7 @@ As the scope of the design is already broad we leave them as separate implemetat
 
 ### Caveats
 
-Given extensive nature of **PreemptionStrategies** defined below, the API introduces several complexities where users might inadvertently misconfigure their setup. To maximize user success, the following mitigations will be implemented:
+Given extensive nature of **PreemptionConfigs** defined below, the API introduces several complexities where users might inadvertently misconfigure their setup. To maximize user success, the following mitigations will be implemented:
 
 * Deliver concrete examples demonstrating successful configurations.
 * Offer detailed scenarios illustrating invalid configurations or potential flapping issues.
@@ -326,8 +326,8 @@ Given extensive nature of **PreemptionStrategies** defined below, the API introd
 ### Risks and Mitigations
 
 #### Cascading preemptions due to misconfiguration
-One inherent risk is users deploying ill-defined preemption strategies that could lead to cluster instability (e.g. cascading preemptions). The design includes the following mitigations:
-1. **Global limits** - cluster administrators have additonal safety measure that can be used to rollout new strategies or rules gradually, by limiting number of preemptions they permitted by particular config or rule.
+One inherent risk is users deploying ill-defined preemption configs that could lead to cluster instability (e.g. cascading preemptions). The design includes the following mitigations:
+1. **Global limits** - cluster administrators have additonal safety measure that can be used to rollout new configs or rules gradually, by limiting number of preemptions they permitted by particular config or rule.
 2. **Restrictive default preemption configuration** - By default empty config does not lead to any preemptions as candidate selection rules will be empty.
 3. **Documentation** - Comprehensive documentation will be provided to help users understand the risks and benefits of each configuration option, including examples of common preemption scenarios and how to configure them.
 
@@ -337,7 +337,7 @@ Other risk is preemption performance degradation due to generic nature of new ru
 The test suite will be used to benchmark new implementation vs existing one to ensure that there is no significant performance degradation for already defined "high level" policies.
 The test suite will be also used to indetify performance optimization opportunities for the newly introduced code.
 
-The documation will also clearly indicate that creation of large number of complex preemption rules may have performance implications for the overall scheduling and that it is recommended to benchmark your strategies before rolling out to production.
+The documation will also clearly indicate that creation of large number of complex preemption rules may have performance implications for the overall scheduling and that it is recommended to benchmark your configs before rolling out to production.
 
 #### Security considerations
 
@@ -417,7 +417,6 @@ const (
 )
 
 
-
 type PreemptionCandidateSelector struct{
 	// Required. 
 	RelationRequirement PreemptionRelationConstraint
@@ -426,6 +425,12 @@ type PreemptionCandidateSelector struct{
 	// Cannot be set if RelationRequirement is SameLocalQueue or SamleClustrQueue.
 	Quota QuotaConstraint
 
+	// Accepts all if not set
+	// Filter candidate workloads using custom numeric labels from the workload
+	// resource. If you wish to propagate specific labels from the source job-like
+	// resour
+	// Multiple numeric labels are joined using AND-rule (all have to be satisfied).
+	NumericLabels []NumericLabelConstraint
 
 	// Accepts all if not set.
 	ClusterQueueSelector metav1.LabelSelector
@@ -460,15 +465,56 @@ type PreemptionCandidateSelector struct{
 }
 
 
+
+// NumericLabelConstraint describes the rule for filtering a custom numerical label.
+// For example, this can be used to filter candidates based on the label somehow describing
+// required topology domain size, such as the "number of TPUs". 
+// If user has a label "number-of-tpus" that desribes number of tpus required in a single cube
+// it can be used to create a rule that selects only workloads requiring smaller cube slices 
+// by defining the relation="Lower". Such configuration would allow to preempt "smaller" workloads,
+// to achieve better cluster utilization and decrease fragmentation.
+// Please note that those labels are not out of the box copied from job-like objects.
+// You should remember to append the designated labels to the list of labels
+// copied to the workload via the Kueue main configuration
+// if you wish to use a custom label.
+type NumericLabelConstraint struct {
+	// Key is the label key that stores the integer value in the workload that will
+	// be used for candidate selection.
+	Key string `json:"key"`
+
+	// DefaultValue is used when a workload does not have the label key
+	// or value under the key cannot be parsed as an integer.
+	// If not specified workloads without the label or 
+	// with label value not parsable as int are treated as incomparable, 
+	// and therefore excluded from preemption candidates.
+	// +optional
+	DefaultValue *int32 `json:"defaultValue,omitempty"`
+
+	// Relation defines how the preemptor compares to the candidate.
+	// +optional
+	Relation *RelativeConstraint `json:"relation,omitempty"`
+
+	// MinValue specifies the lowest label value a candidate workload can have to be considered for preemption.
+	// +optional
+	MinValue *int32 `json:"minValue,omitempty"`
+
+	// MaxValue specifies the highest label value a candidate workload can have to be considered for preemption.
+	// +optional
+	MaxValue *int32 `json:"maxValue,omitempty"`
+}
+
 type RelativeConstraint string
 
 const (
+	// Lower permits preemption if candidate field value < preemptor field value
 	Lower RelativeConstraint = "Lower"
+	// Greater permits preemption if candidate field value > preemptor field value
 	Greater RelativeConstraint = "Greater"
+	// LowerOrEqual permits preemption if candidate field value <= preemptor field value
 	LowerOrEqual RelativeConstraint = "LowerOrEqual"
+	// GreaterOrEquals permits preemption if candidate field value >= preemptor field value
 	GreaterOrEquals RelativeConstraint = "GreaterOrEqual"
 )
-
 
 type OrderingField string
 const (
@@ -530,7 +576,7 @@ type PreemptionLimitSpec struct {
 	// Required
 	Scope PreemptionLimitScope
 
-	// If empty, it applies to all PreemptionStrategies
+	// If empty, it applies to all PreemptionConfigs
 	ConfigSelector metav1.LabelSelector
 	
 	// If empty, it applies to all CQ that may want to preempt.
@@ -710,4 +756,4 @@ Ruled out because:
 Ruled out because:
 - it will not allow to limit preemptions globally
 - it will make configurations like "this cluster queue should be never preempted" unintuitive
-- it will make limits across different strategies harder to maintain or infeasible at all
+- it will make limits across different configs harder to maintain or infeasible at all
