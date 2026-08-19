@@ -21,7 +21,7 @@ ACC 可以内置在 Kueue 中或运行在不同的 Kubernetes 控制器管理器
 
 监控集群中的准入检查，并维护与其关联（通过 `spec.controllerName`）的准入检查的 `Active` 状态。
 
-可选地，它可以监视自定义[参数](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference)对象。
+可选地，它可以监视自定义[参数](/zh-cn/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-AdmissionCheckParametersReference)对象。
 
 [资源调配准入检查控制器](/docs/admission-check-controllers/provisioning/)在
 `pkg/controller/admissionchecks/provisioning/admissioncheck_reconciler.go` 中实现了此功能。
@@ -37,11 +37,11 @@ ACC 可以内置在 Kueue 中或运行在不同的 Kubernetes 控制器管理器
 ### 参数对象类型
 
 可选地，你可以定义一个集群级别的对象类型来保存特定于你的实现的准入检查参数。
-用户可以在 [spec.parameters](/zh-cn/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-AdmissionCheckParametersReference)
+用户可以在 [spec.parameters](/zh-cn/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-AdmissionCheckParametersReference)
 中的准入检查定义里引用此类对象类型的实例。
 
 例如，[资源调配准入检查控制器](/zh-cn/docs/admission-check-controllers/provisioning/)为此使用了
-[ProvisioningRequestConfig](/zh-cn/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ProvisioningRequestConfig)。
+[ProvisioningRequestConfig](/zh-cn/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ProvisioningRequestConfig)。
 
 ## 工具代码
 
