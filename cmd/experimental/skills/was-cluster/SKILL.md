@@ -37,7 +37,7 @@ E2E_RUN_ONLY_ENV=true \
 WAS_ENABLED=1 \
 KIND_CLUSTER_NAME=was-test \
 KIND_CLUSTER_FILE=kind-cluster.yaml \
-E2E_TARGET_FOLDER=singlecluster/was \
+E2E_TARGET_FOLDER=was/baseline \
 ARTIFACTS="$(pwd)/artifacts/was-test" \
 IMAGE_TAG=local/kueue:was-test \
 E2E_USE_HELM=false \
@@ -45,18 +45,18 @@ GINKGO_ARGS="" \
   ./hack/testing/e2e-test.sh
 ```
 
-Note: only `singlecluster/was` (Job integration) exists today. The former `was/extended`
+Note: only `was/baseline` (Job integration) exists today. The former `was/extended`
 (JobSet) suite asserted against the upstream `scheduling.k8s.io/v1alpha3` Go types
 directly, which would have required vendoring that alpha API into Kueue, so it was
 removed. Re-add JobSet coverage once there's a way to verify it without vendoring
 the upstream types.
 
-The `singlecluster/was` package lives under `test/e2e/singlecluster/` (rather than a
-top-level `test/e2e/was/`) so that `make test-e2e-k8s-main-was` — which targets the
-whole `singlecluster` tree with `WAS_ENABLED=true` — actually runs it. Regular,
+The `was/baseline` package lives under `test/e2e/was/baseline/` and is executed
+via `make test-was-e2e-baseline` (which sets `WAS_ENABLED=true` and enables the
+`SchedulerLibraryIntegration` feature gate in Kueue). Regular,
 non-WAS runs (`make test-e2e-baseline`, `make test-e2e-extended`) target only the
 `singlecluster/baseline` and `singlecluster/extended` subfolders respectively, so
-they never pick up `singlecluster/was`, which requires feature gates
+they never pick up `was/baseline`, which requires feature gates
 (`GenericWorkload`, `WorkloadWithJob`) and the `scheduling.k8s.io/v1beta1` API that
 only a WAS-patched cluster provides.
 
@@ -70,21 +70,21 @@ These are specific to WAS; see the guideline link above for the rest.
 | `WAS_ENABLED` | `1` | Triggers `patch_kind_config_for_was` adding the `GenericWorkload`/`WorkloadWithJob` feature gates and `scheduling.k8s.io/v1beta1` runtime-config |
 | `KIND_CLUSTER_NAME` | `was-test` | Cluster name |
 | `KIND_CLUSTER_FILE` | `kind-cluster.yaml` | Base kind config that gets patched by `patch_kind_config_for_was` |
-| `E2E_TARGET_FOLDER` | `singlecluster/was` | Points at the WAS test folder |
+| `E2E_TARGET_FOLDER` | `was/baseline` | Points at the WAS test folder |
 
 ## Run tests
 
 Once the cluster is up, run tests repeatedly without rebuilding:
 
 ```bash
-KIND_CLUSTER_NAME=was-test go test ./test/e2e/singlecluster/was/... -v -count=1
+KIND_CLUSTER_NAME=was-test go test ./test/e2e/was/baseline/... -v -count=1
 ```
 
 Filter by label:
 
 ```bash
 # Job integration tests only
-KIND_CLUSTER_NAME=was-test go test ./test/e2e/singlecluster/was/... -v -count=1 --ginkgo.label-filter="feature:was-job"
+KIND_CLUSTER_NAME=was-test go test ./test/e2e/was/baseline/... -v -count=1 --ginkgo.label-filter="feature:was-job"
 ```
 
 ## Re-deploy Kueue after code changes
