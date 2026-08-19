@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -203,6 +204,23 @@ func MaximumExecutionTimeSecondsForObject(object client.Object) *int32 {
 	return new(int32(v))
 }
 
+// PodsReadyTimeoutForObject extracts and parses the pods-ready timeout from the
+// kueue.x-k8s.io/pods-ready-timeout annotation on any Kueue-managed resource object.
+// Returns nil if the annotation is absent or the value is not a valid duration.
+func PodsReadyTimeoutForObject(object client.Object) *metav1.Duration {
+	strVal, found := object.GetAnnotations()[controllerconstants.PodsReadyTimeoutAnnotation]
+	if !found {
+		return nil
+	}
+
+	d, err := time.ParseDuration(strVal)
+	if err != nil || d <= 0 {
+		return nil
+	}
+
+	return &metav1.Duration{Duration: d}
+}
+
 // WorkloadPriorityClassName retrieves the value of the "kueue.x-k8s.io/priority-class" label
 // from the given object. If the label is not present, it returns an empty string.
 func WorkloadPriorityClassName(object client.Object) string {
@@ -258,6 +276,16 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 	SetPrebuiltWorkloadName(obj, workloadName)
 }
 
+// newWaitForPodsReady returns a WaitForPodsReady spec populated from the
+// object's annotation, or nil if the annotation is absent or invalid.
+func newWaitForPodsReady(obj client.Object) *kueue.WaitForPodsReady {
+	timeout := PodsReadyTimeoutForObject(obj)
+	if timeout == nil {
+		return nil
+	}
+	return &kueue.WaitForPodsReady{PodsReadyTimeout: timeout}
+}
+
 // NewWorkload creates a new Workload object with the specified name,
 // associated object, pod sets, and label keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
@@ -277,6 +305,7 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 			QueueName:                   QueueNameForObject(obj),
 			PodSets:                     podSets,
 			MaximumExecutionTimeSeconds: MaximumExecutionTimeSecondsForObject(obj),
+			WaitForPodsReady:            newWaitForPodsReady(obj),
 		},
 	}
 }
