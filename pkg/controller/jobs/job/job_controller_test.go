@@ -3660,7 +3660,7 @@ func TestReconciler(t *testing.T) {
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
 					Queue("queue").
-					UID("parent-uid").
+					UID("parent").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -3668,7 +3668,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
 					AdmittedAt(true, now).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -3676,7 +3676,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
 					AdmittedAt(true, now).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 		},
@@ -3702,21 +3702,21 @@ func TestReconciler(t *testing.T) {
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
 					Queue("queue").
-					UID("parent-uid").
+					UID("parent").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -3748,7 +3748,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
-					UID("parent-uid").
+					UID("parent").
 					Queue("queue").
 					Obj(),
 			},
@@ -3757,7 +3757,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -3766,7 +3766,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					AdmittedAt(true, now).
 					Obj(),
 			},

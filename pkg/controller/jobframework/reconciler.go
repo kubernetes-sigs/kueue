@@ -913,6 +913,16 @@ func FindAncestorJobManagedByKueue(ctx context.Context, c client.Client, jobObj 
 		if err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj); err != nil {
 			return nil, errors.Join(ErrWorkloadOwnerNotFound, err)
 		}
+		if parentObj.GetUID() != owner.UID {
+			// Stop: owner reference UID does not match the referenced object.
+			// Per-hop UID checks catch stale/mismatched refs; same-namespace ownership spoofing is out of scope.
+			log.V(3).Info(
+				"stop walking up as the owner reference UID does not match the referenced object",
+				"currentObj", klog.KObj(currentObj),
+				"owner", klog.KRef(jobObj.GetNamespace(), owner.Name),
+			)
+			return topLevelJob, nil
+		}
 		if managed && (manageJobsWithoutQueueName || QueueNameForObject(parentObj) != "") {
 			topLevelJob = parentObj
 		}
