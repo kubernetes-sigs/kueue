@@ -907,13 +907,13 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
 
+		// group.remotes is a map, so iteration order is non-deterministic; sort only
+		// when we are about to persist, for a stable stored nomination.
+		slices.Sort(nominatedWorkers)
 		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 			if sets.New(wl.Status.NominatedClusterNames...).Equal(sets.New(nominatedWorkers...)) {
 				return false, nil
 			}
-			// group.remotes is a map, so iteration order is non-deterministic; sort only
-			// when we are about to persist, for a stable stored nomination.
-			slices.Sort(nominatedWorkers)
 			wl.Status.NominatedClusterNames = nominatedWorkers
 			return true, nil
 		}); err != nil {
