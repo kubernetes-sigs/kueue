@@ -14,13 +14,17 @@
 
 package fairsharing
 
-import schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+import (
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
+)
 
 // almostLCA is defined on two ClusterQueues, as the two nodes before
 // the lowest shared node - the LeastCommonAncestor (LCA). While LCA
 // is always a Cohort, almostLCA may be a ClusterQueue or a Cohort.
 type almostLCA interface {
 	DominantResourceShare() schdcache.DRS
+	BorrowingWith(resources.FlavorResource, resources.Amount) bool
 }
 
 // getAlmostLCAs returns almostLCAs of (preemptor, target).
