@@ -87,6 +87,8 @@ var (
 	ErrNoMatchingWorkloads            = errors.New("no matching workloads")
 	ErrExtraWorkloads                 = errors.New("extra workloads")
 	ErrPrebuiltWorkloadNotFound       = errors.New("prebuilt workload not found")
+	ErrPriorityClassNotFound          = errors.New("priority class not found")
+	ErrWorkloadPriorityClassNotFound  = errors.New("workload priority class not found")
 )
 
 type WorkloadRetentionPolicy struct {
@@ -1233,7 +1235,7 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 		return nil
 	}
 
-	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, needsClassChange[0].Spec.PodSets, customPriorityClassFunc)
+	priorityClassRef, priority, err := ExtractPriority(ctx, c, r, obj, needsClassChange[0].Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return fmt.Errorf("prepare workload priority: %w", err)
 	}
@@ -1672,8 +1674,8 @@ func getCustomPriorityClassFuncFromJob(job GenericJob) func() string {
 	return nil
 }
 
-func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
+func PrepareWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
+	priorityClassRef, priority, err := ExtractPriority(ctx, c, r, obj, wl.Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return err
 	}
@@ -1693,7 +1695,7 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 		PropagateAdmissionGatedByAnnotation(job.Object(), wl)
 	}
 
-	if err := PrepareWorkloadPriority(ctx, r.client, job.Object(), wl, getCustomPriorityClassFuncFromJob(job)); err != nil {
+	if err := PrepareWorkloadPriority(ctx, r.client, r.record, job.Object(), wl, getCustomPriorityClassFuncFromJob(job)); err != nil {
 		return err
 	}
 
@@ -1706,14 +1708,26 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
-func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
+func ExtractPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
 	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
-		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
+		priorityClassRef, priority, err := utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
+		if apierrors.IsNotFound(err) {
+			r.Eventf(obj, nil, corev1.EventTypeWarning, ReasonWorkloadPriorityClassNotFound, ReasonWorkloadPriorityClassNotFound, "WorkloadPriorityClass %v not found", workloadPriorityClass)
+			return priorityClassRef, priority, fmt.Errorf("%w: workloadPriorityClass %v", ErrWorkloadPriorityClassNotFound, workloadPriorityClass)
+		}
+		return priorityClassRef, priority, err
 	}
+
+	priorityClassName := extractPriorityFromPodSets(podSets)
 	if customPriorityClassFunc != nil {
-		return utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityClassFunc())
+		priorityClassName = customPriorityClassFunc()
 	}
-	return utilpriority.GetPriorityFromPriorityClass(ctx, c, extractPriorityFromPodSets(podSets))
+	priorityClassRef, priority, err := utilpriority.GetPriorityFromPriorityClass(ctx, c, priorityClassName)
+	if apierrors.IsNotFound(err) {
+		r.Eventf(obj, nil, corev1.EventTypeWarning, ReasonPriorityClassNotFound, ReasonPriorityClassNotFound, "PriorityClass %v not found", priorityClassName)
+		return priorityClassRef, priority, fmt.Errorf("%w: priorityClass %v", ErrPriorityClassNotFound, priorityClassName)
+	}
+	return priorityClassRef, priority, err
 }
 
 func extractPriorityFromPodSets(podSets []kueue.PodSet) string {

@@ -3170,6 +3170,14 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantErr: cmpopts.AnyError,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    "WorkloadPriorityClassNotFound",
+					Message:   "WorkloadPriorityClass missing-wpc not found",
+				},
+			},
 		},
 		"the workload slice is updated when priority class has changed for suspended job": {
 			featureGates: map[featuregate.Feature]bool{
@@ -4827,6 +4835,98 @@ func TestReconciler(t *testing.T) {
 					EventType: "Normal",
 					Reason:    "CreatedWorkload",
 					Message:   "Created Workload: labelled-ns/" + GetWorkloadNameForJob("job", "test-uid"),
+				},
+			},
+		},
+		"job with validate workload-priorityclass": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManagedJobsNamespaceSelector(labels.SelectorFromSet(map[string]string{
+					"managed-by-kueue": "true",
+				})),
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: utiltestingjob.MakeJob("job", "labelled-ns").
+				Queue("test-queue").
+				Suspend(true).
+				UID("test-uid").
+				Parallelism(10).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				Obj(),
+			wantJob: *utiltestingjob.MakeJob("job", "labelled-ns").
+				Queue("test-queue").
+				UID("test-uid").
+				Suspend(true).
+				Parallelism(10).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				WorkloadPriorityClass(highWPCWrapper.Name).
+				Obj(),
+			priorityClasses: []client.Object{
+				highWPCWrapper.Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "labelled-ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue("test-queue").
+					WorkloadPriorityClassRef(highWPCWrapper.Name).
+					Priority(highWPCWrapper.Value).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "labelled-ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: labelled-ns/" + GetWorkloadNameForJob("job", "test-uid"),
+				},
+			},
+		},
+		"job with invalid workload-priorityclass": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManagedJobsNamespaceSelector(labels.SelectorFromSet(map[string]string{
+					"managed-by-kueue": "true",
+				})),
+				jobframework.WithManageJobsWithoutQueueName(true),
+			},
+			job: utiltestingjob.MakeJob("job", "labelled-ns").
+				Queue("test-queue").
+				Suspend(true).
+				UID("test-uid").
+				Parallelism(10).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				WorkloadPriorityClass("test-wpc-not-found").
+				Obj(),
+			wantJob: *utiltestingjob.MakeJob("job", "labelled-ns").
+				Queue("test-queue").
+				UID("test-uid").
+				Suspend(true).
+				Parallelism(10).
+				Request(corev1.ResourceCPU, "1").
+				Image("", nil).
+				WorkloadPriorityClass("test-wpc-not-found").
+				Obj(),
+			wantErr: jobframework.ErrWorkloadPriorityClassNotFound,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "labelled-ns"},
+					EventType: "Warning",
+					Reason:    "WorkloadPriorityClassNotFound",
+					Message:   "WorkloadPriorityClass test-wpc-not-found not found",
 				},
 			},
 		},
