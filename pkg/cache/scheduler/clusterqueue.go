@@ -417,8 +417,6 @@ func (c *clusterQueue) updateFlavorMetadata(log logr.Logger, flavors map[kueue.R
 
 // updateWithAdmissionChecks updates a ClusterQueue based on the passed AdmissionChecks set.
 func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kueue.AdmissionCheckReference]AdmissionCheck) {
-	checksPerController := make(map[string][]kueue.AdmissionCheckReference, len(c.AdmissionChecks))
-	singleInstanceControllers := sets.New[string]()
 	multiKueueAdmissionChecks := sets.New[kueue.AdmissionCheckReference]()
 	provisioningAdmissionChecks := sets.New[kueue.AdmissionCheckReference]()
 	var missing []kueue.AdmissionCheckReference
@@ -431,7 +429,6 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 			if !ac.Active {
 				inactive = append(inactive, acName)
 			}
-			checksPerController[ac.Controller] = append(checksPerController[ac.Controller], acName)
 			if ac.Controller == kueue.ProvisioningRequestControllerName {
 				provisioningAdmissionChecks.Insert(acName)
 			}
@@ -463,16 +460,6 @@ func (c *clusterQueue) updateWithAdmissionChecks(log logr.Logger, checks map[kue
 	if !slices.Equal(c.inactiveAdmissionChecks, inactive) {
 		c.inactiveAdmissionChecks = inactive
 		update = true
-	}
-
-	// remove the controllers which don't have more then one AC or are not single instance.
-	maps.DeleteFunc(checksPerController, func(controller string, acs []kueue.AdmissionCheckReference) bool {
-		return len(acs) < 2 || !singleInstanceControllers.Has(controller)
-	})
-
-	// sort the remaining set
-	for c := range checksPerController {
-		slices.Sort(checksPerController[c])
 	}
 
 	if !slices.Equal(c.multiKueueAdmissionChecks, multiKueueChecks) {
