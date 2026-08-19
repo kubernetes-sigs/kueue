@@ -461,6 +461,16 @@ const (
 	// Enables caching of remaining capacity and clone reduction in TAS Flavor Snapshot.
 	TASCachingRemainingResources featuregate.Feature = "TASCachingRemainingResources"
 
+	// owner: @tenzen-y
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/12580
+	// Enables caching the immutable TAS topology tree on the TASFlavorCache and reusing it
+	// across scheduling cycles while the nodesCache generation is unchanged. When disabled,
+	// every snapshot builds a tree of its own and none is ever shared between snapshots,
+	// which is the behavior before the tree cache was introduced. Kept as an off-switch in
+	// case a stale or shared tree is suspected in a production TAS deployment.
+	TASCacheTopologyTree featuregate.Feature = "TASCacheTopologyTree"
+
 	// owner: @kshalot
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8871
@@ -818,6 +828,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASCachingRemainingResources: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASCacheTopologyTree: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	SchedulerLibraryIntegration: {
