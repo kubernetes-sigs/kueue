@@ -117,7 +117,7 @@ func TestTASCacheUpdateFlavorNodeLabelsPreservesUsage(t *testing.T) {
 	}}
 	_, log := utiltesting.ContextWithLog(t)
 	originalFlavorCache := tasCache.Get("tas-flavor")
-	originalTree, _ := originalFlavorCache.cachedOrBuiltTree()
+	originalTree, _ := cachedOrBuiltTree(originalFlavorCache)
 	originalFlavorCache.addUsage(log, wlKey, topologyRequests)
 
 	updatedNodeLabels := map[string]string{"node-group": "other"}
@@ -128,7 +128,7 @@ func TestTASCacheUpdateFlavorNodeLabelsPreservesUsage(t *testing.T) {
 	if updatedFlavorCache != originalFlavorCache {
 		t.Fatal("TAS flavor cache was replaced while updating nodeLabels")
 	}
-	updatedTree, _ := updatedFlavorCache.cachedOrBuiltTree()
+	updatedTree, _ := cachedOrBuiltTree(updatedFlavorCache)
 	if updatedTree == originalTree {
 		t.Error("Topology tree was reused after updating nodeLabels")
 	}
@@ -173,7 +173,7 @@ func TestTASCacheUpdateTopologyLevelsPreservesUsage(t *testing.T) {
 	}}
 	_, log := utiltesting.ContextWithLog(t)
 	originalFlavorCache := tasCache.Get("tas-flavor")
-	originalTree, _ := originalFlavorCache.cachedOrBuiltTree()
+	originalTree, _ := cachedOrBuiltTree(originalFlavorCache)
 	originalFlavorCache.addUsage(log, wlKey, topologyRequests)
 
 	updatedTopology := utiltestingapi.MakeTopology("default").
@@ -185,7 +185,7 @@ func TestTASCacheUpdateTopologyLevelsPreservesUsage(t *testing.T) {
 	if updatedFlavorCache != originalFlavorCache {
 		t.Fatal("TAS flavor cache was replaced while updating topology levels")
 	}
-	updatedTree, _ := updatedFlavorCache.cachedOrBuiltTree()
+	updatedTree, _ := cachedOrBuiltTree(updatedFlavorCache)
 	if updatedTree == originalTree {
 		t.Error("Topology tree was reused after updating topology levels")
 	}
@@ -211,12 +211,12 @@ func TestTASCacheUpdateTopologyLevelsPreservesUsage(t *testing.T) {
 	}
 
 	tasCache.AddTopology(updatedTopology)
-	resyncedTree, _ := updatedFlavorCache.cachedOrBuiltTree()
+	resyncedTree, _ := cachedOrBuiltTree(updatedFlavorCache)
 	if resyncedTree != updatedTree {
 		t.Error("Topology tree was rebuilt after re-applying unchanged topology levels")
 	}
 }
 
-func (c *TASFlavorCache) cachedOrBuiltTree() (*topologyTree, bool) {
-	return c.cachedOrBuiltTreeForNodes(c.nodesCache.snapshot(), true)
+func cachedOrBuiltTree(c *TASFlavorCache) (*topologyTree, bool) {
+	return c.cachedOrBuiltTreeForNodes(c.nodesCache.snapshot())
 }
