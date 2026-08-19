@@ -159,6 +159,7 @@ func dumpSnapshotTree(t *testing.T, s *TASFlavorSnapshot) map[domainKey]snapshot
 }
 
 func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, true)
 	testCases := map[string]struct {
 		levels         []string
 		tasUsageValues []string
@@ -219,6 +220,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 }
 
 func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, true)
 	_, log := utiltesting.ContextWithLog(t)
 	tasCache := NewTASCache(nil)
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
@@ -243,6 +245,27 @@ func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 	third := fc.snapshot(log, nil)
 	if diff := cmp.Diff(firstDump, dumpSnapshotTree(t, third), cmp.Comparer(resources.Equal)); diff != "" {
 		t.Errorf("usage applied to one snapshot leaked into another (-first,+third):\n%s", diff)
+	}
+}
+
+func TestSnapshotsDoNotShareTreeWhenCachingDisabled(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, false)
+	_, log := utiltesting.ContextWithLog(t)
+	tasCache := NewTASCache(nil)
+	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
+	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
+	fc := tasCache.NewTASFlavorCache(
+		topologyInformation{Levels: []string{treeTestBlockLabel, treeTestRackLabel, corev1.LabelHostname}},
+		flavorInformation{TopologyName: "default"},
+	)
+
+	first := fc.snapshot(log, nil)
+	second := fc.snapshot(log, nil)
+	if first.topologyTree == second.topologyTree {
+		t.Error("snapshots share a topology tree while TASCacheTopologyTree is disabled")
+	}
+	if fc.cachedTree() != nil {
+		t.Error("the flavor cache retained a topology tree while TASCacheTopologyTree is disabled")
 	}
 }
 
@@ -277,6 +300,7 @@ func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 }
 
 func TestSnapshotsSharingTreeCanAssignConcurrently(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, true)
 	features.SetFeatureGateDuringTest(t, features.TASBalancedPlacement, true)
 	_, log := utiltesting.ContextWithLog(t)
 	tasCache := NewTASCache(nil)
@@ -326,6 +350,7 @@ func TestSnapshotsSharingTreeCanAssignConcurrently(t *testing.T) {
 }
 
 func TestTopologyTreeInvalidation(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, true)
 	tests := map[string]struct {
 		initialNodeLabels map[string]string
 		mutate            func(*tasCache, *TASFlavorCache)
