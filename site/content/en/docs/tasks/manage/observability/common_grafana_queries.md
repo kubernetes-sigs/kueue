@@ -172,7 +172,10 @@ kueue_cluster_queue_status{status!="active"} == 1
 ## MultiKueue worker cluster health
 
 `multikueue_cluster_status` reports each worker cluster's `Active` condition, per
-manager ClusterQueue referencing it.
+manager ClusterQueue referencing it. `Unknown` means the worker cluster exists but has
+not been reconciled yet, so its `Active` condition is not set. A cluster named by a
+MultiKueueConfig that has no MultiKueueCluster object is not reported at all — the
+AdmissionCheck reports that one instead, as a missing cluster.
 
 To see the health of the workers a single team's ClusterQueue depends on:
 

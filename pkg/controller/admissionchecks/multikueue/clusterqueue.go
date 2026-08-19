@@ -18,6 +18,7 @@ package multikueue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -96,7 +97,9 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	// Report the worker cluster statuses before the quota-automation handling below,
 	// which returns early for ClusterQueues that do not opt into it.
-	r.reportWorkerClusterStatuses(ctx, cq, kueue.AdmissionCheckReference(ac.Name))
+	if err := r.reportWorkerClusterStatuses(ctx, cq, kueue.AdmissionCheckReference(ac.Name)); err != nil {
+		return reconcile.Result{}, err
+	}
 
 	cfg, err := r.helper.ConfigFromRef(ctx, ac.Spec.Parameters)
 	if err != nil {
@@ -157,40 +160,57 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 }
 
 // reportWorkerClusterStatuses emits the Active status of every worker cluster the
-// ClusterQueue references. The ClusterQueue's series are cleared first so that a
+// ClusterQueue references. The ClusterQueue's series are replaced as a whole, so a
 // cluster removed from the MultiKueueConfig stops being reported.
 //
-// Reporting never fails the reconcile: metrics are observability and must not block
-// admission. Anything that cannot be resolved is logged and reported as Unknown, and
-// the next reconcile corrects it.
-func (r *cqReconciler) reportWorkerClusterStatuses(ctx context.Context, cq *kueue.ClusterQueue, acName kueue.AdmissionCheckReference) {
+// Only a cluster that has a MultiKueueCluster object is reported, because the metric
+// mirrors that object's Active condition. A cluster the configuration names but that
+// does not exist has no status to mirror, and is surfaced by the AdmissionCheck as a
+// missing cluster instead. Unknown is reported while the object exists but its Active
+// condition has not been set yet.
+func (r *cqReconciler) reportWorkerClusterStatuses(ctx context.Context, cq *kueue.ClusterQueue, acName kueue.AdmissionCheckReference) error {
 	log := ctrl.LoggerFrom(ctx)
 	cqName := kueue.ClusterQueueReference(cq.Name)
 
 	clusterNames, err := admissioncheck.GetRemoteClusters(ctx, r.helper, acName)
-	if err != nil {
-		// Missing, empty or malformed configuration: there is nothing to report.
-		log.V(3).Info("Skipping worker cluster status metrics", "reason", err.Error())
+	// A configuration that cannot name any worker cluster is not a reconcile failure:
+	// the parameters reference is missing or malformed, the object it points to does
+	// not exist, or the MultiKueueConfig lists no clusters. There is nothing to report.
+	if apierrors.IsNotFound(err) || errors.Is(err, admissioncheck.ErrNilParametersRef) ||
+		errors.Is(err, admissioncheck.ErrBadParametersRef) || errors.Is(err, admissioncheck.ErrNoActiveClusters) {
 		metrics.ClearMultiKueueClusterQueueMetrics(cqName)
-		return
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	// The statuses are collected before any of them is reported, so that a failed read
+	// leaves the series reported so far in place instead of a partial set.
+	statuses := make(map[string]metav1.ConditionStatus, len(clusterNames))
+	for _, clusterName := range clusterNames {
+		cluster := &kueue.MultiKueueCluster{}
+		if err := r.client.Get(ctx, types.NamespacedName{Name: clusterName}, cluster); err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				log.Error(err, "reading cluster", "multiKueueCluster", clusterName)
+				return err
+			}
+			log.V(3).Info("Referenced MultiKueueCluster not found", "multiKueueCluster", clusterName)
+			continue
+		}
+		// The condition is absent until the cluster is reconciled for the first time.
+		status := metav1.ConditionUnknown
+		if cond := apimeta.FindStatusCondition(cluster.Status.Conditions, kueue.MultiKueueClusterActive); cond != nil {
+			status = cond.Status
+		}
+		statuses[clusterName] = status
 	}
 
 	metrics.ClearMultiKueueClusterQueueMetrics(cqName)
-	for _, clusterName := range clusterNames {
-		cluster := &kueue.MultiKueueCluster{}
-		status := metav1.ConditionUnknown
-		if err := r.client.Get(ctx, types.NamespacedName{Name: clusterName}, cluster); err != nil {
-			// A cluster the ClusterQueue references but that does not exist is a stale
-			// configuration, so it is reported as Unknown rather than dropped: the
-			// ClusterQueue still expects to dispatch there. Deleting the cluster clears
-			// its series in stopAndRemoveCluster; they only come back as Unknown while a
-			// ClusterQueue keeps referencing it.
-			log.V(3).Info("Referenced MultiKueueCluster not found", "multiKueueCluster", clusterName)
-		} else if cond := apimeta.FindStatusCondition(cluster.Status.Conditions, kueue.MultiKueueClusterActive); cond != nil {
-			status = cond.Status
-		}
+	for clusterName, status := range statuses {
 		metrics.ReportMultiKueueClusterStatus(cqName, clusterName, status, r.roleTracker)
 	}
+	return nil
 }
 
 func (r *cqReconciler) getMultiKueueAdmissionCheck(ctx context.Context, cq *kueue.ClusterQueue) (*kueue.AdmissionCheck, bool, error) {
