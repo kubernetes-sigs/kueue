@@ -6,6 +6,9 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -26,17 +29,34 @@ import (
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
 	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
+var PodWorkloadAnnotations = []string{
+	kueue.WorkloadAnnotation,
+	kueue.WorkloadSliceNameAnnotation,
+	controllerconstants.PrebuiltWorkloadAnnotation,
+	podconstants.GroupNameAnnotation,
+}
+
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error)
+type podSet map[types.NamespacedName]*corev1.Pod
+type workloadPods map[types.NamespacedName]podSet
+
+type podsBreakdown struct {
+	pods         podSet
+	workloadPods workloadPods
+}
 
 // podTracker maintains pod state for scheduler plugins that need
 // existing pod information.
 type podTracker struct {
-	pods *utilmaps.SyncMap[types.NamespacedName, *corev1.Pod]
+	sync.RWMutex
+	data podsBreakdown
 }
 
 type wasSimulator struct {
@@ -107,7 +127,10 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	return &wasSimulator{
 		newSnapshot: snapshotFn,
 		pods: podTracker{
-			pods: utilmaps.NewSyncMap[types.NamespacedName, *corev1.Pod](0),
+			data: podsBreakdown{
+				pods:         make(podSet),
+				workloadPods: make(workloadPods),
+			},
 		},
 	}, nil
 }
@@ -129,15 +152,19 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 
 type wasSimulatorSnapshot struct {
 	wasSnapshot *schedLibSnapshot.ClusterSnapshot
+	pods        *podsBreakdown
 }
 
 func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simulator.SimulatorSnapshot, error) {
-	pods := s.pods.allPods()
-	clusterSnap, err := s.newSnapshot(ctx, pods, nodes)
+	podsSnapshot := s.pods.snapshot()
+	clusterSnap, err := s.newSnapshot(ctx, podsSnapshot.allPods(), nodes)
 	if err != nil {
 		return nil, err
 	}
-	return &wasSimulatorSnapshot{wasSnapshot: clusterSnap}, nil
+	return &wasSimulatorSnapshot{
+		wasSnapshot: clusterSnap,
+		pods:        podsSnapshot,
+	}, nil
 }
 
 func (s *wasSimulator) TrackPod(pod *corev1.Pod) {
@@ -148,17 +175,70 @@ func (s *wasSimulator) UntrackPod(key types.NamespacedName) {
 	s.pods.untrack(key)
 }
 
-func (t *podTracker) allPods() []*corev1.Pod {
-	return t.pods.Values()
+func (t *podsBreakdown) allPods() []*corev1.Pod {
+	return slices.Collect(maps.Values(t.pods))
+}
+
+func (t *podsBreakdown) podsForWorkload(wlKey types.NamespacedName) []*corev1.Pod {
+	podSet, ok := t.workloadPods[wlKey]
+	if !ok {
+		return nil
+	}
+	return slices.Collect(maps.Values(podSet))
+}
+
+func (t *podTracker) snapshot() *podsBreakdown {
+	t.RLock()
+	defer t.RUnlock()
+	return &podsBreakdown{
+		pods:         maps.Clone(t.data.pods),
+		workloadPods: maps.Clone(t.data.workloadPods),
+	}
 }
 
 func (t *podTracker) track(pod *corev1.Pod) {
-	key := client.ObjectKeyFromObject(pod)
-	t.pods.Add(key, pod)
+	t.Lock()
+	defer t.Unlock()
+
+	podKey := client.ObjectKeyFromObject(pod)
+	t.data.pods[podKey] = pod
+
+	ns := pod.Namespace
+	wl := workloadName(pod)
+	wlKey := types.NamespacedName{Namespace: ns, Name: wl}
+	if _, ok := t.data.workloadPods[wlKey]; !ok {
+		t.data.workloadPods[wlKey] = make(map[types.NamespacedName]*corev1.Pod)
+	}
+	t.data.workloadPods[wlKey][podKey] = pod
 }
 
 func (t *podTracker) untrack(key types.NamespacedName) {
-	t.pods.Delete(key)
+	t.Lock()
+	defer t.Unlock()
+
+	pod, ok := t.data.pods[key]
+	if !ok {
+		return
+	}
+
+	delete(t.data.pods, key)
+
+	ns := pod.Namespace
+	wl := workloadName(pod)
+	wlKey := types.NamespacedName{Namespace: ns, Name: wl}
+	delete(t.data.workloadPods[wlKey], key)
+	if len(t.data.workloadPods[wlKey]) == 0 {
+		delete(t.data.workloadPods, wlKey)
+	}
+}
+
+func workloadName(pod *corev1.Pod) string {
+	for _, annotation := range PodWorkloadAnnotations {
+		if wl, ok := pod.Annotations[annotation]; ok {
+			return wl
+		}
+	}
+	panic(fmt.Sprintf("No workload annotations found for pod %s/%s", pod.Namespace, pod.Name))
 }
 
 func (s *wasSimulatorSnapshot) FindFeasibleNodes(
@@ -207,4 +287,14 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 	stats.SchedulerLibraryNoFit = len(candidateNodeNames) - len(feasibleNodeNames)
 
 	return feasibleCandidates, nil
+}
+
+func (s *wasSimulatorSnapshot) PreemptWorkload(ctx context.Context, wlKey types.NamespacedName) (revert func(), err error) {
+	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.pods.podsForWorkload(wlKey))
+	if err != nil {
+		return nil, err
+	}
+	return func() {
+		s.wasSnapshot.Unpreempt(unpreempt)
+	}, nil
 }

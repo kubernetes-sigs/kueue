@@ -21,6 +21,7 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -42,6 +43,7 @@ type SchedulingSimulator interface {
 // The "default" (non-WAS) implementation may trivialize some methods.
 type SimulatorSnapshot interface {
 	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
+	PreemptWorkload(ctx context.Context, wlKey types.NamespacedName) (revert func(), err error)
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {
