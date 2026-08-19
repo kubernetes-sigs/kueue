@@ -3644,6 +3644,218 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 	})
 })
 
+// Regression tests for https://github.com/kubernetes-sigs/kueue/issues/13830: the
+// kueue.x-k8s.io/managed finalizer wasn't reliably removed on a non-deletion eviction of a
+// serving pod group, which let a stuck pod get misclassified as active (Deployment thrash) or
+// permanently block a same-name replacement (StatefulSet deadlock). See shouldFinalizeNow and
+// isPodRunnableOrSucceeded in pod_controller.go for the fix.
+var _ = ginkgo.Describe("Pod controller finalizer consistency on eviction", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	var (
+		ns *corev1.Namespace
+		fl *kueue.ResourceFlavor
+		cq *kueue.ClusterQueue
+		lq *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		fwk.StartManager(ctx, cfg, managerSetup(
+			false,
+			false,
+			nil,
+			jobframework.WithEnabledFrameworks([]string{"pod"}),
+		))
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "finrepro-")
+
+		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
+		util.MustCreate(ctx, k8sClient, fl)
+
+		cq = utiltestingapi.MakeClusterQueue("cq").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).
+				Resource(corev1.ResourceCPU, "9").
+				Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
+	})
+
+	admitGroup := func(wlKey types.NamespacedName) *kueue.Workload {
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("waiting for the group workload to be created")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("admitting the workload")
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(createdWorkload.Spec.PodSets[0].Name).
+				Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1").
+				Count(createdWorkload.Spec.PodSets[0].Count).
+				Obj()).
+			Obj()
+		util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+		return createdWorkload
+	}
+
+	evictGroup := func(wlKey types.NamespacedName) {
+		ginkgo.By("forcing eviction of the workload (simulating a recoveryTimeout eviction, not a deletion)")
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl := &kueue.Workload{}
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(
+				workload.SetConditionAndUpdate(ctx, k8sClient, wl, kueue.WorkloadEvicted, metav1.ConditionTrue,
+					kueue.WorkloadEvictedByPodsReadyTimeout, "By test", "evict", util.RealClock),
+			).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}
+
+	ginkgo.It("removes the finalizer immediately on eviction, even for a pod that already ran and kept its NodeName [ISSUE-13830]", framework.SlowSpec, func() {
+		groupName := "repro-group-deploy"
+
+		ginkgo.By("creating the group's pod")
+		oldPod := testingpod.MakePod("old-pod", ns.Name).
+			GroupNameLabel(groupName).
+			GroupTotalCount("1").
+			PodGroupServingAnnotation().
+			Queue(lq.Name).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, oldPod)
+		oldPodKey := client.ObjectKeyFromObject(oldPod)
+
+		wlKey := types.NamespacedName{Name: groupName, Namespace: ns.Name}
+		admitGroup(wlKey)
+
+		ginkgo.By("waiting for old-pod to be unsuspended (ungated), then simulating the scheduler binding it to a node")
+		gomega.Eventually(func(g gomega.Gomega) {
+			p := &corev1.Pod{}
+			g.Expect(k8sClient.Get(ctx, oldPodKey, p)).To(gomega.Succeed())
+			g.Expect(p.Spec.SchedulingGates).NotTo(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			p := &corev1.Pod{}
+			g.Expect(k8sClient.Get(ctx, oldPodKey, p)).To(gomega.Succeed())
+			binding := &corev1.Binding{
+				ObjectMeta: metav1.ObjectMeta{Name: p.Name, Namespace: p.Namespace, UID: p.UID},
+				Target:     corev1.ObjectReference{Kind: "Node", Name: "stub-node-1"},
+			}
+			g.Expect(k8sClient.SubResource("binding").Create(ctx, p, binding)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			p := &corev1.Pod{}
+			g.Expect(k8sClient.Get(ctx, oldPodKey, p)).To(gomega.Succeed())
+			g.Expect(p.Spec.NodeName).To(gomega.Equal("stub-node-1"))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		evictGroup(wlKey)
+
+		ginkgo.By("waiting for old-pod to be marked for deletion (still running, not finalized yet)")
+		gomega.Eventually(func(g gomega.Gomega) {
+			p := &corev1.Pod{}
+			g.Expect(k8sClient.Get(ctx, oldPodKey, p)).To(gomega.Succeed())
+			g.Expect(p.DeletionTimestamp.IsZero()).To(gomega.BeFalse())
+			g.Expect(p.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabelKey))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("simulating the container terminating cleanly while the pod stays stuck deleting (deletionTimestamp + NodeName retained)")
+		util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, oldPod)
+
+		ginkgo.By("confirming old-pod is fully finalized and removed, not left stuck deleting")
+		util.ExpectPodsFinalizedOrGone(ctx, k8sClient, oldPodKey)
+
+		ginkgo.By("creating the legitimate replacement pod for the same role (simulating the Deployment controller)")
+		newPod := testingpod.MakePod("new-pod", ns.Name).
+			GroupNameLabel(groupName).
+			GroupTotalCount("1").
+			PodGroupServingAnnotation().
+			Queue(lq.Name).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, newPod)
+		newPodKey := client.ObjectKeyFromObject(newPod)
+
+		ginkgo.By("confirming the replacement is left alone (kept), not deleted as excess")
+		gomega.Consistently(func(g gomega.Gomega) {
+			p := &corev1.Pod{}
+			g.Expect(k8sClient.Get(ctx, newPodKey, p)).To(gomega.Succeed())
+			g.Expect(p.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
+			g.Expect(p.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabelKey))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("frees the pod's name immediately on eviction, so a same-named (StatefulSet-style) replacement can be created [ISSUE-13830]", framework.SlowSpec, func() {
+		groupName := "repro-group-sts"
+		podName := "sts-like-0"
+
+		ginkgo.By("creating the group's pod")
+		pod := testingpod.MakePod(podName, ns.Name).
+			GroupNameLabel(groupName).
+			GroupTotalCount("1").
+			PodGroupServingAnnotation().
+			Queue(lq.Name).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+		podKey := client.ObjectKeyFromObject(pod)
+
+		wlKey := types.NamespacedName{Name: groupName, Namespace: ns.Name}
+		admitGroup(wlKey)
+
+		ginkgo.By("waiting for the pod to be unsuspended (ungated)")
+		gomega.Eventually(func(g gomega.Gomega) {
+			p := &corev1.Pod{}
+			g.Expect(k8sClient.Get(ctx, podKey, p)).To(gomega.Succeed())
+			g.Expect(p.Spec.SchedulingGates).NotTo(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		evictGroup(wlKey)
+
+		ginkgo.By("waiting for the pod to be marked for deletion (still running, not finalized yet)")
+		gomega.Eventually(func(g gomega.Gomega) {
+			p := &corev1.Pod{}
+			g.Expect(k8sClient.Get(ctx, podKey, p)).To(gomega.Succeed())
+			g.Expect(p.DeletionTimestamp.IsZero()).To(gomega.BeFalse())
+			g.Expect(p.Finalizers).To(gomega.ContainElement(constants.ManagedByKueueLabelKey))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("simulating the container terminating cleanly while the pod stays stuck deleting")
+		util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod)
+
+		ginkgo.By("confirming the pod is fully finalized and removed, freeing its name")
+		util.ExpectPodsFinalizedOrGone(ctx, k8sClient, podKey)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, podKey, &corev1.Pod{})).To(utiltesting.BeNotFoundError())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("creating the same-named replacement (simulating the StatefulSet controller) and expecting it to succeed")
+		replacement := testingpod.MakePod(podName, ns.Name).
+			GroupNameLabel(groupName).
+			GroupTotalCount("1").
+			PodGroupServingAnnotation().
+			Queue(lq.Name).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, replacement)).To(gomega.Succeed())
+	})
+})
+
 var _ = ginkgo.Describe("Pod controller with CustomMetricLabels", ginkgo.Ordered, func() {
 	var (
 		ns            *corev1.Namespace
