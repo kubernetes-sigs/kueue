@@ -487,5 +487,13 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 				{"kueue_evicted_workloads_once_total", ns.Name},
 			})
 		})
+
+		ginkgo.By("verifying that the wait time metrics count remained 1", func() {
+			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+				{"kueue_ready_wait_time_seconds_count", cq.Name, "} 1"},
+				{"kueue_admitted_until_ready_wait_time_seconds_count", cq.Name, "} 1"},
+				{"kueue_local_queue_ready_wait_time_seconds_count", ns.Name, lq.Name, "} 1"},
+				{"kueue_local_queue_admitted_until_ready_wait_time_seconds_count", ns.Name, lq.Name, "} 1"}})
+		})
 	})
 })
