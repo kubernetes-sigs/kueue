@@ -1325,7 +1325,7 @@ func IsOnHold(w *kueue.Workload) bool {
 // IsPreemptor returns true if the workload is waiting for preemption to complete.
 func IsPreemptor(w *kueue.Workload) bool {
 	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
-	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+	return cond != nil && cond.ObservedGeneration == w.Generation && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 }
 
 // CompareWaitingForPreemption compares two workloads based on whether they are waiting for preemption to complete.
