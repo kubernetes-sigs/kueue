@@ -525,8 +525,9 @@ const (
 	// Enables caching the immutable TAS topology tree on the TASFlavorCache and reusing it
 	// across scheduling cycles while the nodesCache generation is unchanged. When disabled,
 	// every snapshot builds a tree of its own and none is ever shared between snapshots,
-	// which is the behavior before the tree cache was introduced. Kept as an off-switch in
-	// case a stale or shared tree is suspected in a production TAS deployment.
+	// which is the behavior before the tree cache was introduced. It stays off by default on
+	// this release branch, so an upgrade preserves the existing behavior until a TAS
+	// deployment opts in.
 	TASCacheTopologyTree featuregate.Feature = "TASCacheTopologyTree"
 
 	// owner: @kshalot
@@ -903,7 +904,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	TASCacheTopologyTree: {
-		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	SchedulerLibraryIntegration: {

@@ -159,6 +159,7 @@ func dumpSnapshotTree(t *testing.T, s *TASFlavorSnapshot) map[domainKey]snapshot
 }
 
 func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, true)
 	testCases := map[string]struct {
 		levels         []string
 		tasUsageValues []string
@@ -225,6 +226,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 }
 
 func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
@@ -272,11 +274,11 @@ func TestSnapshotsDoNotShareTreeWhenCachingDisabled(t *testing.T) {
 		flavorInformation{TopologyName: "default"},
 	)
 
-	first, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	first, err := fc.snapshot(ctx, log, nil)
 	if err != nil {
 		t.Fatalf("first snapshot failed: %v", err)
 	}
-	second, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	second, err := fc.snapshot(ctx, log, nil)
 	if err != nil {
 		t.Fatalf("second snapshot failed: %v", err)
 	}
@@ -323,6 +325,7 @@ func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 
 func TestSnapshotsSharingTreeCanAssignConcurrently(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASBalancedPlacement, true)
+	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
@@ -375,6 +378,7 @@ func TestSnapshotsSharingTreeCanAssignConcurrently(t *testing.T) {
 }
 
 func TestTopologyTreeInvalidation(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, true)
 	tests := map[string]struct {
 		mutate         func(*tasCache, *TASFlavorCache)
 		wantTreeReused bool

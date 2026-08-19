@@ -469,10 +469,10 @@
     version: "0.19"
 - name: TASCacheTopologyTree
   versionedSpecs:
-  - default: true
+  - default: false
     lockToDefault: false
-    preRelease: Beta
-    version: "0.20"
+    preRelease: Alpha
+    version: "0.19"
 - name: TASCachingRemainingResources
   versionedSpecs:
   - default: true

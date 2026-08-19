@@ -78,6 +78,8 @@ func buildBenchNodes(t benchTopology) []corev1.Node {
 }
 
 func BenchmarkTASFlavorSnapshot(b *testing.B) {
+	// The reuse and invalidation modes only differ while the tree cache is on.
+	features.SetFeatureGateDuringTest(b, features.TASCacheTopologyTree, true)
 	topologies := []benchTopology{
 		{nodes: 100, nodesPerRack: 16, racksPerBlock: 16, withNonTASPods: true},
 		{nodes: 500, nodesPerRack: 16, racksPerBlock: 16, withNonTASPods: true},
