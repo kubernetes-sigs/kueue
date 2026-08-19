@@ -60,7 +60,7 @@ TESTING_DIR := $(HACK_DIR)/testing
 MOCKS_DIR := internal/mocks
 
 RAY_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/ray/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
-RAYMINI_VERSION ?= 0.0.4
+RAYMINI_VERSION ?= 0.0.5
 
 # Use distroless as minimal base image to package the manager binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
@@ -75,7 +75,7 @@ IMAGE_BUILD_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh \
 	--delay 2 \
 	--exponential \
 	--stream \
-	--continue-if "grep -qiE '(context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|connection reset by peer)' {output}" \
+	--continue-if "grep -qiE '(context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|connection reset by peer|too ?many ?requests|ref .* locked for .*: unavailable)' {output}" \
 	-- env
 
 MAKE_TIMING ?= $(if $(filter 1 true TRUE yes YES on ON,$(CI)),1,0)
@@ -138,16 +138,16 @@ all: generate fmt vet build
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-24s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-include Makefile-deps.mk
+include hack/make/deps.mk
 
-include Makefile-test.mk
+include hack/make/test.mk
 
-include Makefile-kueue-populator.mk
-include Makefile-kueue-priority-booster.mk
+include hack/make/kueue-populator.mk
+include hack/make/kueue-priority-booster.mk
 
 # Repo-wide verification is defined in a separate fragment so it can be read/maintained
-# independently of build/test logic. See `Makefile-verify.mk` for what `make verify` runs.
-include Makefile-verify.mk
+# independently of build/test logic. See `hack/make/verify.mk` for what `make verify` runs.
+include hack/make/verify.mk
 
 ##@ Development
 

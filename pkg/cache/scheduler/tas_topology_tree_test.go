@@ -141,12 +141,12 @@ func dumpSnapshotTree(t *testing.T, s *TASFlavorSnapshot) map[domainKey]snapshot
 			slices.SortFunc(d.Children, domainKey.compare)
 			if leaf, found := s.leaves[id]; found && &leaf.domain == dom {
 				d.Leaf = true
-				leafState := s.leafStateOf(leaf)
-				if leafState.freeCapacity != nil {
-					d.FreeCapacity = leafState.freeCapacity.Clone()
+				leafCapacity := s.leafCapacityOf(leaf)
+				if leafCapacity.freeCapacity != nil {
+					d.FreeCapacity = leafCapacity.freeCapacity.Clone()
 				}
-				if leafState.tasUsage != nil {
-					d.TASUsage = leafState.tasUsage.Clone()
+				if leafCapacity.tasUsage != nil {
+					d.TASUsage = leafCapacity.tasUsage.Clone()
 				}
 				if leaf.node != nil {
 					d.NodeName = leaf.node.Name
@@ -199,7 +199,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 				Count:             2,
 			}})
 
-			cold, err := fc.snapshot(ctx, log, nil)
+			cold, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 			if err != nil {
 				t.Fatalf("cold snapshot failed: %v", err)
 			}
@@ -207,7 +207,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 			if tree == nil {
 				t.Fatal("expected the cold build to store the topology tree")
 			}
-			reused, err := fc.snapshot(ctx, log, nil)
+			reused, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 			if err != nil {
 				t.Fatalf("second snapshot failed: %v", err)
 			}
@@ -234,11 +234,11 @@ func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 		flavorInformation{TopologyName: "default"},
 	)
 
-	first, err := fc.snapshot(ctx, log, nil)
+	first, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
-	second, err := fc.snapshot(ctx, log, nil)
+	second, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 	// leak into snapshots of other cycles.
 	second.addTASUsage(leafID, resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}))
 	second.addNonTASUsage(leafID, resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 500}))
-	third, err := fc.snapshot(ctx, log, nil)
+	third, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 		topologyInformation{Levels: []string{treeTestBlockLabel, treeTestRackLabel, corev1.LabelHostname}},
 		flavorInformation{TopologyName: "default"},
 	)
-	snapshot, err := fc.snapshot(ctx, log, nil)
+	snapshot, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
@@ -281,8 +281,8 @@ func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 	if failure := first.Failure(); failure != nil {
 		t.Fatalf("first assignment failed: %s", failure.Reason)
 	}
-	if len(snapshot.state) <= snapshot.domainCount {
-		t.Fatalf("balanced placement created %d state slots for %d base domains, want clone state", len(snapshot.state), snapshot.domainCount)
+	if len(snapshot.domainStates) <= snapshot.domainCount {
+		t.Fatalf("balanced placement created %d state slots for %d base domains, want clone state", len(snapshot.domainStates), snapshot.domainCount)
 	}
 
 	second := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests)
@@ -308,7 +308,7 @@ func TestSnapshotsSharingTreeCanAssignConcurrently(t *testing.T) {
 	snapshots := make([]*TASFlavorSnapshot, 2)
 	for i := range snapshots {
 		var err error
-		snapshots[i], err = fc.snapshot(ctx, log, nil)
+		snapshots[i], err = fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 		if err != nil {
 			t.Fatalf("snapshot %d failed: %v", i, err)
 		}
@@ -370,8 +370,8 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 				tasCache.SyncNode(node)
 			},
 			validate: func(t *testing.T, snapshot *TASFlavorSnapshot) {
-				n1State := snapshot.leafStateOf(snapshot.leaves[utiltas.TopologyDomainID("n1")])
-				if gotCapacity := n1State.freeCapacity.GetValue(corev1.ResourceCPU); gotCapacity != 8000 {
+				n1Capacity := snapshot.leafCapacityOf(snapshot.leaves[utiltas.TopologyDomainID("n1")])
+				if gotCapacity := n1Capacity.freeCapacity.ResourceValue(corev1.ResourceCPU); gotCapacity != 8000 {
 					t.Errorf("snapshot has cpu capacity %d, want 8000", gotCapacity)
 				}
 			},
@@ -423,7 +423,7 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 				flavorInformation{TopologyName: "default", NodeLabels: tc.initialNodeLabels},
 			)
 
-			if _, err := fc.snapshot(ctx, log, nil); err != nil {
+			if _, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil); err != nil {
 				t.Fatalf("initial snapshot failed: %v", err)
 			}
 			tree := fc.cachedTree()
@@ -432,7 +432,7 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 			}
 
 			tc.mutate(&tasCache, fc)
-			snapshot, err := fc.snapshot(ctx, log, nil)
+			snapshot, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
 			if err != nil {
 				t.Fatalf("snapshot after cache mutation failed: %v", err)
 			}
@@ -473,7 +473,7 @@ func dumpTopologyTree(tree *topologyTree) map[domainKey]topologyTreeDomainDump {
 			slices.SortFunc(d.Children, domainKey.compare)
 			if leaf, found := tree.leaves[id]; found && &leaf.domain == dom {
 				d.Leaf = true
-				d.CPUCapacity = leaf.capacity.GetValue(corev1.ResourceCPU)
+				d.CPUCapacity = leaf.capacity.ResourceValue(corev1.ResourceCPU)
 				if leaf.node != nil {
 					d.NodeName = leaf.node.Name
 				}
@@ -489,12 +489,12 @@ func validateTopologyTreeStateIndexes(t *testing.T, tree *topologyTree) {
 	_, log := utiltesting.ContextWithLog(t)
 	// Validate each domain's index against the per-snapshot domain state addressed
 	// by domain.idx.
-	snapshot := newTASFlavorSnapshot(log, "default", tree, nil, &defaultChecker{})
+	snapshot := newTASFlavorSnapshot(log, "default", tree, nil, newDefaultSimulatorSnapshot())
 	seen := make(map[int]*domain, tree.domainCount)
 	for _, levelDomains := range tree.domainsPerLevel {
 		for _, dom := range levelDomains {
-			if dom.idx < 0 || dom.idx >= len(snapshot.state) {
-				t.Errorf("domain %q has state index %d, outside [0, %d)", dom.levelValues, dom.idx, len(snapshot.state))
+			if dom.idx < 0 || dom.idx >= len(snapshot.domainStates) {
+				t.Errorf("domain %q has state index %d, outside [0, %d)", dom.levelValues, dom.idx, len(snapshot.domainStates))
 				continue
 			}
 			if other, found := seen[dom.idx]; found {

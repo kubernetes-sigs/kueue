@@ -42,6 +42,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -327,8 +328,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	// 2. Take a snapshot of the cache.
 	var snapshotOpts []schdcache.SnapshotOption
 	if afs.Enabled(s.admissionFairSharing) {
-		snapshotOpts = append(snapshotOpts, schdcache.WithAfsEntryPenalties(s.queues.AfsEntryPenalties))
-		snapshotOpts = append(snapshotOpts, schdcache.WithAfsConsumedResources(s.queues.AfsConsumedResources))
+		snapshotOpts = append(snapshotOpts, schdcache.WithAfsUsageLedger(s.queues.AfsUsageLedger))
 	}
 	phaseStartTime := s.clock.Now()
 	snapshot, err := s.cache.Snapshot(ctx, snapshotOpts...)
@@ -749,6 +749,20 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
 	// clear the assignment flavors as they are only used within a single scheduling cycle
 	e.NominationMapping = nil
+
+	// Determine the overlap recomputation result for metrics reporting.
+	if needsOverlapRecompute {
+		var overlapRecomputeResult metrics.PreemptionTargetRecomputationResult
+		switch {
+		case e.assignment.RepresentativeMode() == flavorassigner.DeferredFit:
+			overlapRecomputeResult = metrics.PreemptionTargetRecomputationResultDeferredFit
+		case len(newTargets) > 0 && fitsCheck == schdcache.FitsCheckOk && !preemptedWorkloads.HasAny(newTargets):
+			overlapRecomputeResult = metrics.PreemptionTargetRecomputationResultNewTargets
+		default:
+			overlapRecomputeResult = metrics.PreemptionTargetRecomputationResultSkipped
+		}
+		metrics.ReportPreemptionTargetRecomputation(e.ClusterQueue, overlapRecomputeResult, s.customLabels.CQGet(e.ClusterQueue), s.roleTracker)
+	}
 
 	return usage, schdcache.FitsCheckOk == fitsCheck
 }
@@ -1319,19 +1333,20 @@ func (s *Scheduler) shouldApplyEntryPenalty(e *entry) bool {
 func (s *Scheduler) updateEntryPenalty(log logr.Logger, e *entry, op usageOp) {
 	lqKey := utilqueue.NewLocalQueueReference(e.Obj.Namespace, e.Obj.Spec.QueueName)
 	lqObjRef := klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName))
-	totalRequests := e.SumTotalRequests(s.resourceFormatter)
-	if flavorassigner.IgnoreUndeclaredResources(s.quotaCheckStrategy) {
-		totalRequests = filterByNames(totalRequests, resourcegroups.AllCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
-	}
-	penalty := afs.CalculateEntryPenalty(totalRequests, s.admissionFairSharing)
+	wlKey := queueafs.WorkloadReference(workload.Key(e.Obj))
 
 	switch op {
 	case add:
-		s.queues.AfsEntryPenalties.Push(lqKey, penalty)
-		log.V(3).Info("Entry penalty added to localQueue", "localQueue", lqObjRef, "penalty", penalty)
+		totalRequests := e.SumTotalRequests(s.resourceFormatter)
+		if flavorassigner.IgnoreUndeclaredResources(s.quotaCheckStrategy) {
+			totalRequests = filterByNames(totalRequests, resourcegroups.AllCoveredResources(e.clusterQueueSnapshot.ResourceGroups))
+		}
+		penalty := afs.CalculateEntryPenalty(totalRequests, s.admissionFairSharing)
+		s.queues.AfsUsageLedger.PushPenalty(lqKey, wlKey, penalty, s.clock.Now())
+		log.V(3).Info("Entry penalty added to localQueue", "localQueue", lqObjRef, "workload", wlKey, "penalty", penalty)
 	case subtract:
-		s.queues.AfsEntryPenalties.Sub(lqKey, penalty)
-		log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", lqObjRef, "penalty", penalty)
+		removed := s.queues.AfsUsageLedger.SubPenalty(lqKey, wlKey)
+		log.V(3).Info("Entry penalty subtracted from localQueue", "localQueue", lqObjRef, "workload", wlKey, "penalty", removed)
 	}
 }
 

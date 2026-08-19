@@ -268,6 +268,7 @@ jobs:
         with:
           version: ${{ steps.rc-version.outputs.version }}
           repo: ${{ github.repository }}
+          update-release-issue: false
 
       - name: Report Success
         if: ${{ success() }}
@@ -538,6 +539,16 @@ jobs:
           repo: ${{ github.repository }}
           prerelease: false
 
+      - name: Generate OpenVEX
+        uses: ./.automation/.github/actions/generate-openvex
+        with:
+          tag: ${{ needs.authorize.outputs.version }}
+
+      - name: Generate SBOM
+        uses: ./.automation/.github/actions/generate-sbom
+        with:
+          tag: ${{ needs.authorize.outputs.version }}
+
       - name: Report Success
         if: ${{ success() }}
         uses: ./.automation/.github/actions/report-result
@@ -642,6 +653,7 @@ jobs:
         with:
           version: ${{ needs.authorize.outputs.version }}
           repo: ${{ github.repository }}
+          update-release-issue: true
 
       - name: Report Success
         if: ${{ success() }}

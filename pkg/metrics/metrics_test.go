@@ -337,6 +337,20 @@ func TestReportAndCleanupClusterQueuePreemptedNumber(t *testing.T) {
 	expectFilteredMetricsCount(t, PreemptedWorkloadsTotal, 0, "preempting_cluster_queue", "cluster_queue1")
 }
 
+func TestReportAndCleanupPreemptionTargetRecomputations(t *testing.T) {
+	ReportPreemptionTargetRecomputation("cluster_queue1", PreemptionTargetRecomputationResultNewTargets, nil, nil)
+	ReportPreemptionTargetRecomputation("cluster_queue1", PreemptionTargetRecomputationResultDeferredFit, nil, nil)
+	ReportPreemptionTargetRecomputation("cluster_queue1", PreemptionTargetRecomputationResultSkipped, nil, nil)
+
+	expectFilteredMetricsCount(t, PreemptionTargetRecomputationsTotal, 3, "cluster_queue", "cluster_queue1")
+	expectFilteredMetricsCount(t, PreemptionTargetRecomputationsTotal, 1, "cluster_queue", "cluster_queue1", "result", string(PreemptionTargetRecomputationResultNewTargets))
+	expectFilteredMetricsCount(t, PreemptionTargetRecomputationsTotal, 1, "cluster_queue", "cluster_queue1", "result", string(PreemptionTargetRecomputationResultDeferredFit))
+	expectFilteredMetricsCount(t, PreemptionTargetRecomputationsTotal, 1, "cluster_queue", "cluster_queue1", "result", string(PreemptionTargetRecomputationResultSkipped))
+
+	ClearClusterQueueMetrics("cluster_queue1")
+	expectFilteredMetricsCount(t, PreemptionTargetRecomputationsTotal, 0, "cluster_queue", "cluster_queue1")
+}
+
 func TestReportAndCleanupLocalQueueEvictedNumber(t *testing.T) {
 	lq := LocalQueueReference{Name: kueue.LocalQueueName("lq1"), Namespace: "ns1"}
 	ReportLocalQueueEvictedWorkloads(lq, "Preempted", "", "", nil, nil)

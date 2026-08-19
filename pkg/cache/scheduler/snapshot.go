@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
@@ -53,6 +54,7 @@ type Snapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
+	SimulatorSnapshot        simulator.SimulatorSnapshot
 }
 
 // RemoveWorkload removes a workload from its corresponding ClusterQueue and
@@ -155,21 +157,14 @@ func (s *Snapshot) Log(log logr.Logger) {
 }
 
 type snapshotOption struct {
-	afsEntryPenalties    *queueafs.AfsEntryPenalties
-	afsConsumedResources *queueafs.AfsConsumedResources
+	afsUsageLedger *queueafs.AfsUsageLedger
 }
 
 type SnapshotOption func(*snapshotOption)
 
-func WithAfsEntryPenalties(penalties *queueafs.AfsEntryPenalties) SnapshotOption {
+func WithAfsUsageLedger(ledger *queueafs.AfsUsageLedger) SnapshotOption {
 	return func(o *snapshotOption) {
-		o.afsEntryPenalties = penalties
-	}
-}
-
-func WithAfsConsumedResources(consumedResources *queueafs.AfsConsumedResources) SnapshotOption {
-	return func(o *snapshotOption) {
-		o.afsConsumedResources = consumedResources
+		o.afsUsageLedger = ledger
 	}
 }
 
@@ -187,6 +182,15 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 		InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference](),
 	}
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		var err error
+		snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(ctx, c.tasCache.nodesCache.getAllNodes())
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	for _, cohort := range c.hm.Cohorts() {
 		if hierarchy.HasCycle(cohort) {
 			continue
@@ -227,7 +231,12 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 				aggregatedDomainUsagesForFlavor = aggregatedDomainUsages
 			}
 			var err error
-			tasSnapshots[flavor], err = cache.snapshot(ctx, log, aggregatedDomainUsagesForFlavor)
+			tasSnapshots[flavor], err = cache.snapshot(
+				ctx,
+				log,
+				snap.SimulatorSnapshot,
+				aggregatedDomainUsagesForFlavor,
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -237,7 +246,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		if snap.InactiveClusterQueueSets.Has(cq.Name) {
 			continue
 		}
-		cqSnapshot, err := c.snapshotClusterQueue(ctx, cq, opts.afsEntryPenalties, opts.afsConsumedResources)
+		cqSnapshot, err := c.snapshotClusterQueue(ctx, cq, opts.afsUsageLedger)
 		if err != nil {
 			return nil, err
 		}
@@ -298,8 +307,7 @@ func skipInactiveCQReason(cq *clusterQueue) inactiveCQReason {
 func (c *Cache) snapshotClusterQueue(
 	ctx context.Context,
 	cq *clusterQueue,
-	afsEntryPenalties *queueafs.AfsEntryPenalties,
-	afsConsumedResources *queueafs.AfsConsumedResources,
+	afsUsageLedger *queueafs.AfsUsageLedger,
 ) (*ClusterQueueSnapshot, error) {
 	log := log.FromContext(ctx)
 	cc := &ClusterQueueSnapshot{
@@ -332,7 +340,7 @@ func (c *Cache) snapshotClusterQueue(
 			return cc, nil
 		}
 		for key, wl := range cc.Workloads {
-			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights, afsEntryPenalties, afsConsumedResources)
+			usage, err := wl.CalcLocalQueueFSUsage(ctx, c.client, resourceWeights, afsUsageLedger)
 			if err != nil {
 				return nil, fmt.Errorf("failed to calculate LocalQueue FS usage for LocalQueue %v", client.ObjectKey{Namespace: wl.Obj.Namespace, Name: string(wl.Obj.Spec.QueueName)})
 			}

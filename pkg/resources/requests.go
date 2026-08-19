@@ -90,7 +90,7 @@ func (r MapRequests) Mul(f int64) {
 	}
 }
 
-func (r MapRequests) GetValue(name corev1.ResourceName) int64 {
+func (r MapRequests) ResourceValue(name corev1.ResourceName) int64 {
 	return r[name]
 }
 
@@ -198,7 +198,7 @@ func CountInWithLimitingResource(requests Requests, capacity Requests) (int32, c
 		limitingResource corev1.ResourceName
 	)
 	requests.ForEach(func(rName corev1.ResourceName, rValue int64) {
-		cap := capacity.GetValue(rName)
+		cap := capacity.ResourceValue(rName)
 		// find the minimum count matching all the resource quota.
 		var count int32
 		if rValue == 0 {

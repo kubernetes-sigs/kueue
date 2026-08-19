@@ -41,12 +41,24 @@ type LocalQueueReference struct {
 	Namespace string
 }
 
+type PreemptionTargetRecomputationResult string
+
 const (
 	AdmissionResultSuccess      AdmissionResult = "success"
 	AdmissionResultInadmissible AdmissionResult = "inadmissible"
 
 	PendingStatusActive       = "active"
 	PendingStatusInadmissible = "inadmissible"
+
+	// PreemptionTargetRecomputationResultNewTargets is recorded when the
+	// recomputation selects non-overlapping preemption targets.
+	PreemptionTargetRecomputationResultNewTargets PreemptionTargetRecomputationResult = "new_targets"
+	// PreemptionTargetRecomputationResultDeferredFit is recorded when the
+	// workload will fit only after earlier preemptions in the cycle complete.
+	PreemptionTargetRecomputationResultDeferredFit PreemptionTargetRecomputationResult = "deferred_fit"
+	// PreemptionTargetRecomputationResultSkipped is recorded when the
+	// recomputation does not resolve the overlap and the workload is skipped.
+	PreemptionTargetRecomputationResultSkipped PreemptionTargetRecomputationResult = "skipped"
 
 	// CQStatusPending means the ClusterQueue is accepted but not yet active,
 	// this can be because of:
@@ -87,6 +99,10 @@ var (
 	// +metricsdoc:group=clusterqueue
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
 	AdmissionCyclePreemptionSkips *prometheus.GaugeVec
+
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",result="one of `new_targets`, `deferred_fit`, or `skipped`",replica_role="one of `leader`, `follower`, or `standalone`"
+	PreemptionTargetRecomputationsTotal *prometheus.CounterVec
 
 	// Metrics tied to the queue system.
 
@@ -221,7 +237,7 @@ var (
 	WorkloadCreationLatency *prometheus.HistogramVec
 
 	// +metricsdoc:group=health
-	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",is_group="whether the gate removal applies to a pod group or a single pod",name="one of `kueue.x-k8s.io/topology`, `kueue.x-k8s.io/admission`, or `kueue.x-k8s.io/elastic-job`"
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",is_group="whether the gate removal applies to a pod group or a single pod",name="one of `kueue.x-k8s.io/topology`, `kueue.x-k8s.io/admission`, or `kueue.x-k8s.io/elastic-job`",replica_role="one of `leader`, `follower`, or `standalone`"
 	PodSchedulingGateRemovalSeconds *prometheus.HistogramVec
 
 	// Metrics tied to the cache.
@@ -408,6 +424,20 @@ The label 'result' can have the following values:
 		}, append([]string{"cluster_queue", "replica_role"}, clusterQueueMetricsLabels...),
 	)
 	trackGaugeVec(AdmissionCyclePreemptionSkips, gaugeCleanupScopeClusterQueue)
+
+	PreemptionTargetRecomputationsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "preemption_target_recomputations_total",
+			Help: `The total number of preemption target recomputations triggered when a workload's preemption
+targets overlap with targets selected by another workload in the same scheduling cycle.
+The label 'result' can have the following values:
+- 'new_targets' means the recomputation resolved the overlap by selecting non-overlapping targets.
+- 'deferred_fit' means the workload will fit only after earlier preemptions in the cycle complete.
+- 'skipped' means recomputation produced neither a deferred fit nor a fit with non-overlapping targets, including cases where overlap is removed but the workload still fails the fit check.
+Globally configured custom ClusterQueue labels are also appended to the base labels.`,
+		}, append([]string{"cluster_queue", "result", "replica_role"}, clusterQueueMetricsLabels...),
+	)
 
 	buildInfo = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -666,7 +696,7 @@ The label 'underlying_cause' can have the following values:
 			Subsystem: constants.KueueName,
 			Name:      "pod_scheduling_gate_removal_seconds",
 			Help:      "Duration from Workload admission to removal of a Pod scheduling gate.",
-		}, append([]string{"name", "cluster_queue", "is_group"}, clusterQueueMetricsLabels...),
+		}, append([]string{"name", "cluster_queue", "is_group", "replica_role"}, clusterQueueMetricsLabels...),
 	)
 
 	EvictedWorkloadsTotal = prometheus.NewCounterVec(
@@ -1038,8 +1068,8 @@ func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, custom
 	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
 }
 
-func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration) {
-	PodSchedulingGateRemovalSeconds.WithLabelValues(name, string(clusterQueue), strconv.FormatBool(isGroup)).Observe(latency.Seconds())
+func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration, tracker *roletracker.RoleTracker) {
+	PodSchedulingGateRemovalSeconds.WithLabelValues(name, string(clusterQueue), strconv.FormatBool(isGroup), roletracker.GetRole(tracker)).Observe(latency.Seconds())
 }
 
 func QuotaReservedWorkload(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
@@ -1230,6 +1260,7 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	EvictedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	EvictedWorkloadsOnceTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
+	PreemptionTargetRecomputationsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	// Histogram vec, not cleared by gauge cleanup above.
 	WorkloadEvictionLatencySeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -1459,6 +1490,15 @@ func ReportAdmissionCyclePreemptionSkips(cqName kueue.ClusterQueueReference, cou
 	AdmissionCyclePreemptionSkips.WithLabelValues(labels...).Set(float64(count))
 }
 
+// ReportPreemptionTargetRecomputation increments the counter for a preemption
+// target recomputation result. The result must be one of
+// PreemptionTargetRecomputationResultNewTargets, PreemptionTargetRecomputationResultDeferredFit,
+// or PreemptionTargetRecomputationResultSkipped.
+func ReportPreemptionTargetRecomputation(cqName kueue.ClusterQueueReference, result PreemptionTargetRecomputationResult, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), string(result), roletracker.GetRole(tracker)}, customLabelValues...)
+	PreemptionTargetRecomputationsTotal.WithLabelValues(labels...).Inc()
+}
+
 func clearScopedGaugeMetrics(scope gaugeCleanupScope, lbls prometheus.Labels) {
 	for _, g := range gaugeVecsByScope[scope] {
 		g.DeletePartialMatch(lbls)
@@ -1532,6 +1572,7 @@ func Register() {
 		MultiKueueWorkloadsDispatchedTotal,
 		MultiKueueWorkloadsAdmittedTotal,
 		AdmissionCyclePreemptionSkips,
+		PreemptionTargetRecomputationsTotal,
 		PendingWorkloads,
 		PendingSchedulingHashes,
 		FinishedWorkloads,

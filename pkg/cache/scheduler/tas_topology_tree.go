@@ -27,14 +27,14 @@ import (
 
 // domain holds the static information about placement of a topology
 // domain in the hierarchy of topology domains.
-// Its per-snapshot mutable state lives in TASFlavorSnapshot.state,
+// Its per-snapshot mutable state lives in TASFlavorSnapshot.domainStates,
 // addressed by idx.
 type domain struct {
 	// id identifies the domain within its topology level
 	id utiltas.TopologyDomainID
 
 	// idx is the dense index of the domain within its topologyTree, used to
-	// address the per-snapshot state in TASFlavorSnapshot.state.
+	// address the per-snapshot state in TASFlavorSnapshot.domainStates.
 	idx int
 
 	// parent points to domain which is a parent in topology structure
@@ -49,13 +49,13 @@ type domain struct {
 }
 
 // leafDomain extends the domain with static information for the lowest-level
-// domain. Its per-snapshot mutable state lives in
-// TASFlavorSnapshot.leafStates, addressed by leafIdx.
+// domain. Its per-snapshot mutable capacity data lives in
+// TASFlavorSnapshot.leafCapacities, addressed by leafIdx.
 type leafDomain struct {
 	domain
 
 	// leafIdx is the dense index of the leaf within its topologyTree, used
-	// to address the per-snapshot state in TASFlavorSnapshot.leafStates.
+	// to address the per-snapshot capacity data in TASFlavorSnapshot.leafCapacities.
 	leafIdx int
 
 	// capacity is the static capacity of the leaf: the summed allocatable of
@@ -221,7 +221,7 @@ func (t *topologyTree) initializeHelper(dom *domain) {
 
 func (t *topologyTree) addCapacity(domainID utiltas.TopologyDomainID, capacity resources.Requests) {
 	if t.leaves[domainID].capacity == nil {
-		t.leaves[domainID].capacity = resources.CreateEmpty()
+		t.leaves[domainID].capacity = resources.NewRequests()
 	}
 	t.leaves[domainID].capacity.Add(capacity)
 }

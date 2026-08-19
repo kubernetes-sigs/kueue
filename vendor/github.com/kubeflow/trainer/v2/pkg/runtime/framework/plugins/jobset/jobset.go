@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -48,6 +49,7 @@ import (
 	"github.com/kubeflow/trainer/v2/pkg/constants"
 	"github.com/kubeflow/trainer/v2/pkg/runtime"
 	"github.com/kubeflow/trainer/v2/pkg/runtime/framework"
+	jobsetplgconsts "github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/jobset/constants"
 	"github.com/kubeflow/trainer/v2/pkg/util/trainjob"
 )
 
@@ -97,6 +99,7 @@ func (j *JobSet) Validate(ctx context.Context, info *runtime.Info, oldObj, newOb
 	rJobContainerNames := make(map[string]sets.Set[string])
 	for _, rJob := range jobSetSpec.ReplicatedJobs {
 		rJobContainerNames[*rJob.Name] = sets.New[string]()
+
 		// Names of initContainer and containers are unique.
 		for _, c := range rJob.Template.Spec.Template.Spec.InitContainers {
 			rJobContainerNames[*rJob.Name].Insert(*c.Name)
@@ -107,18 +110,62 @@ func (j *JobSet) Validate(ctx context.Context, info *runtime.Info, oldObj, newOb
 	}
 
 	if newObj.Spec.Initializer != nil && newObj.Spec.Initializer.Dataset != nil {
-		if containers, ok := rJobContainerNames[constants.DatasetInitializer]; !ok {
+		containers, ok := rJobContainerNames[constants.DatasetInitializer]
+		if !ok {
 			allErrs = append(allErrs, field.Invalid(runtimeRefPath, newObj.Spec.RuntimeRef, fmt.Sprintf("must have %s job when trainJob is configured with input datasetConfig", constants.DatasetInitializer)))
 		} else if !containers.Has(constants.DatasetInitializer) {
 			allErrs = append(allErrs, field.Invalid(runtimeRefPath, newObj.Spec.RuntimeRef, fmt.Sprintf("must have container with name - %s in the %s job", constants.DatasetInitializer, constants.DatasetInitializer)))
+		} else {
+			hasVolumeMount := false
+			for _, rJob := range jobSetSpec.ReplicatedJobs {
+				if *rJob.Name != constants.DatasetInitializer {
+					continue
+				}
+				for _, c := range rJob.Template.Spec.Template.Spec.Containers {
+					if *c.Name != constants.DatasetInitializer {
+						continue
+					}
+					for _, vm := range c.VolumeMounts {
+						if *vm.Name == jobsetplgconsts.VolumeNameInitializer {
+							hasVolumeMount = true
+							break
+						}
+					}
+				}
+			}
+			if !hasVolumeMount {
+				allErrs = append(allErrs, field.Invalid(runtimeRefPath, newObj.Spec.RuntimeRef, fmt.Sprintf("must have volumeMount with name - %s in container %s of the %s job", jobsetplgconsts.VolumeNameInitializer, constants.DatasetInitializer, constants.DatasetInitializer)))
+			}
 		}
 	}
 
 	if newObj.Spec.Initializer != nil && newObj.Spec.Initializer.Model != nil {
-		if containers, ok := rJobContainerNames[constants.ModelInitializer]; !ok {
+		containers, ok := rJobContainerNames[constants.ModelInitializer]
+		if !ok {
 			allErrs = append(allErrs, field.Invalid(runtimeRefPath, newObj.Spec.RuntimeRef, fmt.Sprintf("must have %s job when trainJob is configured with input modelConfig", constants.ModelInitializer)))
 		} else if !containers.Has(constants.ModelInitializer) {
 			allErrs = append(allErrs, field.Invalid(runtimeRefPath, newObj.Spec.RuntimeRef, fmt.Sprintf("must have container with name - %s in the %s job", constants.ModelInitializer, constants.ModelInitializer)))
+		} else {
+			hasVolumeMount := false
+			for _, rJob := range jobSetSpec.ReplicatedJobs {
+				if *rJob.Name != constants.ModelInitializer {
+					continue
+				}
+				for _, c := range rJob.Template.Spec.Template.Spec.Containers {
+					if *c.Name != constants.ModelInitializer {
+						continue
+					}
+					for _, vm := range c.VolumeMounts {
+						if *vm.Name == jobsetplgconsts.VolumeNameInitializer {
+							hasVolumeMount = true
+							break
+						}
+					}
+				}
+			}
+			if !hasVolumeMount {
+				allErrs = append(allErrs, field.Invalid(runtimeRefPath, newObj.Spec.RuntimeRef, fmt.Sprintf("must have volumeMount with name - %s in container %s of the %s job", jobsetplgconsts.VolumeNameInitializer, constants.ModelInitializer, constants.ModelInitializer)))
+			}
 		}
 	}
 
@@ -178,8 +225,8 @@ func (j *JobSet) checkRuntimePatchesImmutability(ctx context.Context, oldObj, ne
 	// after the update (i.e. block only when it stays fully unsuspended).
 	// This lets external controllers (e.g. Kueue) update RuntimePatches and
 	// toggle spec.suspend in a single API request.
-	oldSuspended := ptr.Equal(oldObj.Spec.Suspend, ptr.To(true))
-	newSuspended := ptr.Equal(newObj.Spec.Suspend, ptr.To(true))
+	oldSuspended := ptr.Equal(oldObj.Spec.Suspend, new(true))
+	newSuspended := ptr.Equal(newObj.Spec.Suspend, new(true))
 	if changed {
 		if !oldSuspended && !newSuspended {
 			allErrs = append(allErrs, field.Forbidden(runtimePatchesPath, "RuntimePatches can only be modified when the TrainJob is suspended before or after the update"))
@@ -236,16 +283,39 @@ func (j *JobSet) IdentifyPodNetwork(info *runtime.Info, trainJob *trainer.TrainJ
 		subDomain = *jobSetNet.Subdomain
 	}
 	for rJobIdx, rJob := range spec.ReplicatedJobs {
-		// TODO: Support multiple replicas for replicated Jobs.
-		// REF: https://github.com/kubeflow/trainer/issues/2318
 		podCount := info.TemplateSpec.PodSets[rJobIdx].Count
-		rJobReplicas := constants.DefaultJobReplicas
+		rJobReplicas := ptr.Deref(rJob.Replicas, constants.DefaultJobReplicas)
 		info.TemplateSpec.PodSets[rJobIdx].Endpoints = func(yield func(string) bool) {
-			for podIdx := range ptr.Deref(podCount, 1) {
-				endpoint := fmt.Sprintf("%s-%s-%d-%d.%s", trainJob.Name, *rJob.Name, rJobReplicas-1, podIdx, subDomain)
-				if !yield(endpoint) {
-					return
+			for replicaIdx := 0; replicaIdx < int(rJobReplicas); replicaIdx++ {
+				for podIdx := range ptr.Deref(podCount, 1) {
+					endpoint := fmt.Sprintf("%s-%s-%d-%d.%s", trainJob.Name, *rJob.Name, replicaIdx, podIdx, subDomain)
+					if !yield(endpoint) {
+						return
+					}
 				}
+			}
+		}
+	}
+	return nil
+}
+
+func (j *JobSet) SyncParallelCount(info *runtime.Info) error {
+	if info == nil {
+		return nil
+	}
+	jobSetSpec, ok := runtime.TemplateSpecApply[jobsetv1alpha2ac.JobSetSpecApplyConfiguration](info)
+	if !ok || jobSetSpec == nil {
+		return nil
+	}
+	for _, ps := range info.TemplateSpec.PodSets {
+		if ps.Count == nil {
+			continue
+		}
+		for rJobIdx := range jobSetSpec.ReplicatedJobs {
+			if jobSetSpec.ReplicatedJobs[rJobIdx].Name != nil && *jobSetSpec.ReplicatedJobs[rJobIdx].Name == ps.Name {
+				jobSetSpec.ReplicatedJobs[rJobIdx].Template.Spec.Parallelism = ps.Count
+				jobSetSpec.ReplicatedJobs[rJobIdx].Template.Spec.Completions = ps.Count
+				break
 			}
 		}
 	}
@@ -276,18 +346,22 @@ func (j *JobSet) Build(ctx context.Context, info *runtime.Info, trainJob *traine
 		return nil, nil
 	}
 
+	if len(jobSetSpec.ReplicatedJobs) < len(info.TemplateSpec.PodSets) {
+		return nil, fmt.Errorf(
+			"runtime template has %d replicatedJobs but runtime info has %d podSets",
+			len(jobSetSpec.ReplicatedJobs),
+			len(info.TemplateSpec.PodSets),
+		)
+	}
+
 	for psIdx, ps := range info.TemplateSpec.PodSets {
-		if ps.Count != nil {
-			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Parallelism = ps.Count
-			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Completions = ps.Count
-		}
 		apply.UpsertVolumes(&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Volumes, ps.Volumes...)
 		for containerIdx, container := range ps.Containers {
 			if len(container.Command) > 0 {
 				jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].Command = container.Command
 			}
 			if container.Image != "" {
-				jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].Image = &container.Image
+				jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].Image = ptr.To(container.Image)
 			}
 			apply.UpsertEnvVars(
 				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].Env,
@@ -299,6 +373,37 @@ func (j *JobSet) Build(ctx context.Context, info *runtime.Info, trainJob *traine
 			)
 			apply.UpsertVolumeMounts(
 				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.Containers[containerIdx].VolumeMounts,
+				container.VolumeMounts...,
+			)
+		}
+		initContainers := jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers
+		for containerIdx, container := range ps.InitContainers {
+			if containerIdx >= len(initContainers) {
+				// Auto-append a new initContainer slot so plugins only need to
+				// write to the PodSet abstraction (PodSet → runtime.Container → JobSet).
+				jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers = append(
+					jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers,
+					*corev1ac.Container().WithName(container.Name),
+				)
+				// Refresh the local slice after append.
+				initContainers = jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers
+			}
+			if len(container.Command) > 0 {
+				jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers[containerIdx].Command = container.Command
+			}
+			if container.Image != "" {
+				jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers[containerIdx].Image = ptr.To(container.Image)
+			}
+			apply.UpsertEnvVars(
+				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers[containerIdx].Env,
+				container.Env...,
+			)
+			apply.UpsertPort(
+				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers[containerIdx].Ports,
+				container.Ports...,
+			)
+			apply.UpsertVolumeMounts(
+				&jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers[containerIdx].VolumeMounts,
 				container.VolumeMounts...,
 			)
 		}

@@ -99,14 +99,25 @@ function e2e_docker_pull_if_needed {
         -- docker pull "$image"
 }
 
+function e2e_download_url {
+    local url="$1"
+
+    # Make HTTP errors retryable instead of passing their response bodies to
+    # kubectl as manifests.
+    "${ROOT_DIR}/hack/testing/retry.sh" \
+        --attempts 7 --delay 2 --exponential -- \
+        curl -fsSL "${url}"
+}
+
 function e2e_kubectl_apply_url {
     local url="$1"
     shift
     local extra_args=("$@")
     local manifest
 
-    manifest=$("${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential -- curl -fsSL "${url}") || return 1
-    echo "${manifest}" | kubectl apply --server-side -f - "${extra_args[@]}"
+    manifest=$(e2e_download_url "${url}") || return 1
+    printf '%s\n' "${manifest}" |
+    kubectl apply --server-side -f - "${extra_args[@]}"
 }
 
 function e2e_wait_for_operator_in_install {
@@ -891,7 +902,7 @@ kind: ResourceFlavor
 metadata:
   name: webhook-probe
 EOF
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 10 --delay 5 --stream -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
         kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create --dry-run=server -f "${probe_manifest}"
 }
 
@@ -1558,6 +1569,7 @@ EOF
 # $1 kubeconfig
 function upgrade_test_flow {
     local old_version="${KUEUE_UPGRADE_FROM_VERSION}"
+    local manifest
 
     echo "Upgrade Test: $old_version -> current"
     echo "Old image: $KUEUE_OLD_VERSION_IMAGE"
@@ -1570,7 +1582,8 @@ function upgrade_test_flow {
 
     # Download manifests, rewrite the image reference to match the pre-loaded
     # image, and set imagePullPolicy to IfNotPresent so kind uses it directly.
-    curl -sL "${KUEUE_OLD_VERSION_MANIFEST}" | \
+    manifest=$(e2e_download_url "${KUEUE_OLD_VERSION_MANIFEST}") || return 1
+    printf '%s\n' "${manifest}" | \
       sed "s|registry.k8s.io/kueue/kueue:${old_version}|${KUEUE_OLD_VERSION_IMAGE}|g" | \
       sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g' | \
       kubectl apply --server-side -f -

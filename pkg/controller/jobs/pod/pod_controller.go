@@ -76,6 +76,7 @@ var errMsgIncorrectGroupRoleCount = fmt.Sprintf("pod group can't include more th
 const (
 	ReasonExcessPodDeleted     = "ExcessPodDeleted"
 	ReasonOwnerReferencesAdded = "OwnerReferencesAdded"
+	ReasonWorkloadNameConflict = "WorkloadNameConflict"
 )
 
 const (
@@ -87,6 +88,7 @@ var (
 	gvk                            = corev1.SchemeGroupVersion.WithKind("Pod")
 	errIncorrectReconcileRequest   = errors.New("event handler error: got a single pod reconcile request for a pod group")
 	errPendingOps                  = jobframework.UnretryableError("waiting to observe previous operations on pods")
+	errNotPodGroupWorkload         = jobframework.UnretryableError("a workload with the pod group name already exists but was not created by the pod group framework")
 	errPodGroupLabelsMismatch      = errors.New("constructing workload: pods have different label values")
 	errPodGroupAnnotationsMismatch = errors.New("constructing workload: pods have different annotation values")
 	realClock                      = clock.RealClock{}
@@ -123,7 +125,7 @@ type Reconciler struct {
 const controllerName = "v1_pod"
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock), WithIntegrationManager(r.integrationManager)))
+	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock), WithIntegrationManager(r.integrationManager), WithRoleTracker(r.RoleTracker())))
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -166,6 +168,7 @@ type Pod struct {
 	excessPodExpectations *expectations.Store
 	satisfiedExcessPods   bool
 	clock                 clock.Clock
+	roleTracker           *roletracker.RoleTracker
 }
 
 var (
@@ -201,6 +204,14 @@ func WithClock(clock clock.Clock) PodOption {
 func WithIntegrationManager(manager *jobframework.IntegrationManager) PodOption {
 	return func(pod *Pod) {
 		pod.integrationManager = manager
+	}
+}
+
+// WithRoleTracker sets the roleTracker field of the Pod, used to label
+// metrics with the replica role of the reporting instance.
+func WithRoleTracker(tracker *roletracker.RoleTracker) PodOption {
+	return func(pod *Pod) {
+		pod.roleTracker = tracker
 	}
 }
 
@@ -295,7 +306,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 			recorder.Eventf(&p.pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
-		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup)
+		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.roleTracker)
 	}
 
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
@@ -334,7 +345,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
-		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup)
+		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.roleTracker)
 
 		return nil
 	})
@@ -1215,6 +1226,19 @@ func (p *Pod) ListChildWorkloads(ctx context.Context, c client.Client, key types
 			return nil, err
 		}
 
+		// A Workload that merely shares the pod group name may belong to another job.
+		// Treating it as this group's child would strip its finalizer and release its
+		// quota. Workloads built by NewGroupWorkload carry the is-group-workload marker,
+		// and a pod group only ever adds non-controller owner references, so a controller
+		// reference means the Workload is owned by someone else.
+		if features.Enabled(features.PodIntegrationValidateGroupOwner) &&
+			workload.Annotations[podconstants.IsGroupWorkloadAnnotationKey] != podconstants.IsGroupWorkloadAnnotationValue &&
+			metav1.GetControllerOfNoCopy(workload) != nil {
+			log.V(2).Info("Existing workload with the pod group name is owned by another controller; not finalizing",
+				"workload", klog.KObj(workload))
+			return workloads, nil
+		}
+
 		workloads.Items = []kueue.Workload{*workload}
 		return workloads, nil
 	}
@@ -1245,6 +1269,24 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		}
 		log.Error(err, "Unable to get related workload")
 		return nil, nil, err
+	}
+
+	// Only adopt Workloads created by the pod-group framework. Refuse without putting the
+	// foreign Workload in toDelete, or the reconciler would delete the victim's Workload.
+	if features.Enabled(features.PodIntegrationValidateGroupOwner) &&
+		workload.Annotations[podconstants.IsGroupWorkloadAnnotationKey] != podconstants.IsGroupWorkloadAnnotationValue {
+		log.V(4).Info("Existing workload with the pod group name was not created by the pod group framework; refusing adoption",
+			"workload", klog.KObj(workload))
+		r.Eventf(&p.pod, nil, corev1.EventTypeWarning, ReasonWorkloadNameConflict, "Admission",
+			"A Workload named %q already exists but is not a pod group workload; this pod group cannot be admitted", groupName)
+		// A refused group is never ungated, so its pods stay gated and unschedulable. Without
+		// stripping the finalizer here, deleting them leaves them Terminating forever.
+		if _, inactivePods := p.partitionPods(); len(inactivePods) > 0 {
+			if err := p.finalizePods(ctx, c, inactivePods); err != nil {
+				return nil, nil, err
+			}
+		}
+		return nil, nil, errNotPodGroupWorkload
 	}
 
 	defaultDuration := int32(-1)

@@ -6217,7 +6217,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			},
 		},
 		// Proves cleanup necessity: the second PodSet excludes all nodes via selector.
-		// Without resetting temporary per-domain state (e.g. state/stateWithLeader), stale
+		// Without resetting temporary per-domain state (e.g. podCount/podCountWithLeader), stale
 		// values from the first PodSet would leak and produce a bogus assignment instead of failure.
 		"temporary state cleanup prevents leakage across PodSets": {
 			nodes: []corev1.Node{
@@ -8384,7 +8384,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 				if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 					aggregatedDomainUsage = tc.aggregatedDomainUsages
 				}
-				snapshot, err := tasFlavorCache.snapshot(ctx, log, aggregatedDomainUsage)
+				snapshot, err := tasFlavorCache.snapshot(
+					ctx,
+					log,
+					newDefaultSimulatorSnapshot(),
+					aggregatedDomainUsage,
+				)
 				if err != nil {
 					t.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 				}
@@ -8466,6 +8471,43 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 		wantAssignment         *tas.TopologyAssignment
 		wantReason             string
 	}{
+		"replacement does not cross a string-prefix sibling domain": {
+			// rack-a and rack-ab are siblings. Once x1 becomes unhealthy, x2
+			// keeps the replacement constrained to rack-a. Since x2 has no
+			// spare capacity, x3 in rack-ab must not be used as the replacement.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-rack-a-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "rack-a").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					NotReady().Obj(),
+				*testingnode.MakeNode("b1-rack-a-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "rack-a").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-rack-ab-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "rack-ab").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			existingTA: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+				Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x2"}}).
+				Obj(),
+			admissionCount: 2,
+			unhealthyNode:  "x1",
+			topologyRequest: &kueue.PodSetTopologyRequest{
+				Required: new(tasRackLabel),
+			},
+			count: 2,
+			priorFlavorUsage: []workload.TopologyDomainRequests{
+				{
+					Values:            []string{"x2"},
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+					Count:             1,
+				},
+			},
+			wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 2; excluded: resource "cpu": 1, topologyDomain: 1`,
+		},
 		"replace unhealthy node in incomplete rack slice": {
 			//       b1
 			//   /        \
@@ -8856,7 +8898,12 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 				aggregatedDomainUsages = tc.aggregatedDomainUsages
 			}
-			snapshot, err := tasFlavorCache.snapshot(ctx, log, aggregatedDomainUsages)
+			snapshot, err := tasFlavorCache.snapshot(
+				ctx,
+				log,
+				newDefaultSimulatorSnapshot(),
+				aggregatedDomainUsages,
+			)
 			if err != nil {
 				t.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 			}
