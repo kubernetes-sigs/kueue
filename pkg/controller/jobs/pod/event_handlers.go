@@ -35,7 +35,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
@@ -55,14 +54,10 @@ func reconcileRequestForPod(p *corev1.Pod) reconcile.Request {
 			},
 		}
 	}
-	return reconcileRequestForPodGroup(p.Namespace, groupName)
-}
-
-func reconcileRequestForPodGroup(namespace, groupName string) reconcile.Request {
 	return reconcile.Request{
 		NamespacedName: types.NamespacedName{
 			Name:      groupName,
-			Namespace: fmt.Sprintf("group/%s", namespace),
+			Namespace: fmt.Sprintf("group/%s", p.Namespace),
 		},
 	}
 }
@@ -133,28 +128,10 @@ func (h *workloadHandler) Update(ctx context.Context, e event.UpdateEvent, q wor
 }
 
 func (h *workloadHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.queueReconcileForBlockedPodGroup(ctx, e.Object, q)
 	h.queueReconcileForChildPod(ctx, e.Object, q)
 }
 
 func (h *workloadHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-// queueReconcileForBlockedPodGroup requeues the pod group named after a deleted Workload
-// which was not created by the pod group framework. Such a Workload makes the pod group
-// refuse adoption with errNotPodGroupWorkload, which is unretryable, so without this
-// enqueue the group would stay blocked until an unrelated pod event or a resync.
-func (h *workloadHandler) queueReconcileForBlockedPodGroup(ctx context.Context, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if !features.Enabled(features.PodIntegrationValidateGroupOwner) {
-		return
-	}
-	w, ok := object.(*kueue.Workload)
-	if !ok || w.Annotations[podconstants.IsGroupWorkloadAnnotationKey] == podconstants.IsGroupWorkloadAnnotationValue {
-		return
-	}
-	ctrl.LoggerFrom(ctx).V(5).Info("Queueing reconcile for the pod group unblocked by the deleted workload",
-		"workload", klog.KObj(w))
-	q.Add(reconcileRequestForPodGroup(w.Namespace, w.Name))
 }
 
 func (h *workloadHandler) queueReconcileForChildPod(ctx context.Context, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -172,7 +149,12 @@ func (h *workloadHandler) queueReconcileForChildPod(ctx context.Context, object 
 	// Compose request for a pod group if workload has an "is-group-workload" annotation
 	if w.Annotations[podconstants.IsGroupWorkloadAnnotationKey] == podconstants.IsGroupWorkloadAnnotationValue {
 		log.V(5).Info("Queueing reconcile for the pod group", "groupName", w.Name, "namespace", w.Namespace)
-		q.Add(reconcileRequestForPodGroup(w.Namespace, w.Name))
+		q.Add(reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      w.Name,
+				Namespace: fmt.Sprintf("group/%s", w.Namespace),
+			},
+		})
 		return
 	}
 
