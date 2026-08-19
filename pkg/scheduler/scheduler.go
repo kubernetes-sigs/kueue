@@ -424,6 +424,7 @@ func (s *Scheduler) processEntry(
 		e.requeueReason = qcache.RequeueReasonNoFit
 		log.V(3).Info("Skipping workload as FlavorAssigner assigned NoFit mode")
 		e.quotaReservedReason = e.assignment.NoFitReason
+		s.reconcileRayClusterScaleGate(ctx, e, true)
 		return
 	}
 
@@ -931,6 +932,9 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			s.recordWorkloadAdmissionMetrics(log, newWorkload, e.Obj, admission, consideredStr)
 
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
+			// Quota is now available for this RayCluster; clear any scaling gate
+			// so the Ray Autoscaler can scale the preferred worker group again.
+			s.reconcileRayClusterScaleGate(ctx, e, false)
 			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
 				s.replaceOldWorkloadSlice(ctx, log, e, oldWorkloadSlice)
 			}

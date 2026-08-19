@@ -95,4 +95,10 @@ const (
 	// The value of this label is boolean, and it is set to "true" if the Workload is a parent of Variants.
 	// The label is used with ConcurrentAdmission feature.
 	ConcurrentAdmissionParentLabelKey = "kueue.x-k8s.io/concurrent-admission-parent"
+
+	// RayClusterQuotaExceededScaleGate is the scaling gate Kueue appends to a
+	// RayCluster worker group's spec.workerGroupSpecs[i].scaleStrategy.scaleGate
+	// when the group cannot be admitted due to insufficient quota. The Ray
+	// Autoscaler observes it and falls back to a lower-priority worker group.
+	RayClusterQuotaExceededScaleGate = "kueue.k8s.io/quota-exceeded"
 )

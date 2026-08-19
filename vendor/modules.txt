@@ -221,11 +221,6 @@ github.com/grpc-ecosystem/grpc-gateway/v2/internal/httprule
 github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2/options
 github.com/grpc-ecosystem/grpc-gateway/v2/runtime
 github.com/grpc-ecosystem/grpc-gateway/v2/utilities
-# github.com/hashicorp/golang-lru/v2 v2.0.7
-## explicit; go 1.18
-github.com/hashicorp/golang-lru/v2
-github.com/hashicorp/golang-lru/v2/internal
-github.com/hashicorp/golang-lru/v2/simplelru
 # github.com/inconshreveable/mousetrap v1.1.0
 ## explicit; go 1.18
 github.com/inconshreveable/mousetrap
@@ -383,8 +378,8 @@ github.com/prometheus/common/model
 github.com/prometheus/procfs
 github.com/prometheus/procfs/internal/fs
 github.com/prometheus/procfs/internal/util
-# github.com/ray-project/kuberay/ray-operator v1.6.2
-## explicit; go 1.25.0
+# github.com/ray-project/kuberay/ray-operator v1.6.2 => ../kuberay/ray-operator
+## explicit; go 1.26.0
 github.com/ray-project/kuberay/ray-operator/apis/ray/v1
 github.com/ray-project/kuberay/ray-operator/controllers/ray/utils
 github.com/ray-project/kuberay/ray-operator/controllers/ray/utils/dashboardclient
@@ -399,9 +394,6 @@ github.com/russross/blackfriday/v2
 # github.com/sirupsen/logrus v1.9.4
 ## explicit; go 1.17
 github.com/sirupsen/logrus
-# github.com/smallnest/chanx v1.2.0
-## explicit; go 1.18
-github.com/smallnest/chanx
 # github.com/spf13/cobra v1.10.2
 ## explicit; go 1.15
 github.com/spf13/cobra
@@ -1976,3 +1968,4 @@ sigs.k8s.io/yaml/kyaml
 volcano.sh/apis/pkg/apis/scheduling
 volcano.sh/apis/pkg/apis/scheduling/v1beta1
 volcano.sh/apis/pkg/client/applyconfiguration/scheduling/v1beta1
+# github.com/ray-project/kuberay/ray-operator => ../kuberay/ray-operator
