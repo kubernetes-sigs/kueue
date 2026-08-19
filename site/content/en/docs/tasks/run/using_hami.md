@@ -55,7 +55,7 @@ This configuration tells Kueue to multiply per-vGPU resource values by the numbe
 Configure your ClusterQueue to track both vGPU instance counts and total resources:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ClusterQueue
 metadata:
   name: vgpu-cluster-queue
