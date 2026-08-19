@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -49,6 +50,36 @@ func TestIndexPodGroupName(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			got := IndexPodGroupName(tc.object)
+			if diff := cmp.Diff(tc.wantKeys, got); diff != "" {
+				t.Errorf("Unexpected keys (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestIndexPodController(t *testing.T) {
+	gvk := schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "StatefulSet"}
+	cases := map[string]struct {
+		object   client.Object
+		wantKeys []string
+	}{
+		"non-pod object": {
+			object: testingnode.MakeNode("node").OwnerReference("node", gvk).Obj(),
+		},
+		"pod without owner": {
+			object: testingpod.MakePod("pod", "ns").Obj(),
+		},
+		"pod with controller reference": {
+			object: testingpod.MakePod("pod", "ns").
+				OwnerReferenceWithUID("sts", gvk, "sts-uid").
+				Obj(),
+			wantKeys: []string{"StatefulSet/sts"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := IndexPodController(tc.object)
 			if diff := cmp.Diff(tc.wantKeys, got); diff != "" {
 				t.Errorf("Unexpected keys (-want,+got):\n%s", diff)
 			}
