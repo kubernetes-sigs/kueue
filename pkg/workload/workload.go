@@ -55,7 +55,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
-	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -272,6 +271,10 @@ type Info struct {
 	// NominationMapping is the mapping of PodSets resources and their flavors
 	// based on the nomination phase.
 	NominationMapping PodSetResourcesToFlavors
+
+	// IsPreemptor indicates whether the workload is waiting for preemption to complete
+	// in its ClusterQueue.
+	IsPreemptor bool
 }
 
 type PodSetResources struct {
@@ -1317,19 +1320,7 @@ func IsOnHold(w *kueue.Workload) bool {
 }
 
 // IsPreemptor returns true if the workload is waiting for preemption to complete.
-func IsPreemptor(w *kueue.Workload) bool {
-	cond := apimeta.FindStatusCondition(w.Status.Conditions, kueue.WorkloadQuotaReserved)
-	return cond != nil && cond.ObservedGeneration == w.Generation && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
-}
 
-// CompareWaitingForPreemption compares two workloads based on whether they are waiting for preemption to complete.
-// It returns:
-// - -1 if a is waiting for preemption and b is not
-// - 1 if b is waiting for preemption and a is not
-// - 0 if both or neither are waiting for preemption
-func CompareWaitingForPreemption(a, b *kueue.Workload) int {
-	return cmputil.CompareBool(IsPreemptor(a), IsPreemptor(b))
-}
 
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
 func HasDRA(w *kueue.Workload) bool {

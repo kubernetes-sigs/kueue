@@ -7001,16 +7001,8 @@ func TestEntryOrdering(t *testing.T) {
 					Spec: kueue.WorkloadSpec{
 						Priority: new(int32(1)),
 					},
-					Status: kueue.WorkloadStatus{
-						Conditions: []metav1.Condition{
-							{
-								Type:   kueue.WorkloadQuotaReserved,
-								Status: metav1.ConditionFalse,
-								Reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-							},
-						},
-					},
 				},
+				IsPreemptor: true,
 			},
 			assignment: flavorassigner.Assignment{
 				Borrowing: 1,
@@ -7026,16 +7018,8 @@ func TestEntryOrdering(t *testing.T) {
 					Spec: kueue.WorkloadSpec{
 						Priority: new(int32(1)),
 					},
-					Status: kueue.WorkloadStatus{
-						Conditions: []metav1.Condition{
-							{
-								Type:   kueue.WorkloadQuotaReserved,
-								Status: metav1.ConditionFalse,
-								Reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-							},
-						},
-					},
 				},
+				IsPreemptor: true,
 			},
 		},
 		{
@@ -8518,16 +8502,8 @@ func TestEntryComparerLess(t *testing.T) {
 							Name:      "preemptor-borrowing",
 							Namespace: "default",
 						},
-						Status: kueue.WorkloadStatus{
-							Conditions: []metav1.Condition{
-								{
-									Type:   kueue.WorkloadQuotaReserved,
-									Status: metav1.ConditionFalse,
-									Reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-								},
-							},
-						},
 					},
+					IsPreemptor: true,
 				},
 			},
 			b: &entry{
@@ -8562,16 +8538,8 @@ func TestEntryComparerLess(t *testing.T) {
 							Name:      "preemptor-borrowing",
 							Namespace: "default",
 						},
-						Status: kueue.WorkloadStatus{
-							Conditions: []metav1.Condition{
-								{
-									Type:   kueue.WorkloadQuotaReserved,
-									Status: metav1.ConditionFalse,
-									Reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-								},
-							},
-						},
 					},
+					IsPreemptor: true,
 				},
 			},
 			b: &entry{
@@ -8606,16 +8574,8 @@ func TestEntryComparerLess(t *testing.T) {
 							Name:      "preemptor-borrowing",
 							Namespace: "default",
 						},
-						Status: kueue.WorkloadStatus{
-							Conditions: []metav1.Condition{
-								{
-									Type:   kueue.WorkloadQuotaReserved,
-									Status: metav1.ConditionFalse,
-									Reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-								},
-							},
-						},
 					},
+					IsPreemptor: true,
 				},
 			},
 			b: &entry{
@@ -8625,16 +8585,8 @@ func TestEntryComparerLess(t *testing.T) {
 							Name:      "preemptor-nominal",
 							Namespace: "default",
 						},
-						Status: kueue.WorkloadStatus{
-							Conditions: []metav1.Condition{
-								{
-									Type:   kueue.WorkloadQuotaReserved,
-									Status: metav1.ConditionFalse,
-									Reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-								},
-							},
-						},
 					},
+					IsPreemptor: true,
 				},
 			},
 			drsValues: map[drsKey]schdcache.DRS{

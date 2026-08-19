@@ -176,8 +176,8 @@ type entryComparer struct {
 func (e *entryComparer) less(a, b *entry, parentCohort kueue.CohortReference) bool {
 	// 1. Prioritize workloads waiting for preemption to complete if the feature is enabled.
 	if features.Enabled(features.PrioritizePreemptorWorkloads) {
-		if cmp := workload.CompareWaitingForPreemption(a.Obj, b.Obj); cmp != 0 {
-			return cmp < 0
+		if a.IsPreemptor != b.IsPreemptor {
+			return a.IsPreemptor
 		}
 	}
 

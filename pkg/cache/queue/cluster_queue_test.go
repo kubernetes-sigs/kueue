@@ -783,9 +783,9 @@ func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
 				return
 			default:
 				for _, k := range keys {
-					cq.sw.set(k)
+					cq.pw.set(k, true)
 				}
-				cq.sw.clear()
+				cq.pw.clear()
 			}
 		}
 	}()
@@ -1427,7 +1427,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
 			}
 
-			gotSticky := cq.sw.matches(workload.Key(wl))
+			gotSticky := cq.pw.stickyMatches(workload.Key(wl))
 			if diff := cmp.Diff(tc.wantSticky, gotSticky); diff != "" {
 				t.Errorf("Unexpected sticky status (-want,+got):\n%s", diff)
 			}
