@@ -272,6 +272,33 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 		},
 		{
+			name: "workload with negative extended resource request is not charged",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name:  "c",
+									Image: "pause",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"example.com/gpu": resource.MustParse("-3"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			want:          nil,
+		},
+		{
 			name: "workload with multiple extended resources",
 			workload: &kueue.Workload{
 				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
@@ -585,6 +612,50 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
 				"main": sets.New[corev1.ResourceName]("vendor.example/a", "vendor.example/b"),
+			},
+		},
+		{
+			// vendor.example/a and vendor.example/b share the "gpu-claims" quota key.
+			// The negative request for b must be dropped before aggregation, not
+			// merged in and left to offset a's positive charge.
+			name: "positive and negative extended resource names sharing a quota key: negative does not offset positive",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{
+									Name:  "c",
+									Image: "pause",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											"vendor.example/a": resource.MustParse("5"),
+											"vendor.example/b": resource.MustParse("-3"),
+										},
+									},
+								}},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{classADeviceClass, classBDeviceClass},
+			mapperMappings: []configapi.DeviceClassMapping{
+				{
+					Name:             "gpu-claims",
+					DeviceClassNames: []corev1.ResourceName{"class-a", "class-b"},
+				},
+			},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"gpu-claims": resource.MustParse("5"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("vendor.example/a"),
 			},
 		},
 		{
