@@ -722,7 +722,11 @@ func TestUpdateConfig(t *testing.T) {
 			}
 
 			cancelCalledCount = 0
-			res, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
+			res, gotErr := reconciler.Reconcile(
+				ctx,
+				reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}},
+				c,
+			)
 			if diff := cmp.Diff(gotErr, tc.wantErr, cmp.Comparer(func(a, b error) bool {
 				if a == nil || b == nil {
 					return a == b
@@ -883,7 +887,7 @@ func TestReconnectBackoff(t *testing.T) {
 			for i, s := range tc.steps {
 				fc.Step(s.advance)
 				before := buildCalls
-				res, err := reconciler.Reconcile(ctx, req)
+				res, err := reconciler.Reconcile(ctx, req, c)
 				if err != nil {
 					t.Fatalf("step %d: unexpected reconcile error: %v", i, err)
 				}
@@ -934,7 +938,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	reconciler.remoteClients["worker1"] = rc
 	defer rc.StopWatchers()
 
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}})
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}}, c)
 	if err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
@@ -1008,7 +1012,7 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 
 	// Disconnected: the Active message appends the failed reconnect attempts and the
 	// next retry time.
-	if err := cRec.updateStatus(ctx, cluster, false, "ClientConnectionFailed", "client cannot watch"); err != nil {
+	if err := cRec.updateStatus(ctx, managerClient, cluster, false, "ClientConnectionFailed", "client cannot watch"); err != nil {
 		t.Fatalf("updateStatus(disconnected): %v", err)
 	}
 	got := &kueue.MultiKueueCluster{}
@@ -1025,7 +1029,7 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 	}
 
 	// Reconnected: the Active message is used as-is (no backoff suffix).
-	if err := cRec.updateStatus(ctx, got, true, "Active", "Connected"); err != nil {
+	if err := cRec.updateStatus(ctx, managerClient, got, true, "Active", "Connected"); err != nil {
 		t.Fatalf("updateStatus(connected): %v", err)
 	}
 	got2 := &kueue.MultiKueueCluster{}
@@ -1595,7 +1599,8 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	slowDone := make(chan struct{})
 	go func() {
 		defer close(slowDone)
-		_, _ = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-slow"}})
+		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-slow"}}
+		_, _ = reconciler.Reconcile(ctx, req, localClient)
 	}()
 
 	select {
@@ -1606,7 +1611,8 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 
 	fastDone := make(chan error, 1)
 	go func() {
-		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-fast"}})
+		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-fast"}}
+		_, err := reconciler.Reconcile(ctx, req, localClient)
 		fastDone <- err
 	}()
 
