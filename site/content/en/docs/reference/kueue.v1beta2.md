@@ -3723,6 +3723,34 @@ level.</p>
 </tbody>
 </table>
 
+## `WaitForPodsReady`     {#kueue-x-k8s-io-v1beta2-WaitForPodsReady}
+    
+
+**Appears in:**
+
+- [WorkloadSpec](#kueue-x-k8s-io-v1beta2-WorkloadSpec)
+
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>podsReadyTimeout</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>podsReadyTimeout defines the maximum duration the workload may remain
+admitted before all pods are in a Ready or Succeeded state.
+When elapsed, the workload is evicted with reason PodsReadyTimeout.
+If both this field and the cluster-wide WaitForPodsReady.Timeout are set,
+this field takes precedence.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `WorkloadSchedulingStatsEviction`     {#kueue-x-k8s-io-v1beta2-WorkloadSchedulingStatsEviction}
     
 
@@ -3844,6 +3872,14 @@ the workload can be admitted before it's automatically deactivated.</p>
    <p>preemptionGates is a list of gates governing whether the workload
 can trigger preemptions.
 The gates are closed by default.</p>
+</td>
+</tr>
+<tr><td><code>waitForPodsReady</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-WaitForPodsReady"><code>WaitForPodsReady</code></a>
+</td>
+<td>
+   <p>WaitForPodsReady defines the per-workload pods-ready timeout.</p>
+<p>If unspecified, the cluster-wide WaitForPodsReady is used.</p>
 </td>
 </tr>
 </tbody>

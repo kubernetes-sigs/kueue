@@ -84,6 +84,23 @@ type WorkloadSpec struct {
 	// +kubebuilder:validation:MaxItems=8
 	// +optional
 	PreemptionGates []PreemptionGate `json:"preemptionGates,omitempty"`
+
+	// WaitForPodsReady defines the per-workload pods-ready timeout.
+	//
+	// If unspecified, the cluster-wide WaitForPodsReady is used.
+	// +optional
+	WaitForPodsReady *WaitForPodsReady `json:"waitForPodsReady,omitempty"`
+}
+
+// +kubebuilder:validation:MinProperties=1
+type WaitForPodsReady struct {
+	// podsReadyTimeout defines the maximum duration the workload may remain
+	// admitted before all pods are in a Ready or Succeeded state.
+	// When elapsed, the workload is evicted with reason PodsReadyTimeout.
+	// If both this field and the cluster-wide WaitForPodsReady.Timeout are set,
+	// this field takes precedence.
+	// +optional
+	PodsReadyTimeout *metav1.Duration `json:"podsReadyTimeout,omitempty"`
 }
 
 // PriorityClassGroup indicates the API group of the PriorityClass object.

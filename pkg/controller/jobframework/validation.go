@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
@@ -54,6 +55,7 @@ var (
 	workloadPriorityClassNamePath  = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 	prebuiltWorkloadLabelPath      = labelsPath.Key(constants.PrebuiltWorkloadLabel)
 	prebuiltWorkloadAnnotationPath = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
+	podsReadyTimeoutAnnotationPath = annotationsPath.Key(constants.PodsReadyTimeoutAnnotation)
 	elasticJobAnnotationPath       = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
 	supportedElasticJobGVKs        = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
@@ -83,6 +85,7 @@ func ValidateJobOnCreate(job GenericJob) field.ErrorList {
 	allErrs := ValidateQueueName(job.Object())
 	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
+	allErrs = append(allErrs, validateCreateForPodsReadyTimeout(job)...)
 	allErrs = append(allErrs, ValidateElasticJobAnnotation(job.Object(), job.GVK())...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
@@ -108,6 +111,7 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(strin
 	allErrs := validateUpdateForQueueName(oldJob, newJob, defaultQueueExist)
 	allErrs = append(allErrs, validateUpdateForPrebuiltWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
+	allErrs = append(allErrs, validateUpdateForPodsReadyTimeout(oldJob, newJob)...)
 	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	allErrs = append(allErrs, validatedUpdateForEnabledWorkloadSlice(oldJob, newJob)...)
 
@@ -255,6 +259,32 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 		)
 	}
 	return nil
+}
+
+func validateCreateForPodsReadyTimeout(job GenericJob) field.ErrorList {
+	strVal, found := job.Object().GetAnnotations()[constants.PodsReadyTimeoutAnnotation]
+	if !found {
+		return nil
+	}
+	d, err := time.ParseDuration(strVal)
+	if err != nil {
+		return field.ErrorList{field.Invalid(podsReadyTimeoutAnnotationPath, strVal, "must be a valid Go duration string (e.g. \"10m\", \"1h30m\")")}
+	}
+	if d <= 0 {
+		return field.ErrorList{field.Invalid(podsReadyTimeoutAnnotationPath, strVal, "must be greater than 0")}
+	}
+	return nil
+}
+
+func validateUpdateForPodsReadyTimeout(oldJob, newJob GenericJob) field.ErrorList {
+	if !newJob.IsSuspended() || !oldJob.IsSuspended() {
+		return apivalidation.ValidateImmutableField(
+			newJob.Object().GetAnnotations()[constants.PodsReadyTimeoutAnnotation],
+			oldJob.Object().GetAnnotations()[constants.PodsReadyTimeoutAnnotation],
+			podsReadyTimeoutAnnotationPath,
+		)
+	}
+	return validateCreateForPodsReadyTimeout(newJob)
 }
 
 // ValidateImmutablePodGroupPodSpec function is used for serving workloads to ensure no changes are allowed

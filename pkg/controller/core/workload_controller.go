@@ -1633,13 +1633,23 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 // admittedNotReadyWorkload returns the underlying cause and remaining time for
 // a workload that is admitted but not yet in PodsReady condition.
 //
-// If the workload is not admitted, PodsReady is true, or no timeout is configured,
-// it returns an empty underlyingCause and zero duration.
+// The per-workload WaitForPodsReady.PodsReadyTimeout takes precedence over the
+// cluster-wide timeout when both are set. If neither is configured, or the
+// workload is already admitted and ready, it returns an empty underlyingCause
+// and zero duration.
 func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue.EvictionUnderlyingCause, time.Duration) {
-	if r.waitForPodsReady == nil {
-		// the timeout is not configured for the workload controller
+	// Resolve the effective WaitForStart timeout: per-workload takes precedence.
+	var timeout time.Duration
+	switch {
+	case wl.Spec.WaitForPodsReady != nil && wl.Spec.WaitForPodsReady.PodsReadyTimeout != nil:
+		timeout = wl.Spec.WaitForPodsReady.PodsReadyTimeout.Duration
+	case r.waitForPodsReady != nil:
+		timeout = r.waitForPodsReady.timeout
+	default:
+		// No timeout configured at either level.
 		return "", 0
 	}
+
 	if !workload.IsAdmitted(wl) {
 		// the workload is not admitted so there is no need to time it out
 		return "", 0
@@ -1653,9 +1663,10 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 	if podsReadyCond == nil || podsReadyCond.Reason == kueue.WorkloadWaitForStart || podsReadyCond.Reason == "PodsReady" {
 		admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
 		elapsedTime := r.clock.Since(admittedCond.LastTransitionTime.Time)
-		return kueue.WorkloadWaitForStart, max(r.waitForPodsReady.timeout-elapsedTime, 0)
-	} else if podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil {
-		// A pod has failed and the workload is waiting for recovery
+		return kueue.WorkloadWaitForStart, max(timeout-elapsedTime, 0)
+	} else if podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady != nil && r.waitForPodsReady.recoveryTimeout != nil {
+		// A pod has failed and the workload is waiting for recovery.
+		// RecoveryTimeout is cluster-wide only; no per-workload override.
 		elapsedTime := r.clock.Since(podsReadyCond.LastTransitionTime.Time)
 		return kueue.WorkloadWaitForRecovery, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
 	}

@@ -558,7 +558,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 
 	// 5. handle WaitForPodsReady only for a standalone job.
 	// handle a job when waitForPodsReady is enabled, and it is the main job
-	if r.waitForPodsReady {
+	if r.waitForPodsReady || wl.Spec.WaitForPodsReady != nil {
 		log.V(3).Info("Handling a job when waitForPodsReady is enabled")
 		condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock)
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
@@ -1489,6 +1489,19 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false, nil
 	}
 
+	// Compare per-workload pods-ready timeout: use a sentinel zero value so that
+	// nil on either side compares equal to a missing annotation on the other.
+	var wlPodsReadyTimeout, jobPodsReadyTimeout time.Duration
+	if wl.Spec.WaitForPodsReady != nil && wl.Spec.WaitForPodsReady.PodsReadyTimeout != nil {
+		wlPodsReadyTimeout = wl.Spec.WaitForPodsReady.PodsReadyTimeout.Duration
+	}
+	if d := PodsReadyTimeoutForObject(job.Object()); d != nil {
+		jobPodsReadyTimeout = d.Duration
+	}
+	if wlPodsReadyTimeout != jobPodsReadyTimeout {
+		return false, nil
+	}
+
 	getPodSets, err := JobPodSets(ctx, job, c)
 	if err != nil {
 		return false, err
@@ -1823,6 +1836,12 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 
 	if WorkloadSliceEnabled(job) {
 		return prepareWorkloadSlice(ctx, r.client, job, wl)
+	}
+	timeout := PodsReadyTimeoutForObject(job.Object())
+	if timeout != nil {
+		wl.Spec.WaitForPodsReady = &kueue.WaitForPodsReady{
+			PodsReadyTimeout: timeout,
+		}
 	}
 	wl.Spec.Active = active
 	return nil
