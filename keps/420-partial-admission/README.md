@@ -24,6 +24,8 @@
     - [E2E tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
+- [Future work](#future-work)
+  - [kubeflow/MPIJob controller](#kubeflowmpijob-controller)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
 <!-- /toc -->
@@ -110,7 +112,7 @@ type PodSetAssignment struct {
 ### Validation
 
 - `.spec.podSets.minCount <= .spec.podSets.count`
-- `.spec.podSets.minCount >= 0`
+- `.spec.podSets.minCount >= 1`
 
 ### Scheduler / Flavorassignment
 
@@ -198,6 +200,15 @@ to implement this enhancement.
 
 ## Implementation History
 - 07/07/2023 - Partial admission for batch/Job was added that supports only 1 podSet with minCount value.
+
+## Future work
+
+### kubeflow/MPIJob controller
+
+In case of MPIJob `j.Spec.RunPolicy.SchedulingPolicy.MinAvailable` can be used to provide a `minimumCount` for the `Worker` PodSets while updating `j.Spec.MPIReplicaSpecs[kubeflow.MPIReplicaTypeWorker].Replicas` before unsuspending the job and after suspending it.
+
+Whether an MPIJob supports partial admission or not can be deduced based on `MinAvailable` without the need of a dedicated annotation.
+Additional research is needed into the potential usage of multiple variable count PodSets.
 
 ## Drawbacks
 
