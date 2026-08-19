@@ -168,6 +168,25 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 	isSuspended := oldStatefulSet.Status.ReadyReplicas == 0
 	if !isSuspended || newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
+	} else if newQueueName != oldQueueName {
+		// ReadyReplicas==0 does not imply the Workload's quota reservation was
+		// released: shouldReleaseReservation only fires on scale-to-zero, so a
+		// StatefulSet with replicas > 0 and no Ready Pods (e.g. crashlooping or
+		// unschedulable) can keep its reservation indefinitely. Refuse the
+		// rename while reserved so the Pods and the Workload cannot end up
+		// naming different queues.
+		wlName, err := findWorkloadName(ctx, wh.client, oldSTSObj)
+		if err != nil {
+			return nil, err
+		}
+		var wl kueue.Workload
+		if err := wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTSObj.GetNamespace(), Name: wlName}, &wl); err != nil {
+			if client.IgnoreNotFound(err) != nil {
+				return nil, err
+			}
+		} else if workload.HasQuotaReservation(&wl) {
+			allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
+		}
 	}
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		isSuspended,
