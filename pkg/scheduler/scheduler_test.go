@@ -6794,103 +6794,119 @@ func TestEntryOrdering(t *testing.T) {
 	now := time.Now()
 	input := []entry{
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "old_borrowing",
-					CreationTimestamp: metav1.NewTime(now),
-				}},
-			},
-			assignment: flavorassigner.Assignment{
-				Borrowing: 1,
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "old",
-					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-				}},
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "new",
-					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
-				}},
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "high_pri_borrowing",
-					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: new(int32(1)),
-				}},
-			},
-			assignment: flavorassigner.Assignment{
-				Borrowing: 1,
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "new_high_pri",
-					CreationTimestamp: metav1.NewTime(now.Add(4 * time.Second)),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: new(int32(1)),
-				}},
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "new_borrowing",
-					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
-				}},
-			},
-			assignment: flavorassigner.Assignment{
-				Borrowing: 1,
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:              "evicted_borrowing",
-						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-					},
-					Status: kueue.WorkloadStatus{
-						Conditions: []metav1.Condition{
-							{
-								Type:               kueue.WorkloadEvicted,
-								Status:             metav1.ConditionTrue,
-								LastTransitionTime: metav1.NewTime(now.Add(2 * time.Second)),
-								Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
-							},
-						},
-					},
-				},
-			},
-			assignment: flavorassigner.Assignment{
-				Borrowing: 1,
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:              "recently_evicted",
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "old_borrowing",
 						CreationTimestamp: metav1.NewTime(now),
+					}},
+				},
+			},
+			assignment: flavorassigner.Assignment{
+				Borrowing: 1,
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "old",
+						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+					}},
+				},
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "new",
+						CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+					}},
+				},
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "high_pri_borrowing",
+						CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}},
+				},
+			},
+			assignment: flavorassigner.Assignment{
+				Borrowing: 1,
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "new_high_pri",
+						CreationTimestamp: metav1.NewTime(now.Add(4 * time.Second)),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}},
+				},
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "new_borrowing",
+						CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+					}},
+				},
+			},
+			assignment: flavorassigner.Assignment{
+				Borrowing: 1,
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "evicted_borrowing",
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						},
+						Status: kueue.WorkloadStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:               kueue.WorkloadEvicted,
+									Status:             metav1.ConditionTrue,
+									LastTransitionTime: metav1.NewTime(now.Add(2 * time.Second)),
+									Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+								},
+							},
+						},
 					},
-					Status: kueue.WorkloadStatus{
-						Conditions: []metav1.Condition{
-							{
-								Type:               kueue.WorkloadEvicted,
-								Status:             metav1.ConditionTrue,
-								LastTransitionTime: metav1.NewTime(now.Add(2 * time.Second)),
-								Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+				},
+			},
+			assignment: flavorassigner.Assignment{
+				Borrowing: 1,
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "recently_evicted",
+							CreationTimestamp: metav1.NewTime(now),
+						},
+						Status: kueue.WorkloadStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:               kueue.WorkloadEvicted,
+									Status:             metav1.ConditionTrue,
+									LastTransitionTime: metav1.NewTime(now.Add(2 * time.Second)),
+									Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+								},
 							},
 						},
 					},
@@ -6898,13 +6914,15 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "high_pri_borrowing_more",
-					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: new(int32(1)),
-				}},
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "high_pri_borrowing_more",
+						CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}},
+				},
 			},
 			assignment: flavorassigner.Assignment{
 				Borrowing: 2,
@@ -6913,93 +6931,105 @@ func TestEntryOrdering(t *testing.T) {
 	}
 	inputForOrderingPreemptedWorkloads := []entry{
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "old-mid-recently-preempted-in-queue",
-					CreationTimestamp: metav1.NewTime(now),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: new(int32(1)),
-				}, Status: kueue.WorkloadStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:               kueue.WorkloadPreempted,
-							Status:             metav1.ConditionTrue,
-							Reason:             kueue.InClusterQueueReason,
-							LastTransitionTime: metav1.NewTime(now.Add(5 * time.Second)),
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "old-mid-recently-preempted-in-queue",
+						CreationTimestamp: metav1.NewTime(now),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}, Status: kueue.WorkloadStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               kueue.WorkloadPreempted,
+								Status:             metav1.ConditionTrue,
+								Reason:             kueue.InClusterQueueReason,
+								LastTransitionTime: metav1.NewTime(now.Add(5 * time.Second)),
+							},
 						},
-					},
-				}},
+					}},
+				},
 			},
 		},
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "old-mid-recently-reclaimed-while-borrowing",
-					CreationTimestamp: metav1.NewTime(now),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: new(int32(1)),
-				}, Status: kueue.WorkloadStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:               kueue.WorkloadPreempted,
-							Status:             metav1.ConditionTrue,
-							Reason:             kueue.InCohortReclaimWhileBorrowingReason,
-							LastTransitionTime: metav1.NewTime(now.Add(6 * time.Second)),
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "old-mid-recently-reclaimed-while-borrowing",
+						CreationTimestamp: metav1.NewTime(now),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}, Status: kueue.WorkloadStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               kueue.WorkloadPreempted,
+								Status:             metav1.ConditionTrue,
+								Reason:             kueue.InCohortReclaimWhileBorrowingReason,
+								LastTransitionTime: metav1.NewTime(now.Add(6 * time.Second)),
+							},
 						},
-					},
-				}},
+					}},
+				},
 			},
 		},
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "old-mid-more-recently-reclaimed-while-borrowing",
-					CreationTimestamp: metav1.NewTime(now),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: new(int32(1)),
-				}, Status: kueue.WorkloadStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:               kueue.WorkloadPreempted,
-							Status:             metav1.ConditionTrue,
-							Reason:             kueue.InCohortReclaimWhileBorrowingReason,
-							LastTransitionTime: metav1.NewTime(now.Add(7 * time.Second)),
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "old-mid-more-recently-reclaimed-while-borrowing",
+						CreationTimestamp: metav1.NewTime(now),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}, Status: kueue.WorkloadStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               kueue.WorkloadPreempted,
+								Status:             metav1.ConditionTrue,
+								Reason:             kueue.InCohortReclaimWhileBorrowingReason,
+								LastTransitionTime: metav1.NewTime(now.Add(7 * time.Second)),
+							},
 						},
-					},
-				}},
+					}},
+				},
 			},
 		},
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "old-mid-not-preempted-yet",
-					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: new(int32(1)),
-				}},
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "old-mid-not-preempted-yet",
+						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}},
+				},
 			},
 		},
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "preemptor",
-					CreationTimestamp: metav1.NewTime(now.Add(7 * time.Second)),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: new(int32(2)),
-				}},
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "preemptor",
+						CreationTimestamp: metav1.NewTime(now.Add(7 * time.Second)),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(2)),
+					}},
+				},
 			},
 		},
 	}
 	inputForOrderingPreemptorWorkloads := []entry{
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:              "preemptor-borrowing",
-						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-					},
-					Spec: kueue.WorkloadSpec{
-						Priority: new(int32(1)),
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "preemptor-borrowing",
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						},
+						Spec: kueue.WorkloadSpec{
+							Priority: new(int32(1)),
+						},
 					},
 				},
 				IsPreemptor: true,
@@ -7009,28 +7039,32 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:              "preemptor-not-borrowing",
-						CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
-					},
-					Spec: kueue.WorkloadSpec{
-						Priority: new(int32(1)),
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "preemptor-not-borrowing",
+							CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
+						},
+						Spec: kueue.WorkloadSpec{
+							Priority: new(int32(1)),
+						},
 					},
 				},
 				IsPreemptor: true,
 			},
 		},
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:              "not-preemptor-not-borrowing",
-						CreationTimestamp: metav1.NewTime(now),
-					},
-					Spec: kueue.WorkloadSpec{
-						Priority: new(int32(2)),
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "not-preemptor-not-borrowing",
+							CreationTimestamp: metav1.NewTime(now),
+						},
+						Spec: kueue.WorkloadSpec{
+							Priority: new(int32(2)),
+						},
 					},
 				},
 			},
@@ -8212,7 +8246,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				if len(wInfos) != 1 {
 					t.Fatalf("Failed getting heads in cluster queue")
 				}
-				tc.e.Info = wInfos[0]
+				tc.e.Head = wInfos[0]
 				scheduler.requeueAndUpdate(ctx, tc.e)
 
 				qDump := qManager.Dump()
@@ -8279,10 +8313,12 @@ func TestEntryMarkSkipped(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityPreserveScanProgress, tc.preserveProgress)
 
 			e := entry{
-				Info: workload.Info{
-					LastAssignment: &workload.AssignmentClusterQueueState{
-						LastTriedFlavorIdx: []map[corev1.ResourceName]int{
-							{corev1.ResourceCPU: 0},
+				Head: qcache.Head{
+					Info: workload.Info{
+						LastAssignment: &workload.AssignmentClusterQueueState{
+							LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+								{corev1.ResourceCPU: 0},
+							},
 						},
 					},
 				},
@@ -8350,8 +8386,10 @@ func TestEntryMarkPreemptionOutcome(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			e := entry{
 				inadmissibleMsg: "fits with preemption",
-				Info: workload.Info{
-					LastAssignment: assignmentState,
+				Head: qcache.Head{
+					Info: workload.Info{
+						LastAssignment: assignmentState,
+					},
 				},
 			}
 
@@ -8388,21 +8426,25 @@ func TestEntryComparerLess(t *testing.T) {
 		{
 			name: "non-borrowing subtree preferred over borrowing subtree",
 			a: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "nominal",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "nominal",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						}},
+					},
 				},
 			},
 			b: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "borrowing",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "borrowing",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now),
+						}},
+					},
 				},
 			},
 			drsValues: map[drsKey]schdcache.DRS{
@@ -8418,21 +8460,25 @@ func TestEntryComparerLess(t *testing.T) {
 		{
 			name: "both borrowing on requested flavors falls through to FIFO",
 			a: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "borrow-a",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "borrow-a",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						}},
+					},
 				},
 			},
 			b: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "borrow-b",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "borrow-b",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now),
+						}},
+					},
 				},
 			},
 			drsValues: map[drsKey]schdcache.DRS{
@@ -8448,21 +8494,25 @@ func TestEntryComparerLess(t *testing.T) {
 		{
 			name: "lower DRS preferred over higher DRS",
 			a: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "lower-drs",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "lower-drs",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						}},
+					},
 				},
 			},
 			b: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "higher-drs",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "higher-drs",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now),
+						}},
+					},
 				},
 			},
 			drsValues: map[drsKey]schdcache.DRS{
@@ -8474,21 +8524,25 @@ func TestEntryComparerLess(t *testing.T) {
 		{
 			name: "both non-borrowing falls through to FIFO",
 			a: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "older",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "older",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now),
+						}},
+					},
 				},
 			},
 			b: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "newer",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "newer",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						}},
+					},
 				},
 			},
 			wantLess: true,
@@ -8496,22 +8550,26 @@ func TestEntryComparerLess(t *testing.T) {
 		{
 			name: "a is preemptor, b not, feature enabled",
 			a: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "preemptor-borrowing",
-							Namespace: "default",
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "preemptor-borrowing",
+								Namespace: "default",
+							},
 						},
 					},
 					IsPreemptor: true,
 				},
 			},
 			b: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "not-preemptor-nominal",
-							Namespace: "default",
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "not-preemptor-nominal",
+								Namespace: "default",
+							},
 						},
 					},
 				},
@@ -8532,22 +8590,26 @@ func TestEntryComparerLess(t *testing.T) {
 		{
 			name: "a is preemptor, b not, feature disabled",
 			a: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "preemptor-borrowing",
-							Namespace: "default",
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "preemptor-borrowing",
+								Namespace: "default",
+							},
 						},
 					},
 					IsPreemptor: true,
 				},
 			},
 			b: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "not-preemptor-nominal",
-							Namespace: "default",
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "not-preemptor-nominal",
+								Namespace: "default",
+							},
 						},
 					},
 				},
@@ -8568,22 +8630,26 @@ func TestEntryComparerLess(t *testing.T) {
 		{
 			name: "both are preemptors, feature enabled",
 			a: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "preemptor-borrowing",
-							Namespace: "default",
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "preemptor-borrowing",
+								Namespace: "default",
+							},
 						},
 					},
 					IsPreemptor: true,
 				},
 			},
 			b: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{
-						ObjectMeta: metav1.ObjectMeta{
-							Name:      "preemptor-nominal",
-							Namespace: "default",
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "preemptor-nominal",
+								Namespace: "default",
+							},
 						},
 					},
 					IsPreemptor: true,
@@ -8785,9 +8851,9 @@ func TestResourcesToReserve(t *testing.T) {
 				Borrowing: tc.borrowing,
 				Usage:     workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.assignmentUsage}},
 			}
-			e := &entry{assignment: assignment, Info: *workload.NewInfo(
+			e := &entry{assignment: assignment, Head: qcache.Head{Info: *workload.NewInfo(
 				&kueue.Workload{},
-			)}
+			)}}
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*cq}}).
 				Build()

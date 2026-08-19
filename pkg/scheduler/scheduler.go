@@ -317,13 +317,13 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.
 	// This operation blocks while the queues are empty.
-	headWorkloads := s.queues.Heads(ctx)
+	heads := s.queues.Heads(ctx)
 	// If there are no elements, it means that the program is finishing.
-	if len(headWorkloads) == 0 {
+	if len(heads) == 0 {
 		return wait.KeepGoing
 	}
 	startTime := s.clock.Now()
-	log.V(2).Info("Obtained heads", "headCount", len(headWorkloads), "waitDuration", startTime.Sub(cycleStartTime))
+	log.V(2).Info("Obtained heads", "headCount", len(heads), "waitDuration", startTime.Sub(cycleStartTime))
 
 	// 2. Take a snapshot of the cache.
 	var snapshotOpts []schdcache.SnapshotOption
@@ -341,7 +341,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	phaseStartTime = s.clock.Now()
-	entries, inadmissibleEntries := s.nominate(ctx, headWorkloads, snapshot)
+	entries, inadmissibleEntries := s.nominate(ctx, heads, snapshot)
 	log.V(2).Info("Nomination done", "entries", len(entries), "inadmissibleEntries", len(inadmissibleEntries), "duration", s.clock.Since(phaseStartTime))
 
 	// 4. Create iterator which returns ordered entries.
@@ -630,9 +630,9 @@ const (
 
 // entry holds requirements for a workload to be admitted by a clusterQueue.
 type entry struct {
-	// workload.Info holds the workload from the API as well as resource usage
-	// and flavors assigned.
-	workload.Info
+	// qcache.Head holds the workload from the API as well as resource usage
+	// and flavors assigned, along with queue-specific metadata.
+	qcache.Head
 	assignment           flavorassigner.Assignment
 	status               entryStatus
 	inadmissibleMsg      string
@@ -661,27 +661,27 @@ func (e *entry) readResourceToFlavorMapping() workload.PodSetResourcesToFlavors 
 // nominate returns the workloads with their requirements (resource flavors, borrowing) if
 // they were admitted by the clusterQueues in the snapshot. The second return value
 // is the list of inadmissibleEntries.
-func (s *Scheduler) nominate(ctx context.Context, workloads []workload.Info, snap *schdcache.Snapshot) ([]entry, []entry) {
+func (s *Scheduler) nominate(ctx context.Context, heads []qcache.Head, snap *schdcache.Snapshot) ([]entry, []entry) {
 	log := ctrl.LoggerFrom(ctx)
-	entries := make([]entry, 0, len(workloads))
+	entries := make([]entry, 0, len(heads))
 	var inadmissibleEntries []entry
-	for _, w := range workloads {
-		log := log.WithValues("workload", klog.KObj(w.Obj), "clusterQueue", klog.KRef("", string(w.ClusterQueue)))
-		e := entry{Info: w}
-		e.clusterQueueSnapshot = snap.ClusterQueue(w.ClusterQueue)
-		if !workload.NeedsSecondPass(w.Obj) && s.cache.IsAdded(w) {
-			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(w.Obj))
+	for _, h := range heads {
+		log := log.WithValues("workload", klog.KObj(h.Obj), "clusterQueue", klog.KRef("", string(h.ClusterQueue)))
+		e := entry{Head: h}
+		e.clusterQueueSnapshot = snap.ClusterQueue(h.ClusterQueue)
+		if !workload.NeedsSecondPass(h.Obj) && s.cache.IsAdded(h.Info) {
+			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(h.Obj))
 			continue
-		} else if workload.HasRetryChecks(w.Obj) || workload.HasRejectedChecks(w.Obj) {
+		} else if workload.HasRetryChecks(h.Obj) || workload.HasRejectedChecks(h.Obj) {
 			e.inadmissibleMsg = "The workload has failed admission checks"
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
-		} else if snap.InactiveClusterQueueSets.Has(w.ClusterQueue) {
-			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", w.ClusterQueue)
+		} else if snap.InactiveClusterQueueSets.Has(h.ClusterQueue) {
+			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", h.ClusterQueue)
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonSuspended
 		} else if e.clusterQueueSnapshot == nil {
-			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", w.ClusterQueue)
+			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", h.ClusterQueue)
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if err := workload.ValidateAdmissibility(ctx, s.client, &w, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
+		} else if err := workload.ValidateAdmissibility(ctx, s.client, &h.Info, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
 			e.inadmissibleMsg = err.Error()
 			if errors.Is(err, workload.ErrInternal) {
 				log.Error(err, "Failed to validate workload admissibility")

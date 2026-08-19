@@ -271,10 +271,6 @@ type Info struct {
 	// NominationMapping is the mapping of PodSets resources and their flavors
 	// based on the nomination phase.
 	NominationMapping PodSetResourcesToFlavors
-
-	// IsPreemptor indicates whether the workload is waiting for preemption to complete
-	// in its ClusterQueue.
-	IsPreemptor bool
 }
 
 type PodSetResources struct {
