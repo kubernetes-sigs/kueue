@@ -4921,6 +4921,112 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 				}},
 			},
 		},
+		"accounts for a domain the recomputed assignment moved to, when the previous admission held a different domain": {
+			// A second pass replacing an unhealthy node moves the PodSet to a domain
+			// nothing has accounted for yet. That claim has to reach the net usage,
+			// otherwise the fits check never validates it and AddUsage never records it.
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU:    {Name: "tas"},
+						corev1.ResourceMemory: {Name: "tas"},
+					},
+					Count: 2,
+					TopologyAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Values: []string{"node-b"},
+							Count:  2,
+						}},
+					},
+				}},
+			},
+			wl: workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			cq: &schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"tas": {},
+				},
+			},
+			prevAdmission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 2).Obj()).
+						Obj(),
+				}},
+			},
+			want: workload.TASUsage{
+				"tas": []workload.TopologyDomainRequests{{
+					Values: []string{"node-b"},
+					SinglePodRequests: resources.NewRequestsFromResourceList(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}),
+					Count: 2,
+				}},
+			},
+		},
+		"counts only the additional pods when the recomputed assignment grew an already admitted domain": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas"},
+					},
+					Count: 3,
+					TopologyAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Values: []string{"node-a"},
+							Count:  3,
+						}},
+					},
+				}},
+			},
+			wl: workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+							Request(corev1.ResourceCPU, "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			cq: &schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"tas": {},
+				},
+			},
+			prevAdmission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+						Obj(),
+				}},
+			},
+			want: workload.TASUsage{
+				"tas": []workload.TopologyDomainRequests{{
+					Values: []string{"node-a"},
+					SinglePodRequests: resources.NewRequestsFromResourceList(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					}),
+					Count: 2,
+				}},
+			},
+		},
 		"skips usage already present in previous admission": {
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -4959,8 +5065,12 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 			},
 			prevAdmission: &kueue.Admission{
 				PodSetAssignments: []kueue.PodSetAssignment{{
-					Name:               kueue.DefaultPodSetName,
-					TopologyAssignment: &kueue.TopologyAssignment{},
+					Name: kueue.DefaultPodSetName,
+					// Same domain and count as the new assignment, so the snapshot
+					// already accounts for all of it.
+					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 2).Obj()).
+						Obj(),
 				}},
 			},
 			want: workload.TASUsage{},
