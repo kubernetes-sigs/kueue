@@ -18,6 +18,7 @@ package statefulset
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
@@ -86,23 +88,28 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	sts := &appsv1.StatefulSet{}
 	if err := r.client.Get(ctx, req.NamespacedName, sts); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	wlName, err := findWorkloadName(ctx, r.client, sts)
-	if err != nil {
-		return ctrl.Result{}, err
+		if client.IgnoreNotFound(err) != nil {
+			return ctrl.Result{}, err
+		}
+		sts = nil
 	}
 
 	podList := &corev1.PodList{}
 	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingFields{
-		podcontroller.PodGroupNameCacheKey: wlName,
+		podcontroller.PodControllerCacheKey: gvk.Kind + "/" + req.Name,
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	if err := r.syncQueueLabel(ctx, sts, podList.Items); err != nil {
-		return ctrl.Result{}, err
+	if sts != nil {
+		wlName, err := findWorkloadName(ctx, r.client, sts)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		if err := r.reconcilePods(ctx, sts, wlName, podList.Items); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	// Finalizing pods and reconciling the Workload touch different objects, so
@@ -116,9 +123,11 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return r.ungatePods(ctx, sts, podList.Items)
 	})
 
-	eg.Go(func() error {
-		return r.reconcileWorkload(ctx, sts)
-	})
+	if sts != nil {
+		eg.Go(func() error {
+			return r.reconcileWorkload(ctx, sts)
+		})
+	}
 
 	return ctrl.Result{}, eg.Wait()
 }
@@ -166,6 +175,60 @@ func (r *Reconciler) syncQueueLabel(ctx context.Context, sts *appsv1.StatefulSet
 			return true, nil
 		}))
 	})
+}
+
+func (r *Reconciler) reconcilePods(ctx context.Context, sts *appsv1.StatefulSet, wlName string, pods []corev1.Pod) error {
+	if err := r.syncQueueLabel(ctx, sts, pods); err != nil {
+		return err
+	}
+	return parallelize.Until(ctx, len(pods), func(i int) error {
+		return r.setDefault(ctx, sts, wlName, &pods[i])
+	})
+}
+
+func (r *Reconciler) setDefault(ctx context.Context, sts *appsv1.StatefulSet, wlName string, pod *corev1.Pod) error {
+	if _, ok := pod.Labels[constants.ManagedByKueueLabelKey]; ok {
+		return nil
+	}
+
+	if pod.Annotations[podconstants.SuspendedByParentAnnotation] != FrameworkName {
+		return nil
+	}
+
+	queueName := jobframework.QueueNameForObject(sts)
+	log := ctrl.LoggerFrom(ctx)
+	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
+		if queueName == "" && !r.manageJobsWithoutQueueName {
+			return false, nil
+		}
+
+		if pod.Labels == nil {
+			pod.Labels = make(map[string]string)
+		}
+		if pod.Annotations == nil {
+			pod.Annotations = make(map[string]string)
+		}
+
+		pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
+		if queueName != "" {
+			pod.Labels[controllerconstants.QueueLabel] = string(queueName)
+		}
+
+		if priorityClass := jobframework.WorkloadPriorityClassName(sts); priorityClass != "" {
+			pod.Labels[controllerconstants.WorkloadPriorityClassLabel] = priorityClass
+		}
+
+		jobframework.SetPrebuiltWorkloadName(pod, wlName)
+		podcontroller.SetPodGroupName(pod, wlName)
+		pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(sts.Spec.Replicas, 1))
+		pod.Annotations[podconstants.GroupFastAdmissionAnnotationKey] = podconstants.GroupFastAdmissionAnnotationValue
+		pod.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
+		pod.Annotations[kueue.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
+		pod.Annotations[podconstants.RoleHashAnnotation] = string(kueue.DefaultPodSetName)
+
+		log.V(3).Info("Updating pod in group", "pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
+		return true, nil
+	}))
 }
 
 // findWorkloadName returns the workload name for the given StatefulSet,
@@ -473,6 +536,7 @@ func (h *podHandler) Create(_ context.Context, e event.CreateEvent, q workqueue.
 }
 
 func (h *podHandler) Update(_ context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	h.handle(e.ObjectNew, q)
 }
 
 func (h *podHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
