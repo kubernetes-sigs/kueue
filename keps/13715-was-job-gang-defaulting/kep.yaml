@@ -30,6 +30,8 @@ stage: alpha
 latest-milestone: "v0.21"
 
 # The milestone at which this feature was, or is targeted to be, at each stage.
+# Implementation cannot start before Kueue's Kubernetes dependency bump to 1.37,
+# so this target moves with that bump.
 milestone:
   alpha: "v0.21"
 

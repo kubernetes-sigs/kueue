@@ -145,6 +145,9 @@ Kube-scheduler workload-aware preemption and Kueue eviction use different priori
 Defaulting `disruptionMode.all` changes the granularity on the scheduler side: the compiled `PodGroup` is disrupted as a unit rather than Pod by Pod.
 That direction narrows a mismatch rather than adding one, because Kueue already evicts at Job granularity, suspending the Job so that all of its Pods are deleted; `single` is the setting under which the two systems disagree about what a unit is.
 What the default does not resolve is which system decides and on whose priority, since a gang admitted by Kueue can still be preempted by the scheduler under a priority that Kueue's accounting never saw.
+That gap is now reachable by default rather than hypothetical: the scheduler ranks and preempts the group on the compiled `PodGroup`'s own priority and ignores the priority of the Pods in it, while a `WorkloadPriorityClass` deliberately sets neither.
+Alpha therefore neither projects Kueue's priority onto the compiled objects nor reconciles the two ladders; both belong to the follow-up KEP.
+A projection like the one [KEP-12385](/keps/12385-was-podgroups) proposes for the plain-Pod path would also have to respect the upstream intent to reject a `PodGroup` whose priority diverges from its Pods'.
 
 **Admission can succeed when placement cannot.**
 A Workload can reserve quota and remain unplaceable, then cycle through `waitForPodsReady`, eviction, and requeue; existing backoff applies.
@@ -163,7 +166,8 @@ On a Job CREATE request, Kueue injects `schedulingPolicy.gang: {}` and `disrupti
 4. The Job is not a copy dispatched by a MultiKueue manager.
 5. The Job expresses no scheduling intent of its own, meaning `spec.scheduling` is unset and its Pod template does not set `schedulingGroup`.
 6. The Job is eligible.
-7. The target cluster's API server is at or above the version that serves the field.
+7. The Job is not opted into workload slices ([OQ5](#open-questions)).
+8. The target cluster's API server is at or above the version that serves the field.
 
 Rule 2 reuses the Job integration's existing managed-job decision, including `manageJobsWithoutQueueName` and `managedJobsNamespaceSelector` from [KEP-3589](/keps/3589-manage-jobs-selectively), and runs after LocalQueue defaulting.
 Rule 3 reuses the existing Kueue-managed-ancestor check, preventing child Jobs from receiving a second scheduling intent when their root controller owns compilation.
@@ -207,16 +211,17 @@ Eligibility does not depend on `completionMode`; Indexed and NonIndexed Jobs of 
 |---|---|
 | Partial admission, Kueue-injected gang | Supported. Kueue leaves `minCount` unset, so the gang follows the admitted `parallelism`. |
 | Partial admission, user-set `minCount` | Excluded in alpha. Rule 5 never defaults such a Job, and Kueue does not reduce its `parallelism` either, so partial admission never meets a gang Kueue did not write. `parallelism` itself is mutable, but lowering it alone is rejected because the resulting state would have `minCount > parallelism`; lowering both in one request is validated against the final state and accepted. Whether beta adds that atomic update is [OQ1](#open-questions). |
-| Workload slices | Excluded in alpha, following the existing exclusion between partial admission and elastic Jobs. Upstream does rescale a gang in place; what is unverified is the Kueue-side slice semantics ([OQ5](#open-questions)). |
+| Workload slices | Excluded in alpha by rule 7. Kueue already refuses to combine partial admission with elastic Jobs, although it rejects such a Job outright where rule 7 only skips defaulting. Upstream does rescale a gang in place; what is unverified is the Kueue-side slice semantics ([OQ5](#open-questions)). |
 | Suspend, eviction, requeue | The Kueue side is unchanged: eviction suspends the Job, its Pods are deleted, the `kueue.Workload` is requeued, and re-admission resumes the Job; the injected policy is immutable and survives the cycle. What is upstream dependent is the compiled-object lifecycle: suspending a Job does not currently delete the compiled objects, and beta is expected to delete and recreate them. |
 | `waitForPodsReady` | The scheduler keeps the group Pending while Kueue can still evict it after the timeout ([OQ3](#open-questions)). |
 | JobSet | Child Jobs of a Kueue-managed JobSet are excluded by rule 3. The only child Jobs that remain eligible are those whose parent JobSet is not managed by Kueue and that are admitted individually through the Job integration. This KEP does not select a JobSet queueing model. |
-| Kueue TAS | Not combined. This KEP writes no `schedulingConstraints`. |
+| Kueue TAS | Not analyzed in alpha. This KEP writes no `schedulingConstraints`, but that is not what keeps the two apart: Kueue TAS constrains placement through node selectors on the Pod template, so nothing prevents a defaulted Job from being placed by the scheduler's group cycle against constraints Kueue chose. `SchedulerLibraryIntegration`, which swaps Kueue's TAS node-fit check for a scheduler filter plugin set, sits on the same path and is equally unanalyzed. The longer-term direction removes the overlap rather than analyzing it, by delegating placement to the scheduler library (#13151). |
+| `WorkloadPriorityClass` | Not projected. A Kueue priority reaches neither the compiled `PodGroup` nor the Pods, so the group is scheduled and preempted at whatever priority the `PodGroup` compiles to ([Risks and mitigations](#risks-and-mitigations)). |
 | MultiKueue | Defaulted on the manager only. Neither availability check reaches a worker, and rule 4 keeps the worker-side webhook off the dispatched copy ([Feature gate and API availability](#feature-gate-and-api-availability)). |
 | Preemption and eviction | The injected `disruptionMode.all` makes the compiled `PodGroup` one disruption unit on the scheduler side, which matches Kueue's Job-granularity eviction. Which system decides, and on whose priority, is out of scope for this KEP. |
 | `ProvisioningRequest` | No interaction defined in alpha. Provisioning is unaware of WAS, and what it writes back are Pod template updates rather than WAS fields, so the two compose as they are. What alpha does not analyze is timing: the booking is not retried once the Workload is admitted, so a gang that cannot be placed can outlive it, which is the same window as [OQ3](#open-questions). |
 | CronJob | Each scheduled Job is defaulted on its own, since the fields can only be set at creation. A CronJob-created Job has no Kueue-managed ancestor, so it receives the default whenever Kueue manages it and its shape qualifies. |
-| BYO PodGroup ([KEP-13150](/keps/13150-bring-your-own-podgroup)) | `gang.minCount` is a floor, not the group size, so deriving `PodSet.Count` from it under-reserves quota by up to `parallelism - minCount`. A Kueue-injected gang is unaffected, because Kueue writes no `minCount` and the floor then equals `parallelism` ([OQ2](#open-questions)). |
+| BYO PodGroup ([KEP-13150](/keps/13150-bring-your-own-podgroup)) | Wherever that KEP derives a `PodSet` size from a user-set gang, `gang.minCount` is a floor rather than the group size, so using it as the count under-reserves quota by up to `parallelism - minCount`; a Kueue-injected gang is unaffected, because Kueue writes no `minCount` and the floor then equals `parallelism` ([OQ2](#open-questions)). Whether that derivation reaches a Job at all is that KEP's question to answer: it states the Job integration already sizes `PodSet`s from `parallelism`, and lists reading `batch/v1`'s own gang as future work. |
 | DRA `resourceClaims` | Out of scope. This KEP writes none. |
 
 ### Feature gate and API availability
@@ -233,9 +238,9 @@ MultiKueue is the exception, and is covered at the end of this section.
 **A Kueue built against 1.37 still meets clusters that discard the field.**
 REST mapping and OpenAPI cannot detect them, because the Job resource and the field schema remain visible even when the field is not preserved.
 The presence of the `scheduling.k8s.io` API group is also only a proxy, because it is governed by `GenericWorkload` rather than by `WorkloadWithJob`, which is the gate that decides whether the Job field survives.
-Alpha therefore splits the problem: rule 7 keeps Kueue off the clusters that cannot serve the field at all, and a check after creation reports the ones that serve it and drop it anyway.
+Alpha therefore splits the problem: rule 8 keeps Kueue off the clusters that cannot serve the field at all, and a check after creation reports the ones that serve it and drop it anyway.
 
-Rule 7 is the API server version, taken from the existing `ServerVersionFetcher`, which Kueue fetches once during startup and refreshes every ten minutes, and already passes to job webhooks through `jobframework.WithKubeServerVersion`, although no production path makes a decision from it today.
+Rule 8 is the API server version, taken from the existing `ServerVersionFetcher`, which Kueue fetches once during startup and refreshes every ten minutes, and already passes to job webhooks through `jobframework.WithKubeServerVersion`, although no production path makes a decision from it today.
 A cluster below the first version that serves the field is unsupported, and the webhook skips the mutation and reports the reason.
 Version is necessary but not sufficient, since a supported version can still run with `WorkloadWithJob` disabled.
 
@@ -294,7 +299,8 @@ That work depends on upstream settling what a partially specified `spec.scheduli
 
 ### Upstream dependencies
 
-The design relies on the following upstream behavior, documented in the Kubernetes Job documentation for `WorkloadWithJob` and in [KEP-5547](https://github.com/kubernetes/enhancements/issues/5547):
+The design relies on the following upstream behavior, defined in [KEP-5547](https://github.com/kubernetes/enhancements/issues/5547).
+The published Job documentation is not a second source for it: it still describes the earlier model, in which the Job controller infers a gang from the Job's shape and there is no `spec.scheduling` field to set.
 
 - An omitted `spec.scheduling` means `Basic`, and an omitted `gang.minCount` defaults to `.spec.parallelism`.
   That resolution happens during validation and compilation rather than being persisted, so a Job whose author left the field alone does not acquire it; rule 5 depends on this.
@@ -304,6 +310,7 @@ The design relies on the following upstream behavior, documented in the Kubernet
 - A cluster with `WorkloadWithJob` disabled discards `spec.scheduling` at write time without an error, and the field cannot be added to that Job later.
 - `gang.minCount` is a floor rather than the group size: the number of Pods placed ranges from `minCount` to `parallelism` with available capacity.
 - The Job controller compiles the `scheduling.Workload` and `PodGroup` as soon as the Job exists, including while it is suspended, and recompiles `gang.minCount` when `parallelism` changes.
+- The scheduler ranks and preempts a `PodGroup` on the `PodGroup`'s own priority, and divergence from its Pods' priority, tolerated in alpha, is intended to be rejected from beta ([KEP-5710](https://github.com/kubernetes/enhancements/issues/5710)).
 
 These assumptions were verified against `v1.37.0-rc.0` on a cluster with both gates enabled, and must be revalidated before implementation.
 Writing the field needs `k8s.io/api` at 1.37, as described under [Feature gate and API availability](#feature-gate-and-api-availability), and that bump is larger than `k8s.io/api`: Kueue also depends directly on `k8s.io/kubernetes`, and on `sigs.k8s.io/scheduler-library`, which the WAS scheduling simulator compiles against and which has a single published version, `v0.1.0-alpha1`, whose `go.mod` pins `k8s.io/kubernetes v1.36.0`.
@@ -346,7 +353,7 @@ A second `envtest` with the gate disabled on the API server covers the check aft
 
 - Kueue's vendored `k8s.io/api` declares `batch/v1 Job.spec.scheduling`; implementation starts after that dependency bump.
 - `GangSchedulingByDefault` is implemented behind a default-off feature gate, with no additional Kueue configuration field.
-- Every defaulting rule has unit and integration coverage, including the annotation and the MultiKueue skip; defaulting, opt-out, and partial admission additionally have end-to-end coverage.
+- Every defaulting rule has unit and integration coverage, including the annotation, the MultiKueue skip, and the workload-slice skip; defaulting, opt-out, and partial admission additionally have end-to-end coverage.
 - An unsupported cluster is handled safely and observably: the webhook skips the mutation below the required version, and the reconciler reports a field that the cluster discarded.
 - Partial admission is not performed for Jobs carrying an explicit `gang.minCount`.
 - The WAS Job test from #13533 is re-enabled.
