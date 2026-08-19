@@ -75,7 +75,7 @@ IMAGE_BUILD_RETRY = $(PROJECT_DIR)/hack/testing/retry.sh \
 	--delay 2 \
 	--exponential \
 	--stream \
-	--continue-if "grep -qiE '(context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|connection reset by peer)' {output}" \
+	--continue-if "grep -qiE '(context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|connection reset by peer|too ?many ?requests|ref .* locked for .*: unavailable)' {output}" \
 	-- env
 
 MAKE_TIMING ?= $(if $(filter 1 true TRUE yes YES on ON,$(CI)),1,0)
@@ -381,6 +381,7 @@ artifacts: verify-git-tag clean-artifacts kustomize helm-chart-package prepare-m
 	$(KUSTOMIZE) build config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
 	$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
 	$(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
+	$(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
 	@$(call clean-manifests)
 	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 

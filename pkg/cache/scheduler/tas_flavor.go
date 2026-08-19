@@ -183,7 +183,10 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 }
 
 func (c *TASFlavorCache) snapshot(
-	ctx context.Context, log logr.Logger, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+	ctx context.Context,
+	log logr.Logger,
+	simulatorSnapshot simulator.SimulatorSnapshot,
+	aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
 ) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -201,13 +204,7 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(ctx, tree.nodes)
-	if err != nil {
-		return nil, err
-	}
-
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, tree, c.flavor.Tolerations, feasibilityChecker, withResourceFormatter(c.resourceFormatter))
-
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, tree, c.flavor.Tolerations, simulatorSnapshot, withResourceFormatter(c.resourceFormatter))
 	tasDomainUsages := c.usage
 	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
 		tasDomainUsages = aggregatedDomainUsages
