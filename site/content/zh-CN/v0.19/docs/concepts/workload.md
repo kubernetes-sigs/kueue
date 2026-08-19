@@ -52,7 +52,7 @@ spec:
 
 ## 活跃状态 {#active}
 
-您可以通过设置 [Active](/v0.19/docs/reference/kueue.v1beta1#kueue-x-k8s-io-v1beta1-WorkloadSpec)
+您可以通过设置 [Active](/zh-cn/v0.19/docs/reference/kueue.v1beta2#kueue-x-k8s-io-v1beta2-WorkloadSpec)
 字段来停止或恢复正在运行的工作负载。active 字段决定工作负载是否可以被准入到队列中
 或继续运行（如果已经被准入）。
 将 `.spec.Active` 从 true 更改为 false 将导致正在运行的工作负载被驱逐且不会
@@ -198,4 +198,4 @@ spec:
 
 - 了解[工作负载优先级类](/v0.19/docs/concepts/workload_priority_class)。
 - 了解如何[运行作业](/v0.19/docs/tasks/run/jobs)
-- 阅读 `Workload` 的 [API 参考](/v0.19/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-Workload)
+- 阅读 `Workload` 的 [API 参考](/zh-cn/v0.19/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-Workload)
