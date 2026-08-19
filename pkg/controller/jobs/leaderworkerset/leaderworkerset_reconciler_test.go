@@ -84,12 +84,43 @@ func TestRevisionChanged(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			sts := &appsv1.StatefulSet{Status: appsv1.StatefulSetStatus{
-				CurrentRevision: tc.current,
-				UpdateRevision:  tc.update,
-			}}
+			sts := statefulset.MakeStatefulSet(testSTS, testNS).
+				CurrentRevision(tc.current).
+				UpdateRevision(tc.update).
+				Obj()
 			if got := revisionChanged(sts); got != tc.want {
 				t.Errorf("revisionChanged() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// Restoring the old condition leaves TestRevisionChanged green, so the case for
+// this bug has to go through enqueue.
+func TestStsHandlerEnqueue(t *testing.T) {
+	queued := []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: testNS, Name: testLWS}}}
+	cases := map[string]struct {
+		current string
+		update  string
+		want    []reconcile.Request
+	}{
+		"a rollout in progress is queued":     {current: "rev1", update: "rev2", want: queued},
+		"a settled revision is left alone":    {current: "rev1", update: "rev1"},
+		"and so is an unset update revision":  {current: "rev1", update: ""},
+		"and so is an unset current revision": {current: "", update: "rev1"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			sts := statefulset.MakeStatefulSet(testSTS, testNS).
+				Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				CurrentRevision(tc.current).
+				UpdateRevision(tc.update).
+				Obj()
+			q := &utiltesting.MockTypedRateLimitingInterface{}
+			(&lwsStsHandler{}).enqueue(t.Context(), sts, q)
+			if diff := cmp.Diff(tc.want, q.Items, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("enqueue() queued (-want,+got):\n%s", diff)
 			}
 		})
 	}
