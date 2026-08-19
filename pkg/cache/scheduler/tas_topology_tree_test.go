@@ -261,6 +261,33 @@ func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 	}
 }
 
+func TestSnapshotsDoNotShareTreeWhenCachingDisabled(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, false)
+	ctx, log := utiltesting.ContextWithLog(t)
+	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
+	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
+	fc := tasCache.NewTASFlavorCache(
+		topologyInformation{Levels: []string{treeTestBlockLabel, treeTestRackLabel, corev1.LabelHostname}},
+		flavorInformation{TopologyName: "default"},
+	)
+
+	first, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	if err != nil {
+		t.Fatalf("first snapshot failed: %v", err)
+	}
+	second, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	if err != nil {
+		t.Fatalf("second snapshot failed: %v", err)
+	}
+	if first.topologyTree == second.topologyTree {
+		t.Error("snapshots share a topology tree while TASCacheTopologyTree is disabled")
+	}
+	if fc.cachedTree() != nil {
+		t.Error("the flavor cache retained a topology tree while TASCacheTopologyTree is disabled")
+	}
+}
+
 func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASBalancedPlacement, true)
 	ctx, log := utiltesting.ContextWithLog(t)
