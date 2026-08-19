@@ -1319,8 +1319,6 @@ func IsOnHold(w *kueue.Workload) bool {
 	return cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadOnHold
 }
 
-// IsPreemptor returns true if the workload is waiting for preemption to complete.
-
 // HasDRA returns true if the workload has DRA resources (ResourceClaims or ResourceClaimTemplates).
 func HasDRA(w *kueue.Workload) bool {
 	return HasResourceClaim(w) || HasResourceClaimTemplates(w)
