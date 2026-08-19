@@ -554,8 +554,9 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "Updating workload status")
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
-			// update the metrics only when PodsReady condition status is true
-			if condition.Status == metav1.ConditionTrue {
+			// update the metrics only when PodsReady condition status is true and the workload started for the first time.
+			// This avoids re-emitting the time-to-readiness metrics when the workload recovered readiness (`kueue.WorkloadRecovered`).
+			if condition.Status == metav1.ConditionTrue && condition.Reason == kueue.WorkloadStarted {
 				cqName := wl.Status.Admission.ClusterQueue
 				priorityClassName := workloadpatching.PriorityClassName(wl)
 				queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
