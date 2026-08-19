@@ -18,7 +18,6 @@
     - [Partial Admission for multiple PodSets](#partial-admission-for-multiple-podsets)
   - [Jobframework](#jobframework)
   - [batch/Job controller](#batchjob-controller)
-  - [Limitations](#limitations)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
@@ -156,10 +155,6 @@ Besides adapting `RunWithPodSetsInfo` and `RestorePodSetsInfo` it should also:
   * jobs which need the `completions` count kept in sync with `parallelism` should indicate this in a second annotation, `kueue.x-k8s.io/job-completions-equal-parallelism`
 - rework `EquivalentToWorkload` to account for potential differences in `PodSets` spec `Parallelism`.
 
-### Limitations
-
-Partial admission is not supported for concurrent admission to avoid increasing complexity. The webhook will reject the creation of workloads that support partial admission for a ClusterQueue with a concurrent admission policy. 
-
 ### Test Plan
 
 No regressions in the current tests should be observed.
@@ -179,9 +174,6 @@ to implement this enhancement.
   - `pkg/scheduler/scheduler_tas_test.go`:
     - `TAS workload gets scheduled as trimmed by partial admission`: verifies that Topology Aware Scheduling is compatible with partial admission.
     - `reclaim within cohort; preempting with partial admission`: verifies that reclaiming quota within a cohort works alongside preemption and partial admission.
-
-- **Webhooks**:
-  - `pkg/webhooks/workload_webhook_test.go`: validates that `minCount` cannot be negative or larger than the base `count`.
 
 - **Controllers**:
   - `pkg/controller/jobs/job/job_controller_test.go`: verifies job controller's `RunWithPodSetsInfo` and `RestorePodSetsInfo` logic, updating/restoring parallelism correctly when job is unsuspended or suspended.
