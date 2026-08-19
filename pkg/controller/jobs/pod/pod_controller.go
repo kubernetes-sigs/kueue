@@ -521,8 +521,17 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 
 	stoppedNow := make([]client.Object, 0)
 	for i := range podsInGroup {
+		if !podsInGroup[i].DeletionTimestamp.IsZero() {
+			// Already deleting from an earlier Stop() call; finalize now if it has since terminated.
+			if p.shouldFinalizeNow(&podsInGroup[i], stopReason) {
+				if _, err := removePodFinalizers(ctx, c, &podsInGroup[i]); client.IgnoreNotFound(err) != nil {
+					return stoppedNow, err
+				}
+			}
+			continue
+		}
 		// If the workload is being deleted, delete even finished Pods.
-		if !podsInGroup[i].DeletionTimestamp.IsZero() || (stopReason != jobframework.StopReasonWorkloadDeleted && podSuspended(&podsInGroup[i])) {
+		if stopReason != jobframework.StopReasonWorkloadDeleted && podSuspended(&podsInGroup[i]) {
 			continue
 		}
 		podInGroup := FromObject(&podsInGroup[i])
@@ -549,19 +558,14 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 			if err := c.Delete(ctx, podInGroup.Object()); client.IgnoreNotFound(err) != nil {
 				return stoppedNow, err
 			}
+			if p.shouldFinalizeNow(&podInGroup.pod, stopReason) {
+				if _, err := removePodFinalizers(ctx, c, &podInGroup.pod); client.IgnoreNotFound(err) != nil {
+					return stoppedNow, err
+				}
+			}
 		}
 
 		stoppedNow = append(stoppedNow, podInGroup.Object())
-	}
-
-	// If related workload is deleted, the generic reconciler will stop the pod group and finalize the workload.
-	// However, it won't finalize the pods. Since the Stop method for the pod group deletes all the pods in the
-	// group, the pods will be finalized here.
-	if p.isGroup && stopReason == jobframework.StopReasonWorkloadDeleted {
-		err := p.Finalize(ctx, c)
-		if err != nil {
-			return stoppedNow, err
-		}
 	}
 
 	return stoppedNow, nil
@@ -894,11 +898,28 @@ func (p *Pod) partitionPods() (active, inactive []corev1.Pod) {
 	return active, inactive
 }
 
+// shouldFinalizeNow reports whether a group pod's finalizer can be removed as part of this
+// Stop() call rather than waiting for FindMatchingWorkloads. Deletion always qualifies. An
+// eviction only qualifies for serving groups (issue #13830): a batch pod that succeeds
+// mid-eviction must stay listed for the group's "all succeeded" accounting, whereas a serving
+// group has no such accounting and would otherwise deadlock same-name (StatefulSet) replacements.
+// stopJob() rewrites StopReasonWorkloadEvicted into a compound reason, hence the prefix check.
+func (p *Pod) shouldFinalizeNow(pod *corev1.Pod, stopReason jobframework.StopReason) bool {
+	isDeletion := stopReason == jobframework.StopReasonWorkloadDeleted
+	isServingEviction := p.isServing() && strings.HasPrefix(string(stopReason), string(jobframework.StopReasonWorkloadEvicted))
+	return p.isGroup && (isDeletion || (isServingEviction && utilpod.IsTerminated(pod)))
+}
+
 // isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
 // A Pod cannot run if it's gated or has no node assignment while having a deletionTimestamp.
+// For serving groups, a terminated pod that's being deleted also can't run, even if it kept
+// its NodeName - see shouldFinalizeNow for why this is scoped to serving groups.
 func isPodRunnableOrSucceeded(p *corev1.Pod) bool {
-	if !p.DeletionTimestamp.IsZero() && len(p.Spec.NodeName) == 0 {
-		return false
+	if !p.DeletionTimestamp.IsZero() {
+		serving := p.Annotations[podconstants.GroupServingAnnotationKey] == podconstants.GroupServingAnnotationValue
+		if len(p.Spec.NodeName) == 0 || (serving && utilpod.IsTerminated(p)) {
+			return false
+		}
 	}
 	return p.Status.Phase != corev1.PodFailed
 }
