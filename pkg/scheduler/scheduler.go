@@ -438,7 +438,7 @@ func (s *Scheduler) processEntry(
 		if len(e.preemptionTargets) == 0 {
 			e.requeueReason = qcache.RequeueReasonPreemptionNoCandidates
 			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForQuota
-			s.reserveCapacityForUnreclaimablePreempt(log, e, cq)
+			s.reserveCapacityForUnreclaimablePreempt(log, e, snapshot, cq)
 			return
 		}
 		if (features.Enabled(features.ConcurrentAdmission) || features.Enabled(features.MultiKueueOrchestratedPreemption)) && workload.HasClosedPreemptionGate(e.Obj) {
@@ -462,7 +462,7 @@ func (s *Scheduler) processEntry(
 		// suboptimal flavor, preventing it from claiming a more preferred flavor that might
 		// become available.
 		e.LastAssignment = nil
-		cq.AddUsage(usage)
+		snapshot.AddUsage(cq, usage)
 		return
 	}
 
@@ -483,7 +483,7 @@ func (s *Scheduler) processEntry(
 		return
 	}
 	preemptedWorkloads.Insert(e.preemptionTargets)
-	cq.AddUsage(usage)
+	snapshot.AddUsage(cq, usage)
 
 	// Filter out the old workload slice from the preemption targets.
 	// The old workload slice is initially included in the preemption targets because it is treated
@@ -534,10 +534,10 @@ func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Log
 // but has no candidate targets. If the ClusterQueue cannot always reclaim its
 // nominal capacity, we reserve up to the borrowing limit so that lower-priority
 // workloads in another Cohort cannot admit before us.
-func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot) {
+func (s *Scheduler) reserveCapacityForUnreclaimablePreempt(log logr.Logger, e *entry, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) {
 	log.V(2).Info("Workload requires preemption, but there are no candidate workloads allowed for preemption", "preemption", cq.Preemption)
 	if !preemption.CanAlwaysReclaim(cq) {
-		cq.AddUsage(resourcesToReserve(log, e, cq))
+		snapshot.AddUsage(cq, resourcesToReserve(log, e, cq))
 	}
 }
 
