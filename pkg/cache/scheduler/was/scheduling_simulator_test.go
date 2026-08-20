@@ -40,7 +40,6 @@ func (c *testCandidate) GetID() utiltas.TopologyDomainID { return c.id }
 func (c *testCandidate) GetAffinityScore() int64         { return c.affinityScore }
 func (c *testCandidate) SetAffinityScore(score int64)    { c.affinityScore = score }
 
-
 func TestNodeUnschedulableFeasibility(t *testing.T) {
 	ctx := t.Context()
 
