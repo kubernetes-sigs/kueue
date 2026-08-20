@@ -50,4 +50,9 @@ Install the KubeRay v1.7.0 or later CRDs on the management and worker clusters,
 and enable the KubeRay `RayClusterHistoryServer` feature gate on every worker
 operator. Kueue propagates the options to the worker cluster and accounts for
 the collector sidecar resources in every Ray head and worker Pod.
+
+These additional requirements apply only to History Server. Other KubeRay
+workloads retain the minimum versions listed above. Kueue doesn't enforce the
+worker operator version or its feature gates; older CRDs can't persist
+`historyServerOptions`, so no collector is configured.
 {{% /alert %}}
