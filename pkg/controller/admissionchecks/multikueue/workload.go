@@ -943,10 +943,6 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		nominatedWorkers = []string{clusterName}
 	} else if requested, ok := userNominatedClusters(group.local); ok {
 		nominatedWorkers = intersectAuthorizedClusters(requested, group.remotes)
-		if len(nominatedWorkers) == 0 {
-			log.V(2).Info("None of the user-requested MultiKueue clusters are authorized for this workload; leaving it unscheduled",
-				"workload", klog.KObj(group.local), "requestedClusters", requested)
-		}
 		persistNomination = true
 	} else if w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
 		for workerName := range group.remotes {
