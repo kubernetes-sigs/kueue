@@ -48,6 +48,11 @@ import (
 
 func TestBuildPodSets(t *testing.T) {
 	collectorImage := "quay.io/kuberay/collector:v1.7.0"
+	collectorEnv := []corev1.EnvVar{
+		{Name: "STORAGE_BACKEND", Value: "s3"},
+		{Name: "S3_BUCKET", Value: "ray-historyserver"},
+		{Name: "S3_REGION", Value: "us-east-1"},
+	}
 	defaultCollectorResources := corev1.ResourceRequirements{
 		Requests: corev1.ResourceList{
 			corev1.ResourceCPU:    resource.MustParse("50m"),
@@ -422,6 +427,7 @@ func TestBuildPodSets(t *testing.T) {
 				HistoryServerOptions: &rayv1.HistoryServerOptions{
 					CollectorOptions: &rayv1.CollectorOptions{
 						Image: &collectorImage,
+						Env:   collectorEnv,
 					},
 				},
 				HeadGroupSpec: rayv1.HeadGroupSpec{
@@ -474,6 +480,7 @@ func TestBuildPodSets(t *testing.T) {
 					CollectorOptions: &rayv1.CollectorOptions{
 						Image:     &collectorImage,
 						Resources: &customCollectorResources,
+						Env:       collectorEnv,
 					},
 				},
 				HeadGroupSpec: rayv1.HeadGroupSpec{
