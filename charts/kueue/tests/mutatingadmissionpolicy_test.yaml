@@ -1,0 +1,30 @@
+suite: test mutating admission policy
+templates:
+  - map/manifests.yaml
+
+tests:
+  - it: should render MutatingAdmissionPolicy when explicitly enabled without API discovery
+    capabilities:
+      apiVersions: []
+    set:
+      enableMutatingAdmissionPolicy: true
+      enableMutatingAdmissionPolicyWithoutAPIDiscovery: true
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: MutatingAdmissionPolicy
+        documentIndex: 0
+      - isKind:
+          of: MutatingAdmissionPolicyBinding
+        documentIndex: 1
+
+  - it: should not render MutatingAdmissionPolicy when disabled
+    capabilities:
+      apiVersions: []
+    set:
+      enableMutatingAdmissionPolicy: false
+      enableMutatingAdmissionPolicyWithoutAPIDiscovery: true
+    asserts:
+      - hasDocuments:
+          count: 0
