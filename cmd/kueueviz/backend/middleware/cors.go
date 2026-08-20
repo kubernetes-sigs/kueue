@@ -76,10 +76,10 @@ func ConfigureCORS() (cors.Config, error) {
 			}
 		}
 	} else {
-		// Default development origins (only in development mode)
+		// Default to same-origin requests. A separate development frontend must
+		// opt in by setting KUEUEVIZ_ALLOWED_ORIGINS explicitly.
 		if gin.Mode() != gin.ReleaseMode {
-			allowedOrigins = append(allowedOrigins, "*")
-			slog.Info("KUEUEVIZ_ALLOWED_ORIGINS not set, using default development origins")
+			slog.Info("KUEUEVIZ_ALLOWED_ORIGINS not set, allowing same-origin requests only")
 		} else {
 			slog.Warn("Production mode: KUEUEVIZ_ALLOWED_ORIGINS must be explicitly set")
 		}

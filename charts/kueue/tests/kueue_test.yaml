@@ -5,7 +5,72 @@ templates:
   - kueueviz/frontend-configmap.yaml
   - kueueviz/backend-ingress.yaml
   - kueueviz/frontend-ingress.yaml
+  - kueueviz/service-account.yaml
+  - kueueviz/cluster-role-binding.yaml
+  - kueueviz/clusterrole.yaml
 tests:
+  - it: should require TokenReview for chart deployments
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          auth:
+            mode: Disabled
+    asserts:
+      - failedTemplate:
+          errorMessage: "kueueViz.backend.auth.mode must be TokenReview for Helm deployments; unauthenticated mode is limited to local loopback use"
+  - it: should reject unknown authentication modes
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          auth:
+            mode: typo
+    asserts:
+      - failedTemplate:
+          errorMessage: "kueueViz.backend.auth.mode must be TokenReview for Helm deployments; unauthenticated mode is limited to local loopback use"
+  - it: should use a dedicated service account for the backend
+    template: kueueviz/backend-deployment.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.serviceAccountName
+          pattern: ".+-kueueviz-backend$"
+  - it: should create the dedicated backend service account
+    template: kueueviz/service-account.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - isKind:
+          of: ServiceAccount
+      - matchRegex:
+          path: metadata.name
+          pattern: ".+-kueueviz-backend$"
+  - it: should bind cluster-wide access to the dedicated backend service account
+    template: kueueviz/cluster-role-binding.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - matchRegex:
+          path: subjects[0].name
+          pattern: ".+-kueueviz-backend$"
+  - it: should grant only create access to TokenReview
+    template: kueueviz/clusterrole.yaml
+    set:
+      enableKueueViz: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups:
+              - authentication.k8s.io
+            resources:
+              - tokenreviews
+            verbs:
+              - create
   - it: should set the pod priorityClassName when provided for backend deployment
     template: kueueviz/backend-deployment.yaml
     set:
@@ -365,7 +430,7 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].env[1].value
           value: "8080"
-  - it: should not set the environment variables if not set for backend deployment
+  - it: should enable TokenReview when no custom backend environment variables are set
     template: kueueviz/backend-deployment.yaml
     set:
       enableKueueViz: true
@@ -373,8 +438,11 @@ tests:
         backend:
           env: []
     asserts:
-      - notExists:
-          path: spec.template.spec.containers[0].env[0]
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: KUEUEVIZ_AUTH_MODE
+            value: TokenReview
   - it: should set the environment variables for frontend deployment
     template: kueueviz/frontend-deployment.yaml
     set:
