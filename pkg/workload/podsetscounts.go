@@ -64,6 +64,18 @@ func ExtractPodSetCounts(podSets []kueue.PodSet) PodSetsCounts {
 	})
 }
 
+// ExtractPodSetAssignmentsCounts builds a PodSetsCounts map from a list of PodSetAssignments.
+// Each entry maps PodSet name to its replica count.
+func ExtractPodSetAssignmentsCounts(podSets []kueue.PodSetAssignment) PodSetsCounts {
+	return utilslices.ToMap(podSets, func(i int) (kueue.PodSetReference, int32) {
+		val := int32(0)
+		if podSets[i].Count != nil {
+			val = *podSets[i].Count
+		}
+		return podSets[i].Name, val
+	})
+}
+
 // ExtractPodSetCountsFromWorkload returns a PodSetsCounts map derived from the provided Workload.
 //
 // Important: This function assumes the Workload is not nil. It does not perform a nil check,

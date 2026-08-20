@@ -68,6 +68,49 @@ func TestExtractPodSetCounts(t *testing.T) {
 	}
 }
 
+func testPodSetAssignment(name string, count int32) kueue.PodSetAssignment {
+	return kueue.PodSetAssignment{
+		Name:  kueue.NewPodSetReference(name),
+		Count: &count,
+	}
+}
+
+func TestExtractPodSetAssignmentsCounts(t *testing.T) {
+	type args struct {
+		podSets []kueue.PodSetAssignment
+	}
+	tests := map[string]struct {
+		args args
+		want PodSetsCounts
+	}{
+		"EmptyPodSets": {},
+		"SinglePodSet": {
+			args: args{
+				podSets: []kueue.PodSetAssignment{testPodSetAssignment("test", 10)},
+			},
+			want: PodSetsCounts{
+				"test": 10,
+			},
+		},
+		"MultiplePodSets": {
+			args: args{
+				podSets: []kueue.PodSetAssignment{testPodSetAssignment("test-a", 10), testPodSetAssignment("test-b", 11)},
+			},
+			want: PodSetsCounts{
+				"test-a": 10,
+				"test-b": 11,
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(ExtractPodSetAssignmentsCounts(tt.args.podSets), tt.want); diff != "" {
+				t.Errorf("ExtractPodSetAssignmentsCounts() got(-),want(+): %s", diff)
+			}
+		})
+	}
+}
+
 func TestExtractPodSetCountsFromWorkload(t *testing.T) {
 	type args struct {
 		workload *kueue.Workload
@@ -80,6 +123,7 @@ func TestExtractPodSetCountsFromWorkload(t *testing.T) {
 			args: args{
 				workload: &kueue.Workload{},
 			},
+			want: nil,
 		},
 		"SinglePodSet": {
 			args: args{
