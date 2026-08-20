@@ -20,7 +20,7 @@ and any of the following events happen:
 - The preemptee belongs to the same [cohort](/v0.19/docs/concepts/cluster_queue#cohort) as the preemptor and the preemptee's ClusterQueue has a usage above
   the [nominal quota](/v0.19/docs/concepts/cluster_queue#resources) for at least one resource that the preemptee and preemptor require.
 
-The configured settings for preemption in the [Kueue Configuration](/v0.19/docs/reference/kueue-config.v1beta1#FairSharing)
+The configured settings for preemption in the [Kueue Configuration](/v0.19/docs/reference/kueue-config.v1beta2/#config-kueue-x-k8s-io-v1beta2-FairSharing)
 and in the [ClusterQueue](/v0.19/docs/concepts/cluster_queue#preemption) can limit whether a Workload can preempt others, in addition
 to the criteria above.
 
