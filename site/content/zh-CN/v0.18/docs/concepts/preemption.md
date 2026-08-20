@@ -18,7 +18,7 @@ description: >
 - 被抢占者与抢占者属于同一个 [ClusterQueue](/v0.18/docs/concepts/cluster_queue)，且被抢占者的优先级较低。
 - 被抢占者与抢占者属于同一个 [cohort](/v0.18/docs/concepts/cluster_queue#cohort)，且被抢占者的 ClusterQueue 至少有一种资源的使用量高于[名义配额](/v0.18/docs/concepts/cluster_queue#resources)，而该资源是被抢占者和抢占者都需要的。
 
-在 [Kueue 配置](/zh-cn/v0.18/docs/reference/kueue-config.v1beta1#FairSharing) 和 [ClusterQueue](/v0.18/docs/concepts/cluster_queue#preemption) 中配置的抢占设置，除了上述标准外，还可以限制 Workload 是否可以抢占其他 Workload。
+在 [Kueue 配置](/zh-cn/v0.18/docs/reference/kueue-config.v1beta2#FairSharing) 和 [ClusterQueue](/v0.18/docs/concepts/cluster_queue#preemption) 中配置的抢占设置，除了上述标准外，还可以限制 Workload 是否可以抢占其他 Workload。
 
 当抢占 Workload 时，Kueue 会在被抢占 Workload 的 `.status.conditions` 字段中添加类似如下的条目：
 
