@@ -19,6 +19,7 @@
     - [Cascading preemptions due to misconfiguration](#cascading-preemptions-due-to-misconfiguration)
     - [Performance degradation](#performance-degradation)
 - [Design Details](#design-details)
+  - [Preemption evaluation flow in scheduler](#preemption-evaluation-flow-in-scheduler)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit tests](#unit-tests)
@@ -526,6 +527,19 @@ const (
 	IsDRSLessThanInitialShare OrderingField = "IsDRSLessThanInitialShare"
 	IsDRSLessThanOrEqualToFinalShare OrderingField = "IsDRSLessThanOrEqualToFinalShare"
 )
+
+
+type OrderingDirection string
+const (
+	Ascending OrderingDirection = "Ascending"
+	Descending OrderingDirection = "Descending"
+)
+
+type Order struct {
+	OrderingField OrderingField
+	Direction OrderingDirection = Ascending
+}
+
 ```
 
 
@@ -538,19 +552,7 @@ The order is right now based on:
 3. Workloads with lower priority first.
 4. Workloads admitted more recently first.
 
-```go
-
-type OrderingDirection string
-const (
-	Ascending OrderingDirection = "Ascending"
-	Descending OrderingDirection = "Descending"
-)
-
-type Order struct {
-	OrderingField OrderingField
-	Direction OrderingDirection = Ascending
-}
-```
+Thereby, the new ordering fields should cover it well. 
 
 
    
@@ -610,6 +612,158 @@ This list is dynamically trimmed upon each retrieval to filter out expired times
 
 Furthermore, the status of the PreemptionLimit is refreshed periodically—approximately every minute—to write the aggregated totals into the count map.
 
+
+### Preemption evaluation flow in scheduler
+
+The preemption evaluation flow integrates trigger condition tracking, upper-bound feasibility checks, ordered candidate evaluation (until quota and topology conditions are  satisfied), and reverse-order victim backfilling across scheduling cycles:
+
+```mermaid
+flowchart TD
+    subgraph Cycle1 ["1. Initial Cycle: Nomination & Trigger Condition Tracking"]
+        A["Queue Heads Retrieved<br/>(queues.Heads)"] --> B["Nominate Workloads<br/>(nominate)"]
+        B --> C["Order Entries into Iterator"]
+        C --> D["Process Entry<br/>(processEntry)"]
+        D --> E{"Workload Fits Directly?"}
+        E -->|Yes| F["Admit Workload<br/>(admit)"]
+        E -->|No| G["Assign / Update Trigger Conditions<br/>with Observation Timestamp in Workload Status<br/>(InsufficientQuota / QuotaReclaimRequired / InsufficientTopology)"]
+        G --> H["Requeue Workload<br/>(Wait for trigger duration / quota)"]
+    end
+
+    subgraph CycleN ["2. Subsequent Cycles: Preemption Evaluation in getInitialAssignments"]
+        H -.->|Next Scheduling Cycle| I["Consider Workload in Subsequent Cycle<br/>(nominate -> getInitialAssignments)"]
+        I --> J["Evaluate Trigger Durations & Limits<br/>(PreemptionEvaluator)"]
+        J --> K{"Is Any Trigger Duration Satisfied?<br/>(now - observed >= minDuration)"}
+        K -->|No| L["Preemption Not Eligible Yet<br/>(Keep waiting / update condition)"]
+        K -->|Yes| M["Upper-Bound Feasibility Check<br/>(CandidatesQuotaAndTopologyUpperLimit)"]
+        M --> N{"Preemptor Fits if ALL<br/>Candidates Preempted?"}
+        N -->|No| O["Preemption Infeasible<br/>(Preemptor cannot fit even with all candidates)"]
+        N -->|Yes| P["Order Candidates<br/>(Sort per PreemptionConfig.Spec.Ordering)"]
+        
+        P --> Q["Candidate Selection Loop"]
+        Q --> R["Take Next Candidate in Order"]
+        R --> S["Add Candidate to Preemption Targets<br/>& Update Simulated Resources"]
+        S --> T{"Preemptor Quota &<br/>Topology Needs Satisfied?"}
+        T -->|No| U{"More Candidates?"}
+        U -->|Yes| R
+        U -->|No| V["Preemption Incomplete<br/>(Cannot satisfy requirements)"]
+        
+        T -->|Yes| W["Victim Backfilling<br/>(Test selected targets in REVERSED order)"]
+        W --> X["For each victim in reverse order:<br/>Can preemptor fit WITHOUT preempting this victim?"]
+        X --> Y{"Preemptor Still Fits?"}
+        Y -->|Yes| Z["Remove victim from preemption targets<br/>(Backfill / preserve workload)"]
+        Y -->|No| AA["Retain victim in preemption targets"]
+        Z --> AB{"More victims to test?"}
+        AA --> AB
+        AB -->|Yes| X
+        AB -->|No| AC["Final Preemption Targets Determined"]
+    end
+
+    subgraph Execution ["3. Execution & Admission in processEntry"]
+        AC --> AD["Process Entry<br/>(processEntry in Preempt mode)"]
+        AD --> AE{"Targets Overlapping or<br/>Workload No Longer Fits?"}
+        AE -->|Yes| AF["Mark Skipped / Requeue"]
+        AE -->|No| AG["Issue Preemptions<br/>(issuePreemptions)"]
+        AG --> AH["Admit Preemptor Workload<br/>(admit)"]
+    end
+
+    style Cycle1 fill:#f8f9fa,stroke:#6c757d,stroke-width:2px
+    style CycleN fill:#eef6fc,stroke:#0d6efd,stroke-width:2px
+    style Execution fill:#e8f5e9,stroke:#198754,stroke-width:2px
+    style E fill:#fff3cd,stroke:#ffc107
+    style K fill:#fff3cd,stroke:#ffc107
+    style N fill:#fff3cd,stroke:#ffc107
+    style T fill:#fff3cd,stroke:#ffc107
+    style U fill:#fff3cd,stroke:#ffc107
+    style Y fill:#fff3cd,stroke:#ffc107
+    style AB fill:#fff3cd,stroke:#ffc107
+    style AE fill:#fff3cd,stroke:#ffc107
+    style AH fill:#d1e7dd,stroke:#0f5132,stroke-width:2px
+    style F fill:#d1e7dd,stroke:#0f5132,stroke-width:2px
+```
+
+#### Step-by-Step Breakdown
+
+1. **Nomination & Condition Tracking (Cycle 1)**:
+   - In `nominate()`, initial resource flavor requirements are calculated for all active queue heads.
+   - In `processEntry()`, each entry is processed:
+     - If the workload fits directly, it proceeds to admission (`admit()`).
+     - If the workload cannot fit directly (e.g. requires preemption or lacks resources/topology), `processEntry()` assigns or updates the trigger condition (`InsufficientQuota`, `QuotaReclaimRequired`, or `InsufficientTopology`) along with an initial observation timestamp in `Workload.Status.Conditions` and requeues the workload.
+
+2. **Trigger Duration & Preemption Evaluation (`PreemptionEvaluator`)**:
+   - In subsequent scheduling cycles, `getInitialAssignments()` queries `PreemptionEvaluator` to check whether the elapsed time since the first observation timestamp satisfies `minTriggerRequiredDurationSeconds` for any applicable preemption rule and evaluates preemption limits.
+   - If no trigger duration is satisfied, preemption is bypassed for this cycle, allowing the workload to continue waiting.
+
+3. **Upper-Bound Feasibility Check (`CandidatesQuotaAndTopologyUpperLimit`)**:
+   - If a trigger duration is met, the scheduler performs an upper-bound check using `CandidatesQuotaAndTopologyUpperLimit` by simulating the removal of all matching candidate workloads.
+   - If the preemptor cannot fit even when all candidates are preempted, the evaluation terminates early.
+
+4. **Ordered Candidate Iteration (Quota & Topology Satisfaction)**:
+   - Candidates are sorted based on `PreemptionConfig.Spec.Ordering`.
+   - The scheduler iterates through candidate workloads in order, adding victims until the preemptor's resource quota and topology domain requirements are fully satisfied.
+
+5. **Reverse-Order Victim Backfilling**:
+   - Once a viable candidate set $[V_1, V_2, \dots, V_k]$ is assembled, the scheduler attempts backfilling by checking victims in reverse order ($V_k, V_{k-1}, \dots, V_1$).
+   - For each victim, the scheduler evaluates whether the preemptor can still fit without evicting that victim. If the preemptor still fits, the victim is removed from the preemption target list, minimizing unnecessary workload disruptions.
+
+6. **Execution & Admission**:
+   - In `processEntry()`, after checking for target overlap with earlier cycle decisions, `issuePreemptions()` evicts the final victim set and admits the preemptor workload.
+
+
+The preemption limits will be evaluated inside `PreemptionEvaluator` to limit the set of candidates returned during the iteration. Evaluator will assume that every object will returned from the iteration will be preempted updating local copy of the relevant preemption limits and dynamically changing snapshot resources like DRS and borrowing information.
+
+
+`CandidatesQuotaAndTopologyUpperLimit` by design is just an approximation to allow for short circuit when preemptor obviously will not be admitted anyway. It will just use the initial state of the `PreemptionEvalutor` and doesn't attent to simulate changes in DRS, borrowing or preemption limits during iteration over candidates. However the returned values shoudl always be greater or equal to what can be preempted at this moment, so it is reasonable to avoid preemption at all if the result is smaller than requested amount.
+
+### Efficient iteration through candidates in configured order
+
+#### Problem Statement
+Certain preemption candidate rules—such as those based on `BorrowingCapacityFromPreemptor` or Dominant Resource Share (DRS) fair-sharing strategies—depend on dynamic cluster state that changes as candidate workloads are simulated for preemption during evaluation.
+
+For example, consider ClusterQueues $A$ and $B$, each with a nominal quota of 5. Suppose CQ $B$ is currently borrowing 1 unit of quota from CQ $A$. If a workload in CQ $A$ triggers preemption under a rule targeting only borrowing workloads, and each candidate workload in CQ $B$ consumes 1 unit of quota, the evaluator should only preempt a single workload from CQ $B$. Once that first workload is selected, CQ $B$ is no longer borrowing quota from CQ $A$, so remaining workloads in CQ $B$ must immediately become ineligible for that borrowing rule.
+
+#### Naive Solutions and Complexity Bottlenecks
+- **Linear Filtering per Selection ($O(n \cdot m)$ to $O(n^2)$):** Dynamically filtering the candidate set and scanning for the minimum for each of the $m$ preemption targets requires $O(n)$ work per step, yielding $O(n \cdot m)$ time (up to $O(n^2)$ in the worst case where $m \approx n$).
+- **Dynamic Re-sorting ($O(m \cdot n \log n)$ to $O(n^2 \log n)$):** Naively re-sorting the candidate array whenever CQ borrowing or DRS metrics change introduces an $O(n \log n)$ sorting step per eviction, leading to $O(n^2 \log n)$ time and severe scheduler throughput degradation.
+
+#### Proposed Approach: Per-Rule, Per-CQ Priority Queues
+To achieve optimal scheduling performance without repetitive full-array scans or re-sorting, the evaluator maintains **separate priority queues partitioned by `(Rule, ClusterQueue)`**:
+
+1. **Static Intra-Queue Ordering (Sort Once):**
+   Within any given ClusterQueue, relative candidate ordering (e.g., by Priority, `AdmissionTimestamp`, Workload UID) is static and unaffected by dynamic quota borrowing or DRS changes. Therefore, candidate workloads within each `(Rule, CQ)` queue need to be sorted only once at the start of evaluation.
+
+2. **CQ-Level State Tracking & Fast Pruning ($O(1)$ Drop):**
+   Dynamic state—such as current borrowed quota and ClusterQueue DRS—is tracked via lightweight counters attached to each CQ queue. When a CQ property no longer satisfies the rule's criteria (e.g., borrowed quota reaches zero), the entire priority queue for that CQ under that rule is pruned from consideration in $O(1)$.
+
+3. **Handling Workload-Specific Constraints (`DRSLessThanOrEqualToFinalShare`):**
+   For rules requiring workload-level evaluation (such as `DRSLessThanOrEqualToFinalShare`), the entire queue cannot simply be dropped at the CQ level because eligibility depends on the individual workload's DRS value. For these rules, candidates are evaluated at extraction time when inspected at the queue head. If a candidate violates the fair-sharing constraint under current simulated state, it is popped and discarded for that rule.
+
+4. **Multi-Queue Head Selection:**
+   At each preemption step, the evaluator inspects the heads of all active priority queues and selects the globally minimal candidate according to the configured `PreemptionConfig.Spec.Ordering`.
+
+5. **Deduplication & Multi-Queue Popping:**
+   A single workload can match multiple preemption rules and thus reside in multiple priority queues. Because the ordering comparator is consistent across queues, the selected minimal workload will always be at the head of all its corresponding queues. When chosen, it is popped from all matching queue heads simultaneously. Workloads are stored as shared pointers/references across queues to eliminate data duplication.
+
+6. **Visibility and Preemption Justification:**
+   The set of priority queues from which a workload was popped directly identifies all matching rules, providing immediate justification and audit metadata for the preemption decision (see [Visibility](#visibility)).
+
+7. **Simulated State Updates:**
+   After popping a candidate, the evaluator updates simulated state (reclaimed quota, updated DRS counters) and drops any newly ineligible CQ priority queues before the next selection step.
+
+#### Implementation Caveats and Rule Isolation
+Maintaining separate priority queues per rule is essential. If queues were pooled across rules, dropping an ineligible CQ queue due to exhausted borrowing or DRS thresholds would inadvertently discard candidates that matched other non-borrowing, static rules (such as priority-only preemption within the same CQ). Distinct per-rule queues permit aggressive filtering using static constraints up front while isolating dynamic state invalidation.
+
+#### Open Challenges
+
+**Challange 1** - how to handle the situation that workloads are preemted from the preemptor CQ, which makes "previously" removed workloads again viable - [issue #14122](https://github.com/kubernetes-sigs/kueue/issues/14122). 
+
+**Vague implementation idea** - keep track of those workloads that are dropped becasue of DRS in appropriate order and reevaluate them (when whole CQ is dropped becasue of DRS, save all of the workloads from it).
+
+**Challange 2** - how to make sure that preemptions are fair even if we backfil some workloads. The algorithm described above is fair if no backfilling is happening, but if we preempt and then backfill it can lead to issues like desribed in [issue #14543](https://github.com/kubernetes-sigs/kueue/issues/14543). 
+
+**Vagueue implementation idea** - when backfilling hold the cohort tree with DRS values of minimal workloads that were preempted, if backfill will no change the DRS in a way that makes "fairness" rule no longer true for the minimal workloads, then don't reintroduce them.
+
+### Observability
+TODO
 
 ### Test Plan
 
