@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -35,6 +36,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -105,6 +107,7 @@ func TestFairPreemptions(t *testing.T) {
 		incoming         *kueue.Workload
 		targetCQ         kueue.ClusterQueueReference
 		wantPreempted    sets.Set[string]
+		featureGates     map[featuregate.Feature]bool
 	}{
 		"reclaim nominal from user using the most": {
 			clusterQueues: baseCQs,
@@ -1192,10 +1195,13 @@ func TestFairPreemptions(t *testing.T) {
 				targetKeyReason("/b1", kueue.InCohortFairSharingReason),
 				targetKeyReason("/b2", kueue.InCohortFairSharingReason),
 			),
+			featureGates: map[featuregate.Feature]bool{features.FairSharingReevaluatePreemptionCandidates: true},
 		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
 			ctx, log := utiltesting.ContextWithLog(t)
 			// Set name as UID so that candidates sorting is predictable.
 			for i := range tc.admitted {
