@@ -276,7 +276,7 @@
   - default: true
     lockToDefault: false
     preRelease: Beta
-    version: "0.20"
+    version: "0.18"
 - name: PriorityBoost
   versionedSpecs:
   - default: false
@@ -520,7 +520,7 @@
   - default: true
     lockToDefault: false
     preRelease: Beta
-    version: "0.20"
+    version: "0.18"
 - name: VectorizedResourceRequests
   versionedSpecs:
   - default: true
