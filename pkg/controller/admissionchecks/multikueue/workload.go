@@ -958,11 +958,12 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		nominatedWorkers = group.local.Status.NominatedClusterNames
 	}
 
+	// nominatedWorkers may come from map iteration (AllAtOnce), so sort before it is
+	// persisted and before it is used in the downstream logs and loops, for a stable
+	// stored nomination and deterministic order.
+	slices.Sort(nominatedWorkers)
+
 	if persistNomination {
-		// nominatedWorkers may come from map iteration (AllAtOnce), so sort before
-		// persisting and before it is used in the downstream logs and loops, for a
-		// stable stored nomination and deterministic order.
-		slices.Sort(nominatedWorkers)
 		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 			if sets.New(wl.Status.NominatedClusterNames...).Equal(sets.New(nominatedWorkers...)) {
 				return false, nil
