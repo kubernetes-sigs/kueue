@@ -558,16 +558,18 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 
 	fits, targets, retryCandidates := runFirstFsStrategy(preemptionCtx, candidates, strategies[0])
 
-	if !fits && containsWorkloadFromPreemptorCQ(preemptionCtx, targets) {
-		// If "targets" contains workload from the same CQ as the preemptor, it means
-		// that DRS of the preemptor was decreased during the first run, and we can run
-		// the same strategy again with remaining candidates as they have chance to
-		// succeed now.
-		// No need to run the strategy a third time as first run already iterated
-		// though whole tree and removed all the preemptor's workloads.
-		var additionalTargets []*Target
-		fits, additionalTargets, retryCandidates = runFirstFsStrategy(preemptionCtx, retryCandidates, strategies[0])
-		targets = append(targets, additionalTargets...)
+	if features.Enabled(features.FairSharingReevaluatePreemptionCandidates) {
+		if !fits && containsWorkloadFromPreemptorCQ(preemptionCtx, targets) {
+			// If "targets" contains workload from the same CQ as the preemptor, it means
+			// that DRS of the preemptor was decreased during the first run, and we can run
+			// the same strategy again with remaining candidates as they have chance to
+			// succeed now.
+			// No need to run the strategy a third time as first run already iterated
+			// though whole tree and removed all the preemptor's workloads.
+			var additionalTargets []*Target
+			fits, additionalTargets, retryCandidates = runFirstFsStrategy(preemptionCtx, retryCandidates, strategies[0])
+			targets = append(targets, additionalTargets...)
+		}
 	}
 
 	if !fits && len(strategies) > 1 {
