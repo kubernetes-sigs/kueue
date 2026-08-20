@@ -36,8 +36,7 @@ const (
 	// MultiKueue worker clusters the Workload may be dispatched to. The value is a
 	// comma-separated list of MultiKueueCluster names. The requested clusters are
 	// always intersected with the clusters the Workload's ClusterQueue is authorized
-	// for, so a user can only narrow the authorized set, never widen it. Gated by the
-	// MultiKueueClusterNames feature gate.
+	// for. Gated by the MultiKueueClusterNames feature gate.
 	MultiKueueClusterNamesAnnotation = "kueue.x-k8s.io/multikueue-cluster-names"
 
 	// MultiKueueControllerName is the name used by the MultiKueue
