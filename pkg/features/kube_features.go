@@ -543,6 +543,13 @@ const (
 	// in PodSet template metadata during Workload creation and update.
 	WorkloadValidationForPodSetMetadata featuregate.Feature = "WorkloadValidationForPodSetMetadata"
 
+	// owner: @Nilsachy
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13662
+	//
+	// PrioritizePreemptorWorkloads enables prioritization of workloads waiting for preemption
+	// to complete to prevent quota stealing and thrashing during desynchronized evictions.
+	PrioritizePreemptorWorkloads featuregate.Feature = "PrioritizePreemptorWorkloads"
+
 	// owner: @ivnovakov
 	//
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/13279#discussion_r3655384989
@@ -913,6 +920,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	WorkloadValidationForPodSetMetadata: {
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PrioritizePreemptorWorkloads: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	LWSImmutableGroupSize: {
