@@ -1107,6 +1107,80 @@ func TestFairPreemptions(t *testing.T) {
 				targetKeyReason("/x1", kueue.InCohortFairSharingReason),
 			),
 		},
+		// The case when workloads from preemptor's CQ have lower priority, so all the other
+		// workloads are processed first, but none are considered fair by DPS.
+		// Later, once the preemptor's workloads are preempted, now workloads from
+		// other CQs are considered fair to be preempted by DPS.
+		"can admit after preempting workloads from the preemptor's CQ with lower processing priority": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("left-a").
+					Cohort("left").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyAny,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("right-b").
+					Cohort("right").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyAny,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("right-c").
+					Cohort("right").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyAny,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "15").Obj()).
+					Obj(),
+				utiltestingapi.MakeCohort("left").
+					Parent("root").
+					FairWeight(resource.MustParse("20")).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				utiltestingapi.MakeCohort("right").
+					Parent("root").
+					FairWeight(resource.MustParse("10")).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a1", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("left-a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("a2", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("left-a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("a3", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("left-a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b3", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b4", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b5", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b6", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("c1", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-c", "default", now).Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "10").Obj(),
+			targetCQ: "left-a",
+			wantPreempted: sets.New(
+				targetKeyReason("/a1", kueue.InClusterQueueReason),
+				targetKeyReason("/a2", kueue.InClusterQueueReason),
+				targetKeyReason("/a3", kueue.InClusterQueueReason),
+				targetKeyReason("/b1", kueue.InCohortFairSharingReason),
+				targetKeyReason("/b2", kueue.InCohortFairSharingReason),
+			),
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

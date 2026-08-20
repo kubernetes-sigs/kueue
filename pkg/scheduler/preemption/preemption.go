@@ -557,6 +557,19 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 
 	fits, targets, retryCandidates := runFirstFsStrategy(preemptionCtx, candidates, strategies[0])
+
+	if !fits && containsWorkloadFromPreemptorCQ(preemptionCtx, targets) {
+		// If "targets" contains workload from the same CQ as the preemptor, it means
+		// that DRS of the preemptor was decreased during the first run, and we can run
+		// the same strategy again with remaining candidates as they have chance to
+		// succeed now.
+		// No need to run the strategy a third time as first run already iterated
+		// though whole tree and removed all the preemptor's workloads.
+		var additionalTargets []*Target
+		fits, additionalTargets, retryCandidates = runFirstFsStrategy(preemptionCtx, retryCandidates, strategies[0])
+		targets = append(targets, additionalTargets...)
+	}
+
 	if !fits && len(strategies) > 1 {
 		if logV := preemptionCtx.log.V(6); logV.Enabled() {
 			logV.Info("First fair sharing strategy failed, trying second strategy",
@@ -586,6 +599,15 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 			"targets", logging.GetObjectReferences(targets))
 	}
 	return targets
+}
+
+func containsWorkloadFromPreemptorCQ(preemptionCtx *preemptionCtx, targets []*Target) bool {
+	for _, t := range targets {
+		if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
+			return true
+		}
+	}
+	return false
 }
 
 func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Set[resources.FlavorResource] {
