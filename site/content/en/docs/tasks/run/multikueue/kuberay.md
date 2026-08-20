@@ -36,3 +36,11 @@ This allows the KubeRay Operator to ignore the Jobs managed by MultiKueue on the
 The pods are created and the actual computation will happen on the mirror copy of the Job on the selected worker cluster. 
 The mirror copy of the Job does not have the field set.
 {{% /alert %}}
+
+{{% alert title="Ray History Server" color="primary" %}}
+Using [Ray History Server](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/kuberay-history-server.html)
+with MultiKueue requires KubeRay Operator v1.7.0 or later, Ray v2.55 or later,
+and the KubeRay `RayClusterHistoryServer` feature gate.
+Kueue propagates `spec.historyServerOptions` to the worker cluster and accounts
+for the collector sidecar resources in every Ray head and worker Pod.
+{{% /alert %}}
