@@ -920,10 +920,7 @@ func (m *Manager) Heads(ctx context.Context) []Head {
 }
 
 func (m *Manager) heads() []Head {
-	var heads []Head
-	for _, wl := range m.secondPassQueue.takeAllReady() {
-		heads = append(heads, Head{Info: wl})
-	}
+	heads := m.secondPassQueue.takeAllReady()
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
