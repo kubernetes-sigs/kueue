@@ -327,13 +327,13 @@ func TestWorkloadMapping(t *testing.T) {
 
 	testCases := map[string]struct {
 		operation func(*wasSimulator)
-		want      workloadPods
+		want      *podsBreakdown
 	}{
 		"add pod with workload annotation": {
 			operation: func(sim *wasSimulator) {
 				sim.TrackPod(makeSimplePod("pod", "ns", kueue.WorkloadAnnotation, "wl"))
 			},
-			want: workloadPods{
+			want: &podsBreakdown{
 				key("ns", "wl"): podSet{
 					key("ns", "pod"): makeSimplePod("pod", "ns", kueue.WorkloadAnnotation, "wl"),
 				},
@@ -343,7 +343,7 @@ func TestWorkloadMapping(t *testing.T) {
 			operation: func(sim *wasSimulator) {
 				sim.TrackPod(makeSimplePod("pod", "ns", kueue.WorkloadSliceNameAnnotation, "wl"))
 			},
-			want: workloadPods{
+			want: &podsBreakdown{
 				key("ns", "wl"): podSet{
 					key("ns", "pod"): makeSimplePod("pod", "ns", kueue.WorkloadSliceNameAnnotation, "wl"),
 				},
@@ -358,7 +358,7 @@ func TestWorkloadMapping(t *testing.T) {
 					"prebuild-wl",
 				))
 			},
-			want: workloadPods{
+			want: &podsBreakdown{
 				key("ns", "prebuild-wl"): podSet{
 					key("ns", "pod"): makeSimplePod(
 						"pod",
@@ -373,7 +373,7 @@ func TestWorkloadMapping(t *testing.T) {
 			operation: func(sim *wasSimulator) {
 				sim.TrackPod(makeSimplePod("pod", "ns", podconstants.GroupNameAnnotation, "group-wl"))
 			},
-			want: workloadPods{
+			want: &podsBreakdown{
 				key("ns", "group-wl"): podSet{
 					key("ns", "pod"): makeSimplePod("pod", "ns", podconstants.GroupNameAnnotation, "group-wl"),
 				},
@@ -387,7 +387,7 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.TrackPod(makeSimplePod("pod4", "ns", kueue.WorkloadAnnotation, "wl2"))
 				sim.UntrackPod(key("ns", "pod1"))
 			},
-			want: workloadPods{
+			want: &podsBreakdown{
 				key("ns", "wl1"): podSet{
 					key("ns", "pod2"): makeSimplePod("pod2", "ns", kueue.WorkloadAnnotation, "wl1"),
 				},
@@ -406,7 +406,7 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.UntrackPod(key("ns", "pod2"))
 				sim.UntrackPod(key("ns", "pod3"))
 			},
-			want: workloadPods{},
+			want: &podsBreakdown{},
 		},
 	}
 
@@ -426,7 +426,7 @@ func TestWorkloadMapping(t *testing.T) {
 			}
 			snapshot := snapshotRaw.(*wasSimulatorSnapshot)
 
-			if diff := cmp.Diff(tc.want, snapshot.pods.workloadPods); diff != "" {
+			if diff := cmp.Diff(tc.want, snapshot.podsByWorkload); diff != "" {
 				t.Errorf("Unexpected pod assignments (-want,+got):\n%s", diff)
 			}
 		})
