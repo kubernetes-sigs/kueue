@@ -276,7 +276,7 @@
   - default: true
     lockToDefault: false
     preRelease: Beta
-    version: "0.20"
+    version: "0.18"
 - name: PrioritizePreemptorWorkloads
   versionedSpecs:
   - default: false
@@ -387,6 +387,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: TASCacheTopologyTree
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TASCachingRemainingResources
   versionedSpecs:
   - default: true
@@ -515,6 +521,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: ValidateRayAndSparkJobUpdates
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.18"
 - name: VectorizedResourceRequests
   versionedSpecs:
   - default: true
