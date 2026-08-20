@@ -3392,6 +3392,50 @@ func TestValidateCustomLabels(t *testing.T) {
 				},
 			},
 		},
+		"too many custom labels for local queue": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "lq1", SourceKind: new(configapi.SourceKindLocalQueue)},
+							{Name: "lq2", SourceKind: new(configapi.SourceKindLocalQueue)},
+							{Name: "lq3", SourceKind: new(configapi.SourceKindLocalQueue)},
+							{Name: "lq4", SourceKind: new(configapi.SourceKindLocalQueue)},
+							{Name: "lq5", SourceKind: new(configapi.SourceKindLocalQueue)},
+							{Name: "lq6", SourceKind: new(configapi.SourceKindLocalQueue)},
+							{Name: "lq7", SourceKind: new(configapi.SourceKindLocalQueue)},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels",
+					Detail: "too many custom labels for source kind LocalQueue: found 7, expected <= 6",
+				},
+			},
+		},
+		"too many custom labels for workload": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "wl1", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"v"}},
+							{Name: "wl2", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"v"}},
+							{Name: "wl3", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"v"}},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels",
+					Detail: "too many custom labels for source kind Workload: found 3, expected <= 2",
+				},
+			},
+		},
 		"workload without tracked values": {
 			cfg: &configapi.Configuration{
 				ControllerManager: configapi.ControllerManager{
