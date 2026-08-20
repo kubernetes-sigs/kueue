@@ -64,7 +64,7 @@ const (
 )
 
 var cmpDump = cmp.Options{
-	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+	cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b }),
 }
 
 // scheduleTestCase is the shared case definition for the core scheduling tests
@@ -75,6 +75,9 @@ type scheduleTestCase struct {
 	featureGates map[featuregate.Feature]bool
 
 	enableFairSharing bool
+	// refillBudget overrides the scheduler's refill budget when set; zero is
+	// a valid override (refill enabled but inert).
+	refillBudget *int
 
 	workloads      []kueue.Workload
 	objects        []client.Object
@@ -243,8 +246,13 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					if tc.enableFairSharing {
 						fairSharing = &config.FairSharing{}
 					}
-					scheduler := New(qManager, cqCache, cl, recorder,
-						WithFairSharing(fairSharing), WithClock(t, cfg.fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+					schedulerOpts := []Option{
+						WithFairSharing(fairSharing), WithClock(t, cfg.fakeClock), WithPreemptionExpectations(preemptexpectations.New()),
+					}
+					if tc.refillBudget != nil {
+						schedulerOpts = append(schedulerOpts, WithRefillBudget(*tc.refillBudget))
+					}
+					scheduler := New(qManager, cqCache, cl, recorder, schedulerOpts...)
 					wg := sync.WaitGroup{}
 					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 						func() { wg.Add(1) },
@@ -321,6 +329,17 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					qDumpInadmissible := qManager.DumpInadmissible()
 					if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
 						t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
+					}
+					// Every workload the cycle popped owes the queue an exit; only the
+					// admitted ones keep their claim, until the cache hands them over.
+					// Nothing reclaims a claim on its own, so a missed release
+					// lasts until the object is deleted.
+					for cqName, keys := range qManager.DumpInflight() {
+						for _, key := range keys {
+							if _, admitted := gotAssignments[key]; !admitted {
+								t.Errorf("Workload %s left an inflight claim on clusterQueue %s without being admitted", key, cqName)
+							}
+						}
 					}
 
 					if len(tc.wantEvents) > 0 {
