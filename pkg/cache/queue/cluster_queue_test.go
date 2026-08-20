@@ -728,7 +728,7 @@ func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
 
 func TestClusterQueueIsPreemptor(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cq, err := newClusterQueue(ctx, nil, utiltestingapi.MakeClusterQueue("cq").Obj(), nil, defaultOrdering, nil, nil)
+	cq, err := newClusterQueue(ctx, nil, utiltestingapi.MakeClusterQueue("cq").Obj(), defaultOrdering, nil, nil)
 	if err != nil {
 		t.Fatalf("failed to create ClusterQueue: %v", err)
 	}
