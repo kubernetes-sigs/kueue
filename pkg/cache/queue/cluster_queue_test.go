@@ -581,8 +581,8 @@ func TestSnapshotUsesDefaultWeightForMissingLocalQueue(t *testing.T) {
 }
 
 // TestSnapshotConcurrentWithRequeueNoDataRace guards against a data race on the
-// sticky workload: Snapshot sorts a copy of the pending workloads through the
-// comparator (which reads stickyWorkload.workloadName) without holding the
+// preemptor workload: Snapshot sorts a copy of the pending workloads through the
+// comparator (which reads preemptorWorkload.state) without holding the
 // ClusterQueue lock, while RequeueIfNotPresent writes that field during a
 // BestEffortFIFO preemption requeue. Run with -race to detect regressions.
 func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
@@ -704,9 +704,9 @@ func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
 				return
 			default:
 				for _, k := range keys {
-					cq.sw.set(k)
+					cq.pw.set(k, true, 0)
 				}
-				cq.sw.clear()
+				cq.pw.clear()
 			}
 		}
 	}()
@@ -724,6 +724,43 @@ func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
 		if !isValid(got) {
 			t.Fatalf("call %d: non-transitive Snapshot ordering %v; sticky workload changed mid-sort", i+1, got)
 		}
+	}
+}
+
+func TestClusterQueueIsPreemptor(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil, utiltestingapi.MakeClusterQueue("cq").Obj(), defaultOrdering, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).Obj()
+	wl.Generation = 1
+	wInfo := workload.NewInfo(wl)
+	wInfo.LastEvaluatedGeneration = 1
+
+	otherWl := utiltestingapi.MakeWorkload("other", defaultNamespace).Obj()
+	otherInfo := workload.NewInfo(otherWl)
+
+	if cq.IsPreemptor(wInfo) {
+		t.Errorf("IsPreemptor(wInfo) = true, want false before requeue")
+	}
+
+	cq.RequeueIfNotPresent(ctx, wInfo, RequeueReasonPendingPreemption, "")
+
+	if !cq.IsPreemptor(wInfo) {
+		t.Errorf("IsPreemptor(wInfo) = false, want true after RequeueReasonPendingPreemption")
+	}
+	if cq.IsPreemptor(otherInfo) {
+		t.Errorf("IsPreemptor(otherInfo) = true, want false for non-preemptor workload")
+	}
+
+	wlModified := wl.DeepCopy()
+	wlModified.Generation = 2
+	wInfoModified := workload.NewInfo(wlModified)
+
+	if cq.IsPreemptor(wInfoModified) {
+		t.Errorf("IsPreemptor(wInfoModified) = true, want false after workload generation changed")
 	}
 }
 
@@ -1348,7 +1385,7 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 				t.Errorf("Unexpected inadmissible status (-want,+got):\n%s", diff)
 			}
 
-			gotSticky := cq.sw.matches(workload.Key(wl))
+			gotSticky := cq.pw.stickyMatches(workload.Key(wl))
 			if diff := cmp.Diff(tc.wantSticky, gotSticky); diff != "" {
 				t.Errorf("Unexpected sticky status (-want,+got):\n%s", diff)
 			}
