@@ -806,6 +806,43 @@ func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
 	}
 }
 
+func TestClusterQueueIsPreemptor(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil, utiltestingapi.MakeClusterQueue("cq").Obj(), nil, defaultOrdering, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).Obj()
+	wl.Generation = 1
+	wInfo := workload.NewInfo(wl)
+	wInfo.LastEvaluatedGeneration = 1
+
+	otherWl := utiltestingapi.MakeWorkload("other", defaultNamespace).Obj()
+	otherInfo := workload.NewInfo(otherWl)
+
+	if cq.IsPreemptor(wInfo) {
+		t.Errorf("IsPreemptor(wInfo) = true, want false before requeue")
+	}
+
+	cq.RequeueIfNotPresent(ctx, wInfo, RequeueReasonPendingPreemption, "")
+
+	if !cq.IsPreemptor(wInfo) {
+		t.Errorf("IsPreemptor(wInfo) = false, want true after RequeueReasonPendingPreemption")
+	}
+	if cq.IsPreemptor(otherInfo) {
+		t.Errorf("IsPreemptor(otherInfo) = true, want false for non-preemptor workload")
+	}
+
+	wlModified := wl.DeepCopy()
+	wlModified.Generation = 2
+	wInfoModified := workload.NewInfo(wlModified)
+
+	if cq.IsPreemptor(wInfoModified) {
+		t.Errorf("IsPreemptor(wInfoModified) = true, want false after workload generation changed")
+	}
+}
+
 func TestPendingResources(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now()
