@@ -1284,7 +1284,7 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 				false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 			wlInfo := workload.NewInfo(unitWl.Clone().Name("a_incoming").Obj())
 			wlInfo.ClusterQueue = "a"
-			targets := preemptor.GetTargets(ctx, *wlInfo, singlePodSetAssignment(
+			targets := preemptor.GetTargets(log, *wlInfo, singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{
 					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 						Name: "default", Mode: flavorassigner.Preempt,
