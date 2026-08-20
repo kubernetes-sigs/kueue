@@ -119,10 +119,13 @@ histogram_quantile(0.99,
 
 ## Post-admission startup latency
 
-For workloads using the Pod integration, monitor the time from Workload admission
-until Kueue removes a scheduling gate from the associated Pods. For example, the
-following query shows the 95th percentile (P95) by ClusterQueue, gate name, and
-whether the Pods belong to a group:
+Monitor the time from Workload admission until Kueue removes one of its scheduling
+gates from the associated Pods. Kueue records this latency for the
+`kueue.x-k8s.io/admission` (Pod integration), the `kueue.x-k8s.io/topology`
+ (Topology-Aware Scheduling, for any supported job framework), and the
+`kueue.x-k8s.io/elastic-job` scheduling gates (elastic jobs). For example, the following query
+shows the 95th percentile (P95) by ClusterQueue, gate name, and whether the Pods
+belong to a group:
 
 ```promql
 histogram_quantile(0.95,
