@@ -4672,6 +4672,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				nodes         []corev1.Node
 				localQueueB   *kueue.LocalQueue
 				clusterQueueB *kueue.ClusterQueue
+				localQueueC   *kueue.LocalQueue
+				clusterQueueC *kueue.ClusterQueue
 			)
 			ginkgo.BeforeEach(func() {
 				//      b1
@@ -4720,9 +4722,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
 					}).
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
-						Resource(corev1.ResourceCPU, "5").
+						Resource(corev1.ResourceCPU, "4").
 						Resource(corev1.ResourceMemory, "5Gi").Obj()).
 					Obj()
 				util.MustCreate(ctx, k8sClient, clusterQueue)
@@ -4735,10 +4740,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Cohort("cohort").
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
-						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
 					}).
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
-						Resource(corev1.ResourceCPU, "5").
+						Resource(corev1.ResourceCPU, "3").
 						Resource(corev1.ResourceMemory, "5Gi").Obj()).
 					Obj()
 				util.MustCreate(ctx, k8sClient, clusterQueueB)
@@ -4746,6 +4754,25 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 				localQueueB = utiltestingapi.MakeLocalQueue("local-queue-b", ns.Name).ClusterQueue(clusterQueueB.Name).Obj()
 				util.MustCreate(ctx, k8sClient, localQueueB)
+
+				clusterQueueC = utiltestingapi.MakeClusterQueue("cluster-queue-c").
+					Cohort("cohort").
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+						Resource(corev1.ResourceCPU, "3").
+						Resource(corev1.ResourceMemory, "5Gi").Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, clusterQueueC)
+				util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueueC)
+
+				localQueueC = utiltestingapi.MakeLocalQueue("local-queue-c", ns.Name).ClusterQueue(clusterQueueC.Name).Obj()
+				util.MustCreate(ctx, k8sClient, localQueueC)
 			})
 
 			ginkgo.AfterEach(func() {
@@ -4753,9 +4780,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueueB)).Should(gomega.Succeed())
+				gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueueC)).Should(gomega.Succeed())
 
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueueB, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueueC, true)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 				for _, node := range nodes {
@@ -4799,6 +4828,81 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueueB, 1)
 					util.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
+				})
+			})
+
+			ginkgo.It("should prevent other workloads from stealing topology when a preemptor is waiting for multiple evictions", func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PrioritizeWorkloadsPendingPreemption, true)
+
+				var wlA, wlB, wlPending, preemptor *kueue.Workload
+				ginkgo.By("creating initial workload in clusterQueue consuming 4 CPU on first node", func() {
+					wlA = utiltestingapi.MakeWorkload("wl-a", ns.Name).
+						Priority(1).
+						PodSets(*utiltestingapi.MakePodSet("worker", 1).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "4").Obj()
+					util.MustCreate(ctx, k8sClient, wlA)
+				})
+
+				ginkgo.By("creating initial workload in clusterQueueB consuming 5 CPU on second node (borrowing 2 CPU)", func() {
+					wlB = utiltestingapi.MakeWorkload("wl-b", ns.Name).
+						Priority(2).
+						PodSets(*utiltestingapi.MakePodSet("worker", 1).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueueB.Name)).Request(corev1.ResourceCPU, "5").Obj()
+					util.MustCreate(ctx, k8sClient, wlB)
+				})
+
+				ginkgo.By("verify both workloads are admitted", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA, wlB)
+				})
+
+				ginkgo.By("creating a pending workload in clusterQueueC within its nominal quota (3 CPU)", func() {
+					wlPending = utiltestingapi.MakeWorkload("wl-pending", ns.Name).
+						Priority(1).
+						PodSets(*utiltestingapi.MakePodSet("worker", 1).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueueC.Name)).Request(corev1.ResourceCPU, "3").Obj()
+					util.MustCreate(ctx, k8sClient, wlPending)
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wlPending)
+				})
+
+				ginkgo.By("creating a high priority preemptor in clusterQueue requesting full block capacity (2 nodes x 5 CPU, borrowing from cohort)", func() {
+					preemptor = utiltestingapi.MakeWorkload("preemptor", ns.Name).
+						Priority(3).
+						PodSets(*utiltestingapi.MakePodSet("worker", 2).
+							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
+					util.MustCreate(ctx, k8sClient, preemptor)
+				})
+
+				ginkgo.By("verifying both wl-a and wl-b are marked for preemption", func() {
+					util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlA, wlB)
+				})
+
+				ginkgo.By("finishing eviction for wl-a only", func() {
+					util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+				})
+
+				ginkgo.By("ensuring the pending workload wl-pending in clusterQueueC is not admitted in the interim across scheduling cycles", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlPending), wlPending)).To(gomega.Succeed())
+						g.Expect(workload.HasQuotaReservation(wlPending)).To(gomega.BeFalse())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("finishing eviction for wl-b", func() {
+					util.FinishEvictionForWorkloads(ctx, k8sClient, wlB)
+				})
+
+				ginkgo.By("verifying preemptor is admitted and wl-pending remains pending", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wlPending)
 				})
 			})
 		})
