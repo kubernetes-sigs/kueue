@@ -331,6 +331,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: PrioritizePreemptorWorkloads
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: PriorityBoost
   versionedSpecs:
   - default: false
