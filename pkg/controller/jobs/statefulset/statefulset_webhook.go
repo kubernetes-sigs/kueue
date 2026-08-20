@@ -174,7 +174,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 		// StatefulSet with replicas > 0 and no Ready Pods (e.g. crashlooping or
 		// unschedulable) can keep its reservation indefinitely. Refuse the
 		// rename while reserved so the Pods and the Workload cannot end up
-		// naming different queues.
+		// naming different queues. A rename back to the queue the reserved
+		// Workload already records is allowed: it restores consistency
+		// instead of breaking it, which matters for a cluster that already
+		// drifted (e.g. across an upgrade) before this check existed.
 		wlName, err := findWorkloadName(ctx, wh.client, oldSTSObj)
 		if err != nil {
 			return nil, err
@@ -184,7 +187,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 			if client.IgnoreNotFound(err) != nil {
 				return nil, err
 			}
-		} else if workload.HasQuotaReservation(&wl) {
+		} else if workload.HasQuotaReservation(&wl) && newQueueName != wl.Spec.QueueName {
 			allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
 		}
 	}

@@ -499,6 +499,28 @@ func TestValidateUpdate(t *testing.T) {
 				Replicas(3).
 				Obj(),
 		},
+		"change in queue label allowed when it restores the queue already recorded by the reserved Workload (ReadyReplicas == 0)": {
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("test-uid", "test-sts"), "test-ns").
+					Queue("test-queue").
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+						Reason: "AdmittedByTest",
+					}).
+					Obj(),
+			},
+			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue-new").
+				Replicas(3).
+				Obj(),
+			newObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
+				UID("test-uid").
+				Queue("test-queue").
+				Replicas(3).
+				Obj(),
+		},
 		"set queue label": {
 			oldObj: testingstatefulset.MakeStatefulSet("test-sts", "test-ns").
 				Obj(),
