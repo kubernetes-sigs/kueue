@@ -885,9 +885,15 @@ func (m *Manager) CleanUpOnContext(ctx context.Context) {
 	m.Broadcast()
 }
 
+// Head represents the head of a queue.
+type Head struct {
+	workload.Info
+	IsPreemptor bool
+}
+
 // Heads returns the heads of the queues, along with their associated ClusterQueue.
 // It blocks if the queues empty until they have elements or the context terminates.
-func (m *Manager) Heads(ctx context.Context) []workload.Info {
+func (m *Manager) Heads(ctx context.Context) []Head {
 	m.Lock()
 	defer m.Unlock()
 	log := ctrl.LoggerFrom(ctx)
@@ -906,8 +912,8 @@ func (m *Manager) Heads(ctx context.Context) []workload.Info {
 	}
 }
 
-func (m *Manager) heads() []workload.Info {
-	workloads := m.secondPassQueue.takeAllReady()
+func (m *Manager) heads() []Head {
+	heads := m.secondPassQueue.takeAllReady()
 	for cqName, cq := range m.hm.ClusterQueues() {
 		// Cache might be nil in tests, if cache is nil, we'll skip the check.
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
@@ -921,7 +927,10 @@ func (m *Manager) heads() []workload.Info {
 		wlKey := workload.Key(wl.Obj)
 		wlCopy := *wl
 		wlCopy.ClusterQueue = cqName
-		workloads = append(workloads, wlCopy)
+		heads = append(heads, Head{
+			Info:        wlCopy,
+			IsPreemptor: cq.IsPreemptor(wl),
+		})
 
 		qKey := m.workloadAssignedQueues[wlKey]
 		q := m.localQueues[qKey]
@@ -929,7 +938,7 @@ func (m *Manager) heads() []workload.Info {
 
 		reportLQPendingWorkloads(m, q)
 	}
-	return workloads
+	return heads
 }
 
 func (m *Manager) Broadcast() {
