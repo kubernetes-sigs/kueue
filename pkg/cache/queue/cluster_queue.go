@@ -104,6 +104,7 @@ var (
 // ordering guarantees above.
 type preemptorWorkloadState struct {
 	workloadName workload.Reference
+	generation   int64
 	isSticky     bool
 }
 
@@ -111,9 +112,13 @@ type preemptorWorkload struct {
 	state atomic.Pointer[preemptorWorkloadState]
 }
 
-func (p *preemptorWorkload) matches(workload workload.Reference) bool {
+func (p *preemptorWorkload) matches(workload workload.Reference, strict bool, generation int64) bool {
 	state := p.state.Load()
-	return state != nil && state.workloadName == workload
+	matchesKey := state != nil && state.workloadName == workload
+	if !strict {
+		return matchesKey
+	}
+	return matchesKey && state.generation == generation
 }
 
 func (p *preemptorWorkload) stickyMatches(workload workload.Reference) bool {
@@ -140,9 +145,10 @@ func (p *preemptorWorkload) clear() {
 	p.state.Store(nil)
 }
 
-func (p *preemptorWorkload) set(workload workload.Reference, isSticky bool) {
+func (p *preemptorWorkload) set(workload workload.Reference, isSticky bool, generation int64) {
 	p.state.Store(&preemptorWorkloadState{
 		workloadName: workload,
+		generation:   generation,
 		isSticky:     isSticky,
 	})
 }
@@ -204,8 +210,8 @@ func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
 	return c.name
 }
 
-func (c *ClusterQueue) IsPreemptor(key workload.Reference) bool {
-	return c.pw.matches(key)
+func (c *ClusterQueue) IsPreemptor(wInfo *workload.Info) bool {
+	return c.pw.matches(workloadKey(wInfo), true, wInfo.Obj.Generation)
 }
 
 func workloadKey(i *workload.Info) workload.Reference {
@@ -497,7 +503,7 @@ func (c *ClusterQueue) delete(log logr.Logger, key workload.Reference) {
 
 	c.workloads.RemoveActive(key)
 	c.workloads.ForgetInflightByKey(key)
-	if c.pw.matches(key) {
+	if c.pw.matches(key, false, 0) {
 		if logV := log.V(5); logV.Enabled() {
 			logV.Info("Clearing preemptor workload due to deletion", "clusterQueue", c.name, "workload", key)
 		}
@@ -553,7 +559,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 		if logV := log.V(5); logV.Enabled() {
 			logV.Info("Setting preemptor workload", "clusterQueue", wInfo.ClusterQueue, "workload", key)
 		}
-		c.pw.set(key, c.queueingStrategy == kueue.BestEffortFIFO)
+		c.pw.set(key, c.queueingStrategy == kueue.BestEffortFIFO, wInfo.LastEvaluatedGeneration)
 	}
 	c.workloads.ForgetInflightByKey(key)
 

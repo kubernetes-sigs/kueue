@@ -936,7 +936,7 @@ func (m *Manager) heads() []Head {
 		wlCopy.ClusterQueue = cqName
 		heads = append(heads, Head{
 			Info:        wlCopy,
-			IsPreemptor: cq.IsPreemptor(wlKey),
+			IsPreemptor: cq.IsPreemptor(wl),
 		})
 
 		qKey := m.workloadAssignedQueues[wlKey]

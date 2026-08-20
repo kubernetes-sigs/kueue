@@ -783,7 +783,7 @@ func TestSnapshotConsistentUnderConcurrentStickyChange(t *testing.T) {
 				return
 			default:
 				for _, k := range keys {
-					cq.pw.set(k, true)
+					cq.pw.set(k, true, 0)
 				}
 				cq.pw.clear()
 			}
