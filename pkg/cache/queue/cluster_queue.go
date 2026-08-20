@@ -293,17 +293,8 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, wo workload.
 		opt(options)
 	}
 	pw := preemptorWorkload{}
-	// lqWeights is shared by reference with the ClusterQueue struct below so
-	// weight updates are visible to the comparator. All access holds rwm.
-	lqWeights := make(map[utilqueue.LocalQueueReference]float64)
-	getLQWeight := func(lqKey utilqueue.LocalQueueReference) float64 {
-		if w, ok := lqWeights[lqKey]; ok {
-			return w
-		}
-		return 1.0
-	}
-	// The comparator reads the sticky workload and cached weights live; safe
-	// because those writes and heap operations all hold rwm.
+	// The heap comparator reads the sticky workload live on every comparison;
+	// this is safe because sticky writes and heap operations both hold rwm.
 	compareFunc := queueOrderingFunc(ctx, client, wo, options.fsResWeights, options.enableAdmissionFs, options.afsUsageLedger, pw.stickyMatches)
 	// Derive lessFunc from compareFunc for the heap.
 	lessFunc := func(a, b *workload.Info) bool { return compareFunc(a, b) < 0 }
