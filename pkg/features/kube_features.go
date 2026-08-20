@@ -940,7 +940,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	ValidateRayAndSparkJobUpdates: {
-		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
 	},
 }
 
