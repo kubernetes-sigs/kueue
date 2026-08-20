@@ -256,18 +256,28 @@ connection.</p>
 <tbody>
     
   
-<tr><td><code>credentialsProviders</code> <B>[Required]</B><br/>
-<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider"><code>[]ClusterProfileCredentialsProvider</code></a>
+<tr><td><code>accessProviders</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileAccessProvider"><code>[]ClusterProfileAccessProvider</code></a>
+</td>
+<td>
+   <p>AccessProviders defines a list of providers to obtain access to worker clusters
+using the ClusterProfile API.</p>
+</td>
+</tr>
+<tr><td><code>credentialsProviders</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileAccessProvider"><code>[]ClusterProfileAccessProvider</code></a>
 </td>
 <td>
    <p>CredentialsProviders defines a list of providers to obtain credentials of worker clusters
 using the ClusterProfile API.</p>
+<p>Deprecated: Use AccessProviders instead. AccessProviders and CredentialsProviders
+are mutually exclusive.</p>
 </td>
 </tr>
 </tbody>
 </table>
 
-## `ClusterProfileCredentialsProvider`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider}
+## `ClusterProfileAccessProvider`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfileAccessProvider}
     
 
 **Appears in:**
@@ -275,7 +285,7 @@ using the ClusterProfile API.</p>
 - [ClusterProfile](#config-kueue-x-k8s-io-v1beta2-ClusterProfile)
 
 
-<p>ClusterProfileCredentialsProvider defines a credentials provider in the ClusterProfile API.</p>
+<p>ClusterProfileAccessProvider defines an access provider in the ClusterProfile API.</p>
 
 
 <table class="table">
@@ -495,8 +505,8 @@ metrics will be reported.</p>
 </td>
 <td>
    <p>CustomLabels is a list of entries whose values will be added as extra
-Prometheus labels on ClusterQueue, LocalQueue, and Cohort metrics.
-Requires the CustomMetricLabels feature gate.</p>
+Prometheus labels on supported metrics.
+A maximum of 6 labels are allowed per SourceKind (2 for Workloads), with up to 20 labels defined in total.</p>
 </td>
 </tr>
 <tr><td><code>localQueueMetrics</code><br/>
@@ -530,9 +540,10 @@ as a Prometheus metric label with a &quot;custom_&quot; prefix.</p>
 <code>string</code>
 </td>
 <td>
-   <p>Name is used as a suffix to build the Prometheus label: Kueue
-automatically prepends &quot;custom_&quot; (e.g., name: &quot;team&quot; becomes label &quot;custom_team&quot;).
-Must follow Prometheus label naming conventions: [a-zA-Z_][a-zA-Z0-9_]*.</p>
+   <p>Name is the Prometheus metric label name suffix.
+Prepended with &quot;custom_&quot; to form the full Prometheus label name
+(e.g., &quot;team&quot; becomes &quot;custom_team&quot;).
+Must contain only [a-zA-Z0-9_] characters and start with a letter.</p>
 </td>
 </tr>
 <tr><td><code>sourceLabelKey</code><br/>
@@ -552,6 +563,32 @@ If neither is specified, defaults to Name.</p>
    <p>SourceAnnotationKey is the Kubernetes annotation key to read the value from.
 Must be a valid Kubernetes qualified name.
 Mutually exclusive with SourceLabelKey.</p>
+</td>
+</tr>
+<tr><td><code>sourceKind</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-SourceKind"><code>SourceKind</code></a>
+</td>
+<td>
+   <p>SourceKind is the object kind from which the label value should be sourced.
+Up to 2 labels are allowed for Workloads and up to 6 for other source kinds.
+Defaults to ClusterQueue.
+The possible values are:</p>
+<ul>
+<li>Cohort</li>
+<li>LocalQueue</li>
+<li>ClusterQueue</li>
+<li>Workload</li>
+</ul>
+</td>
+</tr>
+<tr><td><code>trackedValues</code><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>TrackedValues is a list of the label's allowed values.
+When SourceKind is Workload, a closed list of 1-12 TrackedValues is required.
+Non-workload source kinds can have 0-16 TrackedValues. If the list is empty, any value is allowed.
+Label values not allowed by this field will be reported as &quot;kueue.x-k8s.io/<em>UNTRACKED_VALUE</em>&quot;.</p>
 </td>
 </tr>
 </tbody>
@@ -602,6 +639,55 @@ must be named tls.key and tls.crt, respectively.</p>
 </tbody>
 </table>
 
+## `DeviceClassCapacitySource`     {#config-kueue-x-k8s-io-v1beta2-DeviceClassCapacitySource}
+    
+
+**Appears in:**
+
+- [DeviceClassSourceConfig](#config-kueue-x-k8s-io-v1beta2-DeviceClassSourceConfig)
+
+
+<p>DeviceClassCapacitySource configures capacity-based quota tracking
+for devices that allow multiple allocations (KEP-5075).</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#qualifiedname-v1-resource"><code>k8s.io/api/resource/v1.QualifiedName</code></a>
+</td>
+<td>
+   <p>Name identifies the capacity dimension to track for quota
+(e.g., &quot;gpu.example.com/memory&quot;).
+Must be a valid DRA QualifiedName.</p>
+</td>
+</tr>
+<tr><td><code>driver</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>Driver is the DRA driver name used to filter relevant ResourceSlices.
+Must match the spec.driver field on ResourceSlice objects.
+Must not exceed 63 characters.</p>
+</td>
+</tr>
+<tr><td><code>deviceSelector</code> <B>[Required]</B><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#deviceselector-v1-resource"><code>k8s.io/api/resource/v1.DeviceSelector</code></a>
+</td>
+<td>
+   <p>DeviceSelector scopes which devices are eligible for quota accounting.
+Matches devices whose capacity dimensions should be tracked against
+the quota pool.
+The selector is compiled at config load time using the upstream dracel
+compiler.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `DeviceClassCounterSource`     {#config-kueue-x-k8s-io-v1beta2-DeviceClassCounterSource}
     
 
@@ -623,8 +709,8 @@ must be named tls.key and tls.crt, respectively.</p>
 </td>
 <td>
    <p>Name is the counter name within the device's consumesCounters
-entries to track for quota. Must match a counter name published by
-the driver in ResourceSlice devices' consumesCounters field.
+entries to track for quota. Must be a DNS label and match a counter
+name published by the driver in ResourceSlice devices' consumesCounters field.
 Counter set names are per-device identifiers (e.g., gpu-0-counter-set,
 gpu-1-counter-set), so name matches across all counter sets
 for a given driver without requiring one mapping per device.
@@ -636,8 +722,8 @@ The total length must not exceed 63 characters.</p>
 </td>
 <td>
    <p>Driver is the DRA driver name used to filter relevant ResourceSlices.
-Must match the spec.driver field on ResourceSlice objects.
-The total length must not exceed 253 characters.</p>
+Must be a lowercase DNS subdomain and match the spec.driver field on ResourceSlice objects.
+The total length must not exceed 63 characters.</p>
 </td>
 </tr>
 <tr><td><code>deviceSelector</code> <B>[Required]</B><br/>
@@ -705,10 +791,10 @@ The total length of each name must not exceed 253 characters.</p>
 <td>
    <p>Sources configures resource accounting sources for this mapping.
 Each source defines how quota is tracked for this DeviceClass.
-Currently only counter sources are supported (for partitionable devices).
 Extended resource requests that resolve to a DeviceClass with sources
 configured are marked inadmissible.
-Requires the KueueDRAIntegrationPartitionableDevices feature gate.</p>
+Counter sources require KueueDRAIntegrationPartitionableDevices (enabled by default since v0.19).
+Capacity sources require KueueDRAIntegrationConsumableCapacity.</p>
 </td>
 </tr>
 </tbody>
@@ -723,7 +809,7 @@ Requires the KueueDRAIntegrationPartitionableDevices feature gate.</p>
 
 
 <p>DeviceClassSourceConfig defines a resource accounting source for a DeviceClassMapping.
-Exactly one of the source types must be set.</p>
+Exactly one of the source types must be set per entry.</p>
 
 
 <table class="table">
@@ -737,6 +823,16 @@ Exactly one of the source types must be set.</p>
 <td>
    <p>Counter configures counter-based quota for partitionable devices.
 Maps a DRA driver counter to the parent DeviceClassMapping's Kueue quota resource.</p>
+</td>
+</tr>
+<tr><td><code>capacity</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-DeviceClassCapacitySource"><code>DeviceClassCapacitySource</code></a>
+</td>
+<td>
+   <p>Capacity configures capacity-based quota for devices that allow
+multiple allocations (consumable capacity, KEP-5075).
+Maps a device capacity dimension to the parent DeviceClassMapping's Kueue quota resource.
+Requires the KueueDRAIntegrationConsumableCapacity feature gate.</p>
 </td>
 </tr>
 </tbody>
@@ -777,6 +873,41 @@ This strategy doesn't depend on the share usage of the workload being preempted.
 As a result, the strategy chooses to preempt workloads with the lowest priority and
 newest start time first.</li>
 </ul>
+<p>Only the following lists are supported:</p>
+<ul>
+<li>[&quot;LessThanOrEqualToFinalShare&quot;]</li>
+<li>[&quot;LessThanInitialShare&quot;]</li>
+<li>[&quot;LessThanOrEqualToFinalShare&quot;, &quot;LessThanInitialShare&quot;]</li>
+</ul>
+<p>Any other combination or ordering fails configuration validation.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `IncrementalDispatcherConfig`     {#config-kueue-x-k8s-io-v1beta2-IncrementalDispatcherConfig}
+    
+
+**Appears in:**
+
+- [MultiKueue](#config-kueue-x-k8s-io-v1beta2-MultiKueue)
+
+
+<p>IncrementalDispatcherConfig holds configuration for the MultiKueue Incremental Dispatcher.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>stepSize</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>StepSize defines the number of worker clusters the Incremental Dispatcher
+will query simultaneously.
+Minimum value is 1. If not set, it defaults to 3.</p>
 </td>
 </tr>
 </tbody>
@@ -1001,6 +1132,15 @@ GroupVersionKind (GVK) for MultiKueue operations.</p>
 </td>
 <td>
    <p>ClusterProfile defines configuration for using the ClusterProfile API.</p>
+</td>
+</tr>
+<tr><td><code>incrementalDispatcherConfig</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-IncrementalDispatcherConfig"><code>IncrementalDispatcherConfig</code></a>
+</td>
+<td>
+   <p>IncrementalDispatcherConfig contains the configuration for the incremental dispatcher.
+This field is only valid when DispatcherName is set to the incremental dispatcher.
+Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.</p>
 </td>
 </tr>
 </tbody>
@@ -1276,6 +1416,18 @@ for Dynamic Resource Allocation support.</p>
 </tbody>
 </table>
 
+## `SourceKind`     {#config-kueue-x-k8s-io-v1beta2-SourceKind}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ControllerMetricsCustomLabel](#config-kueue-x-k8s-io-v1beta2-ControllerMetricsCustomLabel)
+
+
+
+
+
 ## `TLSOptions`     {#config-kueue-x-k8s-io-v1beta2-TLSOptions}
     
 
@@ -1310,6 +1462,16 @@ The default would be to not set this value and inherit golang settings.</p>
 Note that TLS 1.3 ciphersuites are not configurable.
 Values are from tls package constants (https://golang.org/pkg/crypto/tls/#pkg-constants).
 The default would be to not set this value and inherit golang settings.</p>
+</td>
+</tr>
+<tr><td><code>curvePreferences</code><br/>
+<code>[]int32</code>
+</td>
+<td>
+   <p>curvePreferences is the list of allowed TLS key exchange mechanisms (curves)
+for the server, specified as numeric IANA TLS Supported Group IDs.
+See https://pkg.go.dev/crypto/tls#CurveID for values supported by the current Go version.
+If omitted, Go defaults are used.</p>
 </td>
 </tr>
 </tbody>
@@ -1378,8 +1540,9 @@ evicted and requeued in the same cluster queue.</p>
 <code>bool</code>
 </td>
 <td>
-   <p>BlockAdmission when true, the cluster queue will block admissions for all
-subsequent jobs until the jobs reach the PodsReady=true condition.
+   <p>BlockAdmission when true, Kueue blocks admission of all workloads across
+all ClusterQueues until every previously-admitted workload reaches the
+PodsReady=true condition.
 Defaults to false.</p>
 </td>
 </tr>
