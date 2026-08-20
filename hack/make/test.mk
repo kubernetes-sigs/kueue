@@ -340,6 +340,28 @@ test-was-e2e-tas-baseline-helm: test-tas-e2e-baseline-helm
 test-was-e2e-tas-extended-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
 test-was-e2e-tas-extended-helm: test-tas-e2e-extended-helm
 
+# Backwards compatibility aliases for CI/Prow
+.PHONY: test-tas-was-e2e-baseline
+test-tas-was-e2e-baseline: test-was-e2e-tas-baseline
+
+.PHONY: test-tas-was-e2e-extended
+test-tas-was-e2e-extended: test-was-e2e-tas-extended
+
+.PHONY: test-tas-was-e2e-extended-shard-0
+test-tas-was-e2e-extended-shard-0: test-was-e2e-tas-extended-shard-0
+
+.PHONY: test-tas-was-e2e-extended-shard-1
+test-tas-was-e2e-extended-shard-1: test-was-e2e-tas-extended-shard-1
+
+.PHONY: test-tas-was-e2e-baseline-helm
+test-tas-was-e2e-baseline-helm: test-was-e2e-tas-baseline-helm
+
+.PHONY: test-tas-was-e2e-extended-helm
+test-tas-was-e2e-extended-helm: test-was-e2e-tas-extended-helm
+
+.PHONY: test-e2e-k8s-main-was
+test-e2e-k8s-main-was: test-was-e2e-k8s-main-compatibility
+
 # WAS baseline E2E tests
 .PHONY: test-was-e2e-baseline
 test-was-e2e-baseline: setup-e2e-env run-test-was-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the baseline Workload Aware Scheduling (WAS) e2e test suite.
