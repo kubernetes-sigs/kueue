@@ -59,8 +59,8 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 				resourceUsagePreemptionEnabled(a, b) &&
 				a.LocalQueueFSUsage != b.LocalQueueFSUsage {
 				log.V(5).Info("Comparing workloads by LocalQueue fair sharing usage",
-					"workloadA", klog.KObj(a.Obj), "queueA", a.Obj.Spec.QueueName, "usageA", a.LocalQueueFSUsage,
-					"workloadB", klog.KObj(b.Obj), "queueB", b.Obj.Spec.QueueName, "usageB", b.LocalQueueFSUsage)
+					"workloadA", klog.KObj(a.Obj), "queueA", klog.KRef(a.Obj.Namespace, string(a.Obj.Spec.QueueName)), "usageA", a.LocalQueueFSUsage,
+					"workloadB", klog.KObj(b.Obj), "queueB", klog.KRef(b.Obj.Namespace, string(b.Obj.Spec.QueueName)), "usageB", b.LocalQueueFSUsage)
 				return cmp.Compare(*b.LocalQueueFSUsage, *a.LocalQueueFSUsage)
 			}
 			return 0
