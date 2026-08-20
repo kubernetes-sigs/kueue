@@ -1005,7 +1005,7 @@ func TestShouldApplyEntryPenalty(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s := &Scheduler{admissionFairSharing: tc.afsConfig}
 			e := &entry{
-				Info: *workload.NewInfo(tc.wl),
+				Head: qcache.Head{Info: *workload.NewInfo(tc.wl)},
 				clusterQueueSnapshot: &schdcache.ClusterQueueSnapshot{
 					AdmissionScope: kueue.AdmissionScope{AdmissionMode: tc.admissionMode},
 				},
