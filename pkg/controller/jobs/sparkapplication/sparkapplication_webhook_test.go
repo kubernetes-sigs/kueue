@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	sparkappv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
@@ -110,6 +111,105 @@ func TestValidateCreate(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateUpdate(t *testing.T) {
+	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "test").Suspend(false)
+	testcases := map[string]struct {
+		oldSparkApp    *sparkappv1beta2.SparkApplication
+		newSparkApp    *sparkappv1beta2.SparkApplication
+		defaultLqExist bool
+		featureGates   map[featuregate.Feature]bool
+		wantErr        error
+	}{
+		"queue name unchanged while unsuspended": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").Label("test-label", "test-value").Obj(),
+			wantErr:     nil,
+		},
+		"queue name should not change while unsuspended": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue-2").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "labels").Key(controllerconstants.QueueLabel), kueue.LocalQueueName("local-queue-2"), apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
+		"queue name can change while suspended": {
+			oldSparkApp: testSparkApp.Clone().Suspend(true).Queue("local-queue").Obj(),
+			newSparkApp: testSparkApp.Clone().Suspend(true).Queue("local-queue-2").Obj(),
+			wantErr:     nil,
+		},
+		"queue name removal is rejected when the job is unsuspended and ValidateRayAndSparkJobUpdates is enabled": {
+			oldSparkApp:  testSparkApp.Clone().Queue("local-queue").Obj(),
+			newSparkApp:  testSparkApp.Clone().Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "labels").Key(controllerconstants.QueueLabel), kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
+		"queue name removal is allowed when the job is unsuspended and ValidateRayAndSparkJobUpdates is disabled": {
+			oldSparkApp:  testSparkApp.Clone().Queue("local-queue").Obj(),
+			newSparkApp:  testSparkApp.Clone().Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
+			wantErr:      nil,
+		},
+		"queue name removal is rejected when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is enabled": {
+			oldSparkApp:    testSparkApp.Clone().Suspend(true).Queue(string(controllerconstants.DefaultLocalQueueName)).Obj(),
+			newSparkApp:    testSparkApp.Clone().Suspend(true).Obj(),
+			defaultLqExist: true,
+			featureGates:   map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "labels").Key(controllerconstants.QueueLabel), "", "queue-name must not be empty in namespace with default queue"),
+			}.ToAggregate(),
+		},
+		"queue name removal is allowed when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is disabled": {
+			oldSparkApp:    testSparkApp.Clone().Suspend(true).Queue(string(controllerconstants.DefaultLocalQueueName)).Obj(),
+			newSparkApp:    testSparkApp.Clone().Suspend(true).Obj(),
+			defaultLqExist: true,
+			featureGates:   map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
+			wantErr:        nil,
+		},
+		"queue name removal is allowed when the job is suspended in a namespace without a default queue and ValidateRayAndSparkJobUpdates is enabled": {
+			oldSparkApp:  testSparkApp.Clone().Suspend(true).Queue("local-queue").Obj(),
+			newSparkApp:  testSparkApp.Clone().Suspend(true).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+			wantErr:      nil,
+		},
+		"prebuilt workload name change is not validated when the job is unmanaged and ValidateRayAndSparkJobUpdates is enabled": {
+			oldSparkApp: testSparkApp.Clone().
+				Label(controllerconstants.PrebuiltWorkloadLabel, "wl1").
+				Obj(),
+			newSparkApp: testSparkApp.Clone().
+				Label(controllerconstants.PrebuiltWorkloadLabel, "wl2").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+			wantErr:      nil,
+		},
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cli := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cli)
+			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
+			if tc.defaultLqExist {
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue(
+					string(controllerconstants.DefaultLocalQueueName), "test").ClusterQueue("cluster-queue").Obj()); err != nil {
+					t.Fatalf("Failed to add the default LocalQueue: %v", err)
+				}
+			}
+			webhook := &SparkApplicationWebhook{
+				queues: queueManager,
+				cache:  cqCache,
+			}
+			_, gotErr := webhook.ValidateUpdate(ctx, tc.oldSparkApp, tc.newSparkApp)
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
