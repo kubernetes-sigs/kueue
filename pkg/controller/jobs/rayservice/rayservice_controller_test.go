@@ -141,6 +141,11 @@ func TestPodSets(t *testing.T) {
 						HistoryServerOptions: &rayv1.HistoryServerOptions{
 							CollectorOptions: &rayv1.CollectorOptions{
 								Image: new("quay.io/kuberay/collector:v1.7.0"),
+								Env: []corev1.EnvVar{
+									{Name: "STORAGE_BACKEND", Value: "s3"},
+									{Name: "S3_BUCKET", Value: "ray-historyserver"},
+									{Name: "S3_REGION", Value: "us-east-1"},
+								},
 							},
 						},
 						HeadGroupSpec: rayv1.HeadGroupSpec{
