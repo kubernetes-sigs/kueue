@@ -14,6 +14,7 @@ import (
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
@@ -43,6 +44,7 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 					},
 					Filter: schedulerconfig.PluginSet{
 						Enabled: []schedulerconfig.Plugin{
+							{Name: nodeunschedulable.Name},
 							{Name: tainttoleration.Name},
 							{Name: nodeaffinity.Name},
 						},
@@ -82,6 +84,12 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 	}
 
 	return &wasSimulator{sim: sim}, nil
+}
+
+// NewWASSimulatorForTest creates a WAS simulator backed by a fake client,
+// suitable for unit tests that need the full filter plugin pipeline.
+func NewWASSimulatorForTest(ctx context.Context) (simulator.SchedulingSimulator, error) {
+	return NewWASSimulator(ctx, &rest.Config{})
 }
 
 func (s *wasSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
