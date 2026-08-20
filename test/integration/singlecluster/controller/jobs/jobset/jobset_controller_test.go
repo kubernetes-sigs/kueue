@@ -1432,4 +1432,100 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.It("should reset reclaimablePods when quota reservation is removed and jobset is re-admitted after restart", framework.SlowSpec, func() {
+		jobSet := testingjobset.MakeJobSet("reset-reclaimable-jobset", ns.Name).
+			Queue(localQueue.Name).
+			ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:        "job-a",
+					Replicas:    1,
+					Parallelism: 1,
+					Completions: 1,
+				},
+			).
+			Request("job-a", corev1.ResourceCPU, "100m").
+			Obj()
+
+		wl := &kueue.Workload{}
+		var wlLookupKey types.NamespacedName
+
+		ginkgo.By("creating the JobSet", func() {
+			util.MustCreate(ctx, k8sClient, jobSet)
+			wlLookupKey = types.NamespacedName{
+				Name:      workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID),
+				Namespace: ns.Name,
+			}
+		})
+
+		ginkgo.By("verify the workload is admitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("mark job-a as completed to populate reclaimablePods", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), jobSet)).To(gomega.Succeed())
+				jobSet = (&testingjobset.JobSetWrapper{JobSet: *jobSet}).JobsStatus(
+					jobsetapi.ReplicatedJobStatus{
+						Name:      "job-a",
+						Succeeded: 1,
+						Active:    0,
+					},
+				).Obj()
+				g.Expect(k8sClient.Status().Update(ctx, jobSet)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the workload has reclaimable pods for job-a", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.ReclaimablePods).Should(gomega.BeComparableTo([]kueue.ReclaimablePod{
+					{
+						Name:  "job-a",
+						Count: 1,
+					},
+				}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("evict the workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, wl, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", util.RealClock)).
+					To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("finish eviction for workload", func() {
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wl)
+		})
+
+		ginkgo.By("restart jobset replicas from scratch", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(jobSet), jobSet)).To(gomega.Succeed())
+				jobSet = (&testingjobset.JobSetWrapper{JobSet: *jobSet}).JobsStatus(
+					jobsetapi.ReplicatedJobStatus{
+						Name:      "job-a",
+						Succeeded: 0,
+						Active:    1,
+					},
+				).Obj()
+				g.Expect(k8sClient.Status().Update(ctx, jobSet)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the workload is re-admitted and old reclaimablePods does not survive", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.ReclaimablePods).Should(gomega.BeEmpty())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
 })
+
+
+
