@@ -65,6 +65,9 @@ const (
 
 var cmpDump = cmp.Options{
 	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+	// Queue dumps have no defined order: DumpInadmissible iterates a map, DumpActive
+	// walks the heap. Sort so cases with several workloads per ClusterQueue are stable.
+	cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b }),
 }
 
 // scheduleTestCase is the shared case definition for the core scheduling tests
@@ -6762,6 +6765,305 @@ func TestSchedule(t *testing.T) {
 			eventCmpOpts: ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "vuln-wl", kueue.WorkloadQuotaReservedReasonExceedsMaxQuota, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		// The scheduler pops one head per ClusterQueue per cycle, so only wl-head is
+		// evaluated. It fails with NoFit, so the siblings sharing its hash are bulk-moved
+		// to inadmissible and carry no condition.
+		"equivalent workloads sharing PodSet names are bulk-moved to inadmissible": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:          true,
+				features.FlavorFungibility:                     true,
+				features.FlavorFungibilityPreserveScanProgress: true,
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("hash-cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("hash-queue", "default").ClusterQueue("hash-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("two", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("two", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-2", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("two", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(2 * time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("two", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+						Message:            "couldn't assign flavors to pod set one: insufficient quota for cpu in flavor on-demand, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2), insufficient quota for cpu in flavor spot, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}, kueue.PodSetRequest{
+						Name: "two",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("two", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-2", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("two", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(2 * time.Second)).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"hash-cq": {"default/wl-head", "default/wl-sibling-1", "default/wl-sibling-2"},
+			},
+		},
+		// Same as above, but each workload names its PodSets uniquely, as Pod-group clients
+		// do via the kueue.x-k8s.io/role-hash annotation. The name is part of the hash, so
+		// the bulk-move matches nothing and the siblings stay in the active heap.
+		"equivalent workloads with distinct PodSet names are not bulk-moved": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:          true,
+				features.FlavorFungibility:                     true,
+				features.FlavorFungibilityPreserveScanProgress: true,
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("hash-cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("hash-queue", "default").ClusterQueue("hash-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("4f7aac39", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("f8172213", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-2", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("8e163c4e", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("4601f5b4", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(2 * time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("4f7aac39", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+						Message:            "couldn't assign flavors to pod set 4f7aac39: insufficient quota for cpu in flavor on-demand, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2), insufficient quota for cpu in flavor spot, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "4f7aac39",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}, kueue.PodSetRequest{
+						Name: "12b10b3c",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("f8172213", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-2", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("8e163c4e", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("4601f5b4", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(2 * time.Second)).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"hash-cq": {"default/wl-sibling-1", "default/wl-sibling-2"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"hash-cq": {"default/wl-head"},
+			},
+		},
+		// ConcurrentAdmission puts the allowed-flavors annotation in the shape. That is
+		// independent of the PodSet name, so the siblings still get their own class.
+		"equivalent workloads with distinct PodSet names are not bulk-moved; ConcurrentAdmission enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:          true,
+				features.FlavorFungibility:                     true,
+				features.FlavorFungibilityPreserveScanProgress: true,
+				features.ConcurrentAdmission:                   true,
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("hash-cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("hash-queue", "default").ClusterQueue("hash-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("4f7aac39", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("f8172213", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("4f7aac39", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+						Message:            "couldn't assign flavors to pod set 4f7aac39: insufficient quota for cpu in flavor on-demand, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2), insufficient quota for cpu in flavor spot, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "4f7aac39",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}, kueue.PodSetRequest{
+						Name: "12b10b3c",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("f8172213", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"hash-cq": {"default/wl-sibling-1"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"hash-cq": {"default/wl-head"},
 			},
 		},
 	}
