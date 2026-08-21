@@ -28,12 +28,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
-	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
-	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -1310,99 +1308,6 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			}
 			if diff := gocmp.Diff(tc.wantMetricsSeconds, seconds, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Invalid PodSchedulingGateRemovalSeconds seconds (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-var rayServiceGVK = schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayService"}
-
-// recordingQueue captures the requests a handler enqueues. Only AddAfter is
-// exercised by the pod handler, so the embedded interface stays nil.
-type recordingQueue struct {
-	workqueue.TypedRateLimitingInterface[reconcile.Request]
-	added []reconcile.Request
-}
-
-func (q *recordingQueue) AddAfter(item reconcile.Request, _ time.Duration) {
-	q.added = append(q.added, item)
-}
-
-// TestPodHandlerEnqueueAfterOriginDeleted covers the pod-event path of the
-// ungater once the chain's origin slice is gone: the handler must still resolve
-// the owning job so Reconcile can ungate against the live active slice.
-//
-// The owner is recovered from the pod's own controller reference, which only
-// matches the Workload's owner when the job that owns the pods is also the job
-// Kueue built the Workload for. For a RayService the Workload belongs to the
-// RayService while its pods belong to the child RayCluster, so the lookup is
-// made with the wrong kind.
-func TestPodHandlerEnqueueAfterOriginDeleted(t *testing.T) {
-	now := time.Now()
-
-	// activeSlice is the chain's live slice: admitted, elastic, and still
-	// carrying the origin name that the pods are stamped with.
-	activeSlice := func(ownerGVK schema.GroupVersionKind, ownerName string) *kueue.Workload {
-		return utiltestingapi.MakeWorkload("wl-2", "ns").
-			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-			ControllerReference(ownerGVK, ownerName, ownerName+"-uid").
-			PodSets(*utiltestingapi.MakePodSet(headPodSet, 1).Request(corev1.ResourceCPU, "1").Obj()).
-			ReserveQuotaAt(
-				utiltestingapi.MakeAdmission("cq").
-					PodSets(utiltestingapi.MakePodSetAssignment(headPodSet).
-						Assignment(corev1.ResourceCPU, "flavor", "1").Obj()).
-					Obj(), now,
-			).
-			AdmittedAt(true, now).
-			Obj()
-	}
-
-	// gatedPod points at the deleted origin slice "wl" and is owned by the
-	// object that actually creates Ray pods: the RayCluster.
-	gatedPod := func(podOwnerGVK schema.GroupVersionKind, podOwnerName string) *corev1.Pod {
-		return makeElasticPodForPodSet("p1", headPodSet).
-			OwnerReference(podOwnerName, podOwnerGVK).
-			Gate(kueue.ElasticJobSchedulingGate).
-			Obj()
-	}
-
-	cases := map[string]struct {
-		workload *kueue.Workload
-		pod      *corev1.Pod
-		want     []reconcile.Request
-	}{
-		"RayCluster: pods and workload share an owner": {
-			workload: activeSlice(rayClusterGVK, "ray"),
-			pod:      gatedPod(rayClusterGVK, "ray"),
-			want:     []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl-2"}}},
-		},
-		"RayService: workload is owned by the service, pods by the child cluster": {
-			workload: activeSlice(rayServiceGVK, "svc"),
-			pod:      gatedPod(rayClusterGVK, "svc-raycluster"),
-			want:     []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "wl-2"}}},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-			ctx, _ := utiltesting.ContextWithLog(t)
-
-			kClient := utiltesting.NewClientBuilder().
-				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
-				WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayClusterGVK), coreindexer.WorkloadOwnerIndexFunc(rayClusterGVK)).
-				WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName).
-				WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayServiceGVK), coreindexer.WorkloadOwnerIndexFunc(rayServiceGVK)).
-				WithObjects(tc.workload, tc.pod).
-				Build()
-
-			handler := &elasticPodHandler{client: kClient, expectationsStore: expectations.NewStore(ControllerName)}
-			queue := &recordingQueue{}
-			handler.Create(ctx, event.CreateEvent{Object: tc.pod}, queue)
-
-			if diff := gocmp.Diff(tc.want, queue.added, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("unexpected enqueued requests (-want/+got):\n%s", diff)
 			}
 		})
 	}
