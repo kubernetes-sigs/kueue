@@ -85,14 +85,6 @@ type preemptionCtx struct {
 	workloadUsage     workload.Usage
 	tasRequests       schdcache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
-	preemptions       map[workloadKey]preemption
-}
-
-type workloadKey = client.ObjectKey
-
-type preemption struct {
-	target *Target
-	revert func()
 }
 
 func New(
@@ -153,7 +145,6 @@ func (p *Preemptor) GetTargets(ctx context.Context, wl workload.Info, assignment
 		snapshot:          snapshot,
 		tasRequests:       tasRequests,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
-		preemptions:       make(map[workloadKey]preemption),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
 				Assigned: assignment.TotalRequestsFor(log, &wl),
@@ -193,43 +184,21 @@ func (ctx *preemptionCtx) fillBackWorkloads(targets []*Target, allowBorrowing bo
 }
 
 func (ctx *preemptionCtx) restoreSnapshot() {
-	for _, preemption := range ctx.preemptions {
-		preemption.revert()
-		ctx.snapshot.AddWorkload(preemption.target.WorkloadInfo)
-	}
-	clear(ctx.preemptions)
+	ctx.snapshot.RestoreSnapshot()
 }
 
 func (ctx *preemptionCtx) preemptWorkload(candidate *workload.Info, reason string) (*Target, error) {
-	wlKey := client.ObjectKeyFromObject(candidate.Obj)
-	revert, err := ctx.snapshot.SimulatorSnapshot.PreemptWorkload(ctx.ctx, wlKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to preempt workload %s: %w", wlKey, err)
-	}
-	ctx.snapshot.RemoveWorkload(candidate)
+	err := ctx.snapshot.PreemptWorkload(ctx.ctx, candidate)
 	target := &Target{
 		WorkloadInfo: candidate,
 		Reason:       reason,
 		WorkloadCq:   ctx.snapshot.ClusterQueue(candidate.ClusterQueue),
 	}
-	ctx.preemptions[wlKey] = preemption{
-		target: target,
-		revert: revert,
-	}
-	return target, nil
+	return target, err
 }
 
 func (ctx *preemptionCtx) restoreWorkload(target *Target) {
-	wlInfo := target.WorkloadInfo
-	wlKey := client.ObjectKeyFromObject(wlInfo.Obj)
-	preemption, preempted := ctx.preemptions[wlKey]
-	if !preempted {
-		// Nothing to do.
-		return
-	}
-	preemption.revert()
-	ctx.snapshot.AddWorkload(wlInfo)
-	delete(ctx.preemptions, wlKey)
+	ctx.snapshot.RestoreWorkload(target.WorkloadInfo)
 }
 
 var HumanReadablePreemptionReasons = map[string]string{

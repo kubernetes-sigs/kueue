@@ -55,6 +55,48 @@ type Snapshot struct {
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
 	SimulatorSnapshot        simulator.SimulatorSnapshot
+	preemptions              map[workloadKey]preemption
+}
+
+type workloadKey = client.ObjectKey
+
+type preemption struct {
+	target *workload.Info
+	revert func()
+}
+
+func (s *Snapshot) RestoreSnapshot() {
+	for _, preemption := range s.preemptions {
+		preemption.revert()
+		s.AddWorkload(preemption.target)
+	}
+	clear(s.preemptions)
+}
+
+func (s *Snapshot) PreemptWorkload(ctx context.Context, candidate *workload.Info) error {
+	wlKey := client.ObjectKeyFromObject(candidate.Obj)
+	revert, err := s.SimulatorSnapshot.PreemptWorkload(ctx, wlKey)
+	if err != nil {
+		return fmt.Errorf("failed to preempt workload %s: %w", wlKey, err)
+	}
+	s.RemoveWorkload(candidate)
+	s.preemptions[wlKey] = preemption{
+		target: candidate,
+		revert: revert,
+	}
+	return nil
+}
+
+func (s *Snapshot) RestoreWorkload(target *workload.Info) {
+	wlKey := client.ObjectKeyFromObject(target.Obj)
+	preemption, preempted := s.preemptions[wlKey]
+	if !preempted {
+		// Nothing to do.
+		return
+	}
+	preemption.revert()
+	s.AddWorkload(target)
+	delete(s.preemptions, wlKey)
 }
 
 // RemoveWorkload removes a workload from its corresponding ClusterQueue and
@@ -181,6 +223,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		Manager:                  hierarchy.NewManager(newCohortSnapshot),
 		ResourceFlavors:          make(map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor, len(c.resourceFlavors)),
 		InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference](),
+		preemptions:              make(map[workloadKey]preemption),
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {

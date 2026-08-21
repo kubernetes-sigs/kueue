@@ -152,7 +152,6 @@ func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fs
 		preemptor:         *wlInfo,
 		preemptorCQ:       snapshot.ClusterQueue("a"),
 		snapshot:          snapshot,
-		preemptions:       make(map[workloadKey]preemption),
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
