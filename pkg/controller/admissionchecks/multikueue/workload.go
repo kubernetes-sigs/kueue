@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -838,14 +839,6 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 	return reconcile.Result{}, errors.Join(errs...)
 }
 
-// nominatedClusterSetsEqual reports whether stored and current contain the same set of cluster names,
-// independent of order.
-func nominatedClusterSetsEqual(stored, current []string) bool {
-	slices.Sort(stored)
-	slices.Sort(current)
-	return slices.Equal(stored, current)
-}
-
 func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
@@ -914,14 +907,18 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
 
-		if !nominatedClusterSetsEqual(group.local.Status.NominatedClusterNames, nominatedWorkers) {
-			if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
-				wl.Status.NominatedClusterNames = nominatedWorkers
-				return true, nil
-			}); err != nil {
-				log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
-				return reconcile.Result{}, err
+		// group.remotes is a map, so iteration order is non-deterministic; sort only
+		// when we are about to persist, for a stable stored nomination.
+		slices.Sort(nominatedWorkers)
+		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
+			if sets.New(wl.Status.NominatedClusterNames...).Equal(sets.New(nominatedWorkers...)) {
+				return false, nil
 			}
+			wl.Status.NominatedClusterNames = nominatedWorkers
+			return true, nil
+		}); err != nil {
+			log.V(2).Error(err, "Failed to patch nominated clusters", "workload", klog.KObj(group.local))
+			return reconcile.Result{}, err
 		}
 	} else {
 		// Incremental dispatcher and External dispatcher path

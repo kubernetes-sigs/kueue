@@ -20,6 +20,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -478,6 +479,22 @@ func (ctx *preemptionCtx) runFirstFsStrategy(candidates []*workload.Info, strate
 		}
 
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
+		if fsStrategyUnsatisfiable(preemptorNewShare, targetOldShare) {
+			// No candidate in this ClusterQueue can pass the strategy, so
+			// skip the per-candidate simulation. The candidates are still
+			// collected for rule S2-b, which recomputes the shares on a
+			// snapshot that this loop may have changed in the meantime.
+			if logV := ctx.log.V(4); logV.Enabled() {
+				logV.Info("Skipping FairSharing strategy evaluation, no candidate can pass",
+					"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShareSerialized(),
+					"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
+					"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShareSerialized())
+			}
+			for candCQ.HasWorkload() {
+				retryCandidates = append(retryCandidates, candCQ.PopWorkload())
+			}
+			continue
+		}
 		strategyLog := newFsStrategyLog(ctx.log, candCQ, preemptorNewShare, targetOldShare)
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
@@ -503,6 +520,33 @@ func (ctx *preemptionCtx) runFirstFsStrategy(candidates []*workload.Info, strate
 		strategyLog.flush()
 	}
 	return false, targets, retryCandidates, nil
+}
+
+// fsStrategyUnsatisfiable reports whether, given the preemptor's and the
+// target's shares before any workload is removed, no candidate workload in
+// the target ClusterQueue can pass either FairSharing strategy. When it
+// returns true the per-candidate simulation in runFirstFsStrategy can be
+// skipped, because every candidate is guaranteed to fail.
+//
+// A DominantResourceShare of +Inf means the node borrows while having a fair
+// weight of 0, which the API defines as an infinite share. It cannot arise any
+// other way, since a non-zero weight is validated to be greater than 10^-9.
+// CompareDRS ranks such a node above every node that is not itself borrowing
+// on a zero weight, so it returns 1. Both strategies require the comparison to
+// be <= 0 or < 0, so both fail:
+//
+//   - LessThanInitialShare compares against targetOldShare directly, which
+//     this function already has.
+//   - LessThanOrEqualToFinalShare compares against the target's share after
+//     the candidate's usage is removed. Removing usage never changes the
+//     target node's fair weight, and the lendable capacity the usage is
+//     compared against is derived from quota alone, so the target's share
+//     after removal is at most its share before removal. A target whose share
+//     is not +Inf before removal is therefore not +Inf after removal either,
+//     and CompareDRS returns 1 for it as well.
+func fsStrategyUnsatisfiable(preemptorNewShare fairsharing.PreemptorNewShare, targetOldShare fairsharing.TargetOldShare) bool {
+	return math.IsInf(schdcache.DRS(preemptorNewShare).PreciseWeightedShare(), 1) &&
+		!math.IsInf(schdcache.DRS(targetOldShare).PreciseWeightedShare(), 1)
 }
 
 // runSecondFsStrategy implements Fair Sharing Rule S2-b. It returns

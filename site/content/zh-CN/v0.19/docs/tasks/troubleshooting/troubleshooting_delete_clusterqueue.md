@@ -37,7 +37,7 @@ Kueue 使用名为 `kueue.x-k8s.io/resource-in-use` 的
 ### 使用 `kueuectl` {#using-kueuectl}
 
 {{% alert title="注意" color="primary" %}}
-如果你没有安装 `kueuectl`，请按照[安装指南](/v0.19/docs/reference/kubectl-kueue/installation/)进行操作。
+如果你没有安装 `kueuectl`，请按照[安装指南](/zh-cn/v0.19/docs/reference/kubectl-kueue/installation/)进行操作。
 {{% /alert %}}
 
 ```shell

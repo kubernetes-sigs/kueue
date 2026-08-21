@@ -116,11 +116,12 @@ The MultiKueue Workload Controller synchronizes the Workload with the nominated 
 
 Known Limitation:
 {{% alert title="Warning" color="primary" %}}
-For the external controller to patch the `.status.nominatedClusterNames` field there are 2 options:
+For the external controller to patch the `.status.nominatedClusterNames` field there are 3 options:
 * Use the `kueue-admission` field manager, because the kueue-admission field manager is responsible for managing updates to the `.status.nominatedClusterNames` field.
 * [Enable `WorkloadRequestUseMergePatch` feature gate](docs/concepts/workload#workload-updates-by-kueue) that drops the `kueue-admission` field manager from the `.status.nominatedClusterNames`.
+* Deploy the `clear-nominated-cluster-names` `MutatingAdmissionPolicy` (available via the `workload-map.yaml` release artifact, `config/components/map` or Helm parameter `enableMutatingAdmissionPolicy`), which automatically clears `.status.nominatedClusterNames` when a workload is admitted or evicted.
 
-Without this, the Kueue is not able to admit the MultiKueue workloads.
+Without this, Kueue is not able to admit the MultiKueue workloads.
 {{% /alert %}}
 
 ## Supported Job Types

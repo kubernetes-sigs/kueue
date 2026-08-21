@@ -461,6 +461,16 @@ const (
 	// Enables caching of remaining capacity and clone reduction in TAS Flavor Snapshot.
 	TASCachingRemainingResources featuregate.Feature = "TASCachingRemainingResources"
 
+	// owner: @tenzen-y
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/12580
+	// Enables caching the immutable TAS topology tree on the TASFlavorCache and reusing it
+	// across scheduling cycles while the nodesCache generation is unchanged. When disabled,
+	// every snapshot builds a tree of its own and none is ever shared between snapshots,
+	// which is the behavior before the tree cache was introduced. Kept as an off-switch in
+	// case a stale or shared tree is suspected in a production TAS deployment.
+	TASCacheTopologyTree featuregate.Feature = "TASCacheTopologyTree"
+
 	// owner: @kshalot
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8871
@@ -489,6 +499,13 @@ const (
 	// WorkloadValidationForPodSetMetadata enables validation of labels and annotations
 	// in PodSet template metadata during Workload creation and update.
 	WorkloadValidationForPodSetMetadata featuregate.Feature = "WorkloadValidationForPodSetMetadata"
+
+	// owner: @Nilsachy
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13662
+	//
+	// PrioritizePreemptorWorkloads enables prioritization of workloads waiting for preemption
+	// to complete to prevent quota stealing and thrashing during desynchronized evictions.
+	PrioritizePreemptorWorkloads featuregate.Feature = "PrioritizePreemptorWorkloads"
 
 	// owner: @ivnovakov
 	//
@@ -554,6 +571,16 @@ const (
 	// Refuse to adopt an existing Workload by pod-group name when it was not created
 	// by the pod-group framework (missing is-group-workload annotation).
 	PodIntegrationValidateGroupOwner featuregate.Feature = "PodIntegrationValidateGroupOwner"
+
+	// owner: @ivnovakov
+	//
+	// Validates an update in the RayCluster, RayJob, RayService and SparkApplication
+	// webhooks when the object carried a queue-name label before the update, so removing
+	// that label cannot leave a job running unmanaged. Jobs that Kueue manages neither
+	// before nor after the update are never validated. When disabled, those webhooks only
+	// validate an update if manageJobsWithoutQueueName is set or the new object carries a
+	// queue-name label.
+	ValidateRayAndSparkJobUpdates featuregate.Feature = "ValidateRayAndSparkJobUpdates"
 )
 
 func init() {
@@ -820,6 +847,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 
+	TASCacheTopologyTree: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
 	SchedulerLibraryIntegration: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -838,6 +869,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	WorkloadValidationForPodSetMetadata: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	PrioritizePreemptorWorkloads: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	LWSImmutableGroupSize: {
@@ -861,7 +896,11 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	PodIntegrationValidateGroupOwner: {
-		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ValidateRayAndSparkJobUpdates: {
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
 	},
 }
 

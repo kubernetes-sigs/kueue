@@ -81,7 +81,9 @@ spec:
 
 The `WorkloadPriorityClass` referenced by the `kueue.x-k8s.io/priority-class` label must exist in the cluster.
 
-If the label explicitly references a nonexistent `WorkloadPriorityClass`, Kueue cannot resolve the workload priority and does not fall back to the Pod `PriorityClass`, the global default `PriorityClass`, or the default priority value. As a result, the corresponding `Workload` cannot be created or updated until the reference is corrected or the referenced `WorkloadPriorityClass` is created.
+If the label explicitly references a nonexistent `WorkloadPriorityClass`, Kueue cannot resolve the workload priority and does not fall back to the Pod `PriorityClass`, the global default `PriorityClass`, or the default priority value. Kueue therefore cannot create the corresponding `Workload`, and cannot point an existing one at the named class, until the reference is corrected or the referenced `WorkloadPriorityClass` is created.
+
+Whenever Kueue resolves the label, either to create a `Workload` or to update one whose priority already comes from a `WorkloadPriorityClass`, it reports a missing class as a `Warning` event with the reason `WorkloadPriorityClassNotFound` on the object carrying the label, so `kubectl describe` on that object names the class. Creation or the update succeeds on a later reconciliation once the class exists.
 
 This differs from omitting the `kueue.x-k8s.io/priority-class` label. When the label is omitted, Kueue determines the workload priority from the applicable Pod `PriorityClass`, the global default `PriorityClass`, or the default priority value. When the alpha `WorkloadPriorityClassDefaulting` feature is enabled and a `WorkloadPriorityClass` named `default` exists, an omitted label is first defaulted to that class; see [Setup default WorkloadPriorityClass](/docs/tasks/manage/enforce_job_management/setup_default_workload_priority_class).
 
@@ -133,4 +135,4 @@ after the `QuotaReserved` condition is `True`.
 - Learn how to [run jobs](/docs/tasks/run/jobs)
 - Learn how to [run jobs with workload priority](/docs/tasks/manage/run_job_with_workload_priority)
 - Learn how to [setup a default WorkloadPriorityClass](/docs/tasks/manage/enforce_job_management/setup_default_workload_priority_class)
-- Read the [API reference](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass) for `WorkloadPriorityClass`
+- Read the [API reference](/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-WorkloadPriorityClass) for `WorkloadPriorityClass`

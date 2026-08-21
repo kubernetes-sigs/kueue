@@ -326,7 +326,7 @@ func (r *Reconciler) createPrebuiltWorkload(ctx context.Context, sts *appsv1.Sta
 		return err
 	}
 
-	if err := jobframework.PrepareWorkloadPriority(ctx, r.client, sts, createdWorkload, nil); err != nil {
+	if err := jobframework.PrepareWorkloadPriority(ctx, r.client, r.record, sts, createdWorkload, nil); err != nil {
 		return err
 	}
 
