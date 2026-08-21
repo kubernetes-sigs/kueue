@@ -22,6 +22,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 type ComparePodSetsOptions struct {
@@ -55,7 +56,26 @@ func comparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) b
 	if !equality.Semantic.DeepEqual(a.Resources, b.Resources) {
 		return false
 	}
-	return equality.Semantic.DeepEqual(a.ResourceClaims, b.ResourceClaims)
+	return compareResourceClaims(a.ResourceClaims, b.ResourceClaims)
+}
+
+// compareResourceClaims compares PodSpec.ResourceClaims order-independently, keyed
+// by Name, since the field is a +listType=map (+listMapKey=name) and its order is
+// not semantically significant.
+func compareResourceClaims(a, b []corev1.PodResourceClaim) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	bByName := utilslices.ToMap(b, func(i int) (string, corev1.PodResourceClaim) {
+		return b[i].Name, b[i]
+	})
+	for i := range a {
+		bClaim, found := bByName[a[i].Name]
+		if !found || !equality.Semantic.DeepEqual(a[i], bClaim) {
+			return false
+		}
+	}
+	return true
 }
 
 func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
