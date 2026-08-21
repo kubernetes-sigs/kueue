@@ -175,9 +175,9 @@ func IndexOwnerUID(obj client.Object) []string {
 	return slices.Map(obj.GetOwnerReferences(), func(o *metav1.OwnerReference) string { return string(o.UID) })
 }
 
-// IndexWorkloadSliceName indexes the workload slices of an elastic job by their
-// chain. Scaling such a job up does not resize its Workload: Kueue creates a new
-// slice for the larger size, so one job accumulates a chain of Workloads. Every
+// IndexWorkloadSliceName indexes the workload slices of an elastic job. Scaling
+// such a job up does not resize its Workload: Kueue creates a new slice for the
+// larger size, so one job accumulates a chain of Workloads. Every
 // slice carries the name of the chain's first slice in the
 // WorkloadSliceNameAnnotation, which makes that name the chain's identity.
 //
