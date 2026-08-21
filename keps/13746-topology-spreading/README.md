@@ -629,7 +629,7 @@ homogeneous clusters but becomes awkward when:
   50-pod domains).
 - Capacity is located in a single zone or superblock that provides many smaller
   domains (e.g., TPU cubes, GB200 racks), where fragmenting across all domains
-  is not recommended (R6-a).
+  is not recommended.
 
 `max-domain-percentage` expresses the constraint as a fraction of the total,
 which naturally accommodates growth and heterogeneous domain sizes without
