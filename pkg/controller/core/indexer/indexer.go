@@ -177,9 +177,9 @@ func IndexOwnerUID(obj client.Object) []string {
 
 // IndexWorkloadSliceName indexes the workload slices of an elastic job. Scaling
 // such a job up does not resize its Workload: Kueue creates a new slice for the
-// larger size, so one job accumulates a chain of Workloads. Every
-// slice carries the name of the chain's first slice in the
-// WorkloadSliceNameAnnotation, which makes that name the chain's identity.
+// larger size, so one job accumulates a chain of Workloads. Every slice carries
+// the name of the chain's first slice in the WorkloadSliceNameAnnotation, which
+// makes that name the chain's identity.
 //
 // Indexing on it lets callers list all Workloads of a job by that first slice
 // name, including after the first slice itself has been deleted.
