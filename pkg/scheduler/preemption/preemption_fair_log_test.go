@@ -152,6 +152,7 @@ func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fs
 		preemptor:         *wlInfo,
 		preemptorCQ:       snapshot.ClusterQueue("a"),
 		snapshot:          snapshot,
+		preemptions:       make(map[workloadKey]preemption),
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
@@ -326,7 +327,10 @@ func TestRunFirstFsStrategyLogging(t *testing.T) {
 				evaluated++
 				return tc.passOnEvaluation != 0 && evaluated == tc.passOnEvaluation
 			}
-			fits, targets, retryCandidates := runFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, strategy)
+			fits, targets, retryCandidates, err := fixture.preemptionCtx.runFirstFsStrategy(fixture.candidates, strategy)
+			if err != nil {
+				t.Error("unexpected error", err)
+			}
 
 			if tc.wantAllRejected {
 				if fits {
@@ -452,7 +456,10 @@ func TestRunSecondFsStrategyLog(t *testing.T) {
 				{name: "b", candidates: 3, fairWeight: tc.fairWeight},
 			})
 
-			runSecondFsStrategy(fixture.candidates, fixture.preemptionCtx, nil)
+			_, _, err := fixture.preemptionCtx.runSecondFsStrategy(fixture.candidates, nil)
+			if err != nil {
+				t.Error("unexpected error", err)
+			}
 
 			entries := observed.FilterMessage(strategyLogMessage).All()
 			if len(entries) == 0 {
