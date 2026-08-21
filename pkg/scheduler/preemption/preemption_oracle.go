@@ -19,8 +19,8 @@ package preemption
 import (
 	"context"
 
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -57,7 +57,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
 		snapshot:          p.snapshot,
 		frsNeedPreemption: sets.New(fr),
-		preemptions:       make(map[types.NamespacedName]preemptionInfo),
+		preemptions:       make(map[client.ObjectKey]preemptionInfo),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
 				Assigned: resources.FlavorResourceQuantities{fr: quantity},

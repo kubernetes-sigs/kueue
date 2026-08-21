@@ -84,7 +84,7 @@ type preemptionCtx struct {
 	workloadUsage     workload.Usage
 	tasRequests       schdcache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
-	preemptions       map[types.NamespacedName]preemptionInfo
+	preemptions       map[client.ObjectKey]preemptionInfo
 }
 
 type preemptionInfo struct {
@@ -387,15 +387,15 @@ func (ctx *preemptionCtx) preemptWorkload(target *workload.Info) bool {
 	return true
 }
 
-func (ctx *preemptionCtx) restoreWorkload(wlRef types.NamespacedName) {
-	preemptedWl, wlPreempted := ctx.preemptions[wlRef]
+func (ctx *preemptionCtx) restoreWorkload(wlKey client.ObjectKey) {
+	preemptedWl, wlPreempted := ctx.preemptions[wlKey]
 	if !wlPreempted {
 		// Nothing to do.
 		return
 	}
 	preemptedWl.revertFn()
 	ctx.snapshot.AddWorkload(preemptedWl.wlInfo)
-	delete(ctx.preemptions, wlRef)
+	delete(ctx.preemptions, wlKey)
 }
 
 // parseStrategies converts an array of strategies into the functions to the used by the algorithm.

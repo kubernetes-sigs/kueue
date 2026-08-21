@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -44,8 +43,8 @@ var PodWorkloadAnnotations = []string{
 }
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error)
-type podSet map[types.NamespacedName]*corev1.Pod
-type podsBreakdown map[types.NamespacedName]podSet
+type podSet map[client.ObjectKey]*corev1.Pod
+type podsBreakdown map[client.ObjectKey]podSet
 
 // podTracker maintains pod state for scheduler plugins that need
 // existing pod information.
@@ -167,11 +166,11 @@ func (s *wasSimulator) TrackPod(pod *corev1.Pod) {
 	s.pods.track(pod)
 }
 
-func (s *wasSimulator) UntrackPod(key types.NamespacedName) {
+func (s *wasSimulator) UntrackPod(key client.ObjectKey) {
 	s.pods.untrack(key)
 }
 
-func (m *podsBreakdown) get(wlKey types.NamespacedName) []*corev1.Pod {
+func (m *podsBreakdown) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
 	podSet, ok := (*m)[wlKey]
 	if !ok {
 		return nil
@@ -208,14 +207,14 @@ func (t *podTracker) track(pod *corev1.Pod) {
 		return
 	}
 
-	wlKey := types.NamespacedName{Namespace: pod.Namespace, Name: wl}
+	wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
 	if _, ok := t.workloadPods[wlKey]; !ok {
 		t.workloadPods[wlKey] = make(podSet)
 	}
 	t.workloadPods[wlKey][podKey] = pod
 }
 
-func (t *podTracker) untrack(key types.NamespacedName) {
+func (t *podTracker) untrack(key client.ObjectKey) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -232,7 +231,7 @@ func (t *podTracker) untrack(key types.NamespacedName) {
 		return
 	}
 
-	wlKey := types.NamespacedName{Namespace: pod.Namespace, Name: wl}
+	wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
 	delete(t.workloadPods[wlKey], key)
 	if len(t.workloadPods[wlKey]) == 0 {
 		delete(t.workloadPods, wlKey)
@@ -296,13 +295,13 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 	return feasibleCandidates, nil
 }
 
-func (s *wasSimulatorSnapshot) PreemptWorkload(ctx context.Context, wlKey types.NamespacedName) (revertFunc func(), err error) {
+func (s *wasSimulatorSnapshot) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (revertFunc func(), err error) {
 	if s.podsByWorkload == nil {
 		// Unable to identify which pods belong to any workload.
 		return func() {}, nil
 	}
 
-	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsByWorkload.get(wlKey))
+	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsByWorkload.getPodsForWorkload(wlKey))
 	if err != nil {
 		return nil, err
 	}
