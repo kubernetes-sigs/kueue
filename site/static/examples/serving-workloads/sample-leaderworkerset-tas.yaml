@@ -39,6 +39,5 @@ spec:
           resources:
             requests:
               cpu: "200m"
-              nvidia.com/gpu: "1"
           ports:
           - containerPort: 80
