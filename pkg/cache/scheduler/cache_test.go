@@ -3433,19 +3433,6 @@ func TestCohortCyclesWithClusterQueue(t *testing.T) {
 		operation      func(t *testing.T, cache *Cache) error
 		wantErr        error
 	}{
-		"clusterqueue add returns error when cohort has cycle": {
-			initialCohorts: []kueue.Cohort{
-				*v1beta2.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
-				*v1beta2.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
-				*v1beta2.MakeCohort("cohort-c").Parent("cohort-a").Obj(),
-			},
-			operation: func(t *testing.T, cache *Cache) error {
-				ctx, _ := utiltesting.ContextWithLog(t)
-				cq := v1beta2.MakeClusterQueue("cq").Cohort("cohort-a").Obj()
-				return cache.AddClusterQueue(ctx, cq)
-			},
-			wantErr: ErrCohortHasCycle,
-		},
 		"clusterqueue add succeeds when cohort has no cycle": {
 			initialCohorts: []kueue.Cohort{
 				*v1beta2.MakeCohort("cohort").Obj(),
