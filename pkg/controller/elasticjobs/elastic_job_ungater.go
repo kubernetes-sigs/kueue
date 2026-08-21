@@ -24,9 +24,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/util/workqueue"
@@ -356,29 +353,18 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 }
 
 // activeSlice resolves the chain's active slice for the workload anyWl belongs
-// to (see latestActiveSliceForOwner), or nil if none qualifies for ungating.
+// to (see latestActiveSliceForChain), or nil if none qualifies for ungating.
 func (r *elasticJobUngater) activeSlice(ctx context.Context, anyWl *kueue.Workload) (*kueue.Workload, error) {
-	owner := metav1.GetControllerOf(anyWl)
-	if owner == nil {
-		return nil, nil
-	}
-	return latestActiveSliceForOwner(ctx, r.client, anyWl.Namespace, owner)
+	return latestActiveSliceForChain(ctx, r.client, anyWl.Namespace, workloadslicing.SliceName(anyWl))
 }
 
-func (h *elasticPodHandler) activeSliceForOwner(ctx context.Context, namespace string, owner *metav1.OwnerReference) (*kueue.Workload, error) {
-	return latestActiveSliceForOwner(ctx, h.client, namespace, owner)
-}
-
-// latestActiveSliceForOwner resolves the latest active workload slice owned by the
-// given job (owner) in namespace, or nil if none qualifies for ungating. Quota
+// latestActiveSliceForChain resolves the latest active workload slice of the chain
+// identified by sliceName in namespace, or nil if none qualifies for ungating. Quota
 // reservation alone is insufficient: AdmissionChecks may still be pending, and
 // releasing the elastic gate before then would let pods schedule ahead of
 // capacity, so full admission is required.
-func latestActiveSliceForOwner(ctx context.Context, c client.Client, namespace string, owner *metav1.OwnerReference) (*kueue.Workload, error) {
-	jobObject := &metav1.PartialObjectMetadata{
-		ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: owner.Name},
-	}
-	active, err := workloadslicing.FindLatestActiveWorkload(ctx, c, jobObject, schema.FromAPIVersionAndKind(owner.APIVersion, owner.Kind))
+func latestActiveSliceForChain(ctx context.Context, c client.Client, namespace, sliceName string) (*kueue.Workload, error) {
+	active, err := workloadslicing.FindLatestActiveWorkloadForSlice(ctx, c, namespace, sliceName)
 	if err != nil || active == nil || !workload.IsAdmitted(active) {
 		return nil, err
 	}
@@ -450,16 +436,11 @@ func (h *elasticPodHandler) queueReconcileForPod(ctx context.Context, object cli
 		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workloadSlice", sliceKey.String())
 		h.expectationsStore.ObservedUID(log, sliceKey, pod.UID)
 	}
-	// Enqueue the chain's active slice so Reconcile loads a live workload directly
-	// (a deleted origin slice no longer strands the pod). Resolve the owning job
-	// from the named slice if it still exists, otherwise from the pod's own
-	// controller owner-ref — the latter is what keeps ungating working after the
-	// origin slice the pod points at has been garbage-collected.
-	owner := h.ownerForPod(ctx, pod, sliceKey)
-	if owner == nil {
-		return
-	}
-	active, err := h.activeSliceForOwner(ctx, pod.Namespace, owner)
+	// Enqueue the chain's active slice so Reconcile loads a live workload directly.
+	// The chain key indexes the slices themselves, so this resolves without the
+	// origin slice the pod names, and without assuming the job that owns the pods
+	// is the one the Workload was created for.
+	active, err := latestActiveSliceForChain(ctx, h.client, pod.Namespace, sliceName)
 	if err != nil || active == nil {
 		return
 	}
@@ -467,23 +448,6 @@ func (h *elasticPodHandler) queueReconcileForPod(ctx context.Context, object cli
 		Namespace: active.Namespace,
 		Name:      active.Name,
 	}}, constants.UpdatesBatchPeriod)
-}
-
-// ownerForPod finds the job owning the pod's slice chain: prefer the controller
-// owner of the named slice when it still exists (pods are not always owned by the
-// job directly), and fall back to the pod's own controller owner-ref when that
-// slice has been deleted.
-func (h *elasticPodHandler) ownerForPod(ctx context.Context, pod *corev1.Pod, sliceKey types.NamespacedName) *metav1.OwnerReference {
-	slice := &kueue.Workload{}
-	switch err := h.client.Get(ctx, sliceKey, slice); {
-	case err == nil:
-		if owner := metav1.GetControllerOf(slice); owner != nil {
-			return owner
-		}
-	case !apierrors.IsNotFound(err):
-		return nil
-	}
-	return metav1.GetControllerOf(pod)
 }
 
 // podSliceName returns the slice-chain key for a pod: the WorkloadSliceName

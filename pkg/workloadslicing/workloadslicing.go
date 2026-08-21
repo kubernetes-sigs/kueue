@@ -121,6 +121,41 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 	}), nil
 }
 
+// FindLatestActiveWorkloadForSlice returns the chain's active slice given the
+// chain key that every slice and pod of an elastic job carries, applying the same
+// selection rule as FindLatestActiveWorkload.
+//
+// Resolving by chain key rather than by owner keeps the lookup working when the
+// origin slice named by the key has been deleted, and when the object owning the
+// pods is not the object the Workload was created for — a RayService owns the
+// Workload while its child RayCluster owns the pods.
+func FindLatestActiveWorkloadForSlice(ctx context.Context, clnt client.Client, namespace, sliceName string) (*kueue.Workload, error) {
+	list := &kueue.WorkloadList{}
+	if err := clnt.List(ctx, list, client.InNamespace(namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
+		return nil, err
+	}
+
+	// Sort oldest-first; break same-second ties by UID for stable ordering.
+	slices.SortFunc(list.Items, func(a, b kueue.Workload) int {
+		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.UID, b.UID)
+	})
+
+	for i := range slices.Backward(list.Items) {
+		wl := &list.Items[i]
+		if workloadfinish.IsFinished(wl) {
+			continue
+		}
+		if workload.HasQuotaReservation(wl) && !workloadevict.IsEvicted(wl) {
+			return wl, nil
+		}
+	}
+	return nil, nil
+}
+
 // FindLatestActiveWorkload returns the newest non-finished, non-evicted workload
 // slice owned by the provided job object/gvk that holds a quota reservation, or
 // nil if none qualifies. This is the chain's "active" slice: its granted PodSet
