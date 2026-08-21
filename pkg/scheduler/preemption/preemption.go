@@ -84,7 +84,12 @@ type preemptionCtx struct {
 	workloadUsage     workload.Usage
 	tasRequests       schdcache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
-	revertPreempt     map[types.NamespacedName]func()
+	preemptions       map[types.NamespacedName]preemptionInfo
+}
+
+type preemptionInfo struct {
+	wlInfo   *workload.Info
+	revertFn func()
 }
 
 func New(
@@ -145,7 +150,7 @@ func (p *Preemptor) GetTargets(ctx context.Context, wl workload.Info, assignment
 		snapshot:          snapshot,
 		tasRequests:       tasRequests,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
-		revertPreempt:     make(map[types.NamespacedName]func()),
+		preemptions:       make(map[types.NamespacedName]preemptionInfo),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
 				Assigned: assignment.TotalRequestsFor(log, &wl),
@@ -332,11 +337,11 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 			})
 			if workloadFits(preemptionCtx, attemptOpts.borrowing) {
 				targets = preemptionCtx.fillBackWorkloads(targets, attemptOpts.borrowing)
-				preemptionCtx.restoreSnapshot(targets)
+				preemptionCtx.restoreSnapshot()
 				return targets
 			}
 		}
-		preemptionCtx.restoreSnapshot(targets)
+		preemptionCtx.restoreSnapshot()
 	}
 	return nil
 }
@@ -344,7 +349,8 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 func (ctx *preemptionCtx) fillBackWorkloads(targets []*Target, allowBorrowing bool) []*Target {
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
-		ctx.restoreWorkload(targets[i].WorkloadInfo)
+		wlRef := client.ObjectKeyFromObject(targets[i].WorkloadInfo.Obj)
+		ctx.restoreWorkload(wlRef)
 		if workloadFits(ctx, allowBorrowing) {
 			// O(1) deletion: copy the last element into index i and reduce size.
 			targets[i] = targets[len(targets)-1]
@@ -359,33 +365,37 @@ func (ctx *preemptionCtx) fillBackWorkloads(targets []*Target, allowBorrowing bo
 	return targets
 }
 
-func (ctx *preemptionCtx) restoreSnapshot(targets []*Target) {
-	for _, t := range targets {
-		ctx.restoreWorkload(t.WorkloadInfo)
+func (ctx *preemptionCtx) restoreSnapshot() {
+	for _, preemptedWl := range ctx.preemptions {
+		preemptedWl.revertFn()
+		ctx.snapshot.AddWorkload(preemptedWl.wlInfo)
 	}
+	clear(ctx.preemptions)
 }
 
 func (ctx *preemptionCtx) preemptWorkload(target *workload.Info) bool {
 	ref := client.ObjectKeyFromObject(target.Obj)
-	if revert, err := ctx.snapshot.SimulatorSnapshot.PreemptWorkload(ctx.ctx, ref); err != nil {
+	revert, err := ctx.snapshot.SimulatorSnapshot.PreemptWorkload(ctx.ctx, ref)
+	if err != nil {
 		return false
-	} else {
-		ctx.snapshot.RemoveWorkload(target)
-		ctx.revertPreempt[ref] = revert
-		return true
 	}
+	ctx.snapshot.RemoveWorkload(target)
+	ctx.preemptions[ref] = preemptionInfo{
+		wlInfo:   target,
+		revertFn: revert,
+	}
+	return true
 }
 
-func (ctx *preemptionCtx) restoreWorkload(wl *workload.Info) {
-	ref := client.ObjectKeyFromObject(wl.Obj)
-	revertPreempt, wlPreempted := ctx.revertPreempt[ref]
+func (ctx *preemptionCtx) restoreWorkload(wlRef types.NamespacedName) {
+	preemptedWl, wlPreempted := ctx.preemptions[wlRef]
 	if !wlPreempted {
 		// Nothing to do.
 		return
 	}
-	revertPreempt()
-	ctx.snapshot.AddWorkload(wl)
-	delete(ctx.revertPreempt, ref)
+	preemptedWl.revertFn()
+	ctx.snapshot.AddWorkload(preemptedWl.wlInfo)
+	delete(ctx.preemptions, wlRef)
 }
 
 // parseStrategies converts an array of strategies into the functions to the used by the algorithm.

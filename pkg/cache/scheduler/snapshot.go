@@ -189,6 +189,8 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		snap.SimulatorSnapshot = newDefaultSimulatorSnapshot()
 	}
 
 	for _, cohort := range c.hm.Cohorts() {
