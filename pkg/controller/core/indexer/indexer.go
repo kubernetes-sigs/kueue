@@ -175,10 +175,14 @@ func IndexOwnerUID(obj client.Object) []string {
 	return slices.Map(obj.GetOwnerReferences(), func(o *metav1.OwnerReference) string { return string(o.UID) })
 }
 
-// IndexWorkloadSliceName indexes workloads by the slice chain they belong to.
-// Every slice created for an elastic job carries the chain's origin name, so the
-// chain stays addressable through its surviving slices once the origin itself is
-// gone. Matches IndexPodWorkloadSliceName so pods and slices share one key.
+// IndexWorkloadSliceName indexes the workload slices of an elastic job by their
+// chain. Scaling such a job up does not resize its Workload: Kueue creates a new
+// slice for the larger size, so one job accumulates a chain of Workloads. Every
+// slice carries the name of the chain's first slice in the
+// WorkloadSliceNameAnnotation, which makes that name the chain's identity.
+//
+// Indexing on it lets callers list all Workloads of a job by that first slice
+// name, including after the first slice itself has been deleted.
 func IndexWorkloadSliceName(obj client.Object) []string {
 	wl, ok := obj.(*kueue.Workload)
 	if !ok {
@@ -187,8 +191,8 @@ func IndexWorkloadSliceName(obj client.Object) []string {
 	if value, found := wl.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
 		return []string{value}
 	}
-	// The first slice of a chain is its own origin and is indexed under its name,
-	// which is what later slices inherit as the chain key.
+	// The chain's first slice names itself, and is indexed before the annotation
+	// is applied.
 	return []string{wl.Name}
 }
 
