@@ -24,6 +24,7 @@ jobs:
        contains(github.event.comment.body, '/wait-for-images') ||
        contains(github.event.comment.body, '/wait-for-prod-images') ||
        contains(github.event.comment.body, '/prepare-pull') ||
+       contains(github.event.comment.body, '/promote-pull') ||
        contains(github.event.comment.body, '/publish-release'))
     outputs:
       command: ${{ steps.parse.outputs.command }}
@@ -100,6 +101,8 @@ jobs:
               exit 1
             fi
             echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/promote-pull[[:space:]]*$'; then
+            COMMAND="promote-pull"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/publish-release[[:space:]]*$'; then
             COMMAND="publish-release"
           else
@@ -629,6 +632,172 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.prep_pull.outputs.message || '❌ Failed to prepare pull requests.' }}
+
+  promote-pull:
+    name: Promote Pull
+    runs-on: ubuntu-latest
+    needs: authorize
+    timeout-minutes: 30
+    if: ${{ needs.authorize.outputs.command == 'promote-pull' }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: false
+
+      - name: Check Promotion Credential
+        id: credential
+        env:
+          GH_TOKEN: ${{ secrets.KUEUE_RELEASE_BOT_TOKEN }}
+          PROMOTION_TOKEN: ${{ secrets.KUEUE_RELEASE_BOT_TOKEN }}
+          PROMOTION_USER: ${{ vars.KUEUE_RELEASE_BOT_USER }}
+        run: |
+          # The owner is resolved once here and reused for both the fork remote
+          # and the PR head, so the branch is never pushed to one account and the
+          # pull request opened against another.
+          #
+          # When either half is missing the job still runs everything up to the
+          # push, so a rehearsal validates the checkout, the remote wiring and the
+          # manifest insertion instead of exiting before reaching them. The
+          # placeholder owner exists only to let that dry run proceed — a real
+          # push always uses vars.KUEUE_RELEASE_BOT_USER.
+          if [ -n "$PROMOTION_TOKEN" ] && [ -n "$PROMOTION_USER" ]; then
+            if gh repo view "${PROMOTION_USER}/k8s.io" --json name >/dev/null 2>&1; then
+              echo "available=true" >> "$GITHUB_OUTPUT"
+              echo "owner=$PROMOTION_USER" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "owner=$PROMOTION_USER" >> "$GITHUB_OUTPUT"
+            echo "missing=fork \`${PROMOTION_USER}/k8s.io\` (create it with \`gh repo fork kubernetes/k8s.io\` as that account)" >> "$GITHUB_OUTPUT"
+            echo "Fork ${PROMOTION_USER}/k8s.io not found; continuing as a dry run."
+            exit 0
+          fi
+
+          MISSING=""
+          if [ -z "$PROMOTION_TOKEN" ]; then
+            MISSING="secret \`KUEUE_RELEASE_BOT_TOKEN\`"
+          fi
+          if [ -z "$PROMOTION_USER" ]; then
+            if [ -n "$MISSING" ]; then
+              MISSING="$MISSING and "
+            fi
+            MISSING="${MISSING}variable \`KUEUE_RELEASE_BOT_USER\`"
+          fi
+
+          echo "available=false" >> "$GITHUB_OUTPUT"
+          echo "owner=${PROMOTION_USER:-kueue-release-bot}" >> "$GITHUB_OUTPUT"
+          echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
+          echo "Promotion credential incomplete ($MISSING); continuing as a dry run."
+
+      - name: Checkout kubernetes/k8s.io
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: kubernetes/k8s.io
+          ref: main
+          path: k8s.io
+          persist-credentials: false
+
+      - name: Install Crane
+        uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: 'go.mod'
+
+      - name: Configure Git and GH CLI
+        env:
+          GH_TOKEN: ${{ secrets.KUEUE_RELEASE_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          CREDENTIAL_AVAILABLE: ${{ steps.credential.outputs.available }}
+          FORK_OWNER: ${{ steps.credential.outputs.owner }}
+        run: |
+          git config --global user.name "kueue-release-bot"
+          git config --global user.email "kueue-release-bot@kubernetes.io"
+          gh auth setup-git
+
+          # A fresh checkout of kubernetes/k8s.io has a single remote named
+          # origin pointing at upstream — the inverse of the script's
+          # workstation defaults, which expect origin to be a personal fork.
+          if [ "$CREDENTIAL_AVAILABLE" = "true" ]; then
+            git -C k8s.io remote add fork "https://github.com/${FORK_OWNER}/k8s.io.git"
+          fi
+
+      - name: Run Promote Pull
+        id: promote
+        env:
+          GH_TOKEN: ${{ secrets.KUEUE_RELEASE_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          RELEASE_ISSUE_NUMBER: ${{ github.event.issue.number }}
+          VERSION: ${{ needs.authorize.outputs.version }}
+          GITHUB_USER: ${{ steps.credential.outputs.owner }}
+          KUBERNETES_K8S_IO_PATH: ${{ github.workspace }}/k8s.io
+          KUBERNETES_K8S_IO_UPSTREAM_REMOTE: origin
+          KUBERNETES_K8S_IO_FORK_REMOTE: fork
+          KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG: ${{ github.repository_owner }}
+          KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME: ${{ github.event.repository.name }}
+          CREDENTIAL_AVAILABLE: ${{ steps.credential.outputs.available }}
+          CREDENTIAL_MISSING: ${{ steps.credential.outputs.missing }}
+        run: |
+          if [ "$CREDENTIAL_AVAILABLE" != "true" ]; then
+            export DRY_RUN=1
+          fi
+
+          set +e
+          yes y | ./hack/releasing/promote_pull.sh "$VERSION" 2>&1 | tee /tmp/promote-pull.log
+          SCRIPT_EXIT_CODE=${PIPESTATUS[1]}
+          set -e
+
+          # The DRY_RUN bookkeeping lines are informational but already carry the
+          # !!! prefix used for error details, so they must not be reported as
+          # the failure reason.
+          ERR_LINE=$(grep -E '^!!!' /tmp/promote-pull.log \
+            | grep -v 'because you set DRY_RUN' \
+            | grep -v '^!!! Skipping deletion of branch' \
+            | grep -v '^!!! No branches specified for cleanup' \
+            | head -n 1 | sed 's/^!!! //' || true)
+
+          if [ $SCRIPT_EXIT_CODE -ne 0 ]; then
+            echo "message=❌ Failed to submit the promotion pull request for \`$VERSION\`: ${ERR_LINE:-check workflow logs for details}." >> "$GITHUB_OUTPUT"
+            exit $SCRIPT_EXIT_CODE
+          fi
+
+          if [ "$CREDENTIAL_AVAILABLE" != "true" ]; then
+            echo "message=❌ Failed to submit the promotion pull request for \`$VERSION\`: ${CREDENTIAL_MISSING:-the promotion credential} is not configured. Everything up to the push was validated; nothing was pushed." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          # The script can exit 0 without producing a PR; the job must not.
+          PR_URL=$(sed -n 's/^+++ Promotion pull request: //p' /tmp/promote-pull.log | tail -n 1)
+          if [ -z "$PR_URL" ]; then
+            echo "message=❌ The promotion script for \`$VERSION\` completed without creating a pull request." >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+          if grep -q '^+++ Pull request already open' /tmp/promote-pull.log; then
+            PR_ACTION="updated"
+          else
+            PR_ACTION="created"
+          fi
+          echo "message=✅ Promotion pull request for \`$VERSION\` has been ${PR_ACTION}: ${PR_URL}" >> "$GITHUB_OUTPUT"
+
+      - name: Report Success
+        if: ${{ success() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.promote.outputs.message }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: ./.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.promote.outputs.message || '❌ Failed to submit the promotion pull request.' }}
 
   publish-release:
     name: Publish Release
