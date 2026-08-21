@@ -139,9 +139,12 @@ func TestValidateCreate(t *testing.T) {
 			webhook := &RayServiceWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
-			_, err := webhook.ValidateCreate(t.Context(), tc.service)
+			warns, err := webhook.ValidateCreate(t.Context(), tc.service)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("ValidateCreate() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+				t.Errorf("ValidateCreate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
