@@ -28,6 +28,7 @@ import (
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
 	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
+	ctrl "sigs.k8s.io/controller-runtime"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
@@ -303,6 +304,7 @@ func (s *wasSimulatorSnapshot) PreemptWorkload(ctx context.Context, wlKey client
 
 	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsByWorkload.getPodsForWorkload(wlKey))
 	if err != nil {
+		ctrl.LoggerFrom(ctx).V(4).Error(err, "Failed to preempt workload's pods from WAS snapshot.", "workload", wlKey.String())
 		return nil, err
 	}
 

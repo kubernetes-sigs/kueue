@@ -143,7 +143,7 @@ func (p *Preemptor) GetTargets(ctx context.Context, wl workload.Info, assignment
 	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests = assignment.WorkloadsTopologyRequests(log, &wl, cq)
 	}
-	return p.getTargets(&preemptionCtx{
+	targets, err := p.getTargets(&preemptionCtx{
 		ctx:               ctx,
 		clock:             p.clock,
 		log:               log,
@@ -160,13 +160,75 @@ func (p *Preemptor) GetTargets(ctx context.Context, wl workload.Info, assignment
 			TAS: wl.TASUsage(),
 		},
 	})
+	if err != nil {
+		log.Error(err, "Failed to preempt")
+	}
+	return targets
 }
 
-func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) []*Target {
+func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) ([]*Target, error) {
 	if p.enableFairSharing {
 		return p.fairPreemptions(preemptionCtx, p.fsStrategies)
 	}
 	return p.classicalPreemptions(preemptionCtx)
+}
+
+func (ctx *preemptionCtx) fillBackWorkloads(targets []*Target, allowBorrowing bool) ([]*Target, error) {
+	// In the reverse order, check if any of the workloads can be added back.
+	for i := len(targets) - 2; i >= 0; i-- {
+		target := targets[i]
+		ctx.restoreWorkload(target)
+		if workloadFits(ctx, allowBorrowing) {
+			// O(1) deletion: copy the last element into index i and reduce size.
+			targets[i] = targets[len(targets)-1]
+			targets = targets[:len(targets)-1]
+		} else if _, err := ctx.preemptWorkload(target.WorkloadInfo, target.Reason); err != nil {
+			// We cannot continue filling back as the SimulatorSnapshot state is corrupted.
+			// We return the last known working set of targets.
+			return nil, fmt.Errorf("failed to fill back workloads: %w", err)
+		}
+	}
+	return targets, nil
+}
+
+func (ctx *preemptionCtx) restoreSnapshot() {
+	for _, preemption := range ctx.preemptions {
+		preemption.revert()
+		ctx.snapshot.AddWorkload(preemption.target.WorkloadInfo)
+	}
+	clear(ctx.preemptions)
+}
+
+func (ctx *preemptionCtx) preemptWorkload(candidate *workload.Info, reason string) (*Target, error) {
+	wlKey := client.ObjectKeyFromObject(candidate.Obj)
+	revert, err := ctx.snapshot.SimulatorSnapshot.PreemptWorkload(ctx.ctx, wlKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to preempt workload %s: %w", wlKey, err)
+	}
+	ctx.snapshot.RemoveWorkload(candidate)
+	target := &Target{
+		WorkloadInfo: candidate,
+		Reason:       reason,
+		WorkloadCq:   ctx.snapshot.ClusterQueue(candidate.ClusterQueue),
+	}
+	ctx.preemptions[wlKey] = preemption{
+		target: target,
+		revert: revert,
+	}
+	return target, nil
+}
+
+func (ctx *preemptionCtx) restoreWorkload(target *Target) {
+	wlInfo := target.WorkloadInfo
+	wlKey := client.ObjectKeyFromObject(wlInfo.Obj)
+	preemption, preempted := ctx.preemptions[wlKey]
+	if !preempted {
+		// Nothing to do.
+		return
+	}
+	preemption.revert()
+	ctx.snapshot.AddWorkload(wlInfo)
+	delete(ctx.preemptions, wlKey)
 }
 
 var HumanReadablePreemptionReasons = map[string]string{
@@ -289,7 +351,7 @@ type preemptionAttemptOpts struct {
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits
-func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target {
+func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) ([]*Target, error) {
 	hierarchicalReclaimCtx := &classical.HierarchicalPreemptionCtx{
 		Log:               preemptionCtx.log,
 		Wl:                preemptionCtx.preemptor.Obj,
@@ -326,82 +388,30 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 	}
 
 	for _, attemptOpts := range attemptPossibleOpts {
-		var targets []*Target
-		candidatesGenerator.Reset()
-		for candidate, reason := candidatesGenerator.Next(attemptOpts.borrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(attemptOpts.borrowing) {
-			target, ok := preemptionCtx.preemptWorkload(candidate, reason)
-			if !ok {
-				continue
-			}
-			targets = append(targets, target)
-			if workloadFits(preemptionCtx, attemptOpts.borrowing) {
-				targets = preemptionCtx.fillBackWorkloads(targets, attemptOpts.borrowing)
-				preemptionCtx.restoreSnapshot()
-				return targets
-			}
+		if targets, err := preemptionCtx.attemptClassicalPreemption(candidatesGenerator, attemptOpts); err != nil {
+			return nil, err
+		} else if targets != nil {
+			return targets, nil
 		}
-		preemptionCtx.restoreSnapshot()
 	}
-	return nil
+	return nil, nil
 }
 
-func (ctx *preemptionCtx) fillBackWorkloads(targets []*Target, allowBorrowing bool) []*Target {
-	// In the reverse order, check if any of the workloads can be added back.
-	for i := len(targets) - 2; i >= 0; i-- {
-		target := targets[i]
-		ctx.restoreWorkload(target)
-		if workloadFits(ctx, allowBorrowing) {
-			// O(1) deletion: copy the last element into index i and reduce size.
-			targets[i] = targets[len(targets)-1]
-			targets = targets[:len(targets)-1]
-		} else if _, ok := ctx.preemptWorkload(target.WorkloadInfo, target.Reason); !ok {
-			// We cannot continue filling back as the SimulatorSnapshot state is corrupted.
-			// We return the last known working set of targets.
-			return targets
+func (ctx *preemptionCtx) attemptClassicalPreemption(candidatesGenerator classical.CandidateIterator, attemptOpts preemptionAttemptOpts) ([]*Target, error) {
+	defer ctx.restoreSnapshot()
+	var targets []*Target
+	candidatesGenerator.Reset()
+	for candidate, reason := candidatesGenerator.Next(attemptOpts.borrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(attemptOpts.borrowing) {
+		target, err := ctx.preemptWorkload(candidate, reason)
+		if err != nil {
+			return nil, err
 		}
-
+		targets = append(targets, target)
+		if workloadFits(ctx, attemptOpts.borrowing) {
+			return ctx.fillBackWorkloads(targets, attemptOpts.borrowing)
+		}
 	}
-	return targets
-}
-
-func (ctx *preemptionCtx) restoreSnapshot() {
-	for _, preemption := range ctx.preemptions {
-		preemption.revert()
-		ctx.snapshot.AddWorkload(preemption.target.WorkloadInfo)
-	}
-	clear(ctx.preemptions)
-}
-
-func (ctx *preemptionCtx) preemptWorkload(candidate *workload.Info, reason string) (*Target, bool) {
-	wlKey := client.ObjectKeyFromObject(candidate.Obj)
-	revert, err := ctx.snapshot.SimulatorSnapshot.PreemptWorkload(ctx.ctx, wlKey)
-	if err != nil {
-		return nil, false
-	}
-	ctx.snapshot.RemoveWorkload(candidate)
-	target := &Target{
-		WorkloadInfo: candidate,
-		Reason:       reason,
-		WorkloadCq:   ctx.snapshot.ClusterQueue(candidate.ClusterQueue),
-	}
-	ctx.preemptions[wlKey] = preemption{
-		target: target,
-		revert: revert,
-	}
-	return target, true
-}
-
-func (ctx *preemptionCtx) restoreWorkload(target *Target) {
-	wlInfo := target.WorkloadInfo
-	wlKey := client.ObjectKeyFromObject(wlInfo.Obj)
-	preemption, preempted := ctx.preemptions[wlKey]
-	if !preempted {
-		// Nothing to do.
-		return
-	}
-	preemption.revert()
-	ctx.snapshot.AddWorkload(wlInfo)
-	delete(ctx.preemptions, wlKey)
+	return nil, nil
 }
 
 // parseStrategies converts an array of strategies into the functions to the used by the algorithm.
@@ -535,10 +545,11 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 	return false, targets
 }
 
-func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []fairsharing.Strategy) []*Target {
+// WIP: Partially impelemented sched-lib support.
+func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []fairsharing.Strategy) ([]*Target, error) {
 	candidates := p.findCandidates(preemptionCtx.log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
 	if len(candidates) == 0 {
-		return nil
+		return nil, nil
 	}
 	slices.SortFunc(candidates, func(a, b *workload.Info) int {
 		return preemptioncommon.CandidatesOrdering(preemptionCtx.log, p.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, p.clock.Now())
@@ -576,39 +587,21 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
 				"targets", logging.GetObjectReferences(targets))
 		}
-		fairRestoreSnapshot(preemptionCtx.snapshot, targets)
-		return nil
+		preemptionCtx.restoreSnapshot()
+		return nil, nil
 	}
-	targets = fairFillBackWorkloads(preemptionCtx, targets, true)
-	fairRestoreSnapshot(preemptionCtx.snapshot, targets)
+	targets, err := preemptionCtx.fillBackWorkloads(targets, true)
+	preemptionCtx.restoreSnapshot()
+	if err != nil {
+		return nil, err
+	}
 
 	if logV := preemptionCtx.log.V(6); logV.Enabled() {
 		logV.Info("Fair sharing strategies succeeded",
 			"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
 			"targets", logging.GetObjectReferences(targets))
 	}
-	return targets
-}
-
-func fairFillBackWorkloads(preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool) []*Target {
-	// In the reverse order, check if any of the workloads can be added back.
-	for i := len(targets) - 2; i >= 0; i-- {
-		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
-		if workloadFits(preemptionCtx, allowBorrowing) {
-			// O(1) deletion: copy the last element into index i and reduce size.
-			targets[i] = targets[len(targets)-1]
-			targets = targets[:len(targets)-1]
-		} else {
-			preemptionCtx.snapshot.RemoveWorkload(targets[i].WorkloadInfo)
-		}
-	}
-	return targets
-}
-
-func fairRestoreSnapshot(snapshot *schdcache.Snapshot, targets []*Target) {
-	for _, t := range targets {
-		snapshot.AddWorkload(t.WorkloadInfo)
-	}
+	return targets, nil
 }
 
 func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Set[resources.FlavorResource] {
