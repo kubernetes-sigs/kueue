@@ -366,7 +366,8 @@ func (r *elasticJobUngater) activeSlice(ctx context.Context, anyWl *kueue.Worklo
 }
 
 // latestActiveSliceForChain resolves the latest active workload slice of the chain
-// identified by sliceName in namespace, or nil if none qualifies for ungating.
+// identified by its first slice's name (sliceName), or nil if none qualifies for
+// ungating.
 func latestActiveSliceForChain(ctx context.Context, c client.Client, namespace, sliceName string) (*kueue.Workload, error) {
 	active, err := workloadslicing.FindLatestActiveWorkloadForSlice(ctx, c, namespace, sliceName)
 	if err != nil || active == nil || !workload.IsAdmitted(active) {
