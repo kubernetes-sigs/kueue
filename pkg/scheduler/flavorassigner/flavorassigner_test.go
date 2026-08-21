@@ -5813,10 +5813,12 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		wlPods            []kueue.PodSet
-		clusterQueue      kueue.ClusterQueue
-		wantPodSetErrors  map[kueue.PodSetReference]error
-		wantPodSetFlavors map[kueue.PodSetReference]ResourceAssignment
+		wlPods                   []kueue.PodSet
+		clusterQueue             kueue.ClusterQueue
+		excludedResourcePrefixes []string
+		wantPodSetErrors         map[kueue.PodSetReference]error
+		wantPodSetFlavors        map[kueue.PodSetReference]ResourceAssignment
+		wantAssignmentMode       *FlavorAssignmentMode
 	}{
 		"leader without a managed request infers the group's TAS flavor": {
 			wlPods: []kueue.PodSet{
@@ -5871,6 +5873,50 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 			},
 			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
 				"leader": {},
+				"worker": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+		"head without requests in TAS-only CQ without explicit TAS is admitted and skips TAS": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("head", 1).
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu-a", "1").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).Obj(),
+			wantAssignmentMode: new(Fit),
+			wantPodSetErrors:   map[kueue.PodSetReference]error{},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"head":   {},
+				"worker": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+		},
+		"head with excluded requests in TAS-only CQ without explicit TAS is admitted and skips TAS": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("head", 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).
+					Request("example.com/gpu-a", "1").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").
+						Resource("example.com/gpu-a", "4").
+						Obj(),
+				).Obj(),
+			excludedResourcePrefixes: []string{"cpu"},
+			wantAssignmentMode:       new(Fit),
+			wantPodSetErrors:         map[kueue.PodSetReference]error{},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"head":   {},
 				"worker": {"example.com/gpu-a": {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
 			},
 		},
@@ -5988,7 +6034,7 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 
-			wlInfo := workload.NewInfo(&kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: tc.wlPods}})
+			wlInfo := workload.NewInfo(&kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: tc.wlPods}}, workload.WithExcludedResourcePrefixes(tc.excludedResourcePrefixes))
 
 			cache := schdcache.New(utiltesting.NewFakeClient())
 			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
@@ -6038,6 +6084,12 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 
 			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
 			assignment := flvAssigner.Assign(ctx, nil)
+
+			if tc.wantAssignmentMode != nil {
+				if diff := cmp.Diff(*tc.wantAssignmentMode, assignment.RepresentativeMode()); diff != "" {
+					t.Errorf("assignment mode mismatch (-want,+got):\n%s", diff)
+				}
+			}
 
 			gotErrors := map[kueue.PodSetReference]error{}
 			gotFlavors := map[kueue.PodSetReference]ResourceAssignment{}

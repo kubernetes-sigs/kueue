@@ -218,7 +218,7 @@ func hasOverlapWithPodRequestedResources(ps *kueue.PodSet, flavorResources sets.
 
 // isTASImplied returns true if TAS is requested implicitly.
 func isTASImplied(ps *kueue.PodSet, cq *schdcache.ClusterQueueSnapshot) bool {
-	return !workload.IsExplicitlyRequestingTAS(*ps) && cq.IsTASOnly()
+	return !workload.IsExplicitlyRequestingTAS(*ps) && cq.IsTASOnly() && hasOverlapWithPodRequestedResources(ps, resourcegroups.AllCoveredResources(cq.ResourceGroups))
 }
 
 // isTASRequested checks if TAS is requested for the input PodSet, either
