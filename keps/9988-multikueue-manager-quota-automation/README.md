@@ -48,6 +48,7 @@
   - [Make the <code>MultiKueueManagerQuotaAutomation</code> Condition message more informative](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative)
   - [Take Cohorts into account](#take-cohorts-into-account)
   - [Set the default for <code>QuotaManagement</code> based on the feature gate state](#set-the-default-for-quotamanagement-based-on-the-feature-gate-state)
+  - [Dynamic Resource Flavor](#dynamic-resource-flavor)
 <!-- /toc -->
 
 ## Summary
@@ -242,7 +243,7 @@ As a Batch Admin, I want to keep MultiKueue manager quotas meaningful ("finite")
 
 This could be because:
 
-* I need multiple manager ResourceFlavors (due to e.g. using a special dispatcher or a heterogenous topology across the workers; see [Treatment of ResourceFlavors](#treatment-of-resourceflavors) for details).
+* I need multiple manager ResourceFlavors (due to e.g. using a special dispatcher or a heterogeneous topology across the workers; see [Treatment of ResourceFlavors](#treatment-of-resourceflavors) for details).
 
 * I want to control the manager quotas manually (e.g. to make them more stable, or less confusing).
 
@@ -414,12 +415,49 @@ lastTransitionTime: 2026-01-01T00:00:00Z
 
 #### Planned changes in Alpha2 version
 
-Starting from Alpha2 version, we plan to introduce a **new field** in ClusterQueueStatus (provisionally named `effectiveResourceGroups`), which would act as the **new source of truth** about a ClusterQueue capacity (taking over that role from `.spec.resourceGroups`). This is discussed in more detail in [this future work idea](#move-the-aggregated-quota-out-of-clusterqueuespec).
+Starting from Alpha2 version, we plan to introduce a **new field** in ClusterQueueStatus (provisionally named `effectiveResourceGroups`), which would act as the **new source of truth** about a ClusterQueue capacity (taking over that role from `.spec.resourceGroups`). This is discussed in more detail in [KEP 11823](../11823-effective-resource-groups/README.md).
 
-While this move is mostly independent from the [API for Alpha1](#alpha1-version), it may lead to some slight changes in that API:
+With the introduction of the new requirement for MultiKueue ClusterQueues with quota automation enabled, namely that the spec.ResourceGroups be empty in that case, two major changes will be introduced to the quota automation condition:
+1. The misconfiguration based on difference between the resources reported in spec and gathered from remote workers will be removed. With spec.ResourceGroups expected to be empty, the resources reported by workers will be considered the source of truth by default.
+2. The "MultiKueue manager quota automation does not support ClusterQueues with multiple ResourceFlavors." condition will be replaced with "ResourceGroups set manually in ClusterQueue spec." when any resources are set in spec.
 
-* We may decide to move the `.quotaAutomation` field from MultiKueueConfig to ClusterQueueSpec.
-* We may make the `MultiKueueManagerQuotaAutomation` Condition more informative, or at least let its `lastTransitionTime` track the time of the most recent quota adjustment.
+Another matter to address will be the aggregated quota flavors. As of Alpha2 we expect only one, collective resource flavor to be used. To allow users to set up the details of said flavor we will add an automated quota config field to the MultiKueue Config: AutomatedQuotaManagementConfig.
+
+```go
+// MultiKueueConfigSpec defines the desired state of MultiKueueConfig
+// +kubebuilder:validation:XValidation:rule="has(obj.quotaManagementMode) && obj.quotaManagementMode == 'Automated' ? has(obj.automatedQuotaManagementConfig) : true",message="automatedQuotaManagementConfig is only relevant when quotaManagementMode is set to 'Automated'"
+type MultiKueueConfigSpec struct {
+	
+  // [...]
+
+	// quotaManagementMode specifies the management of ClusterQueue quotas
+	// in the manager cluster.
+	// Supported modes:
+	// - `Manual`: Quota automation is manual.
+	// - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
+	// If unspecified, defaults to `Manual`.
+	// +optional
+	QuotaManagementMode *MultiKueueConfigQuotaManagementMode `json:"quotaManagementMode,omitempty"`
+
+	// automatedQuotaManagementConfig is the configuration for the automated quota management.
+	// It is only relevant when quotaManagementMode is set to `Automated`.
+	// +optional
+	AutomatedQuotaManagementConfig *AutomatedQuotaManagementConfig `json:"automatedQuotaManagementConfig,omitempty"`
+}
+```
+
+We can consider two different approaches to configure the Flavor: **manual** or **dynamic**. For now we are moving on with the former, while the latter is described in the [Alternatives](#dynamic-resource-flavor) section.
+
+The manual flavor config will allow users to specify the `ResourceFlavorReference` of the manually created `ResourceFlavor` to be used for aggregating resources from across Worker Clusters. When considering [per-flavor aggregation of remote resources](https://github.com/kubernetes-sigs/kueue/issues/11862), this decision will be revisited.
+
+```go
+// AutomatedQuotaManagementConfig is the configuration for the automated quota management in MultiKueue ClusterQueues.
+type AutomatedQuotaManagementConfig struct {
+	// aggregateResourceFlavorRef is the reference to the resource flavor MultiKueue will use as an aggregated flavor for the quotas gathered from Worker Clusters
+	AggregateResourceFlavorRef *ResourceFlavorReference `json:"aggregateResourceFlavorRef,omitempty"`
+}
+```
+
 
 ### MultiKueue ClusterQueue Reconciler
 
@@ -512,9 +550,9 @@ As explained in [Factors influencing desired manager quota](#factors-influencing
 
 Our initial idea was to let it affect the manager-side `nominalQuota`; however, that was considered confusing by most reviewers. 
 
-Another option is to re-use the concept of "effective quota", or "accessible quota" in terms of [KEP-8826](https://github.com/kubernetes-sigs/kueue/pull/8864); that is, leave `nominalQuota` unchanged but apply the mulitplier on the level of "accessible quota" which would be the one actually enforced. This would allow to keep `nominalQuota` serving [User Story 4](#story-4) while letting the multiplier affect the actual dispatching behavior.
+Another option is to re-use the concept of "effective quota", or "accessible quota" in terms of [KEP-8826](https://github.com/kubernetes-sigs/kueue/pull/8864); that is, leave `nominalQuota` unchanged but apply the multiplier on the level of "accessible quota" which would be the one actually enforced. This would allow to keep `nominalQuota` serving [User Story 4](#story-4) while letting the multiplier affect the actual dispatching behavior.
 
-This may combine well with the idea of [moving aggregated quotas out of ClusterQueueSpec](#move-the-aggregated-quota-out-of-clusterqueuespec).
+This may combine well with the idea of moving aggregated quotas out of ClusterQueueSpec (see [KEP-11823](../11823-multikueue-quota-aggregation/README.md)).
 
 #### Change the treatment of ResourceFlavors
 
@@ -589,6 +627,10 @@ Besides introducing some risks (see [Risks and Mitigations](#risks-and-mitigatio
    While we propose accepting this drawback for Alpha1, our plan for Alpha2 is to eliminate this drawback by [this follow-up idea](#move-the-aggregated-quota-out-of-clusterqueuespec).
 
 2. We have fully ignored the topic of Cohorts, shared quota and quota borrowing. This is deliberate, and intended to retain any reasonable simplicity of the feature, at least in the Alpha stage. (See [Take Cohorts into account](#take-cohorts-into-account) in the Alternatives section).
+
+With regards to [changes planned for Alpha2](#planned-changes-in-alpha2-version) - using the `status.EffectiveResourceGroups` field will introduce complications to the webhook's validation mechanisms. Validating resource groups and allowed flavors will not be entirely possible with updates either not propagating to the `status.EffectiveResourceGroups` or some MK aggregate flavors not being represented in `spec.ResourceGroups` at all. Resolving this will require either:
+* complicating the validation logic, or
+* loosening the validity criteria.
 
 ## Alternatives
 
@@ -734,3 +776,20 @@ Specifically, when a user creates a ClusterQueue with non-trivial nominal quotas
 where each choice would break the existing v1beta2 contract. Therefore, defaulting to `Automated` can only happen in v1beta3.
 
 While making such a change may be still desired, this is not tightly bound to the lifecycle of the feature gate, and hence out of scope of this KEP.
+
+
+### Dynamic Resource Flavor
+
+Instead of providing a pre-made `ResourceFlavor` for MK Config, we can create and manage the Flavor ourselves. This dynamically created flavor will be defined by the MK CQ Controller. In this case, all components relying on the existence of this Flavor will have to be made aware of how it is handled. That means making sure all components are aware the Flavor might not exist yet and are notified as needed of its creation. This will be especially crucial when considering [per-flavor aggregation](https://github.com/kubernetes-sigs/kueue/issues/11862).
+
+```go
+// AutomatedQuotaManagementConfig is the configuration for the automated quota management in MultiKueue ClusterQueues.
+type AutomatedQuotaManagementConfig struct {
+	// aggregateResourceFlavorSpec is the specification of the resource flavor MultiKueue creates and maintains for the auto-aggregated resource flavors 
+	AggregateResourceFlavorSpec *ResourceFlavorSpec `json:"aggregateResourceFlavorSpec,omitempty"`
+}
+```
+
+**Pros:**
+* Users provide the minimum data they need for the aggregated flavor to exist, without the need to set it up themselves.
+* When considering [per-flavor aggregation of remote resources](https://github.com/kubernetes-sigs/kueue/issues/11862) - this approach would allow users to define a universal blueprint for aggregated resources to be created by MK as needed. This however is a minor benefit, as it does not allow to support creating flavors with different taints, tolerations, node labels etc..
