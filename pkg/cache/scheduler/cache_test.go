@@ -44,7 +44,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -3362,40 +3361,40 @@ func TestCohortCycles(t *testing.T) {
 		"self cycle": {
 			initialCohorts: nil,
 			operation: func(t *testing.T, cache *Cache) error {
-				cohort := v1beta2.MakeCohort("cohort").Parent("cohort").Obj()
+				cohort := utiltestingapi.MakeCohort("cohort").Parent("cohort").Obj()
 				return cache.AddOrUpdateCohort(cohort)
 			},
 			wantErr: ErrCohortHasCycle,
 		},
 		"simple cycle A->B->C->A": {
 			initialCohorts: []kueue.Cohort{
-				*v1beta2.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
-				*v1beta2.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
+				*utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
+				*utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
 			},
 			operation: func(t *testing.T, cache *Cache) error {
-				cohortC := v1beta2.MakeCohort("cohort-c").Parent("cohort-a").Obj()
+				cohortC := utiltestingapi.MakeCohort("cohort-c").Parent("cohort-a").Obj()
 				return cache.AddOrUpdateCohort(cohortC)
 			},
 			wantErr: ErrCohortHasCycle,
 		},
 		"no cycle - linear hierarchy": {
 			initialCohorts: []kueue.Cohort{
-				*v1beta2.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
-				*v1beta2.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
+				*utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
+				*utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
 			},
 			operation: func(t *testing.T, cache *Cache) error {
-				cohortD := v1beta2.MakeCohort("cohort-d").Parent("cohort-a").Obj()
+				cohortD := utiltestingapi.MakeCohort("cohort-d").Parent("cohort-a").Obj()
 				return cache.AddOrUpdateCohort(cohortD)
 			},
 			wantErr: nil,
 		},
 		"no cycle - independent trees": {
 			initialCohorts: []kueue.Cohort{
-				*v1beta2.MakeCohort("root1").Obj(),
-				*v1beta2.MakeCohort("root2").Obj(),
+				*utiltestingapi.MakeCohort("root1").Obj(),
+				*utiltestingapi.MakeCohort("root2").Obj(),
 			},
 			operation: func(t *testing.T, cache *Cache) error {
-				cohort := v1beta2.MakeCohort("cohort").Parent("root1").Obj()
+				cohort := utiltestingapi.MakeCohort("cohort").Parent("root1").Obj()
 				return cache.AddOrUpdateCohort(cohort)
 			},
 			wantErr: nil,
@@ -3435,11 +3434,11 @@ func TestCohortCyclesWithClusterQueue(t *testing.T) {
 	}{
 		"clusterqueue add succeeds when cohort has no cycle": {
 			initialCohorts: []kueue.Cohort{
-				*v1beta2.MakeCohort("cohort").Obj(),
+				*utiltestingapi.MakeCohort("cohort").Obj(),
 			},
 			operation: func(t *testing.T, cache *Cache) error {
 				ctx, _ := utiltesting.ContextWithLog(t)
-				cq := v1beta2.MakeClusterQueue("cq").Cohort("cohort").Obj()
+				cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort").Obj()
 				return cache.AddClusterQueue(ctx, cq)
 			},
 			wantErr: nil,
@@ -3476,23 +3475,23 @@ func TestCohortCyclesWithUpdate(t *testing.T) {
 	}{
 		"update cohort to create cycle fails": {
 			initialCohorts: []kueue.Cohort{
-				*v1beta2.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
-				*v1beta2.MakeCohort("cohort-b").Obj(),
+				*utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
+				*utiltestingapi.MakeCohort("cohort-b").Obj(),
 			},
 			operation: func(t *testing.T, cache *Cache) error {
-				cohortB := v1beta2.MakeCohort("cohort-b").Parent("cohort-a").Obj()
+				cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()
 				return cache.AddOrUpdateCohort(cohortB)
 			},
 			wantErr: ErrCohortHasCycle,
 		},
 		"update cohort parent to different valid parent succeeds": {
 			initialCohorts: []kueue.Cohort{
-				*v1beta2.MakeCohort("root1").Obj(),
-				*v1beta2.MakeCohort("root2").Obj(),
-				*v1beta2.MakeCohort("cohort").Parent("root1").Obj(),
+				*utiltestingapi.MakeCohort("root1").Obj(),
+				*utiltestingapi.MakeCohort("root2").Obj(),
+				*utiltestingapi.MakeCohort("cohort").Parent("root1").Obj(),
 			},
 			operation: func(t *testing.T, cache *Cache) error {
-				cohort := v1beta2.MakeCohort("cohort").Parent("root2").Obj()
+				cohort := utiltestingapi.MakeCohort("cohort").Parent("root2").Obj()
 				return cache.AddOrUpdateCohort(cohort)
 			},
 			wantErr: nil,
@@ -3528,8 +3527,8 @@ func TestCohortCyclesMetrics(t *testing.T) {
 	}{
 		"ResyncGaugeMetrics does not infinitely recurse with cyclic cohorts": {
 			initialCohorts: []kueue.Cohort{
-				*v1beta2.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
-				*v1beta2.MakeCohort("cohort-b").Parent("cohort-a").Obj(),
+				*utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
+				*utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj(),
 			},
 			operation: func(t *testing.T, cache *Cache) error {
 				_, log := utiltesting.ContextWithLog(t)
@@ -3547,7 +3546,9 @@ func TestCohortCyclesMetrics(t *testing.T) {
 				_ = cache.AddOrUpdateCohort(&tc.initialCohorts[i])
 			}
 
-			tc.operation(t, cache)
+			if err := tc.operation(t, cache); err != nil { // ✅ Check the error
+				t.Fatalf("operation failed: %v", err)
+			}
 		})
 	}
 }
