@@ -600,6 +600,8 @@ Conditions []metav1.Condition
 	// Map key depends on the scope. For Global it is just Global.
 	// For CQ it is Cluster Queue name
 	// For Workload it is namespace +/"+ workload name
+  // If all of the counts cannot be writted to the resource due to CRD size limit,
+  // then only top K counts are stored to fit in the limit.
 	Count map[string]int
 }
 ```
@@ -722,8 +724,8 @@ Certain preemption candidate rules—such as those based on `BorrowingCapacityFr
 For example, consider ClusterQueues $A$ and $B$, each with a nominal quota of 5. Suppose CQ $B$ is currently borrowing 1 unit of quota from CQ $A$. If a workload in CQ $A$ triggers preemption under a rule targeting only borrowing workloads, and each candidate workload in CQ $B$ consumes 1 unit of quota, the evaluator should only preempt a single workload from CQ $B$. Once that first workload is selected, CQ $B$ is no longer borrowing quota from CQ $A$, so remaining workloads in CQ $B$ must immediately become ineligible for that borrowing rule.
 
 #### Naive Solutions and Complexity Bottlenecks
-- **Linear Filtering per Selection ($O(n \cdot m)$ to $O(n^2)$):** Dynamically filtering the candidate set and scanning for the minimum for each of the $m$ preemption targets requires $O(n)$ work per step, yielding $O(n \cdot m)$ time (up to $O(n^2)$ in the worst case where $m \approx n$).
-- **Dynamic Re-sorting ($O(m \cdot n \log n)$ to $O(n^2 \log n)$):** Naively re-sorting the candidate array whenever CQ borrowing or DRS metrics change introduces an $O(n \log n)$ sorting step per eviction, leading to $O(n^2 \log n)$ time and severe scheduler throughput degradation.
+- **Linear Filtering per Selection ($O(n \cdot m)$ to $O(n^2)$ ):** Dynamically filtering the candidate set and scanning for the minimum for each of the $m$ preemption targets requires $O(n)$ work per step, yielding $O(n \cdot m)$ time (up to $O(n^2)$ in the worst case where $m \approx n$).
+- **Dynamic Re-sorting ($O(m \cdot n \log n)$ to $O(n^2 \log n)$ ):** Naively re-sorting the candidate array whenever CQ borrowing or DRS metrics change introduces an $O(n \log n)$ sorting step per eviction, leading to $O(n^2 \log n)$ time and severe scheduler throughput degradation.
 
 #### Proposed Approach: Per-Rule, Per-CQ Priority Queues
 To achieve optimal scheduling performance without repetitive full-array scans or re-sorting, the evaluator maintains **separate priority queues partitioned by `(Rule, ClusterQueue)`**:
@@ -855,15 +857,30 @@ milestones with these graduation criteria:
 
 Proposed implementation approach:
 
-**Step 0.** Identify minimal subfields needed to migrate existing preemption rules to the new API. (To be done during KEP review process)
+**Step 1.** `PreemptionConfig` foundations and Defrag use case: 
 
-**Step 1.** Implement rules identified in **Step 0**, define the API internally in Kueue and migrate existing rules to it.
+ Implementation of the foundations of PreemptionConfig:
+ - initial version of ordering
+ - triggers
+ - iteration through candidates
 
-**Step 2.** Expose the API externally to the users, with limited fields and selectors.
+Implementation of the following selector to have MVP of defrag:
+- NumericLabelConstraint
+- PriorityConstraint
+- PreemptionRelationConstraint
 
-**Step 3.** Implement PreemptionLimits.
+Expose the implementation under feature gate "ConfigurablePreemptions", integration should not check in any way the existing preemption logic.
 
-**Step 4.** Implement the remaining "selectors" in preemption rules.
+**Step 2.** Implement fair sharing and borrowing based rules and ordering.
+
+Create performance test suite for preemptions to validate current implementation.
+
+
+**Step 3.** Reimplement existing rules using the new API.
+
+**Step 4.** Implement PreemptionLimits.
+
+**Step 5.** Implement the remaining "selectors" in preemption rules.
 
 
 <!--
