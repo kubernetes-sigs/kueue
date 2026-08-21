@@ -119,6 +119,10 @@ func (s *defaultSimulatorSnapshot) FindFeasibleNodes(
 	return feasibleCandidates, nil
 }
 
-func (s *defaultSimulatorSnapshot) PreemptWorkload(_ context.Context, _ types.NamespacedName) (func(), error) {
-	return func() {}, nil
+func (s *defaultSimulatorSnapshot) PreemptWorkload(_ types.NamespacedName) (func() error, error) {
+	return func() error { return nil }, nil
+}
+
+func (s *defaultSimulatorSnapshot) Simulate(fn func()) {
+	fn()
 }

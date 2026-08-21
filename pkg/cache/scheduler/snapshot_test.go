@@ -1506,10 +1506,10 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			for _, name := range tc.remove {
-				snap.RemoveWorkload(wlInfos[name])
+				snap.removeWorkload(wlInfos[name])
 			}
 			for _, name := range tc.add {
-				snap.AddWorkload(wlInfos[name])
+				snap.addWorkload(wlInfos[name])
 			}
 			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
@@ -2005,10 +2005,10 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			for _, name := range tc.remove {
-				snap.RemoveWorkload(wlInfos[name])
+				snap.removeWorkload(wlInfos[name])
 			}
 			for _, name := range tc.add {
-				snap.AddWorkload(wlInfos[name])
+				snap.addWorkload(wlInfos[name])
 			}
 			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)

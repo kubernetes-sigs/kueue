@@ -158,11 +158,15 @@ func (p *Preemptor) GetTargets(ctx context.Context, wl workload.Info, assignment
 	return targets
 }
 
-func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) ([]*Target, error) {
-	if p.enableFairSharing {
-		return p.fairPreemptions(preemptionCtx, p.fsStrategies)
-	}
-	return p.classicalPreemptions(preemptionCtx)
+func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) (targets []*Target, err error) {
+	preemptionCtx.snapshot.Simulate(func() {
+		if p.enableFairSharing {
+			targets, err = p.fairPreemptions(preemptionCtx, p.fsStrategies)
+		} else {
+			targets, err = p.classicalPreemptions(preemptionCtx)
+		}
+	})
+	return
 }
 
 func (ctx *preemptionCtx) fillBackWorkloads(targets []*Target, allowBorrowing bool) ([]*Target, error) {
@@ -183,22 +187,19 @@ func (ctx *preemptionCtx) fillBackWorkloads(targets []*Target, allowBorrowing bo
 	return targets, nil
 }
 
-func (ctx *preemptionCtx) restoreSnapshot() {
-	ctx.snapshot.RestoreSnapshot()
-}
-
 func (ctx *preemptionCtx) preemptWorkload(candidate *workload.Info, reason string) (*Target, error) {
-	err := ctx.snapshot.PreemptWorkload(ctx.ctx, candidate)
-	target := &Target{
+	if err := ctx.snapshot.PreemptWorkload(ctx.ctx, candidate); err != nil {
+		return nil, err
+	}
+	return &Target{
 		WorkloadInfo: candidate,
 		Reason:       reason,
 		WorkloadCq:   ctx.snapshot.ClusterQueue(candidate.ClusterQueue),
-	}
-	return target, err
+	}, nil
 }
 
-func (ctx *preemptionCtx) restoreWorkload(target *Target) {
-	ctx.snapshot.RestoreWorkload(target.WorkloadInfo)
+func (ctx *preemptionCtx) restoreWorkload(target *Target) error {
+	return ctx.snapshot.RestoreWorkload(target.WorkloadInfo)
 }
 
 var HumanReadablePreemptionReasons = map[string]string{
@@ -368,7 +369,6 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) ([]*Targe
 }
 
 func (ctx *preemptionCtx) attemptClassicalPreemption(candidatesGenerator classical.CandidateIterator, attemptOpts preemptionAttemptOpts) ([]*Target, error) {
-	defer ctx.restoreSnapshot()
 	var targets []*Target
 	candidatesGenerator.Reset()
 	for candidate, reason := candidatesGenerator.Next(attemptOpts.borrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(attemptOpts.borrowing) {
@@ -378,10 +378,14 @@ func (ctx *preemptionCtx) attemptClassicalPreemption(candidatesGenerator classic
 		}
 		targets = append(targets, target)
 		if workloadFits(ctx, attemptOpts.borrowing) {
-			return ctx.fillBackWorkloads(targets, attemptOpts.borrowing)
+			if targets, err := ctx.fillBackWorkloads(targets, attemptOpts.borrowing); err != nil {
+				return nil, err
+			} else {
+				return targets, ctx.snapshot.RestoreSnapshot()
+			}
 		}
 	}
-	return nil, nil
+	return nil, ctx.snapshot.RestoreSnapshot()
 }
 
 // parseStrategies converts an array of strategies into the functions to the used by the algorithm.
@@ -555,8 +559,6 @@ func (ctx *preemptionCtx) runSecondFsStrategy(retryCandidates []*workload.Info, 
 }
 
 func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []fairsharing.Strategy) ([]*Target, error) {
-	defer preemptionCtx.restoreSnapshot()
-
 	candidates := p.findCandidates(preemptionCtx.log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
 	if len(candidates) == 0 {
 		return nil, nil

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -55,6 +56,7 @@ type Snapshot struct {
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
 	SimulatorSnapshot        simulator.SimulatorSnapshot
+	simulationLock           sync.Mutex
 	preemptions              map[workloadKey]preemption
 }
 
@@ -62,24 +64,27 @@ type workloadKey = client.ObjectKey
 
 type preemption struct {
 	target *workload.Info
-	revert func()
+	revert func() error
 }
 
-func (s *Snapshot) RestoreSnapshot() {
+func (s *Snapshot) Simulate(fn func()) {
+	s.simulationLock.Lock()
+	defer s.simulationLock.Unlock()
+
+	s.SimulatorSnapshot.Simulate(fn)
 	for _, preemption := range s.preemptions {
-		preemption.revert()
-		s.AddWorkload(preemption.target)
+		s.addWorkload(preemption.target)
 	}
 	clear(s.preemptions)
 }
 
 func (s *Snapshot) PreemptWorkload(ctx context.Context, candidate *workload.Info) error {
 	wlKey := client.ObjectKeyFromObject(candidate.Obj)
-	revert, err := s.SimulatorSnapshot.PreemptWorkload(ctx, wlKey)
+	revert, err := s.SimulatorSnapshot.PreemptWorkload(wlKey)
 	if err != nil {
 		return fmt.Errorf("failed to preempt workload %s: %w", wlKey, err)
 	}
-	s.RemoveWorkload(candidate)
+	s.removeWorkload(candidate)
 	s.preemptions[wlKey] = preemption{
 		target: candidate,
 		revert: revert,
@@ -87,29 +92,47 @@ func (s *Snapshot) PreemptWorkload(ctx context.Context, candidate *workload.Info
 	return nil
 }
 
-func (s *Snapshot) RestoreWorkload(target *workload.Info) {
+func (s *Snapshot) RestoreWorkload(target *workload.Info) error {
 	wlKey := client.ObjectKeyFromObject(target.Obj)
 	preemption, preempted := s.preemptions[wlKey]
 	if !preempted {
 		// Nothing to do.
-		return
+		return nil
 	}
-	preemption.revert()
-	s.AddWorkload(target)
+	if err := preemption.revert(); err != nil {
+		return err
+	}
+	s.addWorkload(target)
 	delete(s.preemptions, wlKey)
+	return nil
 }
 
-// RemoveWorkload removes a workload from its corresponding ClusterQueue and
+// RestoreSnapshot tries to restore snapshot. If it fails, it stops and returns an error.
+func (s *Snapshot) RestoreSnapshot() (err error) {
+	reverted := []workloadKey{}
+	for wlKey, preemption := range s.preemptions {
+		if err = preemption.revert(); err == nil {
+			s.addWorkload(preemption.target)
+			reverted = append(reverted, wlKey)
+		}
+	}
+	for _, wlKey := range reverted {
+		delete(s.preemptions, wlKey)
+	}
+	return
+}
+
+// removeWorkload removes a workload from its corresponding ClusterQueue and
 // updates resource usage.
-func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
+func (s *Snapshot) removeWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	delete(cq.Workloads, workload.Key(wl.Obj))
 	cq.RemoveUsage(wl.Usage())
 }
 
-// AddWorkload adds a workload to its corresponding ClusterQueue and
+// addWorkload adds a workload to its corresponding ClusterQueue and
 // updates resource usage.
-func (s *Snapshot) AddWorkload(wl *workload.Info) {
+func (s *Snapshot) addWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
 	cq.AddUsage(wl.Usage())
@@ -142,12 +165,14 @@ func (s *Snapshot) SimulateWorkloadUsageRemoval(workloads []*workload.Info) func
 // of workloads from workloads' respective ClusterQueues. It returns a
 // function which can be used to restore these workloads.
 func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
+	s.simulationLock.Lock()
 	for _, w := range workloads {
-		s.RemoveWorkload(w)
+		s.removeWorkload(w)
 	}
 	return func() {
+		defer s.simulationLock.Unlock()
 		for _, w := range workloads {
-			s.AddWorkload(w)
+			s.addWorkload(w)
 		}
 	}
 }

@@ -60,6 +60,7 @@ var snapCmpOpts = cmp.Options{
 	cmp.AllowUnexported(schdcache.ClusterQueueSnapshot{}),
 	cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "ClusterQueue"),
 	cmp.AllowUnexported(schdcache.Snapshot{}),
+	cmpopts.IgnoreFields(schdcache.Snapshot{}, "simulationLock"),
 	cmp.Comparer(resources.Equal),
 }
 

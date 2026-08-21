@@ -42,7 +42,8 @@ type SchedulingSimulator interface {
 // The "default" (non-WAS) implementation may trivialize some methods.
 type SimulatorSnapshot interface {
 	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
-	PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (revert func(), err error)
+	PreemptWorkload(wlKey client.ObjectKey) (revert func() error, err error)
+	Simulate(fn func())
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {
