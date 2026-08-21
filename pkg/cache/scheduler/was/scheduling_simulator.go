@@ -170,8 +170,8 @@ func (s *wasSimulator) UntrackPod(key client.ObjectKey) {
 	s.pods.untrack(key)
 }
 
-func (m *podsBreakdown) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
-	podSet, ok := (*m)[wlKey]
+func (m podsBreakdown) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
+	podSet, ok := m[wlKey]
 	if !ok {
 		return nil
 	}
