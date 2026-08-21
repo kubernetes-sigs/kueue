@@ -41,6 +41,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -478,6 +479,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -497,6 +499,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -534,8 +537,9 @@ objectRetentionPolicies:
 						},
 					},
 				},
-				VisibilityServer: defaultVisibility,
-				WaitForPodsReady: defaultWaitForPodsReady,
+				VisibilityServer:     defaultVisibility,
+				WaitForPodsReady:     defaultWaitForPodsReady,
+				QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions("kueue-tenant-a"),
 		},
@@ -556,6 +560,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -593,6 +598,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -615,6 +621,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -635,6 +642,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions("kueue-system"),
@@ -673,6 +681,7 @@ objectRetentionPolicies:
 						BackoffMaxSeconds:  new(int32(1800)),
 					},
 				},
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
@@ -701,6 +710,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -724,6 +734,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: ctrl.Options{
 				Cache:                  defaultControlCacheOptions(configapi.DefaultNamespace),
@@ -772,6 +783,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -817,6 +829,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -857,6 +870,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
@@ -877,6 +891,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 				Resources: &configapi.Resources{
 					Transformations: []configapi.ResourceTransformation{
 						{
@@ -932,6 +947,7 @@ objectRetentionPolicies:
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibility,
 				WaitForPodsReady:             defaultWaitForPodsReady,
+				QuotaReleaseStrategy:         ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 				ObjectRetentionPolicies: &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
 						AfterFinished:           &metav1.Duration{Duration: 30 * time.Minute},
@@ -1037,7 +1053,8 @@ webhook:
 					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
-				WaitForPodsReady: defaultWaitForPodsReady,
+				WaitForPodsReady:     defaultWaitForPodsReady,
+				QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
 					Burst: new(configapi.DefaultClientConnectionBurst),
@@ -1086,8 +1103,8 @@ webhook:
 					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
 					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
-				WaitForPodsReady: defaultWaitForPodsReady,
-
+				WaitForPodsReady:     defaultWaitForPodsReady,
+				QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
 					Burst: new(configapi.DefaultClientConnectionBurst),
@@ -1267,6 +1284,7 @@ func TestEncode(t *testing.T) {
 					},
 					"timeout": "30m0s",
 				},
+				"quotaReleaseStrategy": "OnTerminating",
 			},
 		},
 	}
@@ -1304,7 +1322,8 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 
 		"waitforpodsready.Enabled() is false when DisableWaitForPodsReady feature gate is enabled": {
 			cfg: &configapi.Configuration{
-				WaitForPodsReady: defaultWaitForPodsReady,
+				WaitForPodsReady:     defaultWaitForPodsReady,
+				QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.DisableWaitForPodsReady: true,
@@ -1314,7 +1333,8 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 
 		"waitforpodsready.Enabled() is true when DisableWaitForPodsReady feature gate is disabled": {
 			cfg: &configapi.Configuration{
-				WaitForPodsReady: defaultWaitForPodsReady,
+				WaitForPodsReady:     defaultWaitForPodsReady,
+				QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.DisableWaitForPodsReady: false,

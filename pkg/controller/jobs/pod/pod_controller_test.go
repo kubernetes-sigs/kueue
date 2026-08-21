@@ -7340,10 +7340,11 @@ func TestPod_IsActive(t *testing.T) {
 		list corev1.PodList
 	}
 	tests := map[string]struct {
-		fields                 fields
-		enableFastQuotaRelease bool
-		want                   bool
+		fields   fields
+		strategy configapi.QuotaReleaseStrategy
+		want     bool
 	}{
+
 		"RegularPod": {
 			want: false,
 		},
@@ -7405,7 +7406,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_PodWithDeletionTimestamp_Inactive": {
-			enableFastQuotaRelease: true,
+			strategy: configapi.QuotaReleaseOnTerminating,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -7423,7 +7424,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: false,
 		},
 		"FastQuotaRelease_Disabled_PodWithDeletionTimestampWithinGrace_Active": {
-			enableFastQuotaRelease: false,
+			strategy: configapi.QuotaReleaseOnTerminal,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -7441,7 +7442,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_MixedGroup_SomeTerminating_SomeRunning": {
-			enableFastQuotaRelease: true,
+			strategy: configapi.QuotaReleaseOnTerminating,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -7463,7 +7464,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_AllTerminating": {
-			enableFastQuotaRelease: true,
+			strategy: configapi.QuotaReleaseOnTerminating,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -7489,15 +7490,18 @@ func TestPod_IsActive(t *testing.T) {
 			want: false,
 		},
 	}
+
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tt.enableFastQuotaRelease)
 			p := &Pod{
 				pod:   tt.fields.pod,
 				list:  tt.fields.list,
 				clock: testingclock.NewFakeClock(now),
 			}
-			if got := p.IsActive(); got != tt.want {
+
+			ctx := jobframework.ContextWithQuotaReleaseStrategy(t.Context(), tt.strategy)
+
+			if got := p.IsActive(ctx); got != tt.want {
 				t.Errorf("IsActive() = %v, want %v", got, tt.want)
 			}
 		})
