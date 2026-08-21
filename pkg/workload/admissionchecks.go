@@ -105,8 +105,9 @@ func SyncAdmittedCondition(w *kueue.Workload, now time.Time) bool {
 	return apimeta.SetStatusCondition(&w.Status.Conditions, newCondition)
 }
 
-// resetChecksOnEviction sets all AdmissionChecks to Pending
-func resetChecksOnEviction(w *kueue.Workload, now time.Time) {
+// ResetChecksOnEviction sets all AdmissionChecks to Pending. Exported for the deactivation
+// path in the Workload controller, which bypasses Evict when the Workload is already evicted.
+func ResetChecksOnEviction(w *kueue.Workload, now time.Time) {
 	checks := w.Status.AdmissionChecks
 	for i := range checks {
 		if checks[i].State == kueue.CheckStatePending {

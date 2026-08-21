@@ -1954,7 +1954,7 @@ func HasNoPriority(wl *kueue.Workload) bool {
 func prepareForEviction(w *kueue.Workload, now time.Time, reason, message string) {
 	SetEvictedCondition(w, now, reason, message)
 	resetClusterNomination(w)
-	resetChecksOnEviction(w, now)
+	ResetChecksOnEviction(w, now)
 	resetUnhealthyNodes(w)
 	unsetBlockedOnPreemptionGatesCondition(w, now, reason, message)
 	closeAllPreemptionGates(w, now)
