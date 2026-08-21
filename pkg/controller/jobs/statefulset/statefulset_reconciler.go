@@ -117,7 +117,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	})
 
 	eg.Go(func() error {
-		return r.reconcileWorkload(ctx, sts)
+		return r.reconcileWorkload(ctx, sts, wlName)
 	})
 
 	return ctrl.Result{}, eg.Wait()
@@ -190,7 +190,7 @@ func findWorkloadName(ctx context.Context, c client.Client, sts *appsv1.Stateful
 	return wlName, nil
 }
 
-func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet) error {
+func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.StatefulSet, wlName string) error {
 	if sts == nil {
 		return nil
 	}
@@ -199,11 +199,7 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	queueName := jobframework.QueueNameForObject(sts)
 
 	wl := &kueue.Workload{}
-	wlName, err := findWorkloadName(ctx, r.client, sts)
-	if err != nil {
-		return err
-	}
-	err = r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: wlName}, wl)
+	err := r.client.Get(ctx, client.ObjectKey{Namespace: sts.Namespace, Name: wlName}, wl)
 
 	if apierrors.IsNotFound(err) {
 		_, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]
