@@ -449,6 +449,14 @@ func TestGetPodGroupName(t *testing.T) {
 				Obj(),
 			want: "group-from-annotation",
 		},
+		"pod with both label and empty annotation and WorkloadIdentifierAnnotations enabled falls back to label": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			pod: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-from-label").
+				Annotation(podconstants.GroupNameAnnotation, "").
+				Obj(),
+			want: "group-from-label",
+		},
 		"pod with both label and annotation and WorkloadIdentifierAnnotations disabled uses label": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("pod", "ns").
