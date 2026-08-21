@@ -221,6 +221,9 @@ configuration details.
 ## Limitations
 
 - We do not currently support running the manager cluster as one of the workers for itself.
+- Concurrent Admission policies are supported on worker ClusterQueues. A
+  manager ClusterQueue that combines a MultiKueue AdmissionCheck with a
+  Concurrent Admission policy is marked inactive.
 - For job types without `managedBy` support (StatefulSet, LeaderWorkerSet), the job status on the
   manager cluster may not reflect the actual status from the worker cluster. This is because the
   local job controller continuously updates status based on local (gated) pods. The job execution

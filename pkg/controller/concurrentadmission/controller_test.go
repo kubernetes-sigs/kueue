@@ -837,6 +837,170 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"parent preemption gate state is synchronized to existing variants": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PreemptionGates(otherGate).
+				PreemptionGateStates(kueue.PreemptionGateState{
+					Name:               otherGate.Name,
+					Position:           kueue.PreemptionGatePositionOpen,
+					LastTransitionTime: metav1.NewTime(fakeNow),
+				}).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					PreemptionGates(otherGate, caGate()).
+					PreemptionGateStates(
+						kueue.PreemptionGateState{
+							Name:               otherGate.Name,
+							Position:           kueue.PreemptionGatePositionClosed,
+							LastTransitionTime: metav1.NewTime(fakeNow.Add(-time.Minute)),
+						},
+						caGateState(kueue.PreemptionGatePositionOpen, fakeNow.Add(-time.Minute)),
+					).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PreemptionGates(otherGate).
+				PreemptionGateStates(kueue.PreemptionGateState{
+					Name:               otherGate.Name,
+					Position:           kueue.PreemptionGatePositionOpen,
+					LastTransitionTime: metav1.NewTime(fakeNow),
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					PreemptionGates(otherGate, caGate()).
+					PreemptionGateStates(
+						kueue.PreemptionGateState{
+							Name:               otherGate.Name,
+							Position:           kueue.PreemptionGatePositionOpen,
+							LastTransitionTime: metav1.NewTime(fakeNow),
+						},
+						caGateState(kueue.PreemptionGatePositionOpen, fakeNow.Add(-time.Minute)),
+					).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+		},
+		"variant preemption signal is synchronized to the parent": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PreemptionGates(otherGate).
+				PreemptionGateStates(kueue.PreemptionGateState{
+					Name:               otherGate.Name,
+					Position:           kueue.PreemptionGatePositionClosed,
+					LastTransitionTime: metav1.NewTime(fakeNow.Add(-time.Minute)),
+				}).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					PreemptionGates(otherGate, caGate()).
+					PreemptionGateStates(
+						kueue.PreemptionGateState{
+							Name:               otherGate.Name,
+							Position:           kueue.PreemptionGatePositionClosed,
+							LastTransitionTime: metav1.NewTime(fakeNow.Add(-time.Minute)),
+						},
+						caGateState(kueue.PreemptionGatePositionClosed, fakeNow.Add(-time.Minute)),
+					).
+					Condition(blockedOnPreemptionCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PreemptionGates(otherGate).
+				PreemptionGateStates(kueue.PreemptionGateState{
+					Name:               otherGate.Name,
+					Position:           kueue.PreemptionGatePositionClosed,
+					LastTransitionTime: metav1.NewTime(fakeNow.Add(-time.Minute)),
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadBlockedOnPreemptionGates,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.PreemptionGated,
+					Message:            `Variant Workload "default/wl-variant-spot" is blocked on preemption gates`,
+					LastTransitionTime: metav1.NewTime(fakeNow),
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					PreemptionGates(otherGate, caGate()).
+					PreemptionGateStates(
+						kueue.PreemptionGateState{
+							Name:               otherGate.Name,
+							Position:           kueue.PreemptionGatePositionClosed,
+							LastTransitionTime: metav1.NewTime(fakeNow.Add(-time.Minute)),
+						},
+						caGateState(kueue.PreemptionGatePositionOpen, fakeNow),
+					).
+					Condition(blockedOnPreemptionCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantResult: reconcile.Result{RequeueAfter: preemptionTimeout},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-spot"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonPreemptionUngatedVariant,
+					Message:   `Opened preemption gate for variant workload "default/wl-variant-spot"`,
+				},
+			},
+		},
+		"parent preemption signal is cleared when no variant is blocked": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PreemptionGates(otherGate).
+				Condition(blockedOnPreemptionCondition(fakeNow.Add(-time.Minute))).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					PreemptionGates(otherGate, caGate()).
+					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow.Add(-time.Minute))).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PreemptionGates(otherGate).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadBlockedOnPreemptionGates,
+					Status:             metav1.ConditionFalse,
+					Reason:             ReasonVariantsNotPreemptionGated,
+					Message:            "No Variant Workload is blocked on preemption gates",
+					LastTransitionTime: metav1.NewTime(fakeNow),
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					PreemptionGates(otherGate, caGate()).
+					PreemptionGateStates(caGateState(kueue.PreemptionGatePositionOpen, fakeNow.Add(-time.Minute))).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+		},
 		"admitted variant syncs admission to parent": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
@@ -1217,19 +1381,21 @@ func TestReconcile(t *testing.T) {
 				Queue("lq-migration").
 				Request(corev1.ResourceCPU, "1").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PreemptionGates(otherGate).
+				Condition(blockedOnPreemptionCondition(fakeNow.Add(-time.Minute))).
 				Obj(),
 			variantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-reservation", "default").
 					Queue("lq-migration").
 					AllowedFlavors("reservation").
-					PreemptionGates(caGate()).
+					PreemptionGates(otherGate, caGate()).
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-migration").
 					AllowedFlavors("on-demand").
-					PreemptionGates(caGate()).
+					PreemptionGates(otherGate, caGate()).
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration", "on-demand", metav1.Now().Time).
@@ -1238,15 +1404,17 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq-migration").
 					AllowedFlavors("spot").
-					PreemptionGates(caGate()).
+					PreemptionGates(otherGate, caGate()).
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
+					Condition(blockedOnPreemptionCondition(fakeNow)).
 					Obj(),
 			},
 			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq-migration").
 				Request(corev1.ResourceCPU, "1").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				PreemptionGates(otherGate).
 				Admission(utiltestingapi.MakeAdmission("cq-migration", "main").
 					PodSets(kueue.PodSetAssignment{
 						Name: "main",
@@ -1268,19 +1436,26 @@ func TestReconcile(t *testing.T) {
 					Reason:  "QuotaReserved",
 					Message: "Quota reserved in ClusterQueue cq-migration",
 				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadBlockedOnPreemptionGates,
+					Status:             metav1.ConditionFalse,
+					Reason:             ReasonVariantsNotPreemptionGated,
+					Message:            "No Variant Workload is blocked on preemption gates",
+					LastTransitionTime: metav1.NewTime(fakeNow),
+				}).
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl-variant-reservation", "default").
 					Queue("lq-migration").
 					AllowedFlavors("reservation").
-					PreemptionGates(caGate()).
+					PreemptionGates(otherGate, caGate()).
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
 					Queue("lq-migration").
 					AllowedFlavors("on-demand").
-					PreemptionGates(caGate()).
+					PreemptionGates(otherGate, caGate()).
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					SimpleReserveQuota("cq-migration", "on-demand", metav1.Now().Time).
@@ -1289,10 +1464,11 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
 					Queue("lq-migration").
 					AllowedFlavors("spot").
-					PreemptionGates(caGate()).
+					PreemptionGates(otherGate, caGate()).
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Request(corev1.ResourceCPU, "1").
 					Active(false).
+					Condition(blockedOnPreemptionCondition(fakeNow)).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -2501,5 +2677,28 @@ func TestCreateVariantsAlreadyExists(t *testing.T) {
 
 	if err := cl.Get(t.Context(), client.ObjectKeyFromObject(existing), &kueue.Workload{}); err != nil {
 		t.Fatalf("pre-existing variant should still exist: %v", err)
+	}
+}
+
+func TestGenerateVariantDoesNotCopyPreemptionSignal(t *testing.T) {
+	parent := utiltestingapi.MakeWorkload("parent-wl", "default").
+		Condition(blockedOnPreemptionCondition(time.Now())).
+		Condition(metav1.Condition{
+			Type:   kueue.WorkloadPodsReady,
+			Status: metav1.ConditionFalse,
+			Reason: "PodsNotReady",
+		}).
+		Obj()
+
+	variant := generateVariant(parent, "spot")
+
+	if got := workload.BlockedOnPreemptionGatesCondition(variant); got != nil {
+		t.Errorf("generated Variant should not inherit the Parent preemption signal, got %v", got)
+	}
+	if got := apimeta.FindStatusCondition(variant.Status.Conditions, kueue.WorkloadPodsReady); got == nil {
+		t.Error("generated Variant should preserve unrelated Parent conditions")
+	}
+	if got := workload.BlockedOnPreemptionGatesCondition(parent); got == nil {
+		t.Error("generating a Variant should not mutate the Parent conditions")
 	}
 }
