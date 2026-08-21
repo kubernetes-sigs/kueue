@@ -126,11 +126,6 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 // FindLatestActiveWorkloadForSlice returns the active slice of the chain identified
 // by its first slice's name (sliceName), which every slice and pod of an elastic job
 // carries, applying the same selection rule as FindLatestActiveWorkload.
-//
-// Resolving by that name rather than by owner keeps the lookup working when the
-// first slice itself has been deleted, and when the object owning the pods is not
-// the object the Workload was created for — a RayService owns the Workload while
-// its child RayCluster owns the pods.
 func FindLatestActiveWorkloadForSlice(ctx context.Context, clnt client.Client, namespace, sliceName string) (*kueue.Workload, error) {
 	list := &kueue.WorkloadList{}
 	if err := clnt.List(ctx, list, client.InNamespace(namespace),
