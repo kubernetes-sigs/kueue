@@ -443,10 +443,6 @@ func (h *elasticPodHandler) queueReconcileForPod(ctx context.Context, object cli
 		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workloadSlice", sliceKey.String())
 		h.expectationsStore.ObservedUID(log, sliceKey, pod.UID)
 	}
-	// Enqueue the chain's active slice so Reconcile loads a live workload directly.
-	// The chain key indexes the slices themselves, so this resolves without the
-	// origin slice the pod names, and without assuming the job that owns the pods
-	// is the one the Workload was created for.
 	active, err := latestActiveSliceForChain(ctx, h.client, pod.Namespace, sliceName)
 	if err != nil || active == nil {
 		return
