@@ -21,6 +21,9 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // NodeWrapper wraps a Node.
@@ -60,6 +63,12 @@ func (n *NodeWrapper) Label(k, v string) *NodeWrapper {
 		n.Labels = make(map[string]string)
 	}
 	n.Labels[k] = v
+	return n
+}
+
+// OwnerReference adds an ownerReference to the Node.
+func (n *NodeWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *NodeWrapper {
+	utiltesting.AppendOwnerReference(&n.Node, ownerGVK, ownerName, ownerName, new(true), new(true))
 	return n
 }
 

@@ -64,7 +64,7 @@ func TestIndexPodController(t *testing.T) {
 		wantKeys []string
 	}{
 		"non-pod object": {
-			object: testingnode.MakeNode("node").Obj(),
+			object: testingnode.MakeNode("node").OwnerReference("node", gvk).Obj(),
 		},
 		"pod without owner": {
 			object: testingpod.MakePod("pod", "ns").Obj(),
