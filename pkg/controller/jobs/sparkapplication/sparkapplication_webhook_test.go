@@ -108,10 +108,13 @@ func TestValidateCreate(t *testing.T) {
 
 			webhook := &SparkApplicationWebhook{}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, gotErr := webhook.ValidateCreate(ctx, tc.sparkApp)
+			warns, gotErr := webhook.ValidateCreate(ctx, tc.sparkApp)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
-				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("validateCreate() errors mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+				t.Errorf("validateCreate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
