@@ -5793,6 +5793,162 @@ func TestSchedule(t *testing.T) {
 				utiltesting.MakeEventRecord("sales", "foo-1", kueue.WorkloadSliceReplaced, corev1.EventTypeNormal).Obj(),
 			},
 		},
+		// An entry in Fit mode still carries a preemption target when it replaces a
+		// workload slice. If that target was already claimed by an earlier preemption in
+		// the same cycle, the entry is skipped - but it never needed preemption, so the
+		// skip must not be counted in the admission_cycle_preemption_skips metric.
+		"workload-slice in fit mode with overlapping target is not counted as a preemption skip": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("elastic-a").
+					Cohort("elastic").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "5").Obj(),
+					).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("elastic-b").
+					Cohort("elastic").
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "5").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("elastic-a", "eng-alpha").ClusterQueue("elastic-a").Obj(),
+				*utiltestingapi.MakeLocalQueue("elastic-b", "eng-beta").ClusterQueue("elastic-b").Obj(),
+			},
+			workloads: []kueue.Workload{
+				// slice-1 borrows the whole cohort quota.
+				*utiltestingapi.MakeWorkload("slice-1", "eng-alpha").
+					Priority(0).
+					Queue("elastic-a").
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("elastic-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "10").
+							Obj()).
+						Obj(), now).
+					Obj(),
+				// slice-2 replaces slice-1, so slice-1's usage is discounted and slice-2
+				// fits, yet slice-1 is still carried as its preemption target.
+				*utiltestingapi.MakeWorkload("slice-2", "eng-alpha").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "eng-alpha/slice-1").
+					Priority(0).
+					Queue("elastic-a").
+					Request(corev1.ResourceCPU, "10").
+					Obj(),
+				// preemptor sorts first and reclaims from slice-1, claiming the target
+				// that slice-2 also carries.
+				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
+					Priority(100).
+					Queue("elastic-b").
+					Request(corev1.ResourceCPU, "5").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("slice-1", "eng-alpha").
+					Priority(0).
+					Queue("elastic-a").
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("elastic-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "10").
+							Obj()).
+						Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to reclamation within the cohort; preemptor path: /elastic/elastic-b; preemptee path: /elastic/elastic-a",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InCohortReclamation",
+						Message:            "Preempted to accommodate a workload (UID: wl-preemptor, JobUID: job-preemptor) due to reclamation within the cohort; preemptor path: /elastic/elastic-b; preemptee path: /elastic/elastic-a",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("slice-2", "eng-alpha").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "eng-alpha/slice-1").
+					Priority(0).
+					Queue("elastic-a").
+					Request(corev1.ResourceCPU, "10").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "Workload has overlapping preemption targets with another workload",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("10"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("preemptor", "eng-beta").
+					UID("wl-preemptor").
+					JobUID("job-preemptor").
+					Priority(100).
+					Queue("elastic-b").
+					Request(corev1.ResourceCPU, "5").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor default, 5 more needed. Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "main",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("5"),
+						},
+					}).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"eng-alpha/slice-1": *utiltestingapi.MakeAdmission("elastic-a").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "10").
+						Obj()).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"elastic-a": {"eng-alpha/slice-2"},
+				"elastic-b": {"eng-beta/preemptor"},
+			},
+			// slice-2 was skipped in Fit mode, so its skip is not a preemption skip.
+			wantSkippedPreemptions: map[string]int{
+				"elastic-a": 0,
+				"elastic-b": 0,
+			},
+		},
 		"pending admission check with nofit and fit flavors": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("pending-check", "eng-beta").
