@@ -121,10 +121,10 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 	}), nil
 }
 
-// FindLatestActiveWorkloadForSlice returns the active slice of the chain identified
-// by its first slice's name (sliceName), which every slice and pod of an elastic job
-// carries, applying the same selection rule as FindLatestActiveWorkload.
-func FindLatestActiveWorkloadForSlice(ctx context.Context, clnt client.Client, namespace, sliceName string) (*kueue.Workload, error) {
+// FindLatestAdmittedWorkloadForSlice returns the admitted slice of the chain
+// identified by its first slice's name (sliceName), which every slice and pod of an
+// elastic job carries, or nil if none is admitted.
+func FindLatestAdmittedWorkloadForSlice(ctx context.Context, clnt client.Client, namespace, sliceName string) (*kueue.Workload, error) {
 	list := &kueue.WorkloadList{}
 	if err := clnt.List(ctx, list, client.InNamespace(namespace),
 		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
@@ -144,7 +144,10 @@ func FindLatestActiveWorkloadForSlice(ctx context.Context, clnt client.Client, n
 		if workloadfinish.IsFinished(wl) {
 			continue
 		}
-		if workload.HasQuotaReservation(wl) && !workloadevict.IsEvicted(wl) {
+		// Eviction is two writes: the condition is set before the reservation is
+		// released, so an evicted slice can still report itself admitted while its
+		// capacity is on the way out.
+		if workload.IsAdmitted(wl) && !workloadevict.IsEvicted(wl) {
 			return wl, nil
 		}
 	}

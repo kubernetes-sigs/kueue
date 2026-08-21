@@ -352,20 +352,10 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	return gated, nil
 }
 
-// activeSlice resolves the chain's active slice for the workload anyWl belongs
-// to (see latestActiveSliceForChain), or nil if none qualifies for ungating.
+// activeSlice resolves the admitted slice of the chain the workload anyWl belongs
+// to, or nil if none is admitted.
 func (r *elasticJobUngater) activeSlice(ctx context.Context, anyWl *kueue.Workload) (*kueue.Workload, error) {
-	return latestActiveSliceForChain(ctx, r.client, anyWl.Namespace, workloadslicing.SliceName(anyWl))
-}
-
-// latestActiveSliceForChain resolves the latest active slice of the chain identified
-// by its first slice's name (sliceName), or nil if none qualifies for ungating.
-func latestActiveSliceForChain(ctx context.Context, c client.Client, namespace, sliceName string) (*kueue.Workload, error) {
-	active, err := workloadslicing.FindLatestActiveWorkloadForSlice(ctx, c, namespace, sliceName)
-	if err != nil || active == nil || !workload.IsAdmitted(active) {
-		return nil, err
-	}
-	return active, nil
+	return workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, r.client, anyWl.Namespace, workloadslicing.SliceName(anyWl))
 }
 
 // Workload predicates
@@ -433,7 +423,7 @@ func (h *elasticPodHandler) queueReconcileForPod(ctx context.Context, object cli
 		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workloadSlice", sliceKey.String())
 		h.expectationsStore.ObservedUID(log, sliceKey, pod.UID)
 	}
-	active, err := latestActiveSliceForChain(ctx, h.client, pod.Namespace, sliceName)
+	active, err := workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, h.client, pod.Namespace, sliceName)
 	if err != nil || active == nil {
 		return
 	}
