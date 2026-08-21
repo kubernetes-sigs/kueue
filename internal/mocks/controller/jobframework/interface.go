@@ -163,6 +163,21 @@ func (mr *MockGenericJobMockRecorder) PodsReady(ctx, c any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodsReady", reflect.TypeOf((*MockGenericJob)(nil).PodsReady), ctx, c)
 }
 
+// PodsScheduled mocks base method.
+func (m *MockGenericJob) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PodsScheduled", ctx, c)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PodsScheduled indicates an expected call of PodsScheduled.
+func (mr *MockGenericJobMockRecorder) PodsScheduled(ctx, c any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PodsScheduled", reflect.TypeOf((*MockGenericJob)(nil).PodsScheduled), ctx, c)
+}
+
 // RestorePodSetsInfo mocks base method.
 func (m *MockGenericJob) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	m.ctrl.T.Helper()

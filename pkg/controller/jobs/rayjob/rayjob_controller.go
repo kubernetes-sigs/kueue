@@ -229,6 +229,14 @@ func (j *RayJob) PodsReady(ctx context.Context, _ client.Client) bool {
 	return j.Status.RayClusterStatus.State == rayv1.Ready
 }
 
+func (j *RayJob) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
+	podSets, err := raycluster.BuildPodSets(j.Spec.RayClusterSpec, j.Annotations)
+	if err != nil {
+		return false, err
+	}
+	return raycluster.PodsScheduledForRayCluster(ctx, c, j.Namespace, j.Status.RayClusterName, podSets)
+}
+
 func (j *RayJob) GetCustomAnnotations(ctx context.Context, c client.Client) (map[string]string, error) {
 	return raycluster.GetWorkloadslicingRayClusterCustomAnnotations(ctx, c, j.Object(), j.Status.RayClusterName)
 }

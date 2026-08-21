@@ -209,6 +209,14 @@ func (j *MPIJob) PodsReady(ctx context.Context, _ client.Client) bool {
 	return false
 }
 
+func (j *MPIJob) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
+	minCount := 0
+	for _, rt := range orderedReplicaTypes(&j.Spec) {
+		minCount += int(podsCount(&j.Spec, rt))
+	}
+	return jobframework.PodsScheduledBySelector(ctx, c, j.Namespace, j.PodLabelSelector(), minCount)
+}
+
 func (j *MPIJob) CanDefaultManagedBy() bool {
 	jobSpecManagedBy := j.Spec.RunPolicy.ManagedBy
 	return features.Enabled(features.MultiKueue) &&

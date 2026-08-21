@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
+	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -184,6 +185,13 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 		g.Expect(k8sClient.Get(ctx, lookupKey, createdSparkApplication)).Should(gomega.Succeed())
 		g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, true)).Should(gomega.BeFalse())
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+	ginkgo.By("Create scheduled pods for the SparkApplication")
+	minCount := 1 + int(ptr.Deref(createdSparkApplication.Spec.Executor.Instances, 0))
+	selector := fmt.Sprintf("%s=%s", sparkcommon.LabelSparkAppName, createdSparkApplication.Name)
+	gomega.ExpectWithOffset(1, util.CreateScheduledPodsForSelector(ctx, k8sClient, sparkApp.Namespace, selector, minCount)).Should(gomega.Succeed())
+	util.TriggerReconcileEventuallyWithOffset(ctx, k8sClient, lookupKey, createdSparkApplication, 1)
+	gomega.ExpectWithOffset(1, k8sClient.Status().Update(ctx, createdSparkApplication)).Should(gomega.Succeed())
 
 	if podsReadyTestSpec.BeforeAppState != nil {
 		ginkgo.By("Update the SparkApplication status to simulate initial progress")

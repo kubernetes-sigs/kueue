@@ -752,6 +752,10 @@ const (
 	// when the pods have not been ready since admission, or the workload is not admitted.
 	WorkloadWaitForStart = "WaitForStart"
 
+	// WorkloadWaitForScheduling indicates the reason for the PodsReady=False condition
+	// when one or more required pods have not been scheduled (PodScheduled != True).
+	WorkloadWaitForScheduling = "WaitForScheduling"
+
 	// WorkloadWaitForRecovery indicates the reason for the PodsReady=False condition
 	// when the Pods were ready since the workload admission, but some pod has failed,
 	// and workload waits for recovering.
