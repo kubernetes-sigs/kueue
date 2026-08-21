@@ -627,7 +627,7 @@ type FairSharing struct {
 	//   less than or equal to the share of AlmostLCA(preemptee, preemptor)
 	//   without the workload to be preempted.
 	//   This strategy might favor preemption of smaller workloads in the preemptee CQ,
-	//   regardless of priority or start time, in an effort to keep the share of the CQ
+	//   regardless of priority or start time, in an effort to keep the share of AlmostLCA(preemptee, preemptor)
 	//   as high as possible.
 	// - LessThanInitialShare: Only preempt a workload if the share of
 	//   AlmostLCA(preemptor, preemptee) with the preemptor workload admitted is

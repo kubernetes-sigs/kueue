@@ -181,7 +181,7 @@ The values you can put in the `preemptionStrategies` list are:
   AlmostLCA(preemptor, target) with the preemptor Workload admitted is less than or equal to the
   share of AlmostLCA(target, preemptor) without the workload to be preempted.
   This strategy might favor preemption of smaller workloads in the target ClusterQueue,
-  regardless of priority or start time, in an effort to keep the share of the ClusterQueue
+  regardless of priority or start time, in an effort to keep the share of AlmostLCA(target, preemptor)
   as high as possible.
 - `LessThanInitialShare`: Only preempt a Workload if the share of AlmostLCA(preemptor, target)
   with the preemptor Workload admitted is strictly less than the share of
