@@ -63,7 +63,7 @@ services benefit from spreading replicas across failure domains so that a locali
 infrastructure outage does not take down the entire service.
 
 The feature introduces a new annotation,
-`[alpha].kueue.x-k8s.io/topology-spreading`, on Kueue Workloads. The annotation
+`kueue.x-k8s.io/topology-spreading`, on Kueue Workloads. The annotation
 carries a JSON object specifying a label selector that identifies the set of
 workloads to spread, and one or more spreading rules. Each rule names a topology
 domain key (matching a level defined on a topology-enabled ResourceFlavor) and
@@ -137,7 +137,7 @@ They want to ensure that no more than 45% of the inference pods end up in any
 single availability zone. They annotate the workload template:
 
 ```yaml
-"[alpha].kueue.x-k8s.io/topology-spreading": |
+"kueue.x-k8s.io/topology-spreading": |
   {
     "workload-label-selector": "app=inference-service",
     "rules": [
@@ -164,7 +164,7 @@ An operator prefers zone spreading but recognizes that capacity constraints may
 prevent strict enforcement. They use `"type": "Preferred"`:
 
 ```yaml
-"[alpha].kueue.x-k8s.io/topology-spreading": |
+"kueue.x-k8s.io/topology-spreading": |
   {
     "workload-label-selector": "app=inference-service",
     "rules": [
@@ -203,7 +203,7 @@ workload is outside the scope of this KEP.
 Topology Spreading is active for a workload only when **both** of the following
 conditions hold:
 
-1. The workload carries the `[alpha].kueue.x-k8s.io/topology-spreading`
+1. The workload carries the `kueue.x-k8s.io/topology-spreading`
    annotation with a valid configuration. Workloads without this annotation are
    unaffected — the feature is entirely opt-in.
 2. The selected `ResourceFlavor` has a `Topology` field that declares the
@@ -273,7 +273,7 @@ Spreading configuration is expressed as a JSON-encoded string in a single
 annotation on the `Workload` object:
 
 ```
-[alpha].kueue.x-k8s.io/topology-spreading
+kueue.x-k8s.io/topology-spreading
 ```
 
 The annotation value is a JSON object with the following top-level fields:
@@ -568,8 +568,6 @@ with topology-labeled nodes, covering both Required and Preferred modes.
 #### Alpha
 
 - Feature gate `TopologySpreading` introduced, disabled by default.
-- Annotation `[alpha].kueue.x-k8s.io/topology-spreading` documented as
-  experimental.
 - Support for up to two topology levels.
 - `Required` and `Preferred` rule types implemented.
 - `TopologySpreadInvalid` condition surfaced for misconfigured workloads.
@@ -581,9 +579,6 @@ with topology-labeled nodes, covering both Required and Preferred modes.
 #### Beta
 
 - Feature gate enabled by default.
-- Annotation promoted to `kueue.x-k8s.io/topology-spreading` (alpha prefix
-  dropped); backward compatibility shim for old annotation key with a deferred
-  removal comment targeting the release after stable graduation.
 - More than two topology levels supported (following user feedback on alpha
   usage).
 - Metrics added to track workloads blocked by spreading constraints.
