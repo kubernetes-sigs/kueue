@@ -57,7 +57,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
 		snapshot:          p.snapshot,
 		frsNeedPreemption: sets.New(fr),
-		preemptions:       make(map[client.ObjectKey]preemptionInfo),
+		preemptions:       make(map[client.ObjectKey]preemption),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
 				Assigned: resources.FlavorResourceQuantities{fr: quantity},
