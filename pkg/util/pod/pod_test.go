@@ -30,6 +30,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -408,3 +410,60 @@ func TestRecordPodSchedulingGateRemovalSecondsReplicaRole(t *testing.T) {
 		})
 	}
 }
+
+func TestGetPodGroupName(t *testing.T) {
+	cases := map[string]struct {
+		enableWorkloadIdentifierAnnotations bool
+		pod                                 *corev1.Pod
+		want                                string
+	}{
+		"pod without group name": {
+			pod: testingpod.MakePod("pod", "ns").Obj(),
+		},
+		"pod with group name label": {
+			pod: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-1").
+				Obj(),
+			want: "group-1",
+		},
+		"pod with group name annotation and WorkloadIdentifierAnnotations enabled": {
+			enableWorkloadIdentifierAnnotations: true,
+			pod: testingpod.MakePod("pod", "ns").
+				Annotation(podconstants.GroupNameAnnotation, "group-2").
+				Obj(),
+			want: "group-2",
+		},
+		"pod with group name annotation and WorkloadIdentifierAnnotations disabled": {
+			pod: testingpod.MakePod("pod", "ns").
+				Annotation(podconstants.GroupNameAnnotation, "group-2").
+				Obj(),
+			want: "",
+		},
+		"pod with both label and annotation and WorkloadIdentifierAnnotations enabled prefers annotation": {
+			enableWorkloadIdentifierAnnotations: true,
+			pod: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-from-label").
+				Annotation(podconstants.GroupNameAnnotation, "group-from-annotation").
+				Obj(),
+			want: "group-from-annotation",
+		},
+		"pod with both label and annotation and WorkloadIdentifierAnnotations disabled uses label": {
+			pod: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-from-label").
+				Annotation(podconstants.GroupNameAnnotation, "group-from-annotation").
+				Obj(),
+			want: "group-from-label",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, tc.enableWorkloadIdentifierAnnotations)
+			got := GetPodGroupName(tc.pod)
+			if got != tc.want {
+				t.Errorf("Unexpected group name: want=%v, got=%v", tc.want, got)
+			}
+		})
+	}
+}
+

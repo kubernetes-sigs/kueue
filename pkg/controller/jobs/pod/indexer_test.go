@@ -25,15 +25,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 func TestIndexPodGroupName(t *testing.T) {
 	cases := map[string]struct {
-		enableWorkloadIdentifierAnnotations bool
-		object                              client.Object
-		wantKeys                            []string
+		object   client.Object
+		wantKeys []string
 	}{
 		"non-pod object": {
 			object: &corev1.Node{
@@ -41,54 +39,22 @@ func TestIndexPodGroupName(t *testing.T) {
 					Labels: map[string]string{
 						podconstants.GroupNameLabel: "group-1",
 					},
-					Annotations: map[string]string{
-						podconstants.GroupNameAnnotation: "group-1",
-					},
 				},
 			},
 		},
 		"pod without group name": {
 			object: testingjobspod.MakePod("pod", "ns").Obj(),
 		},
-		"pod with group name label": {
+		"pod with group name": {
 			object: testingjobspod.MakePod("pod", "ns").
 				GroupNameLabel("group-1").
 				Obj(),
 			wantKeys: []string{"group-1"},
 		},
-		"pod with group name annotation and WorkloadIdentifierAnnotations enabled": {
-			enableWorkloadIdentifierAnnotations: true,
-			object: testingjobspod.MakePod("pod", "ns").
-				Annotation(podconstants.GroupNameAnnotation, "group-2").
-				Obj(),
-			wantKeys: []string{"group-2"},
-		},
-		"pod with group name annotation and WorkloadIdentifierAnnotations disabled": {
-			object: testingjobspod.MakePod("pod", "ns").
-				Annotation(podconstants.GroupNameAnnotation, "group-2").
-				Obj(),
-			wantKeys: nil,
-		},
-		"pod with both label and annotation and WorkloadIdentifierAnnotations enabled prefers annotation": {
-			enableWorkloadIdentifierAnnotations: true,
-			object: testingjobspod.MakePod("pod", "ns").
-				GroupNameLabel("group-from-label").
-				Annotation(podconstants.GroupNameAnnotation, "group-from-annotation").
-				Obj(),
-			wantKeys: []string{"group-from-annotation"},
-		},
-		"pod with both label and annotation and WorkloadIdentifierAnnotations disabled uses label": {
-			object: testingjobspod.MakePod("pod", "ns").
-				GroupNameLabel("group-from-label").
-				Annotation(podconstants.GroupNameAnnotation, "group-from-annotation").
-				Obj(),
-			wantKeys: []string{"group-from-label"},
-		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, tc.enableWorkloadIdentifierAnnotations)
 			got := IndexPodGroupName(tc.object)
 			if diff := cmp.Diff(tc.wantKeys, got); diff != "" {
 				t.Errorf("Unexpected keys (-want,+got):\n%s", diff)
