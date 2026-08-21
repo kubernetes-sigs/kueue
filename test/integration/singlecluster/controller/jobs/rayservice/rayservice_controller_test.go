@@ -80,11 +80,6 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 	})
 
 	ginkgo.It("Should ungate chain pods after the origin workload slice is deleted", framework.SlowSpec, func() {
-		// Same stranded-pod scenario as the RayCluster spec, but for a RayService:
-		// Kueue owns the Workload through the RayService while KubeRay owns the pods
-		// through the child RayCluster. Once the origin slice is gone, recovering the
-		// owning job from the pod's controller reference yields the RayCluster, whose
-		// kind does not match the RayService the Workload is indexed under.
 		service := testingrayservice.MakeService("foo", ns.Name).
 			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			Queue(localQueue.Name).
