@@ -1712,19 +1712,6 @@ The value is populated if usage consumption functionality is enabled in Kueue co
 <tbody>
     
   
-<tr><td><code>weightedShare</code> <B>[Required]</B><br/>
-<code>int64</code>
-</td>
-<td>
-   <p>weightedShare represents the maximum of the ratios of usage
-above nominal quota to the lendable resources in the
-Cohort, among all the resources provided by the Node, and
-divided by the weight.  If zero, it means that the usage of
-the Node is below the nominal quota.  If the Node has a
-weight of zero and is borrowing, this will return
-9223372036854775807, the maximum possible share value.</p>
-</td>
-</tr>
 <tr><td><code>admissionFairSharingStatus</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-LocalQueueAdmissionFairSharingStatus"><code>LocalQueueAdmissionFairSharingStatus</code></a>
 </td>
