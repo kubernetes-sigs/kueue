@@ -25,6 +25,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -414,8 +415,8 @@ func TestRecordPodSchedulingGateRemovalSecondsReplicaRole(t *testing.T) {
 func TestGetPodGroupName(t *testing.T) {
 	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
-		pod                                 *corev1.Pod
-		want                                string
+		pod          *corev1.Pod
+		want         string
 	}{
 		"pod without group name": {
 			pod: testingpod.MakePod("pod", "ns").Obj(),
@@ -427,20 +428,21 @@ func TestGetPodGroupName(t *testing.T) {
 			want: "group-1",
 		},
 		"pod with group name annotation and WorkloadIdentifierAnnotations enabled": {
-			enableWorkloadIdentifierAnnotations: true,
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 			pod: testingpod.MakePod("pod", "ns").
 				Annotation(podconstants.GroupNameAnnotation, "group-2").
 				Obj(),
 			want: "group-2",
 		},
 		"pod with group name annotation and WorkloadIdentifierAnnotations disabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("pod", "ns").
 				Annotation(podconstants.GroupNameAnnotation, "group-2").
 				Obj(),
 			want: "",
 		},
 		"pod with both label and annotation and WorkloadIdentifierAnnotations enabled prefers annotation": {
-			enableWorkloadIdentifierAnnotations: true,
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 			pod: testingpod.MakePod("pod", "ns").
 				GroupNameLabel("group-from-label").
 				Annotation(podconstants.GroupNameAnnotation, "group-from-annotation").
@@ -448,6 +450,7 @@ func TestGetPodGroupName(t *testing.T) {
 			want: "group-from-annotation",
 		},
 		"pod with both label and annotation and WorkloadIdentifierAnnotations disabled uses label": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pod: testingpod.MakePod("pod", "ns").
 				GroupNameLabel("group-from-label").
 				Annotation(podconstants.GroupNameAnnotation, "group-from-annotation").
@@ -458,12 +461,11 @@ func TestGetPodGroupName(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, tc.enableWorkloadIdentifierAnnotations)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			got := GetPodGroupName(tc.pod)
-			if got != tc.want {
-				t.Errorf("Unexpected group name: want=%v, got=%v", tc.want, got)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected group name (-want,+got):\n%s", diff)
 			}
 		})
 	}
 }
-

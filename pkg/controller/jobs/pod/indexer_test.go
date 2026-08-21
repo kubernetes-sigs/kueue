@@ -20,12 +20,11 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 func TestIndexPodGroupName(t *testing.T) {
@@ -34,13 +33,13 @@ func TestIndexPodGroupName(t *testing.T) {
 		wantKeys []string
 	}{
 		"non-pod object": {
-			object: node.MakeNode("node").Label(podconstants.GroupNameLabel, "group-1").Obj(),
+			object: testingnode.MakeNode("node").Label(podconstants.GroupNameLabel, "group-1").Obj(),
 		},
 		"pod without group name": {
-			object: testingjobspod.MakePod("pod", "ns").Obj(),
+			object: testingpod.MakePod("pod", "ns").Obj(),
 		},
 		"pod with group name": {
-			object: testingjobspod.MakePod("pod", "ns").
+			object: testingpod.MakePod("pod", "ns").
 				GroupNameLabel("group-1").
 				Obj(),
 			wantKeys: []string{"group-1"},
