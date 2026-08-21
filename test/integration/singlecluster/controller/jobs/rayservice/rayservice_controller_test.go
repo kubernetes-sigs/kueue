@@ -17,6 +17,9 @@ limitations under the License.
 package rayservice
 
 import (
+	"fmt"
+	"slices"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -41,9 +44,9 @@ import (
 
 var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
-		ns           *corev1.Namespace
-		clusterQueue *kueue.ClusterQueue
-		localQueue   *kueue.LocalQueue
+		ns             *corev1.Namespace
+		clusterQueue   *kueue.ClusterQueue
+		localQueue     *kueue.LocalQueue
 		resourceFlavor *kueue.ResourceFlavor
 	)
 
@@ -100,11 +103,36 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		originSliceName := originSlice.Name
 
-		ginkgo.By("scaling up the worker replicas to create a second (active) slice")
+		ginkgo.By("creating the child RayCluster owned by the RayService, as KubeRay would")
+		// The child RayCluster is owned by the RayService, mirroring the real
+		// topology: the pods' controller owner (RayCluster) differs from the
+		// slices' owner (RayService).
+		childCluster := &rayv1.RayCluster{
+			ObjectMeta: metav1.ObjectMeta{Name: service.Name + "-raycluster", Namespace: ns.Name},
+			Spec:       *service.Spec.RayClusterSpec.DeepCopy(),
+		}
+		childCluster.OwnerReferences = []metav1.OwnerReference{{
+			APIVersion:         rayv1.SchemeGroupVersion.String(),
+			Kind:               "RayService",
+			Name:               service.Name,
+			UID:                service.UID,
+			Controller:         new(true),
+			BlockOwnerDeletion: new(true),
+		}}
+		util.MustCreate(ctx, k8sClient, childCluster)
+
+		ginkgo.By("promoting the child cluster to active in the RayService status, as KubeRay would")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(service), service)).Should(gomega.Succeed())
-			service.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = new(int32(2))
-			g.Expect(k8sClient.Update(ctx, service)).Should(gomega.Succeed())
+			service.Status.ActiveServiceStatus.RayClusterName = childCluster.Name
+			g.Expect(k8sClient.Status().Update(ctx, service)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("scaling up the child RayCluster's worker replicas, as the Ray autoscaler would")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(childCluster), childCluster)).Should(gomega.Succeed())
+			childCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
+			g.Expect(k8sClient.Update(ctx, childCluster)).Should(gomega.Succeed())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		var activeSlice *kueue.Workload
@@ -126,35 +154,51 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 		ginkgo.By("deleting the origin slice to emulate a rollout GC of the old cluster's workloads")
 		util.DeleteWorkloadSliceAndAwaitDeletion(ctx, k8sClient, types.NamespacedName{Namespace: ns.Name, Name: originSliceName})
 
-		ginkgo.By("creating a still-gated pod that points at the now-deleted origin slice, owned by the child RayCluster")
-		childCluster := &rayv1.RayCluster{
-			ObjectMeta: metav1.ObjectMeta{Name: service.Name + "-raycluster", Namespace: ns.Name},
-			Spec:       *service.Spec.RayClusterSpec.DeepCopy(),
+		ginkgo.By("creating still-gated pods that point at the now-deleted origin slice, owned by the child RayCluster")
+		var workerPodSet kueue.PodSetReference
+		for _, ps := range activeSlice.Spec.PodSets {
+			if ps.Name != "head" {
+				workerPodSet = ps.Name
+			}
 		}
-		util.MustCreate(ctx, k8sClient, childCluster)
+		gomega.Expect(workerPodSet).ShouldNot(gomega.BeEmpty())
 
-		gatedPod := testingpod.MakePod("worker-0", ns.Name).
-			Annotation(kueue.WorkloadAnnotation, originSliceName).
-			Annotation(kueue.WorkloadSliceNameAnnotation, originSliceName).
-			Label(constants.PodSetLabel, string(activeSlice.Spec.PodSets[1].Name)).
-			Gate(kueue.ElasticJobSchedulingGate).
-			Obj()
-		gatedPod.OwnerReferences = []metav1.OwnerReference{{
-			APIVersion:         rayv1.SchemeGroupVersion.String(),
-			Kind:               "RayCluster",
-			Name:               childCluster.Name,
-			UID:                childCluster.UID,
-			Controller:         new(true),
-			BlockOwnerDeletion: new(true),
-		}}
-		util.MustCreate(ctx, k8sClient, gatedPod)
+		// One more gated pod than the active slice's granted worker count (2), so
+		// the test also pins that ungating stays capped by the admitted quota.
+		gatedPods := make([]*corev1.Pod, 3)
+		for i := range gatedPods {
+			gatedPods[i] = testingpod.MakePod(fmt.Sprintf("worker-%d", i), ns.Name).
+				Annotation(kueue.WorkloadAnnotation, originSliceName).
+				Annotation(kueue.WorkloadSliceNameAnnotation, originSliceName).
+				Label(constants.PodSetLabel, string(workerPodSet)).
+				Gate(kueue.ElasticJobSchedulingGate).
+				Obj()
+			gatedPods[i].OwnerReferences = []metav1.OwnerReference{{
+				APIVersion:         rayv1.SchemeGroupVersion.String(),
+				Kind:               "RayCluster",
+				Name:               childCluster.Name,
+				UID:                childCluster.UID,
+				Controller:         new(true),
+				BlockOwnerDeletion: new(true),
+			}}
+			util.MustCreate(ctx, k8sClient, gatedPods[i])
+		}
 
-		ginkgo.By("the ungater removes the elastic scheduling gate despite the origin slice being gone")
-		gomega.Eventually(func(g gomega.Gomega) {
+		hasElasticGate := func(g gomega.Gomega, pod *corev1.Pod) bool {
 			var got corev1.Pod
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(gatedPod), &got)).To(gomega.Succeed())
-			g.Expect(got.Spec.SchedulingGates).ShouldNot(gomega.ContainElement(
-				corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}))
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), &got)).To(gomega.Succeed())
+			return slices.Contains(got.Spec.SchedulingGates, corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate})
+		}
+
+		ginkgo.By("the ungater removes the elastic scheduling gate from the two lowest-named pods despite the origin slice being gone")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(hasElasticGate(g, gatedPods[0])).Should(gomega.BeFalse())
+			g.Expect(hasElasticGate(g, gatedPods[1])).Should(gomega.BeFalse())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the pod beyond the active slice's granted worker count stays gated")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(hasElasticGate(g, gatedPods[2])).Should(gomega.BeTrue())
+		}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
 	})
 })
