@@ -359,10 +359,7 @@ func (r *elasticJobUngater) activeSlice(ctx context.Context, anyWl *kueue.Worklo
 }
 
 // latestActiveSliceForChain resolves the latest active workload slice of the chain
-// identified by sliceName in namespace, or nil if none qualifies for ungating. Quota
-// reservation alone is insufficient: AdmissionChecks may still be pending, and
-// releasing the elastic gate before then would let pods schedule ahead of
-// capacity, so full admission is required.
+// identified by sliceName in namespace, or nil if none qualifies for ungating.
 func latestActiveSliceForChain(ctx context.Context, c client.Client, namespace, sliceName string) (*kueue.Workload, error) {
 	active, err := workloadslicing.FindLatestActiveWorkloadForSlice(ctx, c, namespace, sliceName)
 	if err != nil || active == nil || !workload.IsAdmitted(active) {
