@@ -43,16 +43,16 @@ var PodWorkloadAnnotations = []string{
 }
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error)
-type podSet map[client.ObjectKey]*corev1.Pod
-type podsBreakdown map[client.ObjectKey]podSet
+type podsByKey map[client.ObjectKey]*corev1.Pod
+type podsByWorkload map[client.ObjectKey]podsByKey
 
 // podTracker maintains pod state for scheduler plugins that need
 // existing pod information.
 type podTracker struct {
 	sync.RWMutex
-	pods           podSet
-	workloadPods   podsBreakdown
-	unassignedPods podSet
+	pods           podsByKey
+	workloadPods   podsByWorkload
+	unassignedPods podsByKey
 }
 
 type wasSimulator struct {
@@ -123,9 +123,9 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	return &wasSimulator{
 		newSnapshot: snapshotFn,
 		pods: podTracker{
-			pods:           make(podSet),
-			workloadPods:   make(podsBreakdown),
-			unassignedPods: make(podSet),
+			pods:           make(podsByKey),
+			workloadPods:   make(podsByWorkload),
+			unassignedPods: make(podsByKey),
 		},
 	}, nil
 }
@@ -147,7 +147,7 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 
 type wasSimulatorSnapshot struct {
 	wasSnapshot    *schedLibSnapshot.ClusterSnapshot
-	podsByWorkload *podsBreakdown
+	podsByWorkload *podsByWorkload
 }
 
 func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simulator.SimulatorSnapshot, error) {
@@ -170,7 +170,7 @@ func (s *wasSimulator) UntrackPod(key client.ObjectKey) {
 	s.pods.untrack(key)
 }
 
-func (m podsBreakdown) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
+func (m podsByWorkload) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
 	podSet, ok := m[wlKey]
 	if !ok {
 		return nil
@@ -178,7 +178,7 @@ func (m podsBreakdown) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod 
 	return slices.Collect(maps.Values(podSet))
 }
 
-func (t *podTracker) snapshot() (allPods []*corev1.Pod, podsByWorkload *podsBreakdown) {
+func (t *podTracker) snapshot() (allPods []*corev1.Pod, workloadPods *podsByWorkload) {
 	t.RLock()
 	defer t.RUnlock()
 
@@ -189,8 +189,8 @@ func (t *podTracker) snapshot() (allPods []*corev1.Pod, podsByWorkload *podsBrea
 		return
 	}
 
-	podsByWorkload = &podsBreakdown{}
-	maps.Copy(*podsByWorkload, t.workloadPods)
+	workloadPods = &podsByWorkload{}
+	maps.Copy(*workloadPods, t.workloadPods)
 	return
 }
 
@@ -209,7 +209,7 @@ func (t *podTracker) track(pod *corev1.Pod) {
 
 	wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
 	if _, ok := t.workloadPods[wlKey]; !ok {
-		t.workloadPods[wlKey] = make(podSet)
+		t.workloadPods[wlKey] = make(podsByKey)
 	}
 	t.workloadPods[wlKey][podKey] = pod
 }

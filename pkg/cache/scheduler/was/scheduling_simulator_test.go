@@ -327,14 +327,14 @@ func TestWorkloadMapping(t *testing.T) {
 
 	testCases := map[string]struct {
 		operation func(*wasSimulator)
-		want      *podsBreakdown
+		want      *podsByWorkload
 	}{
 		"add pod with workload annotation": {
 			operation: func(sim *wasSimulator) {
 				sim.TrackPod(makeSimplePod("pod", "ns", kueue.WorkloadAnnotation, "wl"))
 			},
-			want: &podsBreakdown{
-				key("ns", "wl"): podSet{
+			want: &podsByWorkload{
+				key("ns", "wl"): podsByKey{
 					key("ns", "pod"): makeSimplePod("pod", "ns", kueue.WorkloadAnnotation, "wl"),
 				},
 			},
@@ -343,8 +343,8 @@ func TestWorkloadMapping(t *testing.T) {
 			operation: func(sim *wasSimulator) {
 				sim.TrackPod(makeSimplePod("pod", "ns", kueue.WorkloadSliceNameAnnotation, "wl"))
 			},
-			want: &podsBreakdown{
-				key("ns", "wl"): podSet{
+			want: &podsByWorkload{
+				key("ns", "wl"): podsByKey{
 					key("ns", "pod"): makeSimplePod("pod", "ns", kueue.WorkloadSliceNameAnnotation, "wl"),
 				},
 			},
@@ -358,8 +358,8 @@ func TestWorkloadMapping(t *testing.T) {
 					"prebuild-wl",
 				))
 			},
-			want: &podsBreakdown{
-				key("ns", "prebuild-wl"): podSet{
+			want: &podsByWorkload{
+				key("ns", "prebuild-wl"): podsByKey{
 					key("ns", "pod"): makeSimplePod(
 						"pod",
 						"ns",
@@ -373,8 +373,8 @@ func TestWorkloadMapping(t *testing.T) {
 			operation: func(sim *wasSimulator) {
 				sim.TrackPod(makeSimplePod("pod", "ns", podconstants.GroupNameAnnotation, "group-wl"))
 			},
-			want: &podsBreakdown{
-				key("ns", "group-wl"): podSet{
+			want: &podsByWorkload{
+				key("ns", "group-wl"): podsByKey{
 					key("ns", "pod"): makeSimplePod("pod", "ns", podconstants.GroupNameAnnotation, "group-wl"),
 				},
 			},
@@ -387,11 +387,11 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.TrackPod(makeSimplePod("pod4", "ns", kueue.WorkloadAnnotation, "wl2"))
 				sim.UntrackPod(key("ns", "pod1"))
 			},
-			want: &podsBreakdown{
-				key("ns", "wl1"): podSet{
+			want: &podsByWorkload{
+				key("ns", "wl1"): podsByKey{
 					key("ns", "pod2"): makeSimplePod("pod2", "ns", kueue.WorkloadAnnotation, "wl1"),
 				},
-				key("ns", "wl2"): podSet{
+				key("ns", "wl2"): podsByKey{
 					key("ns", "pod3"): makeSimplePod("pod3", "ns", kueue.WorkloadAnnotation, "wl2"),
 					key("ns", "pod4"): makeSimplePod("pod4", "ns", kueue.WorkloadAnnotation, "wl2"),
 				},
@@ -406,7 +406,7 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.UntrackPod(key("ns", "pod2"))
 				sim.UntrackPod(key("ns", "pod3"))
 			},
-			want: &podsBreakdown{},
+			want: &podsByWorkload{},
 		},
 	}
 
