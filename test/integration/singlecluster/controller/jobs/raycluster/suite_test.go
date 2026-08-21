@@ -129,7 +129,7 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
-			failedCtrl, err := elasticjobs.SetupWithManager(mgr, &config.Configuration{}, nil)
+			failedCtrl, err := elasticjobs.SetupWithManager(mgr, &config.Configuration{}, nil, nil)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 		}
 
