@@ -585,6 +585,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					_, evictedByCheck := workloadevict.IsEvictedByAdmissionCheck(&createdWl)
 					g.Expect(evictedByCheck).To(gomega.BeTrue())
+					// Retry evicts the Workload but must not deactivate it.
+					g.Expect(workload.IsActive(&createdWl)).To(gomega.BeTrue())
 					g.Expect(slices.Map(createdWl.Status.AdmissionChecks, func(c *kueue.AdmissionCheckState) kueue.CheckState {
 						return c.State
 					})).Should(gomega.ConsistOf(kueue.CheckStatePending, kueue.CheckStatePending))
@@ -688,6 +690,8 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 					g.Expect(k8sClient.Get(ctx, wlKey, &createdWl)).To(gomega.Succeed())
 					_, evictedByCheck := workloadevict.IsEvictedByAdmissionCheck(&createdWl)
 					g.Expect(evictedByCheck).To(gomega.BeTrue())
+					// Retry evicts the Workload but must not deactivate it.
+					g.Expect(workload.IsActive(&createdWl)).To(gomega.BeTrue())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
