@@ -124,5 +124,7 @@ func (s *defaultSimulatorSnapshot) PreemptWorkload(_ types.NamespacedName) (func
 }
 
 func (s *defaultSimulatorSnapshot) Simulate(fn func()) {
+	// Since default similator does not hold a state to modify,
+	// we can safely run the function immediately.
 	fn()
 }
