@@ -43,7 +43,7 @@ type SchedulingSimulator interface {
 type SimulatorSnapshot interface {
 	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
 	PreemptWorkload(wlKey client.ObjectKey) (revert func() error, err error)
-	Simulate(fn func())
+	Simulate(func())
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {
