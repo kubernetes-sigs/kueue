@@ -485,7 +485,6 @@ func (ctx *preemptionCtx) runFirstFsStrategy(candidates []*workload.Info, strate
 			passed := strategy(preemptorNewShare, targetOldShare, targetNewShare)
 			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
-				ctx.snapshot.RemoveWorkload(candWl)
 				target, err := ctx.preemptWorkload(candWl, kueue.InCohortFairSharingReason)
 				if err != nil {
 					return false, nil, nil, err
