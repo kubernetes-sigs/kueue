@@ -42,7 +42,7 @@ STATUS_CONTEXT="deploy/netlify"
 # Netlify site slug for the PR's deploy-preview URL (built below).
 NETLIFY_SITE="${NETLIFY_SITE:-kubernetes-sigs-kueue}"
 # Bounded wait for the preview build: 20 checks × 30s (~9.5 min), then fail.
-PREVIEW_WAIT_ATTEMPTS="${PREVIEW_WAIT_ATTEMPTS:-20}"
+PREVIEW_WAIT_ATTEMPTS="${PREVIEW_WAIT_ATTEMPTS:-40}"
 PREVIEW_WAIT_DELAY="${PREVIEW_WAIT_DELAY:-30}"
 
 log()   { echo "[verify-website-links-preview] $*"; }
