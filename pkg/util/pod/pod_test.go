@@ -413,7 +413,7 @@ func TestRecordPodSchedulingGateRemovalSecondsReplicaRole(t *testing.T) {
 
 func TestGetPodGroupName(t *testing.T) {
 	cases := map[string]struct {
-		enableWorkloadIdentifierAnnotations bool
+		featureGates map[featuregate.Feature]bool
 		pod                                 *corev1.Pod
 		want                                string
 	}{
