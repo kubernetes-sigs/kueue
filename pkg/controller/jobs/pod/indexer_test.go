@@ -34,13 +34,7 @@ func TestIndexPodGroupName(t *testing.T) {
 		wantKeys []string
 	}{
 		"non-pod object": {
-			object: &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						podconstants.GroupNameLabel: "group-1",
-					},
-				},
-			},
+			object: node.MakeNode("node").Label(podconstants.GroupNameLabel, "group-1").Obj(),
 		},
 		"pod without group name": {
 			object: testingjobspod.MakePod("pod", "ns").Obj(),
