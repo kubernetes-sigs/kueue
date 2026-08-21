@@ -1038,6 +1038,7 @@ func TestReconcile(t *testing.T) {
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
 				WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayClusterGVK), coreindexer.WorkloadOwnerIndexFunc(rayClusterGVK)).
+				WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName).
 				WithInterceptorFuncs(interceptor.Funcs{
 					Patch: func(ctx context.Context, clnt client.WithWatch, obj client.Object, _ client.Patch, _ ...client.PatchOption) error {
 						// The fake client doesn't handle MergePatch for slice fields correctly.
@@ -1254,6 +1255,14 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			); err != nil {
 				t.Fatalf("Could not setup workload owner index: %v", err)
 			}
+			if err := utiltesting.AsIndexer(clientBuilder).IndexField(
+				ctx,
+				&kueue.Workload{},
+				coreindexer.WorkloadSliceNameKey,
+				coreindexer.IndexWorkloadSliceName,
+			); err != nil {
+				t.Fatalf("Could not setup workload slice name index: %v", err)
+			}
 
 			kClient := clientBuilder.Build()
 
@@ -1383,6 +1392,7 @@ func TestPodHandlerEnqueueAfterOriginDeleted(t *testing.T) {
 			kClient := utiltesting.NewClientBuilder().
 				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
 				WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayClusterGVK), coreindexer.WorkloadOwnerIndexFunc(rayClusterGVK)).
+				WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName).
 				WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayServiceGVK), coreindexer.WorkloadOwnerIndexFunc(rayServiceGVK)).
 				WithObjects(tc.workload, tc.pod).
 				Build()
