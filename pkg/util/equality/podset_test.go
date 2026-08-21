@@ -116,6 +116,22 @@ func TestComparePodSetSlices(t *testing.T) {
 			)},
 			wantEquivalent: false,
 		},
+		"resource claims in reversed order": {
+			// Order is not semantically significant for a +listType=map field, so
+			// two PodSets differing only in ResourceClaims order must still be
+			// treated as equivalent.
+			a: []kueue.PodSet{withResourceClaims(
+				utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj(),
+				corev1.PodResourceClaim{Name: "claim-a", ResourceClaimName: new("rc-a")},
+				corev1.PodResourceClaim{Name: "claim-b", ResourceClaimName: new("rc-b")},
+			)},
+			b: []kueue.PodSet{withResourceClaims(
+				utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj(),
+				corev1.PodResourceClaim{Name: "claim-b", ResourceClaimName: new("rc-b")},
+				corev1.PodResourceClaim{Name: "claim-a", ResourceClaimName: new("rc-a")},
+			)},
+			wantEquivalent: true,
+		},
 		"different count": {
 			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
 			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 20).SetMinimumCount(5).Obj()},
