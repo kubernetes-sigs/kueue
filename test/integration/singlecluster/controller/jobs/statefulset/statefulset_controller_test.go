@@ -245,6 +245,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 
 		workloadName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
 		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
+			Queue("lq").
 			OwnerReferenceWithUID(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet"), string(createdSTS.UID)).
 			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
 			GroupNameLabel(workloadName).
@@ -284,6 +285,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 
 		workloadName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
 		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
+			Queue("lq").
 			OwnerReferenceWithUID(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet"), string(createdSTS.UID)).
 			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
 			GroupNameLabel(workloadName).

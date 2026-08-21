@@ -184,11 +184,15 @@ func (r *Reconciler) setDefault(sts *appsv1.StatefulSet, wlName string, pod *cor
 		return false
 	}
 
-	if _, ok := pod.Labels[constants.ManagedByKueueLabelKey]; ok {
+	if pod.Annotations[podconstants.SuspendedByParentAnnotation] != FrameworkName {
 		return false
 	}
 
-	if pod.Annotations[podconstants.SuspendedByParentAnnotation] != FrameworkName {
+	if groupName := utilpod.GetPodGroupName(pod); groupName == wlName {
+		return false
+	}
+
+	if _, ok := pod.Labels[constants.ManagedByKueueLabelKey]; ok {
 		return false
 	}
 
