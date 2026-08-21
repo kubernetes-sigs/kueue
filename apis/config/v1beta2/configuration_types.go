@@ -650,6 +650,11 @@ type FairSharing struct {
 	// The preemption algorithm will only use the next strategy in the list if the
 	// incoming workload (preemptor) doesn't fit after using the previous strategies.
 	// Possible values are:
+	// AlmostLCA(x, y) is the last but one node on the path from x to the
+	// lowest common ancestor of x and y in the cohort hierarchy (see KEP-1714).
+	// The strategies compare the shares of AlmostLCA(preemptor, preemptee) and
+	// AlmostLCA(preemptee, preemptor) rather than the shares of the ClusterQueues
+	// themselves.
 	// - LessThanOrEqualToFinalShare: Only preempt a workload if the share of
 	//   AlmostLCA(preemptor, preemptee) with the preemptor workload admitted is
 	//   less than or equal to the share of AlmostLCA(preemptee, preemptor)
