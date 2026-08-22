@@ -347,6 +347,50 @@ type ResourceQuota struct {
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type ResourceFlavorReference string
 
+// EffectiveQuotaStatus represents the active effective quota structure computed by
+// Dynamic Quota Orchestration (DQO).
+type EffectiveQuotaStatus struct {
+	// lastUpdateTime is the time at which the effective quota was last updated.
+	// +required
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
+	LastUpdateTime metav1.Time `json:"lastUpdateTime,omitempty"`
+
+	// managerRef identifies the component managing this value.
+	// +required
+	ManagerRef EffectiveQuotaStatusManagerRef `json:"managerRef,omitzero"`
+
+	// resourceGroups is the effective quota used by the scheduler.
+	// +required
+	// +listType=atomic
+	// +kubebuilder:validation:MaxItems=16
+	ResourceGroups []ResourceGroup `json:"resourceGroups,omitempty"`
+}
+
+// EffectiveQuotaStatusManagerRef identifies the component managing the effective quota.
+type EffectiveQuotaStatusManagerRef struct {
+	// apiGroup is the group for the resource representing the manager.
+	// +required
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+	APIGroup string `json:"apiGroup,omitempty"`
+
+	// kind is the type of the manager setting the effective quota.
+	// +required
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern="^(?i)[a-z]([-a-z0-9]*[a-z0-9])?$"
+	Kind string `json:"kind,omitempty"`
+
+	// name is the name of the manager setting the effective quota.
+	// +required
+	// +kubebuilder:validation:MaxLength=253
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+	Name string `json:"name,omitempty"`
+}
+
 // ClusterQueueStatus defines the observed state of ClusterQueue
 type ClusterQueueStatus struct {
 	// conditions hold the latest available observations of the ClusterQueue
@@ -396,6 +440,14 @@ type ClusterQueueStatus struct {
 	// This is recorded only when Fair Sharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
+
+	// effectiveQuota is used for scheduling instead of spec.resourceGroups when
+	// present.
+	//
+	// This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
+	// feature gate is disabled.
+	// +optional
+	EffectiveQuota *EffectiveQuotaStatus `json:"effectiveQuota,omitempty"`
 }
 
 type FlavorUsage struct {

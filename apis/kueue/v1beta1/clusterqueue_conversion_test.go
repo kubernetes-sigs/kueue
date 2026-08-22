@@ -399,6 +399,28 @@ func TestClusterQueueConvertFrom(t *testing.T) {
 				},
 			},
 		},
+		"EffectiveQuota in v1beta2 status is ignored when converting to v1beta1": {
+			input: &v1beta2.ClusterQueue{
+				ObjectMeta: defaultObjectMeta,
+				Status: v1beta2.ClusterQueueStatus{
+					PendingWorkloads: 3,
+					EffectiveQuota: &v1beta2.EffectiveQuotaStatus{
+						LastUpdateTime: metav1.Now(),
+						ManagerRef: v1beta2.EffectiveQuotaStatusManagerRef{
+							APIGroup: "kueue.x-k8s.io",
+							Kind:     "DynamicQuotaOrchestrator",
+							Name:     "test-dqo",
+						},
+					},
+				},
+			},
+			expected: &ClusterQueue{
+				ObjectMeta: defaultObjectMeta,
+				Status: ClusterQueueStatus{
+					PendingWorkloads: 3,
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
