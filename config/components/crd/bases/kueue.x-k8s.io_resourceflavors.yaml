@@ -193,7 +193,7 @@ spec:
               rule: '!has(oldSelf.topologyName) || (has(self.topologyName) && self.topologyName
                 == oldSelf.topologyName)'
         type: object
-    served: true
+    served: false
     storage: false
   - name: v1beta2
     schema:
