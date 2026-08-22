@@ -79,7 +79,7 @@ PartialAdmission in Kueue is enabled through a combination of a Kubernetes featu
 ### Workload API
 
 ```go
-// +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
+// +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be less or equal to count"
 type PodSet struct {
   // .......
 
@@ -112,7 +112,7 @@ type PodSetAssignment struct {
 ### Validation
 
 - `.spec.podSets.minCount <= .spec.podSets.count`
-- `.spec.podSets.minCount >= 1`
+- `.spec.podSets.minCount >= 0`
 
 ### Scheduler / Flavorassignment
 
@@ -188,6 +188,7 @@ to implement this enhancement.
 - **Workload Webhook**:
   - `test/integration/singlecluster/webhook/core/workload_test.go`:
     - `invalid podSet minCount (negative)`: verifies negative minCount values are rejected.
+    - `valid podSet minCount (zero)`: verifies minCount=0 is accepted when count is 0 or greater.
     - `invalid podSet minCount (too big)`: verifies minCount larger than count is rejected.
     - `too many variable count podSets`: verifies that workloads with multiple variable count PodSets are rejected.
 
