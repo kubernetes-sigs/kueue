@@ -47,6 +47,33 @@ import (
 )
 
 func TestBuildPodSets(t *testing.T) {
+	collectorImage := "quay.io/kuberay/collector:v1.7.0"
+	collectorEnv := []corev1.EnvVar{
+		{Name: "STORAGE_BACKEND", Value: "s3"},
+		{Name: "S3_BUCKET", Value: "ray-historyserver"},
+		{Name: "S3_REGION", Value: "us-east-1"},
+	}
+	defaultCollectorResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("64Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+	customCollectorResources := corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("128Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("400m"),
+			corev1.ResourceMemory: resource.MustParse("512Mi"),
+		},
+	}
+
 	testCases := map[string]struct {
 		rayClusterSpec *rayv1.RayClusterSpec
 		annotations    map[string]string
@@ -389,6 +416,111 @@ func TestBuildPodSets(t *testing.T) {
 										corev1.ResourceMemory: resource.MustParse("256Mi"),
 									},
 								},
+							},
+						},
+					}).
+					Obj(),
+			},
+		},
+		"history server collector added to all podSets with default resources": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HistoryServerOptions: &rayv1.HistoryServerOptions{
+					CollectorOptions: &rayv1.CollectorOptions{
+						Image: &collectorImage,
+						Env:   collectorEnv,
+					},
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  new(int32(3)),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "head"},
+							{
+								Name:      rayutils.CollectorContainerName,
+								Resources: defaultCollectorResources,
+							},
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "worker"},
+							{
+								Name:      rayutils.CollectorContainerName,
+								Resources: defaultCollectorResources,
+							},
+						},
+					}).
+					Obj(),
+			},
+		},
+		"history server collector uses CollectorOptions.Resources override on all podSets": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HistoryServerOptions: &rayv1.HistoryServerOptions{
+					CollectorOptions: &rayv1.CollectorOptions{
+						Image:     &collectorImage,
+						Resources: &customCollectorResources,
+						Env:       collectorEnv,
+					},
+				},
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  new(int32(1)),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "head"},
+							{
+								Name:      rayutils.CollectorContainerName,
+								Resources: customCollectorResources,
+							},
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{
+							{Name: "worker"},
+							{
+								Name:      rayutils.CollectorContainerName,
+								Resources: customCollectorResources,
 							},
 						},
 					}).

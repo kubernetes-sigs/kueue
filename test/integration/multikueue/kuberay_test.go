@@ -40,6 +40,19 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
+func testHistoryServerOptions() *rayv1.HistoryServerOptions {
+	return &rayv1.HistoryServerOptions{
+		CollectorOptions: &rayv1.CollectorOptions{
+			Image: new("quay.io/kuberay/collector:v1.7.0"),
+			Env: []corev1.EnvVar{
+				{Name: "STORAGE_BACKEND", Value: "s3"},
+				{Name: "S3_BUCKET", Value: "ray-historyserver"},
+				{Name: "S3_REGION", Value: "us-east-1"},
+			},
+		},
+	}
+}
+
 var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var f *multiKueueFixture
 
@@ -70,11 +83,20 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			WithSubmissionMode(rayv1.InteractiveMode).
 			Queue(f.managerLq.Name).
 			Obj()
+		rayjob.Spec.RayClusterSpec.HistoryServerOptions = testHistoryServerOptions()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayjob)
 		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: f.managerNs.Name}
 		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 
 		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, wlLookupKey, admission)
+
+		ginkgo.By("propagating history server options to the worker RayJob", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayJob := rayv1.RayJob{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &createdRayJob)).To(gomega.Succeed())
+				g.Expect(createdRayJob.Spec.RayClusterSpec.HistoryServerOptions).To(gomega.Equal(rayjob.Spec.RayClusterSpec.HistoryServerOptions))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
 
 		ginkgo.By("changing the status of the RayJob in the worker, updates the manager's RayJob status", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -112,11 +134,20 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 		raycluster := testingraycluster.MakeCluster("raycluster1", f.managerNs.Name).
 			Queue(f.managerLq.Name).
 			Obj()
+		raycluster.Spec.HistoryServerOptions = testHistoryServerOptions()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
 		wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID), Namespace: f.managerNs.Name}
 		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 
 		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, wlLookupKey, admission)
+
+		ginkgo.By("propagating history server options to the worker RayCluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdRayCluster := rayv1.RayCluster{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(raycluster), &createdRayCluster)).To(gomega.Succeed())
+				g.Expect(createdRayCluster.Spec.HistoryServerOptions).To(gomega.Equal(raycluster.Spec.HistoryServerOptions))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
 
 		ginkgo.By("changing the status of the RayCluster in the worker, updates the manager's RayCluster status", func() {
 			createdRayCluster := rayv1.RayCluster{}
@@ -145,6 +176,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			Queue(f.managerLq.Name).
 			WithServeConfigV2("serve-config-v1").
 			Obj()
+		rayService.Spec.RayClusterSpec.HistoryServerOptions = testHistoryServerOptions()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayService)
 		wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: f.managerNs.Name}
 		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
@@ -156,6 +188,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				createdRayService := rayv1.RayService{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayService), &createdRayService)).To(gomega.Succeed())
 				g.Expect(createdRayService.Spec.ServeConfigV2).To(gomega.Equal("serve-config-v1"))
+				g.Expect(createdRayService.Spec.RayClusterSpec.HistoryServerOptions).To(gomega.Equal(rayService.Spec.RayClusterSpec.HistoryServerOptions))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
@@ -171,6 +204,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				createdRayService := rayv1.RayService{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayService), &createdRayService)).To(gomega.Succeed())
 				g.Expect(createdRayService.Spec.ServeConfigV2).To(gomega.Equal("serve-config-v2"))
+				g.Expect(createdRayService.Spec.RayClusterSpec.HistoryServerOptions).To(gomega.Equal(rayService.Spec.RayClusterSpec.HistoryServerOptions))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

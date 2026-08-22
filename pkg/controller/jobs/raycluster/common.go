@@ -75,6 +75,10 @@ func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
 // BuildPodSets builds PodSets from RayClusterSpec.
 func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]string) ([]kueue.PodSet, error) {
 	podSets := make([]kueue.PodSet, 0)
+	var collectorOptions *rayv1.CollectorOptions
+	if rayClusterSpec.HistoryServerOptions != nil {
+		collectorOptions = rayClusterSpec.HistoryServerOptions.CollectorOptions
+	}
 
 	// head
 	headPodSet := kueue.PodSet{
@@ -104,6 +108,12 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 			autoscalerContainer(rayClusterSpec.AutoscalerOptions),
 		)
 	}
+	if collectorOptions != nil {
+		headPodSet.Template.Spec.Containers = append(
+			headPodSet.Template.Spec.Containers,
+			historyServerCollectorContainer(collectorOptions),
+		)
+	}
 	podSets = append(podSets, headPodSet)
 
 	// workers
@@ -120,6 +130,12 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 				return nil, err
 			}
 			workerPodSet.TopologyRequest = topologyRequest
+		}
+		if collectorOptions != nil {
+			workerPodSet.Template.Spec.Containers = append(
+				workerPodSet.Template.Spec.Containers,
+				historyServerCollectorContainer(collectorOptions),
+			)
 		}
 		podSets = append(podSets, workerPodSet)
 	}
@@ -180,6 +196,36 @@ func autoscalerContainer(opts *rayv1.AutoscalerOptions) corev1.Container {
 	}
 	return corev1.Container{
 		Name:      autoscalerContainerName,
+		Resources: resources,
+	}
+}
+
+// defaultHistoryServerCollectorResources mirrors the resources KubeRay assigns
+// to the History Server collector when CollectorOptions.Resources is not set
+// (ray-operator/controllers/ray/common/pod.go: BuildCollectorContainer).
+func defaultHistoryServerCollectorResources() corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("50m"),
+			corev1.ResourceMemory: resource.MustParse("64Mi"),
+		},
+		Limits: corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("200m"),
+			corev1.ResourceMemory: resource.MustParse("256Mi"),
+		},
+	}
+}
+
+// historyServerCollectorContainer returns a container mirroring the collector
+// that KubeRay injects into every head and worker Pod when History Server
+// collection is configured.
+func historyServerCollectorContainer(opts *rayv1.CollectorOptions) corev1.Container {
+	resources := defaultHistoryServerCollectorResources()
+	if opts.Resources != nil {
+		resources = *opts.Resources.DeepCopy()
+	}
+	return corev1.Container{
+		Name:      rayutils.CollectorContainerName,
 		Resources: resources,
 	}
 }
