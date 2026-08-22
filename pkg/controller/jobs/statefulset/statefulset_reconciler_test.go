@@ -60,6 +60,7 @@ var (
 
 func TestReconciler(t *testing.T) {
 	now := time.Now()
+	errPodList := errors.New("pod list failed")
 	createdWorkloadEvents := []utiltesting.EventRecord{
 		{
 			Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
@@ -74,6 +75,7 @@ func TestReconciler(t *testing.T) {
 		statefulSet     *appsv1.StatefulSet
 		pods            []corev1.Pod
 		workloads       []kueue.Workload
+		podListErr      error
 		wantStatefulSet *appsv1.StatefulSet
 		wantPods        []corev1.Pod
 		wantWorkloads   []kueue.Workload
@@ -303,6 +305,40 @@ func TestReconciler(t *testing.T) {
 				Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
 				Message:   `WorkloadPriorityClass "missing-wpc" not found`,
 			}},
+		},
+		"should still create the workload when the Pod list fails, since only the pod branch needs it": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Obj(),
+			podListErr: errPodList,
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					JobUID("sts-uid").
+					Queue("lq").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Priority(0).
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+					}).
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
+			wantEvents: createdWorkloadEvents,
+			wantErr:    errPodList,
 		},
 		"should create workload with TAS topology request when TAS enabled": {
 			wantEvents:   createdWorkloadEvents,
@@ -725,6 +761,19 @@ func TestReconciler(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
+			if tc.podListErr != nil {
+				clientBuilder = clientBuilder.WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+						// Only the field-selected List the reconciler issues for the
+						// group's pods should fail; the unfiltered List the test uses
+						// afterward to fetch every Pod must still succeed.
+						if _, isPodList := list.(*corev1.PodList); isPodList && len(opts) > 0 {
+							return tc.podListErr
+						}
+						return c.List(ctx, list, opts...)
+					},
+				})
+			}
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName)
 			if err != nil {

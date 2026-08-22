@@ -94,17 +94,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return ctrl.Result{}, err
 	}
 
-	podList := &corev1.PodList{}
-	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingFields{
-		podcontroller.PodGroupNameCacheKey: wlName,
-	}); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	if err := r.syncQueueLabel(ctx, sts, podList.Items); err != nil {
-		return ctrl.Result{}, err
-	}
-
 	// Finalizing pods and reconciling the Workload touch different objects, so
 	// one failing is no reason to abandon the other. A derived context would
 	// cancel it, and its own lookups would then fail as cancelled rather than
@@ -113,6 +102,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	var eg errgroup.Group
 
 	eg.Go(func() error {
+		podList := &corev1.PodList{}
+		if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingFields{
+			podcontroller.PodGroupNameCacheKey: wlName,
+		}); err != nil {
+			return err
+		}
+
+		if err := r.syncQueueLabel(ctx, sts, podList.Items); err != nil {
+			return err
+		}
+
 		return r.ungatePods(ctx, sts, podList.Items)
 	})
 
