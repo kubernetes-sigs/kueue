@@ -63,7 +63,7 @@ func (h *Handlers) GenericWebSocketHandler(dataFetcher func(ctx context.Context)
 		slog.Debug("WebSocket handler started")
 
 		// Extract the bearer token stored by auth.Middleware (empty when auth is disabled).
-		token, _ := c.Get("token")
+		token, _ := c.Get(middleware.ContextKeyToken)
 		tokenStr, _ := token.(string)
 
 		// Upgrade the HTTP connection to a WebSocket connection
