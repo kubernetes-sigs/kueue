@@ -9416,6 +9416,11 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 		t.Fatalf("Failed to add ClusterQueue: %v", err)
 	}
 
+	cache.AddOrUpdateWorkload(log, victimWL)
+	cache.AddOrUpdateWorkload(log, otherWL)
+
+	victimInfo := workload.NewInfo(victimWL)
+
 	snapshot, err := cache.Snapshot(ctx)
 	if err != nil {
 		t.Fatalf("Failed to build snapshot: %v", err)
@@ -9424,11 +9429,6 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 	if cq == nil {
 		t.Fatal("ClusterQueue snapshot missing")
 	}
-
-	victimInfo := workload.NewInfo(victimWL)
-	otherInfo := workload.NewInfo(otherWL)
-	snapshot.AddWorkload(victimInfo)
-	snapshot.AddWorkload(otherInfo)
 
 	// CQ usage is 8 CPU (victim 6 + other 2). Incoming needs 9.
 	// Freeing victim once leaves usage 2 → 8 free → 9 does not fit.

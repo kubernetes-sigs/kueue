@@ -41,7 +41,14 @@ type SchedulingSimulator interface {
 // This interface is purposed to control Kueue-WAS integration.
 // The "default" (non-WAS) implementation may trivialize some methods.
 type SimulatorSnapshot interface {
+	// Simulate executes the provided function,
+	// ensuring all operations performed on the SimulatorSnapshot inside
+	// are undone after the function returns.
+	Simulate(func())
+	// FindFeasibleNodes returns all candidates that can be scheduled with the given requirements.
 	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
+	// PreemptWorkload preempts the given workload, returning a function that reverts the preemption.
+	PreemptWorkload(wlKey client.ObjectKey) (revert func() error, err error)
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {
