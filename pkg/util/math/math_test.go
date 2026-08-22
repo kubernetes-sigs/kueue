@@ -101,3 +101,26 @@ func TestSaturatingSub(t *testing.T) {
 		})
 	}
 }
+
+func TestSaturatingDiv(t *testing.T) {
+	cases := map[string]struct {
+		a    int64
+		f    int64
+		want int64
+	}{
+		"positive":                    {a: 6, f: 3, want: 2},
+		"negative":                    {a: -6, f: 3, want: -2},
+		"truncates":                   {a: 7, f: 3, want: 2},
+		"max int stays max":           {a: stdmath.MaxInt64, f: 3, want: stdmath.MaxInt64},
+		"min int stays min":           {a: stdmath.MinInt64, f: 3, want: stdmath.MinInt64},
+		"max int divided by one":      {a: stdmath.MaxInt64, f: 1, want: stdmath.MaxInt64},
+		"bounded near max is divided": {a: stdmath.MaxInt64 - 1, f: 2, want: (stdmath.MaxInt64 - 1) / 2},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := SaturatingDiv(tc.a, tc.f); got != tc.want {
+				t.Errorf("SaturatingDiv(%d, %d) = %d, want %d", tc.a, tc.f, got, tc.want)
+			}
+		})
+	}
+}
