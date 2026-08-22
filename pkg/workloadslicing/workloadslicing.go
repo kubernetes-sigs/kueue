@@ -123,6 +123,39 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 	}), nil
 }
 
+// FindLatestAdmittedWorkloadForSlice returns the admitted slice of the chain
+// identified by its first slice's name (sliceName), which every slice and pod of an
+// elastic job carries, or nil if none is admitted.
+func FindLatestAdmittedWorkloadForSlice(ctx context.Context, clnt client.Client, namespace, sliceName string) (*kueue.Workload, error) {
+	list := &kueue.WorkloadList{}
+	if err := clnt.List(ctx, list, client.InNamespace(namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
+		return nil, err
+	}
+
+	// Sort oldest-first; break same-second ties by UID for stable ordering.
+	slices.SortFunc(list.Items, func(a, b kueue.Workload) int {
+		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.UID, b.UID)
+	})
+
+	for i := range slices.Backward(list.Items) {
+		wl := &list.Items[i]
+		if workloadfinish.IsFinished(wl) {
+			continue
+		}
+		// Eviction is two writes: the condition is set before the reservation is
+		// released, so an evicted slice can still report itself admitted while its
+		// capacity is on the way out.
+		if workload.IsAdmitted(wl) && !workloadevict.IsEvicted(wl) {
+			return wl, nil
+		}
+	}
+	return nil, nil
+}
+
 // FindLatestActiveWorkload returns the newest non-finished, non-evicted workload
 // slice owned by the provided job object/gvk that holds a quota reservation, or
 // nil if none qualifies. This is the chain's "active" slice: its granted PodSet
