@@ -915,3 +915,44 @@ func TestRequestsEqual(t *testing.T) {
 		})
 	}
 }
+
+// Only a quantity carrying a decimal is held behind a pointer, so the
+// whole-unit case is the control: without it a reader that stopped detaching
+// would still look right.
+func TestPodRequestsLeavesTheSpecAlone(t *testing.T) {
+	cases := map[string]struct {
+		podLevel string
+		want     MapRequests
+	}{
+		"pod-level request carrying a decimal": {
+			podLevel: "1.5Gi",
+			want:     MapRequests{corev1.ResourceMemory: 1636 * 1024 * 1024},
+		},
+		"pod-level request in whole units": {
+			podLevel: "1Gi",
+			want:     MapRequests{corev1.ResourceMemory: 1124 * 1024 * 1024},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			spec := &corev1.PodSpec{
+				Containers: []corev1.Container{{Name: "c"}},
+				Resources: &corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(tc.podLevel)},
+				},
+				Overhead: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("100Mi")},
+			}
+			borrowed := spec.DeepCopy()
+			// Twice: a total that moved is what says the spec moved.
+			for pass := 1; pass <= 2; pass++ {
+				got := NewMapRequests(PodRequests(spec))
+				if diff := cmp.Diff(tc.want, got); diff != "" {
+					t.Errorf("pass %d totalled differently (-want +got):\n%s", pass, diff)
+				}
+			}
+			if diff := cmp.Diff(borrowed, spec); diff != "" {
+				t.Errorf("PodRequests changed the spec it was given (-before,+after):\n%s", diff)
+			}
+		})
+	}
+}
