@@ -706,10 +706,16 @@ func (w *wlReconciler) resetOutOfSyncRemotes(ctx context.Context, group *wlGroup
 		group.remotes[remote] = nil
 	}
 
-	if acs == nil || acs.State != kueue.CheckStateReady {
-		// An earlier pass already reset the check for re-dispatch. The stale remotes are gone
-		// now, so the caller can keep reconciling and dispatch the workload again.
-		log.V(3).Info("Skipping remote OutOfSync reset, admission check is not Ready", "workerClusters", outOfSyncRemotes)
+	// Only the admitting remote going OutOfSync means the workload has to be dispatched again.
+	// A stale OutOfSync remote on some other worker must not reset a Ready check: the admitting
+	// remote may still be running, or may have genuinely finished, and the Finished handling in
+	// reconcileGroup has to be allowed to observe that.
+	admitting := ptr.Deref(group.local.Status.ClusterName, "")
+	if acs == nil || acs.State != kueue.CheckStateReady || !slices.Contains(outOfSyncRemotes, admitting) {
+		// An earlier pass already reset the check for re-dispatch, or the OutOfSync remote is
+		// not the admitting one. The stale remotes are gone either way, so the caller can keep
+		// reconciling.
+		log.V(3).Info("Skipping remote OutOfSync reset", "workerClusters", outOfSyncRemotes, "admittingCluster", admitting)
 		return false, nil
 	}
 
