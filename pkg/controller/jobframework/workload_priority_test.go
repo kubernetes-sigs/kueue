@@ -58,8 +58,14 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		class        *kueue.WorkloadPriorityClass
-		workloads    []*kueue.Workload
+		class     *kueue.WorkloadPriorityClass
+		workloads []*kueue.Workload
+		// Defaults to a job carrying the "high" WorkloadPriorityClass label. Set it
+		// where the case needs the owner to resolve somewhere else, or nowhere.
+		job *batchv1.Job
+		// Extra objects the case needs in the cluster, such as a Pod PriorityClass
+		// the owner falls back to.
+		extraObjs    []client.Object
 		interceptors func(s *priorityStats) interceptor.Funcs
 		steps        []step
 		want         map[string]wantWorkload
@@ -125,6 +131,119 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				"reserved": {refName: new("")},
 			},
 			wantWorkloadWrites: new(0),
+		},
+
+		// Dropping the WorkloadPriorityClass label from the owner leaves a Pod
+		// PriorityClass to fall back to, which is a different group and kind. The
+		// Workload CEL rules freeze both while quota is reserved, so the write would
+		// be refused for as long as the reservation is held and retried forever.
+		// The fake client does not evaluate those rules, so a regression shows up
+		// here as a write that the API server would never have accepted.
+		"leaves a quota-reserved workload alone when the owner falls back to a pod priority class": {
+			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
+			extraObjs: []client.Object{
+				&schedulingv1.PriorityClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "podpc"},
+					Value:      50,
+				},
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "reserved",
+						LastTransitionTime: metav1.Now(),
+					}).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"reserved": {refName: new("low"), priority: new(int32(10))},
+			},
+			wantWorkloadWrites: new(0),
+		},
+
+		// With nothing left to fall back to, the resolved ref is nil, which is a
+		// removal. Rule 1 refuses that while quota is reserved.
+		"leaves a quota-reserved workload alone when the owner's class stops resolving": {
+			job: testingjob.MakeJob("job", "ns").Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					WorkloadPriorityClassRef("low").Priority(10).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "reserved",
+						LastTransitionTime: metav1.Now(),
+					}).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"reserved": {refName: new("low"), priority: new(int32(10))},
+			},
+			wantWorkloadWrites: new(0),
+		},
+
+		// The guard is about the reservation, not the transition, so a workload that
+		// has not reserved still follows its owner onto a Pod PriorityClass.
+		"still moves a workload without a reservation onto a pod priority class": {
+			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
+			extraObjs: []client.Object{
+				&schedulingv1.PriorityClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "podpc"},
+					Value:      50,
+				},
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("free", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			steps: []step{{}},
+			want: map[string]wantWorkload{
+				"free": {refName: new("podpc"), priority: new(int32(50))},
+			},
+		},
+
+		// A batch is not all-or-nothing. The component that can take the transition
+		// is still written, and the reserved one is skipped deliberately rather than
+		// failing the whole reconcile on the first rejection.
+		"writes the unreserved half of a batch and skips the reserved half": {
+			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
+			extraObjs: []client.Object{
+				&schedulingv1.PriorityClass{
+					ObjectMeta: metav1.ObjectMeta{Name: "podpc"},
+					Value:      50,
+				},
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "reserved",
+						LastTransitionTime: metav1.Now(),
+					}).Obj(),
+				utiltestingapi.MakeWorkload("free", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"reserved": {refName: new("low"), priority: new(int32(10))},
+				"free":     {refName: new("podpc"), priority: new(int32(50))},
+			},
+			wantWorkloadWrites: new(1),
 		},
 
 		// A workload that already carries the right class name but a stale value is
@@ -211,9 +330,16 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+			job := tc.job
+			if job == nil {
+				job = testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+			}
 
-			objs := []client.Object{job, tc.class}
+			objs := []client.Object{job}
+			if tc.class != nil {
+				objs = append(objs, tc.class)
+			}
+			objs = append(objs, tc.extraObjs...)
 			names := make([]string, 0, len(tc.workloads))
 			for _, wl := range tc.workloads {
 				objs = append(objs, wl)
@@ -411,6 +537,86 @@ func TestExtractPriorityReportsMissingWorkloadPriorityClass(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 				t.Errorf("recorded events (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestPriorityRefTransitionAllowed covers the rules directly, including the Pod
+// PriorityClass name case. That one is not reachable through
+// UpdateWorkloadPriority today, because the classifier already drops workloads
+// that are on a Pod PriorityClass, so it is guarded here rather than through the
+// reconciler.
+func TestPriorityRefTransitionAllowed(t *testing.T) {
+	reserved := func(ref *kueue.PriorityClassRef) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("wl", "ns").
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadQuotaReserved,
+				Status:             metav1.ConditionTrue,
+				Reason:             "AdmittedByTest",
+				Message:            "reserved",
+				LastTransitionTime: metav1.Now(),
+			}).Obj()
+		wl.Spec.PriorityClassRef = ref
+		return wl
+	}
+	free := func(ref *kueue.PriorityClassRef) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("wl", "ns").Obj()
+		wl.Spec.PriorityClassRef = ref
+		return wl
+	}
+
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		ref  *kueue.PriorityClassRef
+		want bool
+	}{
+		"no reservation, anything goes": {
+			wl:   free(kueue.NewWorkloadPriorityClassRef("high")),
+			ref:  kueue.NewPodPriorityClassRef("system-node-critical"),
+			want: true,
+		},
+		"reserved, unchanged": {
+			wl:   reserved(kueue.NewWorkloadPriorityClassRef("high")),
+			ref:  kueue.NewWorkloadPriorityClassRef("high"),
+			want: true,
+		},
+		"reserved, workload priority class renamed": {
+			wl:   reserved(kueue.NewWorkloadPriorityClassRef("high")),
+			ref:  kueue.NewWorkloadPriorityClassRef("low"),
+			want: true,
+		},
+		"reserved, pod priority class renamed": {
+			wl:   reserved(kueue.NewPodPriorityClassRef("high")),
+			ref:  kueue.NewPodPriorityClassRef("low"),
+			want: false,
+		},
+		"reserved, group and kind change": {
+			wl:   reserved(kueue.NewWorkloadPriorityClassRef("high")),
+			ref:  kueue.NewPodPriorityClassRef("high"),
+			want: false,
+		},
+		"reserved, ref removed": {
+			wl:   reserved(kueue.NewWorkloadPriorityClassRef("high")),
+			ref:  nil,
+			want: false,
+		},
+		"reserved, ref added": {
+			wl:   reserved(nil),
+			ref:  kueue.NewWorkloadPriorityClassRef("high"),
+			want: false,
+		},
+		"reserved, no ref either side": {
+			wl:   reserved(nil),
+			ref:  nil,
+			want: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := priorityRefTransitionAllowed(tc.wl, tc.ref); got != tc.want {
+				t.Errorf("priorityRefTransitionAllowed() = %v, want %v", got, tc.want)
 			}
 		})
 	}
