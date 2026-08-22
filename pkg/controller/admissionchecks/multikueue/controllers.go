@@ -45,6 +45,7 @@ type SetupOptions struct {
 	dispatcherName       string
 	clusterProfileConfig *configapi.ClusterProfile
 	roleTracker          *roletracker.RoleTracker
+	preemptionMode       configapi.MultiKueuePreemptionMode
 }
 
 type SetupOption func(o *SetupOptions)
@@ -105,6 +106,13 @@ func WithClusterProfiles(clusterProfiles *configapi.ClusterProfile) SetupOption 
 func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
 	return func(o *SetupOptions) {
 		o.roleTracker = tracker
+	}
+}
+
+// WithPreemptionMode sets the preemption mode for the MultiKueue admission check.
+func WithPreemptionMode(mode configapi.MultiKueuePreemptionMode) SetupOption {
+	return func(o *SetupOptions) {
+		o.preemptionMode = mode
 	}
 }
 
@@ -177,6 +185,6 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	}
 
 	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorder(constants.WorkloadControllerName),
-		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker)
+		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker, withPreemptionMode(options.preemptionMode))
 	return wlRec.setupWithManager(mgr)
 }
