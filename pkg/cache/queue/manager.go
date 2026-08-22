@@ -34,7 +34,9 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	"sigs.k8s.io/kueue/pkg/cache/limitrange"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/cache/runtimeclass"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -197,6 +199,9 @@ type Manager struct {
 	// Once the Evicted condition is observed by scheduler the expectation
 	// can be removed - the expectation is satisfied.
 	preemptionExpectations *expectations.Store
+
+	limitRanges    *limitrange.LimitRanges
+	runtimeClasses *runtimeclass.RuntimeClasses
 }
 
 // NewManager is a factory for cache.queue.Manager. For tests,
@@ -222,6 +227,8 @@ func NewManager(client client.Client, checker StatusChecker, requeuer inadmissib
 		AfsUsageLedger:         queueafs.NewAfsUsageLedger(),
 		requeuer:               requeuer,
 		resourceFormatter:      resources.NewResourceFormatter(),
+		limitRanges:            limitrange.New(),
+		runtimeClasses:         runtimeclass.New(),
 	}
 	for _, option := range options {
 		option(m)
@@ -531,7 +538,10 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 			continue
 		}
 
-		workload.AdjustResources(ctx, m.client, &w)
+		if err := workload.AdjustResources(ctx, &w, m.limitRanges.GetForNamespace(w.Namespace), m.runtimeClasses.GetAll()); err != nil {
+			log.Error(err, "Failed to adjust workload resources")
+			continue
+		}
 		wInfo := workload.NewInfo(&w, m.workloadInfoOptions...)
 		wInfo.UpdateSchedulingHash(log)
 		qImpl.AddOrUpdate(wInfo)
@@ -776,7 +786,10 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 	log := ctrl.LoggerFrom(ctx)
-	workload.AdjustResources(ctx, m.client, &w)
+	if err := workload.AdjustResources(ctx, &w, m.limitRanges.GetForNamespace(w.Namespace), m.runtimeClasses.GetAll()); err != nil {
+		log.Error(err, "Failed to adjust workload resources", "workload", klog.KObj(&w))
+		return false
+	}
 	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
 		info.Update(log, &w, workload.WithPreserveTotalRequests())
 	} else {
@@ -1139,4 +1152,12 @@ func (m *Manager) LocalQueueExists(lqRef queue.LocalQueueReference) bool {
 func (m *Manager) LocalQueueExistsWithoutLock(lqRef queue.LocalQueueReference) bool {
 	_, ok := m.localQueues[lqRef]
 	return ok
+}
+
+func (m *Manager) LimitRangeCache() *limitrange.LimitRanges {
+	return m.limitRanges
+}
+
+func (m *Manager) RuntimeClassCache() *runtimeclass.RuntimeClasses {
+	return m.runtimeClasses
 }
