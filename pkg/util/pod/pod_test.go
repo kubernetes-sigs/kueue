@@ -408,3 +408,49 @@ func TestRecordPodSchedulingGateRemovalSecondsReplicaRole(t *testing.T) {
 		})
 	}
 }
+
+func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
+	const (
+		gateName = "example.com/gate"
+		cqName   = kueue.ClusterQueueReference("cq")
+	)
+
+	now := time.Now().Truncate(time.Second)
+
+	cases := map[string]struct {
+		admittedAt  time.Time
+		wantSeconds float64
+	}{
+		"controller clock ahead of the admitted transition": {
+			admittedAt:  now.Add(-3 * time.Second),
+			wantSeconds: 3,
+		},
+		"controller clock behind the admitted transition is clamped to zero": {
+			admittedAt:  now.Add(3 * time.Second),
+			wantSeconds: 0,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			metrics.PodSchedulingGateRemovalSeconds.Reset()
+
+			wl := utiltestingapi.MakeWorkload("wl", corev1.NamespaceDefault).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission(cqName).Obj(), tc.admittedAt).
+				AdmittedAt(true, tc.admittedAt).
+				Obj()
+
+			RecordPodSchedulingGateRemovalSeconds(testingclock.NewFakeClock(now), gateName, wl, false, nil)
+
+			seconds, err := testutil.GetHistogramMetricValue(
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(gateName, string(cqName), "false", roletracker.RoleStandalone),
+			)
+			if err != nil {
+				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric value: %v", err)
+			}
+			if seconds != tc.wantSeconds {
+				t.Errorf("Unexpected metric value: want %v, got %v", tc.wantSeconds, seconds)
+			}
+		})
+	}
+}
