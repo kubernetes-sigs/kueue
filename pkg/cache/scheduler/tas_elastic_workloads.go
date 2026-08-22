@@ -151,6 +151,12 @@ func (s *TASFlavorSnapshot) finalizeElasticAssignment(
 	leader *TASPodSetRequests,
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 ) elasticPlacementResult {
+	if leader != nil && leader.PreviousAssignment == nil {
+		// A new leader cannot reuse a previous placement. Fall back to full
+		// placement so that both PodSets receive an assignment.
+		return elasticPlacementResult{applied: false}
+	}
+
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 	result[workers.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: workersAssignment}
 	addAssumedUsage(assumedUsage, workersAssignment, &workers)
