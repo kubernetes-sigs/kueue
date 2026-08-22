@@ -17,6 +17,8 @@ limitations under the License.
 package resources
 
 import (
+	"maps"
+
 	corev1 "k8s.io/api/core/v1"
 	resourcehelpers "k8s.io/component-helpers/resource"
 
@@ -72,8 +74,39 @@ func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	if podSpec == nil {
 		return NewRequests()
 	}
-	rl := resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
-	return NewRequestsFromResourceList(rl)
+	return NewRequestsFromResourceList(PodRequests(podSpec))
+}
+
+// PodRequests aggregates what a PodSpec asks for, less the overhead entries
+// that cannot be charged. `pods` is written from the PodSet count during flavor
+// assignment, and a negative quantity cancels a request the PodSet did make,
+// which nothing downstream can tell apart from nothing having been asked for.
+// Every place Kueue computes requests from a spec goes through here, so quota,
+// topology assignment and LimitRange all read one view of the same Workload.
+func PodRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
+	spec := *podSpec
+	spec.Overhead = ChargeableOverhead(spec.Overhead)
+	return resourcehelpers.PodRequests(&corev1.Pod{Spec: spec}, resourcehelpers.PodResourcesOptions{})
+}
+
+// ChargeableOverhead drops the overhead entries Kueue will not charge.
+func ChargeableOverhead(overhead corev1.ResourceList) corev1.ResourceList {
+	// Most overhead is chargeable, and this sits on the path every PodSet takes
+	// through quota, TAS and the LimitRange checks, so wait for a reason to copy.
+	var charged corev1.ResourceList
+	for name, quantity := range overhead {
+		if name != corev1.ResourcePods && quantity.Sign() >= 0 {
+			continue
+		}
+		if charged == nil {
+			charged = maps.Clone(overhead)
+		}
+		delete(charged, name)
+	}
+	if charged == nil {
+		return overhead
+	}
+	return charged
 }
 
 // ToMap converts any Requests instance into a MapRequests map.

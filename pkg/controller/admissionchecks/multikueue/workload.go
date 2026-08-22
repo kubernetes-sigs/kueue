@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -505,7 +506,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 			// For elastic workloads detect a scale-down event and propagate changes to the remote.
 			if group.IsElasticWorkload() && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCountsFromWorkload(group.local)) {
-				remWl.Spec = group.local.Spec
+				remWl.Spec = specWithChargeableOverhead(&group.local.Spec)
 				updateRemote = true
 			}
 
@@ -670,7 +671,49 @@ func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
 	// so any differences should not be considered as out-of-sync.
 	local.PreemptionGates = nil
 	remote.PreemptionGates = nil
+	// The remote was created without the overhead entries that are not charged,
+	// so compare what both sides would carry rather than deleting and recreating
+	// it on every pass.
+	local.PodSets = podSetsWithChargeableOverhead(local.PodSets)
+	remote.PodSets = podSetsWithChargeableOverhead(remote.PodSets)
 	return !equality.Semantic.DeepEqual(local, remote)
+}
+
+// specWithChargeableOverhead copies the spec before taking the overhead off it,
+// so the source keeps what it is allowed to carry. A remote weighs anything the
+// manager sends it against what it already holds, and it never held these.
+func specWithChargeableOverhead(src *kueue.WorkloadSpec) kueue.WorkloadSpec {
+	var dst kueue.WorkloadSpec
+	src.DeepCopyInto(&dst)
+	chargeableOverhead(dst.PodSets)
+	return dst
+}
+
+// chargeableOverhead rewrites the overhead in place, for PodSets that are
+// already a copy.
+func chargeableOverhead(podSets []kueue.PodSet) {
+	for i := range podSets {
+		podSets[i].Template.Spec.Overhead = resources.ChargeableOverhead(podSets[i].Template.Spec.Overhead)
+	}
+}
+
+// podSetsWithChargeableOverhead returns podSets, or a shallow copy of it whose
+// overhead is the chargeable part, leaving the caller's slice alone.
+func podSetsWithChargeableOverhead(podSets []kueue.PodSet) []kueue.PodSet {
+	changed := false
+	out := make([]kueue.PodSet, len(podSets))
+	copy(out, podSets)
+	for i := range out {
+		charged := resources.ChargeableOverhead(out[i].Template.Spec.Overhead)
+		if len(charged) != len(out[i].Template.Spec.Overhead) {
+			changed = true
+			out[i].Template.Spec.Overhead = charged
+		}
+	}
+	if !changed {
+		return podSets
+	}
+	return out
 }
 
 func (w *wlReconciler) listComponentWorkloads(ctx context.Context, wl *kueue.Workload) (*kueue.WorkloadList, error) {
@@ -1413,7 +1456,7 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 		remoteWl.Labels = make(map[string]string, 1)
 	}
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
-	orig.Spec.DeepCopyInto(&remoteWl.Spec)
+	remoteWl.Spec = specWithChargeableOverhead(&orig.Spec)
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) && preemptionGated {
 		// Preemption gates should be treated independently on the remotes and manager,
