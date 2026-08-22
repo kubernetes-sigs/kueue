@@ -158,13 +158,61 @@ auto-discovers the mapping by indexing `DeviceClass` objects.
 ### 2. Add the extended resource to your ClusterQueue
 
 The `coveredResources` must include the extended resource name that matches
-`spec.extendedResourceName` on the `DeviceClass`:
+`spec.extendedResourceName` on the `DeviceClass`. Where a `deviceClassMappings`
+entry remaps that name, cover the mapped name instead, and the original one only
+for whatever is left standing under it. See
+[What is charged where when the name is remapped](#what-is-charged-where-when-the-name-is-remapped).
 
 {{< include "examples/dra/sample-dra-queues.yaml" "yaml" >}}
 
 ```shell
 kubectl apply -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-queues.yaml
 ```
+
+### What is charged where when the name is remapped
+
+If a `deviceClassMappings` entry gives the DeviceClass a different logical name,
+only the request the Pod's containers make is translated to that name. What the
+translation takes back is that contribution and no more, so anything still under
+the original `extendedResourceName` by the time it runs stays there: a chargeable
+Pod overhead, or a `ResourceTransformation` output written to the same name.
+
+`excludeResourcePrefixes` and the transformations run before it, so a name one of
+them removed or a `Replace` consumed has no retained value left to take from. A
+transformation can still generate a new contribution under that name, and that output is
+left alone. What
+changed is that the translation no longer takes the name itself.
+
+Pod overhead reaches this without anyone writing it by hand. A RuntimeClass
+`overhead.podFixed` entry is copied onto the PodSet, and it is an ordinary
+`ResourceList`, so it can name an extended resource.
+
+To meter both contributions, the ClusterQueue has to cover the logical name and
+the original one. Covering only the logical name behaves differently depending
+on `quotaCheckStrategy` in the Kueue Configuration:
+
+- `BlockUndeclared`, the default: the Workload is not admitted, and reports the
+  original name as unavailable in the ClusterQueue.
+- `IgnoreUndeclared`: the undeclared contribution is skipped deliberately, so
+  the Workload is admitted and that contribution is left out of the usage
+  recorded in `status.admission`.
+
+On a node where the kube-scheduler hands the resource to DRA, the charge left
+under the original name does not make it ask for another device: the claim it
+builds comes from the containers' requests. A node advertising the same name
+through a device plugin is scheduled on the whole Pod request instead, overhead
+included, so a cluster serving one name both ways has to leave room for the
+residual there too. It is a quota resource either way, and it is assigned a
+ResourceFlavor like any other. Kueue applies the node labels and tolerations of
+every flavor in the assignment to the Pods, so give the two names the same
+flavor by keeping them in one resource group. A flavor reached only through the
+original name adds its labels and tolerations to Workloads that were placed by
+the logical one alone until now, and where both flavors set the same label key,
+which value survives is not defined.
+
+Where the logical name and the original name are the same, the two
+contributions share one quota key, and the total under it is no longer a count
+of devices.
 
 ### Late DeviceClass creation
 
