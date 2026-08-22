@@ -1414,10 +1414,11 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 			util.FinishEvictionForWorkloads(ctx, k8sClient, wl)
 		})
 
-		ginkgo.By("verify the workload is re-admitted", func() {
+		ginkgo.By("verify the workload is re-admitted and reclaimablePods is cleared", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.ReclaimablePods).Should(gomega.BeEmpty())
 				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(2))
 
 				// job-a (completed, count=0) should have no topology assignment
