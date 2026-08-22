@@ -18,6 +18,7 @@ package dra
 
 import (
 	"slices"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
@@ -47,6 +48,7 @@ type ResourceMapper struct {
 	deviceClassToResource map[corev1.ResourceName]corev1.ResourceName
 	deviceClassCounters   map[corev1.ResourceName][]deviceClassCounterConfig
 	deviceClassCapacity   map[corev1.ResourceName][]deviceClassCapacityConfig
+	excludedPrefixes      []string
 }
 
 // NewResourceMapper creates a new empty ResourceMapper instance.
@@ -56,6 +58,24 @@ func NewResourceMapper() *ResourceMapper {
 		deviceClassCounters:   make(map[corev1.ResourceName][]deviceClassCounterConfig),
 		deviceClassCapacity:   make(map[corev1.ResourceName][]deviceClassCapacityConfig),
 	}
+}
+
+// SetExcludedResourcePrefixes records the prefixes an administrator asked Kueue
+// to ignore. A logical resource name is synthesized after that filter has run,
+// so it is the mapper that has to know which names one of them covers.
+func (m *ResourceMapper) SetExcludedResourcePrefixes(prefixes []string) {
+	m.excludedPrefixes = prefixes
+}
+
+// Excluded reports whether an excludeResourcePrefixes entry covers name, matched
+// as dropExcludedResources matches an ordinary request.
+func (m *ResourceMapper) Excluded(name corev1.ResourceName) bool {
+	for _, prefix := range m.excludedPrefixes {
+		if strings.HasPrefix(string(name), prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // Lookup returns the logical resource name for a device class.
