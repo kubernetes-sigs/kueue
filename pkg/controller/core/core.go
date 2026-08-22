@@ -79,7 +79,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	}
 
 	fairSharingEnabled := fairsharing.Enabled(cfg.FairSharing)
-	watchers := []ClusterQueueUpdateWatcher{rfRec, acRec}
+	watchers := []ClusterQueueUpdateWatcher{rfRec, acRec, qRec}
 	cohortRec := NewCohortReconciler(mgr.GetClient(), cc, qManager,
 		CohortReconcilerWithFairSharing(fairSharingEnabled),
 		CohortReconcilerWithRoleTracker(opts.RoleTracker),

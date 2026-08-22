@@ -63,8 +63,9 @@ const (
 )
 
 const (
-	StoppedReason                = "Stopped"
-	clusterQueueIsInactiveReason = "ClusterQueueIsInactive"
+	StoppedReason                  = "Stopped"
+	clusterQueueIsInactiveReason   = "ClusterQueueIsInactive"
+	clusterQueueDoesNotExistReason = "ClusterQueueDoesNotExist"
 )
 
 type LocalQueueReconcilerOptions struct {
@@ -119,6 +120,7 @@ type LocalQueueReconciler struct {
 	queues            *qcache.Manager
 	cache             *schdcache.Cache
 	wlUpdateCh        chan event.GenericEvent
+	cqUpdateCh        chan event.GenericEvent
 	admissionFSConfig *config.AdmissionFairSharing
 	clock             clock.Clock
 	roleTracker       *roletracker.RoleTracker
@@ -145,6 +147,7 @@ func NewLocalQueueReconciler(
 		cache:             cache,
 		client:            client,
 		wlUpdateCh:        make(chan event.GenericEvent, updateChBuffer),
+		cqUpdateCh:        make(chan event.GenericEvent, updateChBuffer),
 		admissionFSConfig: options.admissionFSConfig,
 		clock:             options.clock,
 		roleTracker:       options.roleTracker,
@@ -167,6 +170,17 @@ func (r *LocalQueueReconciler) NotifyWorkloadUpdate(oldWl, newWl *kueue.Workload
 	}
 	if newWl != nil {
 		r.wlUpdateCh <- event.GenericEvent{Object: newWl}
+	}
+}
+
+// NotifyClusterQueueUpdate enqueues LocalQueues after ClusterQueue cache cleanup.
+// Only delete events are forwarded: Create/Update are already covered by the
+// ClusterQueue watch. On Delete, ClusterQueueReconciler removes the scheduler
+// cache entry and then notifies, so LocalQueue reconcile can publish
+// ClusterQueueDoesNotExist with zero usage from the cache.
+func (r *LocalQueueReconciler) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) {
+	if oldCQ != nil && newCQ == nil {
+		r.cqUpdateCh <- event.GenericEvent{Object: oldCQ}
 	}
 }
 
@@ -199,7 +213,26 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 	var cq kueue.ClusterQueue
 	if err := r.client.Get(ctx, client.ObjectKey{Name: string(queueObj.Spec.ClusterQueue)}, &cq); err != nil {
 		if apierrors.IsNotFound(err) {
-			err = r.updateStatusIfChanged(ctx, &queueObj, &schdcache.LocalQueueUsageStats{}, metav1.ConditionFalse, "ClusterQueueDoesNotExist", clusterQueueIsInactiveMsg)
+			// Active comes from this API Get, usage from the scheduler cache.
+			// ClusterQueueReconciler deletes the cache entry asynchronously, so
+			// reconcile can observe NotFound while the cache still holds
+			// non-zero usage. Wait for that cleanup instead of publishing a
+			// status that mixes ClusterQueueDoesNotExist with stale usage.
+			// NotifyClusterQueueUpdate enqueues the LocalQueues once cleanup is
+			// done; RequeueAfter backs it up if this reconcile raced ahead of
+			// the notify. errQNotFound is part of the same disagreement rather
+			// than a reconcile failure, since it only occurs while the
+			// ClusterQueue is still cached.
+			stats, cqInCache, usageErr := r.cache.LocalQueueUsage(&queueObj)
+			if cqInCache {
+				log.V(2).Info("ClusterQueue is deleted but still in the scheduler cache, waiting for cleanup before updating status",
+					"clusterQueue", queueObj.Spec.ClusterQueue, "cacheReadError", usageErr)
+				return ctrl.Result{RequeueAfter: constants.UpdatesBatchPeriod}, nil
+			}
+			if usageErr != nil {
+				return ctrl.Result{}, usageErr
+			}
+			err = r.applyLocalQueueStatus(ctx, &queueObj, stats, metav1.ConditionFalse, clusterQueueDoesNotExistReason, clusterQueueIsInactiveMsg)
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -599,7 +632,12 @@ func (h *qCQHandler) Delete(ctx context.Context, e event.DeleteEvent, wq workque
 	h.addLocalQueueToWorkQueue(ctx, cq, wq)
 }
 
-func (h *qCQHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+func (h *qCQHandler) Generic(ctx context.Context, e event.GenericEvent, wq workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	cq, ok := e.Object.(*kueue.ClusterQueue)
+	if !ok {
+		return
+	}
+	h.addLocalQueueToWorkQueue(ctx, cq, wq)
 }
 
 func (h *qCQHandler) addLocalQueueToWorkQueue(ctx context.Context, cq *kueue.ClusterQueue, wq workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -636,6 +674,7 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Co
 			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "localqueue-reconciler"),
 		}).
 		WatchesRawSource(source.Channel(r.wlUpdateCh, &qWorkloadHandler{})).
+		WatchesRawSource(source.Channel(r.cqUpdateCh, &queueCQHandler)).
 		Watches(&kueue.ClusterQueue{}, &queueCQHandler).
 		Complete(WithLeadingManager(mgr, r, &kueue.LocalQueue{}, cfg))
 }
@@ -646,13 +685,23 @@ func (r *LocalQueueReconciler) UpdateStatusIfChanged(
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
 ) error {
-	return r.updateStatusIfChanged(ctx, queue, nil, conditionStatus, reason, msg)
+	log := r.logger()
+	stats, _, err := r.cache.LocalQueueUsage(queue)
+	if err != nil {
+		log.Error(err, failedUpdateLqStatusMsg)
+		return err
+	}
+	return r.applyLocalQueueStatus(ctx, queue, stats, conditionStatus, reason, msg)
 }
 
-func (r *LocalQueueReconciler) updateStatusIfChanged(
+// applyLocalQueueStatus writes LocalQueue status from caller-provided usage
+// stats. Callers must obtain stats from Cache.LocalQueueUsage so usage always
+// has one derivation path, and so the not-found branch can publish the same
+// snapshot it used to decide the ClusterQueue is gone.
+func (r *LocalQueueReconciler) applyLocalQueueStatus(
 	ctx context.Context,
 	queue *kueue.LocalQueue,
-	usage *schdcache.LocalQueueUsageStats,
+	stats *schdcache.LocalQueueUsageStats,
 	conditionStatus metav1.ConditionStatus,
 	reason, msg string,
 ) error {
@@ -664,14 +713,6 @@ func (r *LocalQueueReconciler) updateStatusIfChanged(
 	)
 	if ptr.Deref(queue.Spec.StopPolicy, kueue.None) == kueue.None {
 		pendingWls, err = r.queues.PendingWorkloads(queue)
-		if err != nil {
-			log.Error(err, failedUpdateLqStatusMsg)
-			return err
-		}
-	}
-	stats := usage
-	if stats == nil {
-		stats, err = r.cache.LocalQueueUsage(queue)
 		if err != nil {
 			log.Error(err, failedUpdateLqStatusMsg)
 			return err
