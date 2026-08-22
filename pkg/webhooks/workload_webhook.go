@@ -19,11 +19,13 @@ package webhooks
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"slices"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	metav1validation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -357,6 +359,22 @@ func validateReclaimablePods(obj, oldObj *kueue.Workload, basePath *field.Path) 
 	return ret
 }
 
+// validateImmutablePodsReadyTimeout ensures that WaitForPodsReady.PodsReadyTimeout
+// cannot be changed while the workload holds quota reservation.
+func validateImmutablePodsReadyTimeout(newObj, oldObj *kueue.Workload, path *field.Path) field.ErrorList {
+	var oldTimeout, newTimeout *metav1.Duration
+	if oldObj.Spec.WaitForPodsReady != nil {
+		oldTimeout = oldObj.Spec.WaitForPodsReady.PodsReadyTimeout
+	}
+	if newObj.Spec.WaitForPodsReady != nil {
+		newTimeout = newObj.Spec.WaitForPodsReady.PodsReadyTimeout
+	}
+	if !reflect.DeepEqual(oldTimeout, newTimeout) {
+		return field.ErrorList{field.Forbidden(path.Child("podsReadyTimeout"), apivalidation.FieldImmutableErrorMsg)}
+	}
+	return nil
+}
+
 func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
@@ -365,6 +383,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 
 	if workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
+		allErrs = append(allErrs, validateImmutablePodsReadyTimeout(newObj, oldObj, specPath.Child("waitForPodsReady"))...)
 	}
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)

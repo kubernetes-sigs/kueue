@@ -58,6 +58,11 @@ const (
 	// MaxExecTimeSecondsLabel is the label key in the job that holds the maximum execution time.
 	MaxExecTimeSecondsLabel = `kueue.x-k8s.io/max-exec-time-seconds`
 
+	// PodsReadyTimeoutAnnotation is the annotation key on any Kueue-managed resource that sets a
+	// per-workload pods-ready timeout, overriding the cluster-wide WaitForPodsReady.Timeout.
+	// Value must be a Go duration string parseable by time.ParseDuration (e.g. "10m", "1h30m").
+	PodsReadyTimeoutAnnotation = "kueue.x-k8s.io/pods-ready-timeout"
+
 	// SafeToForcefullyDeleteAnnotationKey is the annotation key that controls whether a pod opted in to FailureRecoveryPolicy.
 	SafeToForcefullyDeleteAnnotationKey = "kueue.x-k8s.io/safe-to-forcefully-delete"
 	// SafeToForcefullyDeleteAnnotationValue is the value of that annotation that enables FailureRecoveryPolicy for that pod.
