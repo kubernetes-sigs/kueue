@@ -432,16 +432,27 @@ type FlavorTASRequests []TASPodSetRequests
 // Fits checks if the snapshot has enough capacity to accommodate the workload
 func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 	cachingEnabled := features.Enabled(features.TASCachingRemainingResources)
+	// An entry is one PodSet in one domain, so several can name a leaf and take it in turn.
+	remaining := make(map[utiltas.TopologyDomainID]resources.Requests, len(flavorUsage))
 	for _, domainUsage := range flavorUsage {
 		domainID := utiltas.DomainID(domainUsage.Values)
 		leaf, found := s.leaves[domainID]
 		if !found {
 			return false
 		}
-		remainingCapacity := s.remainingCapacityForLeaf(leaf, false, cachingEnabled)
-		if domainUsage.SinglePodRequests.CountIn(remainingCapacity.Get()) < domainUsage.Count {
+		capacity, seen := remaining[domainID]
+		if !seen {
+			remainingCapacity := s.remainingCapacityForLeaf(leaf, false, cachingEnabled)
+			capacity = remainingCapacity.Get().Clone()
+			remaining[domainID] = capacity
+		}
+		// SinglePodRequests leaves out the node slot the assignment counted per Pod.
+		podRequests := domainUsage.SinglePodRequests.Clone()
+		podRequests.Add(resources.OnePodRequest)
+		if podRequests.CountIn(capacity) < domainUsage.Count {
 			return false
 		}
+		capacity.Sub(podRequests.ScaledUp(int64(domainUsage.Count)))
 	}
 	return true
 }
