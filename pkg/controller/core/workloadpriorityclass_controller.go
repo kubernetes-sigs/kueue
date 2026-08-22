@@ -19,8 +19,10 @@ package core
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/go-logr/logr"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -36,7 +38,9 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // WorkloadPriorityClassReconciler reconciles a WorkloadPriorityClass object
@@ -96,6 +100,12 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 		wl := &workloads.Items[i]
 		wlLog := log.WithValues("workload", klog.KObj(wl))
 
+		// The same question the reference reconciler asks.
+		if !ownsPriority(wl) {
+			wlLog.V(3).Info("Workload's priority is not this cluster's to write")
+			continue
+		}
+
 		// Skip if priority is already up to date
 		if wl.Spec.Priority != nil && *wl.Spec.Priority == wpc.Value {
 			wlLog.V(3).Info("Workload priority already up to date")
@@ -146,6 +156,144 @@ func (r *WorkloadPriorityClassReconciler) Update(e event.TypedUpdateEvent[*kueue
 
 func (r *WorkloadPriorityClassReconciler) Generic(e event.TypedGenericEvent[*kueue.WorkloadPriorityClass]) bool {
 	return false
+}
+
+func workloadPriorityClassRefChanged() predicate.TypedPredicate[*kueue.Workload] {
+	return predicate.TypedFuncs[*kueue.Workload]{
+		CreateFunc: func(e event.TypedCreateEvent[*kueue.Workload]) bool {
+			return ownsPriority(e.Object)
+		},
+		UpdateFunc: func(e event.TypedUpdateEvent[*kueue.Workload]) bool {
+			if !ownsPriority(e.ObjectNew) {
+				return false
+			}
+			// The reference can stay put while the answer stops being someone
+			// else's: a Workload losing the origin label carries the manager's
+			// resolution, not this cluster's.
+			if !ownsPriority(e.ObjectOld) {
+				return true
+			}
+			// The reference rather than the value, so this does not fire on
+			// Reconcile's own writes, and whole, so a move between two groups
+			// sharing a name is still a move.
+			return !apiequality.Semantic.DeepEqual(e.ObjectOld.Spec.PriorityClassRef, e.ObjectNew.Spec.PriorityClassRef)
+		},
+		DeleteFunc:  func(event.TypedDeleteEvent[*kueue.Workload]) bool { return false },
+		GenericFunc: func(event.TypedGenericEvent[*kueue.Workload]) bool { return false },
+	}
+}
+
+// classMovedRequeue is short, since the value just written is known to be the
+// wrong one, and not zero, so a class edited repeatedly does not spin.
+const classMovedRequeue = time.Second
+
+// ownsPriority reports whether this cluster decides the Workload's priority. A
+// Workload MultiKueue created here carries the manager's resolution, from a
+// class this cluster's own of that name need not agree with.
+func ownsPriority(wl *kueue.Workload) bool {
+	_, isMultiKueueRemote := wl.Labels[kueue.MultiKueueOriginLabel]
+	return !isMultiKueueRemote && workload.IsWorkloadPriorityClass(wl)
+}
+
+// WorkloadPriorityClassReferenceReconciler keeps one Workload's priority in step
+// with the class it references, keyed on the Workload so that one arriving at a
+// class does not cost a pass over every other Workload already using it.
+type WorkloadPriorityClassReferenceReconciler struct {
+	logName string
+	client  client.Client
+	// Both read straight from the API server: a cached answer is not ordered
+	// against what this reconcile decides from, and either one being behind
+	// leaves the pass that came to repair the value reporting nothing to do.
+	apiReader   client.Reader
+	roleTracker *roletracker.RoleTracker
+}
+
+var _ reconcile.Reconciler = (*WorkloadPriorityClassReferenceReconciler)(nil)
+
+func NewWorkloadPriorityClassReferenceReconciler(
+	client client.Client,
+	apiReader client.Reader,
+	roleTracker *roletracker.RoleTracker,
+) *WorkloadPriorityClassReferenceReconciler {
+	return &WorkloadPriorityClassReferenceReconciler{
+		logName:     "workloadpriorityclassreference-reconciler",
+		client:      client,
+		apiReader:   apiReader,
+		roleTracker: roleTracker,
+	}
+}
+
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch;update;patch
+
+func (r *WorkloadPriorityClassReferenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	var wl kueue.Workload
+	if err := r.apiReader.Get(ctx, req.NamespacedName, &wl); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	// Checked again here, not only in the predicate: the label can arrive
+	// after the request was queued.
+	if !ownsPriority(&wl) {
+		return ctrl.Result{}, nil
+	}
+
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&wl))
+	log.V(2).Info("Reconcile Workload priority class reference")
+
+	var wpc kueue.WorkloadPriorityClass
+	if err := r.apiReader.Get(ctx, client.ObjectKey{Name: wl.Spec.PriorityClassRef.Name}, &wpc); err != nil {
+		// A class that does not exist yet sweeps the workloads referencing it
+		// when it is created.
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if wl.Spec.Priority != nil && *wl.Spec.Priority == wpc.Value {
+		log.V(3).Info("Workload priority already up to date")
+		return ctrl.Result{}, nil
+	}
+
+	// The workload was read whole, and one field of it is this controller's to
+	// write. Strict is the helper's default, so the read above still has to match.
+	// A conflict belongs to the workqueue, not to a retry here: the helper retries
+	// through the cached client and keeps the class value this closure already read.
+	if err := clientutil.Patch(ctx, r.client, &wl, func() (bool, error) {
+		wl.Spec.Priority = new(wpc.Value)
+		return true, nil
+	}); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	// A class moving between the read above and this write leaves the pass that
+	// change starts finding the new value already there, so nothing stops this
+	// write landing on a correct one. Reading again catches a move up to here. A
+	// move after it is the class's own pass to notice, and that pass can still
+	// skip on a stale cached value: #14006.
+	var after kueue.WorkloadPriorityClass
+	if err := r.apiReader.Get(ctx, client.ObjectKey{Name: wl.Spec.PriorityClassRef.Name}, &after); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	if after.Value != wpc.Value {
+		log.V(2).Info("Class moved while the workload was being written", "wrote", wpc.Value, "now", after.Value)
+		return ctrl.Result{RequeueAfter: classMovedRequeue}, nil
+	}
+	log.V(2).Info("Updated workload priority", "newPriority", wpc.Value)
+	return ctrl.Result{}, nil
+}
+
+// SetupWithManager sets up the controller with the Manager.
+func (r *WorkloadPriorityClassReferenceReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Configuration) error {
+	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
+		Named("workloadpriorityclassreference_controller").
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&kueue.Workload{},
+			&handler.TypedEnqueueRequestForObject[*kueue.Workload]{},
+			workloadPriorityClassRefChanged(),
+		)).
+		WithOptions(controller.Options{
+			NeedLeaderElection:      new(false),
+			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String()],
+			LogConstructor:          roletracker.NewLogConstructor(r.roleTracker, "workloadpriorityclassreference-reconciler"),
+		}).
+		Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
 // SetupWithManager sets up the controller with the Manager.
