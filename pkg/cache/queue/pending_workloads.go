@@ -41,7 +41,7 @@ type PendingWorkloads struct {
 
 	// inadmissible are workloads that have been tried at least once and couldn't be admitted.
 	//
-	// Invariant: a pending workload is tracked in exactly one of active workloads heap,
+	// Invariant: a pending workload is tracked in at most one of active workloads heap,
 	// inadmissible workloads list, or inflight at any time, and contributes to
 	// pendingResourcesTotal exactly once while in active workloads heap or inadmissible workloads list.
 	// All transitions between these places must go through the helpers next to
@@ -53,7 +53,8 @@ type PendingWorkloads struct {
 	inadmissibleTracker *metrics.LabelValsTracker
 
 	// inflight is non-nil when a workload has been popped by the scheduler but
-	// not yet requeued or deleted.
+	// not yet requeued, deleted, or released because it could not be placed
+	// back into a queue.
 	inflight *workload.Info
 
 	// schedulingHashes tracks the scheduling equivalence hashes of pending
