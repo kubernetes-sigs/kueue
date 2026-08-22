@@ -62,6 +62,28 @@ var (
 	workloadPriorityClassNamePath  = labelsPath.Key(constants.WorkloadPriorityClassLabel)
 )
 
+func TestJobMinPodsCount(t *testing.T) {
+	cases := map[string]struct {
+		annotation string
+		want       *int32
+	}{
+		"valid":           {"3", new(int32(3))},
+		"max int32":       {"2147483647", new(int32(2147483647))},
+		"overflows int32": {"2147483648", nil},
+		"not positive":    {"0", nil},
+		"negative":        {"-1", nil},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			job := (*Job)(testingutil.MakeJob("job", "default").
+				SetAnnotation(JobMinParallelismAnnotation, tc.annotation).Obj())
+			if diff := cmp.Diff(tc.want, job.minPodsCount()); diff != "" {
+				t.Errorf("minPodsCount() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestValidateCreate(t *testing.T) {
 	testcases := []struct {
 		name               string
@@ -100,6 +122,17 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(minPodsCountAnnotationsPath, 5, "should be between 0 and 3"),
+			},
+		},
+		{
+			name: "partial admission annotation overflowing int32 is rejected",
+			job: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "2147483648").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, 2147483648, "should be between 0 and 3"),
 			},
 		},
 		{
