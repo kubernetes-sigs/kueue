@@ -42,7 +42,6 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{
 		SetupIndexes:                    SetupIndexes,
 		NewReconciler:                   NewReconciler,
-		NewAdditionalReconcilers:        []jobframework.ReconcilerFactory{NewPodReconciler},
 		SetupWebhook:                    SetupWebhook,
 		JobType:                         &appsv1.StatefulSet{},
 		AddToScheme:                     appsv1.AddToScheme,
