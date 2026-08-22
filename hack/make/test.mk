@@ -316,29 +316,72 @@ test-tas-e2e-extended-helm: E2E_USE_HELM=true
 test-tas-e2e-extended-helm: test-tas-e2e-extended
 
 # WAS versions of TAS e2e tests
+.PHONY: test-was-e2e-tas-baseline
+test-was-e2e-tas-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-was-e2e-tas-baseline: test-tas-e2e-baseline
+
+.PHONY: test-was-e2e-tas-extended
+test-was-e2e-tas-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-was-e2e-tas-extended: test-tas-e2e-extended
+
+.PHONY: test-was-e2e-tas-extended-shard-0
+test-was-e2e-tas-extended-shard-0: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-was-e2e-tas-extended-shard-0: test-tas-e2e-extended-shard-0
+
+.PHONY: test-was-e2e-tas-extended-shard-1
+test-was-e2e-tas-extended-shard-1: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-was-e2e-tas-extended-shard-1: test-tas-e2e-extended-shard-1
+
+.PHONY: test-was-e2e-tas-baseline-helm
+test-was-e2e-tas-baseline-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-was-e2e-tas-baseline-helm: test-tas-e2e-baseline-helm
+
+.PHONY: test-was-e2e-tas-extended-helm
+test-was-e2e-tas-extended-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
+test-was-e2e-tas-extended-helm: test-tas-e2e-extended-helm
+
+# Backwards compatibility aliases for CI/Prow
 .PHONY: test-tas-was-e2e-baseline
-test-tas-was-e2e-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-baseline: test-tas-e2e-baseline
+test-tas-was-e2e-baseline: test-was-e2e-tas-baseline
 
 .PHONY: test-tas-was-e2e-extended
-test-tas-was-e2e-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-extended: test-tas-e2e-extended
+test-tas-was-e2e-extended: test-was-e2e-tas-extended
 
 .PHONY: test-tas-was-e2e-extended-shard-0
-test-tas-was-e2e-extended-shard-0: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-extended-shard-0: test-tas-e2e-extended-shard-0
+test-tas-was-e2e-extended-shard-0: test-was-e2e-tas-extended-shard-0
 
 .PHONY: test-tas-was-e2e-extended-shard-1
-test-tas-was-e2e-extended-shard-1: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-extended-shard-1: test-tas-e2e-extended-shard-1
+test-tas-was-e2e-extended-shard-1: test-was-e2e-tas-extended-shard-1
 
 .PHONY: test-tas-was-e2e-baseline-helm
-test-tas-was-e2e-baseline-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-baseline-helm: test-tas-e2e-baseline-helm
+test-tas-was-e2e-baseline-helm: test-was-e2e-tas-baseline-helm
 
 .PHONY: test-tas-was-e2e-extended-helm
-test-tas-was-e2e-extended-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-extended-helm: test-tas-e2e-extended-helm
+test-tas-was-e2e-extended-helm: test-was-e2e-tas-extended-helm
+
+.PHONY: test-e2e-k8s-main-was
+test-e2e-k8s-main-was: test-was-e2e-k8s-main-compatibility
+
+# WAS baseline E2E tests
+.PHONY: test-was-e2e-baseline
+test-was-e2e-baseline: setup-e2e-env run-test-was-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the baseline Workload Aware Scheduling (WAS) e2e test suite.
+
+run-test-was-e2e-baseline-%: K8S_VERSION = $(@:run-test-was-e2e-baseline-%=%)
+run-test-was-e2e-baseline-%:
+	@echo Running was e2e baseline for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="was/baseline" \
+		E2E_CONFIG_FOLDER="baseline" \
+		WAS_ENABLED=true \
+		E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-test.sh
+
 
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager e2e test suite.
@@ -641,8 +684,8 @@ run-test-e2e-multikueue-sequential-%:
 
 # Run e2e tests against k/k main (latest CI build) with WAS enabled
 K8S_MAIN_NODE_IMAGE ?= k8s-main:latest
-.PHONY: test-e2e-k8s-main-was
-test-e2e-k8s-main-was: setup-e2e-env kueuectl kind-k8s-main-image-build run-test-e2e-k8s-main-was
+.PHONY: test-was-e2e-k8s-main-compatibility
+test-was-e2e-k8s-main-compatibility: setup-e2e-env kueuectl kind-k8s-main-image-build run-test-was-e2e-k8s-main-compatibility
 
 .PHONY: kind-k8s-main-image-build
 kind-k8s-main-image-build: kind
@@ -652,8 +695,8 @@ kind-k8s-main-image-build: kind
 	$(KIND) build node-image --image=$(K8S_MAIN_NODE_IMAGE) \
 		"https://dl.k8s.io/ci/$(K8S_CI_VERSION)/kubernetes-server-linux-$(shell go env GOARCH).tar.gz"
 
-.PHONY: run-test-e2e-k8s-main-was
-run-test-e2e-k8s-main-was:
+.PHONY: run-test-was-e2e-k8s-main-compatibility
+run-test-was-e2e-k8s-main-compatibility:
 	@echo Running e2e for k8s main with WAS enabled
 	E2E_KIND_VERSION="$(K8S_MAIN_NODE_IMAGE)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
