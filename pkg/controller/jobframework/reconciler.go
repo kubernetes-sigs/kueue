@@ -1468,6 +1468,10 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 	}
 	err = r.prepareWorkload(ctx, job, newWl, wl.Spec.Active)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			r.record.Eventf(object, nil, corev1.EventTypeWarning, "PriorityClassNotFound", "PriorityClassNotFound",
+				"Could not find priority class: %v", err)
+		}
 		return nil, fmt.Errorf("can't construct workload for update: %w", err)
 	}
 	wl.Spec = newWl.Spec
@@ -1841,6 +1845,10 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	}
 	err = r.prepareWorkload(ctx, job, wl, wl.Spec.Active)
 	if err != nil {
+		if apierrors.IsNotFound(err) {
+			r.record.Eventf(object, nil, corev1.EventTypeWarning, "PriorityClassNotFound", "PriorityClassNotFound",
+				"Could not find priority class: %v", err)
+		}
 		return err
 	}
 	if err = r.client.Create(ctx, wl); err != nil {
