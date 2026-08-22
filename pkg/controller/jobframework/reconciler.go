@@ -316,6 +316,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		err = r.ignoreUnretryableError(log, err)
 	}()
 
+	// loadJob normalizes this in place, so keep the original for a later reload of the same job.
+	reconcileKey := req.NamespacedName
 	shouldFinalize, err := r.loadJob(ctx, &req.NamespacedName, job)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -420,8 +422,15 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	log.V(2).Info("Reconciling Job")
 
 	// 1. Attempt to retrieve an existing workload (if any) for this job.
-	wl, err := r.ensureOneWorkload(ctx, job, object)
+	wl, err := r.ensureOneWorkload(ctx, reconcileKey, job, object)
 	if err != nil {
+		// Neither is retryable; only the stopping one is worth coming back to.
+		switch {
+		case errors.Is(err, errWaitingForStop):
+			return ctrl.Result{RequeueAfter: stopWaitRequeueAfter}, nil
+		case errors.Is(err, errFinishedJobGone):
+			return ctrl.Result{}, nil
+		}
 		return ctrl.Result{}, err
 	}
 
@@ -464,7 +473,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// and drop the finalizer.
 	if wl != nil && !wl.DeletionTimestamp.IsZero() {
 		log.V(2).Info("The workload is marked for deletion")
-		err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted")
+		_, err := r.stopJob(ctx, job, wl, StopReasonWorkloadDeleted, "Workload is deleted")
 		if err != nil {
 			log.Error(err, "Suspending job with deleted workload")
 		} else {
@@ -593,7 +602,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 6. handle eviction
 	if evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); evCond != nil && evCond.Status == metav1.ConditionTrue {
 		log.V(3).Info("Handling a job with evicted condition")
-		if err := r.stopJob(ctx, job, wl, StopReasonWorkloadEvicted, evCond.Message); err != nil {
+		if _, err := r.stopJob(ctx, job, wl, StopReasonWorkloadEvicted, evCond.Message); err != nil {
 			return ctrl.Result{}, err
 		}
 		if workload.HasQuotaReservation(wl) {
@@ -672,7 +681,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, nil
 		}
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
-		err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Not admitted by cluster queue")
+		_, err := r.stopJob(ctx, job, wl, StopReasonNotAdmitted, "Not admitted by cluster queue")
 		if err != nil {
 			log.Error(err, "Suspending job with non admitted workload")
 		}
@@ -990,7 +999,7 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there are more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
-func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
+func (r *JobReconciler) ensureOneWorkload(ctx context.Context, key types.NamespacedName, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	if prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object()); prebuiltWorkload != "" {
@@ -1026,8 +1035,20 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return wl, nil
 		}
 
-		if inSync, err := r.ensurePrebuiltWorkloadInSync(ctx, wl, job); !inSync || err != nil {
+		state, err := r.ensurePrebuiltWorkloadInSync(ctx, key, wl, job)
+		switch {
+		case err != nil:
 			return nil, err
+		case state == prebuiltWaitingForStop:
+			return nil, errWaitingForStop
+		case state == prebuiltNoUsableWorkload:
+			return nil, nil
+		case state == prebuiltFinishedJobGone:
+			// Removed here because every caller path that would do it reads the job first.
+			if err := workload.RemoveFinalizer(ctx, r.client, wl); err != nil {
+				return nil, err
+			}
+			return nil, errFinishedJobGone
 		}
 		return wl, nil
 	}
@@ -1113,7 +1134,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			} else {
 				msg = "No matching Workload; restoring pod templates according to existent Workload"
 			}
-			if err := r.stopJob(ctx, job, w, StopReasonNoMatchingWorkload, msg); err != nil {
+			if _, err := r.stopJob(ctx, job, w, StopReasonNoMatchingWorkload, msg); err != nil {
 				return nil, fmt.Errorf("stopping job with no matching workload: %w", err)
 			}
 		}
@@ -1366,27 +1387,155 @@ func EnsurePrebuiltWorkloadOwnership(ctx context.Context, c client.Client, wl *k
 	return nil
 }
 
-func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, wl *kueue.Workload, job GenericJob) (bool, error) {
+// prebuiltSyncState is the outcome of reconciling a prebuilt workload against its job.
+type prebuiltSyncState int
+
+const (
+	prebuiltUseWorkload      prebuiltSyncState = iota // carry on with the workload
+	prebuiltWaitingForStop                            // job is stopping; end the reconcile
+	prebuiltNoUsableWorkload                          // job is gone; fall back to the no-workload path
+	prebuiltFinishedJobGone                           // workload is finished; its job is gone or replaced
+)
+
+// errWaitingForStop ends the reconcile while a prebuilt job stops; its status change re-triggers us.
+var errWaitingForStop = errors.New("waiting for the job to stop")
+
+// stopWaitRequeueAfter polls a stopping prebuilt job, in case its status update never comes.
+const stopWaitRequeueAfter = 2 * time.Second
+
+// errFinishedJobGone ends the reconcile so nothing downstream reads a job that is not the workload's.
+var errFinishedJobGone = errors.New("the finished workload's job is gone")
+
+// ensurePrebuiltWorkloadInSync decides what to do with a prebuilt workload that may no longer
+// match its job. A mismatched workload is finished only after the job is stopped and its pods are
+// gone, so quota is never released while pods still hold it.
+func (r *JobReconciler) ensurePrebuiltWorkloadInSync(ctx context.Context, key types.NamespacedName, wl *kueue.Workload, job GenericJob) (prebuiltSyncState, error) {
 	var (
 		equivalent bool
 		err        error
 	)
-
 	if cj, implements := job.(ComposableJob); implements {
 		equivalent, err = cj.EquivalentToWorkload(ctx, r.client, wl)
 	} else {
 		equivalent, err = EquivalentToWorkload(ctx, r.client, job, wl)
 	}
-
-	if !equivalent || err != nil {
-		if err != nil {
-			return false, err
-		}
-		// mark the workload as finished
-		msg := "The prebuilt workload is out of sync with its user job"
-		return false, workloadfinish.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock)
+	if err != nil {
+		return prebuiltWaitingForStop, err
 	}
-	return true, nil
+	// Ahead of every path that returns, including the equivalent one: a pair that matches again
+	// still carries whatever reason an earlier pass left on the workload.
+	if err := r.correctOutOfSync(ctx, wl, job); err != nil {
+		return prebuiltWaitingForStop, err
+	}
+	// Checked after the correction, which clears it for an ended job. A match does not restore the
+	// quota an earlier out-of-sync finish released, so the job still has to be stopped.
+	recovering := finishedOutOfSync(wl)
+	if equivalent && !recovering {
+		return prebuiltUseWorkload, nil
+	}
+
+	// A finished job keeps the reason it ended with, which the caller writes.
+	if _, _, finished := job.Finished(ctx); finished {
+		return prebuiltUseWorkload, nil
+	}
+
+	uid := job.Object().GetUID()
+	msg := "The prebuilt workload is out of sync with its user job"
+	stopReason, stopMsg := StopReasonNoMatchingWorkload, msg
+	if recovering {
+		// The finish an earlier pass wrote is what stops the job now, not the mismatch.
+		stopReason, stopMsg = StopReasonWorkloadFinished, "The prebuilt workload is already finished"
+	}
+	stoppedNow, err := r.stopJob(ctx, job, wl, stopReason, stopMsg)
+	if err != nil {
+		return prebuiltWaitingForStop, err
+	}
+	// Nothing read in this pass can reflect a stop this pass submitted, so end it here. The stop
+	// is a spec change on the job we watch, which is what brings the next one.
+	if stoppedNow {
+		return prebuiltWaitingForStop, nil
+	}
+	// Release quota only once the stop is real: IsActive can be a stale false, and an async
+	// controller may still create pods from a view older than the stop.
+	// TODO(#13308,#13163): obey QuotaReleaseStrategy here so OutOfSync matches eviction.
+	if !stopSettled(job) {
+		return prebuiltWaitingForStop, nil
+	}
+	// The job may have finished while stopping; re-read before writing OutOfSync, which is
+	// permanent and, under MultiKueue, re-dispatches an already finished job.
+	reloadKey := key
+	if gone, err := r.loadJob(ctx, &reloadKey, job); err != nil {
+		return prebuiltWaitingForStop, err
+	} else if gone || job.Object().GetUID() != uid {
+		// A job deleted and recreated under the same name is a different job, and the workload
+		// this one carries is not its own.
+		return prebuiltNoUsableWorkload, nil
+	}
+	if _, _, finished := job.Finished(ctx); finished {
+		return prebuiltUseWorkload, nil
+	}
+	// Again on what the re-read returned. The check above ran against the object this reconcile
+	// started with, and the whole reason to re-read is that it may have moved since.
+	if !stopSettled(job) {
+		return prebuiltWaitingForStop, nil
+	}
+	if err := workloadfinish.Finish(ctx, r.client, wl, kueue.WorkloadFinishedReasonOutOfSync, msg, r.clock); err != nil {
+		return prebuiltWaitingForStop, err
+	}
+	// The job can end during that write, and the caller finalizes on the reason it leaves behind,
+	// so read the job once more now that the write has been away and back. A job that is gone is
+	// past correcting. Load rewrites the key it is given, so this starts from the request's own.
+	postWriteKey := key
+	if gone, err := r.loadJob(ctx, &postWriteKey, job); err != nil {
+		return prebuiltWaitingForStop, err
+	} else if gone || job.Object().GetUID() != uid {
+		// Deleted, deleting, or replaced: finalizing it would strip another job's pod finalizer. A
+		// ComposableJob's UID is one member's, so a group that lost a member also lands here.
+		ctrl.LoggerFrom(ctx).V(3).Info("Releasing a finished prebuilt workload without finalizing its job, which the reload did not return",
+			"workload", klog.KObj(wl))
+		return prebuiltFinishedJobGone, nil
+	} else if err := r.correctOutOfSync(ctx, wl, job); err != nil {
+		return prebuiltWaitingForStop, err
+	}
+	return prebuiltUseWorkload, nil
+}
+
+// finishedOutOfSync reports whether wl finished with the out-of-sync reason.
+func finishedOutOfSync(wl *kueue.Workload) bool {
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
+	return cond != nil && cond.Status == metav1.ConditionTrue &&
+		cond.Reason == kueue.WorkloadFinishedReasonOutOfSync
+}
+
+// correctOutOfSync puts the reason a job ended with back on a workload that was finished as out of
+// sync from a view taken before it ended. The reason is read rather than displayed: MultiKueue
+// re-dispatches on OutOfSync, so an already finished job would be run a second time.
+func (r *JobReconciler) correctOutOfSync(ctx context.Context, wl *kueue.Workload, job GenericJob) error {
+	message, success, finished := job.Finished(ctx)
+	if !finished || !finishedOutOfSync(wl) {
+		return nil
+	}
+	reason := kueue.WorkloadFinishedReasonSucceeded
+	if !success {
+		reason = kueue.WorkloadFinishedReasonFailed
+	}
+	return workloadfinish.Rewrite(ctx, r.client, wl, reason, message, r.clock)
+}
+
+// stopSettled reports whether the stop is done with: nothing running, and, where the integration
+// can say so, its own controller agreeing.
+func stopSettled(job GenericJob) bool {
+	return !job.IsActive() && stopAcknowledged(job)
+}
+
+// stopAcknowledged reports whether an async stop has been confirmed by its controller. Without it
+// the wait is IsActive alone: true here is not a reading of the job, it is the absence of a
+// stronger one, and reversing it would hold every integration that has nothing else to report.
+func stopAcknowledged(job GenericJob) bool {
+	if ack, ok := job.(JobWithStopAcknowledgement); ok {
+		return ack.StopAcknowledged()
+	}
+	return true
 }
 
 // expectedRunningPodSets gets the expected podsets during the job execution, returns nil if the workload has no reservation or
@@ -1522,8 +1671,9 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 }
 
 // stopJob will suspend the job, and also restore node affinity, reset job status if needed.
-// Returns whether any operation was done to stop the job or an error.
-func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.Workload, stopReason StopReason, eventMsg string) error {
+// It reports whether this call is what stopped the job, so a caller that has just changed the
+// object does not go on to read a status that cannot have caught up with the change yet.
+func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.Workload, stopReason StopReason, eventMsg string) (bool, error) {
 	object := job.Object()
 
 	info := GetPodSetsInfoFromWorkload(wl)
@@ -1533,7 +1683,7 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		if stoppedNow {
 			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
 		}
-		return err
+		return stoppedNow, err
 	}
 
 	if jws, implements := job.(ComposableJob); implements {
@@ -1547,11 +1697,11 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		for _, objStoppedNow := range stoppedNow {
 			r.record.Eventf(objStoppedNow, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
 		}
-		return err
+		return len(stoppedNow) > 0, err
 	}
 
 	if job.IsSuspended() {
-		return nil
+		return false, nil
 	}
 
 	if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
@@ -1561,11 +1711,11 @@ func (r *JobReconciler) stopJob(ctx context.Context, job GenericJob, wl *kueue.W
 		}
 		return true, nil
 	}); err != nil {
-		return err
+		return false, err
 	}
 
 	r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStopped, "Stopped", api.TruncateEventMessage(eventMsg))
-	return nil
+	return true, nil
 }
 
 func (r *JobReconciler) finalizeJob(ctx context.Context, job GenericJob) error {
@@ -1817,7 +1967,7 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object())
 	if prebuiltWorkload != "" {
 		// Stop the job if not already suspended
-		if stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
+		if _, stopErr := r.stopJob(ctx, job, nil, StopReasonNoMatchingWorkload, "missing workload"); stopErr != nil {
 			return stopErr
 		}
 	}

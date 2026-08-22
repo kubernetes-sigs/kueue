@@ -17,6 +17,7 @@ limitations under the License.
 package job
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -587,6 +588,52 @@ var (
 		cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime"),
 	}
 )
+
+func TestStop(t *testing.T) {
+	// JobWithCustomStop requires Stop to be idempotent and to make no API calls once the job is
+	// stopped, and the framework reads the returned bool as "this call is what stopped it".
+	batchJob := utiltestingjob.MakeJob("job", "ns").Suspend(false).Obj()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	writes := 0
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(batchJob).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				writes++
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+			SubResourcePatch: func(ctx context.Context, c client.Client, sub string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+				writes++
+				return c.SubResource(sub).Patch(ctx, obj, patch, opts...)
+			},
+		}).
+		Build()
+	job := fromObject(batchJob)
+
+	stoppedNow, err := job.Stop(ctx, cl, nil, jobframework.StopReasonNoMatchingWorkload, "out of sync")
+	if err != nil {
+		t.Fatalf("first Stop: %v", err)
+	}
+	if !stoppedNow {
+		t.Error("the first Stop did not report stopping the job")
+	}
+	if writes == 0 {
+		t.Error("the first Stop wrote nothing, so it cannot have suspended the job")
+	}
+
+	writes = 0
+	stoppedNow, err = job.Stop(ctx, cl, nil, jobframework.StopReasonNoMatchingWorkload, "out of sync")
+	if err != nil {
+		t.Fatalf("second Stop: %v", err)
+	}
+	if stoppedNow {
+		t.Error("the second Stop reported stopping an already stopped job, so the wait never ends")
+	}
+	if writes != 0 {
+		t.Errorf("the second Stop made %d API calls against an already stopped job", writes)
+	}
+}
 
 func TestReconciler(t *testing.T) {
 	// the clock is primarily used with second rounded times
@@ -4439,15 +4486,124 @@ func TestReconciler(t *testing.T) {
 			},
 			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
+		"when the prebuilt workload is not equivalent to a job with running pods": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:  false,
+				features.AssignQueueLabelsForPods: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				Active(1).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			// Suspended, and the workload keeps its quota and its finalizer
+			// until the pod is gone.
+			wantJob: *baseJobWrapper.
+				Clone().
+				Active(1).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "The prebuilt workload is out of sync with its user job",
+				},
+			},
+		},
 		"when the prebuilt workload is not equivalent to the job": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 
 				features.AssignQueueLabelsForPods: true,
 			},
+			// Already suspended, and the Job controller has acknowledged it, so this reconcile
+			// decides rather than submitting the stop.
 			job: baseJobWrapper.
 				Clone().
-				Suspend(false).
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Condition(batchv1.JobCondition{Type: batchv1.JobSuspended, Status: corev1.ConditionTrue}).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Obj(),
+			},
+			// The job is stopped before the workload is finished, and the
+			// finished workload then gives up its finalizer.
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").PriorityClass("test-pc").Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "OutOfSync",
+						Message: "The prebuilt workload is out of sync with its user job",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "FinishedWorkload",
+					Message:   "Workload 'ns/prebuilt-workload' is declared finished",
+				},
+			},
+		},
+		"when the prebuilt workload is out of sync but the suspend is not yet acknowledged": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:  false,
+				features.AssignQueueLabelsForPods: true,
+			},
+			// Suspended already, but with no JobSuspended condition: the Job controller has not
+			// confirmed the stop, so the workload keeps its quota and finalizer.
+			job: baseJobWrapper.
+				Clone().
 				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
 				Obj(),
@@ -4476,23 +4632,8 @@ func TestReconciler(t *testing.T) {
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "OutOfSync",
-						Message: "The prebuilt workload is out of sync with its user job",
-					}).
 					Obj(),
 			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "Stopped",
-					Message:   "missing workload",
-				},
-			},
-			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"the workload is not admitted, tolerations and node selector change": {
 			featureGates: map[featuregate.Feature]bool{

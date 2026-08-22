@@ -762,3 +762,108 @@ func TestReconciler(t *testing.T) {
 		}
 	}
 }
+
+func TestStopAcknowledged(t *testing.T) {
+	testCases := map[string]struct {
+		generation int64
+		status     rayv1.RayClusterStatus
+		want       bool
+	}{
+		"suspended, but reported for an earlier generation: not acknowledged": {
+			generation: 2,
+			status: rayv1.RayClusterStatus{
+				ObservedGeneration: 1,
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.RayClusterSuspended),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: false,
+		},
+		"suspended and reported for this generation: acknowledged": {
+			generation: 2,
+			status: rayv1.RayClusterStatus{
+				ObservedGeneration: 2,
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.RayClusterSuspended),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: true,
+		},
+		"provisioning, no conditions yet: stop not acknowledged": {
+			status: rayv1.RayClusterStatus{State: ""},
+			want:   false,
+		},
+		"ready, no conditions: stop not acknowledged": {
+			status: rayv1.RayClusterStatus{State: rayv1.Ready},
+			want:   false,
+		},
+		"suspended state, no conditions (older KubeRay): acknowledged": {
+			status: rayv1.RayClusterStatus{State: rayv1.Suspended},
+			want:   true,
+		},
+		"conditions present, not suspended: not acknowledged": {
+			status: rayv1.RayClusterStatus{
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.HeadPodReady),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: false,
+		},
+		"conditions present, suspending in progress: not acknowledged": {
+			// Pods are still being deleted, so the stop is not complete.
+			status: rayv1.RayClusterStatus{
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.RayClusterSuspending),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: false,
+		},
+		"conditions present, suspended: all Pods deleted, acknowledged": {
+			status: rayv1.RayClusterStatus{
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.RayClusterSuspended),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: true,
+		},
+		// Older KubeRay reports the state, not the condition, but still reports other conditions.
+		"an unrelated condition does not hide the legacy suspended state": {
+			status: rayv1.RayClusterStatus{
+				State: rayv1.Suspended,
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.HeadPodReady),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: true,
+		},
+		// KubeRay writes the generation into the same status as the condition.
+		"suspended reported without a generation: not acknowledged": {
+			generation: 2,
+			status: rayv1.RayClusterStatus{
+				Conditions: []metav1.Condition{{
+					Type:   string(rayv1.RayClusterSuspended),
+					Status: metav1.ConditionTrue,
+				}},
+			},
+			want: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			j := (*RayCluster)(&rayv1.RayCluster{
+				ObjectMeta: metav1.ObjectMeta{Generation: tc.generation},
+				Status:     tc.status,
+			})
+			if got := j.StopAcknowledged(); got != tc.want {
+				t.Errorf("StopAcknowledged() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
