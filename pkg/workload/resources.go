@@ -50,24 +50,28 @@ const (
 	ErrLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
 )
 
-// We do not verify Pod's RuntimeClass legality here as this will be performed in admission controller.
-// As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
-// `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
-// rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
+// handlePodOverhead raises what a PodSet carries to the overhead its RuntimeClass
+// defines, taking the larger of the two rather than the class outright: only a
+// class's handler is immutable, so a PodSet copied off an already-admitted Pod can
+// carry more than the class now defines. It reconciles the two values visible at
+// this adjustment and nothing else: a reservation already taken is not rebuilt
+// when the class is edited afterwards, which is #14317.
 func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
 	var errs []error
 	for i := range wl.Spec.PodSets {
 		podSpec := &wl.Spec.PodSets[i].Template.Spec
-		if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
-			var runtimeClass nodev1.RuntimeClass
-			if err := cl.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
-				errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
-				continue
-			}
-			if runtimeClass.Overhead != nil {
-				podSpec.Overhead = runtimeClass.Overhead.PodFixed
-			}
+		if podSpec.RuntimeClassName == nil {
+			continue
 		}
+		var runtimeClass nodev1.RuntimeClass
+		if err := cl.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
+			errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
+			continue
+		}
+		if runtimeClass.Overhead == nil {
+			continue
+		}
+		podSpec.Overhead = resource.MergeResourceListKeepMax(podSpec.Overhead, runtimeClass.Overhead.PodFixed)
 	}
 	return errs
 }
