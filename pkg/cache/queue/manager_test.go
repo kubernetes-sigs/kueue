@@ -2198,10 +2198,13 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
 	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	excludedLQ := utiltestingapi.MakeLocalQueue("lq", "ns").Label("team", "excluded").ClusterQueue("cq").Obj()
 
 	cases := map[string]struct {
-		workload       *kueue.Workload
-		expectedStatus unadmittedWorkloadStatus
+		workload                     *kueue.Workload
+		expectedStatus               unadmittedWorkloadStatus
+		localQueueMetrics            *metrics.LocalQueueMetricsConfig
+		localQueueExcludedBySelector bool
 	}{
 		"workload with empty status conditions (fresh / disabled explicit status FG)": {
 			workload: utiltestingapi.MakeWorkload("wl-1", "ns").Queue("lq").Obj(),
@@ -2272,17 +2275,43 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 				UnderlyingCause:     "",
 			},
 		},
+		"LocalQueue metrics selector excludes unadmitted workload metric": {
+			workload: utiltestingapi.MakeWorkload("wl-5", "ns").Queue("lq").Obj(),
+			expectedStatus: unadmittedWorkloadStatus{
+				ClusterQueue:        "cq",
+				LocalQueueName:      "lq",
+				LocalQueueNamespace: "ns",
+				Reason:              kueue.WorkloadAdmittedReasonNoReservation,
+				UnderlyingCause:     kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			},
+			localQueueMetrics: &metrics.LocalQueueMetricsConfig{
+				Enabled:       true,
+				QueueSelector: labels.SelectorFromSet(map[string]string{"team": "included"}),
+			},
+			localQueueExcludedBySelector: true,
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			if tc.localQueueExcludedBySelector {
+				features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+				features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+				metrics.LocalQueueUnadmittedWorkloads.Reset()
+				t.Cleanup(metrics.LocalQueueUnadmittedWorkloads.Reset)
+			}
+
+			queue := lq
+			if tc.localQueueExcludedBySelector {
+				queue = excludedLQ
+			}
 			kClient := utiltesting.NewFakeClient(tc.workload)
-			manager := NewManagerForUnitTests(kClient, nil)
+			manager := NewManagerForUnitTests(kClient, nil, WithLocalQueueMetrics(tc.localQueueMetrics))
 
 			if err := manager.AddClusterQueue(ctx, cq); err != nil {
 				t.Fatalf("failed to add ClusterQueue: %v", err)
 			}
-			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+			if err := manager.AddLocalQueue(ctx, queue); err != nil {
 				t.Fatalf("failed to add LocalQueue: %v", err)
 			}
 
@@ -2293,7 +2322,6 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected workload to be tracked in unadmitted registry")
 			}
-
 			if diff := cmp.Diff(tc.expectedStatus, status); diff != "" {
 				t.Errorf("unexpected tracked status (-want,+got):\n%s", diff)
 			}
@@ -2302,10 +2330,16 @@ func TestUpdateUnadmittedWorkload(t *testing.T) {
 			if count, ok := manager.unadmittedWorkloads.perCQ[cqKey]; !ok || count != 1 {
 				t.Errorf("expected CQ status count to be 1, got count=%d, ok=%t", count, ok)
 			}
-
 			lqKey := tc.expectedStatus
 			if count, ok := manager.unadmittedWorkloads.perLQ[lqKey]; !ok || count != 1 {
 				t.Errorf("expected LQ status count to be 1, got count=%d, ok=%t", count, ok)
+			}
+
+			if tc.localQueueExcludedBySelector {
+				expectGaugeCount(t, metrics.LocalQueueUnadmittedWorkloads, 0, map[string]string{
+					"name":      queue.Name,
+					"namespace": queue.Namespace,
+				})
 			}
 
 			tc.workload.Status.Conditions = []metav1.Condition{
