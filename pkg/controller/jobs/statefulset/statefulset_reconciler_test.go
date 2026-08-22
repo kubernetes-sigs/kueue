@@ -101,21 +101,18 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
@@ -123,21 +120,18 @@ func TestReconciler(t *testing.T) {
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					StatusPhase(corev1.PodSucceeded).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
 					StatusPhase(corev1.PodFailed).
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
@@ -159,7 +153,6 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
@@ -167,14 +160,12 @@ func TestReconciler(t *testing.T) {
 					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
 					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "2").
@@ -184,21 +175,18 @@ func TestReconciler(t *testing.T) {
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
 					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
 					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "2").
@@ -405,7 +393,6 @@ func TestReconciler(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("", "sts")).
 					Obj(),
@@ -416,7 +403,6 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("", "sts")).
 					Label(controllerconstants.QueueLabel, "lq").
@@ -445,7 +431,6 @@ func TestReconciler(t *testing.T) {
 			},
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("", "sts")).
 					KueueFinalizer().
@@ -459,7 +444,6 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("", "sts")).
 					KueueFinalizer().
@@ -486,7 +470,6 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
@@ -495,7 +478,6 @@ func TestReconciler(t *testing.T) {
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
@@ -509,7 +491,6 @@ func TestReconciler(t *testing.T) {
 			statefulSet:  nil,
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Gate(podconstants.SchedulingGateName).
@@ -518,7 +499,6 @@ func TestReconciler(t *testing.T) {
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					KueueFinalizer().
@@ -780,10 +760,6 @@ func TestReconciler(t *testing.T) {
 			},
 		},
 		"should set default values on pods": {
-			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.TopologyAwareScheduling:       false,
-			},
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
@@ -797,273 +773,12 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod", "ns").
-					Label("app", "sts-pod").
-					OwnerReferenceWithUID("sts", gvk, "sts-uid").
-					Queue("queue").
-					ManagedByKueueLabel().
-					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
-					GroupTotalCount("3").
-					PrebuiltWorkloadLabel(GetWorkloadName("sts-uid", "sts")).
-					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
-					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
-					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
-					JobUID("sts-uid").
-					Queue("queue").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					Priority(0).
-					PodSets(kueue.PodSet{
-						Name:  kueue.DefaultPodSetName,
-						Count: 3,
-						Template: corev1.PodTemplateSpec{
-							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
-						},
-					}).
-					OwnerReference(gvk, "sts", "sts-uid").
-					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
-					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
-					Obj(),
-			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    jobframework.ReasonCreatedWorkload,
-					Message:   fmt.Sprintf("Created Workload: ns/%s", GetWorkloadName("sts-uid", "sts")),
-				},
-			},
-		},
-		"should set default values with priority class on pods": {
-			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.TopologyAwareScheduling:       false,
-			},
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
-			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
-				UID("sts-uid").
-				Queue("queue").
-				Replicas(3).
-				WorkloadPriorityClass("high-priority").
-				Obj(),
-			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
-				UID("sts-uid").
-				Queue("queue").
-				Replicas(3).
-				WorkloadPriorityClass("high-priority").
-				Obj(),
-			pods: []corev1.Pod{
-				*testingjobspod.MakePod("pod", "ns").
-					Label("app", "sts-pod").
-					OwnerReferenceWithUID("sts", gvk, "sts-uid").
-					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-					Obj(),
-			},
-			priorityClasses: []kueue.WorkloadPriorityClass{
-				*utiltestingapi.MakeWorkloadPriorityClass("high-priority").PriorityValue(100).Obj(),
-			},
-			workloads: []kueue.Workload{},
-			wantPods: []corev1.Pod{
-				*testingjobspod.MakePod("pod", "ns").
-					Label("app", "sts-pod").
-					OwnerReferenceWithUID("sts", gvk, "sts-uid").
-					Queue("queue").
-					ManagedByKueueLabel().
-					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
-					GroupTotalCount("3").
-					Label(controllerconstants.WorkloadPriorityClassLabel, "high-priority").
-					PrebuiltWorkloadLabel(GetWorkloadName("sts-uid", "sts")).
-					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
-					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
-					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
-					JobUID("sts-uid").
-					Queue("queue").
-					WorkloadPriorityClassRef("high-priority").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					Priority(100).
-					PodSets(kueue.PodSet{
-						Name:  kueue.DefaultPodSetName,
-						Count: 3,
-						Template: corev1.PodTemplateSpec{
-							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
-						},
-					}).
-					OwnerReference(gvk, "sts", "sts-uid").
-					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
-					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
-					Obj(),
-			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    jobframework.ReasonCreatedWorkload,
-					Message:   fmt.Sprintf("Created Workload: ns/%s", GetWorkloadName("sts-uid", "sts")),
-				},
-			},
-		},
-		"should set default values without queue name when manageJobsWithoutQueueName": {
-			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.TopologyAwareScheduling:       false,
-			},
-			manageJobsWithoutQueueName: true,
-			stsKey:                     client.ObjectKey{Name: "sts", Namespace: "ns"},
-			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
-				UID("sts-uid").
-				Replicas(3).
-				Obj(),
-			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
-				UID("sts-uid").
-				Replicas(3).
-				Obj(),
-			pods: []corev1.Pod{
-				*testingjobspod.MakePod("pod", "ns").
-					Label("app", "sts-pod").
-					OwnerReferenceWithUID("sts", gvk, "sts-uid").
-					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-					Obj(),
-			},
-			wantPods: []corev1.Pod{
-				*testingjobspod.MakePod("pod", "ns").
-					Label("app", "sts-pod").
-					OwnerReferenceWithUID("sts", gvk, "sts-uid").
-					ManagedByKueueLabel().
-					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
-					GroupTotalCount("3").
-					PrebuiltWorkloadLabel(GetWorkloadName("sts-uid", "sts")).
-					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
-					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
-					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
-					JobUID("sts-uid").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					Priority(0).
-					PodSets(kueue.PodSet{
-						Name:  kueue.DefaultPodSetName,
-						Count: 3,
-						Template: corev1.PodTemplateSpec{
-							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
-						},
-					}).
-					OwnerReference(gvk, "sts", "sts-uid").
-					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
-					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
-					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
-					Obj(),
-			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    jobframework.ReasonCreatedWorkload,
-					Message:   fmt.Sprintf("Created Workload: ns/%s", GetWorkloadName("sts-uid", "sts")),
-				},
-			},
-		},
-		"should label new pod with legacy name when legacy workload exists": {
-			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: false,
-				features.TopologyAwareScheduling:       false,
-			},
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
-			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
-				UID("sts-uid").
-				Queue("queue").
-				Replicas(3).
-				Obj(),
-			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
-				UID("sts-uid").
-				Queue("queue").
-				Replicas(3).
-				Obj(),
-			pods: []corev1.Pod{
-				*testingjobspod.MakePod("pod", "ns").
-					Label("app", "sts-pod").
-					OwnerReferenceWithUID("sts", gvk, "sts-uid").
-					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-					Obj(),
-			},
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
-					Queue("queue").
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
-					Queue("queue").
-					OwnerReference(gvk, "sts", "sts-uid").
-					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
-					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
-					Obj(),
-			},
-			wantPods: []corev1.Pod{
-				*testingjobspod.MakePod("pod", "ns").
-					Label("app", "sts-pod").
-					OwnerReferenceWithUID("sts", gvk, "sts-uid").
-					Queue("queue").
-					ManagedByKueueLabel().
-					GroupNameLabel(GetWorkloadName("", "sts")).
-					GroupTotalCount("3").
-					PrebuiltWorkloadLabel(GetWorkloadName("", "sts")).
-					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
-					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
-					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
-					Obj(),
-			},
-		},
-		"should label new pod with GroupNameAnnotation when WorkloadIdentifierAnnotations enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.WorkloadIdentifierAnnotations: true,
-				features.TopologyAwareScheduling:       false,
-			},
-			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
-			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
-				UID("sts-uid").
-				Queue("queue").
-				Replicas(3).
-				Obj(),
-			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
-				UID("sts-uid").
-				Queue("queue").
-				Replicas(3).
-				Obj(),
-			pods: []corev1.Pod{
-				*testingjobspod.MakePod("pod", "ns").
-					Label("app", "sts-pod").
-					OwnerReferenceWithUID("sts", gvk, "sts-uid").
-					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-					Obj(),
-			},
-			wantPods: []corev1.Pod{
-				*testingjobspod.MakePod("pod", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					Queue("queue").
 					ManagedByKueueLabel().
@@ -1089,6 +804,9 @@ func TestReconciler(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
 						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
+						},
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
@@ -1105,10 +823,189 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"should not update already defaulted suspended pod": {
+		"should set default values with priority class on pods": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("queue").
+				Replicas(3).
+				WorkloadPriorityClass("high-priority").
+				Obj(),
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("queue").
+				Replicas(3).
+				WorkloadPriorityClass("high-priority").
+				Obj(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Obj(),
+			},
+			priorityClasses: []kueue.WorkloadPriorityClass{
+				*utiltestingapi.MakeWorkloadPriorityClass("high-priority").PriorityValue(100).Obj(),
+			},
+			workloads: []kueue.Workload{},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Queue("queue").
+					ManagedByKueueLabel().
+					GroupNameAnnotation(GetWorkloadName("sts-uid", "sts")).
+					GroupTotalCount("3").
+					Label(controllerconstants.WorkloadPriorityClassLabel, "high-priority").
+					PrebuiltWorkloadAnnotation(GetWorkloadName("sts-uid", "sts")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					JobUID("sts-uid").
+					Queue("queue").
+					WorkloadPriorityClassRef("high-priority").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Priority(100).
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 3,
+						Template: corev1.PodTemplateSpec{
+							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
+						},
+					}).
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message:   fmt.Sprintf("Created Workload: ns/%s", GetWorkloadName("sts-uid", "sts")),
+				},
+			},
+		},
+		"should set default values without queue name when manageJobsWithoutQueueName": {
+			manageJobsWithoutQueueName: true,
+			stsKey:                     client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(3).
+				Obj(),
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(3).
+				Obj(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					ManagedByKueueLabel().
+					GroupNameAnnotation(GetWorkloadName("sts-uid", "sts")).
+					GroupTotalCount("3").
+					PrebuiltWorkloadAnnotation(GetWorkloadName("sts-uid", "sts")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					JobUID("sts-uid").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Priority(0).
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 3,
+						Template: corev1.PodTemplateSpec{
+							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
+						},
+					}).
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message:   fmt.Sprintf("Created Workload: ns/%s", GetWorkloadName("sts-uid", "sts")),
+				},
+			},
+		},
+		"should label new pod with legacy name when legacy workload exists": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("queue").
+				Replicas(3).
+				Obj(),
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("queue").
+				Replicas(3).
+				Obj(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					Queue("queue").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					Queue("queue").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Queue("queue").
+					ManagedByKueueLabel().
+					GroupNameAnnotation(GetWorkloadName("", "sts")).
+					GroupTotalCount("3").
+					PrebuiltWorkloadAnnotation(GetWorkloadName("", "sts")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+		},
+		"should label new pod with GroupNameLabel when WorkloadIdentifierAnnotations disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WorkloadIdentifierAnnotations: false,
-				features.TopologyAwareScheduling:       false,
 			},
 			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -1123,23 +1020,12 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
-					Queue("queue").
-					ManagedByKueueLabel().
-					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
-					GroupTotalCount("3").
-					PrebuiltWorkloadLabel(GetWorkloadName("sts-uid", "sts")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
-					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
-					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
-					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
 				*testingjobspod.MakePod("pod", "ns").
-					Label("app", "sts-pod").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					Queue("queue").
 					ManagedByKueueLabel().
@@ -1165,6 +1051,82 @@ func TestReconciler(t *testing.T) {
 						Template: corev1.PodTemplateSpec{
 							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
 						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
+						},
+					}).
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message:   fmt.Sprintf("Created Workload: ns/%s", GetWorkloadName("sts-uid", "sts")),
+				},
+			},
+		},
+		"should not update already defaulted suspended pod": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("queue").
+				Replicas(3).
+				Obj(),
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("queue").
+				Replicas(3).
+				Obj(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Queue("queue").
+					ManagedByKueueLabel().
+					GroupNameAnnotation(GetWorkloadName("sts-uid", "sts")).
+					GroupTotalCount("3").
+					PrebuiltWorkloadAnnotation(GetWorkloadName("sts-uid", "sts")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReferenceWithUID("sts", gvk, "sts-uid").
+					Queue("queue").
+					ManagedByKueueLabel().
+					GroupNameAnnotation(GetWorkloadName("sts-uid", "sts")).
+					GroupTotalCount("3").
+					PrebuiltWorkloadAnnotation(GetWorkloadName("sts-uid", "sts")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					JobUID("sts-uid").
+					Queue("queue").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Priority(0).
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 3,
+						Template: corev1.PodTemplateSpec{
+							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
+						},
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").
 					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
@@ -1181,11 +1143,7 @@ func TestReconciler(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 			indexer := utiltesting.AsIndexer(clientBuilder)
-			err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName)
-			if err != nil {
-				t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
-			}
-			err = indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodControllerCacheKey, podcontroller.IndexPodController)
+			err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodControllerCacheKey, podcontroller.IndexPodController)
 			if err != nil {
 				t.Fatalf("Could not add index for %s field name", podcontroller.PodControllerCacheKey)
 			}
@@ -1362,11 +1320,7 @@ func TestReconciler_ClearOnHoldSetsReason(t *testing.T) {
 				WithObjects(sts, wl).
 				WithStatusSubresource(sts, wl)
 			indexer := utiltesting.AsIndexer(clientBuilder)
-			err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName)
-			if err != nil {
-				t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
-			}
-			err = indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodControllerCacheKey, podcontroller.IndexPodController)
+			err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodControllerCacheKey, podcontroller.IndexPodController)
 			if err != nil {
 				t.Fatalf("Could not add index for %s field name", podcontroller.PodControllerCacheKey)
 			}
@@ -1419,7 +1373,6 @@ func TestReconcileDoesNotCancelTheWorkloadBranch(t *testing.T) {
 		UpdateRevision("2").
 		Obj()
 	pod := testingjobspod.MakePod("pod1", "ns").
-		Label("app", "sts-pod").
 		OwnerReferenceWithUID("sts", gvk, "sts-uid").
 		GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 		Label(appsv1.ControllerRevisionHashLabelKey, "1").
@@ -1461,9 +1414,6 @@ func TestReconcileDoesNotCancelTheWorkloadBranch(t *testing.T) {
 		},
 	})
 	indexer := utiltesting.AsIndexer(clientBuilder)
-	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
-		t.Fatalf("Indexing the pod group name: %v", err)
-	}
 	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodControllerCacheKey, podcontroller.IndexPodController); err != nil {
 		t.Fatalf("Indexing the pod controller: %v", err)
 	}
