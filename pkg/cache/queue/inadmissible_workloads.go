@@ -204,6 +204,28 @@ func notifyRetryInadmissibleWithoutLock(m *Manager, cqNames sets.Set[kueue.Clust
 	}
 }
 
+// NotifyRetryInadmissibleAfter requests, after at least delay has elapsed, that
+// inadmissible workloads from the given ClusterQueue (and its whole Cohort tree)
+// be moved from the inadmissible queue back to the active heap. It is used to
+// wake a ClusterQueue once a time-based gate such as reclaim backoff is expected
+// to have expired, since ordinary retries are only triggered by quota-freeing
+// events, which may not occur while the Cohort is idle.
+func (m *Manager) NotifyRetryInadmissibleAfter(cqName kueue.ClusterQueueReference, delay time.Duration) {
+	m.RLock()
+	defer m.RUnlock()
+	cq := m.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return
+	}
+	switch {
+	case !cq.HasParent():
+		m.requeuer.notifyClusterQueueAfter(cq.name, delay)
+	case !hierarchy.HasCycle(cq.Parent()):
+		rootName := cq.Parent().getRootUnsafe().GetName()
+		m.requeuer.notifyCohortAfter(rootName, delay)
+	}
+}
+
 // inadmissibleRequeuer receives notifications
 // that a particular ClusterQueue (without Cohort) or a
 // Root Cohort should have its Inadmissible Workloads requeued.
@@ -212,6 +234,13 @@ type inadmissibleRequeuer interface {
 	notifyClusterQueue(cqName kueue.ClusterQueueReference)
 	// notifyCohort should only be called for Root Cohorts.
 	notifyCohort(cohortName kueue.CohortReference)
+	// notifyClusterQueueAfter behaves like notifyClusterQueue but defers the
+	// requeue by at least delay. It is used to wake a ClusterQueue once a
+	// time-based gate (e.g. reclaim backoff) is expected to have expired.
+	notifyClusterQueueAfter(cqName kueue.ClusterQueueReference, delay time.Duration)
+	// notifyCohortAfter behaves like notifyCohort but defers the requeue by at
+	// least delay.
+	notifyCohortAfter(cohortName kueue.CohortReference, delay time.Duration)
 	setManager(manager *Manager)
 }
 
@@ -247,6 +276,14 @@ func (r *workqueueRequeuer) notifyClusterQueue(cqName kueue.ClusterQueueReferenc
 
 func (r *workqueueRequeuer) notifyCohort(cohortName kueue.CohortReference) {
 	r.queue.AddAfter(requeueRequest{Cohort: cohortName}, r.batchPeriod)
+}
+
+func (r *workqueueRequeuer) notifyClusterQueueAfter(cqName kueue.ClusterQueueReference, delay time.Duration) {
+	r.queue.AddAfter(requeueRequest{ClusterQueue: cqName}, max(delay, r.batchPeriod))
+}
+
+func (r *workqueueRequeuer) notifyCohortAfter(cohortName kueue.CohortReference, delay time.Duration) {
+	r.queue.AddAfter(requeueRequest{Cohort: cohortName}, max(delay, r.batchPeriod))
 }
 
 func (r *workqueueRequeuer) setManager(manager *Manager) {

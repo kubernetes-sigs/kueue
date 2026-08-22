@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/scheduler/reclaimbackoff"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -71,6 +72,7 @@ type ClusterQueueReconciler struct {
 	clock                 clock.Clock
 	roleTracker           *roletracker.RoleTracker
 	customLabels          *metrics.CustomLabels
+	reclaimBackoff        *reclaimbackoff.Tracker
 }
 
 var _ reconcile.Reconciler = (*ClusterQueueReconciler)(nil)
@@ -83,6 +85,7 @@ type ClusterQueueReconcilerOptions struct {
 	clock                 clock.Clock
 	roleTracker           *roletracker.RoleTracker
 	customLabels          *metrics.CustomLabels
+	reclaimBackoff        *reclaimbackoff.Tracker
 }
 
 // ClusterQueueReconcilerOption configures the reconciler.
@@ -118,6 +121,15 @@ func WithClusterQueueCustomLabels(customLabels *metrics.CustomLabels) ClusterQue
 	}
 }
 
+// WithReclaimBackoff wires the reclaim backoff tracker so that its entries for
+// a ClusterQueue are purged when that ClusterQueue is deleted. A nil tracker
+// (feature disabled) is valid and disables the purge.
+func WithReclaimBackoff(tracker *reclaimbackoff.Tracker) ClusterQueueReconcilerOption {
+	return func(o *ClusterQueueReconcilerOptions) {
+		o.reclaimBackoff = tracker
+	}
+}
+
 var defaultCQOptions = ClusterQueueReconcilerOptions{
 	clock: realClock,
 }
@@ -144,6 +156,7 @@ func NewClusterQueueReconciler(
 		clock:                 options.clock,
 		roleTracker:           options.roleTracker,
 		customLabels:          options.customLabels,
+		reclaimBackoff:        options.reclaimBackoff,
 	}
 }
 
@@ -363,6 +376,9 @@ func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQ
 	r.cache.ClearCohortMetrics(log, e.Object.Spec.CohortName)
 	r.cache.DeleteClusterQueue(e.Object)
 	r.qManager.DeleteClusterQueue(log, e.Object)
+	if r.reclaimBackoff != nil {
+		r.reclaimBackoff.DeleteClusterQueue(kueue.ClusterQueueReference(e.Object.Name))
+	}
 
 	metrics.ClearClusterQueueResourceMetrics(e.Object.Name)
 	if features.Enabled(features.CustomMetricLabels) {

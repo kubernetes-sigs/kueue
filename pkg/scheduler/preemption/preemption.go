@@ -23,6 +23,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/go-logr/logr"
@@ -198,18 +199,24 @@ func (p *Preemptor) SatisfyPreemptionExpectation(log logr.Logger, wl *kueue.Work
 }
 
 // IssuePreemptions marks the target workloads as evicted.
+// It returns the number of targets that are considered preempted (including
+// those already evicted or still being observed from an earlier cycle), the
+// number of targets whose eviction failed, and the set of targets whose
+// eviction was actually issued during this call.
 func (p *Preemptor) IssuePreemptions(
 	ctx context.Context,
 	cache *schdcache.Cache,
 	preemptor *workload.Info,
 	targets []*Target,
 	snap *schdcache.ClusterQueueSnapshot,
-) (preempted int, failedPreemptions int, exampleError error) {
+) (preempted int, failedPreemptions int, issuedTargets sets.Set[types.NamespacedName], exampleError error) {
 	log := ctrl.LoggerFrom(ctx)
 	errCh := routine.NewErrorChannel()
 	ctx, cancel := context.WithCancel(ctx)
 	var successfullyPreempted atomic.Int64
 	var preemptionErrors atomic.Int64
+	issuedTargets = sets.New[types.NamespacedName]()
+	var issuedMu sync.Mutex
 	defer cancel()
 	workqueue.ParallelizeUntil(ctx, parallelPreemptions, len(targets), func(i int) {
 		target := targets[i]
@@ -265,8 +272,11 @@ func (p *Preemptor) IssuePreemptions(
 			preemptorEffPri, preemptorBase, preemptorBoost, targetEffPri, targetBase, targetBoost)
 		workloadevict.ReportPreemption(preemptor.ClusterQueue, target.Reason, target.WorkloadInfo.ClusterQueue, p.roleTracker, p.customLabels)
 		successfullyPreempted.Add(1)
+		issuedMu.Lock()
+		issuedTargets.Insert(targetKey)
+		issuedMu.Unlock()
 	})
-	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()
+	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), issuedTargets, errCh.ReceiveError()
 }
 
 type preemptionAttemptOpts struct {
