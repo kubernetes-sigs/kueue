@@ -33,8 +33,9 @@ KueueViz currently exposes all Kueue resources without authentication.
 This KEP adds optional bearer token authentication using the Kubernetes
 TokenReview API, the same mechanism Kubernetes Dashboard uses.
 
-Authentication is configured through Helm values. In Alpha, the default mode
-is `Disabled`, and users opt in via `auth.mode: TokenReview`.
+Authentication is configured through Helm values. Helm deployments use
+`auth.mode: TokenReview`; unauthenticated mode is reserved for loopback-only
+local development and is rejected by the chart.
 
 ## Motivation
 
@@ -87,7 +88,7 @@ with per-user authentication and audit logging.
 
 | Risk | Mitigation |
 |------|------------|
-| Breaking existing deployments | Disabled by default in Alpha; opt-in via `auth.mode: TokenReview` |
+| Breaking existing deployments | TokenReview is the secure Helm default; unauthenticated local development binds only to loopback |
 | Token exposure in logs | Never log tokens |
 | TokenReview latency | Cache with configurable TTL |
 | API server load from invalid tokens | Negative caching (5s TTL) for failed auth results |
@@ -201,7 +202,7 @@ Add to `charts/kueue/templates/kueueviz/clusterrole.yaml`:
 kueueViz:
   backend:
     auth:
-      mode: "Disabled"          # Disabled | TokenReview
+      mode: "TokenReview"       # Helm requires TokenReview; Disabled is local-only
       tokenReviewConfig:
         audiences: ""           # optional, comma-separated; empty means any audience
         cacheTTL: "60s"         # how long a successful auth result is cached
@@ -270,7 +271,7 @@ E2E tests (`test/e2e/kueueviz/`):
 
 ### Graduation Criteria
 
-Alpha (v0.17, disabled by default):
+Alpha (v0.17, historical default disabled):
 
 - [ ] Middleware implemented with unit tests (>80% coverage)
 - [ ] Integration tests passing
@@ -279,7 +280,7 @@ Alpha (v0.17, disabled by default):
 - [ ] Negative caching for failed auth results
 - [ ] INSTALL.md updated
 
-Beta (v0.18, re-evaluate enabling by default based on user feedback):
+Beta (v0.18, original proposal to re-evaluate the default):
 
 - [ ] Positive user feedback from Alpha adopters
 - [ ] Auth metrics added (success/failure counters, latency histogram)
@@ -287,15 +288,21 @@ Beta (v0.18, re-evaluate enabling by default based on user feedback):
 - [ ] DDoS mitigation validated (negative cache + rate limiting)
 - [ ] Documentation for migration from unauthenticated deployments
 
-Stable (v0.19):
+Stable (original v0.19 target):
 
 - [ ] Production usage confirmed
 - [ ] Enabled by default
 - [ ] Secure by default: evaluate automatic token acquisition
 
+Current security hardening:
+
+- [x] Helm deployments default to and require TokenReview
+- [x] Unauthenticated standalone mode listens on loopback and defaults to same-origin CORS
+
 ## Implementation History
 
 - 2026-02-04: Initial KEP draft
+- 2026-08-20: Require TokenReview for Helm deployments and confine unauthenticated development mode to loopback
 
 ## Drawbacks
 
@@ -303,10 +310,10 @@ Adds middleware, configuration, and RBAC complexity. Users must obtain and
 manage tokens themselves. Some users may expect OAuth login instead. Note
 that revoked tokens remain valid until cache expires.
 
-Starting with Alpha disabled by default avoids breaking existing deployments.
-When graduating to Beta/Stable with auth enabled by default, users upgrading
-must either obtain a token or set `auth.mode: Disabled`. Migration steps
-will be documented in release notes.
+Helm deployments require TokenReview so that a ClusterIP or Ingress cannot
+expose the cluster-wide backend without authentication. Developers can still
+run with `auth.mode: Disabled`; in that mode the backend listens on loopback
+only.
 
 ## Alternatives
 

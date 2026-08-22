@@ -105,6 +105,9 @@ func SetupGinEngine() (*gin.Engine, error) {
 
 // GetServerAddress returns the formatted server address
 func (c *ServerConfig) GetServerAddress() string {
+	if c.AuthMode != "TokenReview" {
+		return fmt.Sprintf("127.0.0.1:%s", c.Port)
+	}
 	return fmt.Sprintf(":%s", c.Port)
 }
 

@@ -32,20 +32,30 @@ CGO_ENABLED=0 go build -o kueue_ws_app
 Run the application:
 
 ```bash
-# Start with default value
+# Start in unauthenticated local-development mode. The server listens only on
+# 127.0.0.1 in this mode.
 ./kueue_ws_app
 
 # Start on port 8181
-KUEUE_VIZ_PORT=8181 ./kueue_ws_app
+KUEUEVIZ_PORT=8181 ./kueue_ws_app
+
+# Listen on all interfaces with Kubernetes TokenReview authentication.
+KUEUEVIZ_AUTH_MODE=TokenReview ./kueue_ws_app
 ```
 
 ## Variables
 
-| Environment variables      | Description                          | Default value |
-| -------------------------- | ------------------------------------ | ------------- |
-| `KUEUE_VIZ_PORT`           | Default application port             | 8080          |
-| `GIN_MODE`                 | Gin mode                             | debug         |
-| `KUEUEVIZ_ALLOWED_ORIGINS` | Comma-separated list of CORS origins | `*` (dev only)|
+| Environment variables      | Description                                                        | Default value |
+| -------------------------- | ------------------------------------------------------------------ | ------------- |
+| `KUEUEVIZ_PORT`            | Application port                                                   | 8080          |
+| `KUEUEVIZ_AUTH_MODE`       | `Disabled` for loopback-only development or `TokenReview`          | Disabled      |
+| `GIN_MODE`                 | Gin mode                                                           | debug         |
+| `KUEUEVIZ_ALLOWED_ORIGINS` | Comma-separated list of CORS origins                               | Same-origin only |
+
+When the frontend runs on a different local origin, opt in to that exact
+origin, for example `KUEUEVIZ_ALLOWED_ORIGINS=http://localhost:3000`. The
+wildcard value is accepted only in development mode and should not be used
+while browsing untrusted sites.
 
 ## Endpoints
 
