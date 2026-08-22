@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
@@ -444,14 +446,14 @@ func TestReconcileGenericJob(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			mockctrl := gomock.NewController(t)
 
-			mgj := mocks.NewMockGenericJob(mockctrl)
-			mgj.EXPECT().Object().Return(tc.job).AnyTimes()
-			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
-			mgj.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
-			mgj.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
-			mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).AnyTimes()
-			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
+			mockedJob := mocks.NewMockGenericJob(mockctrl)
+			mockedJob.EXPECT().Object().Return(tc.job).AnyTimes()
+			mockedJob.EXPECT().GVK().Return(testGVK).AnyTimes()
+			mockedJob.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
+			mockedJob.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
+			mockedJob.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).AnyTimes()
+			mockedJob.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+			mockedJob.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
 			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
 				WithObjects(utiltesting.MakeNamespace(tc.req.Namespace)).
@@ -462,7 +464,7 @@ func TestReconcileGenericJob(t *testing.T) {
 
 			recorder := &utiltesting.EventRecorder{}
 			rec := NewReconciler(cl, recorder, tc.reconcilerOptions...)
-			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, mgj)
+			_, err := rec.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: tc.req}, mockedJob)
 			if err != nil {
 				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
 			}
@@ -551,21 +553,21 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			reconciler := NewReconciler(cl, recorder)
 
-			mgj := &struct {
+			mockedJob := &struct {
 				*mocks.MockGenericJob
 				*mocks.MockJobWithCustomWorkloadActivation
 			}{
 				MockGenericJob:                      mocks.NewMockGenericJob(mockctrl),
 				MockJobWithCustomWorkloadActivation: mocks.NewMockJobWithCustomWorkloadActivation(mockctrl),
 			}
-			mgj.MockGenericJob.EXPECT().Object().Return(job).AnyTimes()
-			mgj.MockGenericJob.EXPECT().GVK().Return(testGVK).AnyTimes()
-			mgj.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
-			mgj.MockGenericJob.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-			mgj.MockGenericJob.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(basePodSets, nil).AnyTimes()
-			mgj.MockJobWithCustomWorkloadActivation.EXPECT().IsWorkloadActive().Return(tc.jobActive).MaxTimes(1)
+			mockedJob.MockGenericJob.EXPECT().Object().Return(job).AnyTimes()
+			mockedJob.MockGenericJob.EXPECT().GVK().Return(testGVK).AnyTimes()
+			mockedJob.MockGenericJob.EXPECT().IsSuspended().Return(ptr.Deref(job.Spec.Suspend, false)).AnyTimes()
+			mockedJob.MockGenericJob.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+			mockedJob.MockGenericJob.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(basePodSets, nil).AnyTimes()
+			mockedJob.MockJobWithCustomWorkloadActivation.EXPECT().IsWorkloadActive().Return(tc.jobActive).MaxTimes(1)
 
-			if _, err := reconciler.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: req}, mgj); err != nil {
+			if _, err := reconciler.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: req}, mockedJob); err != nil {
 				t.Fatalf("Failed to Reconcile GenericJob: %v", err)
 			}
 
@@ -579,6 +581,376 @@ func TestReconcileGenericJobWithCustomWorkloadActivation(t *testing.T) {
 			}
 			if *updated.Spec.Active != tc.expectedActive {
 				t.Fatalf("Workload.Spec.Active = %t, want %t", *updated.Spec.Active, tc.expectedActive)
+			}
+		})
+	}
+}
+
+func TestFindMatchingWorkloads(t *testing.T) {
+	const (
+		testJobName = "test-job"
+		testNS      = metav1.NamespaceDefault
+		testJobUID  = "test-job-uid"
+	)
+	testGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+	basePodSets := []kueue.PodSet{
+		*utiltestingapi.MakePodSet("main", 1).Obj(),
+	}
+	baseJob := testingjob.MakeJob(testJobName, testNS).UID(testJobUID).Obj()
+
+	baseWl := func(name string) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, testNS).PodSets(basePodSets...)
+	}
+
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		workloads    []*kueue.Workload
+		wantMatch    string
+		wantToDelete []string
+	}{
+		"workload with only a non-controller owner reference is ignored": {
+			workloads: []*kueue.Workload{
+				baseWl("foreign-plain").
+					OwnerReference(testGVK, testJobName, testJobUID).
+					Obj(),
+			},
+		},
+		"workload controlled by another object is ignored": {
+			workloads: []*kueue.Workload{
+				baseWl("foreign-controlled").
+					OwnerReference(testGVK, testJobName, testJobUID).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("ConfigMap"), "some-config", "some-config-uid").
+					Obj(),
+			},
+		},
+		"workload controlled by a same-named object of a different kind is ignored": {
+			workloads: []*kueue.Workload{
+				baseWl("foreign-same-name").
+					OwnerReference(testGVK, testJobName, testJobUID).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("ConfigMap"), testJobName, "some-config-uid").
+					Obj(),
+			},
+		},
+		"foreign workload with different pod sets is neither matched nor deleted": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("foreign-diff-pods", testNS).
+					PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).
+					OwnerReference(testGVK, testJobName, testJobUID).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("ConfigMap"), "some-config", "some-config-uid").
+					Obj(),
+			},
+		},
+		"owned workload with different pod sets is collected for deletion": {
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("owned-diff-pods", testNS).
+					PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).
+					ControllerReference(testGVK, testJobName, testJobUID).
+					Obj(),
+			},
+			wantToDelete: []string{"owned-diff-pods"},
+		},
+		"workload controlled by the job with a stale UID is collected for deletion": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			workloads: []*kueue.Workload{
+				baseWl("stale-uid").
+					ControllerReference(testGVK, testJobName, "old-uid").
+					Obj(),
+			},
+			wantToDelete: []string{"stale-uid"},
+		},
+		"equivalent workload controlled by the job is matched": {
+			workloads: []*kueue.Workload{
+				baseWl("owned").
+					ControllerReference(testGVK, testJobName, testJobUID).
+					Obj(),
+			},
+			wantMatch: "owned",
+		},
+		"foreign workloads are ignored while the owned workload is matched": {
+			workloads: []*kueue.Workload{
+				baseWl("foreign-plain").
+					OwnerReference(testGVK, testJobName, testJobUID).
+					Obj(),
+				baseWl("foreign-controlled").
+					OwnerReference(testGVK, testJobName, testJobUID).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("ConfigMap"), "some-config", "some-config-uid").
+					Obj(),
+				baseWl("owned").
+					ControllerReference(testGVK, testJobName, testJobUID).
+					Obj(),
+			},
+			wantMatch: "owned",
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			mockctrl := gomock.NewController(t)
+
+			mockedJob := mocks.NewMockGenericJob(mockctrl)
+			mockedJob.EXPECT().Object().Return(baseJob).AnyTimes()
+			mockedJob.EXPECT().GVK().Return(testGVK).AnyTimes()
+			mockedJob.EXPECT().IsSuspended().Return(true).AnyTimes()
+			mockedJob.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(basePodSets, nil).AnyTimes()
+
+			objs := make([]client.Object, 0, len(tc.workloads))
+			for _, wl := range tc.workloads {
+				objs = append(objs, wl)
+			}
+			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(objs...).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
+				Build()
+
+			match, toDelete, err := FindMatchingWorkloads(ctx, cl, mockedJob)
+			if err != nil {
+				t.Fatalf("FindMatchingWorkloads returned error: %v", err)
+			}
+
+			gotMatch := ""
+			if match != nil {
+				gotMatch = match.Name
+			}
+			if gotMatch != tc.wantMatch {
+				t.Errorf("match = %q, want %q", gotMatch, tc.wantMatch)
+			}
+
+			gotToDelete := make([]string, 0, len(toDelete))
+			for _, wl := range toDelete {
+				gotToDelete = append(gotToDelete, wl.Name)
+			}
+			slices.Sort(gotToDelete)
+			wantToDelete := slices.Clone(tc.wantToDelete)
+			slices.Sort(wantToDelete)
+			if diff := cmp.Diff(wantToDelete, gotToDelete, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("toDelete mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestEquivalentToWorkload covers the ownership checks of
+// EquivalentToWorkload with concrete job GVK and Workload examples: a
+// Workload is equivalent only when it is controlled by an owner reference
+// whose Kind, APIVersion and Name all match the job (and whose UID matches
+// when FinishOrphanedWorkloads is enabled). Each test case provides a fully
+// constructed job and Workload.
+func TestEquivalentToWorkload(t *testing.T) {
+	const (
+		testJobName = "test-job"
+		testNS      = metav1.NamespaceDefault
+		testJobUID  = "test-job-uid"
+	)
+	testGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+	configMapGVK := corev1.SchemeGroupVersion.WithKind("ConfigMap")
+
+	baseJob := func() *job.Job {
+		return (*job.Job)(testingjob.MakeJob(testJobName, testNS).UID(testJobUID).Obj())
+	}
+
+	partiallyAdmittedJob := func(suspended bool) *job.Job {
+		return (*job.Job)(testingjob.MakeJob(testJobName, testNS).
+			UID(testJobUID).
+			Parallelism(2).
+			SetAnnotation(job.JobMinParallelismAnnotation, "1").
+			Suspend(suspended).
+			Obj())
+	}
+
+	execTimeJob := (*job.Job)(testingjob.MakeJob(testJobName, testNS).
+		UID(testJobUID).
+		Label(constants.MaxExecTimeSecondsLabel, "60").
+		Obj())
+
+	invalidTASJob := (*job.Job)(testingjob.MakeJob(testJobName, testNS).
+		UID(testJobUID).
+		PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "not-a-bool").
+		Obj())
+
+	// podSetsFor builds the Workload pod sets matching the pod sets reported
+	// by the given Job, including the TAS pod index label, as
+	// TopologyAwareScheduling is enabled by default.
+	podSetsFor := func(j *job.Job, count int) *utiltestingapi.PodSetWrapper {
+		return utiltestingapi.MakePodSet(kueue.DefaultPodSetName, count).
+			PodSpec(j.Spec.Template.Spec).
+			PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation))
+	}
+
+	baseWl := func(name string) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, testNS).
+			PodSets(*podSetsFor(baseJob(), 1).Obj())
+	}
+
+	admittedWl := func(name string) *utiltestingapi.WorkloadWrapper {
+		return baseWl(name).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+				kueue.PodSetAssignment{Name: kueue.DefaultPodSetName},
+			).Obj(), time.Now().Truncate(time.Hour)).
+			AdmittedAt(true, time.Now().Truncate(time.Hour))
+	}
+
+	partiallyAdmittedWl := func(name string, j *job.Job) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, testNS).
+			PodSets(*podSetsFor(j, 2).SetMinimumCount(1).Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+				kueue.PodSetAssignment{Name: kueue.DefaultPodSetName, Count: ptr.To[int32](1)},
+			).Obj(), time.Now().Truncate(time.Hour)).
+			AdmittedAt(true, time.Now().Truncate(time.Hour))
+	}
+
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		job          GenericJob
+		wl           *kueue.Workload
+		want         bool
+		wantErr      bool
+	}{
+		"no controller owner reference (previously panicked)": {
+			job: baseJob(),
+			wl: baseWl("plain-owner").
+				OwnerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"without any owner references": {
+			job:  baseJob(),
+			wl:   baseWl("no-owners").Obj(),
+			want: false,
+		},
+		"matching UID when FinishOrphanedWorkloads is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			job:          baseJob(),
+			wl: baseWl("owned-matching-uid").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: true,
+		},
+		"stale UID is ignored when FinishOrphanedWorkloads is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
+			job:          baseJob(),
+			wl: baseWl("owned-stale-uid-gate-off").
+				ControllerReference(testGVK, testJobName, "old-uid").
+				Obj(),
+			want: true,
+		},
+		"suspended job falls back to spec comparison for an admitted workload": {
+			job: partiallyAdmittedJob(true),
+			wl: partiallyAdmittedWl("owned-admitted-partial", partiallyAdmittedJob(true)).
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: true,
+		},
+		// Partially admitted (1 running pod of parallelism 2): the running
+		// pod sets don't match the job's, and the spec-comparison fallback
+		// applies only to suspended jobs - so for a running job this
+		// workload is intentionally not equivalent: the reconciler stops
+		// the job and deletes the workload; a matching one is constructed
+		// on the next sync.
+		"running job does not fall back to spec comparison for an admitted workload": {
+			job: partiallyAdmittedJob(false),
+			wl: partiallyAdmittedWl("owned-admitted-partial-running", partiallyAdmittedJob(false)).
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"controller with a different kind but the same name": {
+			job: baseJob(),
+			wl: baseWl("configmap-controlled").
+				OwnerReference(testGVK, testJobName, testJobUID).
+				ControllerReference(configMapGVK, testJobName, "some-config-uid").
+				Obj(),
+			want: false,
+		},
+		"controller with a different apiVersion": {
+			job: baseJob(),
+			wl: baseWl("old-api").
+				ControllerReference(schema.GroupVersion{Group: "batch", Version: "v1beta1"}.WithKind("Job"), testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"controller with the same GVK but a different name": {
+			job: baseJob(),
+			wl: baseWl("other-job").
+				ControllerReference(testGVK, "other-job", "other-uid").
+				Obj(),
+			want: false,
+		},
+		"matching controller with a stale UID (FinishOrphanedWorkloads)": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			job:          baseJob(),
+			wl: baseWl("stale-uid").
+				ControllerReference(testGVK, testJobName, "old-uid").
+				Obj(),
+			want: false,
+		},
+		"matching controller and pod sets": {
+			job: baseJob(),
+			wl: baseWl("owned").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: true,
+		},
+		"matching controller but different pod sets": {
+			job: baseJob(),
+			wl: utiltestingapi.MakeWorkload("owned-diff-pods", testNS).
+				PodSets(*podSetsFor(baseJob(), 2).Obj()).
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"matching controller but different maximum execution time": {
+			job: execTimeJob,
+			wl: baseWl("owned-diff-exec-time").
+				MaximumExecutionTimeSeconds(30).
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"admitted workload with matching running pod sets": {
+			job: baseJob(),
+			wl: admittedWl("owned-admitted").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: true,
+		},
+		"admitted workload with different pod sets and a suspended job": {
+			job: baseJob(),
+			wl: admittedWl("owned-admitted-diff").
+				PodSets(*podSetsFor(baseJob(), 2).Obj()).
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"error reading job pod sets is propagated": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			job:          invalidTASJob,
+			wl: baseWl("owned").
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			wantErr: true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).Build()
+
+			got, err := EquivalentToWorkload(ctx, cl, tc.job, tc.wl)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("EquivalentToWorkload expected error, got nil (result %t)", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("EquivalentToWorkload returned error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("EquivalentToWorkload = %t, want %t", got, tc.want)
 			}
 		})
 	}
@@ -1218,13 +1590,13 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job-1", "job-1").
 				Obj()
 
-			mgj := mocks.NewMockGenericJob(mockctrl)
-			mgj.EXPECT().Object().Return(job).AnyTimes()
-			mgj.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
-			mgj.EXPECT().IsSuspended().Return(true).AnyTimes()
-			mgj.EXPECT().IsActive().Return(false).AnyTimes()
-			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(podSets, nil).AnyTimes()
+			mockedJob := mocks.NewMockGenericJob(mockctrl)
+			mockedJob.EXPECT().Object().Return(job).AnyTimes()
+			mockedJob.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
+			mockedJob.EXPECT().IsSuspended().Return(true).AnyTimes()
+			mockedJob.EXPECT().IsActive().Return(false).AnyTimes()
+			mockedJob.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+			mockedJob.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(podSets, nil).AnyTimes()
 
 			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
 			gvk := batchv1.SchemeGroupVersion.WithKind("Job")
@@ -1238,7 +1610,7 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 			r := NewReconciler(cl, recorder)
 
 			req := controllerruntime.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "job-1"}}
-			_, err := r.ReconcileGenericJob(ctx, req, mgj)
+			_, err := r.ReconcileGenericJob(ctx, req, mockedJob)
 			if err != nil {
 				t.Fatalf("ReconcileGenericJob() error: %v", err)
 			}
