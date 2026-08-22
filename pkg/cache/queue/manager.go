@@ -306,8 +306,31 @@ func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
 	cohortName := kueue.CohortReference(cohort.Name)
 
 	m.hm.AddCohort(cohortName)
-	m.hm.UpdateCohortEdge(cohortName, cohort.Spec.ParentName)
+
 	c := m.hm.Cohort(cohortName)
+	oldParent := c.Parent()
+
+	m.hm.UpdateCohortEdge(cohortName, cohort.Spec.ParentName)
+
+	newParent := c.Parent()
+	// If the cohort moved parents, adjust all affected ancestor counts and re-emit.
+	if oldParent != newParent && !hierarchy.HasCycle(c) {
+		if oldParent != nil && !hierarchy.HasCycle(oldParent) {
+			oldParent.updatePendingWorkloadsCount(-c.pendingActiveCount, -c.pendingInadmissibleCount)
+			for ancestor := range oldParent.PathSelfToRoot() {
+				metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusActive, ancestor.pendingActiveCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
+				metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusInadmissible, ancestor.pendingInadmissibleCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
+			}
+		}
+		if newParent != nil {
+			newParent.updatePendingWorkloadsCount(c.pendingActiveCount, c.pendingInadmissibleCount)
+			for ancestor := range newParent.PathSelfToRoot() {
+				metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusActive, ancestor.pendingActiveCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
+				metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusInadmissible, ancestor.pendingInadmissibleCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
+			}
+		}
+	}
+
 	if !hierarchy.HasCycle(c) {
 		m.requeuer.notifyCohort(c.getRootUnsafe().GetName())
 	}
@@ -316,7 +339,26 @@ func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
 func (m *Manager) DeleteCohort(cohortName kueue.CohortReference) {
 	m.Lock()
 	defer m.Unlock()
+	if cohort := m.hm.Cohort(cohortName); cohort != nil {
+		cohort.updatePendingWorkloadsCount(-cohort.pendingActiveCount, -cohort.pendingInadmissibleCount)
+	}
 	m.hm.DeleteCohort(cohortName)
+	metrics.ClearCohortPendingWorkloadsMetrics(cohortName)
+	// hm.DeleteCohort replaces an explicit cohort that still has children with a
+	// fresh implicit cohort (zero counts). Re-seed its counts from the children
+	// so that future delta reports are correct.
+	if implicit := m.hm.Cohort(cohortName); implicit != nil {
+		for _, cq := range implicit.ChildCQs() {
+			implicit.pendingActiveCount += cq.lastReportedCohort.active
+			implicit.pendingInadmissibleCount += cq.lastReportedCohort.inadmissible
+		}
+		for _, child := range implicit.ChildCohorts() {
+			implicit.pendingActiveCount += child.pendingActiveCount
+			implicit.pendingInadmissibleCount += child.pendingInadmissibleCount
+		}
+		metrics.ReportCohortSubtreePendingWorkloads(cohortName, metrics.PendingStatusActive, implicit.pendingActiveCount, m.customLabels.CohortGet(cohortName), m.roleTracker)
+		metrics.ReportCohortSubtreePendingWorkloads(cohortName, metrics.PendingStatusInadmissible, implicit.pendingInadmissibleCount, m.customLabels.CohortGet(cohortName), m.roleTracker)
+	}
 }
 
 func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) error {
@@ -422,7 +464,12 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	if err := cqImpl.Update(cq); err != nil {
 		return err
 	}
+	// Zero out the old cohort contribution only after Update succeeds to avoid
+	// corrupting cohort counts when Update returns an error.
+	reportCohortSubtreePendingWorkloads(m, cqImpl, 0, 0)
 	m.hm.UpdateClusterQueueEdge(cqName, cq.Spec.CohortName)
+	// Populate the new cohort regardless of whether the CQ became active.
+	reportPendingWorkloads(m, cqName)
 
 	// TODO(#8): Selectively move workloads based on the exact event.
 	// If any workload becomes admissible or the queue becomes active.
@@ -433,9 +480,6 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 		notifyRetryInadmissibleWithoutLock(m, sets.New(cqName))
 	}
 	becameActive := !oldActive && cqImpl.Active()
-	if becameActive {
-		reportPendingWorkloads(m, cqName)
-	}
 	if becameActive {
 		m.Broadcast()
 	}
@@ -460,6 +504,8 @@ func (m *Manager) DeleteClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) {
 	if cqImpl == nil {
 		return
 	}
+	// Zero out the cohort contribution before the CQ is removed from the hierarchy.
+	reportCohortSubtreePendingWorkloads(m, cqImpl, 0, 0)
 	cqName := kueue.ClusterQueueReference(cq.Name)
 	m.hm.DeleteClusterQueue(cqName)
 	clearCQMetrics(cqName)

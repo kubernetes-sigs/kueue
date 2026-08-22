@@ -19,6 +19,7 @@ package queue
 import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/queue"
@@ -84,6 +85,32 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 			q := m.resourceFormatter.ResourceQuantity(resourceName, v)
 			metrics.ReportClusterQueueResourcePending(string(cq.name), string(resourceName), utilresource.QuantityToFloat(&q), cqCustomLabels, m.roleTracker)
 		}
+	}
+
+	reportCohortSubtreePendingWorkloads(m, cq, active.Total(), inadmissible.Total())
+}
+
+// reportCohortSubtreePendingWorkloads applies the delta between cq's previous
+// and current pending counts to every ancestor cohort, then re-emits the
+// kueue_cohort_subtree_pending_workloads gauge for each. newActive and
+// newInadmissible reflect any active/inadmissible swap already applied for
+// an inactive CQ.
+func reportCohortSubtreePendingWorkloads(m *Manager, cq *ClusterQueue, newActive, newInadmissible int) {
+	cohort := cq.Parent()
+	if cohort == nil || hierarchy.HasCycle(cohort) {
+		return
+	}
+
+	activeDelta := newActive - cq.lastReportedCohort.active
+	inadmissibleDelta := newInadmissible - cq.lastReportedCohort.inadmissible
+	cq.lastReportedCohort.active = newActive
+	cq.lastReportedCohort.inadmissible = newInadmissible
+
+	cohort.updatePendingWorkloadsCount(activeDelta, inadmissibleDelta)
+
+	for ancestor := range cohort.PathSelfToRoot() {
+		metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusActive, ancestor.pendingActiveCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
+		metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusInadmissible, ancestor.pendingInadmissibleCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
 	}
 }
 
