@@ -27,6 +27,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -364,6 +365,35 @@ func TestReconciler(t *testing.T) {
 		Image("", nil)
 
 	podUID := "dc85db45"
+	emptyGroupOwner := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sts",
+			Namespace: "ns",
+			UID:       "sts-uid",
+		},
+	}
+	emptyGroupWorkload := utiltestingapi.MakeWorkload("test-group", "ns").Group().
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Queue(localUserQueueName).
+		OwnerReference(appsv1.SchemeGroupVersion.WithKind("StatefulSet"), "sts", "sts-uid").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).Obj(), now).
+		AdmittedAt(true, now.Add(-time.Second)).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadEvicted,
+			Status:  metav1.ConditionTrue,
+			Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+			Message: "Exceeded the PodsReady timeout",
+		}).
+		Obj()
+	emptyGroupWantWorkload := emptyGroupWorkload.DeepCopy()
+	emptyGroupWantWorkload.Status.Admission = nil
+	workload.SetRequeuedCondition(emptyGroupWantWorkload, kueue.WorkloadEvictedByPodsReadyTimeout, "Exceeded the PodsReady timeout", false)
+	workload.UnsetQuotaReservationWithCondition(
+		emptyGroupWantWorkload,
+		workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
+		"Exceeded the PodsReady timeout",
+		now,
+	)
 
 	testCases := map[string]struct {
 		reconcileKey           *types.NamespacedName
@@ -4094,6 +4124,32 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"empty pod group with a live StatefulSet owner completes eviction with FinishOrphanedWorkloads disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects:  []client.Object{emptyGroupOwner.DeepCopy()},
+			workloads:    []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads: []kueue.Workload{
+				*emptyGroupWantWorkload.DeepCopy(),
+			},
+			workloadCmpOpts: cmp.Options{
+				defaultWorkloadCmpOpts,
+				cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"),
+			},
+		},
+		"empty pod group with a live StatefulSet owner completes eviction with FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects:  []client.Object{emptyGroupOwner.DeepCopy()},
+			workloads:    []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads: []kueue.Workload{
+				*emptyGroupWantWorkload.DeepCopy(),
+			},
+			workloadCmpOpts: cmp.Options{
+				defaultWorkloadCmpOpts,
+				cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"),
+			},
 		},
 		"replacement pods are owning the workload": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
