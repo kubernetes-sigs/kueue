@@ -33,6 +33,7 @@ import (
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -1604,4 +1605,39 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 			t.Errorf("Observed leaf domain fields mismatch (-want +got):\n%s", diff)
 		}
 	})
+}
+
+func TestExclusionStatsReportEveryReasonTheyFormat(t *testing.T) {
+	cases := map[string]struct {
+		stats *tasExclusionStats
+		want  string
+	}{
+		"the scheduler library on its own": {
+			stats: &tasExclusionStats{
+				NodeExclusionStats: simulator.NodeExclusionStats{SchedulerLibraryNoFit: 2},
+			},
+			want: "schedulerLibraryNoFit: 2",
+		},
+		"the scheduler library beside another reason": {
+			stats: &tasExclusionStats{
+				NodeExclusionStats: simulator.NodeExclusionStats{NodeSelector: 1, SchedulerLibraryNoFit: 2},
+			},
+			want: "nodeSelector: 1, schedulerLibraryNoFit: 2",
+		},
+		"nothing excluded": {
+			stats: &tasExclusionStats{},
+			want:  "",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			var got string
+			if tc.stats.hasExclusions() {
+				got = tc.stats.formatReasons()
+			}
+			if got != tc.want {
+				t.Errorf("reported %q, want %q", got, tc.want)
+			}
+		})
+	}
 }

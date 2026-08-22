@@ -493,8 +493,10 @@ func newTASExclusionStats() *tasExclusionStats {
 	return &tasExclusionStats{}
 }
 
+// hasExclusions reports whether formatReasons has anything to say.
 func (s *tasExclusionStats) hasExclusions() bool {
-	return s.NodeSelector > 0 || s.Affinity > 0 || len(s.Taints) > 0 || s.TopologyDomain > 0 || len(s.Resources) > 0
+	return s.NodeSelector > 0 || s.Affinity > 0 || len(s.Taints) > 0 || s.TopologyDomain > 0 ||
+		s.SchedulerLibraryNoFit > 0 || len(s.Resources) > 0
 }
 
 func (s *tasExclusionStats) formatReasons() string {
