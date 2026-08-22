@@ -18,6 +18,7 @@ package leaderworkerset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -75,6 +76,11 @@ const (
 type workloadToCreate struct {
 	name  string
 	index int
+}
+
+type resolvedPriority struct {
+	classRef *kueue.PriorityClassRef
+	priority int32
 }
 
 type Reconciler struct {
@@ -231,25 +237,111 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 	// The reconcile context still carries shutdown and any deadline.
 	var eg errgroup.Group
 
-	eg.Go(func() error {
-		return parallelize.Until(ctx, len(toCreate), func(i int) error {
-			return r.createWorkload(ctx, lws, toCreate[i].name, toCreate[i].index)
-		})
-	})
-
-	eg.Go(func() error {
-		return parallelize.Until(ctx, len(toUpdate), func(i int) error {
-			return r.updateWorkload(ctx, lws, toUpdate[i])
-		})
-	})
-
+	// Cleanup does not depend on priority resolution, so launch it first.
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toDelete), func(i int) error {
 			return r.deleteWorkload(ctx, toDelete[i])
 		})
 	})
 
+	// One lookup for the whole reconcile, before the create and update branches,
+	// so every component gets the same answer. Only a set naming a class is
+	// resolved, and only when there is something to create; an update with no
+	// class transition resolves nothing.
+	var (
+		resolved   *resolvedPriority
+		resolveErr error
+	)
+	if len(toCreate) > 0 && jobframework.WorkloadPriorityClassName(lws) != "" {
+		resolved, resolveErr = r.resolvePriority(ctx, lws)
+	}
+
+	eg.Go(func() error {
+		// The create branch owns resolveErr, so it returns it here.
+		if resolveErr != nil {
+			return resolveErr
+		}
+		return parallelize.Until(ctx, len(toCreate), func(i int) error {
+			return r.createWorkload(ctx, lws, toCreate[i].name, toCreate[i].index, resolved)
+		})
+	})
+
+	eg.Go(func() error {
+		return r.reconcileUpdatedWorkloads(ctx, lws, toUpdate, resolved, resolveErr)
+	})
+
 	return eg.Wait()
+}
+
+// reconcileUpdatedWorkloads brings the Workloads that already exist up to date,
+// then gives this reconcile's priority to the ones whose other updates landed.
+// One failing queue-name write used to hold back only its own component, and
+// moving the priority out of that loop should not widen it.
+func (r *Reconciler) reconcileUpdatedWorkloads(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet,
+	toUpdate []*kueue.Workload, resolved *resolvedPriority, resolveErr error) error {
+	updated := make([]bool, len(toUpdate))
+	updateErr := parallelize.Until(ctx, len(toUpdate), func(i int) error {
+		err := r.updateWorkload(ctx, lws, toUpdate[i])
+		updated[i] = err == nil
+		return err
+	})
+	if resolveErr != nil {
+		// resolved is nil because the lookup failed, not because none was needed,
+		// so skip applyPriority. The create branch already returns resolveErr;
+		// returning it here too would be dropped, since Wait keeps the first.
+		return updateErr
+	}
+	targets := make([]*kueue.Workload, 0, len(toUpdate))
+	for i, ok := range updated {
+		if ok {
+			targets = append(targets, toUpdate[i])
+		}
+	}
+	return errors.Join(updateErr, r.applyPriority(ctx, lws, resolved, targets))
+}
+
+// resolvePriority reads the LeaderWorkerSet's named class once for this
+// reconcile. It passes no PodSets: a named class resolves from the label alone.
+func (r *Reconciler) resolvePriority(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet) (*resolvedPriority, error) {
+	classRef, priority, err := jobframework.ExtractPriority(ctx, r.client, r.record, lws, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("prepare workload priority: %w", err)
+	}
+	return &resolvedPriority{classRef: classRef, priority: priority}, nil
+}
+
+// applyPriority gives this reconcile's priority to the components whose class
+// name must change. A component already on the name keeps its value: that value
+// is mutable, so a sibling's transition is no reason to overwrite it. If no
+// resolution was passed, one is taken here, and only when there is something to
+// move.
+//
+// Only a named class is shared. Without a name, each component resolves from its
+// own PodSets, which nothing rewrites, so a single shared snapshot would cross
+// revisions.
+func (r *Reconciler) applyPriority(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet,
+	resolved *resolvedPriority, wls []*kueue.Workload) error {
+	if jobframework.WorkloadPriorityClassName(lws) == "" {
+		return parallelize.Until(ctx, len(wls), func(i int) error {
+			return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wls[i])
+		})
+	}
+	_, targets := jobframework.ClassifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), lws, wls)
+	if len(targets) == 0 {
+		return nil
+	}
+	if resolved == nil {
+		var err error
+		if resolved, err = r.resolvePriority(ctx, lws); err != nil {
+			return err
+		}
+	}
+	// One call per workload reuses the single resolution and leaves
+	// UpdateWorkloadPriority's own resolve-and-write path unchanged for the other
+	// integrations that call it.
+	return parallelize.Until(ctx, len(targets), func(i int) error {
+		return jobframework.ApplyWorkloadPriority(ctx, r.client, r.record, lws, resolved.classRef, resolved.priority, targets[i])
+	})
 }
 
 // filterWorkloads compares the desired state of a LeaderWorkerSet with existing workloads,
@@ -302,7 +394,7 @@ func isRollingUpdateWithSurge(lws *leaderworkersetv1.LeaderWorkerSet) bool {
 	return maxSurge > 0 && lws.Status.UpdatedReplicas < ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
 }
 
-func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int) error {
+func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int, resolved *resolvedPriority) error {
 	log := ctrl.LoggerFrom(ctx).WithValues(
 		"workload", klog.ObjectRef{Name: workloadName, Namespace: lws.Namespace},
 		"index", index,
@@ -314,9 +406,11 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 		log.Error(err, "Failed to construct Workload")
 		return err
 	}
-
-	err = jobframework.PrepareWorkloadPriority(ctx, r.client, r.record, lws, createdWorkload, nil)
-	if err != nil {
+	if resolved != nil {
+		createdWorkload.Spec.PriorityClassRef = resolved.classRef.DeepCopy()
+		createdWorkload.Spec.Priority = new(resolved.priority)
+	} else if err := jobframework.PrepareWorkloadPriority(ctx, r.client, r.record, lws, createdWorkload, nil); err != nil {
+		// No class named, so the fallback reads this component's own PodSets.
 		log.Error(err, "Failed to prepare Workload priority")
 		return err
 	}
@@ -457,12 +551,6 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	}
 	if admissionGatedByUpdated {
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, lws)
-	}
-
-	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)
-	if err != nil {
-		log.Error(err, "Failed to update workload priority")
-		return err
 	}
 
 	return nil
