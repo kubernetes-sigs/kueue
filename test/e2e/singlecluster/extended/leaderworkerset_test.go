@@ -682,10 +682,9 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 		})
 
-		ginkgo.It("Rolling update with maxSurge creates workloads for surge pods and completes successfully", func() {
+		ginkgo.DescribeTable("Rolling update with maxSurge creates workloads for surge pods and completes successfully", func(surge intstr.IntOrString, maxSurge int) {
 			const (
 				lwsReplicas    = 4
-				maxSurge       = 2
 				maxUnavailable = 2
 			)
 
@@ -702,7 +701,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				Type: leaderworkersetv1.RollingUpdateStrategyType,
 				RollingUpdateConfiguration: &leaderworkersetv1.RollingUpdateConfiguration{
 					MaxUnavailable: intstr.FromInt32(maxUnavailable),
-					MaxSurge:       intstr.FromInt32(maxSurge),
+					MaxSurge:       surge,
 				},
 			}
 
@@ -786,7 +785,10 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			ginkgo.By("Delete the LeaderWorkerSet", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, lws, true)
 			})
-		})
+		},
+			ginkgo.Entry("with an absolute maxSurge", intstr.FromInt32(2), 2),
+			ginkgo.Entry("with a percentage maxSurge", intstr.FromString("50%"), 2),
+		)
 
 		ginkgo.It("should admit and evict correctly when queue-name is set on pod templates", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
