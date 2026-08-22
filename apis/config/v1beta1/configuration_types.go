@@ -619,8 +619,8 @@ type FairSharing struct {
 	// AlmostLCA(x, y) is the last but one node on the path from x to the
 	// lowest common ancestor of x and y in the cohort hierarchy (see KEP-1714).
 	// The strategies compare the shares of AlmostLCA(preemptor, preemptee) and
-	// AlmostLCA(preemptee, preemptor) rather than the shares of the ClusterQueues
-	// themselves.
+	// AlmostLCA(preemptee, preemptor). These are the shares of ClusterQueues themselves
+	// only when both ClusterQueues share the same parent Cohort.
 	// Possible values are:
 	// - LessThanOrEqualToFinalShare: Only preempt a workload if the share of
 	//   AlmostLCA(preemptor, preemptee) with the preemptor workload admitted is
