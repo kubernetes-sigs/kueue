@@ -161,6 +161,66 @@ func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
 	}
 }
 
+func TestValidatePodIndexOffsetAnnotation(t *testing.T) {
+	replicaPath := field.NewPath("spec", "template", "metadata")
+
+	testCases := map[string]struct {
+		annotations map[string]string
+		wantErrNum  int
+	}{
+		"valid: offset absent": {
+			annotations: map[string]string{},
+			wantErrNum:  0,
+		},
+		"valid: non-negative integer offset": {
+			annotations: map[string]string{
+				kueue.PodIndexOffsetAnnotation: "1",
+			},
+			wantErrNum: 0,
+		},
+		"invalid: unparseable offset": {
+			annotations: map[string]string{
+				kueue.PodIndexOffsetAnnotation: "invalid",
+			},
+			wantErrNum: 1,
+		},
+		"invalid: negative offset": {
+			annotations: map[string]string{
+				kueue.PodIndexOffsetAnnotation: "-1",
+			},
+			wantErrNum: 1,
+		},
+		"invalid: offset set together with podset-group-name": {
+			annotations: map[string]string{
+				kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetGroupName:                   "group",
+				kueue.PodIndexOffsetAnnotation:          "1",
+			},
+			wantErrNum: 1, // offset forbidden when podset-group-name is set
+		},
+		"invalid: unparseable offset together with podset-group-name": {
+			annotations: map[string]string{
+				kueue.PodSetPreferredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetGroupName:                   "group",
+				kueue.PodIndexOffsetAnnotation:          "invalid",
+			},
+			wantErrNum: 1, // forbidden check short-circuits the value check
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			meta := &metav1.ObjectMeta{
+				Annotations: tc.annotations,
+			}
+			errs := ValidateTASPodSetRequest(replicaPath, meta)
+			if got := len(errs); got != tc.wantErrNum {
+				t.Errorf("ValidateTASPodSetRequest() returned %d errors, want %d:\n%v", got, tc.wantErrNum, errs)
+			}
+		})
+	}
+}
+
 func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 	replicaPath := field.NewPath("spec", "template", "metadata")
 
