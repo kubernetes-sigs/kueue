@@ -105,6 +105,31 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 		wantError     bool
 		clientFuncs   *interceptor.Funcs
 	}{
+		"reconcile leaves a Workload MultiKueue created here alone": {
+			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a-remote", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Label(kueue.MultiKueueOriginLabel, "manager").
+					Obj(),
+				*utiltestingapi.MakeWorkload("z-local", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("z-local", "default").
+					Priority(1000).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("a-remote", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Label(kueue.MultiKueueOriginLabel, "manager").
+					Obj(),
+			},
+		},
 		"reconcile updates workload priority when WPC priority changes": {
 			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
 			workloads: []kueue.Workload{
@@ -289,6 +314,68 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 				if diff := cmp.Diff(wantWl.Spec.Priority, gotWl.Spec.Priority); diff != "" {
 					t.Errorf("workload %s priority mismatch (-want +got):\n%s", wantWl.Name, diff)
 				}
+			}
+		})
+	}
+}
+
+func TestOwnsPriority(t *testing.T) {
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		want bool
+	}{
+		"a local Workload referencing a WorkloadPriorityClass": {
+			wl:   utiltestingapi.MakeWorkload("wl", "default").WorkloadPriorityClassRef("high").Obj(),
+			want: true,
+		},
+		"a Workload MultiKueue created here carries the manager's resolution": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				WorkloadPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").
+				Obj(),
+		},
+		// The label is read for its presence, not its value, so an origin that
+		// somehow arrived empty is still the manager's to answer for.
+		"an empty origin value still marks remote ownership": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				WorkloadPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "").
+				Obj(),
+		},
+		"a PodPriorityClass of the same name is a different class": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").PodPriorityClassRef("high").Obj(),
+		},
+		// A PodPriorityClass differs in both the kind and the group, so it cannot say
+		// which of the two is being read. These can.
+		"the right group under some other kind": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").PriorityClassRef(&kueue.PriorityClassRef{
+				Group: kueue.WorkloadPriorityClassGroup,
+				Kind:  "SomeOtherKind",
+				Name:  "high",
+			}).Obj(),
+		},
+		"the right kind under some other group": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").PriorityClassRef(&kueue.PriorityClassRef{
+				Group: "other.example.com",
+				Kind:  kueue.WorkloadPriorityClassKind,
+				Name:  "high",
+			}).Obj(),
+		},
+		"and one on a Workload MultiKueue created here is refused for both reasons": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				PodPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").
+				Obj(),
+		},
+		"no reference at all": {
+			wl: utiltestingapi.MakeWorkload("wl", "default").Obj(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := ownsPriority(tc.wl); got != tc.want {
+				t.Errorf("ownsPriority() = %v, want %v", got, tc.want)
 			}
 		})
 	}

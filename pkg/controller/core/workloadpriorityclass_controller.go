@@ -37,6 +37,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // WorkloadPriorityClassReconciler reconciles a WorkloadPriorityClass object
@@ -96,6 +97,11 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 		wl := &workloads.Items[i]
 		wlLog := log.WithValues("workload", klog.KObj(wl))
 
+		if !ownsPriority(wl) {
+			wlLog.V(3).Info("Workload priority not owned by this controller")
+			continue
+		}
+
 		// Skip if priority is already up to date
 		if wl.Spec.Priority != nil && *wl.Spec.Priority == wpc.Value {
 			wlLog.V(3).Info("Workload priority already up to date")
@@ -146,6 +152,15 @@ func (r *WorkloadPriorityClassReconciler) Update(e event.TypedUpdateEvent[*kueue
 
 func (r *WorkloadPriorityClassReconciler) Generic(e event.TypedGenericEvent[*kueue.WorkloadPriorityClass]) bool {
 	return false
+}
+
+// ownsPriority reports whether this WorkloadPriorityClass controller owns
+// synchronizing the Workload's priority. A Workload MultiKueue created here
+// carries the manager's resolution, and a class of the same name on this
+// cluster is not the one it was resolved from.
+func ownsPriority(wl *kueue.Workload) bool {
+	_, isMultiKueueRemote := wl.Labels[kueue.MultiKueueOriginLabel]
+	return !isMultiKueueRemote && workload.IsWorkloadPriorityClass(wl)
 }
 
 // SetupWithManager sets up the controller with the Manager.
