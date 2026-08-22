@@ -219,6 +219,57 @@ To see ClusterQueues that are not active (pending or terminating):
 kueue_cluster_queue_status{status!="active"} == 1
 ```
 
+## MultiKueue worker cluster health
+
+`multikueue_cluster_status` reports each worker cluster's `Active` condition, per
+manager ClusterQueue referencing it. `Unknown` means the worker cluster exists but has
+not been reconciled yet, so its `Active` condition is not set. A cluster named by a
+MultiKueueConfig that has no MultiKueueCluster object is not reported at all — the
+AdmissionCheck reports that one instead, as a missing cluster.
+
+To see the health of the workers a single team's ClusterQueue depends on:
+
+```promql
+multikueue_cluster_status{cluster_queue="team-a-cq", active="True"} == 1
+```
+
+To list every worker cluster that is currently unusable, along with the ClusterQueues
+affected by it:
+
+```promql
+multikueue_cluster_status{active="False"} == 1
+```
+
+To alert when a worker has been unusable for 5 minutes:
+
+```promql
+max_over_time(multikueue_cluster_status{active="True"}[5m]) == 0
+```
+
+To count **distinct** healthy worker clusters across the whole fleet:
+
+```promql
+count(max by (cluster) (multikueue_cluster_status{active="True"}) == 1)
+```
+
+{{% alert title="Note" color="primary" %}}
+A worker cluster shared by several ClusterQueues is reported once per ClusterQueue.
+Use `max by (cluster)` when counting distinct clusters — a plain
+`sum(multikueue_cluster_status{active="True"})` counts ClusterQueue/worker pairs
+rather than workers, and silently returns a larger number than expected.
+{{% /alert %}}
+
+To compare dispatched against admitted workloads for one team, filter both workload
+metrics by the same `cluster_queue`. Because `multikueue_cluster_status` carries the
+same label, the queries above let you correlate a low admission ratio with an
+unhealthy worker:
+
+```promql
+sum by (cluster) (rate(multikueue_workloads_admitted_total{cluster_queue="team-a-cq"}[5m]))
+/
+sum by (cluster) (rate(multikueue_workloads_dispatched_total{cluster_queue="team-a-cq"}[5m]))
+```
+
 ## What's next
 
 - See [Pending Workloads in Grafana](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_in_grafana) for visibility dashboards using the on-demand API.
