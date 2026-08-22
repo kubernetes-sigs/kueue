@@ -621,11 +621,13 @@ func TestClearCohortMetricsOnlyClearsScopedGauges(t *testing.T) {
 	ReportCohortWeightedShare(cohortName, 7, nil, nil)
 	ReportCohortSubtreeQuota(cohortName, "flavor", "cpu", 10, nil, nil)
 	ReportCohortSubtreeResourceReservations(cohortName, "flavor", "cpu", 6, nil, nil)
+	ReportCohortSubtreeAdmittedWorkload(cohortName, "priority", nil, nil)
 	ReportCohortSubtreeAdmittedActiveWorkloads(cohortName, 4, nil, nil)
 
 	expectFilteredMetricsCount(t, CohortWeightedShare, 1, "cohort", cohortName)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", cohortName)
 	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 1, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedWorkloadsTotal, 1, "cohort", cohortName)
 	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 1, "cohort", cohortName)
 
 	ClearCohortMetrics(cohortName)
@@ -633,7 +635,13 @@ func TestClearCohortMetricsOnlyClearsScopedGauges(t *testing.T) {
 	expectFilteredMetricsCount(t, CohortWeightedShare, 0, "cohort", cohortName)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 0, "cohort", cohortName)
 	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 0, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedWorkloadsTotal, 1, "cohort", cohortName)
 	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 1, "cohort", cohortName)
 
+	ClearCohortAdmittedActiveWorkloadsMetrics(cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedWorkloadsTotal, 1, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 0, "cohort", cohortName)
+
 	ClearCohortAdmittedWorkloadsMetrics(cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreeAdmittedWorkloadsTotal, 0, "cohort", cohortName)
 }

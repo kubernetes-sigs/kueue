@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -891,6 +892,84 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 						Message: "Can admit new workloads",
 					},
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("Updating a ClusterQueue whose Cohort has a cycle", func() {
+		var (
+			cq     *kueue.ClusterQueue
+			cohort *kueue.Cohort
+		)
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+		})
+
+		ginkgo.It("Should refresh independent ClusterQueue fields", func() {
+			cohort = utiltestingapi.MakeCohort("cycle-update-cohort").Obj()
+			cq = utiltestingapi.MakeClusterQueue("cycle-update-cq").
+				Cohort(kueue.CohortReference(cohort.Name)).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("cycle-update-old-flavor").
+					Resource(corev1.ResourceCPU, "1").Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cohort)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got kueue.Cohort
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &got)).To(gomega.Succeed())
+				got.Spec.ParentName = kueue.CohortReference(got.Name)
+				g.Expect(k8sClient.Update(ctx, &got)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				_, err := cCache.ClusterQueueAncestors(cq)
+				g.Expect(err).To(gomega.MatchError(schdcache.ErrCohortHasCycle))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			util.MustCreate(ctx, k8sClient, cq)
+			gomega.Eventually(func(g gomega.Gomega) {
+				_, err := cCache.Usage(cq)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Updating a Namespace while the ClusterQueue remains cached with a Cohort cycle")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got corev1.Namespace
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(ns), &got)).To(gomega.Succeed())
+				if got.Labels == nil {
+					got.Labels = make(map[string]string)
+				}
+				got.Labels["cycle-update"] = "true"
+				g.Expect(k8sClient.Update(ctx, &got)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &got)).To(gomega.Succeed())
+				got.Spec.ResourceGroups = []kueue.ResourceGroup{
+					utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("cycle-update-missing-flavor").
+						Resource(corev1.ResourceCPU, "2").Obj()),
+				}
+				got.Spec.StopPolicy = new(kueue.Hold)
+				got.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{{Name: "cycle-update-missing-check"}},
+				}
+				g.Expect(k8sClient.Update(ctx, &got)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var got kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &got)).To(gomega.Succeed())
+				condition := apimeta.FindStatusCondition(got.Status.Conditions, kueue.ClusterQueueActive)
+				g.Expect(condition).NotTo(gomega.BeNil())
+				g.Expect(condition.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(condition.Reason).To(gomega.Equal(kueue.ClusterQueueActiveReasonStopped))
+				expectedMessage := "Can't admit new workloads: is stopped, " +
+					"references missing ResourceFlavor(s): cycle-update-missing-flavor, " +
+					"references missing AdmissionCheck(s): cycle-update-missing-check."
+				g.Expect(condition.Message).To(gomega.Equal(expectedMessage))
+				g.Expect(condition.ObservedGeneration).To(gomega.Equal(got.Generation))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})

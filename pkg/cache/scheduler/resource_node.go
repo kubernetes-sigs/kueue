@@ -172,8 +172,8 @@ func updateClusterQueueResourceNode(cq *clusterQueue) {
 	}
 }
 
-// updateCohortTreeResources traverses the Cohort tree from the root
-// to accumulate SubtreeQuota and Usage. It returns an error if the
+// updateCohortTreeResources traverses the Cohort tree from the root to rebuild
+// SubtreeQuota, Usage, and admitted workload counts. It returns an error if the
 // provided Cohort has a cycle.
 func updateCohortTreeResources(cohort *cohort) error {
 	if hierarchy.HasCycle(cohort) {
@@ -183,13 +183,14 @@ func updateCohortTreeResources(cohort *cohort) error {
 	return nil
 }
 
-// updateCohortResourceNode traverses the Cohort tree to accumulate
-// SubtreeQuota and Usage. It should usually be called via
-// updateCohortTree, which starts at the root and includes
+// updateCohortResourceNode traverses the Cohort tree to rebuild SubtreeQuota,
+// Usage, and admitted workload counts. It should usually be called via
+// updateCohortTreeResources, which starts at the root and includes
 // a cycle check.
 func updateCohortResourceNode(cohort *cohort) {
 	cohort.resourceNode.SubtreeQuota = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.SubtreeQuota))
 	cohort.resourceNode.Usage = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.Usage))
+	cohort.admittedWorkloadsCount = 0
 
 	for fr, quota := range cohort.resourceNode.Quotas {
 		cohort.resourceNode.SubtreeQuota[fr] = quota.Nominal
@@ -197,10 +198,12 @@ func updateCohortResourceNode(cohort *cohort) {
 	for _, child := range cohort.ChildCohorts() {
 		updateCohortResourceNode(child)
 		accumulateFromChild(cohort, child)
+		cohort.admittedWorkloadsCount += child.admittedWorkloadsCount
 	}
 	for _, child := range cohort.ChildCQs() {
 		updateClusterQueueResourceNode(child)
 		accumulateFromChild(cohort, child)
+		cohort.admittedWorkloadsCount += child.admittedWorkloadsCount
 	}
 }
 

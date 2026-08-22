@@ -192,6 +192,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[workload.Reference]*workload.Info),
 		WorkloadsNotReady:   sets.New[workload.Reference](),
+		NamespaceSelector:   labels.Nothing(),
 		localQueues:         make(map[queue.LocalQueueReference]*LocalQueue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
@@ -207,7 +208,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
 	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, nil); err != nil {
-		return nil, err
+		return cqImpl, err
 	}
 
 	return cqImpl, nil
@@ -460,9 +461,9 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		return errors.New("ClusterQueue already exists")
 	}
 	log := ctrl.LoggerFrom(ctx)
-	cqImpl, err := c.newClusterQueue(log, cq)
-	if err != nil {
-		return err
+	cqImpl, updateErr := c.newClusterQueue(log, cq)
+	if updateErr != nil && !errors.Is(updateErr, ErrCohortHasCycle) {
+		return updateErr
 	}
 
 	// On controller restart, an add ClusterQueue event may come after
@@ -506,7 +507,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 	parentCohort, rootCohort := cqImpl.parentAndRootCohort()
 	c.recordCQInfo(cqImpl, parentCohort, rootCohort)
 
-	return nil
+	return updateErr
 }
 
 func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) error {
@@ -518,8 +519,13 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 	}
 	oldParent := cqImpl.Parent()
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
-	if err := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, oldParent); err != nil {
-		return err
+	updateErr := cqImpl.updateClusterQueue(log, cq, c.resourceFlavors, c.admissionChecks, oldParent)
+	if updateErr != nil && !errors.Is(updateErr, ErrCohortHasCycle) {
+		return updateErr
+	}
+	if oldParent != cqImpl.Parent() {
+		c.resyncCohortTreeMetricsIfNoCycle(oldParent)
+		c.resyncCohortTreeMetricsIfNoCycle(cqImpl.Parent())
 	}
 	c.handleParentUpdate(oldParent)
 	for _, qImpl := range cqImpl.localQueues {
@@ -532,7 +538,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 	parentCohort, rootCohort := cqImpl.parentAndRootCohort()
 	c.recordCQInfo(cqImpl, parentCohort, rootCohort)
 
-	return nil
+	return updateErr
 }
 
 func (c *Cache) resyncClusterQueueGaugeMetricsLocked(cq *clusterQueue) {
@@ -627,7 +633,7 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 
 	if parent != nil {
 		if updatedParent := c.hm.Cohort(parent.Name); updatedParent != nil {
-			c.updateCohortTreeAndInfoMetricsIfNoCycle(updatedParent)
+			c.updateCohortTreeResourcesAndMetricsIfNoCycle(updatedParent)
 			parent = updatedParent
 		}
 		c.handleParentUpdate(parent)
@@ -642,11 +648,15 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	cohort := c.hm.Cohort(cohortName)
 	oldParent := cohort.Parent()
 	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
-	if err := cohort.updateCohort(apiCohort, oldParent); err != nil {
-		return err
+	updateErr := cohort.updateCohort(apiCohort, oldParent)
+	if oldParent != cohort.Parent() {
+		c.resyncCohortTreeMetricsIfNoCycle(oldParent)
 	}
 	c.handleParentUpdate(oldParent)
-	c.updateCohortTreeAndInfoMetricsIfNoCycle(cohort)
+	if updateErr != nil {
+		return updateErr
+	}
+	c.updateCohortTreeResourcesAndMetricsIfNoCycle(cohort)
 
 	return nil
 }
@@ -677,7 +687,7 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	}
 
 	if parent != nil {
-		c.updateCohortTreeAndInfoMetricsIfNoCycle(parent)
+		c.updateCohortTreeResourcesAndMetricsIfNoCycle(parent)
 	}
 
 	c.handleParentUpdate(parent)
@@ -905,7 +915,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 		AdmittedWorkloads:  cq.admittedWorkloadsCount,
 	}
 
-	if c.fairSharingEnabled {
+	if c.fairSharingEnabled && (!cq.HasParent() || !hierarchy.HasCycle(cq.Parent())) {
 		drs := dominantResourceShare(cq, nil)
 		stats.WeightedShare = drs.PreciseWeightedShare()
 	}
@@ -926,7 +936,7 @@ func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) 
 	}
 
 	stats := &CohortUsageStats{}
-	if c.fairSharingEnabled {
+	if c.fairSharingEnabled && !hierarchy.HasCycle(cohort) {
 		drs := dominantResourceShare(cohort, nil)
 		stats.WeightedShare = drs.PreciseWeightedShare()
 	}

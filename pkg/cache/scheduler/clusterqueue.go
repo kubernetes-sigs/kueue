@@ -155,6 +155,13 @@ func (c *clusterQueue) updateClusterQueue(
 	admissionChecks map[kueue.AdmissionCheckReference]AdmissionCheck,
 	oldParent *cohort,
 ) error {
+	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
+	if err != nil {
+		return err
+	}
+	c.NamespaceSelector = nsSelector
+
+	var cohortUpdateErr error
 	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			updateCohortTreeResourcesIfNoCycle(oldParent)
@@ -162,7 +169,11 @@ func (c *clusterQueue) updateClusterQueue(
 		if c.HasParent() {
 			// clusterQueue will be updated as part of tree update.
 			if err := updateCohortTreeResources(c.Parent()); err != nil {
-				return err
+				if !errors.Is(err, ErrCohortHasCycle) {
+					return err
+				}
+				updateClusterQueueResourceNode(c)
+				cohortUpdateErr = err
 			}
 		} else {
 			// since ClusterQueue has no parent, it won't be updated
@@ -170,12 +181,6 @@ func (c *clusterQueue) updateClusterQueue(
 			updateClusterQueueResourceNode(c)
 		}
 	}
-
-	nsSelector, err := metav1.LabelSelectorAsSelector(in.Spec.NamespaceSelector)
-	if err != nil {
-		return err
-	}
-	c.NamespaceSelector = nsSelector
 
 	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
 
@@ -207,7 +212,7 @@ func (c *clusterQueue) updateClusterQueue(
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
 	}
-	return nil
+	return cohortUpdateErr
 }
 
 func (c *clusterQueue) ConcurrentAdmissionEnabled() bool {
@@ -526,8 +531,10 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 
 func (c *clusterQueue) reportActiveWorkloads() {
 	clVals := c.GetCustomLabelValues()
-	for ancestor := range c.Parent().PathSelfToRoot() {
-		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedWorkloadsCount, clVals, c.roleTracker)
+	if c.HasParent() && !hierarchy.HasCycle(c.Parent()) {
+		for ancestor := range c.Parent().PathSelfToRoot() {
+			metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedWorkloadsCount, clVals, c.roleTracker)
+		}
 	}
 	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), clVals, c.roleTracker)
 }
@@ -581,6 +588,10 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 }
 
 func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
+	if c.HasParent() && hierarchy.HasCycle(c.Parent()) {
+		metrics.ReportClusterQueueWeightedShare(c.Name, cohort, 0, c.GetCustomLabelValues(), c.roleTracker)
+		return
+	}
 	drs := dominantResourceShare(c, nil)
 	weightedShare := drs.PreciseWeightedShare()
 	if weightedShare == math.Inf(1) {
@@ -594,12 +605,20 @@ func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
 func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, op usageOp) {
 	admitted := workload.IsAdmitted(wi.Obj)
 	frUsage := wi.ResourceUsage().Assigned
-	for fr, q := range frUsage {
-		if op == add {
-			addUsage(c, fr, q)
-		}
-		if op == subtract {
-			removeUsage(c, fr, q)
+	cohortHasCycle := c.HasParent() && hierarchy.HasCycle(c.Parent())
+	if cohortHasCycle {
+		log.V(4).Info("Skipping Cohort usage propagation due to cycle", "clusterQueue", c.Name, "cohort", c.Parent().Name)
+		// The Cohort tree is rebuilt after the cycle is repaired. Keep the
+		// ClusterQueue's local usage current without traversing the cyclic parents.
+		updateFlavorUsage(frUsage, c.resourceNode.Usage, op)
+	} else {
+		for fr, q := range frUsage {
+			if op == add {
+				addUsage(c, fr, q)
+			}
+			if op == subtract {
+				removeUsage(c, fr, q)
+			}
 		}
 	}
 	c.updateWorkloadTASUsage(log, wi, op)
@@ -607,7 +626,9 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
 
 		incr := op.asSignedOne()
-		c.Parent().updateAdmittedWorkloadsCount(incr)
+		if !cohortHasCycle {
+			c.Parent().updateAdmittedWorkloadsCount(incr)
+		}
 		c.admittedWorkloadsCount += incr
 
 		wlRef := workload.Key(wi.Obj)

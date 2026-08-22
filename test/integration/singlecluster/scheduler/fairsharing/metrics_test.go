@@ -1107,7 +1107,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root1", "", 0)
 				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root1", 0)
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root2", "", 2)
-				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root2", 2)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root2", 5)
 			})
 		})
 
