@@ -1412,6 +1412,14 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 		if err != nil {
 			return nil
 		}
+		// FromAssignment injects this annotation for implicit TAS. Mirror it in
+		// the structured request used to compare against the running Job.
+		if psi.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation] == "true" {
+			if ps.TopologyRequest == nil {
+				ps.TopologyRequest = &kueue.PodSetTopologyRequest{}
+			}
+			ps.TopologyRequest.Unconstrained = new(true)
+		}
 		if canBePartiallyAdmitted && ps.MinCount != nil {
 			// update the expected running count
 			ps.Count = psi.Count
@@ -1442,9 +1450,12 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	jobPodSets := clearMinCountsIfFeatureDisabled(getPodSets)
 
-	opts := make([]equality.ComparePodSetsOption, 0, 1)
+	opts := make([]equality.ComparePodSetsOption, 0, 2)
 	if workload.IsAdmitted(wl) {
 		opts = append(opts, equality.WithIgnoreTolerations())
+	}
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		opts = append(opts, equality.WithIgnoreTopologyRequest())
 	}
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {
