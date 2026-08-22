@@ -571,7 +571,10 @@ func (i *Info) SumTotalRequests(formatter *resources.ResourceFormatter) corev1.R
 	return reqs.ToResourceList(formatter)
 }
 
-func applyResourceTransformations(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
+// applyResourceTransformations transforms input. A multiplyBy operand is read
+// from multiplierSource, the view from before excludeResourcePrefixes, and is
+// never merged in, so an excluded resource scales an output without being charged.
+func applyResourceTransformations(input, multiplierSource corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
 	match := false
 	for resourceName := range input {
 		if _, ok := transforms[resourceName]; ok {
@@ -601,7 +604,7 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 		// requested, so the multiplier does not reach that as well.
 		outputInputVal := inputQuantity
 		if mapping.MultiplyBy != "" {
-			if q, ok := input[mapping.MultiplyBy]; ok {
+			if q, ok := multiplierSource[mapping.MultiplyBy]; ok {
 				outputInputVal = multiplyResourceQuantities(inputQuantity, q)
 			}
 		}
@@ -695,7 +698,7 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 		}
 		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
 		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
-		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
+		effectiveRequests = applyResourceTransformations(effectiveRequests, specRequests, info.resourceTransformations)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
 			// First, remove extended resources that were converted to DRA logical resources
 			if replacedRes, exists := info.replacedExtendedResources[ps.Name]; exists {

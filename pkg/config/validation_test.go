@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -934,6 +935,25 @@ func TestValidate(t *testing.T) {
 						{
 							Input:    corev1.ResourceMemory,
 							Strategy: new(configapi.Replace),
+						},
+					},
+				},
+			},
+		},
+		// The KEP asks for an overlap check between excludeResourcePrefixes and
+		// the transformations, scoped to the input. A multiplyBy naming an
+		// excluded resource is the deliberate combination, not the one to reject.
+		"valid .resources.transformations.multiplyBy naming an excluded prefix": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					ExcludeResourcePrefixes: []string{"vendor.example/"},
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "example.com/mem",
+							Strategy:   new(configapi.Replace),
+							MultiplyBy: "vendor.example/gpu",
+							Outputs:    corev1.ResourceList{"quota.example.com/total-mem": resource.MustParse("1")},
 						},
 					},
 				},
