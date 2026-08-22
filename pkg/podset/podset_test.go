@@ -17,6 +17,7 @@ limitations under the License.
 package podset
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -256,6 +257,40 @@ func TestFromAssignment(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestFromAssignmentConflictingFlavorNodeLabels verifies that two assigned
+// flavors that set the same node-label key to different values are reported
+// as a conflict, rather than silently resolved by map-iteration order.
+func TestFromAssignmentConflictingFlavorNodeLabels(t *testing.T) {
+	const zoneKey = "topology.kubernetes.io/zone"
+	flavorA := utiltestingapi.MakeResourceFlavor("flavor-a").
+		NodeLabel(zoneKey, "zone-a").
+		Obj()
+	flavorB := utiltestingapi.MakeResourceFlavor("flavor-b").
+		NodeLabel(zoneKey, "zone-b").
+		Obj()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	client := utiltesting.NewClientBuilder().
+		WithLists(&kueue.ResourceFlavorList{Items: []kueue.ResourceFlavor{*flavorA.DeepCopy(), *flavorB.DeepCopy()}}).
+		Build()
+
+	assignment := &kueue.PodSetAssignment{
+		Name: "main",
+		Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+			corev1.ResourceCPU:            kueue.ResourceFlavorReference(flavorA.Name),
+			corev1.ResourceName("gpu.io"): kueue.ResourceFlavorReference(flavorB.Name),
+		},
+	}
+	podSet := kueue.PodSet{Count: 1}
+
+	for range 20 {
+		_, gotErr := FromAssignment(ctx, client, assignment, &podSet)
+		if !errors.Is(gotErr, ErrInvalidPodSetUpdate) {
+			t.Fatalf("FromAssignment() error = %v, want error wrapping %v", gotErr, ErrInvalidPodSetUpdate)
+		}
 	}
 }
 
