@@ -601,7 +601,9 @@ func (c *Controller) syncCheckStates(
 			} else {
 				pr := activeOrLastPRForChecks[check]
 				if pr == nil {
-					return false, nil
+					// Leaving this check alone rather than the whole patch: the others
+					// have already staged their states into wlPatch.
+					continue
 				}
 				log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl),
 					"check", check,
