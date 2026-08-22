@@ -145,6 +145,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | enableCertManager | bool | `false` | Enable x509 automated certificate management using cert-manager (cert-manager.io) |
 | enableKueueViz | bool | `false` | Enable KueueViz dashboard |
 | enableMutatingAdmissionPolicy | bool | `false` | Enable MutatingAdmissionPolicy for clearing nominatedClusterNames on admission or eviction (requires K8s 1.36+) |
+| enableMutatingAdmissionPolicyWithoutAPIDiscovery | bool | `false` | Render MutatingAdmissionPolicy resources without API discovery. Requires enableMutatingAdmissionPolicy=true and a target cluster that supports MutatingAdmissionPolicy. |
 | enablePrometheus | bool | `false` | Enable Prometheus |
 | enableVisibilityAPF | bool | `false` | Enable API Priority and Fairness configuration for the visibility API |
 | enableVisibilityAuthReaderRoleBinding | bool | `true` | Enable the visibility server's auth-reader RoleBinding. It is always created in the kube-system namespace because it binds to the built-in extension-apiserver-authentication-reader Role, which only exists there. Disable when deploying under a GitOps project that cannot target kube-system, then create the RoleBinding out-of-band. |
