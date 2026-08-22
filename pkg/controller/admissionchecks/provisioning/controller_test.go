@@ -168,6 +168,69 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 	}
 }
 
+func TestPodSetUpdatesCoverEveryMergedPodSet(t *testing.T) {
+	podSet := func(name kueue.PodSetReference) kueue.PodSet {
+		return *utiltestingapi.MakePodSet(name, 1).Request(corev1.ResourceCPU, "1").Obj()
+	}
+	workload := func(names ...kueue.PodSetReference) *kueue.Workload {
+		podSets := make([]kueue.PodSet, len(names))
+		assignments := make([]kueue.PodSetAssignment, len(names))
+		for i, name := range names {
+			podSets[i] = podSet(name)
+			assignments[i] = kueue.PodSetAssignment{Name: name, Count: new(int32(1))}
+		}
+		return utiltestingapi.MakeWorkload("wl", TestNamespace).
+			PodSets(podSets...).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("q").PodSets(assignments...).Obj(), time.Now()).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		mergePolicy *kueue.ProvisioningRequestConfigPodSetMergePolicy
+		wantNames   []kueue.PodSetReference
+	}{
+		"without a merge policy every PodSet has its own": {
+			wantNames: []kueue.PodSetReference{"worker-a", "worker-b"},
+		},
+		"merged PodSets each still get one": {
+			mergePolicy: new(kueue.IdenticalPodTemplates),
+			wantNames:   []kueue.PodSetReference{"worker-a", "worker-b"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wl := workload("worker-a", "worker-b")
+			prc := &kueue.ProvisioningRequestConfig{Spec: kueue.ProvisioningRequestConfigSpec{
+				PodSetMergePolicy: tc.mergePolicy,
+			}}
+			merged, err := mergePodSets(t.Context(), wl, &prc.Spec)
+			if err != nil {
+				t.Fatalf("mergePodSets() error = %v", err)
+			}
+			pr := &autoscaling.ProvisioningRequest{ObjectMeta: metav1.ObjectMeta{Name: "pr"}}
+			for _, m := range merged {
+				pr.Spec.PodSets = append(pr.Spec.PodSets, autoscaling.PodSet{
+					PodTemplateRef: autoscaling.Reference{Name: getProvisioningRequestPodTemplateName(pr.Name, m.Name)},
+					Count:          m.Count,
+				})
+			}
+
+			got, err := podSetUpdates(t.Context(), wl, pr, prc)
+			if err != nil {
+				t.Fatalf("podSetUpdates() error = %v", err)
+			}
+			gotNames := make([]kueue.PodSetReference, len(got))
+			for i := range got {
+				gotNames[i] = got[i].Name
+			}
+			if diff := cmp.Diff(tc.wantNames, gotNames); diff != "" {
+				t.Errorf("unexpected PodSetUpdate names (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestReqIsNeeded(t *testing.T) {
 	makeWorkload := func(specCount int32, admissionCount *int32, includeAssignment bool) *kueue.Workload {
 		builder := utiltestingapi.MakeWorkload("wl", TestNamespace).
