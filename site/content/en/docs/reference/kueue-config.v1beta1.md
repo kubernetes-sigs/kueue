@@ -601,7 +601,10 @@ followed by a slash and a DNS label, or just a DNS label.
 DNS labels consist of lower-case alphanumeric characters or hyphens,
 and must start and end with an alphanumeric character.
 DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
-The total length must not exceed 253 characters.</p>
+The total length must not exceed 253 characters.
+With KueueDRAIntegration enabled it must not be <code>pods</code>; that exact name is
+reserved for Kueue's internal Pod-count accounting. A qualified name such
+as <code>example.com/pods</code> is allowed.</p>
 </td>
 </tr>
 <tr><td><code>deviceClassNames</code> <B>[Required]</B><br/>
@@ -1131,7 +1134,9 @@ re-queuing an evicted workload.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
 </td>
 <td>
-   <p>Input is the name of the input resource.</p>
+   <p>Input is the name of the input resource.
+It must not be <code>pods</code>; that exact name is reserved for Kueue's internal
+Pod-count accounting. A qualified name such as <code>example.com/pods</code> is allowed.</p>
 </td>
 </tr>
 <tr><td><code>strategy</code> <B>[Required]</B><br/>
@@ -1151,7 +1156,9 @@ specified.
 The requested amount of the resource is used to multiply the requested
 amount of the resource indicated by the &quot;input&quot; field when computing
 &quot;outputs&quot;. It does not change the quantity retained under &quot;input&quot; when
-&quot;strategy&quot; is Retain.</p>
+&quot;strategy&quot; is Retain.
+It must not be <code>pods</code>; that exact name is reserved for Kueue's internal
+Pod-count accounting. A qualified name such as <code>example.com/pods</code> is allowed.</p>
 </td>
 </tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
@@ -1159,6 +1166,9 @@ amount of the resource indicated by the &quot;input&quot; field when computing
 </td>
 <td>
    <p>Outputs specifies the output resources and quantities per unit of input resource.
+An output resource name must not be <code>pods</code>; that exact name is reserved for
+Kueue's internal Pod-count accounting. A qualified name such as
+<code>example.com/pods</code> is allowed.
 An empty Outputs combined with a <code>Replace</code> Strategy causes the Input resource to be ignored by Kueue.</p>
 </td>
 </tr>
