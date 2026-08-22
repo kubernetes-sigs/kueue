@@ -385,8 +385,12 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 	defer c.rwm.Unlock()
 	key := workload.Key(wInfo.Obj)
 	// Skip if the scheduler is actively processing this workload.
-	// RequeueWorkload will handle placement with the latest version.
+	// RequeueWorkload will handle placement with the latest version, and consumes
+	// the captured Info so it can pair the object with charges computed for it.
 	if c.workloads.HasInflight(key) {
+		if features.Enabled(features.KueueDRAIntegration) {
+			c.workloads.CaptureInflightUpdate(wInfo)
+		}
 		return
 	}
 	if oldInfo := c.workloads.GetInadmissible(key); oldInfo != nil {

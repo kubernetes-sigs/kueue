@@ -43,6 +43,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -145,6 +146,143 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	// The workload event must have been delivered (guaranteed, not dropped).
 	if got := len(ch); got != 1 {
 		t.Fatalf("unexpected draReconcileChannel length: got %d, want 1", got)
+	}
+}
+
+// TestRequeueWorkloadDRAPairsObjectWithCharges verifies that a requeued
+// DRA-backed workload never carries quota charges preprocessed for a different
+// generation of the object it is requeued with. DRA charges live only in the
+// Info — they cannot be rebuilt from the spec — so requeue has to source them
+// from a computation made for the object it is about to queue.
+func TestRequeueWorkloadDRAPairsObjectWithCharges(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+
+	claimTmpl := "claim-tmpl"
+	// The pod spec carries a resourceClaim, so the workload is DRA-backed; the
+	// quota key it translates to ("gpu") only ever comes from preprocessing.
+	makeWorkload := func(generation int64) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", defaultNamespace).Queue("lq").Generation(generation).PodSets(
+			*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PodSpec(corev1.PodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{{Name: "rc", ResourceClaimTemplateName: &claimTmpl}},
+			}).Obj(),
+		).Obj()
+	}
+	draCharges := func(gpus int64) workload.InfoOption {
+		return workload.WithPreprocessedDRAResources(
+			map[kueue.PodSetReference]corev1.ResourceList{
+				kueue.DefaultPodSetName: {"gpu": *resource.NewQuantity(gpus, resource.DecimalSI)},
+			},
+			nil,
+		)
+	}
+
+	cases := map[string]struct {
+		// clientGeneration is the newest object, the one requeue fetches.
+		clientGeneration int64
+		// capturedGeneration, when non-zero, is re-pushed by the workload
+		// controller while the workload is inflight, carrying capturedGPUs.
+		capturedGeneration int64
+		capturedGPUs       int64
+		wantGPUs           int64
+		wantHashUnknown    bool
+	}{
+		"adopts charges preprocessed for the newest object": {
+			clientGeneration:   2,
+			capturedGeneration: 2,
+			capturedGPUs:       4,
+			wantGPUs:           4,
+		},
+		"preserves its own charges when the object did not change": {
+			clientGeneration: 1,
+			wantGPUs:         1,
+		},
+		"drops the scheduling hash when no charges describe the newest object": {
+			clientGeneration: 2,
+			wantGPUs:         1,
+			wantHashUnknown:  true,
+		},
+		"ignores a captured update that is itself out of date": {
+			clientGeneration:   3,
+			capturedGeneration: 2,
+			capturedGPUs:       4,
+			wantGPUs:           1,
+			wantHashUnknown:    true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
+			// The client holds the newest object, which is what requeue fetches.
+			kClient := utiltesting.NewFakeClient(makeWorkload(tc.clientGeneration), lq)
+			manager := NewManagerForUnitTests(kClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
+			// AddLocalQueue hands pre-existing DRA workloads to the workload
+			// controller instead of queueing them, and the send is blocking.
+			manager.SetDRAReconcileChannel(make(chan event.TypedGenericEvent[*kueue.Workload], 1))
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Failed adding ClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding LocalQueue: %v", err)
+			}
+
+			// The workload controller preprocesses generation 1 and queues it.
+			if err := manager.AddOrUpdateWorkload(log, makeWorkload(1), draCharges(1)); err != nil {
+				t.Fatalf("Failed adding workload: %v", err)
+			}
+			cq := manager.hm.ClusterQueue("cq")
+			inflight := cq.Pop()
+			if inflight == nil {
+				t.Fatal("expected to pop workload")
+			}
+
+			if tc.capturedGeneration != 0 {
+				// A newer generation is preprocessed and queued while the
+				// scheduler still owns the workload.
+				if err := manager.AddOrUpdateWorkload(log, makeWorkload(tc.capturedGeneration), draCharges(tc.capturedGPUs)); err != nil {
+					t.Fatalf("Failed updating inflight workload: %v", err)
+				}
+			}
+
+			if !manager.RequeueWorkload(ctx, inflight, RequeueReasonGeneric, "") {
+				t.Fatal("expected the workload to be requeued")
+			}
+
+			requeued := cq.trackedInfo(workload.Key(inflight.Obj))
+			if requeued == nil {
+				t.Fatal("expected the requeued workload to be tracked by the ClusterQueue")
+			}
+			if got := requeued.Obj.Generation; got != tc.clientGeneration {
+				t.Errorf("requeued generation = %d, want the newest object %d", got, tc.clientGeneration)
+			}
+			wantRequests := []workload.PodSetResources{{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": tc.wantGPUs}),
+				Count:    1,
+			}}
+			if diff := cmp.Diff(wantRequests, requeued.TotalRequests,
+				cmpopts.IgnoreFields(workload.PodSetResources{}, "Flavors"),
+				cmp.Comparer(resources.Equal)); diff != "" {
+				t.Errorf("requeued TotalRequests (-want,+got):\n%s", diff)
+			}
+
+			gotHashUnknown := requeued.SchedulingHash == workload.SchedulingHashUnknown
+			if gotHashUnknown != tc.wantHashUnknown {
+				t.Errorf("SchedulingHash unknown = %t, want %t (hash %q)", gotHashUnknown, tc.wantHashUnknown, requeued.SchedulingHash)
+			}
+			if !tc.wantHashUnknown {
+				// The hash must describe the pair that was actually queued, so
+				// it has to match a fresh Info built from that same pair.
+				want := workload.NewInfo(requeued.Obj, workload.WithTotalRequestsFrom(requeued.TotalRequests))
+				want.UpdateSchedulingHash(log)
+				if requeued.SchedulingHash != want.SchedulingHash {
+					t.Errorf("SchedulingHash = %q, want %q: the hash does not describe the requeued object and its charges",
+						requeued.SchedulingHash, want.SchedulingHash)
+				}
+			}
+		})
 	}
 }
 
