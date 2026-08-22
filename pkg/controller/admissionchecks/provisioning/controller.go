@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -58,6 +59,7 @@ import (
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -317,9 +319,15 @@ func (c *Controller) syncOwnedProvisionRequest(
 			}
 			passProvReqParams(wl, req)
 
-			mergedPodSets, err := mergePodSets(ctx, wl, &prc.Spec)
+			mergedPodSets, err := c.mergePodSets(ctx, wl, &prc.Spec)
 			if err != nil {
 				return err
+			}
+			if len(mergedPodSets) == 0 {
+				// syncCheckStates marks Ready/NoRequestNeeded for this case.
+				log.V(3).Info("Skipping ProvisioningRequest creation; no incremental capacity needed",
+					"workload", klog.KObj(wl), "admissionCheck", checkName)
+				continue
 			}
 
 			for _, mergedPodSet := range mergedPodSets {
@@ -401,8 +409,9 @@ func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, 
 				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 			},
 		},
-		Template: ps.Template,
+		Template: *ps.Template.DeepCopy(),
 	}
+	sanitizeProvisioningRequestPodTemplate(&newPt.Template)
 
 	// set the controller reference to workload so that the template is not left orphaned
 	// if the ProvisioningRequest creation fails. The ownership is later transferred to the
@@ -430,6 +439,33 @@ func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, 
 	}
 
 	return newPt, nil
+}
+
+// sanitizeProvisioningRequestPodTemplate prepares a Workload PodSet template
+// for use as a ProvisioningRequest capacity simulation:
+//   - drops stale Workload / WorkloadSlice / ProvisioningRequest annotations
+//   - clears scheduling gates
+//
+// Cluster Autoscaler ignores gated pods for scale-up. Leaving the elastic gate
+// on the PodTemplate can keep a PRQ Accepted indefinitely without Provisioned.
+func sanitizeProvisioningRequestPodTemplate(template *corev1.PodTemplateSpec) {
+	clearStaleAdmissionAnnotations(template)
+	template.Spec.SchedulingGates = nil
+}
+
+// clearStaleAdmissionAnnotations removes metadata copied from an earlier
+// admission. A ProvisioningRequest PodTemplate describes the capacity to
+// provision; it must not consume a previous request or identify as a pod from
+// a previous WorkloadSlice.
+func clearStaleAdmissionAnnotations(template *corev1.PodTemplateSpec) {
+	for _, key := range []string{
+		autoscaling.ProvisioningRequestPodAnnotationKey,
+		autoscaling.ProvisioningClassPodAnnotationKey,
+		kueue.WorkloadAnnotation,
+		kueue.WorkloadSliceNameAnnotation,
+	} {
+		delete(template.Annotations, key)
+	}
 }
 
 func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *kueue.Workload, request *autoscaling.ProvisioningRequest) error {
@@ -593,6 +629,17 @@ func (c *Controller) syncCheckStates(
 			} else if reqNeeded, err := reqIsNeeded(wl, prc); err != nil {
 				return false, err
 			} else if !reqNeeded {
+				if updateCheckState(&checkState, kueue.CheckStateReady) {
+					updated = true
+					checkState.Message = NoRequestNeeded
+					checkState.PodSetUpdates = nil
+				}
+			} else if mergedPodSets, err := c.mergePodSets(ctx, wl, &prc.Spec); err != nil {
+				return false, err
+			} else if len(mergedPodSets) == 0 {
+				// Elastic scale-down / fully covered replacement: admission counts
+				// are positive so reqIsNeeded is true, but no incremental capacity
+				// remains. Mark Ready instead of creating an empty ProvisioningRequest.
 				if updateCheckState(&checkState, kueue.CheckStateReady) {
 					updated = true
 					checkState.Message = NoRequestNeeded
@@ -933,10 +980,76 @@ type MergedPodSet struct {
 	Count            int32
 }
 
+// previousSlicePodSetCounts returns the effective counts from the latest previously
+// admitted slice in the replacement chain.
+//
+// The current slice's own PreviousPodSetCountsAnnotation, captured by the job framework
+// at replacement-creation time, is used when present: it is unaffected by workload
+// retention deleting predecessor objects out from under a long-running job. Slices
+// created before that annotation existed fall back to a live walk of the replacement
+// chain; non-admitted intermediate slices are skipped there, since they never started
+// pods and provide no capacity the new ProvisioningRequest can reuse.
+//
+// The effective count is min(Spec, Admission assignment). Spec handles elastic
+// scale-down (where the old assignment remains at its peak), while Admission
+// handles partial admission (where Spec can exceed the number actually running).
+func (c *Controller) previousSlicePodSetCounts(ctx context.Context, wl *kueue.Workload) (map[kueue.PodSetReference]int32, error) {
+	log := ctrl.LoggerFrom(ctx)
+	if counts, err := workloadslicing.DecodePreviousPodSetCounts(wl); err != nil {
+		log.V(2).Info("Ignoring previous-slice annotation, falling back to a live lookup",
+			"workload", klog.KObj(wl), "error", err)
+	} else if counts != nil {
+		return counts, nil
+	}
+
+	ref := workloadslicing.ReplacementForKey(wl)
+	visited := sets.New[workload.Reference]()
+	for ref != nil && !visited.Has(*ref) {
+		visited.Insert(*ref)
+		ns, name, err := cache.SplitMetaNamespaceKey(string(*ref))
+		if err != nil || ns == "" || name == "" || ns != wl.Namespace {
+			log.V(2).Info("Skipping previous-slice subtraction: malformed or cross-namespace replacement key",
+				"workload", klog.KObj(wl), "replacementFor", ref)
+			return nil, nil //nolint:nilerr // a malformed key falls back to no subtraction, not a reconcile error
+		}
+		prev := &kueue.Workload{}
+		if err := c.client.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, prev); err != nil {
+			if client.IgnoreNotFound(err) == nil {
+				log.V(2).Info("Skipping previous-slice subtraction: predecessor not found",
+					"workload", klog.KObj(wl), "predecessor", *ref)
+				return nil, nil
+			}
+			return nil, err
+		}
+		if workload.IsAdmitted(prev) {
+			return workloadslicing.EffectivePodSetCounts(prev), nil
+		}
+		ref = workloadslicing.ReplacementForKey(prev)
+	}
+	if ref != nil {
+		log.V(2).Info("Skipping previous-slice subtraction: replacement cycle detected",
+			"workload", klog.KObj(wl), "replacementFor", ref)
+	}
+	return nil, nil
+}
+
+func (c *Controller) mergePodSets(
+	ctx context.Context,
+	wl *kueue.Workload,
+	prcSpec *kueue.ProvisioningRequestConfigSpec,
+) ([]MergedPodSet, error) {
+	previousCounts, err := c.previousSlicePodSetCounts(ctx, wl)
+	if err != nil {
+		return nil, err
+	}
+	return mergePodSets(ctx, wl, prcSpec, previousCounts)
+}
+
 func mergePodSets(
 	ctx context.Context,
 	wl *kueue.Workload,
 	prcSpec *kueue.ProvisioningRequestConfigSpec,
+	previousCounts map[kueue.PodSetReference]int32,
 ) ([]MergedPodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 	expectedPodSets := requiredPodSets(wl.Spec.PodSets, prcSpec.ManagedResources)
@@ -956,6 +1069,15 @@ func mergePodSets(
 		if count <= 0 {
 			log.V(4).Info("Skipping non-positive PodSet", "workload", klog.KObj(wl), "podSet", psName, "count", count)
 			continue
+		}
+		// Elastic scale-up: only request the increment beyond the latest
+		// previously admitted slice. Existing pods keep consuming their previous
+		// immutable PRQ; only newly ungated pods consume this request.
+		if prev, ok := previousCounts[psName]; ok {
+			count -= prev
+			if count <= 0 {
+				continue
+			}
 		}
 
 		merged := false
