@@ -1,0 +1,20 @@
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+namespace: kueue-system
+health:
+  healthProbeBindAddress: "0"
+metrics:
+  bindAddress: "0"
+webhook:
+  # Replaced with a per-run directory by the test script.
+  certDir: "@CERT_DIR@"
+  port: 0
+leaderElection:
+  leaderElect: false
+internalCertManagement:
+  enable: true
+integrations:
+  frameworks:
+  - pod
+featureGates:
+  VisibilityOnDemand: false

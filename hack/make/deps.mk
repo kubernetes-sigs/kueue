@@ -13,6 +13,7 @@
 # limitations under the License.
 
 EXTERNAL_CRDS_DIR ?= $(PROJECT_DIR)/dep-crds
+KWOK_TOOLS_DIR := $(TOOLS_DIR)/kwok
 
 # Use go.mod go version as source.
 GINKGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/onsi/ginkgo/v2)
@@ -22,6 +23,7 @@ KUSTOMIZE_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}
 ENVTEST_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/controller-runtime/tools/setup-envtest)
 GOTESTSUM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' gotest.tools/gotestsum)
 KIND_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kind)
+KWOK_VERSION ?= $(shell cd $(KWOK_TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/kwok)
 YQ_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/mikefarah/yq/v4)
 HELM_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' helm.sh/helm/v4)
 HELM_UNITTEST_PLUGIN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/helm-unittest/helm-unittest)
@@ -51,6 +53,7 @@ KUSTOMIZE = $(BIN_DIR)/kustomize
 GINKGO = $(BIN_DIR)/ginkgo
 GOTESTSUM = $(BIN_DIR)/gotestsum
 KIND = $(BIN_DIR)/kind
+KWOKCTL = $(BIN_DIR)/kwokctl
 ENVTEST = $(BIN_DIR)/setup-envtest
 YQ = $(BIN_DIR)/yq
 HELM = $(BIN_DIR)/helm
@@ -111,6 +114,12 @@ gotestsum: gomod-download-tools ## Download gotestsum locally if necessary.
 .PHONY: kind
 kind: gomod-download-tools ## Download kind locally if necessary.
 	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kind@$(KIND_VERSION)
+
+.PHONY: kwokctl
+kwokctl: $(KWOKCTL) ## Download kwokctl locally if necessary.
+
+$(KWOKCTL): $(KWOK_TOOLS_DIR)/go.mod $(KWOK_TOOLS_DIR)/go.sum
+	@$(NETWORK_INSTALL_RETRY) GOBIN=$(BIN_DIR) GO111MODULE=on $(GO_CMD) install sigs.k8s.io/kwok/cmd/kwokctl@$(KWOK_VERSION)
 
 .PHONY: yq
 yq: gomod-download-tools ## Download yq locally if necessary.
