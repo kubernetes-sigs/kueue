@@ -295,6 +295,10 @@ if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
     export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
 fi
 
+if [[ -n "${NETWORK_POLICIES_VERSION:-}" ]]; then
+    export NETWORK_POLICIES_MANIFEST="https://raw.githubusercontent.com/kubernetes-sigs/kube-network-policies/${NETWORK_POLICIES_VERSION}/install.yaml"
+fi
+
 if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
     # Only one secretreader image is ever needed per suite. From k8s 1.35 image volumes are
@@ -1412,6 +1416,23 @@ function install_prometheus_operator {
 function deploy_kueue_prometheus_config {
     local kubeconfig=${1:-}
     $KUSTOMIZE build "${ROOT_DIR}/config/prometheus" | \
+        kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
+}
+
+# The kind default CNI accepts NetworkPolicy objects but does not enforce them, so the
+# policies have to be exercised against an agent that does.
+# $1 kubeconfig option
+function install_network_policies_enforcement {
+    local kubeconfig=${1:-}
+    e2e_kubectl_apply_url "${NETWORK_POLICIES_MANIFEST}" --kubeconfig="${kubeconfig}"
+    kubectl rollout status daemonset/kube-network-policies -n kube-system \
+        --timeout=5m --kubeconfig="${kubeconfig}"
+}
+
+# $1 kubeconfig option
+function deploy_kueue_network_policies {
+    local kubeconfig=${1:-}
+    $KUSTOMIZE build "${ROOT_DIR}/config/networkpolicy" | \
         kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
 }
 

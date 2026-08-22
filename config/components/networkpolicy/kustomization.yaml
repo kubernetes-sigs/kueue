@@ -1,0 +1,9 @@
+resources:
+- manager-ingress.yaml
+- kueueviz-backend.yaml
+- kueueviz-frontend.yaml
+# [NETWORKPOLICY-EGRESS] Egress restriction is opt-in. Uncomment the line below
+# to also apply default-deny egress to the controller-manager. This breaks
+# MultiKueue unless every remote cluster API server is reachable through the
+# rules in manager-egress.yaml.
+#- manager-egress.yaml
