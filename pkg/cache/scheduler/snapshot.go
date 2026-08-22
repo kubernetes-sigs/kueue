@@ -183,14 +183,6 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		InactiveClusterQueueSets: sets.New[kueue.ClusterQueueReference](),
 	}
 
-	if features.Enabled(features.TopologyAwareScheduling) {
-		var err error
-		snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(ctx, c.tasCache.nodesCache.getAllNodes())
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	for _, cohort := range c.hm.Cohorts() {
 		if hierarchy.HasCycle(cohort) {
 			continue
@@ -213,6 +205,10 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 	tasSnapshots := make(map[kueue.ResourceFlavorReference]*TASFlavorSnapshot)
 	if features.Enabled(features.TopologyAwareScheduling) {
+		// The node view and generation are frozen once per scheduler snapshot so that
+		// TAS topology trees and the simulator snapshot derive from that same view.
+		nodeSnapshot := c.tasCache.nodesCache.snapshot()
+
 		var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
 		flvTASCache := c.tasCache.Clone()
 
@@ -234,12 +230,24 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			tasSnapshots[flavor], err = cache.snapshot(
 				ctx,
 				log,
-				snap.SimulatorSnapshot,
+				nodeSnapshot,
 				aggregatedDomainUsagesForFlavor,
 			)
 			if err != nil {
 				return nil, err
 			}
+		}
+
+		// The simulator snapshot is intentionally captured after TAS flavor construction
+		// using the same frozen node slice, and then propagated into each flavor snapshot.
+		var err error
+		snap.SimulatorSnapshot, err = c.schedulingSimulator.Snapshot(ctx, nodeSnapshot.nodes)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, s := range tasSnapshots {
+			s.simulatorSnapshot = snap.SimulatorSnapshot
 		}
 	}
 	for _, cq := range cqNames {

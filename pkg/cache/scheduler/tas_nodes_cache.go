@@ -150,10 +150,34 @@ func copyAndStripNode(node *corev1.Node) *corev1.Node {
 	}
 }
 
-func (t *nodesCache) getAllNodes() []*corev1.Node {
+type nodesSnapshot struct {
+	nodes      []*corev1.Node
+	generation int64
+}
+
+// snapshot returns one immutable view of all scheduling-relevant nodes. The
+// nodes and generation must be used together when constructing a scheduler
+// snapshot, so simulator and TAS snapshots observe the same node state.
+func (t *nodesCache) snapshot() nodesSnapshot {
 	t.lock.RLock()
 	defer t.lock.RUnlock()
-	return slices.Collect(maps.Values(t.nodes))
+	return nodesSnapshot{
+		nodes:      slices.Collect(maps.Values(t.nodes)),
+		generation: t.generation,
+	}
+}
+
+func (s nodesSnapshot) find(
+	nodeLabels map[string]string,
+	levels []string,
+) []*corev1.Node {
+	filteredNodes := make([]*corev1.Node, 0, len(s.nodes))
+	for _, node := range s.nodes {
+		if utiltas.NodeMatchesFlavor(node.Labels, nodeLabels, levels) {
+			filteredNodes = append(filteredNodes, node)
+		}
+	}
+	return filteredNodes
 }
 
 // strippedNodesEqual reports whether two stripped nodes carry semantically
