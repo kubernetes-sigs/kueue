@@ -1914,6 +1914,77 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			util.ExpectPendingWorkloadsMetric(cq, 0, 0)
 			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 3)
 		})
+
+		ginkgo.It("Should inactivate ClusterQueue on Cohort cycle and admit workload once cycle is resolved", func() {
+			root := utiltestingapi.MakeCohort("root").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "1").Obj(),
+				).Obj()
+			parent := utiltestingapi.MakeCohort("parent").Parent("root").Obj()
+			child := utiltestingapi.MakeCohort("child").Parent("parent").Obj()
+			util.MustCreate(ctx, k8sClient, root)
+			util.MustCreate(ctx, k8sClient, parent)
+			util.MustCreate(ctx, k8sClient, child)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, child, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, parent, true)
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, root, true)
+			})
+
+			cq = createQueue(utiltestingapi.MakeClusterQueue("cq").
+				Cohort("parent").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+			ginkgo.By("updating the parent to form a cycle")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parent), parent)).To(gomega.Succeed())
+				parent.Spec.ParentName = kueue.CohortReference(child.Name)
+				g.Expect(k8sClient.Update(ctx, parent)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying ClusterQueue is marked inactive due to cohort cycle")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCQ kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCQ)).To(gomega.Succeed())
+				g.Expect(updatedCQ.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+					{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.ClusterQueueActiveReasonCohortCycleDetected,
+						Message: `Can't admit new workloads: Cohort "parent" has a cycle in hierarchy.`,
+					},
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			wl = createWorkloadWithPriority(kueue.LocalQueueName(cq.Name), "1", 0)
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				cond := meta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonSuspended))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("resolving the cycle")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parent), parent)).To(gomega.Succeed())
+				parent.Spec.ParentName = kueue.CohortReference(root.Name)
+				g.Expect(k8sClient.Update(ctx, parent)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying ClusterQueue becomes active again")
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+
+			ginkgo.By("verifying the workload is admitted once the cycle is resolved")
+			expectAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "on-demand", "1").Obj()).
+				Obj()
+			util.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl, expectAdmission)
+		})
 	})
 
 	ginkgo.When("Using cohorts for sharing with LendingLimit", func() {

@@ -22,6 +22,7 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -186,7 +187,12 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 func calculateLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
 	// walk to root
 	root := node
+	seen := sets.New[hierarchicalResourceNode]()
 	for root.HasParent() {
+		if seen.Has(root) {
+			break
+		}
+		seen.Insert(root)
 		root = root.parentHRN()
 	}
 

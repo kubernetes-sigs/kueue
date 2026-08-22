@@ -252,7 +252,12 @@ func (c *ClusterQueueSnapshot) HasMultiKueueAdmissionCheck() bool {
 func (c *ClusterQueueSnapshot) PathParentToRoot() iter.Seq[*CohortSnapshot] {
 	return func(yield func(*CohortSnapshot) bool) {
 		a := c.Parent()
+		seen := sets.New[*CohortSnapshot]()
 		for a != nil {
+			if seen.Has(a) {
+				return
+			}
+			seen.Insert(a)
 			if !yield(a) {
 				return
 			}
