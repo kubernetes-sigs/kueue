@@ -255,6 +255,28 @@ Worker ClusterQueue definitions may be different than in the management cluster.
 quota settings may be specific to the given location. And/or cluster queue may have different
 admission checks, use ProvisioningRequest, etc.
 
+The same namespace name also defines a trust relationship. Remote Jobs preserve
+namespaced references from the manager Job, but Kubernetes resolves those
+references in the worker namespace. Consequently, manager users who can submit
+MultiKueue workloads must be trusted to use same-named worker ServiceAccounts,
+Secrets, ConfigMaps, image pull secrets, persistent volume claims, and other
+namespaced dependencies.
+
+The worker administrator authorizes this relationship by setting the
+`kueue.x-k8s.io/multikueue-allowed-manager-namespace-uids` annotation on the
+worker Namespace to a JSON array containing the same-named manager Namespace
+UID. MultiKueue checks the binding before creating a remote Workload and again
+before reading or creating an executable remote object. Namespace UIDs prevent
+a deleted and recreated manager Namespace from inheriting the old
+authorization. Removing the binding stops remote status synchronization and
+new object creation, while cleanup of previously dispatched objects remains
+allowed.
+Multi-tenant installations must additionally use dedicated namespace pairs and
+worker admission policy to enforce this equivalence; the cluster-wide example
+credential alone does not provide namespace isolation. The
+`MultiKueueAllowUnboundWorkerNamespaces` feature gate restores the legacy
+name-only behavior for compatibility and is disabled by default.
+
 ### Subcomponents
 
 #### MultiKueueCluster Controller

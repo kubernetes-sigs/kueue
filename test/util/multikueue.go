@@ -18,6 +18,7 @@ package util
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -53,6 +54,19 @@ func PolicyRule(group, resource string, verbs ...string) rbacv1.PolicyRule {
 		Resources: []string{resource},
 		Verbs:     verbs,
 	}
+}
+
+// CreateWorkerNamespaceForMultiKueue creates a worker Namespace that authorizes
+// the same-named manager Namespace UID for MultiKueue dispatch.
+func CreateWorkerNamespaceForMultiKueue(ctx context.Context, workerClient client.Client, managerNamespace *corev1.Namespace) *corev1.Namespace {
+	ginkgo.GinkgoHelper()
+	allowedManagerUIDs, err := json.Marshal([]types.UID{managerNamespace.UID})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	workerNamespace := utiltesting.MakeNamespace(managerNamespace.Name)
+	workerNamespace.Annotations = map[string]string{
+		kueue.MultiKueueAllowedManagerNamespaceUIDsAnnotation: string(allowedManagerUIDs),
+	}
+	return CreateNamespaceFromObjectWithLog(ctx, workerClient, workerNamespace)
 }
 
 var resourceVerbs = []string{"create", "update", "patch", "delete", "get", "list", "watch"}
@@ -130,6 +144,7 @@ func MultiKueueRulesForManager(ctx context.Context, k8sClient client.Client) []r
 	cfg := GetKueueConfiguration(ctx, k8sClient)
 
 	rules := []rbacv1.PolicyRule{
+		PolicyRule(corev1.SchemeGroupVersion.Group, "namespaces", "get"),
 		PolicyRule(kueue.SchemeGroupVersion.Group, "workloads", resourceVerbs...),
 		PolicyRule(kueue.SchemeGroupVersion.Group, "workloads/status", "get", "patch", "update"),
 		PolicyRule(kueue.SchemeGroupVersion.Group, "clusterqueues", "get", "list", "watch"),

@@ -221,6 +221,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: MultiKueueAllowUnboundWorkerNamespaces
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster
   versionedSpecs:
   - default: true

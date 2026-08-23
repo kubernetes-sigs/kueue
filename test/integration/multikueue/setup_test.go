@@ -89,8 +89,8 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 
 	ginkgo.BeforeEach(func() {
 		managerNs = util.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
-		worker1Ns = util.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
-		worker2Ns = util.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
+		worker1Ns = util.CreateWorkerNamespaceForMultiKueue(worker1TestCluster.ctx, worker1TestCluster.client, managerNs)
+		worker2Ns = util.CreateWorkerNamespaceForMultiKueue(worker2TestCluster.ctx, worker2TestCluster.client, managerNs)
 
 		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

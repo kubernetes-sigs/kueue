@@ -61,6 +61,7 @@ import (
 var errFake = errors.New("fake error")
 
 func TestWlReconcile(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueAllowUnboundWorkerNamespaces, true)
 	now := time.Now().Truncate(time.Second)
 	earlier := now.Add(-time.Second)
 	muchEarlier := now.Add(-time.Hour)
@@ -2168,7 +2169,7 @@ func TestWlReconcile(t *testing.T) {
 
 				helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
 				mkDispatcherName := ptr.Deref(tc.dispatcherName, config.MultiKueueDispatcherModeAllAtOnce)
-				reconciler := newWlReconciler(managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, WithClock(t, fakeClock))
+				reconciler := newWlReconciler(managerClient, managerClient, helper, cRec, defaultOrigin, recorder, defaultWorkerLostTimeout, time.Second, adapters, mkDispatcherName, nil, WithClock(t, fakeClock))
 
 				for _, val := range tc.managersDeletedWorkloads {
 					reconciler.Delete(event.DeleteEvent{
@@ -2323,6 +2324,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	recorder := &utiltesting.EventRecorder{}
 	reconciler := newWlReconciler(
 		managerClient,
+		managerClient,
 		helper,
 		cRec,
 		defaultOrigin,
@@ -2426,6 +2428,7 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 	recorder := &utiltesting.EventRecorder{}
 	return newWlReconciler(
 		managerClient,
+		managerClient,
 		helper,
 		cRec,
 		defaultOrigin,
@@ -2445,6 +2448,7 @@ func admittedMetricValue(t *testing.T) float64 {
 }
 
 func TestMultiKueueWorkloadAdmittedMetricIncrementedOnceOnAdmission(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueAllowUnboundWorkerNamespaces, true)
 	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
 	metrics.MultiKueueWorkloadsAdmittedTotal.Reset()
 	t.Cleanup(metrics.MultiKueueWorkloadsAdmittedTotal.Reset)
@@ -2472,6 +2476,7 @@ func TestMultiKueueWorkloadAdmittedMetricIncrementedOnceOnAdmission(t *testing.T
 }
 
 func TestMultiKueueWorkloadAdmittedMetricNotIncrementedOnRetryOrRejected(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueAllowUnboundWorkerNamespaces, true)
 	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
 
 	for _, state := range []kueue.CheckState{kueue.CheckStateRetry, kueue.CheckStateRejected} {
@@ -2504,6 +2509,7 @@ type createCall struct {
 }
 
 func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueAllowUnboundWorkerNamespaces, true)
 	const externalMultiKueueDispatcherController = "external.com/mk-dispatcher"
 
 	remoteNames := make([]string, 9)
@@ -2644,10 +2650,12 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				acName:        "ac1",
 			}
 
+			managerClient := wlClientBuilder.Build()
 			wlRec := &wlReconciler{
-				clock:          fakeClock,
-				dispatcherName: tt.dispatcherMode,
-				client:         wlClientBuilder.Build(),
+				clock:                  fakeClock,
+				dispatcherName:         tt.dispatcherMode,
+				client:                 managerClient,
+				managerNamespaceReader: managerClient,
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -3150,6 +3158,7 @@ func (s *deferredSyncStubAdapter) GVK() schema.GroupVersionKind {
 // workerLostTimeout away and the manager Job's Status.Active never catches
 // up within any reasonable test or operator observation window.
 func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueAllowUnboundWorkerNamespaces, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
@@ -3202,12 +3211,13 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 	}
 
 	reconciler := &wlReconciler{
-		client:            managerClient,
-		clock:             fakeClock,
-		origin:            defaultOrigin,
-		workerLostTimeout: defaultWorkerLostTimeout,
-		recorder:          &utiltesting.EventRecorder{},
-		dispatcherName:    config.MultiKueueDispatcherModeAllAtOnce,
+		client:                 managerClient,
+		managerNamespaceReader: managerClient,
+		clock:                  fakeClock,
+		origin:                 defaultOrigin,
+		workerLostTimeout:      defaultWorkerLostTimeout,
+		recorder:               &utiltesting.EventRecorder{},
+		dispatcherName:         config.MultiKueueDispatcherModeAllAtOnce,
 	}
 
 	gotResult, gotErr := reconciler.reconcileGroup(ctx, group)

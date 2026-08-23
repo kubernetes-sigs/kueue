@@ -18,6 +18,7 @@ package multikueue
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -67,6 +69,8 @@ import (
 var (
 	realClock                      = clock.RealClock{}
 	singleClusterPreemptionTimeout = 5 * time.Minute
+
+	errWorkerNamespaceNotBound = errors.New("worker Namespace is not bound to the manager Namespace")
 )
 
 // syncDeferredRequeueAfter is the delay used to re-reconcile a workload after
@@ -89,18 +93,19 @@ var (
 const syncDeferredRequeueAfter = 2 * time.Second
 
 type wlReconciler struct {
-	client            client.Client
-	helper            *admissioncheck.MultiKueueStoreHelper
-	clusters          *clustersReconciler
-	origin            string
-	workerLostTimeout time.Duration
-	deletedWlCache    *utilmaps.SyncMap[string, *kueue.Workload]
-	eventsBatchPeriod time.Duration
-	adapters          map[string]jobframework.MultiKueueAdapter
-	recorder          events.EventRecorder
-	clock             clock.Clock
-	dispatcherName    string
-	roleTracker       *roletracker.RoleTracker
+	client                 client.Client
+	managerNamespaceReader client.Reader
+	helper                 *admissioncheck.MultiKueueStoreHelper
+	clusters               *clustersReconciler
+	origin                 string
+	workerLostTimeout      time.Duration
+	deletedWlCache         *utilmaps.SyncMap[string, *kueue.Workload]
+	eventsBatchPeriod      time.Duration
+	adapters               map[string]jobframework.MultiKueueAdapter
+	recorder               events.EventRecorder
+	clock                  clock.Clock
+	dispatcherName         string
+	roleTracker            *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
@@ -117,6 +122,222 @@ type wlGroup struct {
 }
 
 type Option func(reconciler *wlReconciler)
+
+func validateWorkerNamespaceBinding(ctx context.Context, managerReader, workerReader client.Reader, namespace string) error {
+	if features.Enabled(features.MultiKueueAllowUnboundWorkerNamespaces) {
+		ctrl.LoggerFrom(ctx).V(4).Info("Allowing an unbound worker Namespace because the MultiKueueAllowUnboundWorkerNamespaces feature gate is enabled", "namespace", namespace)
+		return nil
+	}
+
+	managerNamespace := &corev1.Namespace{}
+	if err := managerReader.Get(ctx, types.NamespacedName{Name: namespace}, managerNamespace); err != nil {
+		return fmt.Errorf("%w: reading manager Namespace %q: %w", errWorkerNamespaceNotBound, namespace, err)
+	}
+	if managerNamespace.UID == "" {
+		return fmt.Errorf("%w: manager Namespace %q has no UID", errWorkerNamespaceNotBound, namespace)
+	}
+
+	workerNamespace := &corev1.Namespace{}
+	if err := workerReader.Get(ctx, types.NamespacedName{Name: namespace}, workerNamespace); err != nil {
+		return fmt.Errorf("%w: reading worker Namespace %q: %w", errWorkerNamespaceNotBound, namespace, err)
+	}
+
+	rawAllowedUIDs := workerNamespace.Annotations[kueue.MultiKueueAllowedManagerNamespaceUIDsAnnotation]
+	if rawAllowedUIDs == "" {
+		return fmt.Errorf("%w: worker Namespace %q is missing annotation %q", errWorkerNamespaceNotBound, namespace, kueue.MultiKueueAllowedManagerNamespaceUIDsAnnotation)
+	}
+
+	var allowedUIDs []types.UID
+	if err := json.Unmarshal([]byte(rawAllowedUIDs), &allowedUIDs); err != nil {
+		return fmt.Errorf("%w: worker Namespace %q has malformed annotation %q: %w", errWorkerNamespaceNotBound, namespace, kueue.MultiKueueAllowedManagerNamespaceUIDsAnnotation, err)
+	}
+	if !slices.Contains(allowedUIDs, managerNamespace.UID) {
+		return fmt.Errorf("%w: worker Namespace %q does not authorize manager Namespace UID %q", errWorkerNamespaceNotBound, namespace, managerNamespace.UID)
+	}
+	return nil
+}
+
+// namespaceAuthorizingClient protects remote reads and non-cleanup writes,
+// including adapters that create multiple objects or re-check existence
+// internally. Cleanup intentionally uses the underlying worker client.
+type namespaceAuthorizingClient struct {
+	delegate               client.Client
+	managerNamespaceReader client.Reader
+}
+
+var _ client.Client = (*namespaceAuthorizingClient)(nil)
+
+func (c *namespaceAuthorizingClient) authorizeNamespace(ctx context.Context, namespace, operation string) error {
+	if namespace == "" {
+		return nil
+	}
+	if err := validateWorkerNamespaceBinding(ctx, c.managerNamespaceReader, c.delegate, namespace); err != nil {
+		return fmt.Errorf("authorizing worker Namespace before %s: %w", operation, err)
+	}
+	return nil
+}
+
+func (c *namespaceAuthorizingClient) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if err := c.authorizeNamespace(ctx, key.Namespace, fmt.Sprintf("reading %T %q", obj, key)); err != nil {
+		return err
+	}
+	return c.delegate.Get(ctx, key, obj, opts...)
+}
+
+func (c *namespaceAuthorizingClient) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	listOptions := &client.ListOptions{}
+	for _, opt := range opts {
+		opt.ApplyToList(listOptions)
+	}
+	if listOptions.Namespace == "" {
+		return fmt.Errorf("authorizing worker Namespace before listing %T: an explicit Namespace is required", list)
+	}
+	if err := c.authorizeNamespace(ctx, listOptions.Namespace, fmt.Sprintf("listing %T", list)); err != nil {
+		return err
+	}
+	return c.delegate.List(ctx, list, opts...)
+}
+
+func (c *namespaceAuthorizingClient) Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error {
+	if err := c.authorizeNamespace(ctx, obj.GetNamespace(), fmt.Sprintf("creating %T %q", obj, client.ObjectKeyFromObject(obj))); err != nil {
+		return err
+	}
+	return c.delegate.Create(ctx, obj, opts...)
+}
+
+func (c *namespaceAuthorizingClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	if err := c.authorizeNamespace(ctx, obj.GetNamespace(), fmt.Sprintf("deleting %T %q", obj, client.ObjectKeyFromObject(obj))); err != nil {
+		return err
+	}
+	return c.delegate.Delete(ctx, obj, opts...)
+}
+
+func (c *namespaceAuthorizingClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
+	if err := c.authorizeNamespace(ctx, obj.GetNamespace(), fmt.Sprintf("updating %T %q", obj, client.ObjectKeyFromObject(obj))); err != nil {
+		return err
+	}
+	return c.delegate.Update(ctx, obj, opts...)
+}
+
+func (c *namespaceAuthorizingClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+	if err := c.authorizeNamespace(ctx, obj.GetNamespace(), fmt.Sprintf("patching %T %q", obj, client.ObjectKeyFromObject(obj))); err != nil {
+		return err
+	}
+	return c.delegate.Patch(ctx, obj, patch, opts...)
+}
+
+type applyConfigurationWithNamespace interface {
+	GetNamespace() *string
+}
+
+func (c *namespaceAuthorizingClient) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+	withNamespace, ok := obj.(applyConfigurationWithNamespace)
+	if !ok {
+		return fmt.Errorf("authorizing worker Namespace before applying %T: cannot determine Namespace", obj)
+	}
+	if namespace := withNamespace.GetNamespace(); namespace != nil {
+		if err := c.authorizeNamespace(ctx, *namespace, fmt.Sprintf("applying %T", obj)); err != nil {
+			return err
+		}
+	}
+	return c.delegate.Apply(ctx, obj, opts...)
+}
+
+func (c *namespaceAuthorizingClient) DeleteAllOf(ctx context.Context, obj client.Object, opts ...client.DeleteAllOfOption) error {
+	deleteOptions := (&client.DeleteAllOfOptions{}).ApplyOptions(opts)
+	if deleteOptions.Namespace == "" {
+		return fmt.Errorf("authorizing worker Namespace before deleting all %T: an explicit Namespace is required", obj)
+	}
+	if err := c.authorizeNamespace(ctx, deleteOptions.Namespace, fmt.Sprintf("deleting all %T", obj)); err != nil {
+		return err
+	}
+	return c.delegate.DeleteAllOf(ctx, obj, opts...)
+}
+
+type namespaceAuthorizingSubResourceClient struct {
+	delegate client.SubResourceClient
+	parent   *namespaceAuthorizingClient
+}
+
+var _ client.SubResourceClient = (*namespaceAuthorizingSubResourceClient)(nil)
+
+func (c *namespaceAuthorizingSubResourceClient) Get(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceGetOption) error {
+	if err := c.parent.authorizeNamespace(ctx, obj.GetNamespace(), fmt.Sprintf("reading a subresource of %T %q", obj, client.ObjectKeyFromObject(obj))); err != nil {
+		return err
+	}
+	return c.delegate.Get(ctx, obj, subResource, opts...)
+}
+
+func (c *namespaceAuthorizingSubResourceClient) Create(ctx context.Context, obj client.Object, subResource client.Object, opts ...client.SubResourceCreateOption) error {
+	if err := c.parent.authorizeNamespace(ctx, obj.GetNamespace(), fmt.Sprintf("creating a subresource of %T %q", obj, client.ObjectKeyFromObject(obj))); err != nil {
+		return err
+	}
+	return c.delegate.Create(ctx, obj, subResource, opts...)
+}
+
+func (c *namespaceAuthorizingSubResourceClient) Update(ctx context.Context, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+	if err := c.parent.authorizeNamespace(ctx, obj.GetNamespace(), fmt.Sprintf("updating a subresource of %T %q", obj, client.ObjectKeyFromObject(obj))); err != nil {
+		return err
+	}
+	return c.delegate.Update(ctx, obj, opts...)
+}
+
+func (c *namespaceAuthorizingSubResourceClient) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	if err := c.parent.authorizeNamespace(ctx, obj.GetNamespace(), fmt.Sprintf("patching a subresource of %T %q", obj, client.ObjectKeyFromObject(obj))); err != nil {
+		return err
+	}
+	return c.delegate.Patch(ctx, obj, patch, opts...)
+}
+
+func (c *namespaceAuthorizingSubResourceClient) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+	withNamespace, ok := obj.(applyConfigurationWithNamespace)
+	if !ok {
+		return fmt.Errorf("authorizing worker Namespace before applying a subresource of %T: cannot determine Namespace", obj)
+	}
+	if namespace := withNamespace.GetNamespace(); namespace != nil {
+		if err := c.parent.authorizeNamespace(ctx, *namespace, fmt.Sprintf("applying a subresource of %T", obj)); err != nil {
+			return err
+		}
+	}
+	return c.delegate.Apply(ctx, obj, opts...)
+}
+
+func (c *namespaceAuthorizingClient) Status() client.SubResourceWriter {
+	return c.SubResource("status")
+}
+
+func (c *namespaceAuthorizingClient) SubResource(subResource string) client.SubResourceClient {
+	return &namespaceAuthorizingSubResourceClient{
+		delegate: c.delegate.SubResource(subResource),
+		parent:   c,
+	}
+}
+
+func (c *namespaceAuthorizingClient) Scheme() *runtime.Scheme {
+	return c.delegate.Scheme()
+}
+
+func (c *namespaceAuthorizingClient) RESTMapper() apimeta.RESTMapper {
+	return c.delegate.RESTMapper()
+}
+
+func (c *namespaceAuthorizingClient) GroupVersionKindFor(obj runtime.Object) (schema.GroupVersionKind, error) {
+	return c.delegate.GroupVersionKindFor(obj)
+}
+
+func (c *namespaceAuthorizingClient) IsObjectNamespaced(obj runtime.Object) (bool, error) {
+	return c.delegate.IsObjectNamespaced(obj)
+}
+
+func (w *wlReconciler) namespaceAuthorizingClient(workerClient client.Client) client.Client {
+	if features.Enabled(features.MultiKueueAllowUnboundWorkerNamespaces) {
+		return workerClient
+	}
+	return &namespaceAuthorizingClient{
+		delegate:               workerClient,
+		managerNamespaceReader: w.managerNamespaceReader,
+	}
+}
 
 func WithClock(_ testing.TB, c clock.Clock) Option {
 	return func(r *wlReconciler) {
@@ -394,8 +615,24 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{}, errors.Join(errs...)
 	}
 
+	// Remote Workloads remain visible through the raw client so cleanup can run
+	// after revocation, but their spec and status must not influence any manager
+	// decision unless the worker Namespace is still authorized.
+	for remote, remoteWl := range group.remotes {
+		if remoteWl == nil {
+			continue
+		}
+		if err := validateWorkerNamespaceBinding(ctx, w.managerNamespaceReader, group.remoteClients[remote].getClient(), group.local.Namespace); err != nil {
+			return reconcile.Result{}, fmt.Errorf("authorizing worker Namespace for cluster %q before using remote Workload: %w", remote, err)
+		}
+	}
+
 	// 3. Finish the local workload when the remote workload is finished.
 	if remoteFinishedCond, remote := group.bestMatchByCondition(kueue.WorkloadFinished); remoteFinishedCond != nil {
+		remoteCl := w.namespaceAuthorizingClient(group.remoteClients[remote].getClient())
+		if err := validateWorkerNamespaceBinding(ctx, w.managerNamespaceReader, remoteCl, group.local.Namespace); err != nil {
+			return reconcile.Result{}, fmt.Errorf("authorizing worker Namespace for cluster %q before using remote Workload status: %w", remote, err)
+		}
 		// A remote OutOfSync finish is a sync failure, not a job completion: reset to Retry to
 		// re-dispatch rather than finishing (which would strand the manager Job). Always return so
 		// it never falls through to Finish; patch only while still Ready so a re-reconcile can't
@@ -418,7 +655,6 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		// it should not be problematic, but the "From remote xxxx:" could be lost ....
 
 		if group.jobAdapter != nil {
-			remoteCl := group.remoteClients[remote].getClient()
 			if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
 				log.Error(err, "validating remote controller object", "workerCluster", remote)
 				return reconcile.Result{}, err
@@ -442,7 +678,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// 4. Handle workload eviction
 	remoteEvictCond, evictedRemote := group.bestMatchByCondition(kueue.WorkloadEvicted)
 	if remoteEvictCond != nil {
-		remoteCl := group.remoteClients[evictedRemote].getClient()
+		remoteCl := w.namespaceAuthorizingClient(group.remoteClients[evictedRemote].getClient())
+		if err := validateWorkerNamespaceBinding(ctx, w.managerNamespaceReader, remoteCl, group.local.Namespace); err != nil {
+			return reconcile.Result{}, fmt.Errorf("authorizing worker Namespace for cluster %q before using remote Workload status: %w", evictedRemote, err)
+		}
 		remoteWl := group.remotes[evictedRemote]
 
 		log = log.WithValues("remote", evictedRemote, "remoteWorkload", klog.KObj(remoteWl))
@@ -499,7 +738,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				remotePreemptionGates = remWl.Spec.PreemptionGates
 			}
 
-			remClient := group.remoteClients[rem]
+			remoteCl := w.namespaceAuthorizingClient(group.remoteClients[rem].getClient())
 
 			updateRemote := false
 
@@ -522,7 +761,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 					remWl.Spec.PreemptionGates = remotePreemptionGates
 				}
 
-				if err := remClient.getClient().Update(ctx, remWl); err != nil {
+				if err := remoteCl.Update(ctx, remWl); err != nil {
 					return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 				}
 				continue
@@ -551,6 +790,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	//     of sync): the admitted remote is gone, so retry immediately.
 	if remoteCond == nil && acs.State == kueue.CheckStateReady {
 		admitting := ptr.Deref(group.local.Status.ClusterName, "")
+		if remoteClient, found := group.remoteClients[admitting]; found {
+			if err := validateWorkerNamespaceBinding(ctx, w.managerNamespaceReader, remoteClient.getClient(), group.local.Namespace); err != nil {
+				return reconcile.Result{}, fmt.Errorf("authorizing worker Namespace for cluster %q before handling its missing admitted status: %w", admitting, err)
+			}
+		}
 		if admitting != "" && slices.Contains(group.unavailableClusters, admitting) {
 			lostSince := w.admittingWorkerLostSince(admitting)
 			if remainingWaitTime := w.workerLostTimeout - w.clock.Since(lostSince); remainingWaitTime > 0 {
@@ -582,7 +826,10 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 			}
 		}
 
-		remoteCl := group.remoteClients[admittingRemote].getClient()
+		remoteCl := w.namespaceAuthorizingClient(group.remoteClients[admittingRemote].getClient())
+		if err := validateWorkerNamespaceBinding(ctx, w.managerNamespaceReader, remoteCl, group.local.Namespace); err != nil {
+			return reconcile.Result{}, fmt.Errorf("authorizing worker Namespace for cluster %q before using remote Workload status: %w", admittingRemote, err)
+		}
 		remoteWl := group.remotes[admittingRemote]
 
 		log = log.WithValues("remote", admittingRemote, "remoteWorkload", klog.KObj(remoteWl))
@@ -641,9 +888,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		remWlName, requeueIn := w.workloadToOpenPreemptionGate(ctx, group)
 		if remWlName != nil {
 			remWl := group.remotes[*remWlName]
-			remClient := group.remoteClients[*remWlName]
+			remoteCl := w.namespaceAuthorizingClient(group.remoteClients[*remWlName].getClient())
 			workload.OpenPreemptionGate(remWl, constants.MultiKueuePreemptionGate, metav1.NewTime(w.clock.Now()))
-			if err := remClient.getClient().Status().Update(ctx, remWl); err != nil {
+			if err := remoteCl.Status().Update(ctx, remWl); err != nil {
 				return reconcile.Result{}, fmt.Errorf("failed to update remote workload: %w", err)
 			}
 		}
@@ -817,9 +1064,10 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 		if clusterName == targetCluster {
 			if remoteWl == nil {
 				clone := cloneForCreate(group.local, group.remoteClients[clusterName].origin, false)
-				if err := group.remoteClients[clusterName].getClient().Create(ctx, clone); err != nil {
+				remoteCl := w.namespaceAuthorizingClient(group.remoteClients[clusterName].getClient())
+				if err := remoteCl.Create(ctx, clone); err != nil {
 					log.V(2).Error(err, "creating remote workload", "cluster", clusterName)
-					errs = append(errs, err)
+					errs = append(errs, fmt.Errorf("creating remote Workload in cluster %q: %w", clusterName, err))
 				} else {
 					metrics.ReportMultiKueueWorkloadDispatched(admittedClusterQueue(group.local), clusterName, w.roleTracker)
 				}
@@ -939,9 +1187,10 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		if slices.Contains(nominatedWorkers, rem) {
 			if remoteWl == nil {
 				clone := cloneForCreate(group.local, group.remoteClients[rem].origin, true)
-				if err := group.remoteClients[rem].getClient().Create(ctx, clone); err != nil {
+				remoteCl := w.namespaceAuthorizingClient(group.remoteClients[rem].getClient())
+				if err := remoteCl.Create(ctx, clone); err != nil {
 					log.V(2).Error(err, "creating remote object", "remote", rem)
-					errs = append(errs, err)
+					errs = append(errs, fmt.Errorf("creating remote Workload in cluster %q: %w", rem, err))
 				} else {
 					metrics.ReportMultiKueueWorkloadDispatched(admittedClusterQueue(group.local), rem, w.roleTracker)
 				}
@@ -976,24 +1225,25 @@ func (w *wlReconciler) Generic(_ event.GenericEvent) bool {
 	return true
 }
 
-func newWlReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
+func newWlReconciler(c client.Client, managerNamespaceReader client.Reader, helper *admissioncheck.MultiKueueStoreHelper, cRec *clustersReconciler, origin string,
 	recorder events.EventRecorder, workerLostTimeout, eventsBatchPeriod time.Duration,
 	adapters map[string]jobframework.MultiKueueAdapter, dispatcherName string, roleTracker *roletracker.RoleTracker,
 	options ...Option,
 ) *wlReconciler {
 	r := &wlReconciler{
-		client:            c,
-		helper:            helper,
-		clusters:          cRec,
-		origin:            origin,
-		workerLostTimeout: workerLostTimeout,
-		deletedWlCache:    utilmaps.NewSyncMap[string, *kueue.Workload](0),
-		eventsBatchPeriod: eventsBatchPeriod,
-		adapters:          adapters,
-		recorder:          recorder,
-		clock:             realClock,
-		dispatcherName:    dispatcherName,
-		roleTracker:       roleTracker,
+		client:                 c,
+		managerNamespaceReader: managerNamespaceReader,
+		helper:                 helper,
+		clusters:               cRec,
+		origin:                 origin,
+		workerLostTimeout:      workerLostTimeout,
+		deletedWlCache:         utilmaps.NewSyncMap[string, *kueue.Workload](0),
+		eventsBatchPeriod:      eventsBatchPeriod,
+		adapters:               adapters,
+		recorder:               recorder,
+		clock:                  realClock,
+		dispatcherName:         dispatcherName,
+		roleTracker:            roleTracker,
 	}
 	for _, option := range options {
 		option(r)

@@ -32,6 +32,11 @@ const (
 	// the management cluster on remote objects.
 	MultiKueueOriginUIDAnnotation = "kueue.x-k8s.io/multikueue-origin-uid"
 
+	// MultiKueueAllowedManagerNamespaceUIDsAnnotation is set on a worker
+	// Namespace to authorize same-named manager Namespaces by UID. The value is
+	// a JSON array of Kubernetes Namespace UIDs.
+	MultiKueueAllowedManagerNamespaceUIDsAnnotation = "kueue.x-k8s.io/multikueue-allowed-manager-namespace-uids"
+
 	// MultiKueueControllerName is the name used by the MultiKueue
 	// admission check controller.
 	MultiKueueControllerName = "kueue.x-k8s.io/multikueue"

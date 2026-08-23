@@ -175,15 +175,15 @@ var _ = ginkgo.Describe(
 					managerTestCluster.client,
 					"multikueue-",
 				)
-				worker1Ns = util.CreateNamespaceWithLog(
+				worker1Ns = util.CreateWorkerNamespaceForMultiKueue(
 					worker1TestCluster.ctx,
 					worker1TestCluster.client,
-					managerNs.Name,
+					managerNs,
 				)
-				worker2Ns = util.CreateNamespaceWithLog(
+				worker2Ns = util.CreateWorkerNamespaceForMultiKueue(
 					worker2TestCluster.ctx,
 					worker2TestCluster.client,
-					managerNs.Name,
+					managerNs,
 				)
 
 				w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()

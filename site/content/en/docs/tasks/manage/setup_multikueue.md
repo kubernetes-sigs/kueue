@@ -25,8 +25,49 @@ kubectl config use-context worker1-cluster
 ```
 {{% /alert %}}
 
+Authorize the manager namespace UID on the same-named worker namespace. The
+UID binding prevents a different manager namespace that happens to have the
+same name from using worker resources. For this tutorial's `default`
+namespace, run:
+
+```bash
+manager_namespace_uid=$(kubectl --context manager-cluster get namespace default -o jsonpath='{.metadata.uid}')
+kubectl --context worker1-cluster annotate namespace default \
+  kueue.x-k8s.io/multikueue-allowed-manager-namespace-uids="[\"${manager_namespace_uid}\"]" \
+  --overwrite
+```
+
+Repeat the annotation for every manager/worker namespace pair that can receive
+MultiKueue workloads. The annotation value is a JSON array so a worker
+namespace can authorize redundant manager clusters. Recreate the binding when
+a manager namespace is deleted and recreated because its UID changes.
+
+Removing the annotation revokes synchronization as well as creation. Running
+worker objects are left in place, but their status is not consumed until the
+binding is restored; MultiKueue can still clean them up when the manager
+Workload is finished or deleted.
+
 When MultiKueue dispatches a workload from the manager cluster to a worker cluster, it expects that the job's namespace and LocalQueue also exist in the worker cluster.
 In other words, you should ensure that the worker cluster configuration mirrors the one of the manager cluster in terms of namespaces and LocalQueues.
+
+{{% alert title="Security Notice" color="warning" %}}
+
+A mirrored namespace is also a trust boundary. MultiKueue copies the workload
+specification, so namespaced references such as ServiceAccounts, Secrets,
+ConfigMaps, image pull secrets, and persistent volume claims resolve in the
+worker namespace. This also applies when `serviceAccountName` is omitted: the
+worker namespace's `default` ServiceAccount is used.
+
+Only pair namespaces whose users have equivalent authorization on both
+clusters. In multi-tenant environments, use dedicated worker namespaces and
+worker admission policies to prevent dispatched workloads from selecting
+more-privileged worker resources. Avoid using the shared `default` namespace
+for production tenant workloads.
+
+See [MultiKueue security considerations](/docs/concepts/multikueue/#security-considerations)
+for the complete trust model.
+
+{{% /alert %}}
 
 To create the sample queue setup in the `default` namespace, you can apply the following manifest:
 
@@ -35,6 +76,29 @@ To create the sample queue setup in the `default` namespace, you can apply the f
 ### MultiKueue Specific Kubeconfig
 
 In order to delegate the jobs in a worker cluster, the manager cluster needs to be able to create, delete, and watch workloads and their parent Jobs.
+
+The example script creates a ClusterRoleBinding, so its credential can operate
+on supported workload types in every namespace. Use it only when all eligible
+worker namespaces belong to the same trust domain. It is not a namespace-level
+tenant-isolation mechanism.
+
+#### Upgrading an existing installation
+
+Before upgrading the manager to a version that enforces namespace UID
+bindings:
+
+1. Add `get` permission for core `namespaces` to every MultiKueue worker
+   credential. Do not grant Namespace update or patch permission.
+2. Annotate every eligible worker Namespace with the UID of each authorized
+   same-named manager Namespace, as shown above.
+3. Roll all manager replicas to the new version. Old replicas do not enforce
+   the binding, so a mixed-version deployment does not provide the new
+   security guarantee until the rollout is complete.
+
+If pre-annotation is not possible, start the upgraded manager with
+`MultiKueueAllowUnboundWorkerNamespaces=true`, update worker RBAC and Namespace
+bindings, and then restart every manager replica with the gate disabled. The
+gate restores the legacy name-only trust behavior while it is enabled.
 
 While `kubectl` is set up to use the worker cluster, download: 
 {{< include "examples/multikueue/create-multikueue-kubeconfig.sh" "bash" >}}
