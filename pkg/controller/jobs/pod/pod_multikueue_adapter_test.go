@@ -87,6 +87,27 @@ func TestMultiKueueAdapter(t *testing.T) {
 		Annotations: map[string]string{
 			podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
 		},
+		OwnerReferences: []metav1.OwnerReference{
+			{
+				APIVersion: corev1.SchemeGroupVersion.String(),
+				Kind:       "Pod",
+				Name:       podGroup[0].Obj().Name,
+				UID:        "manager-anchor-uid",
+				Controller: new(true),
+			},
+			{
+				APIVersion: corev1.SchemeGroupVersion.String(),
+				Kind:       "Pod",
+				Name:       podGroup[1].Obj().Name,
+				UID:        types.UID("manager-" + podGroup[1].Obj().Name + "-uid"),
+			},
+			{
+				APIVersion: corev1.SchemeGroupVersion.String(),
+				Kind:       "Pod",
+				Name:       podGroup[2].Obj().Name,
+				UID:        types.UID("manager-" + podGroup[2].Obj().Name + "-uid"),
+			},
+		},
 	}}
 
 	cases := map[string]struct {
@@ -269,6 +290,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 		},
 		"remote pod is deleted": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{*basePodBuilder.DeepCopy()},
 			workerPods: []corev1.Pod{
 				*basePodBuilder.Clone().
 					PrebuiltWorkloadLabel("wl1").
@@ -278,6 +300,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
 				return adapter.DeleteRemoteObject(ctx, managerClient, workerClient, types.NamespacedName{Name: basePodName, Namespace: TestNamespace})
 			},
+			wantManagersPods: []corev1.Pod{*basePodBuilder.DeepCopy()},
 		},
 		"pod managedBy multikueue": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -585,12 +608,20 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*podGroupWithWlAnnotations[2].DeepCopy(),
 			},
 			workerPods: []corev1.Pod{
-				*workerPodGroupWithAnnotations[0].DeepCopy(),
+				*workerPodGroupWithAnnotations[0].Clone().Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-anchor-uid").Obj(),
 				*workerPodGroupWithAnnotations[1].DeepCopy(),
 				*workerPodGroupWithAnnotations[2].DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, managerClient, workerClient, adapter, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, groupWorkload, "origin1")
+				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(
+					ctx,
+					managerClient,
+					workerClient,
+					adapter,
+					types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace},
+					groupWorkload,
+					"origin1",
+				)
 			},
 			wantManagersPods: []corev1.Pod{
 				*podGroupWithWlAnnotations[0].DeepCopy(),
@@ -606,14 +637,22 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*podGroup[2].DeepCopy(),
 			},
 			workerPods: []corev1.Pod{
-				*podGroupWithWl[0].DeepCopy(),
+				*podGroupWithWl[0].Clone().Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-anchor-uid").Obj(),
 				*podGroupWithWl[1].DeepCopy(),
 				*utiltestingpod.MakePod(podGroup[2].Obj().Name, TestNamespace).
 					UID("victim-uid").
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, managerClient, workerClient, adapter, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, groupWorkload, "origin1")
+				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(
+					ctx,
+					managerClient,
+					workerClient,
+					adapter,
+					types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace},
+					groupWorkload,
+					"origin1",
+				)
 			},
 			wantManagersPods: []corev1.Pod{
 				*podGroup[0].DeepCopy(),
@@ -629,19 +668,62 @@ func TestMultiKueueAdapter(t *testing.T) {
 		"remote pod group cleanup uses Workload context after manager Pods are finalized": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			workerPods: []corev1.Pod{
-				*podGroupWithWl[0].DeepCopy(),
-				*podGroupWithWl[1].DeepCopy(),
+				*podGroupWithWl[0].Clone().Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-anchor-uid").Obj(),
+				*podGroupWithWl[1].Clone().Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-"+podGroupWithWl[1].Obj().Name+"-uid").Obj(),
 				*utiltestingpod.MakePod(podGroup[2].Obj().Name, TestNamespace).
 					UID("victim-uid").
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, managerClient, workerClient, adapter, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, groupWorkload, "origin1")
+				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(
+					ctx,
+					managerClient,
+					workerClient,
+					adapter,
+					types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace},
+					groupWorkload,
+					"origin1",
+				)
 			},
 			wantWorkerPods: []corev1.Pod{
 				*utiltestingpod.MakePod(podGroup[2].Obj().Name, TestNamespace).
 					UID("victim-uid").
 					Obj(),
+			},
+		},
+		"remote pod group cleanup does not trust a live manager member absent from the Workload": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
+			},
+			workerPods: []corev1.Pod{
+				*podGroupWithWl[0].DeepCopy(),
+				*podGroupWithWl[1].DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				workloadWithoutMember := groupWorkload.DeepCopy()
+				workloadWithoutMember.OwnerReferences = workloadWithoutMember.OwnerReferences[:1]
+				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(
+					ctx,
+					managerClient,
+					workerClient,
+					adapter,
+					types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace},
+					workloadWithoutMember,
+					"origin1",
+				)
+			},
+			wantError: jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+			wantManagersPods: []corev1.Pod{
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*podGroupWithWl[0].DeepCopy(),
+				*podGroupWithWl[1].DeepCopy(),
 			},
 		},
 		"remote pod group cleanup preserves member from another workload": {
@@ -652,14 +734,22 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*podGroup[2].DeepCopy(),
 			},
 			workerPods: []corev1.Pod{
-				*podGroupWithWl[0].DeepCopy(),
+				*podGroupWithWl[0].Clone().Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-anchor-uid").Obj(),
 				*podGroupWithWl[1].DeepCopy(),
 				*podGroupWithWl[2].Clone().
 					PrebuiltWorkloadLabel("another-workload").
 					Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, managerClient, workerClient, adapter, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, groupWorkload, "origin1")
+				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(
+					ctx,
+					managerClient,
+					workerClient,
+					adapter,
+					types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace},
+					groupWorkload,
+					"origin1",
+				)
 			},
 			wantManagersPods: []corev1.Pod{
 				*podGroup[0].DeepCopy(),
@@ -672,6 +762,41 @@ func TestMultiKueueAdapter(t *testing.T) {
 					Obj(),
 			},
 		},
+		"remote pod group cleanup rejects a member with another manager UID": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			managersPods: []corev1.Pod{
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
+			},
+			workerPods: []corev1.Pod{
+				*podGroupWithWl[0].Clone().Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-anchor-uid").Obj(),
+				*podGroupWithWl[1].Clone().Annotation(kueue.MultiKueueOriginUIDAnnotation, "foreign-manager-pod-uid").Obj(),
+				*podGroupWithWl[2].DeepCopy(),
+			},
+			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
+				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(
+					ctx,
+					managerClient,
+					workerClient,
+					adapter,
+					types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace},
+					groupWorkload,
+					"origin1",
+				)
+			},
+			wantError: jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+			wantManagersPods: []corev1.Pod{
+				*podGroup[0].DeepCopy(),
+				*podGroup[1].DeepCopy(),
+				*podGroup[2].DeepCopy(),
+			},
+			wantWorkerPods: []corev1.Pod{
+				*podGroupWithWl[0].Clone().Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-anchor-uid").Obj(),
+				*podGroupWithWl[1].Clone().Annotation(kueue.MultiKueueOriginUIDAnnotation, "foreign-manager-pod-uid").Obj(),
+				*podGroupWithWl[2].DeepCopy(),
+			},
+		},
 		"remote pod group cleanup preserves foreign anchor": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersPods: []corev1.Pod{
@@ -680,20 +805,29 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*podGroup[2].DeepCopy(),
 			},
 			workerPods: []corev1.Pod{
-				*podGroupWithWl[0].Clone().PrebuiltWorkloadLabel("another-workload").Obj(),
+				*podGroupWithWl[0].Clone().PrebuiltWorkloadLabel("another-workload").Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-anchor-uid").Obj(),
 				*podGroupWithWl[1].Clone().PrebuiltWorkloadLabel("another-workload").Obj(),
 				*podGroupWithWl[2].Clone().PrebuiltWorkloadLabel("another-workload").Obj(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, managerClient, workerClient, adapter, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, groupWorkload, "origin1")
+				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(
+					ctx,
+					managerClient,
+					workerClient,
+					adapter,
+					types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace},
+					groupWorkload,
+					"origin1",
+				)
 			},
+			wantError: jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
 			wantManagersPods: []corev1.Pod{
 				*podGroup[0].DeepCopy(),
 				*podGroup[1].DeepCopy(),
 				*podGroup[2].DeepCopy(),
 			},
 			wantWorkerPods: []corev1.Pod{
-				*podGroupWithWl[0].Clone().PrebuiltWorkloadLabel("another-workload").Obj(),
+				*podGroupWithWl[0].Clone().PrebuiltWorkloadLabel("another-workload").Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-anchor-uid").Obj(),
 				*podGroupWithWl[1].Clone().PrebuiltWorkloadLabel("another-workload").Obj(),
 				*podGroupWithWl[2].Clone().PrebuiltWorkloadLabel("another-workload").Obj(),
 			},
@@ -743,6 +877,44 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			managerPodUIDs := make(map[string]types.UID, len(tc.managersPods))
+			setManagerPodUIDs := func(pods []corev1.Pod) {
+				for i := range pods {
+					if pods[i].UID == "" {
+						if pods[i].Name == podGroup[0].Obj().Name {
+							pods[i].UID = "manager-anchor-uid"
+						} else {
+							pods[i].UID = types.UID("manager-" + pods[i].Name + "-uid")
+						}
+					}
+					managerPodUIDs[pods[i].Name] = pods[i].UID
+				}
+			}
+			setManagerPodUIDs(tc.managersPods)
+			setManagerPodUIDs(tc.wantManagersPods)
+			initialWorkerNames := make(map[string]struct{}, len(tc.workerPods))
+			setRemotePodUIDs := func(pods []corev1.Pod, recordInitial bool) {
+				for i := range pods {
+					if recordInitial {
+						initialWorkerNames[pods[i].Name] = struct{}{}
+					} else if _, existed := initialWorkerNames[pods[i].Name]; !existed {
+						continue
+					}
+					managerUID := managerPodUIDs[pods[i].Name]
+					if managerUID == "" || pods[i].Labels[kueue.MultiKueueOriginLabel] != "origin1" {
+						continue
+					}
+					if pods[i].Annotations == nil {
+						pods[i].Annotations = make(map[string]string, 1)
+					}
+					if pods[i].Annotations[kueue.MultiKueueOriginUIDAnnotation] == "" {
+						pods[i].Annotations[kueue.MultiKueueOriginUIDAnnotation] = string(managerUID)
+					}
+				}
+			}
+			setRemotePodUIDs(tc.workerPods, true)
+			setRemotePodUIDs(tc.wantWorkerPods, false)
+
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			managerBuilder := utiltesting.NewClientBuilder().
 				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
@@ -792,6 +964,73 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}
 }
 
+func TestSyncPodGroupRejectsSameNameManagerReplacement(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false})
+	const (
+		origin       = "origin"
+		workloadName = "workload"
+	)
+	pods := utiltestingpod.MakePod(workloadName, TestNamespace).MakePodGroupWrappers(2)
+	anchor := pods[0].UID("original-anchor-uid").Obj()
+	replacementMember := pods[1].UID("replacement-member-uid").Obj()
+	originalMemberUID := types.UID("original-member-uid")
+	key := client.ObjectKeyFromObject(anchor)
+
+	managerWorkload := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:      workloadName,
+		Namespace: TestNamespace,
+		UID:       "manager-workload-uid",
+		Annotations: map[string]string{
+			podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
+		},
+		OwnerReferences: []metav1.OwnerReference{
+			{
+				APIVersion: corev1.SchemeGroupVersion.String(),
+				Kind:       "Pod",
+				Name:       anchor.Name,
+				UID:        anchor.UID,
+				Controller: new(true),
+			},
+			{
+				APIVersion: corev1.SchemeGroupVersion.String(),
+				Kind:       "Pod",
+				Name:       replacementMember.Name,
+				UID:        originalMemberUID,
+			},
+		},
+	}}
+	remoteAnchor := anchor.DeepCopy()
+	remoteAnchor.UID = "worker-anchor-uid"
+	jobframework.SetMultiKueueMeta(remoteAnchor, workloadName, origin)
+	remoteAnchor.Annotations[kueue.MultiKueueOriginUIDAnnotation] = string(anchor.UID)
+
+	managerClient := utiltesting.NewClientBuilder().
+		WithObjects(anchor, replacementMember).
+		WithStatusSubresource(anchor, replacementMember).
+		WithIndex(&corev1.Pod{}, multiKueuePodGroupNameCacheKey, indexMultiKueuePodGroupName).
+		Build()
+	workerClient := utiltesting.NewClientBuilder().WithObjects(remoteAnchor).Build()
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	_, err := jobframework.SyncJobWithRemoteObjectOwnership(
+		ctx,
+		managerClient,
+		managerClient,
+		workerClient,
+		&multiKueueAdapter{},
+		key,
+		managerWorkload,
+		origin,
+	)
+	if !errors.Is(err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue) {
+		t.Fatalf("SyncJobWithRemoteObjectOwnership() error = %v, want %v", err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue)
+	}
+	remoteMember := &corev1.Pod{}
+	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(replacementMember), remoteMember); !apierrors.IsNotFound(err) {
+		t.Fatalf("worker replacement-member Pod Get() error = %v, want NotFound", err)
+	}
+}
+
 func TestMultiKueueWorkloadKeysForSurvivesFeatureGateChanges(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false})
 	pod := utiltestingpod.MakePod("pod", TestNamespace).
@@ -819,18 +1058,21 @@ func TestDeleteRemotePodGroupPaginationKeepsAnchorForRetry(t *testing.T) {
 		GroupNameLabel(groupName).
 		PrebuiltWorkloadLabel(groupName).
 		Label(kueue.MultiKueueOriginLabel, origin).
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-anchor-uid").
 		Obj()
 	member1 := utiltestingpod.MakePod("member-1", TestNamespace).
 		UID("member-1-uid").
 		GroupNameLabel(groupName).
 		PrebuiltWorkloadLabel(groupName).
 		Label(kueue.MultiKueueOriginLabel, origin).
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-member-1-uid").
 		Obj()
 	member2 := utiltestingpod.MakePod("member-2", TestNamespace).
 		UID("member-2-uid").
 		GroupNameLabel(groupName).
 		PrebuiltWorkloadLabel(groupName).
 		Label(kueue.MultiKueueOriginLabel, origin).
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-member-2-uid").
 		Obj()
 	collision := utiltestingpod.MakePod("collision", TestNamespace).
 		UID("collision-uid").
@@ -883,7 +1125,7 @@ func TestDeleteRemotePodGroupPaginationKeepsAnchorForRetry(t *testing.T) {
 			case 3:
 				*podList = corev1.PodList{
 					ListMeta: metav1.ListMeta{Continue: "page-2"},
-					Items:    []corev1.Pod{*anchor.DeepCopy()},
+					Items:    []corev1.Pod{*anchor.DeepCopy(), *member1.DeepCopy()},
 				}
 			case 4:
 				if listOptions.Continue != "page-2" {
@@ -897,12 +1139,39 @@ func TestDeleteRemotePodGroupPaginationKeepsAnchorForRetry(t *testing.T) {
 		},
 	})
 
-	managerClient := utiltesting.NewClientBuilder().Build()
+	managerAnchor := anchor.DeepCopy()
+	managerAnchor.UID = "manager-anchor-uid"
+	managerMember1 := member1.DeepCopy()
+	managerMember1.UID = "manager-member-1-uid"
+	managerMember2 := member2.DeepCopy()
+	managerMember2.UID = "manager-member-2-uid"
+	managerClient := utiltesting.NewClientBuilder().WithObjects(managerAnchor, managerMember1, managerMember2).Build()
 	localWorkload := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
 		Name:      groupName,
 		Namespace: TestNamespace,
 		Annotations: map[string]string{
 			podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
+		},
+		OwnerReferences: []metav1.OwnerReference{
+			{
+				APIVersion: corev1.SchemeGroupVersion.String(),
+				Kind:       "Pod",
+				Name:       anchor.Name,
+				UID:        "manager-anchor-uid",
+				Controller: new(true),
+			},
+			{
+				APIVersion: corev1.SchemeGroupVersion.String(),
+				Kind:       "Pod",
+				Name:       member1.Name,
+				UID:        "manager-member-1-uid",
+			},
+			{
+				APIVersion: corev1.SchemeGroupVersion.String(),
+				Kind:       "Pod",
+				Name:       member2.Name,
+				UID:        "manager-member-2-uid",
+			},
 		},
 	}}
 	adapter := &multiKueueAdapter{}
@@ -915,8 +1184,8 @@ func TestDeleteRemotePodGroupPaginationKeepsAnchorForRetry(t *testing.T) {
 	if err := workerClient.Get(ctx, key, &corev1.Pod{}); err != nil {
 		t.Fatalf("anchor was deleted before all pages succeeded: %v", err)
 	}
-	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(member1), &corev1.Pod{}); !apierrors.IsNotFound(err) {
-		t.Fatalf("first-page member Get() error = %v, want NotFound", err)
+	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(member1), &corev1.Pod{}); err != nil {
+		t.Fatalf("first-page member was deleted before all pages were authenticated: %v", err)
 	}
 
 	if err := jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, managerClient, workerClient, adapter, key, localWorkload, origin); err != nil {
@@ -952,6 +1221,7 @@ func TestDeleteRemotePodGroupRejectsReplacementBeforePageDeletion(t *testing.T) 
 			Obj()
 	}
 	anchor := makePod("anchor", "anchor-uid")
+	anchor.Annotations = map[string]string{kueue.MultiKueueOriginUIDAnnotation: "manager-anchor-uid"}
 	member := makePod("member", "member-uid")
 	replacementAnchor := makePod(anchor.Name, "replacement-anchor-uid")
 	replacementMember := makePod(member.Name, "replacement-member-uid")
@@ -989,6 +1259,13 @@ func TestDeleteRemotePodGroupRejectsReplacementBeforePageDeletion(t *testing.T) 
 		Annotations: map[string]string{
 			podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
 		},
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: corev1.SchemeGroupVersion.String(),
+			Kind:       "Pod",
+			Name:       anchor.Name,
+			UID:        "manager-anchor-uid",
+			Controller: new(true),
+		}},
 	}}
 
 	err := jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, utiltesting.NewClientBuilder().Build(), workerClient, &multiKueueAdapter{}, client.ObjectKeyFromObject(anchor), localWorkload, origin)
@@ -1013,6 +1290,7 @@ func TestDeleteRemotePodUsesUIDPrecondition(t *testing.T) {
 		UID("original-uid").
 		PrebuiltWorkloadLabel("workload").
 		Label(kueue.MultiKueueOriginLabel, "origin").
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-pod-uid").
 		Obj()
 	replacement := original.DeepCopy()
 	replacement.UID = "replacement-uid"
@@ -1038,7 +1316,7 @@ func TestDeleteRemotePodUsesUIDPrecondition(t *testing.T) {
 	})
 
 	adapter := &multiKueueAdapter{}
-	managerClient := utiltesting.NewClientBuilder().WithObjects(utiltestingpod.MakePod(key.Name, key.Namespace).Obj()).Build()
+	managerClient := utiltesting.NewClientBuilder().WithObjects(utiltestingpod.MakePod(key.Name, key.Namespace).UID("manager-pod-uid").Obj()).Build()
 	err := adapter.DeleteRemoteObject(ctx, managerClient, workerClient, key)
 	if !apierrors.IsConflict(err) {
 		t.Fatalf("DeleteRemoteObject() error = %v, want conflict", err)
@@ -1059,6 +1337,7 @@ func TestDeleteRemotePodRejectsReplacementBeforeAdapterCleanup(t *testing.T) {
 		UID("original-uid").
 		PrebuiltWorkloadLabel("workload").
 		Label(kueue.MultiKueueOriginLabel, "origin").
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-pod-uid").
 		Obj()
 	replacement := original.DeepCopy()
 	replacement.UID = "replacement-uid"
@@ -1085,7 +1364,7 @@ func TestDeleteRemotePodRejectsReplacementBeforeAdapterCleanup(t *testing.T) {
 		},
 	})
 
-	managerClient := utiltesting.NewClientBuilder().WithObjects(utiltestingpod.MakePod(key.Name, key.Namespace).Obj()).Build()
+	managerClient := utiltesting.NewClientBuilder().WithObjects(utiltestingpod.MakePod(key.Name, key.Namespace).UID("manager-pod-uid").Obj()).Build()
 	adapter := &multiKueueAdapter{}
 	err := adapter.DeleteRemoteObject(ctx, managerClient, workerClient, key)
 	if !errors.Is(err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue) {

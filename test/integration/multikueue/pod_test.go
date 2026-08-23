@@ -323,6 +323,10 @@ var _ = ginkgo.Describe("MultiKueue Pod", ginkgo.Label("area:multikueue", "featu
 				Spec:       *podGroup[i].Spec.DeepCopy(),
 			}
 			jobframework.SetMultiKueueMeta(remotePod, groupName, "multikueue")
+			if remotePod.Annotations == nil {
+				remotePod.Annotations = make(map[string]string, 1)
+			}
+			remotePod.Annotations[kueue.MultiKueueOriginUIDAnnotation] = string(podGroup[i].UID)
 			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, remotePod)
 		}
 

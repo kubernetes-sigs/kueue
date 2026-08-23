@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -28,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -67,6 +67,13 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error {
+	localPod := corev1.Pod{}
+	if err := localClient.Get(ctx, key, &localPod); err != nil {
+		return err
+	}
+	if localPod.UID == "" {
+		return fmt.Errorf("%w: manager Pod %q has no UID", jobframework.ErrRemoteObjectNotOwnedByMultiKueue, klog.KObj(&localPod))
+	}
 	pod := corev1.Pod{}
 	err := remoteClient.Get(ctx, key, &pod)
 	if err != nil {
@@ -84,26 +91,39 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, localClient 
 	if groupName != "" {
 		workloadAnnotations = map[string]string{podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue}
 	}
-	return b.deleteRemoteObjectWithCleanupContext(ctx, remoteClient, key, jobframework.MultiKueueRemoteObjectCleanupContext{
+	return b.deleteRemoteObjectWithCleanupContext(ctx, localClient, remoteClient, key, jobframework.MultiKueueRemoteObjectCleanupContext{
 		RemoteObjectUID: pod.UID,
 		Association: jobframework.MultiKueueObjectAssociation{
-			Origin:       pod.Labels[kueue.MultiKueueOriginLabel],
-			WorkloadName: workloadName,
+			Origin:           pod.Labels[kueue.MultiKueueOriginLabel],
+			WorkloadName:     workloadName,
+			ManagerObjectUID: localPod.UID,
 		},
 		WorkloadKey:         types.NamespacedName{Name: workloadName, Namespace: pod.Namespace},
 		WorkloadAnnotations: workloadAnnotations,
 	}, groupName)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObjectWithCleanupContext(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, cleanupContext jobframework.MultiKueueRemoteObjectCleanupContext) error {
+func (b *multiKueueAdapter) DeleteRemoteObjectWithCleanupContext(
+	ctx context.Context,
+	localClient client.Client,
+	remoteClient client.Client,
+	key types.NamespacedName,
+	cleanupContext jobframework.MultiKueueRemoteObjectCleanupContext,
+) error {
 	groupName, err := expectedMultiKueuePodGroupName(ctx, localClient, key, cleanupContext)
 	if err != nil {
 		return err
 	}
-	return b.deleteRemoteObjectWithCleanupContext(ctx, remoteClient, key, cleanupContext, groupName)
+	return b.deleteRemoteObjectWithCleanupContext(ctx, localClient, remoteClient, key, cleanupContext, groupName)
 }
 
-func (b *multiKueueAdapter) deleteRemoteObjectWithCleanupContext(ctx context.Context, remoteClient client.Client, key types.NamespacedName, cleanupContext jobframework.MultiKueueRemoteObjectCleanupContext, groupName string) error {
+func (b *multiKueueAdapter) deleteRemoteObjectWithCleanupContext(
+	ctx context.Context,
+	localClient, remoteClient client.Client,
+	key types.NamespacedName,
+	cleanupContext jobframework.MultiKueueRemoteObjectCleanupContext,
+	groupName string,
+) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	pod := corev1.Pod{}
@@ -116,9 +136,49 @@ func (b *multiKueueAdapter) deleteRemoteObjectWithCleanupContext(ctx context.Con
 	if err := validateRemotePodAssociation(&pod, cleanupContext.Association, groupName); err != nil {
 		return err
 	}
+	if err := validateRemotePodManagerUID(&pod, cleanupContext.Association.ManagerObjectUID); err != nil {
+		return err
+	}
 
 	if groupName == "" {
-		return deleteRemotePodIfAssociated(ctx, remoteClient, &pod, cleanupContext.Association, groupName, &log)
+		return deleteRemotePodIfAssociated(ctx, remoteClient, &pod, cleanupContext.Association, cleanupContext.Association.ManagerObjectUID, groupName, &log)
+	}
+
+	workloadBoundManagerUIDs := cleanupContext.ManagerObjectUIDs != nil
+	managerPodUIDs := maps.Clone(cleanupContext.ManagerObjectUIDs)
+	if managerPodUIDs == nil {
+		managerPodUIDs = make(map[string]types.UID)
+	}
+	if recorded := managerPodUIDs[key.Name]; recorded != "" && recorded != cleanupContext.Association.ManagerObjectUID {
+		return fmt.Errorf("%w: cleanup context has conflicting manager UIDs for Pod %q", jobframework.ErrRemoteObjectNotOwnedByMultiKueue, key)
+	}
+	managerPodUIDs[key.Name] = cleanupContext.Association.ManagerObjectUID
+	managerPods := &corev1.PodList{}
+	if err := localClient.List(ctx, managerPods, client.InNamespace(key.Namespace)); err != nil {
+		return err
+	}
+	for i := range managerPods.Items {
+		managerPod := &managerPods.Items[i]
+		managerGroupName, err := multiKueuePodGroupName(managerPod)
+		if err != nil {
+			return err
+		}
+		if managerGroupName != groupName {
+			continue
+		}
+		if managerPod.UID == "" {
+			return fmt.Errorf("%w: manager Pod %q has no UID", jobframework.ErrRemoteObjectNotOwnedByMultiKueue, klog.KObj(managerPod))
+		}
+		if recorded := managerPodUIDs[managerPod.Name]; recorded != "" {
+			if recorded != managerPod.UID {
+				return fmt.Errorf("%w: manager Pod %q UID %q conflicts with Workload identity %q", jobframework.ErrRemoteObjectNotOwnedByMultiKueue, klog.KObj(managerPod), managerPod.UID, recorded)
+			}
+			continue
+		}
+		if workloadBoundManagerUIDs {
+			continue
+		}
+		managerPodUIDs[managerPod.Name] = managerPod.UID
 	}
 
 	listOptions := &client.ListOptions{
@@ -126,6 +186,7 @@ func (b *multiKueueAdapter) deleteRemoteObjectWithCleanupContext(ctx context.Con
 		LabelSelector: labels.SelectorFromSet(labels.Set{kueue.MultiKueueOriginLabel: cleanupContext.Association.Origin}),
 		Limit:         remotePodCleanupPageSize,
 	}
+	remotePodsToDelete := make([]*corev1.Pod, 0)
 	for {
 		remotePodGroup := corev1.PodList{}
 		if err := remoteClient.List(ctx, &remotePodGroup, listOptions); err != nil {
@@ -141,6 +202,9 @@ func (b *multiKueueAdapter) deleteRemoteObjectWithCleanupContext(ctx context.Con
 		if err := validateRemotePodAssociation(&currentAnchor, cleanupContext.Association, groupName); err != nil {
 			return err
 		}
+		if err := validateRemotePodManagerUID(&currentAnchor, cleanupContext.Association.ManagerObjectUID); err != nil {
+			return err
+		}
 		for i := range remotePodGroup.Items {
 			remotePod := &remotePodGroup.Items[i]
 			podKey := client.ObjectKeyFromObject(remotePod)
@@ -150,19 +214,36 @@ func (b *multiKueueAdapter) deleteRemoteObjectWithCleanupContext(ctx context.Con
 				}
 				continue
 			}
-			if err := deleteRemotePodIfAssociated(ctx, remoteClient, remotePod, cleanupContext.Association, groupName, &log); err != nil {
+			if err := validateRemotePodAssociation(remotePod, cleanupContext.Association, groupName); err != nil {
+				if errors.Is(err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue) {
+					log.V(4).Info("Preserving remote Pod that is not associated with this MultiKueue dispatch", "pod", klog.KObj(remotePod))
+					continue
+				}
 				return err
 			}
+			expectedManagerUID, found := managerPodUIDs[remotePod.Name]
+			if !found {
+				return fmt.Errorf("%w: no trusted manager UID for remote Pod %q", jobframework.ErrRemoteObjectNotOwnedByMultiKueue, klog.KObj(remotePod))
+			}
+			if err := validateRemotePodManagerUID(remotePod, expectedManagerUID); err != nil {
+				return err
+			}
+			remotePodsToDelete = append(remotePodsToDelete, remotePod.DeepCopy())
 		}
 		if remotePodGroup.Continue == "" {
 			break
 		}
 		listOptions.Continue = remotePodGroup.Continue
 	}
+	for _, remotePod := range remotePodsToDelete {
+		if err := client.IgnoreNotFound(remoteClient.Delete(ctx, remotePod, client.Preconditions{UID: &remotePod.UID})); err != nil {
+			return err
+		}
+	}
 
 	// Keep the anchor until all pages and member deletions succeed so a retry can
 	// still recover after a transient list or delete failure.
-	return deleteRemotePodIfAssociated(ctx, remoteClient, &pod, cleanupContext.Association, groupName, &log)
+	return deleteRemotePodIfAssociated(ctx, remoteClient, &pod, cleanupContext.Association, cleanupContext.Association.ManagerObjectUID, groupName, &log)
 }
 
 func expectedMultiKueuePodGroupName(ctx context.Context, localClient client.Client, key types.NamespacedName, cleanupContext jobframework.MultiKueueRemoteObjectCleanupContext) (string, error) {
@@ -180,7 +261,7 @@ func expectedMultiKueuePodGroupName(ctx context.Context, localClient client.Clie
 
 	if cleanupContext.WorkloadKey.Name != "" {
 		if cleanupContext.WorkloadKey.Name != cleanupContext.Association.WorkloadName || cleanupContext.WorkloadKey.Namespace != key.Namespace {
-			return "", fmt.Errorf("Workload %q does not match cleanup association %q", cleanupContext.WorkloadKey, cleanupContext.Association.WorkloadName)
+			return "", fmt.Errorf("workload %q does not match cleanup association %q", cleanupContext.WorkloadKey, cleanupContext.Association.WorkloadName)
 		}
 		workloadGroupName := ""
 		if cleanupContext.WorkloadAnnotations[podconstants.IsGroupWorkloadAnnotationKey] == podconstants.IsGroupWorkloadAnnotationValue {
@@ -364,11 +445,20 @@ func validateRemotePodAssociation(pod *corev1.Pod, association jobframework.Mult
 	return nil
 }
 
+func validateRemotePodManagerUID(pod *corev1.Pod, expected types.UID) error {
+	actual := types.UID(pod.Annotations[kueue.MultiKueueOriginUIDAnnotation])
+	if expected == "" || actual != expected {
+		return fmt.Errorf("%w: expected %q=%q on Pod %q, got %q", jobframework.ErrRemoteObjectNotOwnedByMultiKueue, kueue.MultiKueueOriginUIDAnnotation, expected, klog.KObj(pod), actual)
+	}
+	return nil
+}
+
 func deleteRemotePodIfAssociated(
 	ctx context.Context,
 	remoteClient client.Client,
 	pod *corev1.Pod,
 	association jobframework.MultiKueueObjectAssociation,
+	expectedManagerUID types.UID,
 	groupName string,
 	log *logr.Logger,
 ) error {
@@ -379,7 +469,10 @@ func deleteRemotePodIfAssociated(
 		}
 		return err
 	}
-	return client.IgnoreNotFound(remoteClient.Delete(ctx, pod, client.Preconditions{UID: ptr.To(pod.UID)}))
+	if err := validateRemotePodManagerUID(pod, expectedManagerUID); err != nil {
+		return err
+	}
+	return client.IgnoreNotFound(remoteClient.Delete(ctx, pod, client.Preconditions{UID: &pod.UID}))
 }
 
 // findPodCondition returns a pointer to the condition of the given type, or nil

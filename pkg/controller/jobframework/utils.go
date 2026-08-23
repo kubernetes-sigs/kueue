@@ -236,6 +236,14 @@ func SetPrebuiltWorkloadName(obj client.Object, workloadName string) {
 		}
 		annotations[controllerconstants.PrebuiltWorkloadAnnotation] = workloadName
 		obj.SetAnnotations(annotations)
+		labels := obj.GetLabels()
+		if len(workloadName) > validation.LabelValueMaxLength {
+			delete(labels, controllerconstants.PrebuiltWorkloadLabel)
+			obj.SetLabels(labels)
+		} else if labels[controllerconstants.PrebuiltWorkloadLabel] != "" {
+			labels[controllerconstants.PrebuiltWorkloadLabel] = workloadName
+			obj.SetLabels(labels)
+		}
 	} else {
 		objLabels := obj.GetLabels()
 		if objLabels == nil {
@@ -243,6 +251,11 @@ func SetPrebuiltWorkloadName(obj client.Object, workloadName string) {
 		}
 		objLabels[controllerconstants.PrebuiltWorkloadLabel] = workloadName
 		obj.SetLabels(objLabels)
+		annotations := obj.GetAnnotations()
+		if annotations[controllerconstants.PrebuiltWorkloadAnnotation] != "" {
+			annotations[controllerconstants.PrebuiltWorkloadAnnotation] = workloadName
+			obj.SetAnnotations(annotations)
+		}
 	}
 }
 
@@ -343,6 +356,9 @@ func getRemoteObjectForOrigin(ctx context.Context, remoteClient client.Client, k
 // Returns (true, nil) if the object exists and is owned by this MultiKueue origin.
 // Returns (false, nil) if the object does not exist.
 // Returns (false, err) if there is a retrieval error or if the object is not owned by this MultiKueue origin.
+//
+// Deprecated: origin metadata alone is not an ownership boundary. Production
+// synchronization must use SyncJobWithRemoteObjectOwnership.
 func ValidateRemoteObjectOwnership(ctx context.Context, remoteClient client.Client, key types.NamespacedName, gvk schema.GroupVersionKind, origin string) (bool, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "objectType", gvk, "origin", origin)
 
@@ -365,6 +381,9 @@ func ValidateRemoteObjectOwnership(ctx context.Context, remoteClient client.Clie
 // skips deletion if the object does not exist or is not owned by this MultiKueue origin,
 // and otherwise delegates to adapter.DeleteRemoteObject.
 // Returns ErrMultiKueueOriginEmpty if origin is empty.
+//
+// Deprecated: origin metadata alone is not an ownership boundary. Production
+// cleanup must use DeleteRemoteObjectWithCleanupContextIfOwned.
 func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, remoteClient client.Client, adapter MultiKueueAdapter, key types.NamespacedName, origin string) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "adapterGVK", adapter.GVK().String(), "origin", origin)
 
@@ -390,11 +409,19 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 }
 
 // DeleteRemoteObjectWithCleanupContextIfOwned validates the remote controller
-// object's association and identity before delegating to a cleanup-aware adapter.
+// object's association and identity before delegating to the adapter.
 // When RemoteObjectUID is empty, the helper binds the context to the exact UID it
 // observes. A non-empty UID is treated as an expected identity and must match.
-func DeleteRemoteObjectWithCleanupContextIfOwned(ctx context.Context, localClient client.Client, remoteClient client.Client, adapter MultiKueueAdapterWithRemoteObjectCleanup, key types.NamespacedName, cleanupContext MultiKueueRemoteObjectCleanupContext) error {
-	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "adapterGVK", adapter.GVK().String(), "origin", cleanupContext.Association.Origin, "workload", cleanupContext.Association.WorkloadName, "remoteObjectUID", cleanupContext.RemoteObjectUID)
+func DeleteRemoteObjectWithCleanupContextIfOwned(
+	ctx context.Context,
+	localClient client.Client,
+	remoteClient client.Client,
+	adapter MultiKueueAdapter,
+	key types.NamespacedName,
+	cleanupContext MultiKueueRemoteObjectCleanupContext,
+) error {
+	log := ctrl.LoggerFrom(ctx).
+		WithValues("remoteObject", key, "adapterGVK", adapter.GVK().String(), "origin", cleanupContext.Association.Origin, "workload", cleanupContext.Association.WorkloadName, "remoteObjectUID", cleanupContext.RemoteObjectUID)
 	if cleanupContext.Association.Origin == "" {
 		log.Error(ErrMultiKueueOriginEmpty, "Skipping remote object deletion because origin is empty")
 		return ErrMultiKueueOriginEmpty
@@ -404,7 +431,13 @@ func DeleteRemoteObjectWithCleanupContextIfOwned(ctx context.Context, localClien
 		return ErrMultiKueueWorkloadNameEmpty
 	}
 	if cleanupContext.WorkloadKey.Name != cleanupContext.Association.WorkloadName || cleanupContext.WorkloadKey.Namespace != key.Namespace {
-		return fmt.Errorf("%w: cleanup Workload %q does not match association %q in namespace %q", ErrRemoteObjectNotOwnedByMultiKueue, cleanupContext.WorkloadKey, cleanupContext.Association.WorkloadName, key.Namespace)
+		return fmt.Errorf(
+			"%w: cleanup Workload %q does not match association %q in namespace %q",
+			ErrRemoteObjectNotOwnedByMultiKueue,
+			cleanupContext.WorkloadKey,
+			cleanupContext.Association.WorkloadName,
+			key.Namespace,
+		)
 	}
 
 	remoteObject, err := getRemoteObjectForOrigin(ctx, remoteClient, key, adapter.GVK(), cleanupContext.Association.Origin)
@@ -414,47 +447,61 @@ func DeleteRemoteObjectWithCleanupContextIfOwned(ctx context.Context, localClien
 			return nil
 		}
 		if errors.Is(err, ErrRemoteObjectNotOwnedByMultiKueue) {
-			log.V(2).Info("Skipping remote object deletion because object is not associated with this MultiKueue origin")
-			return nil
+			return err
 		}
 		return err
 	}
-	if err := ValidateMultiKueueObjectAssociation(remoteObject, cleanupContext.Association); err != nil {
-		if errors.Is(err, ErrRemoteObjectNotOwnedByMultiKueue) {
-			log.V(2).Info("Skipping remote object deletion because object is not associated with the expected Workload")
-			return nil
+	if _, multiWorkload := adapter.(MultiKueueMultiWorkloadAdapter); !multiWorkload {
+		if err := ValidateMultiKueueObjectAssociation(remoteObject, cleanupContext.Association); err != nil {
+			return err
 		}
+	}
+	if err := validateRemoteObjectManagerUID(remoteObject, cleanupContext.Association.ManagerObjectUID); err != nil {
 		return err
 	}
 	if cleanupContext.RemoteObjectUID != "" && remoteObject.UID != cleanupContext.RemoteObjectUID {
-		log.V(2).Info("Skipping remote object deletion because its UID does not match the expected identity", "observedRemoteObjectUID", remoteObject.UID)
-		return nil
+		return fmt.Errorf("%w: expected remote UID %q on %T %q, got %q", ErrRemoteObjectNotOwnedByMultiKueue, cleanupContext.RemoteObjectUID, remoteObject, key, remoteObject.UID)
 	}
 	cleanupContext.RemoteObjectUID = remoteObject.UID
-	return adapter.DeleteRemoteObjectWithCleanupContext(ctx, localClient, remoteClient, key, cleanupContext)
+	if cleanupAdapter, ok := adapter.(MultiKueueAdapterWithRemoteObjectCleanup); ok {
+		return cleanupAdapter.DeleteRemoteObjectWithCleanupContext(ctx, localClient, remoteClient, key, cleanupContext)
+	}
+	validatingClient, err := newRemoteObjectOwnershipClientForCleanup(remoteClient, adapter, key, cleanupContext)
+	if err != nil {
+		return err
+	}
+	return adapter.DeleteRemoteObject(ctx, localClient, validatingClient, key)
 }
 
 // DeleteRemoteObjectForWorkloadIfOwned uses manager-side Workload metadata to
-// validate cleanup for adapters implementing MultiKueueAdapterWithRemoteObjectCleanup.
-// Other adapters intentionally retain the legacy origin-only deletion behavior
-// for compatibility and must not treat this helper as a Workload-binding check.
-func DeleteRemoteObjectForWorkloadIfOwned(ctx context.Context, localClient client.Client, remoteClient client.Client, adapter MultiKueueAdapter, key types.NamespacedName, localWorkload *kueue.Workload, origin string) error {
+// validate cleanup for every adapter.
+func DeleteRemoteObjectForWorkloadIfOwned(
+	ctx context.Context,
+	localClient client.Client,
+	remoteClient client.Client,
+	adapter MultiKueueAdapter,
+	key types.NamespacedName,
+	localWorkload *kueue.Workload,
+	origin string,
+) error {
 	if localWorkload == nil {
 		return ErrMultiKueueWorkloadNameEmpty
 	}
-	cleanupAdapter, ok := adapter.(MultiKueueAdapterWithRemoteObjectCleanup)
-	if !ok {
-		return DeleteRemoteObjectIfOwned(ctx, localClient, remoteClient, adapter, key, origin)
+	managerObjectUID, managerObjectUIDs, err := managerObjectUIDForWorkload(localWorkload, adapter.GVK(), key)
+	if err != nil {
+		return err
 	}
 
 	workloadAnnotations := map[string]string(nil)
 	maps.Copy(&workloadAnnotations, localWorkload.Annotations)
-	return DeleteRemoteObjectWithCleanupContextIfOwned(ctx, localClient, remoteClient, cleanupAdapter, key, MultiKueueRemoteObjectCleanupContext{
+	return DeleteRemoteObjectWithCleanupContextIfOwned(ctx, localClient, remoteClient, adapter, key, MultiKueueRemoteObjectCleanupContext{
 		Association: MultiKueueObjectAssociation{
-			Origin:       origin,
-			WorkloadName: localWorkload.Name,
+			Origin:           origin,
+			WorkloadName:     localWorkload.Name,
+			ManagerObjectUID: managerObjectUID,
 		},
 		WorkloadKey:         client.ObjectKeyFromObject(localWorkload),
 		WorkloadAnnotations: workloadAnnotations,
+		ManagerObjectUIDs:   managerObjectUIDs,
 	})
 }

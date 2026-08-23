@@ -45,6 +45,15 @@ import (
 type multiKueueAdapter struct{}
 
 var _ jobframework.MultiKueueAdapter = (*multiKueueAdapter)(nil)
+var _ jobframework.MultiKueueAdapterWithWorkloadReassignment = (*multiKueueAdapter)(nil)
+
+func (*multiKueueAdapter) CanReassignWorkload(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, error) {
+	localJob := &batchv1.Job{}
+	if err := localClient.Get(ctx, key, localJob); err != nil {
+		return false, err
+	}
+	return workloadslicing.Enabled(localJob), nil
+}
 
 func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)

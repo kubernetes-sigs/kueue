@@ -153,7 +153,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	}
 
 	cRec := newClustersReconciler(
-		mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher,
+		mgr.GetClient(), mgr.GetAPIReader(), namespace, options.gcInterval, options.origin, fsWatcher,
 		options.adapters, cpAccessProvider, options.roleTracker,
 		mgr.GetEventRecorder("multikueue-cluster"),
 	)

@@ -421,3 +421,38 @@ spec:
     clusterProfileRef:
       name: worker1-cluster
 ```
+
+## Upgrade installations with active remote objects
+
+New Kueue versions bind every worker Workload and execution object to the UID
+of its exact manager-side counterpart. Older versions did not consistently add
+this identity to Jobs, Pods, and other execution objects. Annotating only the
+remote Workload is therefore insufficient.
+
+Live migration of active dispatches is not supported. PodGroups and some other
+integrations create multiple worker objects, and custom integrations can define
+their own object mapping.
+
+Before upgrading, audit every custom `MultiKueueAdapter`. The worker client
+passed to adapters is now restricted to the adapter's declared GVK and to
+operations that can enforce the MultiKueue origin, manager-object UID, Workload
+association, worker UID, and resource version. Cross-GVK access, subresource
+reads, apply operations, and alternate subresource bodies fail closed. Update
+an incompatible adapter before re-enabling submissions; draining active work
+does not make those operations compatible.
+
+Use this upgrade sequence:
+
+1. Stop new MultiKueue submissions and prevent old and new manager replicas
+   from becoming leader concurrently.
+2. Let every active MultiKueue Workload finish and verify that its remote
+   Workload and execution objects have been cleaned up on every worker.
+3. Upgrade all manager replicas.
+4. Re-enable submissions only after an upgraded replica is leader.
+
+If a legacy object remains, the upgraded manager rejects and preserves it for
+administrator review because it has no verifiable manager-object UID. Remove
+such an object manually only after confirming that it is not part of a live
+dispatch. Do not add the annotation as a generic migration step: each remote
+execution object needs the UID of its specific manager object, which is not
+necessarily the manager Workload UID.

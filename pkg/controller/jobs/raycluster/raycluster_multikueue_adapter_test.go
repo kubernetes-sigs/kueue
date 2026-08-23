@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -44,6 +45,19 @@ import (
 const (
 	TestNamespace = "ns"
 )
+
+func makeRayBoundWorkload(name string, key types.NamespacedName, managerUID types.UID) *kueue.Workload {
+	return &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:      name,
+		Namespace: key.Namespace,
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: gvk.GroupVersion().String(),
+			Kind:       gvk.Kind,
+			Name:       key.Name,
+			UID:        managerUID,
+		}},
+	}}
+}
 
 func TestMultiKueueAdapter(t *testing.T) {
 	objCheckOpts := cmp.Options{
@@ -419,6 +433,86 @@ func TestMultiKueueAdapter(t *testing.T) {
 				if diff := cmp.Diff(tc.wantWorkerRayClusters, gotWorkerRayClusters.Items, objCheckOpts...); diff != "" {
 					t.Errorf("unexpected worker's rayclusters (-want/+got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+func TestMultiKueueOwnershipWrapperAllowsUIDBoundElasticReassignment(t *testing.T) {
+	const (
+		origin     = "origin1"
+		managerUID = "manager-raycluster-uid"
+		oldWL      = "old-workload"
+		newWL      = "new-workload"
+	)
+	for _, tc := range []struct {
+		name          string
+		annotationsOn bool
+		oldAsLabel    bool
+	}{
+		{name: "label to annotation", annotationsOn: true, oldAsLabel: true},
+		{name: "annotation to label", annotationsOn: false, oldAsLabel: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:  true,
+				features.WorkloadIdentifierAnnotations: tc.annotationsOn,
+			})
+			key := types.NamespacedName{Name: "raycluster1", Namespace: TestNamespace}
+			base := utiltestingraycluster.MakeCluster(key.Name, key.Namespace).
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
+			localRayCluster := base.Clone().ScaleFirstWorkerGroup(1).Obj()
+			localRayCluster.UID = types.UID(managerUID)
+			localRayCluster.ResourceVersion = "1"
+			remoteBuilder := base.Clone().
+				ScaleFirstWorkerGroup(3).
+				Label(kueue.MultiKueueOriginLabel, origin).
+				SetAnnotation(kueue.MultiKueueOriginUIDAnnotation, managerUID)
+			if tc.oldAsLabel {
+				remoteBuilder.PrebuiltWorkloadLabel(oldWL)
+			} else {
+				remoteBuilder.SetAnnotation(constants.PrebuiltWorkloadAnnotation, oldWL)
+			}
+			remoteRayCluster := remoteBuilder.Obj()
+			remoteRayCluster.UID = "remote-raycluster-uid"
+			remoteRayCluster.ResourceVersion = "1"
+
+			managerClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithObjects(localRayCluster).WithStatusSubresource(localRayCluster).Build()
+			workerClient := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithObjects(remoteRayCluster).Build()
+			adapter := ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
+				ray.WithElasticReplicaSync(elasticReplicaSync()))
+			ctx, _ := utiltesting.ContextWithLog(t)
+			if _, err := jobframework.SyncJobWithRemoteObjectOwnership(
+				ctx,
+				managerClient,
+				managerClient,
+				workerClient,
+				adapter,
+				key,
+				makeRayBoundWorkload(newWL, key, types.UID(managerUID)),
+				origin,
+			); err != nil {
+				t.Fatalf("SyncJobWithRemoteObjectOwnership() error = %v", err)
+			}
+
+			got := &rayv1.RayCluster{}
+			if err := workerClient.Get(ctx, key, got); err != nil {
+				t.Fatalf("getting remote RayCluster: %v", err)
+			}
+			if replicas := got.Spec.WorkerGroupSpecs[0].Replicas; replicas == nil || *replicas != 1 {
+				t.Fatalf("remote worker replicas = %v, want 1", replicas)
+			}
+			if gotWorkload := jobframework.PrebuiltWorkloadNameFor(got); gotWorkload != newWL {
+				t.Fatalf("remote Workload association = %q, want %q", gotWorkload, newWL)
+			}
+			if got.Labels[constants.PrebuiltWorkloadLabel] != newWL || got.Annotations[constants.PrebuiltWorkloadAnnotation] != newWL {
+				t.Fatalf(
+					"transitioned Workload metadata label=%q annotation=%q, want both %q",
+					got.Labels[constants.PrebuiltWorkloadLabel],
+					got.Annotations[constants.PrebuiltWorkloadAnnotation],
+					newWL,
+				)
 			}
 		})
 	}

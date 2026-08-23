@@ -218,6 +218,76 @@ For production deployments, use `ClusterProfile` or `Secret` instead of `Path`.
 See [Setup a MultiKueue environment](/docs/tasks/manage/setup_multikueue/) for
 configuration details.
 
+### Remote object identity and cleanup
+
+MultiKueue validates every adapter-declared worker execution object against the
+expected MultiKueue origin, exact manager object UID, and—when the object belongs
+to one Workload—the remote Workload name before reading its status or mutating or
+deleting it. Each such remote execution object
+carries its corresponding manager object UID in the
+`kueue.x-k8s.io/multikueue-origin-uid` annotation; for a PodGroup, each remote
+Pod carries the UID of its same-name manager Pod. Remote Workloads carry the UID
+of their same-name manager Workload. Worker-object deletions use UID
+preconditions, so an object replaced after validation is preserved.
+The admitted manager Workload is the authority for execution-object UIDs: its
+owner references retain the original same-name manager object identities, and
+MultiKueue cross-checks each live manager object directly from the API server
+against that controller-recorded mapping before creating or consuming the
+worker object. Recreating a manager Job or Pod with the same name therefore
+cannot inherit the old Workload's admission.
+
+Shared execution objects for multi-Workload integrations, such as
+LeaderWorkerSet, are intentionally not bound to one Workload name. They remain
+bound to the MultiKueue origin and exact manager object UID, while each of their
+remote Workloads is independently bound to its same-name manager Workload UID.
+
+The guarded worker client only permits the adapter's declared object kind.
+Cross-kind secondary-object access, subresource reads, apply operations, and
+writes that cannot be bound to a checked UID and resource version fail closed.
+Adapters that create multiple objects of their declared kind must implement the
+cleanup extension; PodGroup cleanup, for example, uses the member UID map
+retained in the manager Workload even after the manager Pods are gone.
+
+The garbage collector deletes a remote Workload only when the corresponding
+manager Workload is awaiting deletion and the recorded manager UID matches.
+If the manager Workload is missing or the identity does not match, the remote
+Workload and its owner are preserved for administrator review. This can leave
+orphaned objects that require manual cleanup, but it prevents a same-name,
+unrelated object from turning the manager into a deletion deputy.
+
+Within a running leader, reconciliation and garbage collection serialize each
+remote Workload lifecycle and re-read the manager Workload directly from the API
+before and after remote creation. If manager deletion starts during a remote
+write, MultiKueue performs authenticated cleanup before releasing that
+lifecycle, so an in-process stale reconcile does not recreate an execution
+object after concurrent cleanup. A leader crash or handoff after the worker API
+commits a write but before the post-write check can still leave an orphan, as
+can an ambiguous worker API error. If the manager Workload is then unavailable,
+the next leader preserves that object for administrator review rather than
+risk deleting an unrelated same-name object.
+
+These labels and annotations express association; they are not cryptographic
+proof of provenance. Treat principals that can read and mutate MultiKueue
+objects in worker Namespaces, including by patching or replacing them, as
+trusted until authenticated remote-object provenance is available.
+Principals that can patch or replace UID-bearing owner references on manager
+Workloads are also trusted. The standard batch-user role does not grant this
+mutation, but the Workload editor role does.
+
+#### Upgrade note
+
+Remote Workloads and execution objects created by older Kueue versions do not
+consistently contain the manager UID annotation. Live migration is not
+supported: adapters can create multiple execution objects, and custom adapters
+can define their own manager-to-worker mapping. Before any upgraded manager
+replica can become leader, stop new MultiKueue submissions and let every active
+MultiKueue dispatch finish and clean up its worker objects.
+
+Do not run old and new manager leaders concurrently during this upgrade. An
+older leader can create an unbound object that a new leader must reject. If an
+unbound legacy object remains, the upgraded manager fails closed and preserves
+it for administrator review; it does not adopt, mutate, or delete it.
+
 ## Limitations
 
 - We do not currently support running the manager cluster as one of the workers for itself.
