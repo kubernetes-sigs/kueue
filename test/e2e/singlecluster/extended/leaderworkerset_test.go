@@ -23,7 +23,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -31,14 +30,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	ctrlconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
@@ -1148,8 +1145,6 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 	ginkgo.When("LeaderWorkerSet created with Restart Policy", func() {
 		ginkgo.It("should recreate pods when policy is set to RecreateGroupOnPodRestart", func() {
-			const deletionBarrierFinalizer = "kueue.x-k8s.io/e2e-deletion-barrier"
-
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Size(3).
@@ -1178,9 +1173,9 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				gomega.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(gomega.Succeed())
 			})
 
-			var leaderPod, podToDelete *corev1.Pod
+			var podToRestart *corev1.Pod
 			originalPodUIDSet := sets.New[types.UID]()
-			ginkgo.By("Select a worker pod to delete", func() {
+			ginkgo.By("Select a worker pod to restart", func() {
 				pods := &corev1.PodList{}
 				gomega.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
 					leaderworkersetv1.SetNameLabelKey: lws.Name,
@@ -1189,64 +1184,28 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 				for i, pod := range pods.Items {
 					originalPodUIDSet.Insert(pod.UID)
-					if pod.Labels[leaderworkersetv1.WorkerIndexLabelKey] == "0" {
-						leaderPod = &pods.Items[i]
-					} else {
-						podToDelete = &pods.Items[i]
+					if pod.Labels[leaderworkersetv1.WorkerIndexLabelKey] != "0" {
+						podToRestart = &pods.Items[i]
 					}
 				}
-				gomega.Expect(leaderPod).NotTo(gomega.BeNil(), "Couldn't find the leader pod")
-				gomega.Expect(podToDelete).NotTo(gomega.BeNil(), "Couldn't find a worker pod to delete")
+				gomega.Expect(podToRestart).NotTo(gomega.BeNil(), "Couldn't find a worker pod to restart")
 			})
 
-			leaderPodUID := leaderPod.UID
-			leaderPodKey := client.ObjectKeyFromObject(leaderPod)
-			deletedPodUID := podToDelete.UID
-			deletedPodKey := client.ObjectKeyFromObject(podToDelete)
-			removeDeletionBarrierFinalizer := func() error {
-				pod := &corev1.Pod{}
-				if err := k8sClient.Get(ctx, deletedPodKey, pod); err != nil {
-					return client.IgnoreNotFound(err)
-				}
-				return clientutil.Patch(ctx, k8sClient, pod, func() (bool, error) {
-					return controllerutil.RemoveFinalizer(pod, deletionBarrierFinalizer), nil
-				}, clientutil.WithRetryOnConflict())
-			}
-			defer func() {
-				gomega.Eventually(removeDeletionBarrierFinalizer, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			}()
+			restartedPodUID := podToRestart.UID
+			restartedPodKey := client.ObjectKeyFromObject(podToRestart)
 
-			ginkgo.By("Add a deletion barrier finalizer to the worker pod", func() {
-				gomega.Expect(clientutil.Patch(ctx, k8sClient, podToDelete, func() (bool, error) {
-					return controllerutil.AddFinalizer(podToDelete, deletionBarrierFinalizer), nil
-				}, clientutil.WithRetryOnConflict())).To(gomega.Succeed())
+			// Restart the container instead of deleting the pod because LWS can miss the deletion
+			// if the worker StatefulSet creates a same-name replacement first.
+			// TODO: Use pod deletion once https://github.com/kubernetes-sigs/lws/issues/998 is fixed.
+			ginkgo.By("Restart the container of the selected worker pod", func() {
+				util.RestartPodContainer(ctx, k8sClient, restClient, cfg, restartedPodKey)
 			})
 
-			ginkgo.By("Delete the worker pod", func() {
-				gomega.Expect(k8sClient.Delete(ctx, podToDelete)).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Wait for LWS to start recreating the group", func() {
-				gomega.Eventually(func(g gomega.Gomega) bool {
-					pod := &corev1.Pod{}
-					err := k8sClient.Get(ctx, leaderPodKey, pod)
-					if apierrors.IsNotFound(err) {
-						return true
-					}
-					g.Expect(err).NotTo(gomega.HaveOccurred())
-					return pod.UID != leaderPodUID || pod.DeletionTimestamp != nil
-				}, util.LongTimeout, util.Interval).Should(gomega.BeTrue())
-			})
-
-			ginkgo.By("Remove the deletion barrier finalizer", func() {
-				gomega.Eventually(removeDeletionBarrierFinalizer, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Wait for the deleted pod to be recreated with a new UID", func() {
+			ginkgo.By("Wait for the restarted pod to be recreated with a new UID", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					pod := &corev1.Pod{}
-					g.Expect(k8sClient.Get(ctx, deletedPodKey, pod)).To(gomega.Succeed())
-					g.Expect(pod.UID).NotTo(gomega.Equal(deletedPodUID), "pod should be recreated with a new UID")
+					g.Expect(k8sClient.Get(ctx, restartedPodKey, pod)).To(gomega.Succeed())
+					g.Expect(pod.UID).NotTo(gomega.Equal(restartedPodUID), "pod should be recreated with a new UID")
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
