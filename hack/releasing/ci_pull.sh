@@ -188,14 +188,15 @@ function prepare_local_branch() {
   git checkout -b "$2" "${KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE}/$1"
   clean_branches+=("$2")
 
-  local release_config_pattern="*release-*-*.yaml"
-
-  find . -type f -name "$release_config_pattern" -maxdepth 1 | while read -r file; do
-    # Extract version (adjust for full path)
+  local -r release_config_regex='^kueue-(periodics|periodics-s390x-ppc64le|presubmits)-release-([0-9]+)[.-]([0-9]+)\.yaml$'
+  local file base major_f minor_f
+  for file in ./*release-*.yaml; do
     base="${file##*/}"  # Get basename to ignore path
-    version=$(echo "$base" | grep -oE '[0-9]+-[0-9]+')
-
-    IFS='-' read -r major_f minor_f <<< "${version#v}"
+    if [[ ! "$base" =~ $release_config_regex ]]; then
+      continue
+    fi
+    major_f="${BASH_REMATCH[2]}"
+    minor_f="${BASH_REMATCH[3]}"
     if [ "$major_f" -lt "$MAJOR" ] || { [ "$major_f" -eq "$MAJOR" ] && [ "$minor_f" -lt "$LAST_SUPPORT_MINOR" ]; }; then
       echo "$file has version $major_f.$minor_f, which is lower than the latest supported $MAJOR.$MINOR."
       rm "$file"
@@ -206,15 +207,20 @@ function prepare_local_branch() {
   local release_suffix="release-$MAJOR-$MINOR"
 
   local periodics_file_name="kueue-periodics-$release_suffix.yaml"
+  local multi_arch_periodics_file_name="kueue-periodics-s390x-ppc64le-$release_branch.yaml"
   local presubmits_file_name="kueue-presubmits-$release_suffix.yaml"
 
   cp kueue-periodics-main.yaml "$periodics_file_name"
+  cp kueue-periodics-s390x-ppc64le-main.yaml "$multi_arch_periodics_file_name"
   cp kueue-presubmits-main.yaml "$presubmits_file_name"
 
   # Update periodics file: base_ref, name, and testgrid-tab-name
-  yq eval "(.periodics[].extra_refs[].base_ref) = \"$release_branch\"" -i "$periodics_file_name"
-  yq eval "(.periodics[].name) |= sub(\"-main\", \"-$release_suffix\")" -i "$periodics_file_name"
-  yq eval "(.periodics[].annotations[\"testgrid-tab-name\"]) |= sub(\"-main\", \"-$release_suffix\")" -i "$periodics_file_name"
+  local periodics_file
+  for periodics_file in "$periodics_file_name" "$multi_arch_periodics_file_name"; do
+    yq eval "(.periodics[].extra_refs[].base_ref) = \"$release_branch\"" -i "$periodics_file"
+    yq eval "(.periodics[].name) |= sub(\"-main\", \"-$release_suffix\")" -i "$periodics_file"
+    yq eval "(.periodics[].annotations[\"testgrid-tab-name\"]) |= sub(\"-main\", \"-$release_suffix\")" -i "$periodics_file"
+  done
 
   # Update presubmits file: branches, name, and testgrid-tab-name
   yq eval "(.presubmits.kubernetes-sigs/kueue.[].branches[]) |= sub(\"\^main\", \"^$release_branch\")" -i "$presubmits_file_name"
