@@ -714,6 +714,11 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 				}
 			}
 			// Then, add the DRA logical resources
+			//
+			// A producer must not emit corev1.ResourcePods here: claim charges use
+			// mapping names, which validation refuses under this gate, and the
+			// extended-resource path treats pods as native. A ClusterQueue that
+			// tracks the key has it overwritten with PodSet.Count at assignment.
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
 				for resName, quantity := range draRes {
 					q := effectiveRequests[resName]

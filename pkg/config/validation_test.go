@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -1139,6 +1140,235 @@ func TestValidate(t *testing.T) {
 							},
 						},
 					},
+				},
+			},
+		},
+		// Kueue owns the bare pods key for Pod-count accounting.
+		// Only that exact name is reserved; a qualified name ending in /pods
+		// is a different resource.
+		"qualified names ending in pods accepted": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "dra.example.com/pods",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "input.example.com/pods",
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: "multiplier.example.com/pods",
+							Outputs: corev1.ResourceList{
+								"output.example.com/pods": resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+		},
+		// The case above rules out a match that only ends in the reserved name.
+		// These rule out one that only starts with it, and one that differs from
+		// it in case alone.
+		"names that merely resemble the reserved one accepted": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "pods.example.com/gpu",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "Pods",
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: "pods-per-node",
+							Outputs: corev1.ResourceList{
+								"PODS": resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+		},
+		"device class mapping named pods rejected when DRA is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             corev1.ResourcePods,
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].name",
+				},
+			},
+		},
+		// The mapper is only built behind the gate, so nothing reads this name
+		// while it is off and refusing it would fail an upgrade about something
+		// else. It is refused the day the gate goes on, which is the case above.
+		"device class mapping named pods accepted when DRA is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             corev1.ResourcePods,
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+				},
+			},
+		},
+		// Transformations are installed whatever the DRA gate says, so the name is
+		// refused there whatever it says too.
+		"transformation output named pods rejected when DRA is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    "example.com/credits",
+							Strategy: new(configapi.Retain),
+							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[pods]",
+				},
+			},
+		},
+		"transformation output named pods rejected": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    "example.com/credits",
+							Strategy: new(configapi.Retain),
+							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[pods]",
+				},
+			},
+		},
+		"transformation taking pods as input rejected": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    corev1.ResourcePods,
+							Strategy: new(configapi.Replace),
+							Outputs:  corev1.ResourceList{"example.com/license": resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].input",
+				},
+			},
+		},
+		"transformation multiplying by pods rejected": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "example.com/credits",
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: corev1.ResourcePods,
+							Outputs:    corev1.ResourceList{"example.com/charge": resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].multiplyBy",
+				},
+			},
+		},
+		"transformation naming pods twice reports both": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "example.com/credits",
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: corev1.ResourcePods,
+							Outputs:    corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[pods]",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].multiplyBy",
+				},
+			},
+		},
+		// Reported per entry rather than once for the Configuration, and in the
+		// order the transformations are written.
+		"pods reported for each transformation naming it": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    "example.com/credits",
+							Strategy: new(configapi.Retain),
+							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+						{
+							Input:    "example.com/tokens",
+							Strategy: new(configapi.Retain),
+							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[pods]",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[1].outputs[pods]",
 				},
 			},
 		},
