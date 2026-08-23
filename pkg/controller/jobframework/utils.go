@@ -393,7 +393,14 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 // object's association and identity before delegating to a cleanup-aware adapter.
 // When RemoteObjectUID is empty, the helper binds the context to the exact UID it
 // observes. A non-empty UID is treated as an expected identity and must match.
-func DeleteRemoteObjectWithCleanupContextIfOwned(ctx context.Context, localClient client.Client, remoteClient client.Client, adapter MultiKueueAdapterWithRemoteObjectCleanup, key types.NamespacedName, cleanupContext MultiKueueRemoteObjectCleanupContext) error {
+func DeleteRemoteObjectWithCleanupContextIfOwned(
+	ctx context.Context,
+	localClient client.Client,
+	remoteClient client.Client,
+	adapter MultiKueueAdapterWithRemoteObjectCleanup,
+	key types.NamespacedName,
+	cleanupContext MultiKueueRemoteObjectCleanupContext,
+) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "adapterGVK", adapter.GVK().String(), "origin", cleanupContext.Association.Origin, "workload", cleanupContext.Association.WorkloadName, "remoteObjectUID", cleanupContext.RemoteObjectUID)
 	if cleanupContext.Association.Origin == "" {
 		log.Error(ErrMultiKueueOriginEmpty, "Skipping remote object deletion because origin is empty")

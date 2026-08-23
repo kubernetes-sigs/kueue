@@ -77,7 +77,13 @@ type MultiKueueRemoteObjectCleanupContext struct {
 // Multi-object cleanup is one use case.
 type MultiKueueAdapterWithRemoteObjectCleanup interface {
 	MultiKueueAdapter
-	DeleteRemoteObjectWithCleanupContext(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, cleanupContext MultiKueueRemoteObjectCleanupContext) error
+	DeleteRemoteObjectWithCleanupContext(
+		ctx context.Context,
+		localClient client.Client,
+		remoteClient client.Client,
+		key types.NamespacedName,
+		cleanupContext MultiKueueRemoteObjectCleanupContext,
+	) error
 }
 
 // MultiKueueWatcher optional interface that can be implemented by a MultiKueueAdapter

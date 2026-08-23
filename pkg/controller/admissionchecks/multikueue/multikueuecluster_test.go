@@ -44,7 +44,6 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -1216,7 +1215,7 @@ func TestRemoteClientGCBindsPodOwnerUID(t *testing.T) {
 					Kind:       "Pod",
 					Name:       podKey.Name,
 					UID:        tc.ownerUID,
-					Controller: ptr.To(true),
+					Controller: new(true),
 				}},
 			}}
 			remotePod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
@@ -1280,7 +1279,7 @@ func TestRemoteClientGCRetriesPodGroupCleanupBeforeDeletingWorkload(t *testing.T
 			Kind:       "Pod",
 			Name:       anchorName,
 			UID:        "anchor-uid",
-			Controller: ptr.To(true),
+			Controller: new(true),
 		}},
 	}}
 	makeRemotePod := func(key types.NamespacedName, uid types.UID) *corev1.Pod {

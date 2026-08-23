@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -95,7 +94,13 @@ func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, localClient 
 	}, groupName)
 }
 
-func (b *multiKueueAdapter) DeleteRemoteObjectWithCleanupContext(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, cleanupContext jobframework.MultiKueueRemoteObjectCleanupContext) error {
+func (b *multiKueueAdapter) DeleteRemoteObjectWithCleanupContext(
+	ctx context.Context,
+	localClient client.Client,
+	remoteClient client.Client,
+	key types.NamespacedName,
+	cleanupContext jobframework.MultiKueueRemoteObjectCleanupContext,
+) error {
 	groupName, err := expectedMultiKueuePodGroupName(ctx, localClient, key, cleanupContext)
 	if err != nil {
 		return err
@@ -180,7 +185,7 @@ func expectedMultiKueuePodGroupName(ctx context.Context, localClient client.Clie
 
 	if cleanupContext.WorkloadKey.Name != "" {
 		if cleanupContext.WorkloadKey.Name != cleanupContext.Association.WorkloadName || cleanupContext.WorkloadKey.Namespace != key.Namespace {
-			return "", fmt.Errorf("Workload %q does not match cleanup association %q", cleanupContext.WorkloadKey, cleanupContext.Association.WorkloadName)
+			return "", fmt.Errorf("workload %q does not match cleanup association %q", cleanupContext.WorkloadKey, cleanupContext.Association.WorkloadName)
 		}
 		workloadGroupName := ""
 		if cleanupContext.WorkloadAnnotations[podconstants.IsGroupWorkloadAnnotationKey] == podconstants.IsGroupWorkloadAnnotationValue {
@@ -379,7 +384,7 @@ func deleteRemotePodIfAssociated(
 		}
 		return err
 	}
-	return client.IgnoreNotFound(remoteClient.Delete(ctx, pod, client.Preconditions{UID: ptr.To(pod.UID)}))
+	return client.IgnoreNotFound(remoteClient.Delete(ctx, pod, client.Preconditions{UID: &pod.UID}))
 }
 
 // findPodCondition returns a pointer to the condition of the given type, or nil

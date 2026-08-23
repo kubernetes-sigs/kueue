@@ -746,7 +746,8 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 			}
 		}
 		wlLog.V(5).Info("MultiKueueGC deleting remote workload")
-		if err := remoteCl.Delete(ctx, &remoteWl, client.Preconditions{UID: ptr.To(remoteWl.UID)}); client.IgnoreNotFound(err) != nil {
+		uid := remoteWl.UID
+		if err := remoteCl.Delete(ctx, &remoteWl, client.Preconditions{UID: &uid}); client.IgnoreNotFound(err) != nil {
 			wlLog.Error(err, "Deleting remote workload")
 		}
 	}

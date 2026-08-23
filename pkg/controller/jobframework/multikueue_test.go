@@ -46,7 +46,12 @@ type cleanupTrackingAdapter struct {
 	cleanupContext *jobframework.MultiKueueRemoteObjectCleanupContext
 }
 
-func (a *cleanupTrackingAdapter) DeleteRemoteObjectWithCleanupContext(_ context.Context, _, _ client.Client, _ types.NamespacedName, cleanupContext jobframework.MultiKueueRemoteObjectCleanupContext) error {
+func (a *cleanupTrackingAdapter) DeleteRemoteObjectWithCleanupContext(
+	_ context.Context,
+	_, _ client.Client,
+	_ types.NamespacedName,
+	cleanupContext jobframework.MultiKueueRemoteObjectCleanupContext,
+) error {
 	a.cleanupContext = &cleanupContext
 	cleanupContext.WorkloadAnnotations["mutated-by-adapter"] = "true"
 	return nil

@@ -590,7 +590,15 @@ func TestMultiKueueAdapter(t *testing.T) {
 				*workerPodGroupWithAnnotations[2].DeepCopy(),
 			},
 			operation: func(ctx context.Context, adapter *multiKueueAdapter, managerClient, workerClient client.Client) error {
-				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, managerClient, workerClient, adapter, types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace}, groupWorkload, "origin1")
+				return jobframework.DeleteRemoteObjectForWorkloadIfOwned(
+					ctx,
+					managerClient,
+					workerClient,
+					adapter,
+					types.NamespacedName{Name: podGroup[0].Obj().Name, Namespace: TestNamespace},
+					groupWorkload,
+					"origin1",
+				)
 			},
 			wantManagersPods: []corev1.Pod{
 				*podGroupWithWlAnnotations[0].DeepCopy(),
