@@ -546,9 +546,7 @@ func WaitForActivePodsAndTerminate(
 		activePods = make([]corev1.Pod, 0)
 		for _, p := range pods.Items {
 			if len(p.Status.PodIP) != 0 && p.Status.Phase == corev1.PodRunning {
-				cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl \"http://%s:8080/readyz\"", p.Status.PodIP)}
-				_, _, err := KExecute(ctx, cfg, restClient, namespace, p.Name, p.Spec.Containers[0].Name, cmd)
-				g.Expect(err).ToNot(gomega.HaveOccurred())
+				g.Expect(curlAgnHost(ctx, cfg, restClient, &p, "readyz")).To(gomega.Succeed())
 				activePods = append(activePods, p)
 			}
 		}
@@ -557,17 +555,49 @@ func WaitForActivePodsAndTerminate(
 
 	for _, p := range activePods {
 		ginkgo.GinkgoLogr.Info("Terminating pod", "pod", klog.KObj(&p))
-		cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl \"http://%s:8080/exit?code=%v&timeout=2s&wait=2s\"", p.Status.PodIP, exitCode)}
-		_, _, err := KExecute(ctx, cfg, restClient, namespace, p.Name, p.Spec.Containers[0].Name, cmd)
-		// TODO: remove the custom handling of 137 response once this is fixed in the agnhost image
-		// We add the custom handling to protect in situation when the target pods completes with the expected
-		// exit code but it terminates before it completes sending the response.
-		if err != nil {
-			gomega.ExpectWithOffset(1, err.Error()).To(gomega.ContainSubstring("137"))
-		} else {
-			gomega.ExpectWithOffset(1, err).ToNot(gomega.HaveOccurred())
-		}
+		gomega.ExpectWithOffset(1, exitAgnHost(ctx, cfg, restClient, &p, exitCode)).To(gomega.Succeed())
 	}
+}
+
+// RestartPodContainer terminates the first container of a running agnhost pod and relies on RestartPolicyAlways to restart it.
+func RestartPodContainer(
+	ctx context.Context,
+	k8sClient client.Client,
+	restClient *rest.RESTClient,
+	cfg *rest.Config,
+	key client.ObjectKey,
+) {
+	ginkgo.GinkgoHelper()
+	pod := &corev1.Pod{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, pod)).To(gomega.Succeed())
+		g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+		g.Expect(pod.Status.PodIP).NotTo(gomega.BeEmpty())
+		g.Expect(curlAgnHost(ctx, cfg, restClient, pod, "readyz")).To(gomega.Succeed())
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+	gomega.Expect(pod.Spec.RestartPolicy).To(gomega.Equal(corev1.RestartPolicyAlways),
+		"RestartPodContainer only restarts a container under the Always restart policy")
+
+	ginkgo.GinkgoLogr.Info("Restarting pod container", "pod", klog.KObj(pod), "container", pod.Spec.Containers[0].Name)
+	gomega.Expect(exitAgnHost(ctx, cfg, restClient, pod, 0)).To(gomega.Succeed())
+}
+
+func curlAgnHost(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, pod *corev1.Pod, path string) error {
+	cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl \"http://%s:8080/%s\"", pod.Status.PodIP, path)}
+	_, _, err := KExecute(ctx, cfg, restClient, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
+	return err
+}
+
+func exitAgnHost(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, pod *corev1.Pod, exitCode int) error {
+	cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl \"http://%s:8080/exit?code=%v&timeout=2s&wait=2s\"", pod.Status.PodIP, exitCode)}
+	_, _, err := KExecute(ctx, cfg, restClient, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
+	// TODO: remove the custom handling of 137 response once this is fixed in the agnhost image
+	// We add the custom handling to protect in situation when the target pods completes with the expected
+	// exit code but it terminates before it completes sending the response.
+	if err != nil && strings.Contains(err.Error(), "137") {
+		return nil
+	}
+	return err
 }
 
 func WaitForKueueAvailabilityNoRestartCountCheck(ctx context.Context, k8sClient client.Client) {

@@ -1173,9 +1173,9 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				gomega.Expect(k8sClient.Get(ctx, util.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(gomega.Succeed())
 			})
 
-			var podToDelete *corev1.Pod
+			var podToRestart *corev1.Pod
 			originalPodUIDSet := sets.New[types.UID]()
-			ginkgo.By("Select a worker pod to delete", func() {
+			ginkgo.By("Select a worker pod to restart", func() {
 				pods := &corev1.PodList{}
 				gomega.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
 					leaderworkersetv1.SetNameLabelKey: lws.Name,
@@ -1185,23 +1185,27 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				for i, pod := range pods.Items {
 					originalPodUIDSet.Insert(pod.UID)
 					if pod.Labels[leaderworkersetv1.WorkerIndexLabelKey] != "0" {
-						podToDelete = &pods.Items[i]
+						podToRestart = &pods.Items[i]
 					}
 				}
-				gomega.Expect(podToDelete).NotTo(gomega.BeNil(), "Couldn't find a worker pod to delete")
+				gomega.Expect(podToRestart).NotTo(gomega.BeNil(), "Couldn't find a worker pod to restart")
 			})
 
-			deletedPodUID := podToDelete.UID
-			deletedPodKey := client.ObjectKeyFromObject(podToDelete)
-			ginkgo.By("Delete the worker pod", func() {
-				gomega.Expect(k8sClient.Delete(ctx, podToDelete)).Should(gomega.Succeed())
+			restartedPodUID := podToRestart.UID
+			restartedPodKey := client.ObjectKeyFromObject(podToRestart)
+
+			// Restart the container instead of deleting the pod because LWS can miss the deletion
+			// if the worker StatefulSet creates a same-name replacement first.
+			// TODO: Use pod deletion once https://github.com/kubernetes-sigs/lws/issues/998 is fixed.
+			ginkgo.By("Restart the container of the selected worker pod", func() {
+				util.RestartPodContainer(ctx, k8sClient, restClient, cfg, restartedPodKey)
 			})
 
-			ginkgo.By("Wait for the deleted pod to be recreated with a new UID", func() {
+			ginkgo.By("Wait for the restarted pod to be recreated with a new UID", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					pod := &corev1.Pod{}
-					g.Expect(k8sClient.Get(ctx, deletedPodKey, pod)).To(gomega.Succeed())
-					g.Expect(pod.UID).NotTo(gomega.Equal(deletedPodUID), "pod should be recreated with a new UID")
+					g.Expect(k8sClient.Get(ctx, restartedPodKey, pod)).To(gomega.Succeed())
+					g.Expect(pod.UID).NotTo(gomega.Equal(restartedPodUID), "pod should be recreated with a new UID")
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
