@@ -240,7 +240,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 		// not on its own an unfinished write. WorkloadPriorityClassReconciler lists
 		// by class name and holds the value that settles it; this helper is not
 		// asked, and does not read the class to guess.
-		"leaves values under a name that already matches to the class": {
+		"leaves values under a name that already matches the class": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(500).Obj(),
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("chosen", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
