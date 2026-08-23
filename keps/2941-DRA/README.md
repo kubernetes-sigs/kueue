@@ -935,24 +935,17 @@ The extended resource translation reads directly from the workload spec before
 `excludeResourcePrefixes` filtering is applied. The processing order:
 1. Extended resource translation runs first, reading the original spec
 2. `excludeResourcePrefixes` filters the pod's `resources.requests`
-3. Resource transformations run over what that filtering left, which is still the pod's
-   own requests. The translated resource is not among them
-4. The container contribution is subtracted from what is still retained under the
-   original name, so pod overhead and anything a transformation added under it survive.
-5. Translated resource is added through `preprocessedDRAResources`
+3. The container contribution is subtracted from what is still retained under the
+   original name, so pod overhead and anything a transformation added under it survive
+4. Translated resource is added through `preprocessedDRAResources`
 
-Step 1 runs during DRA preprocessing, and what it produces is merged in at step 5, when
-`TotalRequests` is built from the same spec. The charge and the subtraction therefore come
-from one aggregation: for a name whose requests are valid and whose DeviceClass resolution
-holds for the length of preprocessing, the amount subtracted is the amount charged. Each
-name is aggregated under its own name before any mapping, so two names reaching one logical
-resource are charged and subtracted alike.
+Each name is aggregated under its own name before any mapping, so two names reaching one
+logical resource are charged and subtracted alike.
 
-This keeps the extended resource from being counted twice under its own name. It does not
-reach a resource transformation naming the same resource: a `Replace` consuming a DRA-backed
-input is still charged the device as well as whatever the transformation emits, and an output
-written to a `deviceClassMappings[].name` is added to the charge under that name. Both are
-tracked in [#14160](https://github.com/kubernetes-sigs/kueue/issues/14160).
+This does not reach a resource transformation naming the same resource: a `Replace` consuming
+a DRA-backed input is still charged the device as well as whatever the transformation emits,
+and an output written to a `deviceClassMappings[].name` is added to the charge under that
+name. Both are tracked in [#14160](https://github.com/kubernetes-sigs/kueue/issues/14160).
 
 #### Same Hardware with Both Paths
 

@@ -165,10 +165,7 @@ func WithPreserveTotalRequests() InfoOption {
 	}
 }
 
-// WithPreprocessedDRAResources provides the DRA logical resources to add and the names
-// of the extended resources whose container contribution the charge replaces. How much
-// each contributed is derived from the PodSet spec where it is subtracted, and is all
-// that may be taken back.
+// WithPreprocessedDRAResources provides DRA resources to add and extended resources whose container contribution the charge replaces.
 func WithPreprocessedDRAResources(
 	draResources map[kueue.PodSetReference]corev1.ResourceList,
 	replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName],

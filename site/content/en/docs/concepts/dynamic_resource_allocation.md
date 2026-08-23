@@ -82,23 +82,13 @@ The extended resource path additionally requires the Kubernetes
 
 ## Path separation
 
-The two submission paths are distinct, but they can share a quota key.
+The two paths are independent:
 - **ResourceClaimTemplate path**: uses `deviceClassMappings` configuration.
-- **Extended resource path**: auto-discovers the mapping by indexing `DeviceClass`
-  objects, metering under the `DeviceClass`'s `extendedResourceName`. When that
-  `DeviceClass` also appears in `deviceClassMappings`, the containers' request is
-  metered under the mapping's logical name instead, so ResourceClaimTemplate and
-  extended-resource workloads can draw on the same quota pool.
+- **Extended resource path**: uses auto-discovery from `DeviceClass` objects.
 
-Only the containers' request is translated to the logical name. A chargeable Pod
-overhead or a resource-transformation output left under the original
-`extendedResourceName` stays there, so a `ClusterQueue` that meters both must
-cover the logical name and the original one.
-
-Requesting the same capacity through both a ResourceClaimTemplate and an extended
-resource in one workload charges both additively; Kueue does not deduplicate them
-into a single device allocation, even when both charges land on the same logical
-quota key.
+Do not configure the same `DeviceClass` in both paths for the same workload.
+If overlap occurs, Kueue merges the resources using the `deviceClassMappings`
+logical name as the quota key, which may result in incorrect quota accounting.
 
 ## Quota accounting
 
