@@ -604,6 +604,57 @@ func TestResolveExtendedResourceQuota(t *testing.T) {
 			},
 		},
 		{
+			// A non-positive request is dropped before any aggregation runs, so the
+			// sidecar contributes nothing rather than being subtracted from the
+			// regular container it now shares the long-running total with.
+			name: "a negative restartable init container does not reduce the regular container's charge",
+			workload: &kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns1"},
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{{
+						Name:  "main",
+						Count: 1,
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								InitContainers: []corev1.Container{
+									{
+										Name:          "sidecar",
+										Image:         "pause",
+										RestartPolicy: new(corev1.ContainerRestartPolicyAlways),
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("-3"),
+											},
+										},
+									},
+								},
+								Containers: []corev1.Container{
+									{
+										Name:  "c1",
+										Image: "pause",
+										Resources: corev1.ResourceRequirements{
+											Requests: corev1.ResourceList{
+												"example.com/gpu": resource.MustParse("8"),
+											},
+										},
+									},
+								},
+							},
+						},
+					}},
+				},
+			},
+			deviceClasses: []*resourceapi.DeviceClass{gpuDeviceClass},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {
+					"example.com/gpu": resource.MustParse("8"),
+				},
+			},
+			wantReplaced: map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+				"main": sets.New[corev1.ResourceName]("example.com/gpu"),
+			},
+		},
+		{
 			// The init container runs with the sidecar declared before it already up,
 			// so 5 and 2 together beat the 1 and 2 that follow.
 			name: "an ordinary init container is measured with the sidecar already running",
