@@ -219,17 +219,8 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				utiltestingapi.MakeWorkload("stuck", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
 				utiltestingapi.MakeWorkload("moving", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
 			},
-			interceptors: func(*priorityStats) interceptor.Funcs {
-				return interceptor.Funcs{
-					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-						if wl, ok := obj.(*kueue.Workload); ok && wl.Name == "stuck" {
-							return errors.New("simulated rejection")
-						}
-						return c.Update(ctx, obj, opts...)
-					},
-				}
-			},
-			steps: []step{{wantErr: true}},
+			interceptors: refusingEveryWriteTo("stuck"),
+			steps:        []step{{wantErr: true}},
 			want: map[string]wantWorkload{
 				"stuck":  {refName: new("high"), priority: new(int32(100))},
 				"moving": {refName: new("low"), priority: new(int32(10))},
@@ -285,7 +276,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				utiltestingapi.MakeWorkload("stale", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
 				utiltestingapi.MakeWorkload("transitioning", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
 			},
-			interceptors: failingFirstWriteTo("stale"),
+			interceptors: refusingFirstWriteTo("stale"),
 			steps:        []step{{wantErr: true}, {}},
 			want: map[string]wantWorkload{
 				"stale":         {refName: new("high"), priority: new(int32(200))},
@@ -425,10 +416,10 @@ func countingReadsAndWrites(s *priorityStats) interceptor.Funcs {
 	}
 }
 
-// failingFirstWriteTo refuses the first write to one workload and lets every
+// refusingFirstWriteTo refuses the first write to one workload and lets every
 // later one through, so a case can watch what a failed repair leaves behind.
-func failingFirstWriteTo(name string) func(*priorityStats) interceptor.Funcs {
-	return func(s *priorityStats) interceptor.Funcs {
+func refusingFirstWriteTo(name string) func(*priorityStats) interceptor.Funcs {
+	return func(*priorityStats) interceptor.Funcs {
 		refused := false
 		return interceptor.Funcs{
 			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
@@ -436,7 +427,21 @@ func failingFirstWriteTo(name string) func(*priorityStats) interceptor.Funcs {
 					refused = true
 					return errors.New("simulated conflict")
 				}
-				s.workloadWrites++
+				return c.Update(ctx, obj, opts...)
+			},
+		}
+	}
+}
+
+// refusingEveryWriteTo never lets one workload's write land, for the cases that
+// watch what a repair that cannot finish holds back.
+func refusingEveryWriteTo(name string) func(*priorityStats) interceptor.Funcs {
+	return func(*priorityStats) interceptor.Funcs {
+		return interceptor.Funcs{
+			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+				if wl, ok := obj.(*kueue.Workload); ok && wl.Name == name {
+					return errors.New("simulated rejection")
+				}
 				return c.Update(ctx, obj, opts...)
 			},
 		}
