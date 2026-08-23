@@ -347,7 +347,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 						Type:    kueue.MultiKueueClusterActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "BadKubeConfig",
-						Message: fmt.Sprintf("load client config failed: open %s: no such file or directory", fsKubeConfig),
+						Message: fmt.Sprintf("load client config failed: cannot open kubeconfig file: open %s: no such file or directory", fsKubeConfig),
 					}, util.IgnoreConditionTimestampsAndObservedGeneration)))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
