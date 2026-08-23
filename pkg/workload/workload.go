@@ -611,6 +611,12 @@ func applyResourceTransformations(input, multiplierSource corev1.ResourceList, t
 		outputInputVal := inputQuantity
 		if mapping.MultiplyBy != "" {
 			if q, ok := multiplierSource[mapping.MultiplyBy]; ok {
+				// spec.overhead is not checked for sign, so a Workload can hand back a
+				// negative count here and turn this output into a credit against the
+				// same name. Zero is left alone; it is how an output scales to nothing.
+				if q.Sign() < 0 {
+					q = resource.Quantity{}
+				}
 				outputInputVal = multiplyResourceQuantities(inputQuantity, q)
 			}
 		}
