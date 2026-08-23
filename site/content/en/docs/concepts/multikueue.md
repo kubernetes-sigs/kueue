@@ -212,6 +212,14 @@ To disable this validation, set the feature gate:
 `--feature-gates=MultiKueueKubeConfigPathValidation=false`.
 Disabling this restores the legacy behavior of allowing any file path, which can
 expose sensitive files on the controller's filesystem to be read as a kubeconfig.
+In either mode, the referenced kubeconfig must be a regular file no larger than
+1 MiB; special files are opened without blocking and rejected.
+
+MultiKueue requires HTTPS API server endpoints without embedded user information
+for every credential source. File-backed CA certificates and client certificate
+credentials are rejected. Kubeconfigs must use their inline `*-data` fields, and
+`ClusterProfile` access providers must return inline `CAData`, `CertData`, and
+`KeyData` in the REST config.
 
 For production deployments, use `ClusterProfile` or `Secret` instead of `Path`.
 

@@ -20,10 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net"
 	"net/url"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -86,6 +86,10 @@ const (
 	// not exercise that path today; the cap is a guard. See #11206.
 	initialEstablishTimeout = 1 * time.Minute
 	maxEstablishTimeout     = 10 * time.Minute
+
+	// Kubernetes Secrets are limited to 1 MiB, so path-based kubeconfigs should
+	// not permit larger inputs than their recommended Secret-based equivalent.
+	maxKubeConfigSize = 1 << 20
 )
 
 var (
@@ -969,6 +973,12 @@ func validateKubeconfig(kubeconfig []byte) error {
 			if authInfo.TokenFile != "" {
 				return errors.New("tokenFile is not allowed")
 			}
+			if authInfo.ClientCertificate != "" {
+				return errors.New("client-certificate file paths are not allowed, use client-certificate-data")
+			}
+			if authInfo.ClientKey != "" {
+				return errors.New("client-key file paths are not allowed, use client-key-data")
+			}
 		}
 	}
 	// Validate each cluster config
@@ -1001,14 +1011,28 @@ type validateRestConfigOptions struct {
 }
 
 func validateRestConfig(restConfig *rest.Config, opts validateRestConfigOptions) error {
+	if restConfig == nil {
+		return errors.New("REST config is nil")
+	}
 	// Block dangerous auth mechanisms
 	// BearerTokenFile is not allowed.
 	// Instead BearerToken is allowed due to service account tokens usage.
 	if restConfig.BearerTokenFile != "" {
 		return errors.New("bearerTokenFile is not allowed")
 	}
-	// lowercase the host to allow FQDN with uppercase letters
-	if !isValidHostname(strings.ToLower(restConfig.Host)) {
+	if restConfig.CAFile != "" {
+		return errors.New("CAFile is not allowed, use CAData")
+	}
+	if restConfig.CertFile != "" {
+		return errors.New("CertFile is not allowed, use CertData")
+	}
+	if restConfig.KeyFile != "" {
+		return errors.New("KeyFile is not allowed, use KeyData")
+	}
+	if restConfig.Insecure {
+		return errors.New("insecure TLS verification is not allowed")
+	}
+	if !isValidServerEndpoint(restConfig.Host) {
 		return errors.New("untrusted server endpoint")
 	}
 	if restConfig.Username != "" || restConfig.Password != "" {
@@ -1023,14 +1047,14 @@ func validateRestConfig(restConfig *rest.Config, opts validateRestConfigOptions)
 	return nil
 }
 
-func isValidHostname(server string) bool {
+func isValidServerEndpoint(server string) bool {
 	u, err := url.Parse(server)
-	if err != nil {
+	if err != nil || !strings.EqualFold(u.Scheme, "https") || u.User != nil {
 		return false
 	}
-	host, _, err := net.SplitHostPort(u.Host)
-	if err != nil {
-		host = u.Host // If no port is present
+	host := strings.ToLower(u.Hostname())
+	if host == "" {
+		return false
 	}
 	// Check if host is a valid IP
 	if net.ParseIP(host) != nil {
@@ -1144,7 +1168,35 @@ func (c *clustersReconciler) getKubeConfigFromPath(rawPath string) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	return os.ReadFile(validated)
+	return readKubeConfigFile(validated)
+}
+
+func readKubeConfigFile(path string) ([]byte, error) {
+	file, err := openKubeConfigFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot open kubeconfig file: %w", err)
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("cannot stat kubeconfig file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("kubeconfig path must reference a regular file")
+	}
+	if info.Size() > maxKubeConfigSize {
+		return nil, fmt.Errorf("kubeconfig file exceeds the %d-byte size limit", maxKubeConfigSize)
+	}
+
+	contents, err := io.ReadAll(io.LimitReader(file, maxKubeConfigSize+1))
+	if err != nil {
+		return nil, fmt.Errorf("cannot read kubeconfig file: %w", err)
+	}
+	if len(contents) > maxKubeConfigSize {
+		return nil, fmt.Errorf("kubeconfig file exceeds the %d-byte size limit", maxKubeConfigSize)
+	}
+	return contents, nil
 }
 
 func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.MultiKueueCluster, active bool, reason, message string) error {

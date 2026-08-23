@@ -154,7 +154,7 @@ deployments with very high job throughput (above 1M jobs per day).
 
 * **Arbitrary file read via `locationType=Path`**: When `KubeConfig.LocationType`
   is set to `Path`, the controller reads the file at the user-supplied location
-  using `os.ReadFile`. Without path restrictions, any principal with
+  into memory. Without path restrictions, any principal with
   `create`/`update` access to `MultiKueueCluster` resources could read arbitrary
   files from the controller pod's filesystem (e.g. the projected service account
   token). This is mitigated by:
@@ -166,6 +166,8 @@ deployments with very high job throughput (above 1M jobs per day).
   * Canonicalizing and validating the path: the controller cleans the path,
     rejects `..` segments, resolves symlinks, and requires the resolved absolute
     path to reside under the prefix directory.
+  * Opening the path without following a final symlink or blocking on a special
+    file, requiring a regular file, and limiting its size to 1 MiB.
   * Recommended deployment practice is to use `locationType=Secret` or
     `ClusterProfile` instead of `Path` in production environments.
 
