@@ -1018,262 +1018,209 @@ func TestReconcileDoesNotCancelTheWorkloadBranch(t *testing.T) {
 	}
 }
 
-func TestReconcileStartsTheWorkloadBranchWhenTheQueueLabelPatchFails(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	// One revision, so finalization has nothing to patch and the queue label is
-	// the only Pod write the reconcile makes.
-	sts := statefulsettesting.MakeStatefulSet("sts", "ns").
-		UID("sts-uid").
-		Queue("lq").
-		WorkloadPriorityClass("wpc").
-		CurrentRevision("1").
-		UpdateRevision("1").
-		Obj()
-	// Without the queue label, so the sync has a patch to make and fail.
-	pod := testingjobspod.MakePod("pod1", "ns").
-		GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
-		Label(appsv1.ControllerRevisionHashLabelKey, "1").
-		Gate(podconstants.SchedulingGateName).
-		KueueFinalizer().
-		Obj()
-	wpc := utiltestingapi.MakeWorkloadPriorityClass("wpc").PriorityValue(100).Obj()
-
-	errPodConflict := apierrors.NewConflict(corev1.Resource("pods"), "pod1", errors.New("conflict"))
-	clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+// refusingQueueLabelPatch refuses the write that carries the new queue name, so
+// a case can watch what the first of a Pod's two writes costs the second.
+func refusingQueueLabelPatch(queueName string, err error) interceptor.Funcs {
+	return interceptor.Funcs{
 		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-			// Only the write that carries the queue label, so the failure the
-			// test names is the one it gets.
-			if pod, isPod := obj.(*corev1.Pod); isPod && pod.Labels[controllerconstants.QueueLabel] == "lq" {
-				return errPodConflict
+			if pod, isPod := obj.(*corev1.Pod); isPod && pod.Labels[controllerconstants.QueueLabel] == queueName {
+				return err
 			}
 			return c.Patch(ctx, obj, patch, opts...)
 		},
-	})
-	indexer := utiltesting.AsIndexer(clientBuilder)
-	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
-		t.Fatalf("Indexing the pod group name: %v", err)
-	}
-	kClient := clientBuilder.WithObjects(sts, pod, wpc).Build()
-
-	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
-	if err != nil {
-		t.Fatalf("Creating the reconciler: %v", err)
-	}
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sts)}); !errors.Is(err, errPodConflict) {
-		t.Fatalf("Reconcile() error = %v, want %v", err, errPodConflict)
-	}
-
-	created := &kueue.Workload{}
-	if err := kClient.Get(ctx, client.ObjectKey{Name: GetWorkloadName("sts-uid", "sts"), Namespace: "ns"}, created); err != nil {
-		t.Fatalf("Getting the Workload: the queue label patch failed and the Workload branch never ran: %v", err)
-	}
-	if created.Spec.QueueName != "lq" {
-		t.Errorf("created Workload queue = %q, want lq", created.Spec.QueueName)
 	}
 }
 
-func TestReconcileUpdatesTheWorkloadWhenTheQueueLabelPatchFails(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	sts := statefulsettesting.MakeStatefulSet("sts", "ns").
-		UID("sts-uid").
-		Queue("lq").
-		CurrentRevision("1").
-		UpdateRevision("1").
-		Obj()
-	// Carrying the queue it was renamed away from, so the sync has the rename to
-	// make and fail.
-	pod := testingjobspod.MakePod("pod1", "ns").
-		GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
-		Queue("old-lq").
-		Label(appsv1.ControllerRevisionHashLabelKey, "1").
-		Gate(podconstants.SchedulingGateName).
-		KueueFinalizer().
-		Obj()
-	wl := utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
-		Queue("old-lq").
-		OwnerReference(gvk, "sts", "sts-uid").
-		Obj()
-
-	errPodConflict := apierrors.NewConflict(corev1.Resource("pods"), "pod1", errors.New("conflict"))
-	clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+// refusingPatchOf refuses every write to one Pod by name and lets the rest through.
+func refusingPatchOf(podName string, err error) interceptor.Funcs {
+	return interceptor.Funcs{
 		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-			if pod, isPod := obj.(*corev1.Pod); isPod && pod.Labels[controllerconstants.QueueLabel] == "lq" {
-				return errPodConflict
+			if obj.GetName() == podName {
+				return err
 			}
 			return c.Patch(ctx, obj, patch, opts...)
 		},
-	})
-	indexer := utiltesting.AsIndexer(clientBuilder)
-	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
-		t.Fatalf("Indexing the pod group name: %v", err)
-	}
-	kClient := clientBuilder.WithObjects(sts, pod, wl).Build()
-
-	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
-	if err != nil {
-		t.Fatalf("Creating the reconciler: %v", err)
-	}
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sts)}); !errors.Is(err, errPodConflict) {
-		t.Fatalf("Reconcile() error = %v, want %v", err, errPodConflict)
-	}
-
-	got := &kueue.Workload{}
-	if err := kClient.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
-		t.Fatalf("Getting the Workload: %v", err)
-	}
-	if got.Spec.QueueName != "lq" {
-		t.Errorf("Workload queue = %q, want lq: the queue label patch failed and the Workload branch never ran", got.Spec.QueueName)
 	}
 }
 
-// A Pod whose queue label cannot be patched used to take the whole slice with
-// it, since the sync ran over every Pod before any of them was ungated.
-func TestReconcilePodFailureLeavesTheOtherPodsAlone(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-	group := GetWorkloadName("sts-uid", "sts")
-	sts := statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Replicas(2).Queue("lq").Obj()
-
-	conflicting := testingjobspod.MakePod("conflicting", "ns").GroupNameLabel(group).Queue("old-lq").Obj()
-	// This one already carries the queue, so the sync never touches it.
-	unrelated := testingjobspod.MakePod("unrelated", "ns").GroupNameLabel(group).Queue("lq").
-		KueueFinalizer().StatusPhase(corev1.PodSucceeded).Obj()
-
-	builder := utiltesting.NewClientBuilder().WithObjects(sts, conflicting, unrelated).WithStatusSubresource(sts)
-	indexer := utiltesting.AsIndexer(builder)
-	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
-		t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
-	}
-	wantErr := apierrors.NewConflict(schema.GroupResource{Resource: "pods"}, "conflicting", nil)
-	kClient := builder.WithInterceptorFuncs(interceptor.Funcs{
+// refusingBothBranches fails one write on each side of the errgroup.
+func refusingBothBranches(podErr, workloadErr error) interceptor.Funcs {
+	return interceptor.Funcs{
 		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-			if obj.GetName() == "conflicting" {
-				return wantErr
-			}
-			return c.Patch(ctx, obj, patch, opts...)
-		},
-	}).Build()
-
-	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
-	if err != nil {
-		t.Fatalf("NewReconciler() error: %v", err)
-	}
-	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "sts"}})
-	if !apierrors.IsConflict(err) {
-		t.Errorf("Reconcile() error = %v, want the Pod conflict", err)
-	}
-
-	var gotPod corev1.Pod
-	if err := kClient.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "unrelated"}, &gotPod); err != nil {
-		t.Fatalf("failed to get the unrelated Pod: %v", err)
-	}
-	if len(gotPod.Finalizers) != 0 {
-		t.Errorf("unrelated Pod finalizers = %v, want none: one Pod's failure held back another", gotPod.Finalizers)
-	}
-
-	var wls kueue.WorkloadList
-	if err := kClient.List(ctx, &wls, client.InNamespace("ns")); err != nil {
-		t.Fatalf("failed to list workloads: %v", err)
-	}
-	if len(wls.Items) != 1 {
-		t.Errorf("got %d Workloads, want the Workload branch to still finish", len(wls.Items))
-	}
-}
-
-// Wait hands back whichever error arrives first, so a failure on one branch
-// used to hide the other on every retry.
-func TestReconcileReportsBothBranchFailures(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-	group := GetWorkloadName("sts-uid", "sts")
-	sts := statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Replicas(1).Queue("lq").Obj()
-	pod := testingjobspod.MakePod("pod", "ns").GroupNameLabel(group).Queue("old-lq").Obj()
-
-	// Held by value: apierrors.IsForbidden and friends run errors.As against the
-	// APIStatus interface, which stops at whichever error the join holds first.
-	wantPodErr := apierrors.NewConflict(schema.GroupResource{Resource: "pods"}, "pod", nil)
-	wantWorkloadErr := apierrors.NewForbidden(schema.GroupResource{Resource: "workloads"}, "wl", errors.New("denied by a webhook"))
-
-	builder := utiltesting.NewClientBuilder().WithObjects(sts, pod).WithStatusSubresource(sts)
-	indexer := utiltesting.AsIndexer(builder)
-	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
-		t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
-	}
-	kClient := builder.WithInterceptorFuncs(interceptor.Funcs{
-		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-			if _, ok := obj.(*corev1.Pod); ok {
-				return wantPodErr
+			if _, isPod := obj.(*corev1.Pod); isPod {
+				return podErr
 			}
 			return c.Patch(ctx, obj, patch, opts...)
 		},
 		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-			if _, ok := obj.(*kueue.Workload); ok {
-				return wantWorkloadErr
+			if _, isWorkload := obj.(*kueue.Workload); isWorkload {
+				return workloadErr
 			}
 			return c.Create(ctx, obj, opts...)
 		},
-	}).Build()
-
-	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
-	if err != nil {
-		t.Fatalf("NewReconciler() error: %v", err)
-	}
-	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "sts"}})
-	if !errors.Is(err, wantPodErr) {
-		t.Errorf("Reconcile() lost the Pod conflict: %v", err)
-	}
-	if !errors.Is(err, wantWorkloadErr) {
-		t.Errorf("Reconcile() lost the Workload refusal: %v", err)
 	}
 }
 
-// The queue has to land on a Pod before that Pod is let go, or it is scheduled
-// carrying a queue nothing will match it on.
-func TestReconcileQueueLabelFailureKeepsTheSamePodGated(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-	sts := statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Replicas(1).Queue("lq").
-		CurrentRevision("1").UpdateRevision("2").Obj()
-	// Old revision during a rollout, so it is eligible to be ungated, and its
-	// queue is the one the sync has to correct first.
-	pod := testingjobspod.MakePod("pod1", "ns").
-		GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
-		Queue("old-lq").
-		Label(appsv1.ControllerRevisionHashLabelKey, "1").
-		Gate(podconstants.SchedulingGateName).
-		Obj()
+// A nil field is not asserted.
+type wantPodState struct {
+	gated *bool
+	queue *string
+}
 
-	wantErr := apierrors.NewConflict(schema.GroupResource{Resource: "pods"}, pod.Name, nil)
-	builder := utiltesting.NewClientBuilder().WithObjects(sts, pod).WithStatusSubresource(sts)
-	indexer := utiltesting.AsIndexer(builder)
-	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
-		t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
-	}
-	kClient := builder.WithInterceptorFuncs(interceptor.Funcs{
-		Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-			// Only the queue write, so an ungate that ran first would go through.
-			if p, ok := obj.(*corev1.Pod); ok && p.Labels[controllerconstants.QueueLabel] == "lq" {
-				return wantErr
-			}
-			return c.Patch(ctx, obj, patch, opts...)
+// The queue label and the ungate are two writes to one Pod, and the Workload is
+// a third object on its own branch. A failure has to stop at whichever of the
+// three it belongs to.
+func TestReconcileWhenAWriteFails(t *testing.T) {
+	group := GetWorkloadName("sts-uid", "sts")
+	errQueue := apierrors.NewConflict(corev1.Resource("pods"), "pod1", errors.New("conflict"))
+	errConflicting := apierrors.NewConflict(corev1.Resource("pods"), "conflicting", errors.New("conflict"))
+	errWorkload := apierrors.NewForbidden(schema.GroupResource{Resource: "workloads"}, "wl", errors.New("denied by a webhook"))
+
+	cases := map[string]struct {
+		statefulSet       *appsv1.StatefulSet
+		pods              []corev1.Pod
+		workloads         []kueue.Workload
+		interceptors      interceptor.Funcs
+		wantErrs          []error
+		wantPods          map[string]wantPodState
+		wantWorkloadQueue kueue.LocalQueueName
+		wantWorkloadCount int
+	}{
+		"the Workload is created even though the queue label never lands": {
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").Queue("lq").CurrentRevision("1").UpdateRevision("1").Obj(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").GroupNameLabel(group).
+					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Gate(podconstants.SchedulingGateName).KueueFinalizer().Obj(),
+			},
+			interceptors:      refusingQueueLabelPatch("lq", errQueue),
+			wantErrs:          []error{errQueue},
+			wantWorkloadQueue: "lq",
 		},
-	}).Build()
+		"an existing Workload is updated even though the queue label never lands": {
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").Queue("lq").CurrentRevision("1").UpdateRevision("1").Obj(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").GroupNameLabel(group).Queue("old-lq").
+					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Gate(podconstants.SchedulingGateName).KueueFinalizer().Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(group, "ns").Queue("old-lq").
+					OwnerReference(gvk, "sts", "sts-uid").Obj(),
+			},
+			interceptors:      refusingQueueLabelPatch("lq", errQueue),
+			wantErrs:          []error{errQueue},
+			wantWorkloadQueue: "lq",
+		},
+		"one Pod's failure leaves the other Pods alone": {
+			// Mid-rollout, so a Pod on the current revision is one the reconcile ungates.
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").Replicas(2).Queue("lq").CurrentRevision("1").UpdateRevision("2").Obj(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("conflicting", "ns").GroupNameLabel(group).Queue("old-lq").Obj(),
+				// Already carrying the queue, so the ungate is its only write left.
+				*testingjobspod.MakePod("unrelated", "ns").GroupNameLabel(group).Queue("lq").
+					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Gate(podconstants.SchedulingGateName).Obj(),
+			},
+			interceptors:      refusingPatchOf("conflicting", errConflicting),
+			wantErrs:          []error{errConflicting},
+			wantPods:          map[string]wantPodState{"unrelated": {gated: new(false)}},
+			wantWorkloadCount: 1,
+		},
+		"neither branch hides the other's failure": {
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").Replicas(1).Queue("lq").Obj(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").GroupNameLabel(group).Queue("old-lq").Obj(),
+			},
+			interceptors: refusingBothBranches(errQueue, errWorkload),
+			wantErrs:     []error{errQueue, errWorkload},
+		},
+		"a Pod whose queue never lands stays gated": {
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").Replicas(1).Queue("lq").CurrentRevision("1").UpdateRevision("2").Obj(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").GroupNameLabel(group).Queue("old-lq").
+					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Gate(podconstants.SchedulingGateName).Obj(),
+			},
+			interceptors: refusingQueueLabelPatch("lq", errQueue),
+			wantErrs:     []error{errQueue},
+			wantPods: map[string]wantPodState{
+				"pod1": {gated: new(true), queue: new("old-lq")},
+			},
+		},
+	}
 
-	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
-	if err != nil {
-		t.Fatalf("NewReconciler() error: %v", err)
-	}
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "ns", Name: "sts"}}); !apierrors.IsConflict(err) {
-		t.Errorf("Reconcile() error = %v, want the queue conflict", err)
-	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			objs := []client.Object{tc.statefulSet, utiltestingapi.MakeWorkloadPriorityClass("wpc").PriorityValue(100).Obj()}
+			for i := range tc.pods {
+				objs = append(objs, &tc.pods[i])
+			}
+			for i := range tc.workloads {
+				objs = append(objs, &tc.workloads[i])
+			}
+			builder := utiltesting.NewClientBuilder().
+				WithObjects(objs...).
+				WithStatusSubresource(tc.statefulSet).
+				WithInterceptorFuncs(tc.interceptors)
+			indexer := utiltesting.AsIndexer(builder)
+			if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
+				t.Fatalf("Indexing the pod group name: %v", err)
+			}
+			kClient := builder.Build()
 
-	var got corev1.Pod
-	if err := kClient.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "pod1"}, &got); err != nil {
-		t.Fatalf("failed to get the Pod: %v", err)
-	}
-	if len(got.Spec.SchedulingGates) == 0 {
-		t.Error("the Pod was ungated even though its queue never landed")
-	}
-	if q := got.Labels[controllerconstants.QueueLabel]; q != "old-lq" {
-		t.Errorf("Pod queue = %q, want it left at old-lq", q)
+			reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+			if err != nil {
+				t.Fatalf("Creating the reconciler: %v", err)
+			}
+			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.statefulSet)})
+			for _, want := range tc.wantErrs {
+				if !errors.Is(gotErr, want) {
+					t.Errorf("Reconcile() error = %v, want it to carry %v", gotErr, want)
+				}
+			}
+
+			for podName, want := range tc.wantPods {
+				got := &corev1.Pod{}
+				if err := kClient.Get(ctx, types.NamespacedName{Namespace: "ns", Name: podName}, got); err != nil {
+					t.Fatalf("Getting Pod %s: %v", podName, err)
+				}
+				if want.gated != nil {
+					if gated := len(got.Spec.SchedulingGates) > 0; gated != *want.gated {
+						t.Errorf("%s gated = %v, want %v", podName, gated, *want.gated)
+					}
+				}
+				if want.queue != nil {
+					if q := got.Labels[controllerconstants.QueueLabel]; q != *want.queue {
+						t.Errorf("%s queue = %q, want %q", podName, q, *want.queue)
+					}
+				}
+			}
+
+			if tc.wantWorkloadQueue != "" {
+				got := &kueue.Workload{}
+				if err := kClient.Get(ctx, types.NamespacedName{Namespace: "ns", Name: group}, got); err != nil {
+					t.Fatalf("Getting the Workload: %v", err)
+				}
+				if got.Spec.QueueName != tc.wantWorkloadQueue {
+					t.Errorf("Workload queue = %q, want %q", got.Spec.QueueName, tc.wantWorkloadQueue)
+				}
+			}
+			if tc.wantWorkloadCount > 0 {
+				var wls kueue.WorkloadList
+				if err := kClient.List(ctx, &wls, client.InNamespace("ns")); err != nil {
+					t.Fatalf("Listing the Workloads: %v", err)
+				}
+				if len(wls.Items) != tc.wantWorkloadCount {
+					t.Errorf("got %d Workloads, want %d", len(wls.Items), tc.wantWorkloadCount)
+				}
+			}
+		})
 	}
 }
