@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -37,6 +38,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -57,6 +59,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 	clock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	cases := map[string]struct {
 		clusterQueue             *kueue.ClusterQueue
+		cacheClusterQueue        *kueue.ClusterQueue
 		deleteClusterQueue       bool
 		localQueue               *kueue.LocalQueue
 		wantLocalQueue           *kueue.LocalQueue
@@ -168,6 +171,41 @@ func TestLocalQueueReconcile(t *testing.T) {
 				).
 				Obj(),
 			wantError: nil,
+		},
+		"cluster queue recreated with a new UID while the cache still holds the old one": {
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("test-cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf").Resource(corev1.ResourceCPU, "10").Obj()).
+					Active(metav1.ConditionTrue).
+					Obj()
+				cq.UID = "new"
+				return cq
+			}(),
+			cacheClusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("test-cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf").Resource(corev1.ResourceCPU, "10").Obj()).
+					Active(metav1.ConditionTrue).
+					Obj()
+				cq.UID = "old"
+				return cq
+			}(),
+			localQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				Generation(1).
+				Obj(),
+			runningWls: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "default").
+					Queue("test-queue").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("test-cluster-queue", "rf", now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantLocalQueue: utiltestingapi.MakeLocalQueue("test-queue", "default").
+				ClusterQueue("test-cluster-queue").
+				Generation(1).
+				Obj(),
+			wantRequeueAfter: ptr.To(constants.UpdatesBatchPeriod),
 		},
 		"local queue decaying usage decays if there is no running workloads": {
 			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
@@ -915,7 +953,11 @@ func TestLocalQueueReconcile(t *testing.T) {
 
 			ctxWithLogger, log := utiltesting.ContextWithLog(t)
 			cqCache := schdcache.New(cl)
-			if err := cqCache.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
+			cqForCache := tc.clusterQueue
+			if tc.cacheClusterQueue != nil {
+				cqForCache = tc.cacheClusterQueue
+			}
+			if err := cqCache.AddClusterQueue(ctxWithLogger, cqForCache); err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
 			_ = cqCache.AddLocalQueue(tc.localQueue)
@@ -923,7 +965,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 				cqCache.AddOrUpdateWorkload(log, &wl)
 			}
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-			if err := qManager.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
+			if err := qManager.AddClusterQueue(ctxWithLogger, cqForCache); err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
 			_ = qManager.AddLocalQueue(ctxWithLogger, tc.localQueue)

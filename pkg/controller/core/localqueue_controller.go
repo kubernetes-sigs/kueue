@@ -203,6 +203,14 @@ func (r *LocalQueueReconciler) Reconcile(ctx context.Context, req ctrl.Request) 
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+	stats, usageErr := r.cache.LocalQueueUsage(&queueObj)
+	// Same-name recreate can leave the cache holding the previous UID and
+	// usage. Do not publish Ready from the new object with that leftover usage.
+	if usageErr == nil && stats.ClusterQueueUID != "" && stats.ClusterQueueUID != cq.UID {
+		log.V(2).Info("ClusterQueue cache UID does not match API object; waiting before updating LocalQueue status",
+			"clusterQueue", cq.Name, "apiUID", cq.UID, "cacheUID", stats.ClusterQueueUID)
+		return ctrl.Result{RequeueAfter: constants.UpdatesBatchPeriod}, nil
+	}
 	if meta.IsStatusConditionTrue(cq.Status.Conditions, kueue.ClusterQueueActive) {
 		if err := r.UpdateStatusIfChanged(ctx, &queueObj, metav1.ConditionTrue, "Ready", "Can submit new workloads to localQueue"); err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
