@@ -44,6 +44,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
@@ -64,6 +65,7 @@ type elasticJobUngater struct {
 	clock             clock.Clock
 	expectationsStore *expectations.Store
 	roleTracker       *roletracker.RoleTracker
+	customLabels      *metrics.CustomLabels
 }
 
 var _ reconcile.Reconciler = (*elasticJobUngater)(nil)
@@ -72,12 +74,13 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*elasticJobUngater)(nil)
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 
-func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
+func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels) (string, error) {
 	r := &elasticJobUngater{
 		client:            mgr.GetClient(),
 		clock:             clock.RealClock{},
 		expectationsStore: expectations.NewStore(ControllerName),
 		roleTracker:       roleTracker,
+		customLabels:      customLabels,
 	}
 	podHandler := elasticPodHandler{
 		client:            r.client,
@@ -196,7 +199,7 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 		if !ungated {
 			r.expectationsStore.ObservedUID(log, sliceKey, pod.UID)
 		} else {
-			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.ElasticJobSchedulingGate, active, false, r.roleTracker)
+			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.ElasticJobSchedulingGate, active, false, r.customLabels, r.roleTracker)
 		}
 		return nil
 	})

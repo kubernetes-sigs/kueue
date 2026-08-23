@@ -25,7 +25,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	"sigs.k8s.io/kueue/pkg/version"
@@ -40,6 +42,56 @@ func expectFilteredMetricsCount(t *testing.T, vec prometheus.Collector, count in
 	if len(all) != count {
 		t.Helper()
 		t.Errorf("Expecting %d metrics got %d, matching labels %v", count, len(all), kvs)
+	}
+}
+
+func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
+	// The recorded values must match the vector, which the custom label widens when the gate is on.
+	cases := map[string]struct {
+		gate       bool
+		entries    []configapi.ControllerMetricsCustomLabel
+		stored     map[string]string
+		wantCustom []string
+	}{
+		"custom metric labels disabled": {
+			entries: []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+		},
+		// Gate on, no entries: the store is still nil.
+		"enabled with none configured": {gate: true},
+		"cluster queue without a stored value": {
+			gate:       true,
+			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			wantCustom: []string{"custom_team", ""},
+		},
+		"cluster queue with a stored value": {
+			gate:       true,
+			entries:    []configapi.ControllerMetricsCustomLabel{{Name: "team"}},
+			stored:     map[string]string{"team": "red"},
+			wantCustom: []string{"custom_team", "red"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, tc.gate)
+			cl := NewCustomLabels(tc.entries)
+			// cl is nil when the gate is off.
+			InitMetricVectors(cl)
+			t.Cleanup(func() { InitMetricVectors(nil) })
+			if tc.stored != nil {
+				cl.CQStore("cq", tc.stored, nil)
+			}
+			RecordPodSchedulingGateRemovalSeconds("wl", "cq", false, time.Second, cl.CQGet("cq"), nil)
+			if got := testutil.CollectAndCount(PodSchedulingGateRemovalSeconds); got != 1 {
+				t.Fatalf("recorded metrics = %d, want 1", got)
+			}
+			expectFilteredMetricsCount(t, PodSchedulingGateRemovalSeconds, 1,
+				append([]string{
+					"name", "wl",
+					"cluster_queue", "cq",
+					"is_group", "false",
+				}, tc.wantCustom...)...,
+			)
+		})
 	}
 }
 
