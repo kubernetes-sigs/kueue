@@ -683,13 +683,12 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 					delete(effectiveRequests, extRes)
 				}
 			}
-			// Then, add the DRA logical resources.
+			// Then, add the DRA logical resources
 			//
-			// DRA producers must not emit corev1.ResourcePods here. Claim charges use
-			// mapping names, which validation rejects under this gate; the
-			// extended-resource path treats pods as native. Flavor assignment owns
-			// pod-count accounting for this key and, when the ClusterQueue tracks it,
-			// replaces any value merged here with PodSet.Count.
+			// A producer must not emit corev1.ResourcePods here: claim charges use
+			// mapping names, which validation refuses under this gate, and the
+			// extended-resource path treats pods as native. A ClusterQueue that
+			// tracks the key has it overwritten with PodSet.Count at assignment.
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
 				for resName, quantity := range draRes {
 					q := effectiveRequests[resName]

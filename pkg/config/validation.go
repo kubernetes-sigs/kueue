@@ -451,8 +451,7 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
-// reservedResourceNameMsg is worded as the Workload webhook words the same
-// refusal. Nothing holds the two together; the webhook spells its own out.
+// reservedResourceNameMsg repeats the Workload webhook's wording for the same refusal; the two are not linked.
 const reservedResourceNameMsg = "the key is reserved for internal kueue use"
 
 func validateResourceTransformations(c *configapi.Configuration) field.ErrorList {
