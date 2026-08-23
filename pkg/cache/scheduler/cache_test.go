@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1942,6 +1943,7 @@ func TestLocalQueueUsage(t *testing.T) {
 				Obj(),
 		).
 		Obj()
+	cq.UID = "foo-uid"
 	localQueue := *utiltestingapi.MakeLocalQueue("test", "ns1").
 		ClusterQueue("foo").Obj()
 	cases := map[string]struct {
@@ -2144,7 +2146,35 @@ func TestLocalQueueUsage(t *testing.T) {
 			if diff := cmp.Diff(tc.wantUsage, gotUsage.ReservedResources); diff != "" {
 				t.Errorf("Unexpected used resources for the queue (-want,+got):\n%s", diff)
 			}
+			var wantUID types.UID
+			if tc.cq != nil {
+				wantUID = tc.cq.UID
+			}
+			if gotUsage.ClusterQueueUID != wantUID {
+				t.Errorf("ClusterQueueUID = %q, want %q", gotUsage.ClusterQueueUID, wantUID)
+			}
 		})
+	}
+}
+
+func TestUpdateClusterQueueUIDMismatch(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	oldCQ := utiltestingapi.MakeClusterQueue("cq").Obj()
+	oldCQ.UID = "old"
+	cache := New(utiltesting.NewFakeClient())
+	if err := cache.AddClusterQueue(ctx, oldCQ); err != nil {
+		t.Fatalf("Adding ClusterQueue: %v", err)
+	}
+
+	same := oldCQ.DeepCopy()
+	if err := cache.UpdateClusterQueue(log, same); err != nil {
+		t.Fatalf("UpdateClusterQueue() same UID: %v", err)
+	}
+
+	newCQ := oldCQ.DeepCopy()
+	newCQ.UID = "new"
+	if err := cache.UpdateClusterQueue(log, newCQ); !errors.Is(err, ErrCqUIDMismatch) {
+		t.Fatalf("UpdateClusterQueue() error = %v, want %v", err, ErrCqUIDMismatch)
 	}
 }
 
