@@ -997,7 +997,9 @@ func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, custom
 }
 
 func RecordPodSchedulingGateRemovalSeconds(name string, clusterQueue kueue.ClusterQueueReference, isGroup bool, latency time.Duration, tracker *roletracker.RoleTracker) {
-	// latency spans the apiserver clock (LastTransitionTime) and the controller clock, so skew can make it negative.
+	// WorkloadAdmitted.LastTransitionTime is set by the Kueue controller manager, not obtained from the Kubernetes API server.
+	// Latency can be negative when the controller's current time is earlier than the recorded transition time (e.g. after a
+	// leader handoff or wall-clock adjustment), so clamp negative observations to zero.
 	PodSchedulingGateRemovalSeconds.WithLabelValues(name, string(clusterQueue), strconv.FormatBool(isGroup), roletracker.GetRole(tracker)).Observe(max(0, latency.Seconds()))
 }
 
