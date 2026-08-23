@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
@@ -125,7 +126,13 @@ type Reconciler struct {
 const controllerName = "v1_pod"
 
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	return r.ReconcileGenericJob(ctx, req, NewPod(WithExcessPodExpectations(r.expectationsStore), WithClock(r.clock), WithIntegrationManager(r.integrationManager), WithRoleTracker(r.RoleTracker())))
+	return r.ReconcileGenericJob(ctx, req, NewPod(
+		WithExcessPodExpectations(r.expectationsStore),
+		WithClock(r.clock),
+		WithIntegrationManager(r.integrationManager),
+		WithRoleTracker(r.RoleTracker()),
+		WithCustomLabels(r.CustomLabels()),
+	))
 }
 
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -169,6 +176,7 @@ type Pod struct {
 	satisfiedExcessPods   bool
 	clock                 clock.Clock
 	roleTracker           *roletracker.RoleTracker
+	customLabels          *metrics.CustomLabels
 }
 
 var (
@@ -212,6 +220,13 @@ func WithIntegrationManager(manager *jobframework.IntegrationManager) PodOption 
 func WithRoleTracker(tracker *roletracker.RoleTracker) PodOption {
 	return func(pod *Pod) {
 		pod.roleTracker = tracker
+	}
+}
+
+// WithCustomLabels sets the labels the Pod's scheduling-gate-removal metric is recorded with.
+func WithCustomLabels(cl *metrics.CustomLabels) PodOption {
+	return func(pod *Pod) {
+		pod.customLabels = cl
 	}
 }
 
@@ -306,7 +321,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 			recorder.Eventf(&p.pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
-		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.roleTracker)
+		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.customLabels, p.roleTracker)
 	}
 
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
@@ -345,7 +360,7 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 			recorder.Eventf(pod, nil, corev1.EventTypeNormal, jobframework.ReasonStarted, "Started", msg)
 		}
 
-		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.roleTracker)
+		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.customLabels, p.roleTracker)
 
 		return nil
 	})
