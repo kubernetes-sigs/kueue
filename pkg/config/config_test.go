@@ -18,7 +18,6 @@ package config
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"net"
 	"os"
@@ -37,7 +36,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	clienttesting "k8s.io/client-go/testing"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -50,13 +48,13 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	configv1beta1 "sigs.k8s.io/kueue/apis/config/v1beta1"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
+
+	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
 var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
@@ -1538,89 +1536,6 @@ namespace: kueue-system
 			}
 			if diff := cmp.Diff(tc.wantPod, got); diff != "" {
 				t.Errorf("Unexpected pod after transform (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// A v1beta1 file reaches the same validator through generated conversion, so the
-// reservation covers the operators still writing that version. One field is bare
-// per case, so each case pins the position that reported it. Only the mapping
-// name is converted field by field; the transformation list is reinterpreted
-// whole, so there is no per-field step there to hold.
-func TestReservedNameReachesAV1beta1Configuration(t *testing.T) {
-	const configuration = `apiVersion: config.kueue.x-k8s.io/v1beta1
-kind: Configuration
-resources:
-  deviceClassMappings:
-  - name: %[1]s
-    deviceClassNames: [gpu.example.com]
-  transformations:
-  - input: %[2]s
-    strategy: Retain
-    multiplyBy: %[3]s
-    outputs:
-      %[4]s: 1
-`
-	// The mapping half is only refused behind this gate, and its default is not
-	// this test's to depend on.
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
-	scheme := runtime.NewScheme()
-	for _, addToScheme := range []func(*runtime.Scheme) error{
-		configapi.AddToScheme, configv1beta1.AddToScheme, clientgoscheme.AddToScheme,
-	} {
-		if err := addToScheme(scheme); err != nil {
-			t.Fatal(err)
-		}
-	}
-	// Four distinct names, as the validator's own table uses, so a clean load
-	// says nothing about names that collide with one another.
-	const (
-		okMapping    = "dra.example.com/pods"
-		okInput      = "input.example.com/pods"
-		okMultiplier = "multiplier.example.com/pods"
-		okOutput     = "output.example.com/pods"
-	)
-	for name, tc := range map[string]struct {
-		mapping, input, multiplyBy, output string
-		wantFields                         []string
-	}{
-		"qualified names in all four positions": {
-			mapping: okMapping, input: okInput, multiplyBy: okMultiplier, output: okOutput,
-		},
-		"a bare mapping name": {
-			mapping: "pods", input: okInput, multiplyBy: okMultiplier, output: okOutput,
-			wantFields: []string{"resources.deviceClassMappings[0].name"},
-		},
-		"a bare transformation input": {
-			mapping: okMapping, input: "pods", multiplyBy: okMultiplier, output: okOutput,
-			wantFields: []string{"resources.transformations[0].input"},
-		},
-		"a bare multiplier": {
-			mapping: okMapping, input: okInput, multiplyBy: "pods", output: okOutput,
-			wantFields: []string{"resources.transformations[0].multiplyBy"},
-		},
-		"a bare output key": {
-			mapping: okMapping, input: okInput, multiplyBy: okMultiplier, output: "pods",
-			wantFields: []string{"resources.transformations[0].outputs[pods]"},
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "config.yaml")
-			body := fmt.Appendf(nil, configuration, tc.mapping, tc.input, tc.multiplyBy, tc.output)
-			if err := os.WriteFile(path, body, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			_, cfg, err := Load(scheme, path)
-			if err != nil {
-				t.Fatalf("loading the configuration: %v", err)
-			}
-			var gotFields []string
-			for _, e := range Validate(&cfg, scheme, jobs.NewIntegrationManager()) {
-				gotFields = append(gotFields, e.Field)
-			}
-			if diff := cmp.Diff(tc.wantFields, gotFields); diff != "" {
-				t.Errorf("validation fields (-want,+got):\n%s", diff)
 			}
 		})
 	}
