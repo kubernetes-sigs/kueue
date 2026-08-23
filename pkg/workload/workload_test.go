@@ -1040,14 +1040,12 @@ func TestNewInfo(t *testing.T) {
 		// With the integration off nothing is taken back and nothing is added, so the
 		// PodSet keeps the extended resource it asked for and no logical name appears.
 		"withTheDRAGateOffTheExtendedResourceIsLeftAlone": {
-			workload: func() kueue.Workload {
-				wl := utiltestingapi.MakeWorkload("dra", "").
-					PodSets(*utiltestingapi.MakePodSet("a", 1).Request("example.com/gpu", "1").Obj()).Obj()
-				wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
-					"example.com/gpu": resource.MustParse("1"),
-				}
-				return *wl
-			}(),
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
+					Obj()).
+				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
 			infoOptions: []InfoOption{WithPreprocessedDRAResources(
 				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("1")}},
@@ -1066,14 +1064,12 @@ func TestNewInfo(t *testing.T) {
 		// The DRA charge replaces what the containers asked for, so an overhead on
 		// the same name is not part of it and has to survive the replacement.
 		"overheadOnAReplacedKeySurvives": {
-			workload: func() kueue.Workload {
-				wl := utiltestingapi.MakeWorkload("dra", "").
-					PodSets(*utiltestingapi.MakePodSet("a", 1).Request("example.com/gpu", "1").Obj()).Obj()
-				wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
-					"example.com/gpu": resource.MustParse("1"),
-				}
-				return *wl
-			}(),
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
+					Obj()).
+				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{WithPreprocessedDRAResources(
 				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("1")}},
@@ -1090,19 +1086,71 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// The resolver drops the sidecar's negative before charging, so it charges 8
+		// where the accounting view of the same spec reads 5. Both leave nothing under
+		// the replaced name: what the containers asked for is taken back in full.
+		"aNegativeSidecarLeavesNothingUnderTheReplacedName": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "8").
+					InitContainers(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().
+						WithResourceReq("example.com/gpu", "-3").Obj()).
+					Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("8")}},
+				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+			)},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"gpu": 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// An overhead beside the sidecar is not what the containers asked for, so it
+		// survives. Taking back the charge's 8 rather than the containers' 5 would put
+		// the remainder below zero and delete the overhead along with it.
+		"anOverheadSurvivesBesideANegativeSidecar": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "8").
+					InitContainers(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().
+						WithResourceReq("example.com/gpu", "-3").Obj()).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
+					Obj()).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			infoOptions: []InfoOption{WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("8")}},
+				map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{"a": sets.New[corev1.ResourceName]("example.com/gpu")},
+			)},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"example.com/gpu": 1,
+						"gpu":             8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		// The case above without a deviceClassMappings entry, so the quota key falls
 		// back to the original name. That is the setup the extended-resource guide
 		// describes, and the two contributions have nowhere to go but the one key, so
 		// the total under it is no longer a count of devices.
 		"withNoMappingTheChargeAndTheOverheadShareOneKey": {
-			workload: func() kueue.Workload {
-				wl := utiltestingapi.MakeWorkload("dra", "").
-					PodSets(*utiltestingapi.MakePodSet("a", 1).Request("example.com/gpu", "1").Obj()).Obj()
-				wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
-					"example.com/gpu": resource.MustParse("1"),
-				}
-				return *wl
-			}(),
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}).
+					Obj()).
+				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			infoOptions: []InfoOption{WithPreprocessedDRAResources(
 				map[kueue.PodSetReference]corev1.ResourceList{"a": {"example.com/gpu": resource.MustParse("1")}},
