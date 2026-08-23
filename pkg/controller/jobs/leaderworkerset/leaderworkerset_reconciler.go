@@ -321,12 +321,17 @@ func (r *Reconciler) resolvePriority(ctx context.Context, lws *leaderworkersetv1
 // revisions.
 func (r *Reconciler) applyPriority(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet,
 	resolved *resolvedPriority, wls []*kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
 	if jobframework.WorkloadPriorityClassName(lws) == "" {
 		return parallelize.Until(ctx, len(wls), func(i int) error {
-			return jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wls[i])
+			if err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wls[i]); err != nil {
+				log.Error(err, "Failed to update workload priority", "workload", klog.KObj(wls[i]))
+				return err
+			}
+			return nil
 		})
 	}
-	_, targets := jobframework.ClassifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), lws, wls)
+	_, targets := jobframework.ClassifyWorkloadsForPriorityUpdate(log, lws, wls)
 	if len(targets) == 0 {
 		return nil
 	}
@@ -340,7 +345,11 @@ func (r *Reconciler) applyPriority(ctx context.Context, lws *leaderworkersetv1.L
 	// UpdateWorkloadPriority's own resolve-and-write path unchanged for the other
 	// integrations that call it.
 	return parallelize.Until(ctx, len(targets), func(i int) error {
-		return jobframework.ApplyWorkloadPriority(ctx, r.client, r.record, lws, resolved.classRef, resolved.priority, targets[i])
+		if err := jobframework.ApplyWorkloadPriority(ctx, r.client, r.record, lws, resolved.classRef, resolved.priority, targets[i]); err != nil {
+			log.Error(err, "Failed to update workload priority", "workload", klog.KObj(targets[i]))
+			return err
+		}
+		return nil
 	})
 }
 
