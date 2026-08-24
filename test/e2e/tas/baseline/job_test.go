@@ -18,6 +18,7 @@ package baseline
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -395,7 +396,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(util.Sha
 					g.Expect(tas.TotalDomainCount(
 						scaledWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment,
 					)).Should(gomega.Equal(int(scaledParallelism)))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, 2*time.Minute, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify both job pods are ready", func() {
