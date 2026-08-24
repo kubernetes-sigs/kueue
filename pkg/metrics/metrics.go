@@ -694,7 +694,7 @@ The label 'underlying_cause' can have the following values:
 		prometheus.HistogramOpts{
 			Subsystem: constants.KueueName,
 			Name:      "workload_recovery_wait_time_seconds",
-			Help:      "The time between a workload entered recovery until ready, per `cluser_queue`",
+			Help:      "The time between a workload entered recovery until ready, per `cluster_queue`",
 			Buckets:   generateExponentialBuckets(14),
 		}, append([]string{"cluster_queue", "priority_class", "replica_role"}, clusterQueueMetricsLabels...),
 	)
