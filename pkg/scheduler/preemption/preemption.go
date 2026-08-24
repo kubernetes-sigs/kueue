@@ -20,7 +20,6 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"math"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -490,8 +489,8 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 //     is not +Inf before removal is therefore not +Inf after removal either,
 //     and CompareDRS returns 1 for it as well.
 func fsStrategyUnsatisfiable(preemptorNewShare fairsharing.PreemptorNewShare, targetOldShare fairsharing.TargetOldShare) bool {
-	return math.IsInf(schdcache.DRS(preemptorNewShare).PreciseWeightedShare(), 1) &&
-		!math.IsInf(schdcache.DRS(targetOldShare).PreciseWeightedShare(), 1)
+	return schdcache.DRS(preemptorNewShare).ZeroWeightBorrows() &&
+		!schdcache.DRS(targetOldShare).ZeroWeightBorrows()
 }
 
 // runSecondFsStrategy implements Fair Sharing Rule S2-b. It returns
