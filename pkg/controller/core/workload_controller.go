@@ -1894,6 +1894,22 @@ func extendedResourceName(dc *resourcev1.DeviceClass) string {
 	return ""
 }
 
+// requeueInQueueAfterDeviceClassChange re-adds an admissible workload to the queue
+// with its resources adjusted, unless it now needs DRA reconciliation instead.
+func (h *deviceClassHandler) requeueInQueueAfterDeviceClassChange(ctx context.Context, log logr.Logger, w *kueue.Workload) {
+	if !workload.IsAdmissible(w) {
+		return
+	}
+	wlCopy := w.DeepCopy()
+	workload.AdjustResources(ctx, h.r.client, wlCopy)
+	if dra.NeedsDRAReconcile(wlCopy, h.r.draBackedResources) {
+		return
+	}
+	if err := h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+		log.Error(err, "Failed to re-add workload to queue after DeviceClass change")
+	}
+}
+
 func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], resourceNames ...string) {
 	log := h.r.logger()
 
@@ -1916,15 +1932,7 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 		for i := range lst.Items {
 			w := &lst.Items[i]
 			log.V(3).Info("Requeuing workload due to DeviceClass change", "workload", klog.KObj(w), "resource", name)
-			if workload.IsAdmissible(w) {
-				wlCopy := w.DeepCopy()
-				workload.AdjustResources(ctx, h.r.client, wlCopy)
-				if !dra.NeedsDRAReconcile(wlCopy, h.r.draBackedResources) {
-					if err := h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
-						log.Error(err, "Failed to re-add workload to queue after DeviceClass change")
-					}
-				}
-			}
+			h.requeueInQueueAfterDeviceClassChange(ctx, log, w)
 			q.AddAfter(reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      w.Name,

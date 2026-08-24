@@ -524,6 +524,11 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 		}
 
 		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
+		// AdjustResources lists LimitRanges for every admissible workload here, under
+		// m.Lock, so that NeedsDRAReconcile below sees the same requests it would see
+		// after admission (see dra.NeedsDRAReconcile). Unlike the other call sites,
+		// this one has no cheaper option: the workload has to be classified before it
+		// can be added to either the local queue or draWorkloads.
 		workload.AdjustResources(ctx, m.client, &w)
 		if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
 			// Collect DRA workloads to send outside the lock; DeepCopy keeps a

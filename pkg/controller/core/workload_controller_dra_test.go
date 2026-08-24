@@ -26,8 +26,12 @@ import (
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -482,4 +486,84 @@ func TestReconcileDRA(t *testing.T) {
 		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
+}
+
+// TestCreateSkipsQueueForDRAWorkloadOnlyInLimits verifies that the Create event
+// handler routes a workload whose only mention of a DRA-backed extended resource
+// is a container limit (no request) to DRA reconciliation, instead of queueing it
+// directly as an ordinary extended-resource request. Create builds its own adjusted
+// copy before calling dra.NeedsDRAReconcile, so this only passes if that copy (not
+// e.Object) is what gets checked.
+func TestCreateSkipsQueueForDRAWorkloadOnlyInLimits(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Limit("example.com/gpu", "1").
+		Obj()
+
+	erCache := dra.NewExtendedResourceCache()
+	erCache.Add("example.com/gpu", "gpu-class")
+
+	cl := utiltesting.NewClientBuilder().Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithDRABackedResources(erCache))
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
+	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+	if got := reconciler.Create(event.TypedCreateEvent[*kueue.Workload]{Object: wl}); !got {
+		t.Fatalf("Create() = %v, want true", got)
+	}
+
+	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 0 {
+		t.Fatalf("workload with a limits-only DRA-backed extended resource should not be queued directly; got %d pending", len(pending))
+	}
+}
+
+// TestUpdateSkipsQueueForDRAWorkloadOnlyInLimits is the Update-event counterpart of
+// TestCreateSkipsQueueForDRAWorkloadOnlyInLimits: it verifies the pending-to-pending
+// branch of Update also decides dra.NeedsDRAReconcile on the adjusted copy, not on
+// e.ObjectNew directly.
+func TestUpdateSkipsQueueForDRAWorkloadOnlyInLimits(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+
+	oldWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Obj()
+	newWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Limit("example.com/gpu", "1").
+		Obj()
+
+	erCache := dra.NewExtendedResourceCache()
+	erCache.Add("example.com/gpu", "gpu-class")
+
+	cl := utiltesting.NewClientBuilder().Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithDRABackedResources(erCache))
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
+	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: oldWl,
+		ObjectNew: newWl,
+	}); !got {
+		t.Fatalf("Update() = %v, want true", got)
+	}
+
+	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 0 {
+		t.Fatalf("workload with a limits-only DRA-backed extended resource should not be queued directly; got %d pending", len(pending))
+	}
 }
