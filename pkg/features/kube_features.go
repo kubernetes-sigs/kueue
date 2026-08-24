@@ -194,6 +194,13 @@ const (
 	// via standard resources.requests using DeviceClass extendedResourceName.
 	KueueDRAIntegrationExtendedResource featuregate.Feature = "KueueDRAIntegrationExtendedResource"
 
+	// owner: @thc1006
+	//
+	// Refuse `pods` as a deviceClassMappings name or in a resource transformation.
+	// Releases through 0.19.2 accepted it, and refusing it calls os.Exit, so this
+	// branch holds the refusal until those entries are renamed.
+	ReservedResourceNameValidation featuregate.Feature = "ReservedResourceNameValidation"
+
 	// owner: @MaysaMacedo
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7513-quota-check-strategy
 	//
@@ -759,6 +766,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	KueueDRAIntegrationExtendedResource: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+	ReservedResourceNameValidation: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	KueueDRARejectWorkloadsWhenDRADisabled: {
