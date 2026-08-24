@@ -4831,8 +4831,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
-			ginkgo.It("should prevent other workloads from stealing topology when a preemptor is waiting for multiple evictions", func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+			ginkgo.It("should prevent other workloads from stealing topology when a preemptor is waiting for multiple evictions when PrioritizePreemptorWorkloads feature gate is enabled", func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PrioritizePreemptorWorkloads, true)
 
 				var wlA, wlB, wlPending, preemptor *kueue.Workload
