@@ -1129,6 +1129,65 @@ func TestReconcileEviction(t *testing.T) {
 				}).
 				Obj(),
 		},
+		// Consuming a DeactivationTarget on an already-evicted Workload bypasses Evict, so the
+		// cleanup it performs has to happen on this path or the Rejected check survives.
+		"should reset the checks and clear the deactivation target when the Workload is already evicted": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:    "multikueue",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Retry",
+					},
+					kueue.AdmissionCheckState{
+						Name:  "custom-check",
+						State: kueue.CheckStateRejected,
+					},
+				).
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+						Message: "Evicted due to AdmissionCheck in Retry state",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+						Message: `AdmissionCheck in Rejected state: "custom-check"`,
+					},
+				).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:    "multikueue",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Retry",
+					},
+					kueue.AdmissionCheckState{
+						Name:    "custom-check",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Rejected",
+					},
+				).
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+						Message: "Evicted due to AdmissionCheck in Retry state",
+					},
+				).
+				Obj(),
+		},
 		"should set the Evicted condition with ClusterQueueStopped reason when the StopPolicy is HoldAndDrain": {
 			cq: utiltestingapi.MakeClusterQueue("cq").StopPolicy(kueue.HoldAndDrain).Obj(),
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
