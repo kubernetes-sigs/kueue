@@ -582,18 +582,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 					queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
 					metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
 					admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-					if admittedCond != nil {
-						admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
-						metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
-					}
+					admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
+					metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
 					if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
 						lqRef := metrics.LQRefFromWorkload(wl)
 						lqCustomLabels := r.customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
 						metrics.LocalQueueReadyWaitTime(lqRef, priorityClassName, queuedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
-						if admittedCond != nil {
-							admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
-							metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(lqRef, priorityClassName, admittedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
-						}
+						metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(lqRef, priorityClassName, admittedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
 					}
 				case kueue.WorkloadRecovered:
 					if prevPodsReadyCond != nil && prevPodsReadyCond.Reason == kueue.WorkloadWaitForRecovery {
