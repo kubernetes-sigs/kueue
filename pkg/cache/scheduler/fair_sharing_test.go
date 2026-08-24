@@ -983,6 +983,33 @@ func TestIsBorrowingOn(t *testing.T) {
 	}
 }
 
+func TestZeroWeightBorrows(t *testing.T) {
+	cases := map[string]struct {
+		drs  DRS
+		want bool
+	}{
+		"zero weight and borrowing returns true": {
+			drs:  DRS{fairWeight: 0, unweightedRatio: 100},
+			want: true,
+		},
+		"zero weight and not borrowing returns false": {
+			drs:  DRS{fairWeight: 0, unweightedRatio: 0},
+			want: false,
+		},
+		"non-zero weight and borrowing returns false": {
+			drs:  DRS{fairWeight: 1, unweightedRatio: 100},
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.drs.ZeroWeightBorrows(); got != tc.want {
+				t.Errorf("ZeroWeightBorrows() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestPreciseWeightedShareSerialized(t *testing.T) {
 	cases := map[string]struct {
 		drs  DRS
