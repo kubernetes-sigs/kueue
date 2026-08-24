@@ -185,8 +185,8 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/14763
 	//
 	// Refuse `pods` in a resource transformation, and as a deviceClassMappings name
-	// once KueueDRAIntegration builds the mapper. Off until asked for, since the
-	// refusal exits the manager on a configuration every released version accepted.
+	// once KueueDRAIntegration builds the mapper. With it off such a configuration
+	// loads, and flavor assignment then overwrites the key with the PodSet count.
 	ReservedResourceNameValidation featuregate.Feature = "ReservedResourceNameValidation"
 
 	// owner: @MaysaMacedo
@@ -722,7 +722,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 	ReservedResourceNameValidation: {
-		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	KueueDRARejectWorkloadsWhenDRADisabled: {

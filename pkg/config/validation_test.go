@@ -1376,7 +1376,7 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"device class mapping named pods rejected when DRA is enabled": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true, features.ReservedResourceNameValidation: true},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -1399,7 +1399,7 @@ func TestValidate(t *testing.T) {
 		// while it is off and refusing it would fail an upgrade about something
 		// else. It is refused the day the gate goes on, which is the case above.
 		"device class mapping named pods accepted when DRA is disabled": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false, features.ReservedResourceNameValidation: true},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -1415,7 +1415,7 @@ func TestValidate(t *testing.T) {
 		// Transformations are installed whatever the DRA gate says, so the name is
 		// refused there whatever it says too.
 		"transformation output named pods rejected when DRA is disabled": {
-			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false, features.ReservedResourceNameValidation: true},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -1436,7 +1436,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"transformation output named pods rejected": {
-			featureGates: map[featuregate.Feature]bool{features.ReservedResourceNameValidation: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -1457,7 +1456,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"transformation taking pods as input rejected": {
-			featureGates: map[featuregate.Feature]bool{features.ReservedResourceNameValidation: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -1478,7 +1476,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"transformation multiplying by pods rejected": {
-			featureGates: map[featuregate.Feature]bool{features.ReservedResourceNameValidation: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -1527,7 +1524,6 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		"transformation naming pods twice reports both": {
-			featureGates: map[featuregate.Feature]bool{features.ReservedResourceNameValidation: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
@@ -1555,7 +1551,6 @@ func TestValidate(t *testing.T) {
 		// Reported per entry rather than once for the Configuration, and in the
 		// order the transformations are written.
 		"pods reported for each transformation naming it": {
-			featureGates: map[featuregate.Feature]bool{features.ReservedResourceNameValidation: true},
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
