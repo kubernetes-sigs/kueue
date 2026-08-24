@@ -682,8 +682,10 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			updated = true
 			evicted = true
 		}
-		// An already-evicted Workload skips the Evict() call above, so its DeactivationTarget
-		// would never be cleaned up and would re-deactivate the Workload on re-activation.
+// If the Workload is already evicted, the branch below calls `clientutil.PatchStatus`
+// instead of Evict(), which is the only place that clears DeactivationTarget. 
+// Left in place, that condition would still be true the next time this Workload is
+// activated, causing it to be deactivated again immediately.
 		if dtCond != nil || wl.Status.RequeueState != nil {
 			updated = true
 		}
