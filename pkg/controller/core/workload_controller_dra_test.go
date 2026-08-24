@@ -360,6 +360,55 @@ func TestReconcileDRA(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"reconcile DRA extended resource specified only via container limits": {
+			// Regression test for deciding dra.NeedsDRAReconcile on a copy that has
+			// already been through workload.AdjustResources: this workload's only
+			// mention of the DRA-backed extended resource is a container limit, no
+			// request, so NeedsDRAReconcile can only see it after the limits-to-requests
+			// copy runs. Without that ordering, Reconcile would skip handleDRA entirely
+			// and none of the conditions below would be set.
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                 true,
+				features.KueueDRAIntegrationExtendedResource: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl-limits-only-extended-resource", "ns").
+				Queue("lq").
+				Limit("example.com/gpu", "1500m"). // 1.5 GPUs is invalid because extended resources must be integer quantities
+				Obj(),
+			additionalObjects: []client.Object{
+				utiltesting.MakeDeviceClass("gpu-class").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("example.com/gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl-limits-only-extended-resource", "ns").
+				Queue("lq").
+				Limit("example.com/gpu", "1500m").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
+				}).
+				Obj(),
+		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              true,
