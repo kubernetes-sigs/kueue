@@ -1140,6 +1140,45 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 				Obj()),
 			wantError: nil,
 		},
+		"update podready condition recovery success": {
+			workload: utiltestingapi.MakeWorkload("job-test-job-podready-recovery", metav1.NamespaceDefault).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Label(constants.JobUIDLabel, "job-test-job-podready-recovery").
+				ControllerReference(testGVK, "test-job-podready-recovery", "test-job-podready-recovery").
+				Queue(testLocalQueueName).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Conditions(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Admitted",
+					Message:            "The workload is admitted",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				}, metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForRecovery,
+					Message:            "Not all pods are ready or succeeded",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				}).
+				Admission(&kueue.Admission{
+					ClusterQueue: "default-cq",
+				}).
+				Obj(),
+			job: (*job.Job)(testingjob.MakeJob("test-job-podready-recovery", metav1.NamespaceDefault).
+				UID("test-job-podready-recovery").
+				Label(constants.QueueLabel, string(testLocalQueueName)).
+				Parallelism(1).
+				Suspend(false).
+				Containers(corev1.Container{
+					Name: "c",
+					Resources: corev1.ResourceRequirements{
+						Requests: make(corev1.ResourceList),
+					},
+				}).
+				Ready(1).
+				Obj()),
+			wantError: nil,
+		},
 	}
 
 	for name, tc := range testCases {
