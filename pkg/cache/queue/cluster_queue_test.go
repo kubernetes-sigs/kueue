@@ -2042,8 +2042,9 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 
 func TestRequeueHashTriggerByReason(t *testing.T) {
 	tests := map[string]struct {
-		reason   RequeueReason
-		wantHash bool
+		reason         RequeueReason
+		admissionScope *kueue.AdmissionScope
+		wantHash       bool
 	}{
 		"nofit triggers hash": {
 			reason:   RequeueReasonNoFit,
@@ -2065,6 +2066,24 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 			reason:   RequeueReasonGeneric,
 			wantHash: false,
 		},
+		"nofit triggers hash under usage-based admission fair sharing": {
+			reason: RequeueReasonNoFit,
+			admissionScope: &kueue.AdmissionScope{
+				AdmissionMode: kueue.UsageBasedAdmissionFairSharing,
+			},
+			wantHash: true,
+		},
+		"preempt no candidates does not trigger hash under usage-based admission fair sharing": {
+			// The scheduling shape omits the queue-order timestamp that
+			// UsageBasedAdmissionFairSharing's LocalQueue-usage-first pop order can
+			// reorder relative to LowerOrNewerEqualPriority preemption eligibility, so a
+			// class-wide PreemptionNoCandidates conclusion is unsafe here. See Kueue#14231.
+			reason: RequeueReasonPreemptionNoCandidates,
+			admissionScope: &kueue.AdmissionScope{
+				AdmissionMode: kueue.UsageBasedAdmissionFairSharing,
+			},
+			wantHash: false,
+		},
 	}
 
 	for name, tc := range tests {
@@ -2075,6 +2094,7 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 				&kueue.ClusterQueue{
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy: kueue.BestEffortFIFO,
+						AdmissionScope:   tc.admissionScope,
 					},
 				}, nil,
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
