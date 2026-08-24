@@ -692,12 +692,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		prepare := func(wl *kueue.Workload) {
 			if dtCond != nil {
 				apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
-			}
-			if !evicted {
-				// Evict resets the checks on the transition path; an already-evicted Workload
-				// never reaches it, so a Rejected check would survive and re-deactivate the
-				// Workload as soon as it is reactivated.
-				workloadevict.ResetChecksOnEviction(wl, r.clock.Now())
+				// Consuming a DeactivationTarget on an already-evicted Workload (evicted is
+				// false) skips Evict(), the only other caller of ResetChecksOnEviction. Without
+				// this the checks keep whatever state they had, and a Rejected one would
+				// re-deactivate the Workload as soon as it is reactivated.
+				if !evicted {
+					workloadevict.ResetChecksOnEviction(wl, r.clock.Now())
+				}
 			}
 			if wl.Status.RequeueState != nil {
 				// Clear RequeueState using Merge Patch instead of SSA.
