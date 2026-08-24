@@ -171,7 +171,7 @@ style rack2afterC fill:#f84,stroke:#333,stroke-width:4px
 style rack2afterD fill:#f84,stroke:#333,stroke-width:4px
 ```
 
-### 2. Hero workloads.
+### 2. Hero workloads
 
 Related [issue](https://github.com/kubernetes-sigs/kueue/issues/8826).
 
@@ -182,7 +182,7 @@ quotas assigned to all cluster queue are bad from the user expierience perspecti
 Moreover they lead to wasted resources if hero workload failed for
 some reason, and quotas are not brought back to previous status.
 
-### 3. Desired behavior of preemptions is buisness driven.
+### 3. Desired behavior of preemptions is buisness driven
 
 Many companies have speicific requirements when workload should be preempted or not,
 depending on their buisness needs.
@@ -288,7 +288,7 @@ Example config based on priority and slice size can look like this:
 spec:
   rules:
     - trigger: "InsufficientTopology"
-      minTriggerRequiredDurationSeconds: 30
+      MinTriggerRequiredDuration: "30s"
 			candidates:
 			- relativeWorkloadPriority: "LowerOrEqual"
 				relationRequirement: "AnyClusterQueue"
@@ -306,8 +306,9 @@ As it has "AnyClusterQueue" relation it can preempt workloads even if they are n
 ### Notes
 
 There are many possible extensions of the proposed selectors in the rules. For now we propose to support only those that for us seemed most common and natural, but the design allows for extensibility. Examples of possible extensions are:
--  advanced topology comparison selectors extending custom numeric label based selector - e.g. "require same podset required levels for considered workloads"
-- resource requests/limits based selectors - "only preempt workloads that request less than X amount of resources"
+-  advanced topology comparison selectors extending custom numeric label based selector - e.g. "require same podset required levels for considered workloads",
+- resource requests/limits based selectors - "only preempt workloads that request less than X amount of resources",
+- detection of misconfigurations causing preemption cycles.
 
 As the scope of the design is already broad we leave them as separate implemetation effort and not part of initial KEP proposal.
 
@@ -381,8 +382,9 @@ type PreemptionRule struct {
 	MatchingPreemptorWorkloads metav1.LabelSelector
 
 	Trigger PreemptionRuleTrigger
-	// How long the trigger has to occur to start preempting workloads specified by candidates. 0 indicates that preemptions can be started immediately.
-	minTriggerRequiredDurationSeconds int
+
+	// How long the trigger has to occur to start preempting workloads specified by candidates. 0s indicates that preemptions can be started immediately. Default is 0s.
+	MinTriggerRequiredDuration metav1.Duration
 
 	// Selection rules for workloads that are candidates for preemption.
 	// Candidates resulting from multiple selectors are summed into one set. No selectors result in empty candidate set, thereby disalowing any preemptions with this rule.
@@ -428,8 +430,7 @@ type PreemptionCandidateSelector struct{
 
 	// Accepts all if not set
 	// Filter candidate workloads using custom numeric labels from the workload
-	// resource. If you wish to propagate specific labels from the source job-like
-	// resour
+	// resource.
 	// Multiple numeric labels are joined using AND-rule (all have to be satisfied).
 	NumericLabels []NumericLabelConstraint
 
@@ -455,13 +456,13 @@ type PreemptionCandidateSelector struct{
 	RelativeWorkloadPrioirty *RelativeConstraint
 
 	// Accepts any execution times if not set
-	MinExecutionTimeSeconds *int64
-	MaxExecutionTimeSeconds *int64
+	MinExecutionDuration *metav1.Duration
+	MaxExecutionDuration *metav1.Duration
 	ExecutionTimeRelation *RelativeConstraint
 
 	// Accepts any time from creation if not set
-	MinTimeFromCreationSeconds *int64
-	MaxTimeFromCreationSeconds *int64
+	MinTimeFromCreationDuration *metav1.Duration
+	MaxTimeFromCreationDuration *metav1.Duration
 	TimeFromCreationRelation *RelativeConstraint
 }
 
@@ -589,7 +590,7 @@ type PreemptionLimitSpec struct {
 	
 	// How many preemption events can there be in the givent time window. 
 	Limit  int
-	LimitWindowSeconds int
+	LimitWindowDuration metav1.Duration
 }
 
 type PreemptionLimitStatus struct {
@@ -609,7 +610,7 @@ Conditions []metav1.Condition
 PreemptionLimit limits the number of preemptions that happen for the specified set of rules. The PreemptionCode evaluates proposed preemptions against defined limit objects, allowing them to proceed only if adequate preemption quota remains. If preemption is in scope of multiple limits, quota must exist in all of them.
 To track this, a list of preemption rule names responsible for selecting each candidate must be maintained.
 
-To manage this data, Kueue stores a comprehensive preemption map in memory, which is isolated per PreemptionLimit. This map tracks all preemption event timestamps under a specific cq/workload key, capturing events that occurred within the designated LimitWindowSeconds. Moreover, it tracks only events that are in scope of the specific limit, if preemption does not match the defined config or rules selector it will be not tracked in particular instance of the preemption map.
+To manage this data, Kueue stores a comprehensive preemption map in memory, which is isolated per PreemptionLimit. This map tracks all preemption event timestamps under a specific cq/workload key, capturing events that occurred within the designated LimitWindowDuration. Moreover, it tracks only events that are in scope of the specific limit, if preemption does not match the defined config or rules selector it will be not tracked in particular instance of the preemption map.
 This list is dynamically trimmed upon each retrieval to filter out expired timestamps.
 
 Furthermore, the status of the PreemptionLimit is refreshed periodically—approximately every minute—to write the aggregated totals into the count map.
@@ -692,7 +693,7 @@ flowchart TD
      - If the workload cannot fit directly (e.g. requires preemption or lacks resources/topology), `processEntry()` assigns or updates the trigger condition (`InsufficientQuota`, `QuotaReclaimRequired`, or `InsufficientTopology`) along with an initial observation timestamp in `Workload.Status.Conditions` and requeues the workload.
 
 2. **Trigger Duration & Preemption Evaluation (`PreemptionEvaluator`)**:
-   - In subsequent scheduling cycles, `getInitialAssignments()` queries `PreemptionEvaluator` to check whether the elapsed time since the first observation timestamp satisfies `minTriggerRequiredDurationSeconds` for any applicable preemption rule and evaluates preemption limits.
+   - In subsequent scheduling cycles, `getInitialAssignments()` queries `PreemptionEvaluator` to check whether the elapsed time since the first observation timestamp satisfies `MinTriggerRequiredDuration` for any applicable preemption rule and evaluates preemption limits.
    - If no trigger duration is satisfied, preemption is bypassed for this cycle, allowing the workload to continue waiting.
 
 3. **Upper-Bound Feasibility Check (`CandidatesQuotaAndTopologyUpperLimit`)**:
@@ -780,63 +781,61 @@ when drafting this test plan.
 [testing-guidelines]: https://git.k8s.io/community/contributors/devel/sig-testing/testing.md
 -->
 
-[ ] I/we understand the owners of the involved components may require updates to
+[x] I/we understand the owners of the involved components may require updates to
 existing tests to make this code solid enough prior to committing the changes necessary
 to implement this enhancement.
 
-#### Prerequisite testing updates
-
-<!--
-Based on reviewers feedback describe what additional tests need to be added prior
-implementing this enhancement to ensure the enhancements have also solid foundations.
--->
+For now the test plan is focues on Preemption Configuration. Preemption Limits related tests will be added later.
 
 #### Unit tests
+1. Trigger conditions - new conditions are added to the workload when it cannnot be admitted because of particular reason and cleared on admission.
+2. Preemptions Evaluator:
+    * Uses only rules that are applicable according to trigger and minimal trigger duration.
+    * Orders candidates according to selected ordering
+    * Collects candidates from multiple rules and deduplicates.
+    * Updates DRS and borrowing information dynamically - filtering out candidates that
+    should be no longer selected according to DRS/Borrowing selectors
+    * Tests for each candidate selector
+3. New preemptions are only considered when Feature Gate is enabled.
 
-<!--
-In principle every added code should have complete unit test coverage, so providing
-the exact set of tests will not bring additional value.
-However, if complete unit test coverage is not possible, explain the reason of it
-together with explanation why this is acceptable.
--->
+Majorty of the code will by in the `scheduler/preemption` package, a new subpackage with configurable preemptions will be created there.
 
-<!--
-Additionally, try to enumerate the core package you will be touching
-to implement this enhancement and provide the current unit coverage for those
-in the form of:
-- <package>: <date> - <current test coverage>
-
-This can inform certain test coverage improvements that we want to do before
-extending the production code to implement this enhancement.
--->
-
-- `<package>`: `<date>` - `<test coverage>`
+Small parts of the implementation like conditions or integration with the scheduler itself will be done in other packages and accompanied with appropriate unit tests.
 
 #### Integration tests
-
-<!--
-Describe what tests will be added to ensure proper quality of the enhancement.
-
-After the implementation PR is merged, add the names of the tests here.
--->
+1. New configurable preemptions are used when ConfigurablePreemptions feature gate is enabled and preemption configuration specified for a cluster queue. (old preemptions are covered by existing tests)
+2. Preemade configuration tests satisfying the main user stories - defrag and hero jobs.
+3. Dedicated preemption performance test suite - to compare performance of new implementation with existing implementation for identical configurations.
 
 #### e2e tests
 
-<!--
-This question should be filled when targeting a release.
-For Alpha, describe what tests will be added to ensure proper quality of the enhancement.
+1. Cluster admin can create preemption config and use it to preempt workloads.
+2. Batch users cannot modify the preemption config, but their workloads follow rules defined in configs attached to CQ.
+3. Different CQs can use different preemption configurations.
+4. Preexisting classical/fair sharing preemptions can be mixed with new preemption configs.
 
-For Beta and GA, document that tests have been written,
-have been executed regularly, and have been stable.
-This can be done with:
-- permalinks to the GitHub source code
-- links to the periodic job (typically a job owned by the SIG responsible for the feature), filtered by the test name
-
-If e2e tests are not necessary or useful, explain why.
--->
 
 ### Graduation Criteria
 
+#### Alpha
+
+* PreemptionConfiguration and PreemptionRule CRDs are implemented.
+* Workloads can be preempted according to rules defined in preemption configuration.
+* Workloads that are preempted have the rule that triggered the preemption added in the eviction condition.
+* Lazy defragmentation use case is covered by available configuration rules.
+
+#### Beta
+* Configurable preemptions covers:
+  * existing classical and fair sharing preemptions use cases
+  * defragmentation
+  * hero jobs.
+* No significant performance regression for existing preemptions translated to new configurations.
+* All of the **Open Challanges** are addressed.
+* Public documentation explains configurable preemptions, documents the rules and triggers. Examples of the recommended configurations are available for the users. Common pitfalls are documented and documentation has suitable warning that this is an advanced topic and can lead to continous preemptions if used inappropriately.
+
+
+#### Stable
+TBD
 <!--
 
 Clearly define what it means for the feature to be implemented and
@@ -878,9 +877,11 @@ Create performance test suite for preemptions to validate current implementation
 
 **Step 3.** Reimplement existing rules using the new API.
 
-**Step 4.** Implement PreemptionLimits.
+**Step 4.** Design update with PreemptionLimits test scenarios and details.
 
-**Step 5.** Implement the remaining "selectors" in preemption rules.
+**Step 5.** Implement PreemptionLimits.
+
+**Step 6.** Implement the remaining "selectors" in preemption rules.
 
 
 <!--
