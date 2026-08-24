@@ -166,7 +166,7 @@ ProvisioningRequest is an imperative, one-shot API. The caller creates it, the a
 
 * Because CapacityBuffers today do not support being filled by workloads, admitted workloads consuming the buffered capacity causes the autoscaler to refill the buffer, leading to overprovisioning. To prevent this, Kueue deletes the CapacityBuffer on admission.
 
-* If `timeoutSeconds` is configured and the buffer does not reach `FitsExistingCapacity` within that duration, Kueue rejects the AdmissionCheck, evicts the workload, and releases quota.
+* If `timeoutSeconds` is configured and the buffer does not reach `FitsExistingCapacity` within that duration, Kueue sets the AdmissionCheck to `Retry`. This evicts the workload and releases quota. The workload re-enters the queue and on re-admission, a new CapacityBuffer is created.
 
 ### Milestone 2 - Infeasibility detection
 
@@ -196,7 +196,7 @@ Mitigation: This is being tracked in [kubernetes-sigs/karpenter#3223](https://gi
 
 Even when a request is not structurally infeasible, capacity may remain unavailable for an extended period (e.g., prolonged ICE across an entire region). During this time, the workload holds its quota reservation, potentially blocking other workloads that could use different capacity. This is the same behavior as ProvisioningRequest when CAS has not yet set `Failed=True` - quota is held until the autoscaler succeeds or signals failure.
 
-Mitigation: `timeoutSeconds` in CapacityBufferConfig. Kueue tracks the buffer's creation time and rejects the AdmissionCheck if the configured duration is exceeded. Unlike ProvisioningRequest's `ValidUntilSeconds` which is enforced by CAS, this timeout is enforced by Kueue directly, no autoscaler changes needed. If unset, Kueue waits indefinitely (same as ProvisioningRequest without `ValidUntilSeconds`).
+Mitigation: `timeoutSeconds` in CapacityBufferConfig. Kueue tracks the buffer's creation time and sets the AdmissionCheck to `Retry` if the configured duration is exceeded. Unlike ProvisioningRequest's `ValidUntilSeconds` which is enforced by CAS, this timeout is enforced by Kueue directly, no autoscaler changes needed. If unset, Kueue waits indefinitely (same as ProvisioningRequest without `ValidUntilSeconds`).
 
 #### CapacityBuffer API is not yet GA
 
@@ -224,10 +224,14 @@ The CapacityBuffer API exposes two status conditions that Kueue reacts to:
 Kueue maps these to AdmissionCheck states:
 
 * `Provisioning=True` + `FitsExistingCapacity` - AdmissionCheck `Ready`
-* `Provisioning=False` (any reason) - AdmissionCheck `Pending`
-* `ReadyForProvisioning=False` - AdmissionCheck `Rejected`
+* `Provisioning=False` + `RequiresNewCapacity` - AdmissionCheck `Pending`
+* `Provisioning=False` + `NotReadyForProvisioning` - AdmissionCheck `Pending`
+* `Provisioning=False` + `BufferEmpty` - AdmissionCheck `Pending`
+* `ReadyForProvisioning=False` - AdmissionCheck `Pending`
+* Timeout expires (`timeoutSeconds` exceeded) - AdmissionCheck `Retry` (workload evicted and re-enters queue)
+* Infeasibility signal from autoscaler (Milestone 2, exact condition TBD per [#3223](https://github.com/kubernetes-sigs/karpenter/issues/3223)) - AdmissionCheck `Rejected` (workload deactivated, admin must fix)
 
-Note: Since Kueue creates the PodTemplate itself, `ReadyForProvisioning=False` should not occur in normal operation. It is handled as a defensive check against race conditions or bugs.
+Note: Since Kueue creates the PodTemplate itself, `ReadyForProvisioning=False` should not occur in normal operation. It is treated as `Pending` (not `Rejected`) because it likely reflects a transient race condition that resolves on its own. If it does not resolve, `timeoutSeconds` handles it via `Retry`.
 
 ### CapacityBuffer lifecycle
 
@@ -273,7 +277,7 @@ Kueue evicts the workload if any of the following occur. Eviction is Kueue's int
 * A higher-priority workload needs the quota (preemption)
 * The ClusterQueue is deactivated by an admin
 * The workload is deactivated by the user (`.spec.active` set to `false`)
-* An AdmissionCheck is rejected (e.g., `ReadyForProvisioning=False`)
+* An AdmissionCheck is rejected (Milestone 2: infeasibility detected)
 
 On eviction, the workload re-enters the queue. If later re-admitted, new CapacityBuffers are created.
 
@@ -286,7 +290,7 @@ The `CapacityBufferConfig` CRD configures how the controller creates `CapacityBu
 | ProvisioningRequestConfig field | CapacityBufferConfig | Rationale |
 |---------------------------------|---------------------|------------|
 | `provisioningClassName` | Hardcoded | CapacityBuffer has an analogous `provisioningStrategy` field. The only strategy today is `buffer.x-k8s.io/active-capacity`, which actively scales up the cluster by creating placeholder (virtual) pods that trigger the autoscaler to provision nodes. Kueue hardcodes this value when creating CapacityBuffers. If new strategies are introduced upstream, this can be exposed in the config. |
-| `parameters` | `timeoutSeconds` | CapacityBuffer does not accept arbitrary key-value parameters. Instead, a dedicated `timeoutSeconds` field is added to CapacityBufferConfig. Unlike ProvisioningRequest where `ValidUntilSeconds` is passed to CAS for autoscaler-side enforcement, this timeout is enforced by Kueue directly. If the buffer does not reach `FitsExistingCapacity` within the configured duration, Kueue rejects the AdmissionCheck and releases quota. |
+| `parameters` | `timeoutSeconds` | CapacityBuffer does not accept arbitrary key-value parameters. Instead, a dedicated `timeoutSeconds` field is added to CapacityBufferConfig. Unlike ProvisioningRequest where `ValidUntilSeconds` is passed to CAS for autoscaler-side enforcement, this timeout is enforced by Kueue directly. If the buffer does not reach `FitsExistingCapacity` within the configured duration, Kueue sets the AdmissionCheck to `Retry` and releases quota. |
 | `managedResources` | **Kept** | Same purpose: only create buffers for PodSets requesting these resources (e.g., only GPUs). |
 | `retryStrategy` | Dropped | CapacityBuffer is declarative - the autoscaler continuously reconciles. There is no failure-and-recreate cycle requiring retry logic. |
 | `podSetUpdates` | Future | Toleration injection needed when taints are implemented for sniping prevention (see Appendix). |
@@ -323,11 +327,11 @@ type CapacityBufferConfigSpec struct {
 	ManagedResources []corev1.ResourceName `json:"managedResources,omitempty"`
 
 	// timeoutSeconds is how long Kueue waits for the CapacityBuffer to reach
-	// FitsExistingCapacity before rejecting the AdmissionCheck and releasing quota.
+	// FitsExistingCapacity before setting the AdmissionCheck to Retry and releasing quota.
 	// If unset, Kueue waits indefinitely.
 	//
 	// +optional
-	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Minimum=1
 	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
 }
 ```
@@ -448,7 +452,7 @@ If the admin wanted both PodSets buffered (e.g., in a capacity-constrained clust
 
 * End-to-end flow: workload submitted, buffer created, check Ready, workload admitted, buffer deleted.
 * Workload eviction: buffer cleaned up, re-created on re-admission.
-* Configuration error: missing PodTemplate leads to check Rejected.
+* Timeout: buffer pending beyond `timeoutSeconds` leads to check Retry and re-queue.
 * ManagedResources: workload with no managed resources passes check immediately.
 
 ### Graduation Criteria
