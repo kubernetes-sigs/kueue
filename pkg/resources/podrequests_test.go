@@ -91,23 +91,35 @@ func TestPodRequests(t *testing.T) {
 	}
 }
 
-// The helper adds the overhead into the pod-level list in place, and a decimal
-// quantity is held behind a pointer, so a borrowed spec grows on every read.
+// The helper adds the overhead into the pod-level list in place, and only a
+// decimal quantity is held behind a pointer, so the whole-unit row is the
+// control: on its own the other one could pass for the wrong reason.
 func TestPodRequestsIsIdempotent(t *testing.T) {
-	spec := &corev1.PodSpec{
-		Containers: []corev1.Container{container(corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")})},
-		Resources:  &corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1.5Gi")}},
-		Overhead:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("100Mi")},
+	cases := map[string]struct {
+		podLevel string
+	}{
+		"a pod-level request carrying a decimal": {podLevel: "1.5Gi"},
+		"a pod-level request in whole units":     {podLevel: "1Gi"},
 	}
-	before := spec.DeepCopy()
 
-	first := PodRequests(spec)
-	second := PodRequests(spec)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			spec := &corev1.PodSpec{
+				Containers: []corev1.Container{container(corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")})},
+				Resources:  &corev1.ResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse(tc.podLevel)}},
+				Overhead:   corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("100Mi")},
+			}
+			before := spec.DeepCopy()
 
-	if diff := cmp.Diff(first, second); diff != "" {
-		t.Errorf("the second read differs from the first (-first,+second):\n%s", diff)
-	}
-	if diff := cmp.Diff(before, spec); diff != "" {
-		t.Errorf("PodRequests() wrote to the spec it was lent (-before,+after):\n%s", diff)
+			first := PodRequests(spec)
+			second := PodRequests(spec)
+
+			if diff := cmp.Diff(first, second); diff != "" {
+				t.Errorf("the second read differs from the first (-first,+second):\n%s", diff)
+			}
+			if diff := cmp.Diff(before, spec); diff != "" {
+				t.Errorf("PodRequests() wrote to the spec it was lent (-before,+after):\n%s", diff)
+			}
+		})
 	}
 }
