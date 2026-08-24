@@ -4998,7 +4998,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						g.Expect(cond).ToNot(gomega.BeNil())
 						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 						g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonWaitingForQuota))
-						g.Expect(cond.Message).To(gomega.ContainSubstring("topology"))
+						g.Expect(cond.Message).To(gomega.ContainSubstring(`topology "default" doesn't allow to fit any of 1 pod(s)`))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
