@@ -84,14 +84,29 @@ const (
 )
 
 // classifyQuotaBand computes the quotaBand for the preemptor cluster queue after
-// admitting the incoming workload, and reports whether the queue is already
-// borrowing (usage above nominal) for any of the requested resources.
-func classifyQuotaBand(cq *schdcache.ClusterQueueSnapshot, requests resources.FlavorResourceQuantities) (quotaBand, bool) {
-	var band quotaBand
-	var usageBorrowing bool
-	for fr, val := range requests {
+// admitting the incoming workload, and reports whether the queue's usage is at
+// or above nominal for any flavor-resource needing preemption.
+//
+// The band is collapsed conjunctively: it is exceedsBorrowing only when EVERY
+// flavor-resource needing preemption exceeds its borrowing limit. Cross-queue
+// preemption frees cohort quota, which cannot raise the queue's own borrowing
+// cap, so only then are hierarchy/priority candidates provably useless for all
+// resources driving preemption. A single over-limit resource must not poison
+// the classification — another resource may still be freed by reclaiming from
+// other queues.
+func classifyQuotaBand(
+	cq *schdcache.ClusterQueueSnapshot,
+	requests resources.FlavorResourceQuantities,
+	frsNeedPreemption sets.Set[resources.FlavorResource],
+) (quotaBand, bool) {
+	if len(frsNeedPreemption) == 0 {
+		return withinNominal, false
+	}
+	band := exceedsBorrowing
+	var usageAtOrAboveNominal bool
+	for fr := range frsNeedPreemption {
 		usage := cq.ResourceNode.Usage[fr]
-		after := usage.Add(val)
+		after := usage.Add(requests[fr])
 		quota := cq.QuotaFor(fr)
 		nominal := quota.Nominal
 
@@ -104,17 +119,21 @@ func classifyQuotaBand(cq *schdcache.ClusterQueueSnapshot, requests resources.Fl
 		}
 		switch {
 		case hasBorrowingLimit && after.Cmp(upper) > 0:
-			band = max(band, exceedsBorrowing)
+			band = min(band, exceedsBorrowing)
 		case after.Cmp(nominal) > 0:
-			band = max(band, withinBorrowing)
+			band = min(band, withinBorrowing)
 		default: // after <= nominal
-			band = max(band, withinNominal)
+			band = min(band, withinNominal)
 		}
-		if !usageBorrowing && usage.Cmp(nominal) > 0 {
-			usageBorrowing = true
+		// Mirror queueUnderNominalInResourcesNeedingPreemption: the consumer
+		// skips the no-borrowing run when usage >= nominal for a resource
+		// needing preemption, making ReclaimWithoutBorrowing priority
+		// candidates unusable.
+		if !usageAtOrAboveNominal && usage.Cmp(nominal) >= 0 {
+			usageAtOrAboveNominal = true
 		}
 	}
-	return band, usageBorrowing
+	return band, usageAtOrAboveNominal
 }
 
 // NewCandidateIterator creates a new iterator that yields candidate workloads for preemption
@@ -131,7 +150,7 @@ func NewCandidateIterator(
 	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
 ) *candidateIterator {
 	cq := hierarchicalReclaimCtx.Cq
-	band, usageBorrowing := classifyQuotaBand(cq, hierarchicalReclaimCtx.Requests)
+	band, usageAtOrAboveNominal := classifyQuotaBand(cq, hierarchicalReclaimCtx.Requests, frsNeedPreemption)
 
 	sameQueueCandidates := collectSameQueueCandidates(hierarchicalReclaimCtx)
 	var hierarchyCandidates, priorityCandidates []*candidateElem
@@ -161,11 +180,13 @@ func NewCandidateIterator(
 	var allCandidates []*candidateElem
 	var noCandidateFromOtherQueues bool
 	switch band {
-	// exceedsBorrowing: usage already exceeds the borrowing limit, so preempting
-	// workloads in other queues would not free up any space for this queue.
-	// Only same-queue candidates are worth considering. The hierarchy/priority
-	// collection (the O(N) cohort scan) is skipped entirely — that is the
-	// short-circuit optimization, so collect_hierarchy_priority is not emitted.
+	// exceedsBorrowing: every resource needing preemption exceeds the borrowing
+	// limit, so preempting workloads in other queues would not free up any
+	// space usable by this queue — freed cohort quota cannot raise the queue's
+	// own borrowing cap. Only same-queue candidates are worth considering.
+	// The hierarchy/priority collection (the O(N) cohort scan) is skipped
+	// entirely — that is the short-circuit optimization, so
+	// collect_hierarchy_priority is not emitted.
 	case exceedsBorrowing:
 		sortByOrdering(sameQueueCandidates)
 		allCandidates = sameQueueCandidates
@@ -173,16 +194,17 @@ func NewCandidateIterator(
 	// withinBorrowing / withinNominal: both consider all candidate groups
 	// (hierarchy, priority, same-queue) with identical collection and sort logic.
 	// One shared special case: when hierarchy candidates are empty AND borrowing
-	// within the cohort is forbidden AND the queue is already borrowing,
-	// preempting other queues cannot free space usable by this workload, so
-	// priority (other-queue) candidates are dropped. In practice this only fires
-	// in the withinBorrowing band (withinNominal implies usage <= nominal), but
-	// the guard is expressed on usageBorrowing, not on the band.
+	// within the cohort is forbidden AND the queue is at or above nominal in a
+	// resource needing preemption, the consumer only runs the borrowing pass,
+	// in which ReclaimWithoutBorrowing priority candidates are invalid anyway,
+	// so they are dropped here. The guard mirrors
+	// queueUnderNominalInResourcesNeedingPreemption used by the consumer, so
+	// dropping the candidates cannot change the outcome.
 	case withinBorrowing, withinNominal:
 		hierarchyCandidates, priorityCandidates = collectCandidatesForHierarchicalReclaim(hierarchicalReclaimCtx)
 		if len(hierarchyCandidates) == 0 {
 			borrowWithinCohortForbidden, _ := IsBorrowingWithinCohortForbidden(cq)
-			if borrowWithinCohortForbidden && usageBorrowing {
+			if borrowWithinCohortForbidden && usageAtOrAboveNominal {
 				priorityCandidates = nil
 			}
 		}
