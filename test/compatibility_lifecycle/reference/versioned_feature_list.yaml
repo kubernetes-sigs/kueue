@@ -106,7 +106,7 @@
   - default: false
     lockToDefault: false
     preRelease: Alpha
-    version: "0.20"
+    version: "0.18"
 - name: FastQuotaReleaseInPodIntegration
   versionedSpecs:
   - default: false
