@@ -32,11 +32,11 @@ func TestFeatureGate(t *testing.T) {
 	}
 }
 
-// The gate defers the refusal rather than withholding it, so it has to arrive
-// on. Turning it off is the escape hatch for a configuration written earlier.
-func TestReservedResourceNameValidationDefaultsOn(t *testing.T) {
-	if !utilfeature.DefaultFeatureGate.Enabled(ReservedResourceNameValidation) {
-		t.Error("ReservedResourceNameValidation is off by default; a configuration naming pods would load unrefused")
+// A configuration written before the refusal has to keep loading, so the default
+// is part of the contract here and not just a starting value.
+func TestReservedResourceNameValidationDefaultsOff(t *testing.T) {
+	if utilfeature.DefaultFeatureGate.Enabled(ReservedResourceNameValidation) {
+		t.Error("ReservedResourceNameValidation is on by default; a configuration naming pods would exit the manager")
 	}
 }
 

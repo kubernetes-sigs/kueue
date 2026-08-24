@@ -478,8 +478,8 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 			seenKeys.Insert(transform.Input)
 		}
 		// pods is reserved for the request Kueue synthesizes from the PodSet
-		// count, so a transformation must not name it in any position. Gated so
-		// a configuration that loaded before can defer the os.Exit for a release.
+		// count, so a transformation must not name it in any position. Gated
+		// because the refusal exits the manager on a file that used to load.
 		if refuseReserved {
 			if transform.Input == corev1.ResourcePods {
 				allErrs = append(allErrs, field.Invalid(
@@ -530,8 +530,8 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 		}
 
 		// pods is reserved for the request Kueue synthesizes from the PodSet count.
-		// Dormant until KueueDRAIntegration builds the mapper, and deferred by the
-		// same gate as the transformation positions.
+		// The mapper is only built with DRA on, so the name is inert until then,
+		// and refusing it exits the manager the same way.
 		if refuseReserved && features.Enabled(features.KueueDRAIntegration) && mapping.Name == corev1.ResourcePods {
 			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, reservedResourceNameMsg))
 		}
