@@ -28,12 +28,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
@@ -104,6 +106,7 @@ func TestFairPreemptions(t *testing.T) {
 		incoming         *kueue.Workload
 		targetCQ         kueue.ClusterQueueReference
 		wantPreempted    sets.Set[string]
+		featureGates     map[featuregate.Feature]bool
 	}{
 		"reclaim nominal from user using the most": {
 			clusterQueues: baseCQs,
@@ -1107,9 +1110,97 @@ func TestFairPreemptions(t *testing.T) {
 				targetKeyReason("/x1", kueue.InCohortFairSharingReason),
 			),
 		},
+		// The case when workloads from preemptor's CQ have lower priority, so all the other
+		// workloads are processed first, but none are considered fair by DRS.
+		// Later, once the preemptor's workloads are preempted, now workloads from
+		// other CQs are considered fair to be preempted by DRS.
+		"can admit after preempting workloads from the preemptor's CQ with lower processing priority": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("left-a").
+					Cohort("left").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyAny,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("right-b").
+					Cohort("right").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyAny,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("right-c").
+					Cohort("right").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyAny,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "15").Obj()).
+					Obj(),
+				utiltestingapi.MakeCohort("left").
+					Parent("root").
+					FairWeight(resource.MustParse("20")).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+				utiltestingapi.MakeCohort("right").
+					Parent("root").
+					FairWeight(resource.MustParse("10")).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
+					Obj(),
+			},
+			strategies: []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("a1", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("left-a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("a2", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("left-a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("a3", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("left-a", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b1", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b2", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b3", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b4", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b5", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b6", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-b", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("c1", "").Request(corev1.ResourceCPU, "1").SimpleReserveQuota("right-c", "default", now).Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("a_incoming", "").Request(corev1.ResourceCPU, "10").Obj(),
+			targetCQ: "left-a",
+			// Detailed scenario:
+			// * Workloads from CQs "right-b" and "right-c" are processed first because of fairWeights.
+			// * Initially workloads from "right" cohort doesn't satisfy the strategy because
+			//   DRS of preemptor's is large (because of fairWright).
+			// * The fair preemption algorithm removes workloads from preemptor's CQ "left-a" without
+			//   considering the strategy (because they are from the same CQ), so preemptor's DRS decreases.
+			//   (preempted: a1, a2, a3)
+			// * Now, workloads from CQs "right-b" and "right-c" satisfy the fairness condition by the strategy.
+			// * Workloads from the "right-b" CQ are preempted because they had larger DRS than workloads from "right-c" CQ.
+			//   (preempted: b1, b2)
+			wantPreempted: sets.New(
+				targetKeyReason("/a1", kueue.InClusterQueueReason),
+				targetKeyReason("/a2", kueue.InClusterQueueReason),
+				targetKeyReason("/a3", kueue.InClusterQueueReason),
+				targetKeyReason("/b1", kueue.InCohortFairSharingReason),
+				targetKeyReason("/b2", kueue.InCohortFairSharingReason),
+			),
+			featureGates: map[featuregate.Feature]bool{features.FairSharingReevaluatePreemptionCandidates: true},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
 			ctx, log := utiltesting.ContextWithLog(t)
 			// Set name as UID so that candidates sorting is predictable.
 			for i := range tc.admitted {
