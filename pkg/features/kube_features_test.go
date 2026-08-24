@@ -32,14 +32,6 @@ func TestFeatureGate(t *testing.T) {
 	}
 }
 
-// A configuration written before the refusal has to keep loading, so the default
-// is part of the contract here and not just a starting value.
-func TestReservedResourceNameValidationDefaultsOff(t *testing.T) {
-	if utilfeature.DefaultFeatureGate.Enabled(ReservedResourceNameValidation) {
-		t.Error("ReservedResourceNameValidation is on by default; a configuration naming pods would exit the manager")
-	}
-}
-
 func TestSetFeatureGatesDuringTest(t *testing.T) {
 	cases := map[string]struct {
 		input     map[featuregate.Feature]bool

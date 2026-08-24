@@ -184,9 +184,9 @@ const (
 	// owner: @thc1006
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/14763
 	//
-	// Refuse `pods` as a deviceClassMappings name or in a resource transformation.
-	// Off until an operator asks for it, since the refusal exits the manager on a
-	// file every released version accepted.
+	// Refuse `pods` in a resource transformation, and as a deviceClassMappings name
+	// once KueueDRAIntegration builds the mapper. Off until asked for, since the
+	// refusal exits the manager on a configuration every released version accepted.
 	ReservedResourceNameValidation featuregate.Feature = "ReservedResourceNameValidation"
 
 	// owner: @MaysaMacedo
