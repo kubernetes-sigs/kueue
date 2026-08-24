@@ -330,6 +330,54 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		// The quota reader normalizes the sidecar away, and TAS rebuilds
+		// SinglePodRequests from the same spec, so the two have to agree.
+		"admitted with TAS and a negative sidecar": {
+			workload: *utiltestingapi.MakeWorkload("tas-negative", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "8").
+						InitContainers(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().
+							WithResourceReq(corev1.ResourceCPU, "-3").Obj()).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("tas-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "tas", "8").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(utiltestingapi.MakeDefaultOneLevelTopology("default"))).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now,
+				).
+				Obj(),
+			wantInfo: Info{
+				ClusterQueue: "tas-cq",
+				TotalRequests: []PodSetResources{
+					{
+						Name:    kueue.DefaultPodSetName,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "tas"},
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 8000,
+						}),
+						Count: 1,
+						TopologyRequest: &TopologyRequest{
+							Levels: []string{corev1.LabelHostname},
+							DomainRequests: []TopologyDomainRequests{{
+								Values: []string{"node-a"},
+								SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+									corev1.ResourceCPU: 8000,
+								}),
+								Count: 1,
+							}},
+						},
+					},
+				},
+			},
+		},
 		"admitted with TAS and transformed resources": {
 			workload: *utiltestingapi.MakeWorkload("tas", "").
 				PodSets(
