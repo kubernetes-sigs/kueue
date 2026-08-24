@@ -530,8 +530,8 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 		}
 
 		// pods is reserved for the request Kueue synthesizes from the PodSet count.
-		// The mapper is only built with DRA on, so the name is inert until then,
-		// and refusing it exits the manager the same way.
+		// The mapper is only built with DRA on, so until then the name is dormant
+		// and refusing it would fail an upgrade over an entry that does nothing.
 		if refuseReserved && features.Enabled(features.KueueDRAIntegration) && mapping.Name == corev1.ResourcePods {
 			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, reservedResourceNameMsg))
 		}
