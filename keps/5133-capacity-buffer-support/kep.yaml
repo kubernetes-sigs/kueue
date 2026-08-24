@@ -2,6 +2,7 @@ title: CapacityBuffer support
 kep-number: 5133
 authors:
   - "@jigisha620"
+owning-sig: sig-scheduling
 status: provisional
 creation-date: 2026-08-12
 reviewers:
