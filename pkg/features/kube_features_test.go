@@ -30,3 +30,11 @@ func TestFeatureGate(t *testing.T) {
 		t.Error("feature gate should be disabled")
 	}
 }
+
+// A cluster upgrading into this branch keeps a configuration that named the
+// reserved key, so the refusal has to stay off until it is asked for.
+func TestReservedResourceNameValidationDefaultsOff(t *testing.T) {
+	if utilfeature.DefaultFeatureGate.Enabled(ReservedResourceNameValidation) {
+		t.Error("ReservedResourceNameValidation is on by default; upgrading a configuration that names pods would exit the manager")
+	}
+}
