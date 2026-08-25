@@ -1207,12 +1207,12 @@ func ReportPendingWorkloads(cqName kueue.ClusterQueueReference, pendingStatus st
 
 func ReportWorkloadRecoveryWaitTime(cqName kueue.ClusterQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cqName), priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
-	WorkloadRecoveryWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
+	WorkloadRecoveryWaitTime.WithLabelValues(labels...).Observe(max(0, waitTime.Seconds()))
 }
 
 func ReportLocalQueueWorkloadRecoveryWaitTime(lq LocalQueueReference, priorityClass string, waitTime time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(lq.Name), lq.Namespace, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
-	LocalQueueWorkloadRecoveryWaitTime.WithLabelValues(labels...).Observe(waitTime.Seconds())
+	LocalQueueWorkloadRecoveryWaitTime.WithLabelValues(labels...).Observe(max(0, waitTime.Seconds()))
 }
 
 func ReportPendingSchedulingHashes(cqName kueue.ClusterQueueReference, active, inadmissible int, customLabelValues []string, tracker *roletracker.RoleTracker) {
