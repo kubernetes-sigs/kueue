@@ -742,7 +742,7 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 func groupRepresentativePod(pods []corev1.Pod) corev1.Pod {
 	return slices.MinFunc(pods, func(a, b corev1.Pod) int {
 		return cmputil.LazyOr(
-			func() int { return a.CreationTimestamp.Time.Compare(b.CreationTimestamp.Time) },
+			func() int { return a.CreationTimestamp.Compare(b.CreationTimestamp.Time) },
 			func() int { return cmp.Compare(a.Name, b.Name) },
 		)
 	})
