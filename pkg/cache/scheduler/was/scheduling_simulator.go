@@ -36,9 +36,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
+// Order is important. WorkloadSliceNameAnnotation should be checked before WorkloadAnnotation.
 var PodWorkloadAnnotations = []string{
-	kueue.WorkloadAnnotation,
 	kueue.WorkloadSliceNameAnnotation,
+	kueue.WorkloadAnnotation,
 	controllerconstants.PrebuiltWorkloadAnnotation,
 	podconstants.GroupNameAnnotation,
 }
@@ -202,7 +203,7 @@ func (t *podTracker) snapshot() (allPods []*corev1.Pod, workloadPods *podsByWork
 func (t *podTracker) track(pod *corev1.Pod) {
 	t.Lock()
 	defer t.Unlock()
-
+	pod = pod.DeepCopy()
 	key := client.ObjectKeyFromObject(pod)
 	if oldPod, found := t.pods[key]; found {
 		t.clearPod(key, oldPod)

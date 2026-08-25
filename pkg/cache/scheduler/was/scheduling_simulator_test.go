@@ -437,6 +437,22 @@ func TestWorkloadMapping(t *testing.T) {
 			},
 			want: nil,
 		},
+		"workload slice name annotation preferred over workload annotation": {
+			operation: func(sim *wasSimulator) {
+				pod := makeSimplePod("pod1", "ns", kueue.WorkloadSliceNameAnnotation, "slice-wl")
+				pod.Annotations[kueue.WorkloadAnnotation] = "regular-wl"
+				sim.TrackPod(pod)
+			},
+			want: &podsByWorkload{
+				key("ns", "slice-wl"): podsByKey{
+					key("ns", "pod1"): func() *corev1.Pod {
+						pod := makeSimplePod("pod1", "ns", kueue.WorkloadSliceNameAnnotation, "slice-wl")
+						pod.Annotations[kueue.WorkloadAnnotation] = "regular-wl"
+						return pod
+					}(),
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -716,5 +732,36 @@ func TestSimulate(t *testing.T) {
 
 	if checkFeasible(snapshot) {
 		t.Errorf("Expected node1 to be unfeasible after simulation completed (auto-reverted)")
+	}
+}
+
+func TestTrackPodDeepCopy(t *testing.T) {
+	ctx := t.Context()
+	simRaw, err := NewWASSimulatorForTest(ctx)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorForTest failed: %v", err)
+	}
+	sim := simRaw.(*wasSimulator)
+
+	pod := makeSimplePod("pod1", "ns", kueue.WorkloadAnnotation, "wl1")
+	sim.TrackPod(pod)
+
+	// Mutate the pod object that was passed into TrackPod
+	pod.Annotations[kueue.WorkloadAnnotation] = "mutated-wl"
+
+	snapshotRaw, err := sim.Snapshot(ctx, nil)
+	if err != nil {
+		t.Fatalf("Snapshot failed: %v", err)
+	}
+	snapshot := snapshotRaw.(*wasSimulatorSnapshot)
+
+	want := &podsByWorkload{
+		key("ns", "wl1"): podsByKey{
+			key("ns", "pod1"): makeSimplePod("pod1", "ns", kueue.WorkloadAnnotation, "wl1"),
+		},
+	}
+
+	if diff := cmp.Diff(want, snapshot.podsByWorkload); diff != "" {
+		t.Errorf("TrackPod did not deep copy pod (-want,+got):\n%s", diff)
 	}
 }
