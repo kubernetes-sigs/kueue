@@ -60,6 +60,10 @@ const (
 // so both are resolved here, before the flavor is chosen from this template.
 func handleRuntimeClass(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
 	log := ctrl.LoggerFrom(ctx)
+	// A template copied from a Pod that already exists carries what the admission
+	// controller merged into it at creation, so resolving the class again would only
+	// make it diverge from the Pod that is already there.
+	resolveScheduling := !OwnedByPods(wl)
 	var errs []error
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]
@@ -77,7 +81,7 @@ func handleRuntimeClass(ctx context.Context, cl client.Client, wl *kueue.Workloa
 		}
 		// Merge, not overwrite: podset.Merge keeps the PodSet's own values and reports a
 		// conflicting nodeSelector key, matching what the admission controller does.
-		if runtimeClass.Scheduling != nil {
+		if resolveScheduling && runtimeClass.Scheduling != nil {
 			if err := podset.Merge(log, &ps.Template.ObjectMeta, podSpec, podset.PodSetInfo{
 				NodeSelector: runtimeClass.Scheduling.NodeSelector,
 				Tolerations:  runtimeClass.Scheduling.Tolerations,

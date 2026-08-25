@@ -136,6 +136,11 @@ func TestAdjustResources(t *testing.T) {
 						Obj(),
 					*utiltestingapi.MakePodSet("b", 1).
 						RuntimeClass("runtime-a").
+						PodOverHead(
+							corev1.ResourceList{
+								corev1.ResourceCPU:    defaultResourceQuantity(corev1.ResourceCPU, 2),
+								corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 2048),
+							}).
 						NodeSelector(map[string]string{"zone": "z1"}).
 						Toleration(corev1.Toleration{
 							Key:      "gpu",
@@ -163,9 +168,14 @@ func TestAdjustResources(t *testing.T) {
 							Effect:   corev1.TaintEffectNoSchedule,
 						}).
 						Obj(),
-					// Keeps its own selector and is not given a duplicate toleration.
+					// Keeps its own overhead and selector, and is not given a duplicate toleration.
 					*utiltestingapi.MakePodSet("b", 1).
 						RuntimeClass("runtime-a").
+						PodOverHead(
+							corev1.ResourceList{
+								corev1.ResourceCPU:    defaultResourceQuantity(corev1.ResourceCPU, 2),
+								corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 2048),
+							}).
 						NodeSelector(map[string]string{"zone": "z1", "pool": "gpu"}).
 						Toleration(corev1.Toleration{
 							Key:      "gpu",
@@ -181,6 +191,31 @@ func TestAdjustResources(t *testing.T) {
 						Obj(),
 					// No class named, left alone.
 					*utiltestingapi.MakePodSet("d", 1).
+						Obj(),
+				).
+				Obj(),
+		},
+		"Handle runtimeClass with scheduling for a Workload owned by a Pod": {
+			runtimeClasses: []nodev1.RuntimeClass{
+				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+					Scheduling(map[string]string{"pool": "gpu"}).
+					RuntimeClass,
+			},
+			wl: utiltestingapi.MakeWorkload("foo", "").
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-a", "uid-a").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						RuntimeClass("runtime-a").
+						Obj(),
+				).
+				Obj(),
+			// The Pod already carries what the class added when it was created,
+			// so its copy is left as it is.
+			wantWl: utiltestingapi.MakeWorkload("foo", "").
+				OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod-a", "uid-a").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						RuntimeClass("runtime-a").
 						Obj(),
 				).
 				Obj(),
