@@ -246,7 +246,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	}
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment != nil {
-			pods, err := r.filterPodsToUngate(ctx, wl.Namespace, workloadSliceName, psa.Name)
+			pods, err := r.podsForPodSet(ctx, wl.Namespace, workloadSliceName, psa.Name)
 			if err != nil {
 				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
@@ -275,18 +275,8 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 			// terminates them with UnschedulableOnAssignedNode, so every recreated
 			// pod is killed again immediately. Leaving them gated lets them wait for
 			// the replacement domain and be ungated onto a healthy node instead.
-			if workload.HasUnhealthyNodes(wl) {
-				levels := psa.TopologyAssignment.Levels
-				gatedPodsToDomains = slices.DeleteFunc(gatedPodsToDomains, func(pd podWithDomain) bool {
-					nodeName, ok := utiltas.NodeNameFromDomainID(levels, pd.domainID)
-					if !ok || !workload.HasUnhealthyNode(wl, nodeName) {
-						return false
-					}
-					log.V(3).Info("skipping ungate; the assigned node is unhealthy and awaiting replacement",
-						"pod", klog.KObj(pd.pod), "domain", pd.domainID, "node", nodeName)
-					return true
-				})
-			}
+			gatedPodsToDomains = filterPodsToUngate(log, wl, &psa, gatedPodsToDomains)
+
 			if len(gatedPodsToDomains) > 0 {
 				toUngate := podsToUngateInfo(&psa, gatedPodsToDomains)
 				log.V(2).Info("identified pods to ungate for podset", "podset", psa.Name, "count", len(toUngate))
@@ -355,33 +345,41 @@ func shouldReconcileWorkload(wl *kueue.Workload) bool {
 	return workload.IsAdmittedByTAS(wl)
 }
 
-func (r *topologyUngater) filterPodsToUngate(
-	ctx context.Context,
-	ns, workloadSliceName string,
-	psName kueue.PodSetReference,
-) ([]*corev1.Pod, error) {
-	pods, err := ListPodsForWorkloadSlice(
-		ctx,
-		r.client,
-		ns,
-		workloadSliceName,
-		client.MatchingLabels{constants.PodSetLabel: string(psName)},
-	)
+func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceName string, psName kueue.PodSetReference) ([]*corev1.Pod, error) {
+	pods, err := ListPodsForWorkloadSlice(ctx, r.client, ns, workloadSliceName,
+		client.MatchingLabels{constants.PodSetLabel: string(psName)})
 	if err != nil {
 		return nil, err
 	}
-
 	result := make([]*corev1.Pod, 0, len(pods))
 	for _, pod := range pods {
 		if utilpod.IsTerminated(pod) {
-			// Ignore failed or succeeded pods as they need to be replaced,
-			// and so we don't want to count them as already ungated Pods.
+			// ignore failed or succeeded pods as they need to be replaced, and
+			// so we don't want to count them as already ungated Pods.
 			continue
 		}
 		result = append(result, pod)
 	}
-
 	return result, nil
+}
+
+// filterPodsToUngate filters out pods assigned to unhealthy nodes that are awaiting replacement.
+// Pods on such nodes should remain gated to wait for a replacement domain instead of being
+// ungated onto a node that will never allow them to schedule.
+func filterPodsToUngate(log logr.Logger, wl *kueue.Workload, psa *kueue.PodSetAssignment, gatedPodsToDomains []podWithDomain) []podWithDomain {
+	if !workload.HasUnhealthyNodes(wl) {
+		return gatedPodsToDomains
+	}
+	levels := psa.TopologyAssignment.Levels
+	return slices.DeleteFunc(gatedPodsToDomains, func(pd podWithDomain) bool {
+		nodeName, ok := utiltas.NodeNameFromDomainID(levels, pd.domainID)
+		if !ok || !workload.HasUnhealthyNode(wl, nodeName) {
+			return false
+		}
+		log.V(3).Info("skipping ungate; the assigned node is unhealthy and awaiting replacement",
+			"pod", klog.KObj(pd.pod), "domain", pd.domainID, "node", nodeName)
+		return true
+	})
 }
 
 func podsToUngateInfo(
