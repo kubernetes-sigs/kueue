@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -116,4 +117,14 @@ func (s *defaultSimulatorSnapshot) FindFeasibleNodes(
 		feasibleCandidates = append(feasibleCandidates, matchedCandidate)
 	}
 	return feasibleCandidates, nil
+}
+
+func (s *defaultSimulatorSnapshot) PreemptWorkload(_ types.NamespacedName) (func() error, error) {
+	return func() error { return nil }, nil
+}
+
+func (s *defaultSimulatorSnapshot) Simulate(fn func()) {
+	// Since default similator does not hold a state to modify,
+	// we can safely run the function immediately.
+	fn()
 }
