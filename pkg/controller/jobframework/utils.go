@@ -315,9 +315,10 @@ func ValidateRemoteObjectOwnership(ctx context.Context, remoteClient client.Clie
 
 // DeleteRemoteObjectIfOwned fetches the remote object for the given adapter's GVK and key,
 // skips deletion if the object does not exist or is not owned by this MultiKueue origin,
-// and otherwise delegates to adapter.DeleteRemoteObject.
+// and otherwise delegates to adapter.DeleteRemoteObject. If workloadName is set,
+// an object identifying another prebuilt Workload is preserved.
 // Returns ErrMultiKueueOriginEmpty if origin is empty.
-func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, remoteClient client.Client, adapter MultiKueueAdapter, key types.NamespacedName, origin string) error {
+func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, remoteClient client.Client, adapter MultiKueueAdapter, key types.NamespacedName, origin, workloadName string) error {
 	log := ctrl.LoggerFrom(ctx).WithValues("remoteObject", key, "adapterGVK", adapter.GVK().String(), "origin", origin)
 
 	if origin == "" {
@@ -325,16 +326,21 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 		return ErrMultiKueueOriginEmpty
 	}
 
-	found, err := ValidateRemoteObjectOwnership(ctx, remoteClient, key, adapter.GVK(), origin)
-	if err != nil {
-		if errors.Is(err, ErrRemoteObjectNotOwnedByMultiKueue) {
-			log.V(2).Info("Skipping remote object deletion because object is not owned by this MultiKueue origin")
+	remoteObject := &metav1.PartialObjectMetadata{}
+	remoteObject.SetGroupVersionKind(adapter.GVK())
+	if err := remoteClient.Get(ctx, key, remoteObject); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			log.V(2).Info("Skipping remote object deletion because object was not found")
 			return nil
 		}
 		return err
 	}
-	if !found {
-		log.V(2).Info("Skipping remote object deletion because object was not found")
+	if objectOrigin := remoteObject.GetLabels()[kueue.MultiKueueOriginLabel]; objectOrigin != origin {
+		log.V(2).Info("Skipping remote object deletion because object is not owned by this MultiKueue origin")
+		return nil
+	}
+	if remoteWorkloadName := PrebuiltWorkloadNameFor(remoteObject); workloadName != "" && remoteWorkloadName != "" && remoteWorkloadName != workloadName {
+		log.V(3).Info("Skipping remote object deletion because it belongs to another Workload", "workload", workloadName, "remoteObjectWorkload", remoteWorkloadName)
 		return nil
 	}
 

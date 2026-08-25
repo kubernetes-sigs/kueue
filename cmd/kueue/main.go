@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -554,6 +555,7 @@ func setupControllers(
 			multikueue.WithGCInterval(cfg.MultiKueue.GCInterval.Duration),
 			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
 			multikueue.WithWorkerLostTimeout(cfg.MultiKueue.WorkerLostTimeout.Duration),
+			multikueue.WithRemoteObjectsAfterFinished(remoteObjectsAfterFinished(cfg.MultiKueue)),
 			multikueue.WithAdapters(adapters),
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 			multikueue.WithClusterProfiles(cfg.MultiKueue.ClusterProfile),
@@ -730,6 +732,13 @@ func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.Requeui
 		return *cfg.WaitForPodsReady.RequeuingStrategy.Timestamp
 	}
 	return configapi.EvictionTimestamp
+}
+
+func remoteObjectsAfterFinished(cfg *configapi.MultiKueue) time.Duration {
+	if cfg.ObjectRetentionPolicies == nil || cfg.ObjectRetentionPolicies.RemoteObjects == nil {
+		return 0
+	}
+	return ptr.Deref(cfg.ObjectRetentionPolicies.RemoteObjects.AfterFinished, metav1.Duration{}).Duration
 }
 
 func quotaCheckStrategy(cfg *configapi.Configuration) configapi.QuotaCheckStrategy {

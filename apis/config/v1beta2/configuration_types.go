@@ -396,6 +396,45 @@ type MultiKueue struct {
 	// Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.
 	// +optional
 	IncrementalDispatcherConfig *IncrementalDispatcherConfig `json:"incrementalDispatcherConfig,omitempty"`
+
+	// ObjectRetentionPolicies provides configuration options for the deletion of the
+	// objects MultiKueue creates in the worker clusters. A nil value keeps the default
+	// behavior of deleting them as soon as they are no longer needed.
+	// This is unrelated to the top level objectRetentionPolicies, which only applies to
+	// objects in the manager cluster.
+	// Note: This field is going to be ignored when the MultiKueueRemoteObjectRetention feature gate is disabled.
+	// +optional
+	ObjectRetentionPolicies *MultiKueueObjectRetentionPolicies `json:"objectRetentionPolicies,omitempty"`
+}
+
+// MultiKueueObjectRetentionPolicies holds retention settings for the objects MultiKueue
+// creates in the worker clusters.
+type MultiKueueObjectRetentionPolicies struct {
+	// RemoteObjects configures retention for the remote Workload and the mirrored job
+	// object, such as a Job or JobSet, created for it in the worker cluster.
+	// A nil value deletes them as soon as they are no longer needed.
+	// +optional
+	RemoteObjects *RemoteObjectRetentionPolicy `json:"remoteObjects,omitempty"`
+}
+
+// RemoteObjectRetentionPolicy defines when the objects MultiKueue created in a worker
+// cluster should be deleted.
+type RemoteObjectRetentionPolicy struct {
+	// AfterFinished is the duration to keep the remote objects after the local Workload
+	// finished, so that their logs and status remain available for inspection.
+	// Retention applies only when the Finished reason is Succeeded or Failed, i.e. the
+	// job ran to completion. Remote objects of workloads that finished for any other
+	// reason (for example OutOfSync, OwnerNotFound, FailedToStart), or that are evicted,
+	// deactivated, lose their quota reservation, or whose local Workload is deleted, are
+	// still removed immediately.
+	// Deleting the local Workload also deletes the remote objects, which happens on its
+	// own schedule when objectRetentionPolicies.workloads is configured.
+	// A duration of 0 or a nil value deletes them immediately. This is the opposite of
+	// the top-level objectRetentionPolicies.workloads.afterFinished, where nil disables
+	// deletion.
+	// Represented using metav1.Duration (e.g. "10m", "1h30m").
+	// +optional
+	AfterFinished *metav1.Duration `json:"afterFinished,omitempty"`
 }
 
 // IncrementalDispatcherConfig holds configuration for the MultiKueue Incremental Dispatcher.

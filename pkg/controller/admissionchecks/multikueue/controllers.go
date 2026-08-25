@@ -37,14 +37,15 @@ const (
 )
 
 type SetupOptions struct {
-	gcInterval           time.Duration
-	origin               string
-	workerLostTimeout    time.Duration
-	eventsBatchPeriod    time.Duration
-	adapters             map[string]jobframework.MultiKueueAdapter
-	dispatcherName       string
-	clusterProfileConfig *configapi.ClusterProfile
-	roleTracker          *roletracker.RoleTracker
+	gcInterval                 time.Duration
+	origin                     string
+	workerLostTimeout          time.Duration
+	remoteObjectsAfterFinished time.Duration
+	eventsBatchPeriod          time.Duration
+	adapters                   map[string]jobframework.MultiKueueAdapter
+	dispatcherName             string
+	clusterProfileConfig       *configapi.ClusterProfile
+	roleTracker                *roletracker.RoleTracker
 }
 
 type SetupOption func(o *SetupOptions)
@@ -70,6 +71,15 @@ func WithOrigin(origin string) SetupOption {
 func WithWorkerLostTimeout(d time.Duration) SetupOption {
 	return func(o *SetupOptions) {
 		o.workerLostTimeout = d
+	}
+}
+
+// WithRemoteObjectsAfterFinished - sets how long the remote objects are kept
+// in the worker cluster after the local workload finished. If 0, they are
+// deleted as soon as the local workload finishes.
+func WithRemoteObjectsAfterFinished(d time.Duration) SetupOption {
+	return func(o *SetupOptions) {
+		o.remoteObjectsAfterFinished = d
 	}
 }
 
@@ -177,6 +187,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	}
 
 	wlRec := newWlReconciler(mgr.GetClient(), helper, cRec, options.origin, mgr.GetEventRecorder(constants.WorkloadControllerName),
-		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker)
+		options.workerLostTimeout, options.eventsBatchPeriod, options.adapters, options.dispatcherName, options.roleTracker,
+		withRemoteObjectsAfterFinished(options.remoteObjectsAfterFinished))
 	return wlRec.setupWithManager(mgr)
 }

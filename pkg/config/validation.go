@@ -188,6 +188,13 @@ func validateMultiKueue(c *configapi.Configuration, integrationManager *jobframe
 			allErrs = append(allErrs, field.Invalid(multiKueuePath.Child("workerLostTimeout"),
 				c.MultiKueue.WorkerLostTimeout.Duration, apimachineryvalidation.IsNegativeErrorMsg))
 		}
+		if retention := c.MultiKueue.ObjectRetentionPolicies; retention != nil && retention.RemoteObjects != nil {
+			if afterFinished := retention.RemoteObjects.AfterFinished; afterFinished != nil && afterFinished.Duration < 0 {
+				allErrs = append(allErrs, field.Invalid(
+					multiKueuePath.Child("objectRetentionPolicies", "remoteObjects", "afterFinished"),
+					afterFinished.Duration, apimachineryvalidation.IsNegativeErrorMsg))
+			}
+		}
 		if c.MultiKueue.Origin != nil {
 			if errs := content.IsLabelValue(*c.MultiKueue.Origin); len(errs) != 0 {
 				allErrs = append(allErrs, field.Invalid(multiKueuePath.Child("origin"), *c.MultiKueue.Origin, strings.Join(errs, ",")))

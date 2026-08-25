@@ -159,6 +159,42 @@ Manager cluster configuration:
 
 For a complete setup guide including local development with Kind, see the [Setup MultiKueue with Topology-Aware Scheduling](/docs/tasks/dev/setup_multikueue_development_environment/) guide.
 
+## (Optional) Keep the remote objects after a workload finished
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+
+By default, the manager deletes the remote Workload and mirrored job object, such as a Job or
+JobSet, from the worker cluster as soon as the local Workload finishes, which also removes the
+Pods that hold the job's logs.
+To inspect them after the run, configure the manager cluster to keep the remote objects for a while:
+
+```yaml
+multiKueue:
+  objectRetentionPolicies:
+    remoteObjects:
+      afterFinished: "1h"
+```
+
+The field is only honored when the `MultiKueueRemoteObjectRetention` feature gate is enabled.
+Refer to the [Installation guide](/docs/installation/#change-the-feature-gates-configuration) for
+instructions on configuring feature gates.
+
+Note that:
+- Retention applies only to workloads that ran to completion (`Succeeded` or `Failed`).
+  The remote objects of a workload that finished for any other reason, or that is
+  evicted, deactivated or loses its quota reservation, are still deleted immediately,
+  as are objects on non-selected worker clusters.
+- Deleting the local Workload also deletes the remote objects, even if the retention did not elapse.
+  This includes the deletion performed by the manager's own
+  [`objectRetentionPolicies.workloads`](/docs/tasks/manage/setup_object_retention_policy/), which
+  therefore caps how long the remote objects can be kept.
+- Worker-side retention policies or manual deletion can remove the remote objects sooner.
+  This setting does not prevent deletion initiated in the worker cluster.
+- When a new run encounters a same-key mirrored object dedicated to a different
+  prebuilt Workload, the manager deletes that object and retries the MultiKueue
+  reconciliation so that it can be created for the new run. Shared objects, such
+  as those used by elastic Workload slices, are not treated as conflicts.
+
 ## (Optional) Setup MultiKueue with Open Cluster Management
 
 [Open Cluster Management (OCM)](https://open-cluster-management.io/) is a community-driven project focused on multicluster and multicloud scenarios for Kubernetes apps.
