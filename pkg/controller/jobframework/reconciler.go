@@ -946,10 +946,10 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 	}
 }
 
-// syncWorkloadSliceFields applies priority and maximumExecutionTimeSeconds to
-// the slices a compatible scale decision leaves live. Slice compatibility only
-// considers the pod set shape, so changes to these fields arrive here with the
-// old values still on the slices.
+// syncWorkloadSliceFields keeps priority and maximumExecutionTimeSeconds up to date
+// on the Workload slice(s) that EnsureWorkloadSlices decided to keep. Slice
+// compatibility only considers the pod set shape, so changes to these fields
+// arrive here with the old values still on the slices.
 //
 // While a scale-up waits for quota the quota-reserved slice is kept alongside its
 // pending replacement and only the replacement is returned, but both are
@@ -1079,6 +1079,8 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		}
 
 		// Workload slice compatibility is limited to the PodSet shape and counts.
+		// Any other changes will result in the slice being marked as incompatible,
+		// and the workload will fall back to being processed by the original ensureOneWorkload function.
 		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.clock, podSets, object, job.GVK())
 		if err != nil {
 			return nil, err
