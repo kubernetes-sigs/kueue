@@ -7505,6 +7505,90 @@ func TestPod_IsActive(t *testing.T) {
 	}
 }
 
+// TestIsPodRunnableOrSucceeded covers https://github.com/kubernetes-sigs/kueue/issues/13830:
+// a pod that already ran (so it kept its NodeName) and terminated cleanly while being deleted
+// must not be misclassified as still active just because NodeName is non-empty.
+func TestIsPodRunnableOrSucceeded(t *testing.T) {
+	now := time.Now()
+
+	tests := map[string]struct {
+		pod  corev1.Pod
+		want bool
+	}{
+		"running, not being deleted": {
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{Phase: corev1.PodRunning},
+			},
+			want: true,
+		},
+		"succeeded, not being deleted": {
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
+			},
+			want: true,
+		},
+		"failed, not being deleted": {
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{Phase: corev1.PodFailed},
+			},
+			want: false,
+		},
+		"deleting, never scheduled (no NodeName)": {
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: new(metav1.NewTime(now))},
+				Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+			},
+			want: false,
+		},
+		"deleting, still running with a NodeName": {
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: new(metav1.NewTime(now))},
+				Spec:       corev1.PodSpec{NodeName: "node-1"},
+				Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+			},
+			want: true,
+		},
+		"deleting, terminated Succeeded but kept its NodeName, non-serving group": {
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: new(metav1.NewTime(now))},
+				Spec:       corev1.PodSpec{NodeName: "node-1"},
+				Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+			},
+			// Batch groups keep a terminated-but-deleting pod counted as active so the
+			// group can still be declared finished once every pod has concluded.
+			want: true,
+		},
+		"deleting, terminated Succeeded but kept its NodeName, serving group": {
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					DeletionTimestamp: new(metav1.NewTime(now)),
+					Annotations: map[string]string{
+						podconstants.GroupServingAnnotationKey: podconstants.GroupServingAnnotationValue,
+					},
+				},
+				Spec:   corev1.PodSpec{NodeName: "node-1"},
+				Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
+			},
+			want: false,
+		},
+		"deleting, terminated Failed with a NodeName": {
+			pod: corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{DeletionTimestamp: new(metav1.NewTime(now))},
+				Spec:       corev1.PodSpec{NodeName: "node-1"},
+				Status:     corev1.PodStatus{Phase: corev1.PodFailed},
+			},
+			want: false,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := isPodRunnableOrSucceeded(&tc.pod); got != tc.want {
+				t.Errorf("isPodRunnableOrSucceeded() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestStop(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
