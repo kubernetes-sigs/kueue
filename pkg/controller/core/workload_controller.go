@@ -522,7 +522,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		}
 		return ctrl.Result{}, nil
 	}
-	if workload.Status(&wl) == workload.StatusPending {
+	// Skip the DeepCopy/AdjustResources/NeedsDRAReconcile work below when no
+	// DeviceClass backs any extended resource and the workload doesn't already
+	// reference DRA directly: AdjustResources can't turn a plain workload into
+	// a DRA one in that case, so paying for the copy and a LimitRange List on
+	// every pending workload isn't worth it.
+	if workload.Status(&wl) == workload.StatusPending && (!r.draBackedResources.Empty() || workload.HasDRA(&wl)) {
 		// NeedsDRAReconcile must see the requests as AdjustResources leaves them:
 		// a LimitRange defaultRequest or a limits-to-requests copy can be the only
 		// place a DRA-backed extended resource appears on the Workload. Decide on a
@@ -1377,7 +1382,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			log.V(2).Info("Removing workload from queue because it is on-hold")
 			r.queues.DeleteWorkload(log, wlKey)
 		case dra.NeedsDRAReconcile(wlCopy, r.draBackedResources):
-			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
+			log.V(2).Info("Removing workload from queue while DRA reconcile is pending - handled in Reconcile")
+			r.queues.DeleteWorkload(log, wlKey)
 		default:
 			if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)

@@ -27,6 +27,9 @@ func TestExtendedResourceCache(t *testing.T) {
 		if cache.Has("nvidia.com/gpu") {
 			t.Error("expected false when cache is empty")
 		}
+		if !cache.Empty() {
+			t.Error("expected Empty() to be true when cache has no resources")
+		}
 	})
 
 	t.Run("add single DeviceClass", func(t *testing.T) {
@@ -36,6 +39,9 @@ func TestExtendedResourceCache(t *testing.T) {
 		}
 		if cache.Has("google.com/tpu") {
 			t.Error("expected false for google.com/tpu")
+		}
+		if cache.Empty() {
+			t.Error("expected Empty() to be false once a resource is registered")
 		}
 	})
 
@@ -79,6 +85,23 @@ func TestExtendedResourceCache(t *testing.T) {
 		cache.Remove("nonexistent.com/resource", "nonexistent.example.com")
 		if cache.Has("nonexistent.com/resource") {
 			t.Error("expected false for non-existent resource")
+		}
+	})
+
+	t.Run("cache empty again after all resources removed", func(t *testing.T) {
+		if cache.Empty() {
+			t.Error("expected Empty() to still be false while google.com/tpu is registered")
+		}
+		cache.Remove("google.com/tpu", "tpu.google.com")
+		if !cache.Empty() {
+			t.Error("expected Empty() to be true after every registered resource was removed")
+		}
+	})
+
+	t.Run("nil cache is empty", func(t *testing.T) {
+		var nilCache *ExtendedResourceCache
+		if !nilCache.Empty() {
+			t.Error("expected Empty() to be true for a nil cache")
 		}
 	})
 }

@@ -33,6 +33,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -565,5 +566,55 @@ func TestUpdateSkipsQueueForDRAWorkloadOnlyInLimits(t *testing.T) {
 
 	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 0 {
 		t.Fatalf("workload with a limits-only DRA-backed extended resource should not be queued directly; got %d pending", len(pending))
+	}
+}
+
+// TestUpdateRemovesFromQueueWhenNewlyNeedsDRAReconcile covers a workload that was
+// already queued as an ordinary extended resource before its resource name became
+// DRA-backed: the pending-to-pending branch of Update must remove it from the queue
+// instead of leaving the stale entry there, so the scheduler can't pop it before
+// Reconcile runs DRA processing on it.
+func TestUpdateRemovesFromQueueWhenNewlyNeedsDRAReconcile(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Request("example.com/gpu", "1").
+		Obj()
+
+	erCache := dra.NewExtendedResourceCache()
+
+	cl := utiltesting.NewClientBuilder().Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithDRABackedResources(erCache))
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
+	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+	// example.com/gpu isn't DRA-backed yet, so Create queues it normally.
+	if got := reconciler.Create(event.TypedCreateEvent[*kueue.Workload]{Object: wl}); !got {
+		t.Fatalf("Create() = %v, want true", got)
+	}
+	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 1 {
+		t.Fatalf("expected workload to be queued before its resource became DRA-backed; got %d pending", len(pending))
+	}
+
+	// A DeviceClass now backs example.com/gpu.
+	erCache.Add("example.com/gpu", "gpu-class")
+
+	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: wl,
+		ObjectNew: wl,
+	}); !got {
+		t.Fatalf("Update() = %v, want true", got)
+	}
+
+	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 0 {
+		t.Fatalf("workload should be removed from the queue once its resource newly needs DRA reconcile; got %d pending", len(pending))
 	}
 }
