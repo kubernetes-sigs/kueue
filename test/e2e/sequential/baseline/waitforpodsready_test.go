@@ -471,6 +471,13 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 				{"kueue_local_queue_admitted_until_ready_wait_time_seconds_count", ns.Name, lq.Name, ""}})
 		})
 
+		ginkgo.By("verifying that the recovery metric is not updated before failure", func() {
+			util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+				{"kueue_workload_recovery_wait_time_seconds_count", cq.Name},
+				{"kueue_local_queue_workload_recovery_wait_time_seconds_count", ns.Name, lq.Name},
+			})
+		})
+
 		ginkgo.By("simulating pod failure", func() {
 			util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 1)
 		})
@@ -486,13 +493,6 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
 				{"kueue_workload_recovery_wait_time_seconds_count", cq.Name, ""},
 				{"kueue_local_queue_workload_recovery_wait_time_seconds_count", ns.Name, lq.Name, ""},
-			})
-		})
-
-		ginkgo.By("verifying that the recovery metric is not updated before failure", func() {
-			util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
-				{"kueue_workload_recovery_wait_time_seconds_count", cq.Name},
-				{"kueue_local_queue_workload_recovery_wait_time_seconds_count", ns.Name, lq.Name},
 			})
 		})
 
