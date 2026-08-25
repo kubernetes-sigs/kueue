@@ -458,7 +458,7 @@ func TestReconcileGenericJob(t *testing.T) {
 						PodSetAssignments: []kueue.PodSetAssignment{
 							{
 								Name:  "main",
-								Count: ptr.To(int32(1)),
+								Count: new(int32(1)),
 							},
 						},
 					}).
@@ -478,7 +478,7 @@ func TestReconcileGenericJob(t *testing.T) {
 						PodSetAssignments: []kueue.PodSetAssignment{
 							{
 								Name:  "main",
-								Count: ptr.To(int32(1)),
+								Count: new(int32(1)),
 							},
 						},
 					}).
