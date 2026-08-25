@@ -2077,7 +2077,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 									}
 									for _, resName := range tc.wantAbsentDRAResources {
 										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
-											if got := wlInfo.TotalRequests[0].Requests.GetValue(resName); got > 0 {
+											if got := wlInfo.TotalRequests[0].Requests.ResourceValue(resName); got > 0 {
 												t.Errorf("Expected resource %q to be absent from queued TotalRequests, but got %d", resName, got)
 											}
 										}

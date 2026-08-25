@@ -127,12 +127,11 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 	return dra.MergeDRAResources(draResources, capacityResources), false, ctrl.Result{}, nil
 }
 
-// handleDRA preprocesses DRA-backed resources for a pending workload and queues it.
+// handleDRA preprocesses DRA-backed resources for a pending workload. It does not
+// queue the workload; Reconcile does that once with the returned queueOptions.
 // Returns done=true when reconciliation should stop (error or terminal DRA outcome).
-// When done=false, queueOptions holds the InfoOptions the caller must pass to any
-// subsequent AddOrUpdateWorkload in the same reconcile (e.g. the backoff-requeue path).
-// Queueing is skipped when RequeueAt is set so the backoff path can queue once with
-// queueOptions, but preprocessing still runs and queueOptions are always returned.
+// When done=false, queueOptions holds the InfoOptions Reconcile must pass to
+// AddOrUpdateWorkload.
 func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, queueOptions []workload.InfoOption, err error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -198,45 +197,21 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		draResources = ccResources
 	}
 
-	quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
-
-	var conditionsCleared bool
-	if quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
-		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-		conditionsCleared = true
-	}
-	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse {
-		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
-		conditionsCleared = true
-	}
-
-	if conditionsCleared {
-		log.V(3).Info("Cleared previous inadmissible conditions after successful DRA processing")
+	// Flip a stale Requeued=False/Inadmissible back to True so the workload is
+	// eligible again. We flip instead of removing the condition because the status
+	// patch only adds or updates conditions, so a removal wouldn't persist.
+	if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadInadmissible {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true), nil
+		}); err != nil {
+			return true, ctrl.Result{}, nil, fmt.Errorf("failed to persist cleared inadmissible conditions after DRA processing: %w", err)
+		}
 	}
 
 	if len(draResources) > 0 || len(replacedExtendedResources) > 0 {
 		queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
 	}
-
-	waitingForBackoff := wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil
-
-	if workload.IsAdmissible(wl) {
-		if !waitingForBackoff {
-			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
-				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
-				return true, ctrl.Result{}, nil, err
-			}
-			log.V(3).Info("Successfully pre-processed and queued DRA workload in scheduler")
-		} else {
-			log.V(3).Info("Successfully pre-processed DRA workload; queueing deferred until backoff elapses")
-		}
-	} else {
-		if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
-			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
-		}
-		log.V(3).Info("Successfully pre-processed DRA workload for cache")
-	}
+	log.V(3).Info("Successfully pre-processed DRA workload")
 	return false, ctrl.Result{}, queueOptions, nil
 }
 
@@ -536,12 +511,14 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		return ctrl.Result{}, nil
 	}
 	var draQueueOptions []workload.InfoOption
+	var draPreprocessed bool
 	if workload.Status(&wl) == workload.StatusPending && dra.NeedsDRAReconcile(&wl, r.draBackedResources) {
-		if done, result, opts, err := r.handleDRA(ctx, &wl); done {
+		done, result, opts, err := r.handleDRA(ctx, &wl)
+		if done {
 			return result, err
-		} else {
-			draQueueOptions = opts
 		}
+		draQueueOptions = opts
+		draPreprocessed = true
 	}
 
 	if workload.IsActive(&wl) {
@@ -781,6 +758,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					r.roleTracker,
 				)
 			}
+		}
+	}
+
+	// Queue the DRA-preprocessed workload with the options from handleDRA. The
+	// backoff-requeue path above already queues and returns early, so only one of
+	// the two runs.
+	if draPreprocessed && !workload.IsAdmitted(&wl) {
+		if workload.IsAdmissible(&wl) {
+			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), draQueueOptions...); err != nil {
+				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
+				return ctrl.Result{}, err
+			}
+		} else if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
+			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 	}
 
