@@ -948,9 +948,8 @@ name. Both are tracked in [#14160](https://github.com/kubernetes-sigs/kueue/issu
 #### Same Hardware with Both Paths
 
 When the same hardware needs to serve both ResourceClaimTemplate users and extended resource
-users, both paths resolve to one logical device count, so admins give that name the quota
-and cover the original name beside it for whatever the charge does not replace. Assuming a
-cluster with 1 node and 8 GPU devices available:
+users, both paths resolve to one logical device count, so that name carries the quota.
+Assuming a cluster with 1 node and 8 GPU devices available:
 
 ```yaml
 # DeviceClass
