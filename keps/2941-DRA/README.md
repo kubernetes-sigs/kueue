@@ -911,10 +911,9 @@ The two DRA paths resolve quota independently:
 
 #### Processing Flow
 
-1. Kueue detects extended resources in the PodSet spec and aggregates requests for
-   each original resource name using `resourcehelpers.PodRequests` before DeviceClass
-   lookup or quota-key mapping (overhead excluded; sidecars add to the app-container
-   total instead of being maxed as ordinary init containers).
+1. Kueue detects extended resources in the PodSet spec and aggregates each original
+   name using `resourcehelpers.PodRequests` (overhead excluded; sidecars add to the
+   app-container total, they are not maxed as ordinary inits).
 2. Looks up DeviceClasses by `extendedResourceName` by field indexer
 3. If no matching DeviceClass is found, the resource is not DRA-backed and Kueue
    processes it through the standard resource quota path (counted via `node.Status.Allocatable`)
@@ -935,12 +934,11 @@ The extended resource translation reads directly from the workload spec before
 `excludeResourcePrefixes` filtering is applied. The processing order:
 1. Extended resource translation runs first, reading the original spec
 2. `excludeResourcePrefixes` filters the pod's `resources.requests`
-3. The container contribution is subtracted from what is still retained under the
-   original name, so pod overhead and anything a transformation added under it survive
+3. The translated container amount is removed from the workload's effective resource
+   requests, so it is not double-counted
 4. Translated resource is added through `preprocessedDRAResources`
 
-Each name is aggregated under its own name before any mapping, so two names reaching one
-logical resource are charged and subtracted alike.
+This ensures no overlap or double-counting between the two mechanisms.
 
 This does not reach a resource transformation naming the same resource: a `Replace` consuming
 a DRA-backed input is still charged the device as well as whatever the transformation emits,
@@ -980,26 +978,22 @@ metadata:
   name: gpu-queue
 spec:
   resourceGroups:
-  - coveredResources: ["gpu-claims", "example.com/gpu"]
+  - coveredResources: ["gpu-claims"]
     flavors:
     - name: default
       resources:
       - name: gpu-claims          # both paths charge here
         nominalQuota: 8
-      - name: example.com/gpu    # residual only, see below
-        nominalQuota: 4
 ```
 
 `gpu-claims` is the device count both populations draw from. A container asking for
 `example.com/gpu` resolves its DeviceClass through the same `deviceClassMappings` entry,
 so it is charged to `gpu-claims` alongside the ResourceClaimTemplate users rather than to
-its own name. Giving the original name its own quota does not create a second device
-population, and splitting the eight devices between the two names would leave half of them
-unreachable.
+its own name.
 
-`example.com/gpu` is only needed where something other than the containers' request survives
-under that name, a chargeable pod overhead or a resource transformation output. Size it for
-that, not for devices.
+The original name needs quota of its own only where something other than the containers'
+request survives under it, a chargeable pod overhead or a resource transformation output.
+Size that for the residue, not for devices.
 
 #### DeviceClass Resolution via Field Indexer
 

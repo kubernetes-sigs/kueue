@@ -199,13 +199,10 @@ type containerExtendedResourceRequests struct {
 }
 
 // ResolveExtendedResourceQuota converts extended resource requests across all PodSets
-// into DRA logical quota resources. Per PodSet, the containers are totalled the way the
-// Pod's own requests are: regular and restartable init containers make the long-running
-// total, each init container is measured with the restartable ones already running beside
-// it, and the charge is the larger of the two. That total is taken under each original resource
-// name, before any two names sharing a quota key can collapse into each other's
-// contribution. The quota key for each original name is resolved once per PodSet, from
-// that name's own aggregated total.
+// into DRA logical quota resources. Per PodSet each original name is aggregated with
+// `resourcehelpers.PodRequests` (overhead excluded; sidecars add to the app-container
+// total, they are not maxed as ordinary inits), and its quota key is resolved from that
+// name's own total, so two names sharing a key cannot collapse into each other.
 func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper *ResourceMapper, wl *kueue.Workload) (
 	map[kueue.PodSetReference]corev1.ResourceList,
 	map[kueue.PodSetReference]sets.Set[corev1.ResourceName],
