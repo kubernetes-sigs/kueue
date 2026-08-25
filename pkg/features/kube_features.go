@@ -652,6 +652,17 @@ const (
 	//
 	// Reuse clientConnection (QPS and Burst) for MultiKueue worker clusters instead of creating a new client for each request.
 	MultiKueueReuseClientConnectionConfigForWorkers featuregate.Feature = "MultiKueueReuseClientConnectionConfigForWorkers"
+
+	// owner: @YQ-Wang
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13847
+	//
+	// Enables multiKueue.objectRetentionPolicies.remoteObjects, which keeps the remote
+	// Workload and mirrored job object in the worker cluster for a configured duration
+	// after the local Workload finished, so their status and logs remain available. When
+	// disabled, the configuration field is ignored and remote objects are deleted as soon
+	// as the local Workload finishes.
+	MultiKueueRemoteObjectRetention featuregate.Feature = "MultiKueueRemoteObjectRetention"
 )
 
 func init() {
@@ -1012,6 +1023,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	MultiKueueReuseClientConnectionConfigForWorkers: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	MultiKueueRemoteObjectRetention: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
