@@ -6,6 +6,7 @@
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
+  - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [User Stories](#user-stories)
     - [Story 1: Preemption of &quot;plain pod&quot; workloads](#story-1-preemption-of-plain-pod-workloads)
     - [Story 2: ClusterQueue migration to new clusters](#story-2-clusterqueue-migration-to-new-clusters)
@@ -41,6 +42,10 @@ align it with the existing Job integration behavior. In future releases, this
 work may evolve into a configurable quota release strategy (e.g., a
 Configuration API knob) that allows administrators to select between different
 strategies for all integrations.
+Note: This KEP and the FastQuotaReleaseInPodIntegration feature gate are deprecated and superseded by 
+
+KEP-10076: Configurable Quota Release Strategy
+, which introduces a top-level Configuration API knob (.quotaReleaseStrategy) across all Kueue integrations.
 
 ## Motivation
 
@@ -72,6 +77,11 @@ Ultimately, this behavioral inconsistency between integrations leads to:
   release quota when their upstream controller reports no active pods).
 
 ## Proposal
+
+### Notes/Constraints/Caveats
+
+- The `FastQuotaReleaseInPodIntegration` feature gate is deprecated in v0.20 in favor of the global `.quotaReleaseStrategy` Configuration API field introduced in [KEP-10076](../10076-quota-release-strategy/README.md).
+
 
 Introduce a `FastQuotaRelease` feature gate (Alpha, disabled by default) that
 modifies the Pod integration to release quota as soon as all Pods have a

@@ -20,7 +20,7 @@ latest-milestone: "v0.20"
 
 milestone:
   alpha: "v0.20"
-  beta: "v0.21"
+  beta: 
   stable:
 
 feature-gates:

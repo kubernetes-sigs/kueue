@@ -15,6 +15,7 @@ approvers:
 
 see-also:
   - "/keps/976-plain-pods"
+  - "/keps/10076-quota-release-strategy"
 
 stage: alpha
 latest-milestone: "v0.17"
