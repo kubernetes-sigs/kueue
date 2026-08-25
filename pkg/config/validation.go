@@ -82,6 +82,7 @@ var (
 	visibilityServerBindPortPath          = field.NewPath("visibilityServer", "bindPort")
 	customLabelsPath                      = field.NewPath("metrics", "customLabels")
 	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
+	reclaimBackoffPath                    = field.NewPath("reclaimBackoff")
 	// Values in this map should never exceed metrics.MaxCustomLabelsForSourceKind.
 	maxCustomLabelsPerSourceKind = map[configapi.SourceKind]int{
 		configapi.SourceKindWorkload:     min(2, metrics.MaxCustomLabelsForSourceKind),
@@ -108,6 +109,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationMan
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
+	allErrs = append(allErrs, validateReclaimBackoff(c)...)
 	return allErrs
 }
 
@@ -134,6 +136,53 @@ func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
 					configapi.QuotaCheckBlockUndeclared,
 				},
 			))
+		}
+	}
+	return allErrs
+}
+
+// validateReclaimBackoff validates the reclaim backoff timing parameters whenever
+// the block is present, regardless of the Enable toggle: invalid numbers in the
+// config are config errors even when the feature is off. Cross-field checks use
+// the effective values (defaults for unset fields), and are reported against
+// whichever field was set explicitly.
+func validateReclaimBackoff(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	rb := c.ReclaimBackoff
+	if rb == nil {
+		return allErrs
+	}
+	if rb.BackoffBaseSeconds != nil && *rb.BackoffBaseSeconds <= 0 {
+		allErrs = append(allErrs, field.Invalid(reclaimBackoffPath.Child("backoffBaseSeconds"),
+			*rb.BackoffBaseSeconds, "must be greater than 0"))
+	}
+	if rb.BackoffMaxSeconds != nil && *rb.BackoffMaxSeconds <= 0 {
+		allErrs = append(allErrs, field.Invalid(reclaimBackoffPath.Child("backoffMaxSeconds"),
+			*rb.BackoffMaxSeconds, "must be greater than 0"))
+	}
+	if rb.BackoffResetSeconds != nil && *rb.BackoffResetSeconds <= 0 {
+		allErrs = append(allErrs, field.Invalid(reclaimBackoffPath.Child("backoffResetSeconds"),
+			*rb.BackoffResetSeconds, "must be greater than 0"))
+	}
+	base := ptr.Deref(rb.BackoffBaseSeconds, int32(configapi.DefaultReclaimBackoffBaseSeconds))
+	maxBackoff := ptr.Deref(rb.BackoffMaxSeconds, int32(configapi.DefaultReclaimBackoffMaxSeconds))
+	reset := ptr.Deref(rb.BackoffResetSeconds, int32(configapi.DefaultReclaimBackoffResetSeconds))
+	if base > 0 && maxBackoff > 0 && maxBackoff < base {
+		if rb.BackoffMaxSeconds != nil {
+			allErrs = append(allErrs, field.Invalid(reclaimBackoffPath.Child("backoffMaxSeconds"),
+				*rb.BackoffMaxSeconds, "must be greater than or equal to backoffBaseSeconds"))
+		} else {
+			allErrs = append(allErrs, field.Invalid(reclaimBackoffPath.Child("backoffBaseSeconds"),
+				*rb.BackoffBaseSeconds, "must be less than or equal to backoffMaxSeconds"))
+		}
+	}
+	if base > 0 && reset > 0 && reset <= base {
+		if rb.BackoffResetSeconds != nil {
+			allErrs = append(allErrs, field.Invalid(reclaimBackoffPath.Child("backoffResetSeconds"),
+				*rb.BackoffResetSeconds, "must be greater than backoffBaseSeconds so the consecutive-reclaim counter can grow"))
+		} else {
+			allErrs = append(allErrs, field.Invalid(reclaimBackoffPath.Child("backoffBaseSeconds"),
+				*rb.BackoffBaseSeconds, "must be less than backoffResetSeconds so the consecutive-reclaim counter can grow"))
 		}
 	}
 	return allErrs

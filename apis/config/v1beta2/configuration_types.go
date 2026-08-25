@@ -112,6 +112,14 @@ type Configuration struct {
 	// VisibilityServer configures the visibility server.
 	// +optional
 	VisibilityServer *VisibilityServerConfiguration `json:"visibilityServer,omitempty"`
+
+	// ReclaimBackoff configures the per-resource reclaim backoff. After a
+	// ClusterQueue's borrowed resource is reclaimed by preemption, the scheduler
+	// applies an exponential cooldown that defers only the assignments which would
+	// borrow that same resource again. The feature is enabled only when this field
+	// is set and its Enable subfield is true; unset or Enable=false disables it.
+	// +optional
+	ReclaimBackoff *ReclaimBackoff `json:"reclaimBackoff,omitempty"`
 }
 
 type ControllerManager struct {
@@ -327,6 +335,52 @@ type WaitForPodsReady struct {
 	// Defaults to the value of timeout. Setting to "0s" disables recovery timeout checking.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
+}
+
+// ReclaimBackoff defines configuration for the per-resource reclaim backoff.
+// After a ClusterQueue's borrowed resource is reclaimed by preemption, the
+// scheduler defers, for a cooldown window, only the assignments that would
+// borrow that same resource again on the same ClusterQueue. Assignments that
+// fit within nominal quota, and assignments of other resources, are unaffected.
+// The feature is enabled only when Enable is true; otherwise the scheduler
+// behaves as if the feature is off.
+type ReclaimBackoff struct {
+	// Enable controls whether the per-resource reclaim backoff is active. It
+	// must be set to true to turn the feature on; when unset or false, the
+	// remaining fields in this struct are ignored and the scheduler behaves as
+	// if the feature is disabled.
+	// +optional
+	Enable *bool `json:"enable,omitempty"`
+
+	// BackoffBaseSeconds defines the base for the exponential backoff applied to
+	// a (ClusterQueue, resource) pair after its borrowed quota is reclaimed.
+	//
+	// The cooldown for the n-th consecutive reclaim is about "b*2^(n-1)+Rand"
+	// where "b" is BackoffBaseSeconds and "Rand" is a small random jitter, capped
+	// at BackoffMaxSeconds. By default, the consecutive cooldowns are around
+	// (60s, 120s, 240s, ...).
+	//
+	// Defaults to 60.
+	// +optional
+	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
+
+	// BackoffMaxSeconds defines the maximum cooldown, in seconds, applied to a
+	// single (ClusterQueue, resource) pair.
+	//
+	// Defaults to 3600.
+	// +optional
+	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
+
+	// BackoffResetSeconds defines the quiet period, in seconds, after which the
+	// consecutive-reclaim counter for a (ClusterQueue, resource) pair is reset. If
+	// the pair is not reclaimed again within this period, the next reclaim starts
+	// the backoff from BackoffBaseSeconds. This value should be noticeably larger
+	// than BackoffBaseSeconds; otherwise the counter resets within a single base
+	// window and the backoff never grows.
+	//
+	// Defaults to 600.
+	// +optional
+	BackoffResetSeconds *int32 `json:"backoffResetSeconds,omitempty"`
 }
 
 type MultiKueue struct {

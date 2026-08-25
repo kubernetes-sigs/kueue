@@ -4142,7 +4142,7 @@ func TestPreemption(t *testing.T) {
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
 				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy)
-				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
+				preempted, failed, _, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Failed doing preemption")
 				}
@@ -4359,7 +4359,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
 				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy)
-				_, _, err = preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
+				_, _, _, err = preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Failed doing preemption")
 				}
@@ -4465,7 +4465,7 @@ func TestIssuePreemptionsCountsFailures(t *testing.T) {
 		WorkloadCq:   snapshot.ClusterQueue(cqName),
 	}}
 
-	preempted, failedPreemptions, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshot.ClusterQueue(cqName))
+	preempted, failedPreemptions, _, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshot.ClusterQueue(cqName))
 	if err == nil {
 		t.Fatal("Expected preemption error")
 	}
@@ -4582,7 +4582,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				}
 
 				// First call should issue the preemption.
-				preempted, _, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshot.ClusterQueue(wlInfo.ClusterQueue))
+				preempted, _, _, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshot.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("First IssuePreemptions failed: %v", err)
 				}
@@ -4592,7 +4592,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				patchAfterFirst := patchCount
 
 				// Second call with same stale targets should skip (expectation unsatisfied).
-				preempted2, _, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshot.ClusterQueue(wlInfo.ClusterQueue))
+				preempted2, _, _, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshot.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Second IssuePreemptions failed: %v", err)
 				}

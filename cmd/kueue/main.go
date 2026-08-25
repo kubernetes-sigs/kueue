@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -39,6 +40,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -79,6 +81,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/reclaimbackoff"
 	"sigs.k8s.io/kueue/pkg/util/cert"
 	utildra "sigs.k8s.io/kueue/pkg/util/dra"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -416,6 +419,7 @@ func main() {
 		DRABackedResources:        draBackedResources,
 		ResourceFormatter:         resourceFormatter,
 		ResourceSliceAPIAvailable: resourceSliceAPIAvailable,
+		ReclaimBackoff:            reclaimBackoffTracker(&cfg),
 	}
 	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, integrationManager, controllerOpts); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
@@ -439,7 +443,9 @@ func main() {
 		}()
 	}
 
-	if err := setupScheduler(mgr, cCache, queues, &cfg, roleTracker, preemptionExpectations, customLabels, resourceFormatter); err != nil {
+	// The tracker instance must be shared with the ClusterQueue reconciler so
+	// that deleting a ClusterQueue purges the entries the scheduler armed for it.
+	if err := setupScheduler(mgr, cCache, queues, &cfg, roleTracker, preemptionExpectations, customLabels, resourceFormatter, controllerOpts.ReclaimBackoff); err != nil {
 		setupLog.Error(err, "Could not setup scheduler")
 		os.Exit(1)
 	}
@@ -671,6 +677,7 @@ func setupScheduler(
 	preemptionExpectations *expectations.Store,
 	customLabels *metrics.CustomLabels,
 	resourceFormatter *resources.ResourceFormatter,
+	reclaimBackoff *reclaimbackoff.Tracker,
 ) error {
 	sched := scheduler.New(
 		queues,
@@ -685,11 +692,29 @@ func setupScheduler(
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
 		scheduler.WithCustomLabels(customLabels),
 		scheduler.WithResourceFormatter(resourceFormatter),
+		scheduler.WithReclaimBackoff(reclaimBackoff),
 	)
 	if err := mgr.Add(sched); err != nil {
 		return fmt.Errorf("unable to add scheduler to manager: %w", err)
 	}
 	return nil
+}
+
+// reclaimBackoffTracker builds the reclaim backoff tracker from cfg, or returns
+// nil when the reclaimBackoff block is missing or its Enable field is not true,
+// so the scheduler treats the feature as off. Individual fields fall back to
+// DefaultReclaimBackoff*.
+func reclaimBackoffTracker(cfg *configapi.Configuration) *reclaimbackoff.Tracker {
+	if cfg.ReclaimBackoff == nil || !ptr.Deref(cfg.ReclaimBackoff.Enable, false) {
+		return nil
+	}
+	rb := cfg.ReclaimBackoff
+	return reclaimbackoff.New(
+		time.Duration(ptr.Deref(rb.BackoffBaseSeconds, configapi.DefaultReclaimBackoffBaseSeconds))*time.Second,
+		time.Duration(ptr.Deref(rb.BackoffMaxSeconds, configapi.DefaultReclaimBackoffMaxSeconds))*time.Second,
+		time.Duration(ptr.Deref(rb.BackoffResetSeconds, configapi.DefaultReclaimBackoffResetSeconds))*time.Second,
+		clock.RealClock{},
+	)
 }
 
 func setupServerVersionFetcher(mgr ctrl.Manager, kubeConfig *rest.Config) (*kubeversion.ServerVersionFetcher, error) {

@@ -50,6 +50,9 @@ const (
 	DefaultMultiKueueWorkerLostTimeout            = 15 * time.Minute
 	DefaultRequeuingBackoffBaseSeconds            = 60
 	DefaultRequeuingBackoffMaxSeconds             = 3600
+	DefaultReclaimBackoffBaseSeconds              = 60
+	DefaultReclaimBackoffMaxSeconds               = 3600
+	DefaultReclaimBackoffResetSeconds             = 600
 	DefaultResourceTransformationStrategy         = Retain
 	DefaultVisibilityBindPort                     = 8082
 	DefaultCustomMetricLabelSourceKind            = SourceKindClusterQueue
@@ -115,6 +118,12 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.BackoffBaseSeconds, new(int32(DefaultRequeuingBackoffBaseSeconds)))
 		cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds, new(int32(DefaultRequeuingBackoffMaxSeconds)))
 	}
+
+	// ReclaimBackoff is intentionally not defaulted here: the feature is opt-in
+	// via the explicit Enable=true field, and the scheduler applies the per-field
+	// defaults (DefaultReclaimBackoff*) when it builds the tracker. Defaulting
+	// the block or Enable here would silently turn the feature on for every
+	// installation.
 
 	cfg.Integrations = cmp.Or(cfg.Integrations, &Integrations{})
 	if len(cfg.Integrations.Frameworks) == 0 {

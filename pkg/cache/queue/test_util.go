@@ -18,6 +18,7 @@ package queue
 
 import (
 	"context"
+	"time"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,6 +39,18 @@ func (r *testInadmissibleWorkloadRequeuer) notifyClusterQueue(cqName kueue.Clust
 }
 
 func (r *testInadmissibleWorkloadRequeuer) notifyCohort(cohortName kueue.CohortReference) {
+	r.cohorts.Insert(cohortName)
+}
+
+// notifyClusterQueueAfter buffers the requeue like notifyClusterQueue; the delay
+// is ignored because ProcessRequeues is driven synchronously by tests.
+func (r *testInadmissibleWorkloadRequeuer) notifyClusterQueueAfter(cqName kueue.ClusterQueueReference, _ time.Duration) {
+	r.cqs.Insert(cqName)
+}
+
+// notifyCohortAfter buffers the requeue like notifyCohort; the delay is ignored
+// because ProcessRequeues is driven synchronously by tests.
+func (r *testInadmissibleWorkloadRequeuer) notifyCohortAfter(cohortName kueue.CohortReference, _ time.Duration) {
 	r.cohorts.Insert(cohortName)
 }
 

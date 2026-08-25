@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/testr"
@@ -32,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
+	testingclock "k8s.io/utils/clock/testing"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -39,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/reclaimbackoff"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -3648,6 +3651,7 @@ func TestAssignFlavors(t *testing.T) {
 					configapi.QuotaCheckBlockUndeclared,
 					resources.NewResourceFormatter(),
 					0,
+					nil,
 				)
 				assignment := flvAssigner.Assign(ctx, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
@@ -3842,7 +3846,7 @@ func TestReclaimBeforePriorityPreemption(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0, nil)
 			assignment := flvAssigner.Assign(ctx, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
@@ -3990,7 +3994,7 @@ func TestDeletedFlavors(t *testing.T) {
 				cache.DeleteResourceFlavor(log, flavorMap["deleted-flavor"])
 				delete(flavorMap, "deleted-flavor")
 
-				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+				flvAssigner := New(wlInfo, clusterQueue, flavorMap, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0, nil)
 
 				assignment := flvAssigner.Assign(ctx, nil)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
@@ -4164,7 +4168,7 @@ func TestHierarchical(t *testing.T) {
 			testClusterQueue := snapshot.ClusterQueue("test-clusterqueue")
 			testClusterQueue.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.testClusterQueueUsage}})
 
-			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false, &testOracle{tc.simulationResult}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0, nil)
 			assignment := flvAssigner.Assign(ctx, nil)
 			if gotRepMode := assignment.RepresentativeMode(); gotRepMode != tc.wantMode {
 				t.Errorf("Unexpected RepresentativeMode. got %s, want %s", gotRepMode, tc.wantMode)
@@ -4176,6 +4180,98 @@ func TestHierarchical(t *testing.T) {
 				if gotFlavor := assignment.PodSets[0].Flavors[resourceName].Name; gotFlavor != wantFlavor {
 					t.Errorf("Unexpected flavor. got %s, want %s", gotFlavor, wantFlavor)
 				}
+			}
+		})
+	}
+}
+
+// TestReclaimBackoff verifies the flavorassigner read-side interception: an
+// assignment that would push a ClusterQueue into borrowing a resource whose
+// borrowing was recently reclaimed is deferred with the ReclaimBackoff reason,
+// while assignments that stay within nominal quota, and any assignment when the
+// feature is disabled (nil tracker), are unaffected.
+func TestReclaimBackoff(t *testing.T) {
+	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+	// armedTracker returns a Tracker with backoff already armed for (test-cq, default/cpu).
+	armedTracker := func() *reclaimbackoff.Tracker {
+		tr := reclaimbackoff.New(time.Hour, time.Hour, time.Hour, testingclock.NewFakeClock(time.Now()))
+		tr.RecordReclaim("test-cq", fr)
+		return tr
+	}
+
+	cases := map[string]struct {
+		request         *utiltestingapi.PodSetWrapper
+		tracker         func() *reclaimbackoff.Tracker
+		wantMode        FlavorAssignmentMode
+		wantNoFitReason string
+	}{
+		"borrowing assignment is deferred while backing off": {
+			// nominal cpu is 2; requesting 4 forces borrowing from the cohort.
+			request:         utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			tracker:         armedTracker,
+			wantMode:        NoFit,
+			wantNoFitReason: kueue.WorkloadQuotaReservedReasonReclaimBackoff,
+		},
+		"assignment within nominal quota is unaffected by backoff": {
+			request:  utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "2"),
+			tracker:  armedTracker,
+			wantMode: Fit,
+		},
+		"borrowing assignment fits when feature is disabled": {
+			request:  utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "4"),
+			tracker:  func() *reclaimbackoff.Tracker { return nil },
+			wantMode: Fit,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+				"default": utiltestingapi.MakeResourceFlavor("default").Obj(),
+			}
+			// Cohort with 8 cpu of spare capacity so test-cq (nominal 2) can borrow.
+			cohort := utiltestingapi.MakeCohort("root").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "8").Obj()).Obj()
+			testCq := *utiltestingapi.MakeClusterQueue("test-cq").
+				Cohort("root").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "2").Obj()).
+				Obj()
+
+			wlInfo := workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{tc.request.PodSet},
+				},
+			})
+
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			if err := cache.AddOrUpdateCohort(cohort); err != nil {
+				t.Fatalf("Couldn't add Cohort to cache: %v", err)
+			}
+			if err := cache.AddClusterQueue(ctx, &testCq); err != nil {
+				t.Fatalf("Failed to add CQ to cache: %v", err)
+			}
+			for _, rf := range resourceFlavors {
+				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			testClusterQueue := snapshot.ClusterQueue("test-cq")
+
+			flvAssigner := New(wlInfo, testClusterQueue, resourceFlavors, false,
+				&testOracle{}, nil, configapi.QuotaCheckBlockUndeclared,
+				resources.NewResourceFormatter(), 0, tc.tracker())
+			assignment := flvAssigner.Assign(ctx, nil)
+
+			if gotMode := assignment.RepresentativeMode(); gotMode != tc.wantMode {
+				t.Errorf("RepresentativeMode() = %s, want %s", gotMode, tc.wantMode)
+			}
+			if assignment.NoFitReason != tc.wantNoFitReason {
+				t.Errorf("NoFitReason = %q, want %q", assignment.NoFitReason, tc.wantNoFitReason)
 			}
 		})
 	}
@@ -5334,7 +5430,7 @@ func TestAssignFlavorsWithAllowedFlavors(t *testing.T) {
 			}
 			cqSnapshot := snapshot.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
 
-			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			assigner := New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0, nil)
 			gotAssignment := assigner.Assign(ctx, nil)
 
 			if gotAssignment.RepresentativeMode() != tc.wantRepMode {
@@ -5820,6 +5916,7 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 				wlInfo, cqSnapshot, testFlavors, false, &testOracle{simulationResult: tc.simulationResult},
 				tc.replaceWl, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(),
 				0,
+				nil,
 			)
 			gotAssignment := assigner.Assign(ctx, nil)
 
@@ -6083,7 +6180,7 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 				t.Fatalf("Failed to create CQ snapshot")
 			}
 
-			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0, nil)
 			assignment := flvAssigner.Assign(ctx, nil)
 
 			gotErrors := map[kueue.PodSetReference]error{}
@@ -6475,7 +6572,7 @@ func TestFlavorScanRecordsLastTriedFlavorIdx(t *testing.T) {
 			wlInfo := bookmarkTestWorkload(tc.request)
 			assigner := New(wlInfo, cqSnapshot, bookmarkTestFlavors(), false,
 				&testOracle{simulationResult: tc.simulationResult}, nil,
-				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle, nil)
 			assignment := assigner.Assign(ctx, nil)
 
 			if gotMode := assignment.RepresentativeMode(); gotMode != tc.wantMode {
@@ -6557,7 +6654,7 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 
 			// Nomination: quota fits, topology fits, and a placement is produced.
 			nominated := New(wlInfo, cqSnapshot, flavors, false, &testOracle{}, nil,
-				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle).Assign(ctx, nil)
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle, nil).Assign(ctx, nil)
 			if got := nominated.RepresentativeMode(); got != Fit {
 				t.Fatalf("nomination RepresentativeMode() = %s, want %s", got, Fit)
 			}
@@ -6595,7 +6692,7 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 
 			recomputed := New(wlInfo, cqSnapshot, flavors, false,
 				&testOracle{simulationResult: tc.simulationResult}, nil,
-				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle).Assign(ctx, nil)
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle, nil).Assign(ctx, nil)
 
 			recomputedIdx, ok := lastTriedFlavorIdx(recomputed, corev1.ResourceCPU)
 			if !ok {

@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/reclaimbackoff"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	"sigs.k8s.io/kueue/pkg/util/podset"
@@ -307,6 +308,7 @@ const (
 	reasonSeverityNone int = iota
 	reasonSeverityTopologyPlacementFailed
 	reasonSeverityWaitingForQuota
+	reasonSeverityReclaimBackoff
 	reasonSeverityExceedsMaxQuota
 	reasonSeverityNoMatchingFlavor
 )
@@ -317,6 +319,8 @@ func reasonSeverity(reason string) int {
 		return reasonSeverityNoMatchingFlavor
 	case kueue.WorkloadQuotaReservedReasonExceedsMaxQuota:
 		return reasonSeverityExceedsMaxQuota
+	case kueue.WorkloadQuotaReservedReasonReclaimBackoff:
+		return reasonSeverityReclaimBackoff
 	case kueue.WorkloadQuotaReservedReasonWaitingForQuota:
 		return reasonSeverityWaitingForQuota
 	case kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed:
@@ -663,6 +667,11 @@ type FlavorAssigner struct {
 	// schedulingCycle is the cycle this assignment is being computed in. It is recorded
 	// on the assignment so that a later cycle can tell how old the assignment is.
 	schedulingCycle int64
+
+	// reclaimBackoff defers assignments that would re-borrow a resource whose
+	// borrowing was recently reclaimed on this ClusterQueue. It is nil when the
+	// reclaimBackoff block is not set in the Configuration.
+	reclaimBackoff *reclaimbackoff.Tracker
 }
 
 func New(
@@ -675,6 +684,7 @@ func New(
 	quotaCheckStrategy configapi.QuotaCheckStrategy,
 	resourceFormatter *resources.ResourceFormatter,
 	schedulingCycle int64,
+	reclaimBackoff *reclaimbackoff.Tracker,
 ) *FlavorAssigner {
 	return &FlavorAssigner{
 		wl:                   wl,
@@ -686,6 +696,7 @@ func New(
 		quotaCheckStrategy:   quotaCheckStrategy,
 		resourceFormatter:    resourceFormatter,
 		schedulingCycle:      schedulingCycle,
+		reclaimBackoff:       reclaimBackoff,
 	}
 }
 
@@ -1363,6 +1374,18 @@ func (a *FlavorAssigner) fitsResourceQuota(
 	}
 
 	borrow, mayReclaimInHierarchy := classical.FindHeightOfLowestSubtreeThatFits(a.cq, fr, val)
+
+	// If this ClusterQueue recently had its borrowing of fr reclaimed, defer
+	// assignments that would re-borrow it until the cooldown expires. Assignments
+	// that stay within nominal quota (BorrowingWith is false), and other resources,
+	// are unaffected. This breaks the admit-then-immediately-reclaim spin loop.
+	if a.reclaimBackoff != nil && a.cq.BorrowingWith(fr, val) && a.reclaimBackoff.IsBackingOff(a.cq.GetName(), fr) {
+		status.appendf("resource %s in flavor %s is in reclaim backoff on ClusterQueue %s after a recent reclamation",
+			fr.Resource, fr.Flavor, a.cq.GetName())
+		status.noFitReason = kueue.WorkloadQuotaReservedReasonReclaimBackoff
+		return noFit, borrow, &status
+	}
+
 	// Fit
 	if val.Cmp(available) <= 0 {
 		return fit, borrow, nil

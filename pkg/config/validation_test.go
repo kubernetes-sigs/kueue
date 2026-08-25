@@ -371,6 +371,138 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"valid reclaimBackoff": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ReclaimBackoff: &configapi.ReclaimBackoff{
+					Enable:              new(true),
+					BackoffBaseSeconds:  new(int32(30)),
+					BackoffMaxSeconds:   new(int32(1800)),
+					BackoffResetSeconds: new(int32(300)),
+				},
+			},
+		},
+		"valid reclaimBackoff with defaults only": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ReclaimBackoff: &configapi.ReclaimBackoff{
+					Enable: new(true),
+				},
+			},
+		},
+		"zero reclaimBackoff.backoffBaseSeconds": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ReclaimBackoff: &configapi.ReclaimBackoff{
+					Enable:             new(true),
+					BackoffBaseSeconds: new(int32(0)),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "reclaimBackoff.backoffBaseSeconds",
+				},
+			},
+		},
+		"negative reclaimBackoff.backoffMaxSeconds": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ReclaimBackoff: &configapi.ReclaimBackoff{
+					Enable:            new(true),
+					BackoffMaxSeconds: new(int32(-1)),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "reclaimBackoff.backoffMaxSeconds",
+				},
+			},
+		},
+		"reclaimBackoff.backoffMaxSeconds below backoffBaseSeconds": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ReclaimBackoff: &configapi.ReclaimBackoff{
+					Enable:             new(true),
+					BackoffBaseSeconds: new(int32(120)),
+					BackoffMaxSeconds:  new(int32(60)),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "reclaimBackoff.backoffMaxSeconds",
+				},
+			},
+		},
+		"reclaimBackoff.backoffBaseSeconds above default backoffMaxSeconds": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ReclaimBackoff: &configapi.ReclaimBackoff{
+					Enable:             new(true),
+					BackoffBaseSeconds: new(int32(4000)),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "reclaimBackoff.backoffBaseSeconds",
+					Detail: "must be less than or equal to backoffMaxSeconds",
+				},
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "reclaimBackoff.backoffBaseSeconds",
+					Detail: "must be less than backoffResetSeconds so the consecutive-reclaim counter can grow",
+				},
+			},
+		},
+		"reclaimBackoff.backoffResetSeconds not greater than backoffBaseSeconds": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ReclaimBackoff: &configapi.ReclaimBackoff{
+					Enable:              new(true),
+					BackoffBaseSeconds:  new(int32(120)),
+					BackoffResetSeconds: new(int32(120)),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "reclaimBackoff.backoffResetSeconds",
+				},
+			},
+		},
+		"reclaimBackoff.backoffBaseSeconds not below default backoffResetSeconds": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ReclaimBackoff: &configapi.ReclaimBackoff{
+					Enable:             new(true),
+					BackoffBaseSeconds: new(int32(700)),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "reclaimBackoff.backoffBaseSeconds",
+				},
+			},
+		},
+		"invalid reclaimBackoff values are rejected even when disabled": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				ReclaimBackoff: &configapi.ReclaimBackoff{
+					Enable:             new(false),
+					BackoffBaseSeconds: new(int32(-1)),
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "reclaimBackoff.backoffBaseSeconds",
+				},
+			},
+		},
 		"negative multiKueue.gcInterval": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,

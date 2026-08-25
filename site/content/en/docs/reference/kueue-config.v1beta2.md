@@ -162,6 +162,17 @@ of Kueue-managed objects. A nil value disables all automatic deletions.</p>
    <p>VisibilityServer configures the visibility server.</p>
 </td>
 </tr>
+<tr><td><code>reclaimBackoff</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ReclaimBackoff"><code>ReclaimBackoff</code></a>
+</td>
+<td>
+   <p>ReclaimBackoff configures the per-resource reclaim backoff. After a
+ClusterQueue's borrowed resource is reclaimed by preemption, the scheduler
+applies an exponential cooldown that defers only the assignments which would
+borrow that same resource again. The feature is enabled only when this field
+is set and its Enable subfield is true; unset or Enable=false disables it.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1238,6 +1249,76 @@ during admission.</p>
 
 
 
+
+## `ReclaimBackoff`     {#config-kueue-x-k8s-io-v1beta2-ReclaimBackoff}
+    
+
+**Appears in:**
+
+- [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
+
+
+<p>ReclaimBackoff defines configuration for the per-resource reclaim backoff.
+After a ClusterQueue's borrowed resource is reclaimed by preemption, the
+scheduler defers, for a cooldown window, only the assignments that would
+borrow that same resource again on the same ClusterQueue. Assignments that
+fit within nominal quota, and assignments of other resources, are unaffected.
+The feature is enabled only when Enable is true; otherwise the scheduler
+behaves as if the feature is off.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>enable</code><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>Enable controls whether the per-resource reclaim backoff is active. It
+must be set to true to turn the feature on; when unset or false, the
+remaining fields in this struct are ignored and the scheduler behaves as
+if the feature is disabled.</p>
+</td>
+</tr>
+<tr><td><code>backoffBaseSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>BackoffBaseSeconds defines the base for the exponential backoff applied to
+a (ClusterQueue, resource) pair after its borrowed quota is reclaimed.</p>
+<p>The cooldown for the n-th consecutive reclaim is about &quot;b*2^(n-1)+Rand&quot;
+where &quot;b&quot; is BackoffBaseSeconds and &quot;Rand&quot; is a small random jitter, capped
+at BackoffMaxSeconds. By default, the consecutive cooldowns are around
+(60s, 120s, 240s, ...).</p>
+<p>Defaults to 60.</p>
+</td>
+</tr>
+<tr><td><code>backoffMaxSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>BackoffMaxSeconds defines the maximum cooldown, in seconds, applied to a
+single (ClusterQueue, resource) pair.</p>
+<p>Defaults to 3600.</p>
+</td>
+</tr>
+<tr><td><code>backoffResetSeconds</code><br/>
+<code>int32</code>
+</td>
+<td>
+   <p>BackoffResetSeconds defines the quiet period, in seconds, after which the
+consecutive-reclaim counter for a (ClusterQueue, resource) pair is reset. If
+the pair is not reclaimed again within this period, the next reclaim starts
+the backoff from BackoffBaseSeconds. This value should be noticeably larger
+than BackoffBaseSeconds; otherwise the counter resets within a single base
+window and the backoff never grows.</p>
+<p>Defaults to 600.</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `RequeuingStrategy`     {#config-kueue-x-k8s-io-v1beta2-RequeuingStrategy}
     
