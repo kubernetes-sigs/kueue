@@ -785,6 +785,17 @@ const (
 	// topology domain just like a full slice. Without this gate the trailing
 	// pods are dropped from the assignment.
 	TASPartialSlices featuregate.Feature = "TASPartialSlices"
+
+	// owner: @YQ-Wang
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13847
+	//
+	// Enables multiKueue.objectRetentionPolicies.remoteObjects, which keeps the remote
+	// Workload and mirrored job object in the worker cluster for a configured duration
+	// after the local Workload finished, so their status and logs remain available. When
+	// disabled, the configuration field is ignored and remote objects are deleted as soon
+	// as the local Workload finishes.
+	MultiKueueRemoteObjectRetention featuregate.Feature = "MultiKueueRemoteObjectRetention"
 )
 
 func init() {
@@ -1212,6 +1223,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASPartialSlices: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	MultiKueueRemoteObjectRetention: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
