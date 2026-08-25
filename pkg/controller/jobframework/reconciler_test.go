@@ -439,13 +439,49 @@ func TestReconcileGenericJob(t *testing.T) {
 		"setup workload annotations for pods": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulerLibraryIntegration: true,
+				features.TopologyAwareScheduling:     false,
 			},
 			req:     baseReq,
 			job:     baseJob.Clone().Obj(),
 			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  "main",
+								Count: ptr.To(int32(1)),
+							},
+						},
+					}).
+					Obj(),
+			},
 			wantWorkloads: []kueue.Workload{
-				*baseWl.Clone().
-					Name("job-test-job-ce737").
+				*baseWl.Clone().Name("job-test-job-1").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  "main",
+								Count: ptr.To(int32(1)),
+							},
+						},
+					}).
 					Obj(),
 			},
 			wantPodSets: []podset.PodSetInfo{
@@ -453,17 +489,14 @@ func TestReconcileGenericJob(t *testing.T) {
 					Name:  "main",
 					Count: 1,
 					Annotations: map[string]string{
-						kueue.WorkloadAnnotation: "job-test-job-ce737",
+						kueue.WorkloadAnnotation: "job-test-job-1",
 					},
 					Labels: map[string]string{
 						kueueconstants.ClusterQueueLabel: "default-cq",
 						kueueconstants.LocalQueueLabel:   "test-lq",
 						kueueconstants.PodSetLabel:       "main",
 					},
-					Affinity:        nil,
-					NodeSelector:    map[string]string{},
-					Tolerations:     nil,
-					SchedulingGates: nil,
+					NodeSelector: map[string]string{},
 				},
 			},
 		},
