@@ -171,7 +171,6 @@ var _ = ginkgo.Describe("MultiKueue remote object retention", ginkgo.Ordered, gi
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
-
 })
 
 // admitJobOnWorker1 creates a job in the manager cluster and admits its workload on
