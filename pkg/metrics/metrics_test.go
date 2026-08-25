@@ -637,3 +637,20 @@ func TestClearCohortMetricsOnlyClearsScopedGauges(t *testing.T) {
 
 	ClearCohortAdmittedWorkloadsMetrics(cohortName)
 }
+
+func TestWorkloadRecoveryWaitTimeMetrics(t *testing.T) {
+	cqName := kueue.ClusterQueueReference("cq-recovery-test")
+	lqRef := LocalQueueReference{Name: "lq-recovery-test", Namespace: "default"}
+
+	ReportWorkloadRecoveryWaitTime(cqName, "default", 5*time.Second, nil, nil)
+	expectFilteredMetricsCount(t, WorkloadRecoveryWaitTime, 1, "cluster_queue", "cq-recovery-test")
+
+	ReportLocalQueueWorkloadRecoveryWaitTime(lqRef, "default", 5*time.Second, nil, nil)
+	expectFilteredMetricsCount(t, LocalQueueWorkloadRecoveryWaitTime, 1, "name", "lq-recovery-test", "namespace", "default")
+
+	ClearClusterQueueMetrics(cqName)
+	expectFilteredMetricsCount(t, WorkloadRecoveryWaitTime, 0, "cluster_queue", "cq-recovery-test")
+
+	ClearLocalQueueMetrics(lqRef)
+	expectFilteredMetricsCount(t, LocalQueueWorkloadRecoveryWaitTime, 0, "name", "lq-recovery-test", "namespace", "default")
+}
