@@ -1368,6 +1368,21 @@ func TestRequeueWorkloadForgetsInflightWhenNotRequeued(t *testing.T) {
 				return wl
 			},
 		},
+		"workload is deleted": {
+			block: func(ctx context.Context, t *testing.T, log logr.Logger, m *Manager, cl client.Client) *kueue.Workload {
+				if err := cl.Delete(ctx, wl); err != nil {
+					t.Fatalf("Failed deleting workload: %v", err)
+				}
+				return wl
+			},
+			unblock: func(ctx context.Context, t *testing.T, log logr.Logger, m *Manager, cl client.Client) *kueue.Workload {
+				recreated := utiltestingapi.MakeWorkload("wl", "default").Queue("lq").Creation(now).Obj()
+				if err := cl.Create(ctx, recreated); err != nil {
+					t.Fatalf("Failed recreating workload: %v", err)
+				}
+				return recreated
+			},
+		},
 		"workload is deactivated": {
 			block: func(ctx context.Context, t *testing.T, log logr.Logger, m *Manager, cl client.Client) *kueue.Workload {
 				return setWorkloadActive(ctx, t, cl, wl, false)

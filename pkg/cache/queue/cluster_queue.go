@@ -63,6 +63,7 @@ const (
 	RequeueReasonPreemptionFailed       RequeueReason = "PreemptionFailed"
 	RequeueReasonNoFit                  RequeueReason = "NoFit"
 	RequeueReasonPreemptionNoCandidates RequeueReason = "PreemptionNoCandidates"
+	RequeueReasonSnapshotFailed         RequeueReason = "SnapshotFailed"
 )
 
 // QuotaReservedReason represents the reason for the WorkloadQuotaReserved condition
@@ -599,9 +600,9 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	return true
 }
 
-// ForgetInflight releases the claim on a popped workload, for the callers that
-// neither requeue nor delete it.
-func (c *ClusterQueue) ForgetInflight(key workload.Reference) {
+// forgetInflight releases the claim on a popped workload. Only correct under the
+// Manager lock, which orders it against the other transitions of the claim.
+func (c *ClusterQueue) forgetInflight(key workload.Reference) {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 	c.workloads.ForgetInflightByKey(key)
@@ -838,6 +839,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 		immediate = reason != RequeueReasonNamespaceMismatch
 	} else {
 		immediate = reason == RequeueReasonFailedAfterNomination ||
+			reason == RequeueReasonSnapshotFailed ||
 			reason == RequeueReasonPendingPreemption ||
 			reason == RequeueReasonPendingMigration ||
 			reason == RequeueReasonPreemptionFailed

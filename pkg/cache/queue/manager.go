@@ -813,7 +813,7 @@ func (m *Manager) forgetInflight(cqName kueue.ClusterQueueReference, key workloa
 	if cq == nil {
 		return
 	}
-	cq.ForgetInflight(key)
+	cq.forgetInflight(key)
 	reportCQPendingWorkloads(m, cq)
 }
 

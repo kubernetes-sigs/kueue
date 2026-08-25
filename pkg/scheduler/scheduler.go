@@ -397,7 +397,7 @@ func (s *Scheduler) requeueHeadsAfterSnapshotError(ctx context.Context, heads []
 		if s.queues.QueueSecondPassIfNeeded(ctx, wl.Obj, wl.SecondPassIteration) {
 			continue
 		}
-		if !s.queues.RequeueWorkload(ctx, wl, qcache.RequeueReasonFailedAfterNomination, "") {
+		if !s.queues.RequeueWorkload(ctx, wl, qcache.RequeueReasonSnapshotFailed, "") {
 			log.V(2).Info("Popped head was not requeued after a failed snapshot",
 				"workload", klog.KObj(wl.Obj), "clusterQueue", klog.KRef("", string(wl.ClusterQueue)))
 		}
