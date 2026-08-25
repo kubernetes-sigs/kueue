@@ -50,12 +50,16 @@ const (
 	ErrLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
 )
 
-// handlePodOverhead raises what a PodSet carries to the overhead its RuntimeClass
-// defines, taking the larger of the two rather than the class outright: only a
-// class's handler is immutable, so a PodSet copied off an already-admitted Pod can
-// carry more than the class now defines. It reconciles the two values visible at
-// this adjustment and nothing else: a reservation already taken is not rebuilt
-// when the class is edited afterwards, which is #14317.
+// We do not verify Pod's RuntimeClass legality here as this will be performed in admission controller.
+// As a result, the pod's Overhead is not always correct. E.g. if we set a non-existent runtime class name to
+// `pod.Spec.RuntimeClassName` and we also set the `pod.Spec.Overhead`, in real world, the pod creation will be
+// rejected due to the mismatch with RuntimeClass. However, in the future we assume that they are correct.
+//
+// The larger of the two overheads wins rather than the class outright: only a class's
+// handler is immutable, so a PodSet copied off an already-admitted Pod can carry more
+// than the class defines now. Only the two values visible at this adjustment are
+// reconciled; a reservation already taken is not rebuilt when the class is edited
+// afterwards, which is #14317.
 func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload) []error {
 	var errs []error
 	for i := range wl.Spec.PodSets {
