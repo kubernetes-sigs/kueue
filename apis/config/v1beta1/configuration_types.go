@@ -562,6 +562,9 @@ type ResourceTransformation struct {
 	// Input is the name of the input resource.
 	// It must not be `pods`; that exact name is reserved for Kueue's internal
 	// Pod-count accounting. A qualified name such as `example.com/pods` is allowed.
+	// Disabling the ReservedResourceNameValidation feature gate lets such a
+	// configuration load for an upgrade; flavor assignment still overwrites the
+	// key with the PodSet count.
 	Input corev1.ResourceName `json:"input"`
 
 	// Strategy specifies if the input resource should be replaced or retained.
@@ -576,6 +579,9 @@ type ResourceTransformation struct {
 	// "strategy" is Retain.
 	// It must not be `pods`; that exact name is reserved for Kueue's internal
 	// Pod-count accounting. A qualified name such as `example.com/pods` is allowed.
+	// Disabling the ReservedResourceNameValidation feature gate lets such a
+	// configuration load for an upgrade; flavor assignment still overwrites the
+	// key with the PodSet count.
 	// +optional
 	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 
@@ -583,6 +589,9 @@ type ResourceTransformation struct {
 	// An output resource name must not be `pods`; that exact name is reserved for
 	// Kueue's internal Pod-count accounting. A qualified name such as
 	// `example.com/pods` is allowed.
+	// Disabling the ReservedResourceNameValidation feature gate lets such a
+	// configuration load for an upgrade; flavor assignment still overwrites the
+	// key with the PodSet count.
 	// An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.
 	Outputs corev1.ResourceList `json:"outputs,omitempty"`
 }
@@ -600,6 +609,9 @@ type DeviceClassMapping struct {
 	// With KueueDRAIntegration enabled it must not be `pods`; that exact name is
 	// reserved for Kueue's internal Pod-count accounting. A qualified name such
 	// as `example.com/pods` is allowed.
+	// Disabling the ReservedResourceNameValidation feature gate lets such a
+	// configuration load for an upgrade; flavor assignment still overwrites the
+	// key with the PodSet count.
 	Name corev1.ResourceName `json:"name"`
 
 	// DeviceClassNames enumerates the DeviceClasses represented by this resource name.

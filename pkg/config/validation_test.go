@@ -1496,6 +1496,33 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		// The escape hatch: a configuration every released version accepted, loaded
+		// by a manager told not to refuse it.
+		"every position naming pods is accepted while the gate is off": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ReservedResourceNameValidation: false,
+				features.KueueDRAIntegration:            true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      corev1.ResourcePods,
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: corev1.ResourcePods,
+							Outputs:    corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             corev1.ResourcePods,
+							DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
+						},
+					},
+				},
+			},
+		},
 		"transformation naming pods twice reports both": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
