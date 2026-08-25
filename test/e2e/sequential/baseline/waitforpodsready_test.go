@@ -491,8 +491,8 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 
 		ginkgo.By("verifying that the recovery metric is updated", func() {
 			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
-				{"kueue_workload_recovery_wait_time_seconds_count", cq.Name, ""},
-				{"kueue_local_queue_workload_recovery_wait_time_seconds_count", ns.Name, lq.Name, ""},
+				{"kueue_workload_recovery_wait_time_seconds_count", cq.Name, "} 1"},
+				{"kueue_local_queue_workload_recovery_wait_time_seconds_count", ns.Name, lq.Name, "} 1"},
 			})
 		})
 
