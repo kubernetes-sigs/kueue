@@ -70,11 +70,6 @@ type Integrations struct {
     ...
 }
 ```
-
-The comment above is the field as this KEP proposed it. Labels a Kueue
-controller writes on a Workload as its own control metadata were later carved
-out: they are removed before a pod group's values are compared, and a
-configuration naming one in `labelKeysToCopy` is refused at startup.
 ### Test Plan
 
 <!--
@@ -112,7 +107,6 @@ The idea is to enhance the existing integrations tests to check if workload obje
 ## Implementation History
 
 * 2024-04-08 First draft
-* 2026-08-14 Workload control metadata excluded from copying and from the pod group consistency check
 
 ## Drawbacks
 
