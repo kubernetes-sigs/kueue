@@ -37,17 +37,20 @@ type SchedulingSimulator interface {
 	UntrackPod(key client.ObjectKey)
 }
 
-// SimulatorSnapshot represents the cluster state as needed for scheduling simulations.
+// SimulatorSnapshot allows running simulations on a cluster state snapshot.
 // This interface is purposed to control Kueue-WAS integration.
 // The "default" (non-WAS) implementation may trivialize some methods.
 type SimulatorSnapshot interface {
-	// Simulate executes the provided function,
-	// ensuring all operations performed on the SimulatorSnapshot inside
-	// are undone after the function returns.
+	// Simulate executes the provided function.
+	// After the simulation ends, any changes made to the snapshot state
+	// via its built-in methods will be reverted.
 	Simulate(func())
-	// FindFeasibleNodes returns all candidates that can be scheduled with the given requirements.
+	// FindFeasibleNodes returns all candidates that can be scheduled
+	// with the given requirements, based on the current state of the snapshot.
 	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
 	// PreemptWorkload preempts the given workload, returning a function that reverts the preemption.
+	// When run inside Simulate, any changes made by the method or the returned revert function
+	// will be reverted regardless of their outcome (error vs success).
 	PreemptWorkload(wlKey client.ObjectKey) (revert func() error, err error)
 }
 
