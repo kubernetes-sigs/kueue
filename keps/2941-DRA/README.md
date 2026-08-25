@@ -924,11 +924,11 @@ The two DRA paths resolve quota independently:
 5. If the mapping has counter sources configured, the workload is marked inadmissible.
    Extended resources do not carry profile-level information for counter-based charging.
    Otherwise charges device count.
-6. Subtracts only the translated container amount under the original extended resource
-   name from the Workload's effective requests (tracked internally per PodSet) to avoid
-   double-counting. Pod overhead and transformation outputs under that name remain.
-7. Admits the Workload against the resulting requests, which is the mapped logical
-   name together with any contribution still standing under the original one
+6. Subtracts the original extended resource from the workload's effective resource
+   requests (tracked internally per PodSet) to avoid double-counting. Only the
+   translated container amount is subtracted; Pod overhead and transformation output
+   under the same name remain.
+7. Admits the Workload against the resulting requests
 
 The extended resource translation reads directly from the workload spec before
 `excludeResourcePrefixes` filtering is applied. The processing order:
@@ -939,11 +939,6 @@ The extended resource translation reads directly from the workload spec before
 4. Translated resource is added through `preprocessedDRAResources`
 
 This ensures no overlap or double-counting between the two mechanisms.
-
-This does not reach a resource transformation naming the same resource: a `Replace` consuming
-a DRA-backed input is still charged the device as well as whatever the transformation emits,
-and an output written to a `deviceClassMappings[].name` is added to the charge under that
-name. Both are tracked in [#14160](https://github.com/kubernetes-sigs/kueue/issues/14160).
 
 #### Same Hardware with Both Paths
 
