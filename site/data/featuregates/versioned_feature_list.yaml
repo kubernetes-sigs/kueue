@@ -433,6 +433,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: SchedulingEquivalenceHashingIgnorePodSetName
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: ShortWorkloadNames
   versionedSpecs:
   - default: false
