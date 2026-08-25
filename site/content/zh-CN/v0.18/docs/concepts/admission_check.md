@@ -126,4 +126,4 @@ Kueue 确保 Workload 的 AdmissionCheckStates 列表与其 ClusterQueue 的 Adm
 ## 接下来？ {#what-next}
 
 - 阅读 `AdmissionCheck` 的 [API 参考](/zh-cn/v0.18/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-AdmissionCheck)
-- 了解更多内置的 [Provisioning Admission Check Controller](/zh-CN/v0.18/docs/admission-check-controllers/provisioning)
+- 了解更多内置的 [Provisioning Admission Check Controller](/v0.18/docs/admission-check-controllers/provisioning)

@@ -612,6 +612,8 @@ const Replace ResourceTransformationStrategy = "Replace"
 
 type ResourceTransformation struct {
 	// Input is the name of the input resource.
+	// It must not be `pods`; that exact name is reserved for Kueue's internal
+	// Pod-count accounting. A qualified name such as `example.com/pods` is allowed.
 	Input corev1.ResourceName `json:"input"`
 
 	// Strategy specifies if the input resource should be replaced or retained.
@@ -624,10 +626,15 @@ type ResourceTransformation struct {
 	// amount of the resource indicated by the "input" field when computing
 	// "outputs". It does not change the quantity retained under "input" when
 	// "strategy" is Retain.
+	// It must not be `pods`; that exact name is reserved for Kueue's internal
+	// Pod-count accounting. A qualified name such as `example.com/pods` is allowed.
 	// +optional
 	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 
 	// Outputs specifies the output resources and quantities per unit of input resource.
+	// An output resource name must not be `pods`; that exact name is reserved for
+	// Kueue's internal Pod-count accounting. A qualified name such as
+	// `example.com/pods` is allowed.
 	// An empty Outputs combined with a `Replace` Strategy causes the Input resource to be ignored by Kueue.
 	Outputs corev1.ResourceList `json:"outputs,omitempty"`
 }
@@ -642,6 +649,9 @@ type DeviceClassMapping struct {
 	// and must start and end with an alphanumeric character.
 	// DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
 	// The total length must not exceed 253 characters.
+	// With KueueDRAIntegration enabled it must not be `pods`; that exact name is
+	// reserved for Kueue's internal Pod-count accounting. A qualified name such
+	// as `example.com/pods` is allowed.
 	Name corev1.ResourceName `json:"name"`
 
 	// DeviceClassNames enumerates the DeviceClasses represented by this resource name.
@@ -743,15 +753,23 @@ type FairSharing struct {
 	// preemptionStrategies indicates which constraints should a preemption satisfy.
 	// The preemption algorithm will only use the next strategy in the list if the
 	// incoming workload (preemptor) doesn't fit after using the previous strategies.
+	// AlmostLCA(x, y) is the last but one node on the path from x to the
+	// lowest common ancestor of x and y in the cohort hierarchy (see KEP-1714).
+	// The strategies compare the shares of AlmostLCA(preemptor, preemptee) and
+	// AlmostLCA(preemptee, preemptor). These are the shares of ClusterQueues themselves
+	// only when both ClusterQueues share the same parent Cohort.
 	// Possible values are:
-	// - LessThanOrEqualToFinalShare: Only preempt a workload if the share of the preemptor CQ
-	//   with the preemptor workload is less than or equal to the share of the preemptee CQ
+	// - LessThanOrEqualToFinalShare: Only preempt a workload if the share of
+	//   AlmostLCA(preemptor, preemptee) with the preemptor workload admitted is
+	//   less than or equal to the share of AlmostLCA(preemptee, preemptor)
 	//   without the workload to be preempted.
 	//   This strategy might favor preemption of smaller workloads in the preemptee CQ,
-	//   regardless of priority or start time, in an effort to keep the share of the CQ
+	//   regardless of priority or start time, in an effort to keep the share of AlmostLCA(preemptee, preemptor)
 	//   as high as possible.
-	// - LessThanInitialShare: Only preempt a workload if the share of the preemptor CQ
-	//   with the incoming workload is strictly less than the share of the preemptee CQ.
+	// - LessThanInitialShare: Only preempt a workload if the share of
+	//   AlmostLCA(preemptor, preemptee) with the preemptor workload admitted is
+	//   strictly less than the share of AlmostLCA(preemptee, preemptor) with the
+	//   workload to be preempted.
 	//   This strategy doesn't depend on the share usage of the workload being preempted.
 	//   As a result, the strategy chooses to preempt workloads with the lowest priority and
 	//   newest start time first.

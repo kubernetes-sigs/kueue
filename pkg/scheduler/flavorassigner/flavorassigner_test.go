@@ -5076,13 +5076,60 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 			},
 			want: workload.TASUsage{},
 		},
+		"skips a domain whose recomputed count is lower than what the previous admission already accounted for": {
+			// Defensive path: current replacement behavior is expected to
+			// produce equal or increased per-domain counts, but a negative
+			// delta must not be recorded as usage, let alone subtracted.
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "tas"},
+					},
+					Count: 1,
+					TopologyAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Values: []string{"node-a"},
+							Count:  1,
+						}},
+					},
+				}},
+			},
+			wl: workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			cq: &schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"tas": {},
+				},
+			},
+			prevAdmission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					// The previous admission held 3 pods in node-a; the
+					// recomputed assignment only claims 1.
+					TopologyAssignment: utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 3).Obj()).
+						Obj(),
+				}},
+			},
+			want: workload.TASUsage{},
+		},
 	}
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			got := tt.assignment.ComputeTASNetUsage(testr.New(t), tt.cq, tt.wl, tt.prevAdmission)
 
-			if diff := cmp.Diff(tt.want, got, cmpopts.EquateEmpty(), cmp.Comparer(resources.Equal)); diff != "" {
+			if diff := cmp.Diff(tt.want, got, cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("Unexpected TAS usage (-want,+got):\n%s", diff)
 			}
 		})

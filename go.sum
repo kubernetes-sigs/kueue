@@ -460,8 +460,8 @@ sigs.k8s.io/kustomize/api v0.21.1 h1:lzqbzvz2CSvsjIUZUBNFKtIMsEw7hVLJp0JeSIVmuJs
 sigs.k8s.io/kustomize/api v0.21.1/go.mod h1:f3wkKByTrgpgltLgySCntrYoq5d3q7aaxveSagwTlwI=
 sigs.k8s.io/kustomize/kyaml v0.21.1 h1:IVlbmhC076nf6foyL6Taw4BkrLuEsXUXNpsE+ScX7fI=
 sigs.k8s.io/kustomize/kyaml v0.21.1/go.mod h1:hmxADesM3yUN2vbA5z1/YTBnzLJ1dajdqpQonwBL1FQ=
-sigs.k8s.io/lws v0.9.0 h1:DcJCgxjjoGOx//QHZkeKpyiblxYq70aCRZNYSfykWyI=
-sigs.k8s.io/lws v0.9.0/go.mod h1:oYkORu4fUxGwA2Q/V4IOXfn5yGpQVDAHAZx2TVbi9LY=
+sigs.k8s.io/lws v0.10.0 h1:KqNtGMIJAGj4QpZ9P+F3NixyNyRsnWvCIxDT05xjGTA=
+sigs.k8s.io/lws v0.10.0/go.mod h1:bYGhxHiSF1NrOFRMqIBAt3q1pri47w3cx3elU0o5wNQ=
 sigs.k8s.io/randfill v1.0.0 h1:JfjMILfT8A6RbawdsK2JXGBR5AQVfd+9TbzrlneTyrU=
 sigs.k8s.io/randfill v1.0.0/go.mod h1:XeLlZ/jmk4i1HRopwe7/aU3H5n1zNUcX6TM94b3QxOY=
 sigs.k8s.io/scheduler-library v0.1.0-alpha1 h1:pOwwBxTDaQMmEioiZ5JkHEAPVCzTd0blVHVlxTk2FSI=
