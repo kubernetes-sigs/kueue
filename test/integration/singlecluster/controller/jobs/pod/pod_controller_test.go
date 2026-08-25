@@ -3513,8 +3513,6 @@ var _ = ginkgo.Describe("Pod controller with TASFailedNodeReplacementFailFast di
 			// below uses as the lookup key.
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
-				g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

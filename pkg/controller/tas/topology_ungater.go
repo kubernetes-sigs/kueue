@@ -246,7 +246,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	}
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment != nil {
-			pods, err := r.podsForPodSet(ctx, wl.Namespace, workloadSliceName, psa.Name)
+			pods, err := r.filterPodsToUngate(ctx, wl.Namespace, workloadSliceName, psa.Name)
 			if err != nil {
 				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
@@ -355,21 +355,32 @@ func shouldReconcileWorkload(wl *kueue.Workload) bool {
 	return workload.IsAdmittedByTAS(wl)
 }
 
-func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceName string, psName kueue.PodSetReference) ([]*corev1.Pod, error) {
-	pods, err := ListPodsForWorkloadSlice(ctx, r.client, ns, workloadSliceName,
-		client.MatchingLabels{constants.PodSetLabel: string(psName)})
+func (r *topologyUngater) filterPodsToUngate(
+	ctx context.Context,
+	ns, workloadSliceName string,
+	psName kueue.PodSetReference,
+) ([]*corev1.Pod, error) {
+	pods, err := ListPodsForWorkloadSlice(
+		ctx,
+		r.client,
+		ns,
+		workloadSliceName,
+		client.MatchingLabels{constants.PodSetLabel: string(psName)},
+	)
 	if err != nil {
 		return nil, err
 	}
+
 	result := make([]*corev1.Pod, 0, len(pods))
 	for _, pod := range pods {
 		if utilpod.IsTerminated(pod) {
-			// ignore failed or succeeded pods as they need to be replaced, and
-			// so we don't want to count them as already ungated Pods.
+			// Ignore failed or succeeded pods as they need to be replaced,
+			// and so we don't want to count them as already ungated Pods.
 			continue
 		}
 		result = append(result, pod)
 	}
+
 	return result, nil
 }
 
