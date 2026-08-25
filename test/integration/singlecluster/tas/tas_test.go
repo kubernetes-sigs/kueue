@@ -4116,11 +4116,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			ginkgo.BeforeEach(func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PrioritizePreemptorWorkloads, true)
 
-				//      b1
-				//   /      \
-				//  r1       r2
-				//  |         |
-				//  x2       x1
+				//          b1
+				//     /    |    \
+				//    r1    r2    r3
+				//    |     |     |
+				//    x2    x1    x3
+				//   (5)   (5)   (2)
 				nodes = []corev1.Node{
 					*testingnode.MakeNode("x2").
 						Label("node-group", "tas").
@@ -4205,7 +4206,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						},
 					}).
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
-						Resource(corev1.ResourceCPU, "15").
+						Resource(corev1.ResourceCPU, "5").
 						Resource(corev1.ResourceMemory, "5Gi").Obj()).
 					Obj()
 				util.MustCreate(ctx, k8sClient, clusterQueueC)
@@ -4258,7 +4259,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA, wlB)
 				})
 
-				ginkgo.By("creating a pending workload in clusterQueueC within its nominal quota (3 CPU)", func() {
+				ginkgo.By("creating a pending workload in clusterQueueC within its nominal quota (3 CPU) that cannot fit due to fragmented node capacity", func() {
 					wlPending = utiltestingapi.MakeWorkload("wl-pending", ns.Name).
 						Priority(1).
 						PodSets(*utiltestingapi.MakePodSet("worker", 1).
@@ -4269,13 +4270,13 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					util.ExpectWorkloadsToBePending(ctx, k8sClient, wlPending)
 				})
 
-				ginkgo.By("creating a high priority preemptor in clusterQueue requesting full block capacity (2 nodes x 5 CPU, borrowing from cohort)", func() {
+				ginkgo.By("creating a high priority preemptor in clusterQueue requesting 2 pods of 4 CPU (borrowing from cohort)", func() {
 					preemptor = utiltestingapi.MakeWorkload("preemptor", ns.Name).
 						Priority(3).
 						PodSets(*utiltestingapi.MakePodSet("worker", 2).
 							PreferredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 							Obj()).
-						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "4").Obj()
 					util.MustCreate(ctx, k8sClient, preemptor)
 				})
 
@@ -4292,6 +4293,15 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlPending), wlPending)).To(gomega.Succeed())
 						g.Expect(workload.HasQuotaReservation(wlPending)).To(gomega.BeFalse())
 					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("finishing eviction for wl-b", func() {
+					util.FinishEvictionForWorkloads(ctx, k8sClient, wlB)
+				})
+
+				ginkgo.By("verifying preemptor is admitted and wl-pending remains pending with available quota but fragmented topology", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
+					util.ExpectWorkloadsToBePending(ctx, k8sClient, wlPending)
 
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlPending), wlPending)).To(gomega.Succeed())
@@ -4301,15 +4311,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						g.Expect(cond.Reason).To(gomega.Equal(kueue.WorkloadQuotaReservedReasonWaitingForQuota))
 						g.Expect(cond.Message).To(gomega.ContainSubstring(`topology "default" doesn't allow to fit any of 1 pod(s)`))
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				})
-
-				ginkgo.By("finishing eviction for wl-b", func() {
-					util.FinishEvictionForWorkloads(ctx, k8sClient, wlB)
-				})
-
-				ginkgo.By("verifying preemptor is admitted and wl-pending remains pending", func() {
-					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptor)
-					util.ExpectWorkloadsToBePending(ctx, k8sClient, wlPending)
 				})
 			})
 		})
@@ -4440,6 +4441,18 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
+					*testingnode.MakeNode("x3").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r3").
+						Label(corev1.LabelHostname, "x3").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("2"),
+							corev1.ResourceMemory: resource.MustParse("5Gi"),
 							corev1.ResourcePods:   resource.MustParse("10"),
 						}).
 						Ready().
