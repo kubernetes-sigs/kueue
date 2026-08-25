@@ -290,6 +290,13 @@ const (
 	// Skip equivalent inadmissible workloads in BestEffortFIFO scheduling.
 	SchedulingEquivalenceHashing featuregate.Feature = "SchedulingEquivalenceHashing"
 
+	// owner: @venuchitta
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/14534
+	// Exclude the PodSet name from the scheduling equivalence hash. Flavor assignment
+	// does not use the name, so including it splits otherwise equivalent Workloads.
+	SchedulingEquivalenceHashingIgnorePodSetName featuregate.Feature = "SchedulingEquivalenceHashingIgnorePodSetName"
+
 	// owner: @IrvingMg
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7066-custom-metric-labels
 	//
@@ -608,23 +615,24 @@ func init() {
 }
 
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
-	TASFailedNodeReplacement:                    {TopologyAwareScheduling},
-	TASFailedNodeReplacementFailFast:            {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeOnPodTermination:              {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeDueToNotReadyOverFixedTime:    {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASBalancedPlacement:                        {TopologyAwareScheduling},
-	TASReplaceNodeOnNodeTaints:                  {TopologyAwareScheduling},
-	TASMultiLayerTopology:                       {TopologyAwareScheduling},
-	TASRespectNodeAffinityPreferred:             {TopologyAwareScheduling},
-	UnadmittedWorkloadsExplicitStatus:           {UnadmittedWorkloadsObservability},
-	TASHandleOverlappingFlavors:                 {TopologyAwareScheduling},
-	TASProfileMixed:                             {TopologyAwareScheduling},
-	TASRecomputeAssignmentWithinSchedulingCycle: {TopologyAwareScheduling},
-	ElasticJobsViaWorkloadSlicesWithTAS:         {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
-	KueueDRAIntegrationExtendedResource:         {KueueDRAIntegration},
-	KueueDRAIntegrationPartitionableDevices:     {KueueDRAIntegration},
-	KueueDRAIntegrationConsumableCapacity:       {KueueDRAIntegration},
-	FlavorFungibilityPreserveScanProgress:       {FlavorFungibility},
+	TASFailedNodeReplacement:                     {TopologyAwareScheduling},
+	TASFailedNodeReplacementFailFast:             {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeOnPodTermination:               {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeDueToNotReadyOverFixedTime:     {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASBalancedPlacement:                         {TopologyAwareScheduling},
+	TASReplaceNodeOnNodeTaints:                   {TopologyAwareScheduling},
+	TASMultiLayerTopology:                        {TopologyAwareScheduling},
+	TASRespectNodeAffinityPreferred:              {TopologyAwareScheduling},
+	UnadmittedWorkloadsExplicitStatus:            {UnadmittedWorkloadsObservability},
+	TASHandleOverlappingFlavors:                  {TopologyAwareScheduling},
+	TASProfileMixed:                              {TopologyAwareScheduling},
+	TASRecomputeAssignmentWithinSchedulingCycle:  {TopologyAwareScheduling},
+	ElasticJobsViaWorkloadSlicesWithTAS:          {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
+	KueueDRAIntegrationExtendedResource:          {KueueDRAIntegration},
+	KueueDRAIntegrationPartitionableDevices:      {KueueDRAIntegration},
+	KueueDRAIntegrationConsumableCapacity:        {KueueDRAIntegration},
+	FlavorFungibilityPreserveScanProgress:        {FlavorFungibility},
+	SchedulingEquivalenceHashingIgnorePodSetName: {SchedulingEquivalenceHashing},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -778,6 +786,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	SchedulingEquivalenceHashing: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+	},
+	SchedulingEquivalenceHashingIgnorePodSetName: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 	CustomMetricLabels: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},

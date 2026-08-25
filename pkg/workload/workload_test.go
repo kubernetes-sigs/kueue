@@ -3119,6 +3119,69 @@ func TestSchedulingHash(t *testing.T) {
 				features.ConcurrentAdmission:          true,
 			},
 		},
+		"different PodSet names when the name is part of the hash": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				PodSets(*utiltestingapi.MakePodSet("4f7aac39", 1).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				PodSets(*utiltestingapi.MakePodSet("f8172213", 1).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			wantSame: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:                 true,
+				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
+			},
+		},
+		"different PodSet names when the name is ignored": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				PodSets(*utiltestingapi.MakePodSet("4f7aac39", 1).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				PodSets(*utiltestingapi.MakePodSet("f8172213", 1).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			wantSame: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:                 true,
+				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
+			},
+		},
+		// Position still matters: requests are matched to PodSets by index.
+		"PodSet requests swapped between the same names when the name is ignored": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("b", 1).Request(corev1.ResourceCPU, "2").Obj(),
+				).Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).Request(corev1.ResourceCPU, "2").Obj(),
+					*utiltestingapi.MakePodSet("b", 1).Request(corev1.ResourceCPU, "1").Obj(),
+				).Obj(),
+			wantSame: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:                 true,
+				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
+			},
+		},
+		// The Pod group case: same two roles, distinct per-Workload names that sort
+		// into opposite positions, so the ordered descriptions differ.
+		"PodSets with distinct names sorting into a different order when the name is ignored": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				PodSets(
+					*utiltestingapi.MakePodSet("4f7aac39", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("f8172213", 1).Request(corev1.ResourceCPU, "2").Obj(),
+				).Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				PodSets(
+					*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "2").Obj(),
+					*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
+				).Obj(),
+			wantSame: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:                 true,
+				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
