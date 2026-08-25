@@ -3513,7 +3513,9 @@ var _ = ginkgo.Describe("Pod controller with TASFailedNodeReplacementFailFast di
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
 			gomega.Expect(nodeNames).To(gomega.ConsistOf("x1", "x2"))
-			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.By("wait for pods to be ungated and bind each to its assigned node", func() {
