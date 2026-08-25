@@ -659,6 +659,9 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASRecomputeAssignmentWithinSchedulingCycle, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.UnadmittedWorkloadsExplicitStatus, features.UnadmittedWorkloadsObservability)...)
 
+	// Excluding the PodSet name only means something once the hash itself is computed.
+	allErrs = append(allErrs, validateFeatureGateDependency(features.SchedulingEquivalenceHashingIgnorePodSetName, features.SchedulingEquivalenceHashing)...)
+
 	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) {
 		if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 			allErrs = append(allErrs, field.Invalid(featureGatesPath, "ElasticJobsViaWorkloadSlicesWithTAS", "ElasticJobsViaWorkloadSlicesWithTAS requires ElasticJobsViaWorkloadSlices to be enabled"))
