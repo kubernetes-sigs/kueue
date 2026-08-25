@@ -1,4 +1,4 @@
-title: Partial ScaleUp for ElasticJob
+title: Partial Replica ScaleUp for ElasticJob
 kep-number: 12100
 authors:
   - "@yaroslava-serdiuk"

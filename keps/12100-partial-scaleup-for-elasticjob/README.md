@@ -1,4 +1,4 @@
-# KEP-12100: Partial ScaleUp for ElasticJob
+# KEP-12100: Partial Replica ScaleUp for ElasticJob
 
 <!-- toc -->
 - [Summary](#summary)
@@ -14,13 +14,11 @@
   - [Enablement](#enablement)
     - [Features](#features)
     - [ElasticJob ScaleUp Annotation](#elasticjob-scaleup-annotation)
-  - [Workload API](#workload-api)
   - [Scheduler / Flavorassignment](#scheduler--flavorassignment)
   - [Opportunistic scale up when capacity is freed](#opportunistic-scale-up-when-capacity-is-freed)
     - [WorkloadSlice Name](#workloadslice-name)
     - [StrictFIFO Constraint](#strictfifo-constraint)
-    - [Example: Two-Step Scale Up under Quota Constraints (with Partial Admission)](#example-two-step-scale-up-under-quota-constraints-with-partial-admission)
-      - [Step 0: Job Creation (Initial Size: 5)](#step-0-job-creation-initial-size-5)
+    - [Example:  Two-Step Scale Up under Quota Constraints](#example--two-step-scale-up-under-quota-constraints)
       - [Step 1: Scale Up from 5 to 10 (Quota Constraint: 7), partial admission of scale up](#step-1-scale-up-from-5-to-10-quota-constraint-7-partial-admission-of-scale-up)
       - [Step 2: Scale Up to 12 (Quota Constraint: 7), scale up isn't admitted](#step-2-scale-up-to-12-quota-constraint-7-scale-up-isnt-admitted)
       - [Step 3: Quota increases to 12, opportunistic scale up when capacity is freed](#step-3-quota-increases-to-12-opportunistic-scale-up-when-capacity-is-freed)
@@ -28,10 +26,15 @@
   - [RayJob/RayService/RayCluster controller](#rayjobrayserviceraycluster-controller)
   - [Partial ScaleUp for multiple PodSets](#partial-scaleup-for-multiple-podsets)
     - [Order-Based policy (<code>order-based</code>)](#order-based-policy-order-based)
+      - [Example of RayJob with multiple PodSets](#example-of-rayjob-with-multiple-podsets)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration tests](#integration-tests)
     - [E2E tests](#e2e-tests)
+  - [Graduation Criteria](#graduation-criteria)
+- [Implementation History](#implementation-history)
+- [Drawbacks](#drawbacks)
+- [Alternatives](#alternatives)
 <!-- /toc -->
 
 ## Summary
@@ -52,7 +55,6 @@ In elastic workloads (such as RayJob with autoscaling), jobs dynamically scale u
 ### Non-Goals
 
 - Partial admission for initial job creation when only partial scale-up is configured.
-- Support for `batch/v1 Job` (`batch.job`) integration.
 - Respecting pod indexing when ungating pods. Specifically, this means that only single-host worker replicas are supported in RayCluster (NumOfHosts = 1)
 
 ## Proposal
@@ -84,7 +86,7 @@ Also, a new Workload representing the full job will be created and added to the 
 
 Partial ScaleUp for elastic jobs in Kueue is enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. At the cluster level, the ElasticJobWithPartialScaleUp feature (disabled by default) must be enabled via the corresponding Kueue feature gate.
 
-Once the feature gate is enabled, individual Job objects can opt into partial admission by including the `kueue.x-k8s.io/elastic-job-scale-up="partial"` annotation. If the annotation is not set, the default value is `"atomic"`.
+Once the feature gate is enabled, individual Job objects can opt into partial admission by including the `kueue.x-k8s.io/elastic-job-scale-up-strategy="partial"` annotation. If the annotation is not set, the default value is `"atomic"`.
 When both conditions are met, Kueue treats the Workload as eligible for partial scale up. 
 
 #### Features
@@ -101,46 +103,11 @@ const (
 	// ElasticJobScaleUpAnnotationKey refers to the annotation key present on Jobs that support
 	// partial scale up.
 	// This annotation is alpha-level.
-	ElasticJobScaleUpAnnotationKey = "kueue.x-k8s.io/elastic-job-scale-up"
+	ElasticJobScaleUpAnnotationKey = "kueue.x-k8s.io/elastic-job-scale-up-strategy"
 
 	ElasticJobScaleUpAtomic  ElasticJobScaleUpAnnotationValue = "atomic"
 	ElasticJobScaleUpPartial ElasticJobScaleUpAnnotationValue = "partial"
 )
-```
-The proposal relies on following existing API:
-
-### Workload API
-
-```go
-// +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
-type PodSet struct {
-  // .......
-
-  // count is the number of pods requested by the Job.
-  // +kubebuilder:validation:Minimum=0
-  Count int32 `json:"count"`
-
-  // minCount is the minimum number of pods acceptable for admission in case of partial admission.
-  //
-  // If not provided, partial admission for the current PodSet is not
-  // enabled.
-  // +optional
-  // +kubebuilder:validation:Minimum=0
-  MinCount *int32 `json:"minCount,omitempty"`
-}
-
-type PodSetAssignment struct {
-  // ........
-
-  // count is the number of pods taken into account at admission time.
-  // This field will not change in case of quota reclaim.
-  // Value could be missing for Workloads created before this field was added,
-  // in that case spec.podSets[*].count value will be used.
-  //
-  // +optional
-  // +kubebuilder:validation:Minimum=0
-  Count *int32 `json:"count,omitempty"`
-}
 ```
 
 ### Scheduler / Flavorassignment
@@ -162,14 +129,14 @@ When a Job scale-up is partially admitted, Kueue creates a new Workload represen
 
 This is a constraint of partial scale-up that users should be aware of when using `StrictFIFO` queues.
 
-#### Example: Two-Step Scale Up under Quota Constraints (with Partial Admission)
+#### Example:  Two-Step Scale Up under Quota Constraints
 
 Consider a scenario where:
 1. The ClusterQueue has a total quota of **7** for the requested resource flavor.
 2. The `RayCluster` is configured for both `ElasticJobs` and `ElasticJobWithPartialScaleUp`.
 3. The user performs a two-step scale up of the `RayCluster`: starting at **5** replicas, scaling up to **10**, and then to **12**.
 
-##### Step 0: Job Creation (Initial Size: 5)
+Step 0: Job Creation (Initial Size: 5)
 * **RayCluster worker group replicas**: 5
 * **Workloads**:
   * `wl-A` (Admitted):
@@ -242,7 +209,7 @@ If the available quota in the ClusterQueue increases to 12 (or more) in the futu
 
 Only `RayJob`, `RayService`, and `RayCluster` integrations support the partial scale up feature (`batch/v1 Job` is not supported).
 
-The `RayCluster.workerGroupSpec[i].replicas * numOfHosts` will be translated to `PodSet.Count`. Only RayCluster WorkingGroups with minCount value will be considered for partial scale up. For those WorkingGroups the `spec.podSets[i].minCount` will be equal to `PodSet.Count` for the initial Workload in order to prevent partial admission. For workloads representing scale up, `spec.podSets[i].minCount` will be equal to the currently admitted pods count increased by 1 for worker groups that are scaling up.
+The `RayCluster.workerGroupSpec[i].replicas * numOfHosts` will be translated to `PodSet.Count`. Only RayCluster WorkingGroups with minReplicas value will be considered for partial scale up. For those WorkingGroups the `spec.podSets[i].minCount` will be equal to `PodSet.Count` for the initial Workload in order to prevent partial admission. For workloads representing scale up, `spec.podSets[i].minCount` will be equal to the currently admitted pods count increased by 1 for worker groups that are scaling up.
 
 ### Partial ScaleUp for multiple PodSets
 
@@ -258,11 +225,68 @@ As an optimization, we will introduce a second phase (similar to the preemption 
 
 One example when order-based policy is used, is when a multi-podset Job has identical PodSets that have different node selectors tied to different node group capacity — for example, reservation/on-demand/spot. In this case, it is preferable to keep pods running on reservation nodes rather than on-demand/spot nodes.
 
-**Examples:**
-Consider a Job with three PodSets:
-- `ps0` (highest priority): `count: 1`, no `minCount` (cannot be shrunk).
-- `ps1` (medium priority): `count: 4`, `minCount: 2` (can be reduced by up to 2 pods).
-- `ps2` (lowest priority): `count: 20`, `minCount: 10` (can be reduced by up to 10 pods).
+##### Example of RayJob with multiple PodSets
+
+```yaml
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-multi-podset
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+  annotations:
+    kueue.x-k8s.io/elastic-job: "true"
+    kueue.x-k8s.io/elastic-job-scale-up-strategy: partial
+spec:
+  rayClusterSpec:
+    rayVersion: "2.58.0"
+    enableInTreeAutoscaling: true
+    headGroupSpec:
+      rayStartParams: {}
+      template:
+        spec:
+          containers:
+          - name: ray-head
+            image: rayproject/ray:2.58.0
+            resources:
+              requests:
+                cpu: "1"
+    workerGroupSpecs:
+    - groupName: workers-reservation  # High-priority / critical group, defined first
+      replicas: 2    # scaled up to 4
+      minReplicas: 0
+      maxReplicas: 20
+      template:
+        spec:
+          nodeSelector:
+            instance-type: reservation
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.58.0
+            resources:
+              requests:
+                cpu: "1"
+    - groupName: workers-spot    # Low-priority / spot group, defined last (shrunk first)
+      replicas: 10   # scaled up to 20
+      minReplicas: 0
+      maxReplicas: 40
+      template:
+        spec:
+          nodeSelector:
+            instance-type: spot
+          containers:
+          - name: ray-worker
+            image: rayproject/ray:2.58.0
+            resources:
+              requests:
+                cpu: "1"
+```
+
+The RayJob will translated to the Workload with three PodSets:
+- `ps0` (head pod): `count: 1`, no `minCount` (cannot be shrunk).
+- `ps1` (workers-reservation): `count: 4`, `minCount: 2` (can be reduced by up to 2 pods).
+- `ps2` (workers-spot): `count: 20`, `minCount: 10` (can be reduced by up to 10 pods).
 
 Total requested pods: `1 + 4 + 20 = 25` pods.
 
@@ -313,3 +337,25 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 #### E2E tests
 
 - Verifying end-to-end partial scale-up and opportunistic scale-up for elastic jobs under resource constraints.
+
+### Graduation Criteria
+
+**Alpha (v0.20):**
+- Feature gate `ElasticJobWithPartialScaleUp` disabled by default.
+- Add integration for RayJob, RayCluster, RayService
+- Unit and integration tests.
+
+**Beta:**
+- Feature gate enabled by default.
+- Address feedback from Alpha usage.
+- Add integration for batch.Job
+
+**GA:**
+- Feature gate locked to true.
+- Integration for other job types that implements ElasticJob is added.
+
+## Implementation History
+
+## Drawbacks
+
+## Alternatives
