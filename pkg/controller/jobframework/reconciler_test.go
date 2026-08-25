@@ -436,6 +436,70 @@ func TestReconcileGenericJob(t *testing.T) {
 					Obj(),
 			},
 		},
+		"setup workload annotations for pods": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryIntegration: true,
+				features.TopologyAwareScheduling:     false,
+			},
+			req:     baseReq,
+			job:     baseJob.Clone().Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  "main",
+								Count: new(int32(1)),
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  "main",
+								Count: new(int32(1)),
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantPodSets: []podset.PodSetInfo{
+				{
+					Name:  "main",
+					Count: 1,
+					Annotations: map[string]string{
+						kueue.WorkloadAnnotation: "job-test-job-1",
+					},
+					Labels: map[string]string{
+						kueueconstants.ClusterQueueLabel: "default-cq",
+						kueueconstants.LocalQueueLabel:   "test-lq",
+						kueueconstants.PodSetLabel:       "main",
+					},
+					NodeSelector: map[string]string{},
+				},
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
