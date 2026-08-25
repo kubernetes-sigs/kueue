@@ -11,13 +11,12 @@ labels: area/release
 <!--
 Please do not remove items from the checklist
 -->
+- [ ] Verify that the changelog in this issue is up-to-date by running `/sync-release-notes` (or locally `./hack/releasing/sync-notes.sh $VERSION`).
 - [ ] [OWNERS](https://github.com/kubernetes-sigs/kueue/blob/main/OWNERS) must LGTM the release proposal.
   At least two for minor or major releases. At least one for a patch release.
-- [ ] Verify that the changelog in this issue and the CHANGELOG folder is up-to-date
-  - [ ] Use `/sync-release-notes` to generate and publish the release notes
 - [ ] For major or minor releases (`v$MAJ.$MIN.0`), use the `/create-release-branch` ChatOps command to create a new release branch.
 - [ ] Update the release branch:
-  - [ ] Run `/prepare-pull release` ChatOps command (or locally: `./hack/releasing/prepare_pull.sh --target release $VERSION`)
+  - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION` locally.
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_RELEASE --> <!-- example #211 -->
 - [ ] Run ChatOps command `/tag-release` on this issue. This will:
   - Extract the changelog from the issue description.
@@ -39,7 +38,7 @@ Please do not remove items from the checklist
 - [ ] Use `/publish-release` to publish the release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- RELEASE_LINK --> <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] Update the `main` branch :
-  - [ ] Run `/prepare-pull main` ChatOps command (or locally: `./hack/releasing/prepare_pull.sh --target main $VERSION`)
+  - [ ] Run `./hack/releasing/prepare_pull.sh --target main $VERSION` locally.
         *Note: The script automatically detects if a newer version is already out and skips version updates if so. Specifying `--skip-version-updates` is not necessary in a default workflow.*
   - [ ] Versioned docs are handled automatically during releases -- major, minor, and patch: the
     `main`-update PR from `prepare_pull.sh` runs `hack/releasing/snapshot-docs.py`, which
