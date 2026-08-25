@@ -20,10 +20,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -49,13 +51,24 @@ func TestExpectedRunningPodSetsKeepsImplicitTASRequestInSync(t *testing.T) {
 		Obj()
 
 	got := expectedRunningPodSets(t.Context(), utiltesting.NewClientBuilder().Build(), wl)
-	if len(got) != 1 {
-		t.Fatalf("expected one running PodSet, got %d", len(got))
+	want := []kueue.PodSet{
+		*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+			Labels(map[string]string{
+				constants.ClusterQueueLabel: "cluster-queue",
+				constants.LocalQueueLabel:   "",
+				constants.PodSetLabel:       string(kueue.DefaultPodSetName),
+			}).
+			Annotations(map[string]string{
+				kueue.PodSetUnconstrainedTopologyAnnotation: "true",
+				kueue.WorkloadAnnotation:                    "workload",
+			}).
+			NodeSelector(map[string]string{}).
+			SchedulingGates(corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate}).
+			UnconstrainedTopologyRequest().
+			PodIndexLabel(new(podIndexLabel)).
+			Obj(),
 	}
-	if got[0].TopologyRequest == nil || got[0].TopologyRequest.Unconstrained == nil || !*got[0].TopologyRequest.Unconstrained {
-		t.Fatalf("expected the injected unconstrained request, got %#v", got[0].TopologyRequest)
-	}
-	if got[0].TopologyRequest.PodIndexLabel == nil || *got[0].TopologyRequest.PodIndexLabel != podIndexLabel {
-		t.Errorf("expected pod index label %q to be retained, got %#v", podIndexLabel, got[0].TopologyRequest.PodIndexLabel)
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("running PodSets (-want,+got):\n%s", diff)
 	}
 }
