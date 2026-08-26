@@ -2036,7 +2036,9 @@ Supported modes:</p>
 <code>[]string</code>
 </td>
 <td>
-   <p>clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.</p>
+   <p>clusters is a list of MultiKueueClusters names where the workloads from the ClusterQueue should be distributed.
+The order of the list is significant: the Incremental dispatcher nominates clusters
+following this order, so the most preferred clusters should be listed first.</p>
 </td>
 </tr>
 <tr><td><code>quotaManagement</code><br/>
@@ -3682,7 +3684,7 @@ This may be an empty string.</p>
 <td>
    <p>podSets is a list of sets of homogeneous pods, each described by a Pod spec
 and a count.
-There must be at least one element and at most 10.
+There must be at least one element and at most 18.
 podSets cannot be changed.</p>
 </td>
 </tr>

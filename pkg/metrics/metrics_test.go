@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -41,6 +42,27 @@ func expectFilteredMetricsCount(t *testing.T, vec prometheus.Collector, count in
 	if len(all) != count {
 		t.Helper()
 		t.Errorf("Expecting %d metrics got %d, matching labels %v", count, len(all), kvs)
+	}
+}
+
+func expectHistogramSampleSum(t *testing.T, vec *prometheus.HistogramVec, expected float64, labels ...string) {
+	t.Helper()
+	observer, err := vec.GetMetricWithLabelValues(labels...)
+	if err != nil {
+		t.Fatalf("Error getting metric for labels %v: %v", labels, err)
+	}
+	var dto dto.Metric
+
+	if err := observer.(prometheus.Metric).Write(&dto); err != nil {
+		t.Fatalf("Error writing metric: %v", err)
+	}
+
+	if dto.Histogram == nil {
+		t.Fatalf("Expected histogram metric for labels %v", labels)
+	}
+
+	if got := dto.GetHistogram().GetSampleSum(); got != expected {
+		t.Errorf("got %v want %v", got, expected)
 	}
 }
 
@@ -636,4 +658,29 @@ func TestClearCohortMetricsOnlyClearsScopedGauges(t *testing.T) {
 	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 1, "cohort", cohortName)
 
 	ClearCohortAdmittedWorkloadsMetrics(cohortName)
+}
+
+func TestWorkloadRecoveryWaitTimeMetrics(t *testing.T) {
+	cqName := kueue.ClusterQueueReference("cq-recovery-test")
+	lqRef := LocalQueueReference{Name: "lq-recovery-test", Namespace: "default"}
+
+	// Positive wait times
+	ReportWorkloadRecoveryWaitTime(cqName, "default", 5*time.Second, nil, nil)
+	expectHistogramSampleSum(t, WorkloadRecoveryWaitTime, 5.0, "cq-recovery-test", "default", roletracker.RoleStandalone)
+
+	ReportLocalQueueWorkloadRecoveryWaitTime(lqRef, "default", 5*time.Second, nil, nil)
+	expectHistogramSampleSum(t, LocalQueueWorkloadRecoveryWaitTime, 5.0, "lq-recovery-test", "default", "default", roletracker.RoleStandalone)
+
+	// Negative wait times
+	ReportWorkloadRecoveryWaitTime(cqName, "default", -5*time.Second, nil, nil)
+	expectHistogramSampleSum(t, WorkloadRecoveryWaitTime, 5.0, "cq-recovery-test", "default", roletracker.RoleStandalone)
+
+	ReportLocalQueueWorkloadRecoveryWaitTime(lqRef, "default", -5*time.Second, nil, nil)
+	expectHistogramSampleSum(t, LocalQueueWorkloadRecoveryWaitTime, 5.0, "lq-recovery-test", "default", "default", roletracker.RoleStandalone)
+
+	ClearClusterQueueMetrics(cqName)
+	expectFilteredMetricsCount(t, WorkloadRecoveryWaitTime, 0, "cluster_queue", "cq-recovery-test")
+
+	ClearLocalQueueMetrics(lqRef)
+	expectFilteredMetricsCount(t, LocalQueueWorkloadRecoveryWaitTime, 0, "name", "lq-recovery-test", "namespace", "default")
 }

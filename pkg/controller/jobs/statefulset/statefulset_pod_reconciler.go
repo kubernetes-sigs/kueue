@@ -119,7 +119,7 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 	}
 
 	queueName := jobframework.QueueNameForObject(sts)
-	wlName, err := findWorkloadName(ctx, r.client, sts)
+	wlName, _, err := findWorkload(ctx, r.client, sts)
 	if err != nil {
 		return false, err
 	}

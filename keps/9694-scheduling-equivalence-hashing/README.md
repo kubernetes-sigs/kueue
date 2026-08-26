@@ -362,7 +362,8 @@ listed under Risks and Mitigations.
 The scheduling shape includes the effective Workload priority and an ordered
 description of every PodSet. Each PodSet description includes:
 
-- `name` and effective `count`
+- effective `count`
+- `name` only when `SchedulingEquivalenceHashingIgnorePodSetName` is disabled
 - `minCount`
 - effective `requests` after Kueue-side processing
 - scheduling-relevant fields from `template.spec`, including
@@ -379,10 +380,19 @@ shape. The Pod group integration uses the same shape when calculating the
 Pod integration, such as StatefulSet and LeaderWorkerSet, also use it when
 validating `PodTemplateSpec` identity.
 
-PodSet name is included conservatively even though the current flavor-assignment
-path does not use it. This can split otherwise equivalent Workloads into
-different classes, reducing optimization opportunities, but it cannot merge
-different scheduling shapes incorrectly.
+PodSet name was included conservatively even though the flavor-assignment path
+does not use it. That split otherwise equivalent Workloads into different
+classes and reduced optimization opportunities without improving correctness,
+which is most visible for clients that set a distinct
+`kueue.x-k8s.io/role-hash` per Workload. The
+`SchedulingEquivalenceHashingIgnorePodSetName` gate excludes the name from the
+shape.
+
+PodSet descriptions retain their order, so Workloads with different ordered
+descriptions stay in different classes. PodSets that differ only by name
+serialize identically once the name is excluded, so their order stops mattering.
+The Pod group integration sorts PodSets by name, so a multi-PodSet group whose
+descriptions differ can order them differently per Workload and stay split.
 
 Effective resource requests are included separately from the original Pod
 shape. They can differ after reclaimable Pod accounting, resource
@@ -471,6 +481,7 @@ move an entire class without evaluating its remaining Workloads.
 | v0.19.0 | Failed-class records began retaining the representative's high-level reason for bypassed Workloads | observability |
 | v0.19.0 | Equivalence identifier corrected to include Pod-level resource requests when the field is set | bugfix |
 | v0.20.0 | Added the `kueue_pending_scheduling_hashes` gauge, reporting unique active and inadmissible classes per ClusterQueue | observability |
+| v0.20.0 | PodSet name excluded from the scheduling shape, behind the Beta `SchedulingEquivalenceHashingIgnorePodSetName` gate, enabled by default | gate |
 
 ### Test Plan
 
@@ -577,3 +588,7 @@ Graduation to stable requires:
 - 2026-08-07: Metrics and the KEP were added.
   - [#12520: Pending scheduling hashes metric](https://github.com/kubernetes-sigs/kueue/pull/12520)
   - [#13973: KEP](https://github.com/kubernetes-sigs/kueue/pull/13973)
+- 2026-08-24: PodSet name was excluded from the scheduling shape behind a new
+  feature gate, so Workloads that differ only by PodSet name share a class.
+  - [#14780: Scenario tests for the prior behaviour](https://github.com/kubernetes-sigs/kueue/pull/14780)
+  - [#14784: SchedulingEquivalenceHashingIgnorePodSetName](https://github.com/kubernetes-sigs/kueue/pull/14784)

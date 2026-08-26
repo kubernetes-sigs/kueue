@@ -318,13 +318,6 @@ if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
     export DRA_EXAMPLE_DRIVER_REPO=https://github.com/kubernetes-sigs/dra-example-driver.git
 fi
 
-if [[ -n "${KUEUE_UPGRADE_FROM_VERSION:-}" ]]; then
-    export KUEUE_OLD_VERSION_MANIFEST="https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_UPGRADE_FROM_VERSION}/manifests.yaml"
-    # Use the released image from registry.k8s.io (not the staging registry)
-    # so upgrade tests don't break when staging images expire.
-    export KUEUE_OLD_VERSION_IMAGE="registry.k8s.io/kueue/kueue:${KUEUE_UPGRADE_FROM_VERSION}"
-fi
-
 # agnhost image to use for testing.
 E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA=registry.k8s.io/e2e-test-images/agnhost:2.52@sha256:b173c7d0ffe3d805d49f4dfe48375169b7b8d2e1feb81783efd61eb9d08042e6
 export E2E_TEST_AGNHOST_IMAGE_OLD=${E2E_TEST_AGNHOST_IMAGE_OLD_WITH_SHA%%@*}
@@ -683,9 +676,6 @@ function prepare_docker_images {
     if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${LEADERWORKERSET_IMAGE}"
     fi
-    if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
-        e2e_docker_pull_if_needed "${KUEUE_OLD_VERSION_IMAGE}"
-    fi
     if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${SPARKOPERATOR_IMAGE}"
         e2e_docker_pull_if_needed "${E2E_TEST_SPARK_IMAGE}"
@@ -712,9 +702,6 @@ function cluster_kind_load {
         cluster_kind_load_image_impl "$cluster" "$IMAGE_TAG"
     fi
 
-    if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
-        cluster_kind_load_image "$cluster" "${KUEUE_OLD_VERSION_IMAGE}"
-    fi
     if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
         cluster_kind_load_image "$cluster" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
     fi
@@ -897,7 +884,7 @@ function wait_for_kueue_controller_operator {
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
     trap "rm -f '$probe_manifest'" RETURN
     cat >"${probe_manifest}" <<'EOF'
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: webhook-probe
@@ -908,12 +895,6 @@ EOF
 
 # $1 kubeconfig
 function cluster_kueue_deploy {
-    # Handle upgrade test mode
-    if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
-        upgrade_test_flow "$1"
-        return
-    fi
-
     if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_SKIP_REINSTALL:-}"; then
         if e2e_deployment_exists "$1" "${KUEUE_NAMESPACE}" "${KUEUE_DEPLOYMENT_NAME}"; then
             echo "Kueue controller already exists in namespace '${KUEUE_NAMESPACE}', skipping reinstall"
@@ -1563,98 +1544,6 @@ EOF
         --cluster="$kind_name" \
         --user="$kind_name"
     fi
-}
-
-# Upgrade test flow: install old version, create resources, upgrade to current
-# $1 kubeconfig
-function upgrade_test_flow {
-    local old_version="${KUEUE_UPGRADE_FROM_VERSION}"
-    local manifest
-
-    echo "Upgrade Test: $old_version -> current"
-    echo "Old image: $KUEUE_OLD_VERSION_IMAGE"
-    echo "New image: $IMAGE_TAG"
-
-    # Step 1: Install old version using the released image from registry.k8s.io
-    echo "Installing $old_version..."
-    echo "  Manifest URL: ${KUEUE_OLD_VERSION_MANIFEST}"
-    echo "  Downloading and modifying manifests..."
-
-    # Download manifests, rewrite the image reference to match the pre-loaded
-    # image, and set imagePullPolicy to IfNotPresent so kind uses it directly.
-    manifest=$(e2e_download_url "${KUEUE_OLD_VERSION_MANIFEST}") || return 1
-    printf '%s\n' "${manifest}" | \
-      sed "s|registry.k8s.io/kueue/kueue:${old_version}|${KUEUE_OLD_VERSION_IMAGE}|g" | \
-      sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g' | \
-      kubectl apply --server-side -f -
-
-    wait_for_kueue_controller_operator "$1"
-    echo "✓ $old_version ready"
-
-    # Step 2: Create test resources
-    echo "Creating test resources..."
-
-    # Create custom namespace for test resources (idempotent)
-    kubectl apply --kubeconfig="$1" -f - <<EOF_NS
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kueue-upgrade-test
-EOF_NS
-
-    # Apply test resources
-    kubectl apply --kubeconfig="$1" -f - <<EOF
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ResourceFlavor
-metadata:
-  name: upgrade-test-flavor
----
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ClusterQueue
-metadata:
-  name: upgrade-test-cq
-spec:
-  namespaceSelector: {}
-  resourceGroups:
-  - coveredResources: ["cpu", "memory"]
-    flavors:
-    - name: upgrade-test-flavor
-      resources:
-      - name: "cpu"
-        nominalQuota: 10
-      - name: "memory"
-        nominalQuota: 10Gi
----
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: LocalQueue
-metadata:
-  name: upgrade-test-lq
-  namespace: kueue-upgrade-test
-spec:
-  clusterQueue: upgrade-test-cq
-EOF
-    echo "✓ Resources created"
-
-    # Step 3: Upgrade to current (rolling update)
-    echo "Upgrading to current..."
-
-    # Apply upgrade - rolling update will replace pods
-    (
-        set_managers_image
-        trap restore_managers_image EXIT
-
-        local build_output
-        build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/default")
-        # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
-        build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
-        echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side --force-conflicts -f -
-    )
-
-    # Wait for the rolling update to complete.
-    echo "Waiting for rolling update to complete..."
-    wait_for_kueue_controller_operator "$1"
-    echo "Upgrade complete (rolling update finished)"
-    echo "========================================="
 }
 
 # Run ginkgo e2e tests with extra CLI flags from GINKGO_ARGS.

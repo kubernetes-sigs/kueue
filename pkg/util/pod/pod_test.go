@@ -25,11 +25,14 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -404,6 +407,118 @@ func TestRecordPodSchedulingGateRemovalSecondsReplicaRole(t *testing.T) {
 				if seconds != 2 {
 					t.Errorf("Unexpected metric value for role %q: want 2, got %f", tc.wantRole, seconds)
 				}
+			}
+		})
+	}
+}
+
+func TestGetPodGroupName(t *testing.T) {
+	cases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		pod          *corev1.Pod
+		want         string
+	}{
+		"pod without group name": {
+			pod: testingpod.MakePod("pod", "ns").Obj(),
+		},
+		"pod with group name label": {
+			pod: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-1").
+				Obj(),
+			want: "group-1",
+		},
+		"pod with group name annotation and WorkloadIdentifierAnnotations enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			pod: testingpod.MakePod("pod", "ns").
+				Annotation(podconstants.GroupNameAnnotation, "group-2").
+				Obj(),
+			want: "group-2",
+		},
+		"pod with group name annotation and WorkloadIdentifierAnnotations disabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			pod: testingpod.MakePod("pod", "ns").
+				Annotation(podconstants.GroupNameAnnotation, "group-2").
+				Obj(),
+			want: "",
+		},
+		"pod with both label and annotation and WorkloadIdentifierAnnotations enabled prefers annotation": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			pod: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-from-label").
+				Annotation(podconstants.GroupNameAnnotation, "group-from-annotation").
+				Obj(),
+			want: "group-from-annotation",
+		},
+		"pod with both label and empty annotation and WorkloadIdentifierAnnotations enabled falls back to label": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			pod: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-from-label").
+				Annotation(podconstants.GroupNameAnnotation, "").
+				Obj(),
+			want: "group-from-label",
+		},
+		"pod with both label and annotation and WorkloadIdentifierAnnotations disabled uses label": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			pod: testingpod.MakePod("pod", "ns").
+				GroupNameLabel("group-from-label").
+				Annotation(podconstants.GroupNameAnnotation, "group-from-annotation").
+				Obj(),
+			want: "group-from-label",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			got := GetPodGroupName(tc.pod)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Unexpected group name (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
+	const (
+		gateName = "example.com/gate"
+		cqName   = kueue.ClusterQueueReference("cq")
+	)
+
+	now := time.Now().Truncate(time.Second)
+
+	cases := map[string]struct {
+		admittedAt  time.Time
+		wantSeconds float64
+	}{
+		"controller clock ahead of the admitted transition": {
+			admittedAt:  now.Add(-3 * time.Second),
+			wantSeconds: 3,
+		},
+		"controller clock behind the admitted transition is clamped to zero": {
+			admittedAt:  now.Add(3 * time.Second),
+			wantSeconds: 0,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			metrics.PodSchedulingGateRemovalSeconds.Reset()
+
+			wl := utiltestingapi.MakeWorkload("wl", corev1.NamespaceDefault).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission(cqName).Obj(), tc.admittedAt).
+				AdmittedAt(true, tc.admittedAt).
+				Obj()
+
+			RecordPodSchedulingGateRemovalSeconds(testingclock.NewFakeClock(now), gateName, wl, false, nil)
+
+			seconds, err := testutil.GetHistogramMetricValue(
+				metrics.PodSchedulingGateRemovalSeconds.WithLabelValues(gateName, string(cqName), "false", roletracker.RoleStandalone),
+			)
+			if err != nil {
+				t.Fatalf("Error getting PodSchedulingGateRemovalSeconds metric value: %v", err)
+			}
+			if seconds != tc.wantSeconds {
+				t.Errorf("Unexpected metric value: want %v, got %v", tc.wantSeconds, seconds)
 			}
 		})
 	}
