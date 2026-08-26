@@ -148,7 +148,6 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 }
 
 type wasSimulatorSnapshot struct {
-	ctx            context.Context
 	wasSnapshot    *schedLibSnapshot.ClusterSnapshot
 	podsByWorkload *podsByWorkload
 }
@@ -160,7 +159,6 @@ func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simu
 		return nil, err
 	}
 	return &wasSimulatorSnapshot{
-		ctx:            ctx,
 		wasSnapshot:    clusterSnap,
 		podsByWorkload: podsByWorkload,
 	}, nil
@@ -319,15 +317,15 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 	return feasibleCandidates, nil
 }
 
-func (s *wasSimulatorSnapshot) PreemptWorkload(wlKey client.ObjectKey) (revertFunc func() error, err error) {
+func (s *wasSimulatorSnapshot) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (revertFunc func() error, err error) {
 	if s.podsByWorkload == nil {
 		// Unable to identify which pods belong to any workload.
 		return func() error { return nil }, nil
 	}
 
-	unpreempt, err := s.wasSnapshot.PreemptPods(s.ctx, s.podsByWorkload.getPodsForWorkload(wlKey))
+	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsByWorkload.getPodsForWorkload(wlKey))
 	if err != nil {
-		ctrl.LoggerFrom(s.ctx).V(4).Error(err, "Failed to preempt workload's pods from WAS snapshot.", "workload", wlKey.String())
+		ctrl.LoggerFrom(ctx).V(4).Error(err, "Failed to preempt workload's pods from WAS snapshot.", "workload", wlKey.String())
 		return nil, err
 	}
 
@@ -337,8 +335,8 @@ func (s *wasSimulatorSnapshot) PreemptWorkload(wlKey client.ObjectKey) (revertFu
 	}, nil
 }
 
-func (s *wasSimulatorSnapshot) Simulate(fn func()) error {
-	return s.wasSnapshot.Transaction(s.ctx, func() (schedLibSnapshot.TransactionResult, error) {
+func (s *wasSimulatorSnapshot) Simulate(ctx context.Context, fn func()) error {
+	return s.wasSnapshot.Transaction(ctx, func() (schedLibSnapshot.TransactionResult, error) {
 		fn()
 		return schedLibSnapshot.Revert, nil
 	})

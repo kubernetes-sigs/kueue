@@ -622,7 +622,7 @@ func TestPreemptWorkload(t *testing.T) {
 				t.Errorf("expected non-feasible before preemption")
 			}
 
-			revert, err := snapshot.PreemptWorkload(tc.preemptKey)
+			revert, err := snapshot.PreemptWorkload(ctx, tc.preemptKey)
 			if err != nil {
 				t.Fatalf("PreemptWorkload failed: %v", err)
 			}
@@ -729,8 +729,8 @@ func TestSimulate(t *testing.T) {
 		t.Errorf("Expected node1 to be unfeasible before simulation")
 	}
 
-	simErr := snapshot.Simulate(func() {
-		_, err := snapshot.PreemptWorkload(key("default", "wl1"))
+	simErr := snapshot.Simulate(ctx, func() {
+		_, err := snapshot.PreemptWorkload(ctx, key("default", "wl1"))
 		if err != nil {
 			t.Fatalf("PreemptWorkload inside Simulate failed: %v", err)
 		}
