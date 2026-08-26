@@ -272,14 +272,16 @@ type ResourceGroup struct {
 	// cpus).
 	// Each flavor MUST list all the resources listed for this group in the same
 	// order as the .resources field.
-	// The list cannot be empty and it can contain up to 64 flavors, with a max of
-	// 256 total flavors across all resource groups in the ClusterQueue.
+	// The list can be empty. When empty, the ClusterQueue will have an Active
+	// condition set to False with the EmptyResourceGroup reason.
+	// It can contain up to 64 flavors, with a max of 256 total flavors across all
+	// resource groups in the ClusterQueue.
 	// +listType=map
 	// +required
 	// +listMapKey=name
 	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=64
-	Flavors []FlavorQuotas `json:"flavors"`
+	Flavors []FlavorQuotas `json:"flavors,omitempty"`
 }
 
 type FlavorQuotas struct {

@@ -2241,14 +2241,14 @@ func setupClusterQueue(ctx context.Context, t *testing.T, cl client.Client, qMan
 	testCq := cq.DeepCopy()
 	if apimeta.IsStatusConditionTrue(testCq.Status.Conditions, kueue.ClusterQueueActive) && len(testCq.Spec.ResourceGroups) == 0 {
 		const flavorName = "default"
-		testCq.Spec.ResourceGroups = []kueue.ResourceGroup{{
-			Flavors: []kueue.FlavorQuotas{{
+		testCq.Spec.ResourceGroups = []kueue.ResourceGroup{
+			utiltestingapi.ResourceGroup(kueue.FlavorQuotas{
 				Name: flavorName,
 				Resources: []kueue.ResourceQuota{{
 					Name: corev1.ResourceCPU,
 				}},
-			}},
-		}}
+			}),
+		}
 		cqCache.AddOrUpdateResourceFlavor(ctrl.LoggerFrom(ctx), utiltestingapi.MakeResourceFlavor(flavorName).Obj())
 	}
 	// DeletionTimestamp cannot be directly set during creation. We simulate it by deleting the object with a finalizer.
