@@ -24,6 +24,7 @@ integrations:
   - "deployment"
   - "statefulset"
 featureGates:
+  MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster: true
   MultiKueueManagerQuotaAutomation: true
 tls:
   minVersion: "VersionTLS12"
