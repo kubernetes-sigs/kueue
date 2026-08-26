@@ -96,7 +96,7 @@ quotaReleaseStrategy: OnTerminating
 
 ### Risks and Mitigations
 
-- **Risk**: Under `OnTerminal`, if a pod gets stuck terminating indefinitely on a reachable node (e.g. due to hardware PCIe errors or kernel driver deadlocks where the node remains `Ready`), Kueue will hold the quota reservation indefinitely. Kueue's failure recovery does not apply to reachable nodes.
+- **Risk**: Under `OnTerminal`, if a pod gets stuck terminating indefinitely on a reachable node (e.g. due to hardware PCIe errors or kernel driver deadlocks where the node remains `Ready`) or too long gracefulTerminationPeriod, Kueue will hold the quota reservation indefinitely. Kueue's failure recovery does not apply to reachable nodes.
 - **Mitigation / Trade-off**: This is an accepted trade-off for clusters opting into `OnTerminal`, which prioritize avoiding `FailedScheduling` loops on occupied nodes over aggressive quota reclamation. Quota is held until external remediation (e.g., node problem detector, node auto-repair, or admin intervention) removes the stuck pod. Clusters prioritizing rapid quota turnover can remain on the default `OnTerminating` strategy.
 
 ## Design Details
