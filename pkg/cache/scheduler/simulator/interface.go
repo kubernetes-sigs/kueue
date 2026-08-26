@@ -44,7 +44,7 @@ type SimulatorSnapshot interface {
 	// Simulate executes the provided function.
 	// After the simulation ends, any changes made to the snapshot state
 	// via its built-in methods will be reverted.
-	Simulate(func())
+	Simulate(func()) error
 	// FindFeasibleNodes returns all candidates that can be scheduled
 	// with the given requirements, based on the current state of the snapshot.
 	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)

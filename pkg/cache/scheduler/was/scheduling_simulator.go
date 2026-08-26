@@ -37,7 +37,7 @@ import (
 )
 
 // Order is important. WorkloadSliceNameAnnotation should be checked before WorkloadAnnotation.
-var PodWorkloadAnnotations = []string{
+var podWorkloadAnnotations = []string{
 	kueue.WorkloadSliceNameAnnotation,
 	kueue.WorkloadAnnotation,
 	controllerconstants.PrebuiltWorkloadAnnotation,
@@ -148,6 +148,9 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 }
 
 type wasSimulatorSnapshot struct {
+	mutex    sync.RWMutex
+	simMutex sync.Mutex
+
 	ctx            context.Context
 	wasSnapshot    *schedLibSnapshot.ClusterSnapshot
 	podsByWorkload *podsByWorkload
@@ -203,11 +206,18 @@ func (t *podTracker) snapshot() (allPods []*corev1.Pod, workloadPods *podsByWork
 func (t *podTracker) track(pod *corev1.Pod) {
 	t.Lock()
 	defer t.Unlock()
+
+	if pod == nil {
+		return
+	}
+
 	pod = pod.DeepCopy()
 	key := client.ObjectKeyFromObject(pod)
+
 	if oldPod, found := t.pods[key]; found {
 		t.clearPod(key, oldPod)
 	}
+
 	t.savePod(key, pod)
 }
 
@@ -256,8 +266,8 @@ func (t *podTracker) savePod(podKey client.ObjectKey, pod *corev1.Pod) {
 }
 
 func workloadName(pod *corev1.Pod) (string, bool) {
-	for _, annotation := range PodWorkloadAnnotations {
-		if wl, ok := pod.Annotations[annotation]; ok {
+	for _, annotation := range podWorkloadAnnotations {
+		if wl, ok := pod.Annotations[annotation]; ok && wl != "" {
 			return wl, true
 		}
 	}
@@ -270,6 +280,9 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 	requirements *simulator.PodRequirements,
 	stats *simulator.NodeExclusionStats,
 ) ([]simulator.MatchedCandidate, error) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
 	var candidateLeaves = make(map[string]simulator.MatchedCandidate)
 	var candidateNodeNames []string
 	var feasibleCandidates []simulator.MatchedCandidate
@@ -313,6 +326,9 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 }
 
 func (s *wasSimulatorSnapshot) PreemptWorkload(wlKey client.ObjectKey) (revertFunc func() error, err error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	if s.podsByWorkload == nil {
 		// Unable to identify which pods belong to any workload.
 		return func() error { return nil }, nil
@@ -325,16 +341,21 @@ func (s *wasSimulatorSnapshot) PreemptWorkload(wlKey client.ObjectKey) (revertFu
 	}
 
 	return func() error {
+		s.mutex.Lock()
+		defer s.mutex.Unlock()
+
 		_, err := s.wasSnapshot.Unpreempt(unpreempt)
 		return err
 	}, nil
 }
 
-func (s *wasSimulatorSnapshot) Simulate(fn func()) {
-	if err := s.wasSnapshot.Transaction(s.ctx, func() (schedLibSnapshot.TransactionResult, error) {
+func (s *wasSimulatorSnapshot) Simulate(fn func()) error {
+	// Only one simulation can be running at any given time.
+	s.simMutex.Lock()
+	defer s.simMutex.Unlock()
+
+	return s.wasSnapshot.Transaction(s.ctx, func() (schedLibSnapshot.TransactionResult, error) {
 		fn()
 		return schedLibSnapshot.Revert, nil
-	}); err != nil {
-		ctrl.LoggerFrom(s.ctx).V(4).Error(err, "WAS Scheduling Simulation error: failed to perform WAS ClusterSnapshot transaction")
-	}
+	})
 }

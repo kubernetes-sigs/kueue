@@ -550,35 +550,25 @@ func TestPreemptWorkload(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		setup            func(sim *wasSimulator)
-		preemptKey       types.NamespacedName
-		wantFeasible     bool
-		revertUnfeasible bool
+		setup        func(sim *wasSimulator)
+		preemptKey   types.NamespacedName
+		wantFeasible bool
 	}{
 		"preempt existing workload and revert": {
-			setup: func(sim *wasSimulator) {
-				sim.TrackPod(existingPod)
-			},
-			preemptKey:       key("default", "wl1"),
-			wantFeasible:     true,
-			revertUnfeasible: true,
+			preemptKey:   key("default", "wl1"),
+			wantFeasible: true,
 		},
 		"preempt non-existent workload": {
-			setup: func(sim *wasSimulator) {
-				sim.TrackPod(existingPod)
-			},
-			preemptKey:       key("default", "non-existent"),
-			wantFeasible:     false,
-			revertUnfeasible: false,
+			preemptKey:   key("default", "non-existent"),
+			wantFeasible: false,
 		},
 		"preempt when podsByWorkload is nil": {
 			setup: func(sim *wasSimulator) {
 				unassignedPod := makeSimplePod("unassigned", "default", "", "")
 				sim.TrackPod(unassignedPod)
 			},
-			preemptKey:       key("default", "wl1"),
-			wantFeasible:     true,
-			revertUnfeasible: false,
+			preemptKey:   key("default", "wl1"),
+			wantFeasible: false,
 		},
 		"preempt workload after pod workload annotation update": {
 			setup: func(sim *wasSimulator) {
@@ -592,9 +582,8 @@ func TestPreemptWorkload(t *testing.T) {
 				podWL2.Spec = existingPod.Spec
 				sim.TrackPod(podWL2)
 			},
-			preemptKey:       key("default", "wl2"),
-			wantFeasible:     true,
-			revertUnfeasible: true,
+			preemptKey:   key("default", "wl2"),
+			wantFeasible: true,
 		},
 	}
 
@@ -605,11 +594,18 @@ func TestPreemptWorkload(t *testing.T) {
 				t.Fatalf("NewWASSimulatorForTest failed: %v", err)
 			}
 			sim := simRaw.(*wasSimulator)
-			tc.setup(sim)
+			sim.TrackPod(existingPod)
+			if tc.setup != nil {
+				tc.setup(sim)
+			}
 
 			snapshot, err := sim.Snapshot(ctx, nodes)
 			if err != nil {
 				t.Fatalf("Snapshot failed: %v", err)
+			}
+
+			if checkFeasible(snapshot) {
+				t.Errorf("expected non-feasible before preemption")
 			}
 
 			revert, err := snapshot.PreemptWorkload(tc.preemptKey)
@@ -625,8 +621,8 @@ func TestPreemptWorkload(t *testing.T) {
 				t.Fatalf("revert failed: %v", err)
 			}
 
-			if tc.revertUnfeasible && checkFeasible(snapshot) {
-				t.Errorf("Expected node1 to be unfeasible after revert")
+			if checkFeasible(snapshot) {
+				t.Errorf("expected non-feasible after preemption reverted")
 			}
 		})
 	}
@@ -719,7 +715,7 @@ func TestSimulate(t *testing.T) {
 		t.Errorf("Expected node1 to be unfeasible before simulation")
 	}
 
-	snapshot.Simulate(func() {
+	simErr := snapshot.Simulate(func() {
 		_, err := snapshot.PreemptWorkload(key("default", "wl1"))
 		if err != nil {
 			t.Fatalf("PreemptWorkload inside Simulate failed: %v", err)
@@ -729,6 +725,9 @@ func TestSimulate(t *testing.T) {
 			t.Errorf("Expected node1 to be feasible inside simulation after preemption")
 		}
 	})
+	if simErr != nil {
+		t.Fatalf("Simulation failed: %v", err)
+	}
 
 	if checkFeasible(snapshot) {
 		t.Errorf("Expected node1 to be unfeasible after simulation completed (auto-reverted)")
