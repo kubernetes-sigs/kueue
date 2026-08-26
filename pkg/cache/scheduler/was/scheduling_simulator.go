@@ -148,9 +148,6 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 }
 
 type wasSimulatorSnapshot struct {
-	mutex    sync.RWMutex
-	simMutex sync.Mutex
-
 	ctx            context.Context
 	wasSnapshot    *schedLibSnapshot.ClusterSnapshot
 	podsByWorkload *podsByWorkload
@@ -280,9 +277,6 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 	requirements *simulator.PodRequirements,
 	stats *simulator.NodeExclusionStats,
 ) ([]simulator.MatchedCandidate, error) {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
 	var candidateLeaves = make(map[string]simulator.MatchedCandidate)
 	var candidateNodeNames []string
 	var feasibleCandidates []simulator.MatchedCandidate
@@ -326,9 +320,6 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 }
 
 func (s *wasSimulatorSnapshot) PreemptWorkload(wlKey client.ObjectKey) (revertFunc func() error, err error) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
 	if s.podsByWorkload == nil {
 		// Unable to identify which pods belong to any workload.
 		return func() error { return nil }, nil
@@ -341,19 +332,12 @@ func (s *wasSimulatorSnapshot) PreemptWorkload(wlKey client.ObjectKey) (revertFu
 	}
 
 	return func() error {
-		s.mutex.Lock()
-		defer s.mutex.Unlock()
-
 		_, err := s.wasSnapshot.Unpreempt(unpreempt)
 		return err
 	}, nil
 }
 
 func (s *wasSimulatorSnapshot) Simulate(fn func()) error {
-	// Only one simulation can be running at any given time.
-	s.simMutex.Lock()
-	defer s.simMutex.Unlock()
-
 	return s.wasSnapshot.Transaction(s.ctx, func() (schedLibSnapshot.TransactionResult, error) {
 		fn()
 		return schedLibSnapshot.Revert, nil
