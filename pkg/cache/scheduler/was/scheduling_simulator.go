@@ -52,9 +52,8 @@ type podsByWorkload map[client.ObjectKey]podsByKey
 // existing pod information.
 type podTracker struct {
 	sync.RWMutex
-	pods           podsByKey
-	workloadPods   podsByWorkload
-	unassignedPods podsByKey
+	pods         podsByKey
+	workloadPods podsByWorkload
 }
 
 type wasSimulator struct {
@@ -125,9 +124,8 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	return &wasSimulator{
 		newSnapshot: snapshotFn,
 		pods: podTracker{
-			pods:           make(podsByKey),
-			workloadPods:   make(podsByWorkload),
-			unassignedPods: make(podsByKey),
+			pods:         make(podsByKey),
+			workloadPods: make(podsByWorkload),
 		},
 	}, nil
 }
@@ -149,7 +147,7 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 
 type wasSimulatorSnapshot struct {
 	wasSnapshot    *schedLibSnapshot.ClusterSnapshot
-	podsByWorkload *podsByWorkload
+	podsByWorkload podsByWorkload
 }
 
 func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simulator.SimulatorSnapshot, error) {
@@ -173,27 +171,20 @@ func (s *wasSimulator) UntrackPod(key client.ObjectKey) {
 }
 
 func (m podsByWorkload) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
-	podSet, ok := m[wlKey]
-	if !ok {
-		return nil
+	if podSet, ok := m[wlKey]; ok {
+		return slices.Collect(maps.Values(podSet))
 	}
-	return slices.Collect(maps.Values(podSet))
+	return nil
 }
 
-func (t *podTracker) snapshot() (allPods []*corev1.Pod, workloadPods *podsByWorkload) {
+func (t *podTracker) snapshot() (allPods []*corev1.Pod, workloadPods podsByWorkload) {
 	t.RLock()
 	defer t.RUnlock()
 
 	allPods = slices.Collect(maps.Values(t.pods))
-	if len(t.unassignedPods) > 0 {
-		// Determining which pods belong to what workload is impossible
-		// if any pod cannot identify its workload.
-		return
-	}
-
-	workloadPods = &podsByWorkload{}
+	workloadPods = podsByWorkload{}
 	for k, v := range t.workloadPods {
-		(*workloadPods)[k] = maps.Clone(v)
+		workloadPods[k] = maps.Clone(v)
 	}
 	return
 }
@@ -233,7 +224,6 @@ func (t *podTracker) clearPod(key client.ObjectKey, pod *corev1.Pod) {
 
 	wl := workloadName(pod)
 	if wl == "" {
-		delete(t.unassignedPods, key)
 		return
 	}
 
@@ -249,7 +239,8 @@ func (t *podTracker) savePod(podKey client.ObjectKey, pod *corev1.Pod) {
 
 	wl := workloadName(pod)
 	if wl == "" {
-		t.unassignedPods[podKey] = pod
+		// Pods with indeterminate workloads are not
+		// eligible for preemption simulations.
 		return
 	}
 
@@ -318,11 +309,9 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 }
 
 func (s *wasSimulatorSnapshot) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (revertFunc func() error, err error) {
-	if s.podsByWorkload == nil {
-		// Unable to identify which pods belong to any workload.
-		return func() error { return nil }, nil
-	}
-
+	// Pods with indeterminate workloads are not stored in s.podsByWorkload and are omitted from preemptions.
+	// This means the simulation may be more restrictive than the real scheduler would be,
+	// if the preempted workload has pods that do not identify with it directly.
 	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsByWorkload.getPodsForWorkload(wlKey))
 	if err != nil {
 		ctrl.LoggerFrom(ctx).V(4).Error(err, "Failed to preempt workload's pods from WAS snapshot.", "workload", wlKey.String())

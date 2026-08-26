@@ -327,13 +327,13 @@ func TestWorkloadMapping(t *testing.T) {
 
 	testCases := map[string]struct {
 		operation func(*wasSimulator)
-		want      *podsByWorkload
+		want      podsByWorkload
 	}{
 		"add pod with workload annotation": {
 			operation: func(sim *wasSimulator) {
 				sim.TrackPod(makeSimplePod("pod", "ns", kueue.WorkloadAnnotation, "wl"))
 			},
-			want: &podsByWorkload{
+			want: podsByWorkload{
 				key("ns", "wl"): podsByKey{
 					key("ns", "pod"): makeSimplePod("pod", "ns", kueue.WorkloadAnnotation, "wl"),
 				},
@@ -343,7 +343,7 @@ func TestWorkloadMapping(t *testing.T) {
 			operation: func(sim *wasSimulator) {
 				sim.TrackPod(makeSimplePod("pod", "ns", kueue.WorkloadSliceNameAnnotation, "wl"))
 			},
-			want: &podsByWorkload{
+			want: podsByWorkload{
 				key("ns", "wl"): podsByKey{
 					key("ns", "pod"): makeSimplePod("pod", "ns", kueue.WorkloadSliceNameAnnotation, "wl"),
 				},
@@ -358,7 +358,7 @@ func TestWorkloadMapping(t *testing.T) {
 					"prebuild-wl",
 				))
 			},
-			want: &podsByWorkload{
+			want: podsByWorkload{
 				key("ns", "prebuild-wl"): podsByKey{
 					key("ns", "pod"): makeSimplePod(
 						"pod",
@@ -373,7 +373,7 @@ func TestWorkloadMapping(t *testing.T) {
 			operation: func(sim *wasSimulator) {
 				sim.TrackPod(makeSimplePod("pod", "ns", podconstants.GroupNameAnnotation, "group-wl"))
 			},
-			want: &podsByWorkload{
+			want: podsByWorkload{
 				key("ns", "group-wl"): podsByKey{
 					key("ns", "pod"): makeSimplePod("pod", "ns", podconstants.GroupNameAnnotation, "group-wl"),
 				},
@@ -387,7 +387,7 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.TrackPod(makeSimplePod("pod4", "ns", kueue.WorkloadAnnotation, "wl2"))
 				sim.UntrackPod(key("ns", "pod1"))
 			},
-			want: &podsByWorkload{
+			want: podsByWorkload{
 				key("ns", "wl1"): podsByKey{
 					key("ns", "pod2"): makeSimplePod("pod2", "ns", kueue.WorkloadAnnotation, "wl1"),
 				},
@@ -406,14 +406,14 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.UntrackPod(key("ns", "pod2"))
 				sim.UntrackPod(key("ns", "pod3"))
 			},
-			want: &podsByWorkload{},
+			want: podsByWorkload{},
 		},
 		"update pod workload annotation": {
 			operation: func(sim *wasSimulator) {
 				sim.TrackPod(makeSimplePod("pod1", "ns", kueue.WorkloadAnnotation, "wl1"))
 				sim.TrackPod(makeSimplePod("pod1", "ns", kueue.WorkloadAnnotation, "wl2"))
 			},
-			want: &podsByWorkload{
+			want: podsByWorkload{
 				key("ns", "wl2"): podsByKey{
 					key("ns", "pod1"): makeSimplePod("pod1", "ns", kueue.WorkloadAnnotation, "wl2"),
 				},
@@ -424,7 +424,7 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.TrackPod(makeSimplePod("pod1", "ns", "", ""))
 				sim.TrackPod(makeSimplePod("pod1", "ns", kueue.WorkloadAnnotation, "wl1"))
 			},
-			want: &podsByWorkload{
+			want: podsByWorkload{
 				key("ns", "wl1"): podsByKey{
 					key("ns", "pod1"): makeSimplePod("pod1", "ns", kueue.WorkloadAnnotation, "wl1"),
 				},
@@ -435,7 +435,7 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.TrackPod(makeSimplePod("pod1", "ns", kueue.WorkloadAnnotation, "wl1"))
 				sim.TrackPod(makeSimplePod("pod1", "ns", "", ""))
 			},
-			want: nil,
+			want: podsByWorkload{},
 		},
 		"workload slice name annotation preferred over workload annotation": {
 			operation: func(sim *wasSimulator) {
@@ -443,7 +443,7 @@ func TestWorkloadMapping(t *testing.T) {
 				pod.Annotations[kueue.WorkloadAnnotation] = "regular-wl"
 				sim.TrackPod(pod)
 			},
-			want: &podsByWorkload{
+			want: podsByWorkload{
 				key("ns", "slice-wl"): podsByKey{
 					key("ns", "pod1"): func() *corev1.Pod {
 						pod := makeSimplePod("pod1", "ns", kueue.WorkloadSliceNameAnnotation, "slice-wl")
@@ -459,13 +459,13 @@ func TestWorkloadMapping(t *testing.T) {
 				pod.Annotations[podWorkloadAnnotations[1]] = "regular-wl"
 				sim.TrackPod(pod)
 			},
-			want: nil,
+			want: podsByWorkload{},
 		},
 		"add pod with empty workload annotation": {
 			operation: func(sim *wasSimulator) {
 				sim.TrackPod(makeSimplePod("pod1", "ns", kueue.WorkloadAnnotation, ""))
 			},
-			want: nil,
+			want: podsByWorkload{},
 		},
 	}
 
@@ -507,13 +507,14 @@ func TestPreemptWorkload(t *testing.T) {
 	}
 	nodes := []*corev1.Node{node1}
 
+	existingPodWlKey := key("default", "wl1")
 	existingPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "existing-pod",
-			Namespace: "default",
+			Namespace: existingPodWlKey.Namespace,
 			UID:       "uid-1",
 			Annotations: map[string]string{
-				kueue.WorkloadAnnotation: "wl1",
+				kueue.WorkloadAnnotation: existingPodWlKey.Name,
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -569,23 +570,31 @@ func TestPreemptWorkload(t *testing.T) {
 		wantFeasible bool
 	}{
 		"preempt existing workload and revert": {
-			preemptKey:   key("default", "wl1"),
+			setup: func(sim *wasSimulator) {
+				sim.TrackPod(existingPod)
+			},
+			preemptKey:   existingPodWlKey,
 			wantFeasible: true,
 		},
 		"preempt non-existent workload": {
+			setup: func(sim *wasSimulator) {
+				sim.TrackPod(existingPod)
+			},
 			preemptKey:   key("default", "non-existent"),
 			wantFeasible: false,
 		},
-		"preempt when podsByWorkload is nil": {
+		"preempt when unassigned pod exists": {
 			setup: func(sim *wasSimulator) {
+				sim.TrackPod(existingPod)
 				unassignedPod := makeSimplePod("unassigned", "default", "", "")
 				sim.TrackPod(unassignedPod)
 			},
-			preemptKey:   key("default", "wl1"),
-			wantFeasible: false,
+			preemptKey:   existingPodWlKey,
+			wantFeasible: true,
 		},
 		"preempt workload after pod workload annotation update": {
 			setup: func(sim *wasSimulator) {
+				sim.TrackPod(existingPod)
 				podWL1 := makeSimplePod("existing-pod", "default", kueue.WorkloadAnnotation, "wl1")
 				podWL1.UID = "uid-1"
 				podWL1.Spec = existingPod.Spec
@@ -608,10 +617,7 @@ func TestPreemptWorkload(t *testing.T) {
 				t.Fatalf("NewWASSimulatorForTest failed: %v", err)
 			}
 			sim := simRaw.(*wasSimulator)
-			sim.TrackPod(existingPod)
-			if tc.setup != nil {
-				tc.setup(sim)
-			}
+			tc.setup(sim)
 
 			snapshot, err := sim.Snapshot(ctx, nodes)
 			if err != nil {
@@ -768,7 +774,7 @@ func TestTrackPodDeepCopy(t *testing.T) {
 	}
 	snapshot := snapshotRaw.(*wasSimulatorSnapshot)
 
-	want := &podsByWorkload{
+	want := podsByWorkload{
 		key("ns", "wl1"): podsByKey{
 			key("ns", "pod1"): makeSimplePod("pod1", "ns", kueue.WorkloadAnnotation, "wl1"),
 		},
