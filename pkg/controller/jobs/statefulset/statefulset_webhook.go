@@ -178,16 +178,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 		// Workload already records is allowed: it restores consistency
 		// instead of breaking it, which matters for a cluster that already
 		// drifted (e.g. across an upgrade) before this check existed.
-		wlName, err := findWorkloadName(ctx, wh.client, oldSTSObj)
+		_, wl, err := findWorkload(ctx, wh.client, oldSTSObj)
 		if err != nil {
 			return nil, err
-		}
-		var wl kueue.Workload
-		if err := wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTSObj.GetNamespace(), Name: wlName}, &wl); err != nil {
-			if client.IgnoreNotFound(err) != nil {
-				return nil, err
-			}
-		} else if workload.HasQuotaReservation(&wl) && newQueueName != wl.Spec.QueueName {
+		} else if wl != nil && workload.HasQuotaReservation(wl) && newQueueName != wl.Spec.QueueName {
 			allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
 		}
 	}
