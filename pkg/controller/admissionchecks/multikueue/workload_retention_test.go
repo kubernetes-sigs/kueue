@@ -18,6 +18,7 @@ package multikueue
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -231,24 +232,43 @@ func TestSameNameReplacementChecksOwnershipAndCurrentManager(t *testing.T) {
 
 	const currentManagerUID = types.UID("current-manager")
 	tests := map[string]struct {
-		workloadManagerUID types.UID
-		remoteObjectOrigin string
-		wantDeleted        bool
-		wantRemoteWorkload bool
+		workloadManagerUID  types.UID
+		remoteObjectOrigin  string
+		remoteObjectPresent bool
+		emptyOrigin         bool
+		wantDeleted         bool
+		wantRemoteObject    bool
+		wantRemoteWorkload  bool
+		wantErr             error
 	}{
 		"gate-off current Workload deletes the old object on the target worker": {
-			workloadManagerUID: currentManagerUID,
-			remoteObjectOrigin: defaultOrigin,
-			wantDeleted:        true,
+			workloadManagerUID:  currentManagerUID,
+			remoteObjectOrigin:  defaultOrigin,
+			remoteObjectPresent: true,
+			wantDeleted:         true,
 		},
 		"stale Workload preserves the newer run object": {
+			workloadManagerUID:  "old-manager",
+			remoteObjectOrigin:  defaultOrigin,
+			remoteObjectPresent: true,
+			wantRemoteObject:    true,
+		},
+		"stale Workload does not create a remote Workload when the remote object is absent": {
 			workloadManagerUID: "old-manager",
-			remoteObjectOrigin: defaultOrigin,
 		},
 		"foreign-origin object is preserved and remote Workload is created": {
-			workloadManagerUID: currentManagerUID,
-			remoteObjectOrigin: "other-origin",
-			wantRemoteWorkload: true,
+			workloadManagerUID:  currentManagerUID,
+			remoteObjectOrigin:  "other-origin",
+			remoteObjectPresent: true,
+			wantRemoteObject:    true,
+			wantRemoteWorkload:  true,
+		},
+		"empty origin fails closed": {
+			workloadManagerUID:  currentManagerUID,
+			remoteObjectPresent: true,
+			emptyOrigin:         true,
+			wantRemoteObject:    true,
+			wantErr:             jobframework.ErrMultiKueueOriginEmpty,
 		},
 	}
 
@@ -258,15 +278,28 @@ func TestSameNameReplacementChecksOwnershipAndCurrentManager(t *testing.T) {
 			managerJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job", Namespace: TestNamespace, UID: currentManagerUID}}
 			managerClient := getClientBuilder(ctx).WithObjects(managerJob).Build()
 			oldRemoteJob := func() *batchv1.Job {
-				return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: managerJob.Name, Namespace: managerJob.Namespace,
-					Labels:      map[string]string{kueue.MultiKueueOriginLabel: tc.remoteObjectOrigin},
+				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: managerJob.Name, Namespace: managerJob.Namespace,
 					Annotations: map[string]string{constants.PrebuiltWorkloadAnnotation: "old-workload"}}}
+				if !tc.emptyOrigin {
+					job.Labels = map[string]string{kueue.MultiKueueOriginLabel: tc.remoteObjectOrigin}
+				}
+				return job
 			}
-			worker1Client := getClientBuilder(ctx).WithObjects(oldRemoteJob()).Build()
-			worker2Client := getClientBuilder(ctx).WithObjects(oldRemoteJob()).Build()
-			worker1 := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker1", nil)
+			worker1Builder := getClientBuilder(ctx)
+			worker2Builder := getClientBuilder(ctx)
+			if tc.remoteObjectPresent {
+				worker1Builder = worker1Builder.WithObjects(oldRemoteJob())
+				worker2Builder = worker2Builder.WithObjects(oldRemoteJob())
+			}
+			worker1Client := worker1Builder.Build()
+			worker2Client := worker2Builder.Build()
+			origin := defaultOrigin
+			if tc.emptyOrigin {
+				origin = ""
+			}
+			worker1 := newRemoteClient(managerClient, nil, nil, nil, origin, "worker1", nil)
 			worker1.client = NewNeverCachingClient(worker1Client)
-			worker2 := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker2", nil)
+			worker2 := newRemoteClient(managerClient, nil, nil, nil, origin, "worker2", nil)
 			worker2.client = NewNeverCachingClient(worker2Client)
 
 			local := utiltestingapi.MakeWorkload("new-workload", TestNamespace).
@@ -281,8 +314,8 @@ func TestSameNameReplacementChecksOwnershipAndCurrentManager(t *testing.T) {
 			}
 
 			result, err := (&wlReconciler{}).syncToSingleCluster(ctx, klog.Background(), group, "worker2")
-			if err != nil {
-				t.Fatalf("syncToSingleCluster() error = %v", err)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("syncToSingleCluster() error = %v, want %v", err, tc.wantErr)
 			}
 			wantRequeueAfter := time.Duration(0)
 			if tc.wantDeleted {
@@ -291,15 +324,19 @@ func TestSameNameReplacementChecksOwnershipAndCurrentManager(t *testing.T) {
 			if result.RequeueAfter != wantRequeueAfter {
 				t.Fatalf("syncToSingleCluster() RequeueAfter = %v, want %v", result.RequeueAfter, wantRequeueAfter)
 			}
-			if err := worker1Client.Get(ctx, client.ObjectKeyFromObject(managerJob), &batchv1.Job{}); err != nil {
+			err = worker1Client.Get(ctx, client.ObjectKeyFromObject(managerJob), &batchv1.Job{})
+			if tc.remoteObjectPresent && err != nil {
 				t.Fatalf("non-target worker object was deleted: %v", err)
 			}
-			err = worker2Client.Get(ctx, client.ObjectKeyFromObject(managerJob), &batchv1.Job{})
-			if tc.wantDeleted && !apierrors.IsNotFound(err) {
-				t.Fatalf("target worker object still exists, error = %v", err)
+			if !tc.remoteObjectPresent && !apierrors.IsNotFound(err) {
+				t.Fatalf("non-target worker object was unexpectedly created, error = %v", err)
 			}
-			if !tc.wantDeleted && err != nil {
+			err = worker2Client.Get(ctx, client.ObjectKeyFromObject(managerJob), &batchv1.Job{})
+			if tc.wantRemoteObject && err != nil {
 				t.Fatalf("target worker object was unexpectedly deleted: %v", err)
+			}
+			if !tc.wantRemoteObject && !apierrors.IsNotFound(err) {
+				t.Fatalf("target worker object still exists, error = %v", err)
 			}
 			err = worker2Client.Get(ctx, client.ObjectKeyFromObject(local), &kueue.Workload{})
 			if tc.wantRemoteWorkload && err != nil {

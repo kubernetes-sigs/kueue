@@ -77,7 +77,7 @@ func TestWlReconcile(t *testing.T) {
 
 	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false)
-	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().ManagedBy(kueue.MultiKueueControllerName)
+	baseJobManagedByKueueBuilder := baseJobBuilder.Clone().UID("uid1").ManagedBy(kueue.MultiKueueControllerName)
 
 	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
