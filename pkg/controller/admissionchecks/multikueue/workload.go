@@ -173,18 +173,10 @@ func (g *wlGroup) deleteRemoteObjectOfOtherWorkload(ctx context.Context, cluster
 		return false, true, nil
 	}
 	remoteClient := g.remoteClients[cluster]
-	remoteObject := &metav1.PartialObjectMetadata{}
-	remoteObject.SetGroupVersionKind(g.jobAdapter.GVK())
-	if err := remoteClient.getClient().Get(ctx, g.controllerKey, remoteObject); err != nil {
-		return false, true, client.IgnoreNotFound(err)
+	if remoteClient.origin == "" {
+		return false, false, jobframework.ErrMultiKueueOriginEmpty
 	}
-	if objectOrigin := remoteObject.GetLabels()[kueue.MultiKueueOriginLabel]; objectOrigin != remoteClient.origin {
-		return false, true, nil
-	}
-	remoteWorkloadName := jobframework.PrebuiltWorkloadNameFor(remoteObject)
-	if remoteWorkloadName == "" || remoteWorkloadName == g.local.Name {
-		return false, true, nil
-	}
+
 	managerUID := g.managerObjectUID()
 	if managerUID == "" {
 		return false, false, nil
@@ -196,6 +188,19 @@ func (g *wlGroup) deleteRemoteObjectOfOtherWorkload(ctx context.Context, cluster
 	}
 	if managerObject.UID != managerUID {
 		return false, false, nil
+	}
+
+	remoteObject := &metav1.PartialObjectMetadata{}
+	remoteObject.SetGroupVersionKind(g.jobAdapter.GVK())
+	if err := remoteClient.getClient().Get(ctx, g.controllerKey, remoteObject); err != nil {
+		return false, true, client.IgnoreNotFound(err)
+	}
+	if objectOrigin := remoteObject.GetLabels()[kueue.MultiKueueOriginLabel]; objectOrigin != remoteClient.origin {
+		return false, true, nil
+	}
+	remoteWorkloadName := jobframework.PrebuiltWorkloadNameFor(remoteObject)
+	if remoteWorkloadName == "" || remoteWorkloadName == g.local.Name {
+		return false, true, nil
 	}
 
 	ctrl.LoggerFrom(ctx).V(3).Info("Deleting a remote object left by an earlier run", "remoteObject", g.controllerKey, "remoteObjectWorkload", remoteWorkloadName, "workload", g.local.Name)
