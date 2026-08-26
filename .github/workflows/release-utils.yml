@@ -29,7 +29,6 @@ jobs:
       version: ${{ steps.parse.outputs.version }}
       branch: ${{ steps.parse.outputs.branch }}
       changelog: ${{ steps.parse.outputs.changelog }}
-      target: ${{ steps.parse.outputs.target }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
