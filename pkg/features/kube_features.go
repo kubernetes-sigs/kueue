@@ -568,6 +568,12 @@ const (
 	// job so such a change is forwarded promptly instead of on the next periodic requeue.
 	MultiKueueRemoteSpecSync featuregate.Feature = "MultiKueueRemoteSpecSync"
 
+	// owner: @kevin85421
+	//
+	// Enables users to restrict, via the kueue.x-k8s.io/multikueue-cluster-names annotation,
+	// which MultiKueue worker clusters a Workload may be dispatched to.
+	MultiKueueClusterNames featuregate.Feature = "MultiKueueClusterNames"
+
 	// owner: @pajakd
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/13320
 	//
@@ -923,6 +929,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	MultiKueueRemoteSpecSync: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	MultiKueueClusterNames: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	RecomputeAssignmentUponPreemptionTargetsOverlap: {

@@ -38,6 +38,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -609,6 +610,41 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 
 		restoreConnection()
+	})
+
+	ginkgo.It("Should restrict nomination to the authorized clusters requested via the multikueue-cluster-names annotation", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueClusterNames, true)
+
+		job := testingjob.MakeJob("job-pinned", f.managerNs.Name).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			SetAnnotation(kueue.MultiKueueClusterNamesAnnotation, "worker1").
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: f.managerNs.Name}
+
+		ginkgo.By("setting workload reservation on the manager", func() {
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+				Obj()
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+		})
+
+		ginkgo.By("the manager workload is nominated only to worker1 (requested ∩ authorized)", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, wl)).To(gomega.Succeed())
+				g.Expect(wl.Status.NominatedClusterNames).To(gomega.ConsistOf("worker1"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the remote workload is created on worker1 but not worker2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
 	})
 
 	ginkgo.It("Should redo the admission process once the workload loses Admission in the worker cluster", func() {
