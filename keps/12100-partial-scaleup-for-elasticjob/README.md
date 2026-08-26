@@ -84,7 +84,7 @@ Also, a new Workload representing the full job will be created and added to the 
 
 ### Enablement
 
-Partial ScaleUp for elastic jobs in Kueue is enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. At the cluster level, the ElasticJobWithPartialScaleUp feature (disabled by default) must be enabled via the corresponding Kueue feature gate.
+Partial ScaleUp for elastic jobs in Kueue is enabled through a combination of a Kubernetes feature gate and an opt-in annotation on individual Workload objects. At the cluster level, the ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp feature (disabled by default) must be enabled via the corresponding Kueue feature gate.
 
 Once the feature gate is enabled, individual Job objects can opt into partial admission by including the `kueue.x-k8s.io/elastic-job-scale-up-strategy="partial"` annotation. If the annotation is not set, the default value is `"atomic"`.
 When both conditions are met, Kueue treats the Workload as eligible for partial scale up. 
@@ -92,7 +92,7 @@ When both conditions are met, Kueue treats the Workload as eligible for partial 
 #### Features
 ```go
 	// Enables partial scale up for elastic jobs.
-	ElasticJobWithPartialScaleUp featuregate.Feature = "ElasticJobWithPartialScaleUp"
+	ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp featuregate.Feature = "ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp"
 ```
 
 #### ElasticJob ScaleUp Annotation
@@ -121,7 +121,7 @@ The workload for the full capacity should be created despite the feature gate is
 
 #### WorkloadSlice Name
 
-The newly created workload for opportunistic scale up should have a different name from the admitted workload. This will be done by adding an extra parameter "full-scaleup-probe" when calculating the hash suffix.
+The newly created workload for opportunistic scale up should have a different name from the admitted workload. This will be done by adding an extra parameter "full-scaleup-probe" when calculating the hash suffix. The extra parameter will influence the hash value, thus resulting in a different WorkloadSlice name. At the moment, the hash suffix is limited to 5 characters and there is no plan to increase it. Since the extra parameter will change only the hash value, the length of WorkloadSlice name remains the same.
 
 #### StrictFIFO Constraint
 
@@ -133,7 +133,7 @@ This is a constraint of partial scale-up that users should be aware of when usin
 
 Consider a scenario where:
 1. The ClusterQueue has a total quota of **7** for the requested resource flavor.
-2. The `RayCluster` is configured for both `ElasticJobs` and `ElasticJobWithPartialScaleUp`.
+2. The `RayCluster` is configured for both `ElasticJobsViaWorkloadSlices` and `ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp`.
 3. The user performs a two-step scale up of the `RayCluster`: starting at **5** replicas, scaling up to **10**, and then to **12**.
 
 Step 0: Job Creation (Initial Size: 5)
@@ -341,7 +341,7 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 ### Graduation Criteria
 
 **Alpha (v0.20):**
-- Feature gate `ElasticJobWithPartialScaleUp` disabled by default.
+- Feature gate `ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp` disabled by default.
 - Add integration for RayJob, RayCluster, RayService
 - Unit and integration tests.
 

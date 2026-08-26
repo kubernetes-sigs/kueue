@@ -7,7 +7,7 @@ creation-date: 2026-08-11
 reviewers:
   - "@kshalot"
 approvers:
-  - TBD
+  - "@tenzen-y"
 
 see-also:
   - "/keps/77-dynamically-sized-jobs"
@@ -19,5 +19,5 @@ milestone:
   alpha: "v0.20"
 
 feature-gates:
-  - name: ElasticJobWithPartialScaleUp
+  - name: ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp
 disable-supported: true
