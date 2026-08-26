@@ -1,0 +1,31 @@
+title: Exact Topology Domain Distribution
+kep-number: 13416
+authors:
+  - "@sumukha-radhakrishna"
+status: provisional
+creation-date: 2026-08-24
+reviewers:
+  - TBD
+approvers:
+  - TBD
+
+see-also:
+  - "/keps/2724-topology-aware-scheduling"
+  - "https://github.com/kubernetes-sigs/kueue/issues/13416"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The release target remains open while the KEP is provisional.
+latest-milestone: "TBD"
+
+milestone:
+  alpha: "TBD"
+  beta: "TBD"
+  stable: "TBD"
+
+feature-gates:
+  - name: TASExactTopologyDistribution
+disable-supported: true
+
+metrics: []
