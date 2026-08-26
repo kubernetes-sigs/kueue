@@ -193,6 +193,13 @@ type ClusterQueue struct {
 
 	AdmissionScope *kueue.AdmissionScope
 
+	// enableAdmissionFs reports whether this ClusterQueue actually pops pending
+	// workloads by LocalQueue usage rather than by the queue-order timestamp.
+	// Set once at construction from afs.ResourceWeights, the same value the heap
+	// comparator captured, so the two can never disagree. Immutable afterwards,
+	// so it is read without holding rwm.
+	enableAdmissionFs bool
+
 	afsUsageLedger *queueafs.AfsUsageLedger
 
 	// lqWeights holds the LocalQueues that belong to this ClusterQueue, mapped to
@@ -315,6 +322,7 @@ func newClusterQueueImpl(ctx context.Context, client client.Client, cl *metrics.
 		snapshotSort:           snapshotSort,
 		rwm:                    sync.RWMutex{},
 		clock:                  clock,
+		enableAdmissionFs:      options.enableAdmissionFs,
 		afsUsageLedger:         options.afsUsageLedger,
 		lqWeights:              lqWeights,
 		pw:                     &pw,
@@ -333,7 +341,6 @@ func (c *ClusterQueue) Update(apiCQ *kueue.ClusterQueue) error {
 	}
 	c.namespaceSelector = nsSelector
 	c.active = apimeta.IsStatusConditionTrue(apiCQ.Status.Conditions, kueue.ClusterQueueActive)
-	c.AdmissionScope = apiCQ.Spec.AdmissionScope
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = apiCQ.Spec.ConcurrentAdmissionPolicy
 	}
@@ -590,24 +597,20 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 	}
 	log.V(2).Info(logMsg, "clusterQueue", c.name, "workload", key)
 
+	// PreemptionNoCandidates is excluded when this queue pops by LocalQueue usage:
+	// the scheduling-equivalence shape does not encode the queue-order timestamp,
+	// which under a LowerOrNewerEqualPriority preemption policy decides whether a
+	// workload may preempt an equal-priority victim. Two workloads can therefore
+	// share a hash but not a preemption verdict, so a class-wide conclusion would
+	// defer workloads that are in fact eligible. See Kueue#14231.
 	if features.Enabled(features.SchedulingEquivalenceHashing) && wInfo.SchedulingHash != workload.SchedulingHashUnknown &&
-		(reason == RequeueReasonNoFit || (reason == RequeueReasonPreemptionNoCandidates && !c.usesUsageBasedAdmissionFairSharing())) {
+		(reason == RequeueReasonNoFit || (reason == RequeueReasonPreemptionNoCandidates && !c.enableAdmissionFs)) {
 		if moved := c.handleInadmissibleHash(wInfo.SchedulingHash, resolveQuotaReservedReason(quotaReservedReason)); moved > 0 {
 			log.V(2).Info("Bulk-moved equivalent workloads to inadmissible", "hash", wInfo.SchedulingHash, "movedCount", moved)
 		}
 	}
 
 	return true
-}
-
-// usesUsageBasedAdmissionFairSharing reports whether this ClusterQueue pops
-// pending workloads ordered by LocalQueue usage instead of the queue-order
-// timestamp. The scheduling-equivalence shape does not encode that timestamp,
-// so a class-wide PreemptionNoCandidates conclusion reached under this mode
-// can incorrectly defer an equivalent workload that is actually eligible to
-// preempt under a LowerOrNewerEqualPriority preemption policy. See Kueue#14231.
-func (c *ClusterQueue) usesUsageBasedAdmissionFairSharing() bool {
-	return c.AdmissionScope != nil && c.AdmissionScope.AdmissionMode == kueue.UsageBasedAdmissionFairSharing
 }
 
 // handleInadmissibleHash bulk-moves all heap workloads matching the given
