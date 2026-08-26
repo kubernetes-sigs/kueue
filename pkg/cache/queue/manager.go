@@ -938,23 +938,17 @@ func (m *Manager) heads() []Head {
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 			continue
 		}
-		wl, isPreemptor := cq.PopHead()
+		head := cq.PopHead()
 		reportCQPendingWorkloads(m, cq)
-		if wl == nil {
+		if head == nil {
 			continue
 		}
-		wlKey := workload.Key(wl.Obj)
-		wlCopy := *wl
-		wlCopy.ClusterQueue = cqName
-		heads = append(heads, Head{
-			Info:        wlCopy,
-			IsPreemptor: isPreemptor,
-		})
-
+		head.ClusterQueue = cqName
+		heads = append(heads, *head)
+		wlKey := workload.Key(head.Obj)
 		qKey := m.workloadAssignedQueues[wlKey]
 		q := m.localQueues[qKey]
 		delete(q.items, wlKey)
-
 		reportLQPendingWorkloads(m, q)
 	}
 	return heads

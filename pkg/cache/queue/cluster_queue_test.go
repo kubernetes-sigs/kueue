@@ -2392,7 +2392,7 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 }
 
 // TestPopHead ensures the right workload is popped and its preemptor status is
-// correctly identified, even when preemption is pending.
+// correctly identified.
 func TestPopHead(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cq, err := newClusterQueue(ctx, nil, utiltestingapi.MakeClusterQueue("cq").Obj(), nil, defaultOrdering, nil, nil)
@@ -2408,9 +2408,9 @@ func TestPopHead(t *testing.T) {
 	cq.PushOrUpdate(wInfo)
 	cq.RequeueIfNotPresent(ctx, wInfo, RequeueReasonPendingPreemption, "")
 
-	popped, isPreemptor := cq.PopHead()
-	if popped == nil || !isPreemptor {
-		t.Errorf("Unexpected popped workload or isPreemptor: (%v, %v)", popped, isPreemptor)
+	head := cq.PopHead()
+	if head == nil || !head.IsPreemptor {
+		t.Errorf("Unexpected popped head: %v", head)
 	}
 }
 

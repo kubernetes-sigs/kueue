@@ -655,13 +655,15 @@ func (c *ClusterQueue) PendingInLocalQueue(lqRef utilqueue.LocalQueueReference) 
 // Pop removes the head of the queue and returns it. It returns nil if the
 // queue is empty.
 func (c *ClusterQueue) Pop() *workload.Info {
-	wl, _ := c.PopHead()
-	return wl
+	if head := c.PopHead(); head != nil {
+		return &head.Info
+	}
+	return nil
 }
 
 // PopHead removes the head of the queue and returns it along with a flag
 // indicating whether it is a preemptor.
-func (c *ClusterQueue) PopHead() (*workload.Info, bool) {
+func (c *ClusterQueue) PopHead() *Head {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
 
@@ -677,10 +679,13 @@ func (c *ClusterQueue) PopHead() (*workload.Info, bool) {
 	c.popCycle++
 	wl := c.workloads.PopActive()
 	if wl == nil {
-		return nil, false
+		return nil
 	}
 
-	return wl, c.IsPreemptor(wl)
+	return &Head{
+		Info:        *wl,
+		IsPreemptor: c.IsPreemptor(wl),
+	}
 }
 
 func (c *ClusterQueue) hasPendingPenalties() bool {
