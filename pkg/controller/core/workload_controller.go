@@ -522,11 +522,8 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		}
 		return ctrl.Result{}, nil
 	}
-	// Skip the DeepCopy/AdjustResources/NeedsDRAReconcile work below when no
-	// DeviceClass backs any extended resource and the workload doesn't already
-	// reference DRA directly: AdjustResources can't turn a plain workload into
-	// a DRA one in that case, so paying for the copy and a LimitRange List on
-	// every pending workload isn't worth it.
+	// A plain workload can't become a DRA one via AdjustResources, so skip the
+	// DeepCopy/AdjustResources/LimitRange-List cost below when it can't apply.
 	if workload.Status(&wl) == workload.StatusPending && (!r.draBackedResources.Empty() || workload.HasDRA(&wl)) {
 		// NeedsDRAReconcile must see the requests as AdjustResources leaves them:
 		// a LimitRange defaultRequest or a limits-to-requests copy can be the only
@@ -1382,11 +1379,9 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			log.V(2).Info("Removing workload from queue because it is on-hold")
 			r.queues.DeleteWorkload(log, wlKey)
 		case dra.NeedsDRAReconcile(wlCopy, r.draBackedResources):
-			// A workload already queued with DRA-preprocessed requests doesn't need to be
-			// pulled and re-added on every update: only a spec change (Generation bump) can
-			// invalidate that preprocessing. Deleting unconditionally here caused it to be
-			// evicted from the queue on every unrelated status update, since NeedsDRAReconcile
-			// keeps returning true for a DRA workload regardless of preprocessing state.
+			// Only a spec change can invalidate DRA preprocessing; otherwise
+			// update the queued Info in place instead of evicting it, since
+			// NeedsDRAReconcile stays true for the life of a DRA workload.
 			if e.ObjectNew.Generation != e.ObjectOld.Generation || !r.queues.UpdateDRAPreprocessedWorkload(log, wlCopy) {
 				log.V(2).Info("Removing workload from queue while DRA reconcile is pending - handled in Reconcile")
 				r.queues.DeleteWorkload(log, wlKey)

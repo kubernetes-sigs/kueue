@@ -756,13 +756,10 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 }
 
 // UpdateDRAPreprocessedWorkload updates the queued Info for w in place,
-// preserving its already DRA-preprocessed TotalRequests instead of rebuilding
-// them from the raw Workload spec (AddOrUpdateWorkload always rebuilds
-// TotalRequests via a fresh workload.Info, which would otherwise discard the
-// DRA preprocessing done for this workload).
-// Returns false, with no change made, if w isn't currently queued with an
-// Info that has gone through DRA preprocessing; the caller is expected to
-// fall back to removing it from the queue in that case.
+// preserving its DRA-preprocessed TotalRequests instead of rebuilding them
+// from the raw spec, as AddOrUpdateWorkload would. Returns false, with no
+// change made, if w isn't queued with DRA-preprocessed Info, in which case
+// the caller should fall back to DeleteWorkload.
 func (m *Manager) UpdateDRAPreprocessedWorkload(log logr.Logger, w *kueue.Workload) bool {
 	m.Lock()
 	defer m.Unlock()
