@@ -453,6 +453,20 @@ func TestWorkloadMapping(t *testing.T) {
 				},
 			},
 		},
+		"empty workload annotation with higher priority overrides non-empty workload annotation": {
+			operation: func(sim *wasSimulator) {
+				pod := makeSimplePod("pod1", "ns", podWorkloadAnnotations[0], "")
+				pod.Annotations[podWorkloadAnnotations[1]] = "regular-wl"
+				sim.TrackPod(pod)
+			},
+			want: nil,
+		},
+		"add pod with empty workload annotation": {
+			operation: func(sim *wasSimulator) {
+				sim.TrackPod(makeSimplePod("pod1", "ns", kueue.WorkloadAnnotation, ""))
+			},
+			want: nil,
+		},
 	}
 
 	for name, tc := range testCases {

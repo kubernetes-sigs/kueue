@@ -236,8 +236,8 @@ func (t *podTracker) untrack(key client.ObjectKey) {
 func (t *podTracker) clearPod(key client.ObjectKey, pod *corev1.Pod) {
 	delete(t.pods, key)
 
-	wl, found := workloadName(pod)
-	if !found {
+	wl := workloadName(pod)
+	if wl == "" {
 		delete(t.unassignedPods, key)
 		return
 	}
@@ -252,8 +252,8 @@ func (t *podTracker) clearPod(key client.ObjectKey, pod *corev1.Pod) {
 func (t *podTracker) savePod(podKey client.ObjectKey, pod *corev1.Pod) {
 	t.pods[podKey] = pod
 
-	wl, found := workloadName(pod)
-	if !found {
+	wl := workloadName(pod)
+	if wl == "" {
 		t.unassignedPods[podKey] = pod
 		return
 	}
@@ -265,13 +265,13 @@ func (t *podTracker) savePod(podKey client.ObjectKey, pod *corev1.Pod) {
 	t.workloadPods[wlKey][podKey] = pod
 }
 
-func workloadName(pod *corev1.Pod) (string, bool) {
+func workloadName(pod *corev1.Pod) string {
 	for _, annotation := range podWorkloadAnnotations {
-		if wl, ok := pod.Annotations[annotation]; ok && wl != "" {
-			return wl, true
+		if wl, ok := pod.Annotations[annotation]; ok {
+			return wl
 		}
 	}
-	return "", false
+	return ""
 }
 
 func (s *wasSimulatorSnapshot) FindFeasibleNodes(
