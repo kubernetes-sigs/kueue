@@ -79,7 +79,7 @@ As a user of a multi-podset RayJob (which defines a head pod and multiple worker
 
 For ElasticJobs, updating `job.spec.parallelism` could cause race conditions between partial scale up and scaling up/down activity. 
 To avoid this, the `job.spec.parallelism` won't be updated in `RunWithPodSetsInfo` for elastic jobs. Instead, the workload controller will use the `workload.Status.Admission.PodSetAssignments[*].Count` value to calculate the number of pods from which Kueue should remove scheduling gates. 
-The `Workload.Spec.PodSets[].MinCount` for an ElasticJob workload will represent the currently admitted value + 1.
+The `Workload.Spec.PodSets[].MinCount` for an ElasticJob workload will equal to `min(admitted.count + 1, podset.count + 1)` of the previous workload and will represent the currently running pods + 1. The `podset.count` will represent currently running pods after scale down event, while `admitted.count` represents currently running pods after scale up event.
 Also, a new Workload representing the full job will be created and added to the queue, to admit the remaining capacity once it becomes available (opportunistic scale up).
 
 ### Enablement
@@ -200,10 +200,10 @@ If the available quota in the ClusterQueue increases to 12 (or more) in the futu
   * `wl-C` (Updated/Replaced):
     * `spec.podSets.count` = 8
     * `spec.podSets.minCount` = 8
-    * `status.admission.count` = 8
+    * `status.admission.count` = 12 (the admission value remains the same after ScaleDown)
 * **Controller Actions**:
   1. **KubeRay Controller**: Decreases worker group replica count to 8 and deletes 4 running pods.
-  2. **Workload Controller**: Detects the scale down and updates the admitted Workload `wl-C` to set `spec.podSets.count = 8`, `spec.podSets.minCount` and `status.admission.count = 8`.
+  2. **Workload Controller**: Detects the scale down and updates the admitted Workload `wl-C` to set `spec.podSets.count = 8`, `spec.podSets.minCount`.
 
 ### RayJob/RayService/RayCluster controller
 
@@ -326,7 +326,7 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 
 #### Unit Tests
 
-- Verifying workload creation for elastic jobs with `minCount` set to `admitted + 1` during scale up.
+- Verifying workload creation for elastic jobs with `minCount` set to minimum of `admitted.count` + 1 and `podset.count` + 1during scale up.
 - Verifying ungater controller behavior when workloads are partially admitted.
 
 #### Integration tests
