@@ -24,16 +24,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// SchedulingSimulator acts as a factory for SimulatorSnapshots.
+// SimulatorSnapshotFactory is a factory for SimulatorSnapshots.
 // It also tracks all existing Pods (even those not managed by Kueue),
 // to ensure they're included in the snapshots.
 // This interface is purposed to control Kueue-WAS integration.
 // The "default" (non-WAS) implementation may trivialize some methods.
-type SchedulingSimulator interface {
+type SimulatorSnapshotFactory interface {
+	// Snapshot creates a simulator snapshot based on the cached cluster state.
 	Snapshot(ctx context.Context, nodes []*corev1.Node) (SimulatorSnapshot, error)
-	// TrackPod notifies the simulator that a pod is running on a node.
+	// TrackPod notifies the factory that a pod is running on a node.
 	TrackPod(pod *corev1.Pod)
-	// UntrackPod notifies the simulator that a pod has been removed.
+	// UntrackPod notifies the factory that a pod has been removed.
 	UntrackPod(key client.ObjectKey)
 }
 
@@ -43,14 +44,14 @@ type SchedulingSimulator interface {
 type SimulatorSnapshot interface {
 	// Simulate executes the provided function.
 	// After the simulation ends, any changes made to the snapshot state
-	// via its built-in methods will be reverted.
+	// via its built-in methods should be reverted.
 	Simulate(func()) error
 	// FindFeasibleNodes returns all candidates that can be scheduled
 	// with the given requirements, based on the current state of the snapshot.
 	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
 	// PreemptWorkload preempts the given workload, returning a function that reverts the preemption.
 	// When run inside Simulate, any changes made by the method or the returned revert function
-	// will be reverted regardless of their outcome (error vs success).
+	// should be reverted regardless of their outcome (error vs success).
 	PreemptWorkload(wlKey client.ObjectKey) (revert func() error, err error)
 }
 

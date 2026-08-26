@@ -35,7 +35,7 @@ import (
 
 type defaultSimulator struct{}
 
-func newDefaultSimulator() simulator.SchedulingSimulator {
+func newDefaultSimulator() simulator.SimulatorSnapshotFactory {
 	return &defaultSimulator{}
 }
 
