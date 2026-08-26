@@ -3177,7 +3177,7 @@ The list cannot be empty and it can contain up to 64 resources. With a total
 of up to 256 covered resources across all resource groups in the ClusterQueue.</p>
 </td>
 </tr>
-<tr><td><code>flavors</code> <B>[Required]</B><br/>
+<tr><td><code>flavors</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-FlavorQuotas"><code>[]FlavorQuotas</code></a>
 </td>
 <td>

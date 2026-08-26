@@ -532,11 +532,10 @@ spec:
                         x-kubernetes-list-type: map
                     required:
                       - coveredResources
-                      - flavors
                     type: object
                     x-kubernetes-validations:
                       - message: flavors must have the same number of resources as the coveredResources
-                        rule: self.flavors.all(x, size(x.resources) == size(self.coveredResources))
+                        rule: '!has(self.flavors) || self.flavors.all(x, size(x.resources) == size(self.coveredResources))'
                   maxItems: 16
                   type: array
                   x-kubernetes-list-type: atomic

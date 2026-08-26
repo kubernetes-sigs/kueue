@@ -1332,11 +1332,10 @@ spec:
                         x-kubernetes-list-type: map
                     required:
                       - coveredResources
-                      - flavors
                     type: object
                     x-kubernetes-validations:
                       - message: flavors must have the same number of resources as the coveredResources
-                        rule: self.flavors.all(x, size(x.resources) == size(self.coveredResources))
+                        rule: '!has(self.flavors) || self.flavors.all(x, size(x.resources) == size(self.coveredResources))'
                   maxItems: 16
                   type: array
                   x-kubernetes-list-type: atomic
@@ -1359,7 +1358,7 @@ spec:
               type: object
               x-kubernetes-validations:
                 - message: borrowingLimit must be nil when cohort is empty
-                  rule: '!has(self.cohortName) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true'
+                  rule: '!has(self.cohortName) && has(self.resourceGroups) ? self.resourceGroups.all(rg, !has(rg.flavors) || rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true'
             status:
               description: status is the status of the ClusterQueue.
               properties:
