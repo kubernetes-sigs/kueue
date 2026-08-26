@@ -127,6 +127,36 @@ exit 1
 EOF
 chmod +x "${test_dir}/kind"
 
+cat >"${test_dir}/docker" <<'EOF'
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+printf '%s\n' "$*" >>"${DOCKER_FAKE_LOG:?}"
+
+case "$*" in
+  "pull "*)
+    attempts=$(cat "${DOCKER_FAKE_STATE:?}")
+    attempts=$((attempts + 1))
+    printf '%s' "${attempts}" >"${DOCKER_FAKE_STATE}"
+    if [[ "${attempts}" -lt "${DOCKER_FAKE_PULL_OK_AFTER:-1}" ]]; then
+      printf '%s\n' "${DOCKER_FAKE_PULL_ERROR:?}" >&2
+      exit 1
+    fi
+    printf 'Status: Downloaded newer image\n'
+    exit 0
+    ;;
+  "image inspect "*)
+    exit "${DOCKER_FAKE_IMAGE_PRESENT:-1}"
+    ;;
+esac
+
+printf 'unexpected docker call: %s\n' "$*" >&2
+exit 1
+EOF
+chmod +x "${test_dir}/docker"
+
 # shellcheck source=hack/testing/e2e-common.sh
 source "${ROOT_DIR}/hack/testing/e2e-common.sh"
 
@@ -241,6 +271,71 @@ fi
 
 if [[ ! -f "${ARTIFACTS}/persistent-test-create.log" ]]; then
   echo "expected the final attempt's log to remain for failure reporting" >&2
+  exit 1
+fi
+
+# A transient registry error is retried until the pull succeeds.
+DOCKER_FAKE_LOG="${test_dir}/docker.log"
+DOCKER_FAKE_STATE="${test_dir}/docker-state"
+export DOCKER_FAKE_LOG DOCKER_FAKE_STATE
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_STATE}"
+export DOCKER_FAKE_PULL_OK_AFTER=2
+export DOCKER_FAKE_PULL_ERROR='Error response from daemon: Get "https://registry.example.com/v2/kueue/manifests/sha256:0badc0de": net/http: TLS handshake timeout'
+
+e2e_docker_pull_if_needed "registry.example.com/kueue:test"
+
+pull_attempts=$(grep -c "^pull " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${pull_attempts}" != "2" ]]; then
+  echo "expected a TLS handshake timeout to be retried; got ${pull_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+# A missing image is not a transient failure, so it aborts after a single attempt.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_STATE}"
+export DOCKER_FAKE_PULL_OK_AFTER=99
+export DOCKER_FAKE_PULL_ERROR='Error response from daemon: manifest for registry.example.com/kueue:missing not found'
+
+if e2e_docker_pull_if_needed "registry.example.com/kueue:missing"; then
+  echo "expected a missing manifest to fail the pull" >&2
+  exit 1
+fi
+unset DOCKER_FAKE_PULL_ERROR
+
+pull_attempts=$(grep -c "^pull " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${pull_attempts}" != "1" ]]; then
+  echo "expected a missing manifest to fail fast without retrying; got ${pull_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+# In dev mode a cached dependency image is reused instead of pulled again.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_STATE}"
+export DOCKER_FAKE_PULL_OK_AFTER=1
+export DOCKER_FAKE_IMAGE_PRESENT=0
+
+E2E_MODE=dev E2E_SKIP_IMAGE_RELOAD=true e2e_docker_pull_if_needed "registry.example.com/dependency:test"
+
+pull_attempts=$(grep -c "^pull " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${pull_attempts}" != "0" ]]; then
+  echo "expected a cached dependency image to be reused in dev mode; got ${pull_attempts} pull(s)" >&2
+  exit 1
+fi
+
+# Opting out of E2E_SKIP_IMAGE_RELOAD pulls even when the image is cached locally.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_STATE}"
+export DOCKER_FAKE_PULL_OK_AFTER=1
+export DOCKER_FAKE_IMAGE_PRESENT=0
+
+E2E_MODE=dev E2E_SKIP_IMAGE_RELOAD=false e2e_docker_pull_if_needed "registry.example.com/kueue:test"
+unset DOCKER_FAKE_PULL_OK_AFTER
+unset DOCKER_FAKE_IMAGE_PRESENT
+
+pull_attempts=$(grep -c "^pull " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${pull_attempts}" != "1" ]]; then
+  echo "expected a cached image to be pulled when E2E_SKIP_IMAGE_RELOAD is off; got ${pull_attempts} pull(s)" >&2
   exit 1
 fi
 
