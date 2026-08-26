@@ -755,6 +755,40 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	return nil
 }
 
+// UpdateDRAPreprocessedWorkload updates the queued Info for w in place,
+// preserving its already DRA-preprocessed TotalRequests instead of rebuilding
+// them from the raw Workload spec (AddOrUpdateWorkload always rebuilds
+// TotalRequests via a fresh workload.Info, which would otherwise discard the
+// DRA preprocessing done for this workload).
+// Returns false, with no change made, if w isn't currently queued with an
+// Info that has gone through DRA preprocessing; the caller is expected to
+// fall back to removing it from the queue in that case.
+func (m *Manager) UpdateDRAPreprocessedWorkload(log logr.Logger, w *kueue.Workload) bool {
+	m.Lock()
+	defer m.Unlock()
+
+	wlKey := workload.Key(w)
+	q := m.localQueues[m.workloadAssignedQueues[wlKey]]
+	if q == nil {
+		return false
+	}
+	info, ok := q.items[wlKey]
+	if !ok || !info.DRAPreprocessed {
+		return false
+	}
+
+	info.Update(log, w, workload.WithPreserveTotalRequests())
+	cq := m.hm.ClusterQueue(q.ClusterQueue)
+	if cq == nil {
+		return false
+	}
+	cq.PushOrUpdate(info)
+	reportLQPendingWorkloads(m, q)
+	reportCQPendingWorkloads(m, cq)
+	m.Broadcast()
+	return true
+}
+
 // RequeueWorkload requeues the workload ensuring that the queue and the
 // workload still exist in the client cache and not admitted. It won't
 // requeue if the workload is already in the queue (possible if the workload was updated).

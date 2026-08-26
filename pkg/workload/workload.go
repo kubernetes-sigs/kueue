@@ -271,6 +271,12 @@ type Info struct {
 	// NominationMapping is the mapping of PodSets resources and their flavors
 	// based on the nomination phase.
 	NominationMapping PodSetResourcesToFlavors
+
+	// DRAPreprocessed indicates that TotalRequests already reflects the
+	// workload controller's DRA preprocessing (see WithPreprocessedDRAResources).
+	// Used to tell a queued DRA workload apart from one whose TotalRequests
+	// still needs that preprocessing.
+	DRAPreprocessed bool
 }
 
 type PodSetResources struct {
@@ -380,6 +386,7 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 		} else {
 			i.TotalRequests = totalRequestsFromPodSets(i.Obj, &options)
 		}
+		i.DRAPreprocessed = options.preprocessedDRAResources != nil
 	}
 }
 

@@ -1382,8 +1382,15 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			log.V(2).Info("Removing workload from queue because it is on-hold")
 			r.queues.DeleteWorkload(log, wlKey)
 		case dra.NeedsDRAReconcile(wlCopy, r.draBackedResources):
-			log.V(2).Info("Removing workload from queue while DRA reconcile is pending - handled in Reconcile")
-			r.queues.DeleteWorkload(log, wlKey)
+			// A workload already queued with DRA-preprocessed requests doesn't need to be
+			// pulled and re-added on every update: only a spec change (Generation bump) can
+			// invalidate that preprocessing. Deleting unconditionally here caused it to be
+			// evicted from the queue on every unrelated status update, since NeedsDRAReconcile
+			// keeps returning true for a DRA workload regardless of preprocessing state.
+			if e.ObjectNew.Generation != e.ObjectOld.Generation || !r.queues.UpdateDRAPreprocessedWorkload(log, wlCopy) {
+				log.V(2).Info("Removing workload from queue while DRA reconcile is pending - handled in Reconcile")
+				r.queues.DeleteWorkload(log, wlKey)
+			}
 		default:
 			if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)

@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
@@ -36,6 +37,7 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestReconcileDRA(t *testing.T) {
@@ -616,5 +618,63 @@ func TestUpdateRemovesFromQueueWhenNewlyNeedsDRAReconcile(t *testing.T) {
 
 	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 0 {
 		t.Fatalf("workload should be removed from the queue once its resource newly needs DRA reconcile; got %d pending", len(pending))
+	}
+}
+
+// TestUpdateKeepsAlreadyPreprocessedDRAWorkloadQueued covers a DRA workload
+// (dra.NeedsDRAReconcile is always true for it, since it uses a ResourceClaimTemplate)
+// that is already queued with DRA-preprocessed requests, as handleDRA leaves it. An
+// unrelated update with no spec change used to unconditionally delete it from the
+// queue on every such event, since NeedsDRAReconcile can't tell preprocessed from
+// unprocessed. It should instead stay queued with its preprocessed requests intact.
+func TestUpdateKeepsAlreadyPreprocessedDRAWorkloadQueued(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			ResourceClaimTemplate("gpu", "gpu-template").
+			Obj()).
+		Obj()
+
+	cl := utiltesting.NewClientBuilder().Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithDRABackedResources(dra.NewExtendedResourceCache()))
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("gpu", "2").Obj()).Obj(), false)
+	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+	// Simulate handleDRA having already preprocessed and queued this workload.
+	draResources := map[kueue.PodSetReference]corev1.ResourceList{
+		kueue.DefaultPodSetName: {"gpu": resource.MustParse("1")},
+	}
+	if err := qManager.AddOrUpdateWorkload(log, wl.DeepCopy(), workload.WithPreprocessedDRAResources(draResources, nil)); err != nil {
+		t.Fatalf("failed to seed queue with preprocessed workload: %v", err)
+	}
+	pending := qManager.PendingWorkloadsInfo("cq")
+	if len(pending) != 1 || !pending[0].DRAPreprocessed || pending[0].TotalRequests[0].Requests.ResourceValue("gpu") == 0 {
+		t.Fatalf("test setup didn't seed a DRA-preprocessed queued workload: %+v", pending)
+	}
+
+	// An unrelated update (no spec change, so Generation is unchanged) fires while the
+	// workload is still pending.
+	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: wl,
+		ObjectNew: wl,
+	}); !got {
+		t.Fatalf("Update() = %v, want true", got)
+	}
+
+	pending = qManager.PendingWorkloadsInfo("cq")
+	if len(pending) != 1 {
+		t.Fatalf("already DRA-preprocessed workload should stay queued across an unrelated update; got %d pending", len(pending))
+	}
+	if got := pending[0].TotalRequests[0].Requests.ResourceValue("gpu"); got == 0 {
+		t.Fatalf("update should have preserved the DRA-preprocessed requests; got %v", pending[0].TotalRequests[0].Requests)
 	}
 }
