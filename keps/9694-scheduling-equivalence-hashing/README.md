@@ -161,7 +161,7 @@ diagnostics, or add overhead, but cannot admit a Workload incorrectly.
 | Risk | Worst case | Mitigation | Status |
 |---|---|---|---|
 | [ElasticJobsViaWorkloadSlices shape gap](#elasticjobsviaworkloadslices) | A schedulable replacement is repeatedly deferred | Model replacement state or exclude replacements | **Open** |
-| [UsageBasedAdmissionFairSharing timestamp gap](#usagebasedadmissionfairsharing) | A Workload that can preempt is repeatedly deferred | Exclude PreemptionNoCandidates from class-wide handling under UsageBasedAdmissionFairSharing | Mitigated |
+| [UsageBasedAdmissionFairSharing timestamp gap](#usagebasedadmissionfairsharing) | A Workload that can preempt is repeatedly deferred | Exclude PreemptionNoCandidates from class-wide handling in ClusterQueues that actually order by LocalQueue usage | Mitigated |
 | [Overly broad failure classification](#overly-broad-failure-classification) | Valid class members are deferred | Allowlist class-wide requeue reasons | Mitigated |
 | [Stale failed-class records](#stale-failed-class-records) | A class remains deferred after conditions change | Clear failed records on retry or restart | Mitigated |
 | [Identifier collision](#identifier-collision) | A colliding shape is repeatedly delayed or starved | Use a 64-bit SHA-256 prefix | Accepted |
@@ -225,20 +225,29 @@ trigger, user impact, mitigation, and residual risk for each row.
    | V | t1 | admitted | preemption target |
    | B | t2 | pending, evaluated first because it belongs to a lower-usage LocalQueue | cannot preempt V because V is older than B |
 
-3. **Mitigation:** When the ClusterQueue's `AdmissionScope.AdmissionMode` is
-   `UsageBasedAdmissionFairSharing`, a `PreemptionNoCandidates` result no longer
-   creates a failed-class record or triggers bulk movement; the affected
-   Workload is evaluated individually instead. `NoFit` is unaffected, because
-   quota fit does not depend on queue-order timestamp. This is a coarser
-   exclusion than gating on the `LowerOrNewerEqualPriority` preemption policy
-   specifically: it disables the optimization for `PreemptionNoCandidates` in
-   any ClusterQueue using `UsageBasedAdmissionFairSharing`, which is safe under
-   the section's invariant and avoids caching preemption-policy state that this
-   layer does not otherwise track.
-4. **Residual risk:** None for the triggering scenario. ClusterQueues using
-   `UsageBasedAdmissionFairSharing` with a preemption policy other than
+3. **Mitigation:** When usage-based ordering is in effect for the ClusterQueue,
+   a `PreemptionNoCandidates` result no longer creates a failed-class record or
+   triggers bulk movement; the affected Workload is evaluated individually
+   instead. `NoFit` is unaffected, because quota fit does not depend on
+   queue-order timestamp. The exclusion is keyed on whether the ClusterQueue
+   actually pops by LocalQueue usage, which requires all three of
+   `AdmissionScope.AdmissionMode` set to `UsageBasedAdmissionFairSharing`, an
+   `admissionFairSharing` block in the Configuration, and the
+   `AdmissionFairSharing` feature gate. This is the same value the queue's
+   ordering comparator is built from, so the exclusion cannot disagree with the
+   pop order it protects. It remains a coarser exclusion than gating on the
+   `LowerOrNewerEqualPriority` preemption policy specifically, which is safe
+   under the section's invariant and avoids caching preemption-policy state that
+   this layer does not otherwise track.
+4. **Residual risk:** None for the triggering scenario. ClusterQueues that
+   actually order by LocalQueue usage but use a preemption policy other than
    `LowerOrNewerEqualPriority` lose the `PreemptionNoCandidates` bulk-move
    optimization even though they were never affected by the underlying gap.
+   ClusterQueues that set `AdmissionScope.AdmissionMode` without
+   `admissionFairSharing` enabled in the Configuration are a distinct case: they
+   still order by effective priority and then queue-order timestamp, so the gap
+   cannot arise, and they retain the optimization rather than paying for a
+   mitigation they do not need.
 
 #### Overly broad failure classification
 
@@ -492,7 +501,7 @@ move an entire class without evaluating its remaining Workloads.
 | v0.19.0 | Equivalence identifier corrected to include Pod-level resource requests when the field is set | bugfix |
 | v0.20.0 | Added the `kueue_pending_scheduling_hashes` gauge, reporting unique active and inadmissible classes per ClusterQueue | observability |
 | v0.20.0 | PodSet name excluded from the scheduling shape, behind the Beta `SchedulingEquivalenceHashingIgnorePodSetName` gate, enabled by default | gate |
-| v0.20.0 | `PreemptionNoCandidates` excluded from class-wide handling when `AdmissionScope.AdmissionMode` is `UsageBasedAdmissionFairSharing`, closing the queue-order-timestamp gap described under [UsageBasedAdmissionFairSharing](#usagebasedadmissionfairsharing) | bugfix |
+| v0.20.0 | `PreemptionNoCandidates` excluded from class-wide handling in ClusterQueues that actually order by LocalQueue usage, closing the queue-order-timestamp gap described under [UsageBasedAdmissionFairSharing](#usagebasedadmissionfairsharing) | bugfix |
 
 ### Test Plan
 
@@ -537,13 +546,15 @@ and that namespace, preemption, and observability boundaries retain their
 existing behavior. Before stable, it must additionally exercise the resolved
 behavior for Workload-slice replacement.
 
-The `UsageBasedAdmissionFairSharing` exclusion is covered at the scheduler
-level: `TestRequeueHashTriggerByReason` in `pkg/cache/queue/cluster_queue_test.go`
-asserts the failed-class record directly, and `TestScheduleForAFS` in
-`pkg/scheduler/scheduler_afs_test.go` runs the real scheduler, queue manager,
-and cache together to confirm an equivalent Workload under
-`UsageBasedAdmissionFairSharing` is evaluated individually rather than bulk-moved
-without evaluation.
+The `UsageBasedAdmissionFairSharing` exclusion is covered at two levels.
+`TestRequeueHashTriggerByReason` in `pkg/cache/queue/cluster_queue_test.go`
+asserts the failed-class record directly at the queue level, including that a
+ClusterQueue setting `AdmissionScope.AdmissionMode` without
+`admissionFairSharing` enabled still bulk-moves on `PreemptionNoCandidates`.
+`TestScheduleForAFS` in `pkg/scheduler/scheduler_afs_test.go` runs the real
+scheduler, queue manager, and cache together to confirm an equivalent Workload
+under `UsageBasedAdmissionFairSharing` is evaluated individually rather than
+bulk-moved without evaluation.
 
 #### End-to-End Tests
 
@@ -576,7 +587,7 @@ Graduation to stable requires:
 - ~~reevaluation of PreemptionNoCandidates class-wide handling when
   UsageBasedAdmissionFairSharing is combined with LowerOrNewerEqualPriority~~
   resolved: PreemptionNoCandidates is excluded from class-wide handling
-  whenever UsageBasedAdmissionFairSharing is active
+  whenever the ClusterQueue actually orders by LocalQueue usage
 - validated retry triggers for quota, cohort, flavor, topology, admission
   checks, and relevant Pod-capacity changes
 - an explicit decision on whether the current digest size is sufficient for
