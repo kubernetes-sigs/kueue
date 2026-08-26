@@ -272,10 +272,8 @@ type Info struct {
 	// based on the nomination phase.
 	NominationMapping PodSetResourcesToFlavors
 
-	// DRAPreprocessed indicates that TotalRequests already reflects the
-	// workload controller's DRA preprocessing (see WithPreprocessedDRAResources).
-	// Used to tell a queued DRA workload apart from one whose TotalRequests
-	// still needs that preprocessing.
+	// DRAPreprocessed indicates TotalRequests already reflects the workload
+	// controller's DRA preprocessing (see WithPreprocessedDRAResources).
 	DRAPreprocessed bool
 }
 
