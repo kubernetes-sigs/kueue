@@ -323,6 +323,89 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 		t.Errorf("PodSet order changed after swapping client-supplied role-hashes (-before, +after):\n%s", diff)
 	}
 }
+
+func TestConstructGroupPodSetsOrderIndependentOfInputOrder(t *testing.T) {
+	leader := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "leader",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "zzzz",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "container",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	worker := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "aaaa",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "container",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate leader shape hash: %v", err)
+	}
+	workerShapeHash, err := utilpod.GenerateRoleHash(&worker.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate worker shape hash: %v", err)
+	}
+
+	if leaderShapeHash != workerShapeHash {
+		t.Fatalf("expected identical PodSpecs to have the same shape hash, got %q and %q",
+			leaderShapeHash, workerShapeHash)
+	}
+
+	got1, err := constructGroupPodSets([]corev1.Pod{leader, worker})
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	got2, err := constructGroupPodSets([]corev1.Pod{worker, leader})
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() with reversed input error = %v", err)
+	}
+
+	if len(got1) != 2 || len(got2) != 2 {
+		t.Fatalf("expected 2 PodSets, got %d and %d", len(got1), len(got2))
+	}
+
+	firstOrder := []string{
+		string(got1[0].Name),
+		string(got1[1].Name),
+	}
+
+	secondOrder := []string{
+		string(got2[0].Name),
+		string(got2[1].Name),
+	}
+
+	if diff := cmp.Diff(firstOrder, secondOrder); diff != "" {
+		t.Errorf("PodSet order depends on input pod order (-first, +second):\n%s", diff)
+	}
+}
+
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		pod          *Pod

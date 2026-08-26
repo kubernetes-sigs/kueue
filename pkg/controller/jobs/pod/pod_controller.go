@@ -807,6 +807,7 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 type podSetWithShapeHash struct {
 	podSet    kueue.PodSet
 	shapeHash string
+	podName   string
 }
 
 func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
@@ -847,12 +848,16 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 			resultPodSets = append(resultPodSets, podSetWithShapeHash{
 				podSet:    podSet,
 				shapeHash: shapeHash,
+				podName:   podInGroup.Name,
 			})
 		}
 	}
 
 	slices.SortFunc(resultPodSets, func(a, b podSetWithShapeHash) int {
-		return cmp.Compare(a.shapeHash, b.shapeHash)
+		if byShape := cmp.Compare(a.shapeHash, b.shapeHash); byShape != 0 {
+			return byShape
+		}
+		return cmp.Compare(a.podName, b.podName)
 	})
 
 	podSets := make([]kueue.PodSet, len(resultPodSets))
