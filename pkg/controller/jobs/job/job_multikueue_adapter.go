@@ -91,11 +91,13 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		Spec:       *localJob.Spec.DeepCopy(),
 	}
 
-	// The manager cluster is the source of truth for Job lifecycle. Propagating
-	// the TTL to the worker can delete the remote Job before its terminal status
-	// is synchronized back to the manager, causing the completed Job to be
-	// dispatched again.
-	remoteJob.Spec.TTLSecondsAfterFinished = nil
+	if features.Enabled(features.MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster) {
+		// The manager cluster is the source of truth for Job lifecycle. Propagating
+		// the TTL to the worker can delete the remote Job before its terminal status
+		// is synchronized back to the manager, causing the completed Job to be
+		// dispatched again.
+		remoteJob.Spec.TTLSecondsAfterFinished = nil
+	}
 	// drop the selector
 	remoteJob.Spec.Selector = nil
 	// drop the templates cleanup labels
