@@ -740,7 +740,7 @@ func TestSimulate(t *testing.T) {
 		}
 	})
 	if simErr != nil {
-		t.Fatalf("Simulation failed: %v", err)
+		t.Fatalf("Simulation failed: %v", simErr)
 	}
 
 	if checkFeasible(snapshot) {
