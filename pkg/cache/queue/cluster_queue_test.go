@@ -2390,3 +2390,64 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 		})
 	}
 }
+
+// TestPopHead ensures the right workload is popped and its preemptor status is
+// correctly identified, even when preemption is pending.
+func TestPopHead(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil, utiltestingapi.MakeClusterQueue("cq").Obj(), nil, defaultOrdering, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).Obj()
+	wl.Generation = 1
+	wInfo := workload.NewInfo(wl)
+	wInfo.LastEvaluatedGeneration = 1
+
+	cq.PushOrUpdate(wInfo)
+	cq.RequeueIfNotPresent(ctx, wInfo, RequeueReasonPendingPreemption, "")
+
+	popped, isPreemptor := cq.PopHead()
+	if popped == nil || !isPreemptor {
+		t.Errorf("Unexpected popped workload or isPreemptor: (%v, %v)", popped, isPreemptor)
+	}
+}
+
+// TestPopHeadConcurrentWithRequeue ensures PopHead can safely run concurrently with preemption requeues.
+func TestPopHeadConcurrentWithRequeue(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil, utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj(), nil, defaultOrdering, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	wInfo := workload.NewInfo(utiltestingapi.MakeWorkload("wl", defaultNamespace).Obj())
+
+	stop := make(chan struct{})
+	started := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				cq.RequeueIfNotPresent(ctx, wInfo, RequeueReasonPendingPreemption, "")
+				select {
+				case <-started:
+				default:
+					close(started)
+				}
+			}
+		}
+	}()
+	<-started
+
+	for range 1000 {
+		cq.PopHead()
+	}
+	close(stop)
+	<-done
+}
