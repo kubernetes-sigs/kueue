@@ -2183,7 +2183,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			fakeClock.Step(tc.passTime)
 
 			gotReady := sets.New[workload.Reference]()
-			for _, head := range manager.secondPassQueue.takeAllReady() {
+			for head := range manager.secondPassQueue.takeAllReady() {
 				gotReady.Insert(workload.Key(head.Obj))
 			}
 

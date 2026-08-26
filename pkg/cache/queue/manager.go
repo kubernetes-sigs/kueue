@@ -922,12 +922,12 @@ func (m *Manager) Heads(ctx context.Context) []Head {
 // heads returns the heads of the queues and ready second-pass workloads.
 func (m *Manager) heads() []Head {
 	var heads []Head
-	for _, wInfo := range m.secondPassQueue.takeAllReady() {
+	for wInfo := range m.secondPassQueue.takeAllReady() {
 		cq := m.getClusterQueueLockless(wInfo.ClusterQueue)
-		isPreemptor := false
-		if cq != nil {
-			isPreemptor = cq.IsPreemptor(&wInfo)
+		if cq == nil {
+			continue
 		}
+		isPreemptor := cq.IsPreemptor(&wInfo)
 		heads = append(heads, Head{
 			Info:        wInfo,
 			IsPreemptor: isPreemptor,
