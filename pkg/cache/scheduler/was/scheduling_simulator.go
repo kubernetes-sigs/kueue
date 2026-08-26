@@ -61,6 +61,11 @@ type wasSimulator struct {
 	pods        podTracker
 }
 
+type wasSimulatorSnapshot struct {
+	wasSnapshot    *schedLibSnapshot.ClusterSnapshot
+	podsByWorkload podsByWorkload
+}
+
 func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
@@ -145,11 +150,6 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
 
-type wasSimulatorSnapshot struct {
-	wasSnapshot    *schedLibSnapshot.ClusterSnapshot
-	podsByWorkload podsByWorkload
-}
-
 func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simulator.SimulatorSnapshot, error) {
 	allPods, podsByWorkload := s.pods.snapshot()
 	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
@@ -196,14 +196,11 @@ func (t *podTracker) track(pod *corev1.Pod) {
 	if pod == nil {
 		return
 	}
-
 	pod = pod.DeepCopy()
 	key := client.ObjectKeyFromObject(pod)
-
 	if oldPod, found := t.pods[key]; found {
 		t.clearPod(key, oldPod)
 	}
-
 	t.savePod(key, pod)
 }
 
@@ -211,12 +208,9 @@ func (t *podTracker) untrack(key client.ObjectKey) {
 	t.Lock()
 	defer t.Unlock()
 
-	pod, ok := t.pods[key]
-	if !ok {
-		return
+	if pod, ok := t.pods[key]; ok {
+		t.clearPod(key, pod)
 	}
-
-	t.clearPod(key, pod)
 }
 
 func (t *podTracker) clearPod(key client.ObjectKey, pod *corev1.Pod) {
