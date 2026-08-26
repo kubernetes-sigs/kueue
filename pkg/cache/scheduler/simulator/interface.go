@@ -37,7 +37,7 @@ type SchedulingSimulator interface {
 	UntrackPod(key client.ObjectKey)
 }
 
-// SimulatorSnapshot allows running simulations on a cluster state snapshot.
+// SimulatorSnapshot allows running simulations on a snapshotted cluster state.
 // This interface is purposed to control Kueue-WAS integration.
 // The "default" (non-WAS) implementation may trivialize some methods.
 type SimulatorSnapshot interface {
