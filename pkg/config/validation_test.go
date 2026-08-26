@@ -2354,6 +2354,23 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
+		"SchedulingEquivalenceHashingIgnorePodSetName requires SchedulingEquivalenceHashing": {
+			featureGateMap: map[string]bool{
+				string(features.SchedulingEquivalenceHashingIgnorePodSetName): true,
+				string(features.SchedulingEquivalenceHashing):                 false,
+			},
+			gatesToRestore: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
+				features.SchedulingEquivalenceHashing:                 true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "SchedulingEquivalenceHashingIgnorePodSetName requires SchedulingEquivalenceHashing to be enabled",
+				},
+			},
+		},
 		"TASHandleOverlappingFlavors requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
