@@ -196,8 +196,8 @@ type ClusterQueue struct {
 	// enableAdmissionFs reports whether this ClusterQueue actually pops pending
 	// workloads by LocalQueue usage rather than by the queue-order timestamp.
 	// Set once at construction from afs.ResourceWeights, the same value the heap
-	// comparator captured, so the two can never disagree. Immutable afterwards,
-	// so it is read without holding rwm.
+	// comparator captured, so the two can never disagree. Immutable after
+	// construction, so it needs no synchronization of its own.
 	enableAdmissionFs bool
 
 	afsUsageLedger *queueafs.AfsUsageLedger
@@ -552,9 +552,10 @@ func resolveQuotaReservedReason(reason QuotaReservedReason) QuotaReservedReason 
 // or if there was a call to QueueInadmissibleWorkloads after a call to Pop,
 // the workload will be pushed back to heap directly. Otherwise, the workload
 // will be put into the inadmissibleWorkloads.
-// When SchedulingEquivalenceHashing is enabled and the reason is NoFit or
-// PreemptionNoCandidates, equivalent workloads in the heap are bulk-moved
-// to inadmissible.
+// When SchedulingEquivalenceHashing is enabled, equivalent workloads in the
+// heap are bulk-moved to inadmissible if the reason is NoFit, or if the reason
+// is PreemptionNoCandidates and this ClusterQueue does not order by LocalQueue
+// usage.
 func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info, immediate bool, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
 	c.rwm.Lock()
 	defer c.rwm.Unlock()
