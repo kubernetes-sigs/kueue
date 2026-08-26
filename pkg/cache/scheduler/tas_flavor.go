@@ -95,7 +95,7 @@ type TASFlavorCache struct {
 
 	// schedulingSimulator performs the node feasibility check
 	// based on topology requirements.
-	schedulingSimulator simulator.SimulatorSnapshotFactory
+	schedulingSimulator simulator.SchedulingSimulator
 
 	resourceFormatter *resources.ResourceFormatter
 

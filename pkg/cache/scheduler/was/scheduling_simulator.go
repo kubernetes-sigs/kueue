@@ -101,7 +101,7 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 	}
 }
 
-func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulator.SimulatorSnapshotFactory, error) {
+func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulator.SchedulingSimulator, error) {
 	cfg := newWASSchedulerConfig()
 	informerFactory := informers.NewSharedInformerFactory(client, 0)
 
@@ -134,11 +134,11 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 
 // NewWASSimulatorForTest creates a WAS simulator backed by a fake client,
 // suitable for unit tests that need the full production plugin pipeline.
-func NewWASSimulatorForTest(ctx context.Context) (simulator.SimulatorSnapshotFactory, error) {
+func NewWASSimulatorForTest(ctx context.Context) (simulator.SchedulingSimulator, error) {
 	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
 
-func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.SimulatorSnapshotFactory, error) {
+func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.SchedulingSimulator, error) {
 	// TODO(#13534): when DRA plugins are added, use a real client here
 	// instead of the fake so the informer factory is populated.
 	if _, err := schedLibSimulator.NewReadonlyClient(restConfig); err != nil {
