@@ -150,6 +150,17 @@ case "$*" in
   "image inspect "*)
     exit "${DOCKER_FAKE_IMAGE_PRESENT:-1}"
     ;;
+  "manifest inspect "*)
+    attempts=$(cat "${DOCKER_FAKE_MANIFEST_STATE:?}")
+    attempts=$((attempts + 1))
+    printf '%s' "${attempts}" >"${DOCKER_FAKE_MANIFEST_STATE}"
+    if [[ "${attempts}" -lt "${DOCKER_FAKE_MANIFEST_OK_AFTER:-1}" ]]; then
+      printf '%s\n' "${DOCKER_FAKE_MANIFEST_ERROR:?}" >&2
+      exit 1
+    fi
+    printf '{"fake":"manifest"}\n'
+    exit 0
+    ;;
 esac
 
 printf 'unexpected docker call: %s\n' "$*" >&2
@@ -338,5 +349,46 @@ if [[ "${pull_attempts}" != "1" ]]; then
   echo "expected a cached image to be pulled when E2E_SKIP_IMAGE_RELOAD is off; got ${pull_attempts} pull(s)" >&2
   exit 1
 fi
+
+# e2e_docker_manifest_available retries a transient manifest-inspect failure until it succeeds.
+DOCKER_FAKE_LOG="${test_dir}/docker.log"
+DOCKER_FAKE_MANIFEST_STATE="${test_dir}/docker-manifest-state"
+export DOCKER_FAKE_LOG DOCKER_FAKE_MANIFEST_STATE
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
+export DOCKER_FAKE_MANIFEST_OK_AFTER=2
+export DOCKER_FAKE_MANIFEST_ERROR="net/http: TLS handshake timeout"
+
+if ! e2e_docker_manifest_available "registry.example.com/kueue:transient"; then
+  echo "expected a transient manifest-inspect failure to be retried until success" >&2
+  exit 1
+fi
+
+manifest_attempts=$(grep -c "^manifest inspect " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${manifest_attempts}" != "2" ]]; then
+  echo "expected manifest inspect to be retried once after a transient failure; got ${manifest_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
+
+# e2e_docker_manifest_available fails fast without retrying when the manifest is genuinely missing.
+: >"${DOCKER_FAKE_LOG}"
+printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
+export DOCKER_FAKE_MANIFEST_OK_AFTER=99
+export DOCKER_FAKE_MANIFEST_ERROR="manifest for registry.example.com/kueue:missing not found"
+
+if e2e_docker_manifest_available "registry.example.com/kueue:missing"; then
+  echo "expected e2e_docker_manifest_available to fail for a genuinely missing manifest" >&2
+  exit 1
+fi
+
+manifest_attempts=$(grep -c "^manifest inspect " "${DOCKER_FAKE_LOG}" || true)
+if [[ "${manifest_attempts}" != "1" ]]; then
+  echo "expected a non-retriable manifest-inspect failure to fail fast without retrying; got ${manifest_attempts} attempt(s)" >&2
+  exit 1
+fi
+
+unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
 
 echo "e2e-common tests passed"
