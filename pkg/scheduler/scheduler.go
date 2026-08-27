@@ -699,6 +699,9 @@ func (s *Scheduler) nominate(ctx context.Context, heads []qcache.Head, snap *sch
 		log := log.WithValues("workload", klog.KObj(h.Obj), "clusterQueue", klog.KRef("", string(h.ClusterQueue)))
 		if !workload.NeedsSecondPass(h.Obj) && s.cache.IsAdded(h.Info) {
 			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(h.Obj))
+			// The only exit where the popped workload is neither requeued nor
+			// deleted, so nothing else would release its inflight claim.
+			s.queues.ForgetInflight(h.ClusterQueue, workload.Key(h.Obj))
 			continue
 		}
 		if e, nominated := s.nominateWorkload(ctx, log, h, snap); nominated {
