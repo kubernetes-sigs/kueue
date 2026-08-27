@@ -8,6 +8,7 @@ reviewers:
   - "@kshalot"
 approvers:
   - "@tenzen-y"
+  - "@sohankunkerkar"
 
 see-also:
   - "/keps/77-dynamically-sized-jobs"

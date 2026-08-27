@@ -211,6 +211,8 @@ Only `RayJob`, `RayService`, and `RayCluster` integrations support the partial s
 
 The `RayCluster.workerGroupSpec[i].replicas * numOfHosts` will be translated to `PodSet.Count`. Only RayCluster WorkingGroups with minReplicas value will be considered for partial scale up. For those WorkingGroups the `spec.podSets[i].minCount` will be equal to `PodSet.Count` for the initial Workload in order to prevent partial admission. For workloads representing scale up, `spec.podSets[i].minCount` will be equal to the currently admitted pods count increased by 1 for worker groups that are scaling up.
 
+Note, that PodsReady() for Ray jobs rely on RayCluster.Status.State value, so the partial scale up won't affect the PodsReady() value.
+
 ### Partial ScaleUp for multiple PodSets
 
 There are multiple ways how to approach multiple podsets shrinking in case of insufficient quota. For simplicity reasons we'll start with the order-based one and will expand options if needed in future.
