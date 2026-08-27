@@ -966,6 +966,7 @@ Possible options:</p>
 <li>&quot;deployment&quot;</li>
 <li>&quot;statefulset&quot;</li>
 <li>&quot;leaderworkerset.x-k8s.io/leaderworkerset&quot;</li>
+<li>&quot;disaggregatedset.x-k8s.io/disaggregatedset&quot;</li>
 </ul>
 </td>
 </tr>

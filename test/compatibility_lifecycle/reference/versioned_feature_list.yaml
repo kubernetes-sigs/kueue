@@ -57,6 +57,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+- name: DisaggregatedSetIntegration
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: ElasticJobsViaWorkloadSlices
   versionedSpecs:
   - default: false
