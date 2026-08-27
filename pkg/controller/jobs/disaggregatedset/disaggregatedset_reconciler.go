@@ -339,7 +339,7 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 	if features.Enabled(features.TopologyAwareScheduling) {
 		b := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy())
 		if podIndexLabel != nil {
-			b.PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey))
+			b.PodIndexLabel(podIndexLabel)
 		}
 		topologyRequest, err := b.Build()
 		if err != nil {
@@ -373,12 +373,12 @@ func podSets(ds *disaggregatedsetv1.DisaggregatedSet) ([]kueue.PodSet, error) {
 
 			workerCount := slices * replicas * (size - 1)
 			if workerCount > 0 {
-				workerPS, err := newPodSet(
-					kueue.PodSetReference(fmt.Sprintf("%s-%s", role.Name, workerPodSetSuffix)),
-					workerCount,
-					&role.Spec.LeaderWorkerTemplate.WorkerTemplate,
-					new(leaderworkersetv1.WorkerIndexLabelKey),
-				)
+			workerPS, err := newPodSet(
+				kueue.PodSetReference(fmt.Sprintf("%s-%s", role.Name, workerPodSetSuffix)),
+				workerCount,
+				&role.Spec.LeaderWorkerTemplate.WorkerTemplate,
+				ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
+			)
 				if err != nil {
 					return nil, err
 				}
@@ -386,12 +386,12 @@ func podSets(ds *disaggregatedsetv1.DisaggregatedSet) ([]kueue.PodSet, error) {
 			}
 		} else {
 			mainCount := slices * replicas * size
-			mainPS, err := newPodSet(
-				kueue.PodSetReference(fmt.Sprintf("%s-%s", role.Name, mainPodSetSuffix)),
-				mainCount,
-				&role.Spec.LeaderWorkerTemplate.WorkerTemplate,
-				new(leaderworkersetv1.WorkerIndexLabelKey),
-			)
+		mainPS, err := newPodSet(
+			kueue.PodSetReference(fmt.Sprintf("%s-%s", role.Name, mainPodSetSuffix)),
+			mainCount,
+			&role.Spec.LeaderWorkerTemplate.WorkerTemplate,
+			ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
+		)
 			if err != nil {
 				return nil, err
 			}
@@ -476,7 +476,25 @@ func (r *Reconciler) reconcilePod(ctx context.Context, ds *disaggregatedsetv1.Di
 		(sts != nil && utilstatefulset.ShouldUngatePod(sts, pod)) ||
 		workloadAdmitted
 
-	if shouldUngate {
+	needsDefaults := ds != nil && !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil
+
+	if needsDefaults && shouldUngate {
+		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
+			defaulted := r.setDefault(ds, pod)
+			ungated := utilstatefulset.UngatePod(sts, pod, ds == nil)
+			if defaulted {
+				log.V(3).Info("Setting default values")
+			}
+			if ungated {
+				log.V(3).Info("Ungating DisaggregatedSet Pod")
+			}
+			return defaulted || ungated, nil
+		})
+		if client.IgnoreNotFound(err) != nil {
+			log.Error(err, "Failed to set defaults and ungate Pod")
+			return err
+		}
+	} else if shouldUngate {
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			if utilstatefulset.UngatePod(sts, pod, ds == nil) {
 				log.V(3).Info("Ungating DisaggregatedSet Pod")
@@ -488,9 +506,7 @@ func (r *Reconciler) reconcilePod(ctx context.Context, ds *disaggregatedsetv1.Di
 			log.Error(err, "Failed to ungate Pod")
 			return err
 		}
-	}
-
-	if ds != nil && !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil {
+	} else if needsDefaults {
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			updated := r.setDefault(ds, pod)
 			if updated {
@@ -743,7 +759,7 @@ func (h *dsStsHandler) enqueue(ctx context.Context, obj client.Object, q workque
 	)
 	log.V(3).Info("Enqueue DisaggregatedSet StatefulSet")
 
-	if sts.Status.CurrentRevision == "" || sts.Status.UpdateRevision == "" &&
+	if sts.Status.CurrentRevision == "" || sts.Status.UpdateRevision == "" ||
 		sts.Status.CurrentRevision == sts.Status.UpdateRevision {
 		return
 	}
