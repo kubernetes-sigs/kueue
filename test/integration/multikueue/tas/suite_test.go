@@ -68,6 +68,11 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 	return utiltesting.RestConfigToKubeConfig(c.cfg)
 }
 
+func (c *cluster) stopAndTeardown() {
+	c.fwk.StopManager(c.ctx)
+	c.fwk.Teardown()
+}
+
 var (
 	managerK8sVersion       *versionutil.Version
 	managerTestCluster      cluster
@@ -227,7 +232,7 @@ var _ = ginkgo.BeforeSuite(func() {
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	managerTestCluster.fwk.Teardown()
-	worker1TestCluster.fwk.Teardown()
-	worker2TestCluster.fwk.Teardown()
+	managerTestCluster.stopAndTeardown()
+	worker1TestCluster.stopAndTeardown()
+	worker2TestCluster.stopAndTeardown()
 })
