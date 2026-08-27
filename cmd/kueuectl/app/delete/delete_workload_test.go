@@ -55,6 +55,7 @@ func TestWorkloadCmd(t *testing.T) {
 		wantOut       string
 		wantOutErr    string
 		wantErr       string
+		wantDeleteUID string
 	}{
 		"no arguments": {
 			args:    []string{},
@@ -152,16 +153,16 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 		"should delete jobs corresponding to the workload with yes flag": {
 			args: []string{"wl1", "--yes"},
 			workloads: []runtime.Object{
-				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "job-uid").Obj(),
 				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
 			},
 			jobs: []runtime.Object{
-				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault}},
+				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j1", Namespace: metav1.NamespaceDefault, UID: "job-uid"}},
 				&bactchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "j2", Namespace: metav1.NamespaceDefault}},
 			},
 			gvk: schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "").Obj(),
+				*utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).OwnerReference(jobGVK, "j1", "job-uid").Obj(),
 				*utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
 			},
 			wantJobList: &bactchv1.JobList{
@@ -173,7 +174,8 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 					},
 				},
 			},
-			wantOut: "jobs.batch/j1 deleted\n",
+			wantOut:       "jobs.batch/j1 deleted\n",
+			wantDeleteUID: "job-uid",
 		},
 		"should delete all jobs corresponding to the workloads and any workloads without corresponding jobs in default namespace": {
 			args: []string{"--all", "--yes"},
@@ -306,6 +308,12 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 					t.Fatal(err)
 				}
 				dynamicClient.PrependReactor("delete", mapping.Resource.Resource, func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
+					if tc.wantDeleteUID != "" {
+						preconditions := action.(kubetesting.DeleteAction).GetDeleteOptions().Preconditions
+						if preconditions == nil || preconditions.UID == nil || string(*preconditions.UID) != tc.wantDeleteUID {
+							t.Errorf("Unexpected delete UID precondition: %v", preconditions)
+						}
+					}
 					// SimpleDynamicClient still don't have DryRun option on delete Reactor.
 					if slices.Contains(tc.args, "--dry-run") {
 						handled = true
