@@ -221,6 +221,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: MultiKueueClusterProfile
   versionedSpecs:
   - default: false
@@ -339,6 +345,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: ReservedResourceNameValidation
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: SchedulerLibraryIntegration
   versionedSpecs:
   - default: false
@@ -355,6 +367,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: SchedulingEquivalenceHashingIgnorePodSetName
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: ShortWorkloadNames
   versionedSpecs:
   - default: false

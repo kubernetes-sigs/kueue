@@ -59,7 +59,6 @@ E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
 E2E_USE_HELM ?= false
 E2E_MODE ?= ci
 E2E_SKIP_REINSTALL ?= false
-KUEUE_UPGRADE_FROM_VERSION ?= v0.14.8
 PROMETHEUS_OPERATOR_VERSION ?= v0.89.0
 # When truthy, force re-installing external operators (MPI, Ray, etc.) on each run, even in E2E_MODE=dev.
 E2E_ENFORCE_OPERATOR_UPDATE ?= false
@@ -394,11 +393,6 @@ test-e2e-sequential-extended-shard-1: setup-e2e-env run-test-e2e-sequential-exte
 .PHONY: test-e2e-sequential-extended-helm
 test-e2e-sequential-extended-helm: E2E_USE_HELM=true
 test-e2e-sequential-extended-helm: test-e2e-sequential-extended
-.PHONY: test-e2e-upgrade
-test-e2e-upgrade: setup-e2e-env run-test-e2e-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the upgrade e2e test suite.
-
-.PHONY: test-e2e-certmanager-upgrade
-test-e2e-certmanager-upgrade: setup-e2e-env run-test-e2e-certmanager-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager upgrade e2e test suite.
 
 .PHONY: test-e2e-dra
 test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
@@ -534,33 +528,6 @@ run-test-e2e-certmanager-%:
 		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
-		./hack/testing/e2e-test.sh
-
-run-test-e2e-upgrade-%: K8S_VERSION = $(@:run-test-e2e-upgrade-%=%)
-run-test-e2e-upgrade-%:
-	@echo Running upgrade e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
-		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
-		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		./hack/testing/e2e-test.sh
-
-run-test-e2e-certmanager-upgrade-%: K8S_VERSION = $(@:run-test-e2e-certmanager-upgrade-%=%)
-run-test-e2e-certmanager-upgrade-%:
-	@echo Running upgrade e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
-		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
-		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
-		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-dra-%: K8S_VERSION = $(@:run-test-e2e-dra-%=%)
