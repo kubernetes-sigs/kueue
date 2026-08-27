@@ -191,8 +191,6 @@ type ClusterQueue struct {
 
 	clock clock.Clock
 
-	AdmissionScope *kueue.AdmissionScope
-
 	// enableAdmissionFs reports whether this ClusterQueue actually pops pending
 	// workloads by LocalQueue usage rather than by the queue-order timestamp.
 	// Set once at construction from afs.ResourceWeights, the same value the heap
