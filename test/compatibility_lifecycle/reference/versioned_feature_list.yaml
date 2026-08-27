@@ -261,6 +261,12 @@
     lockToDefault: false
     preRelease: Deprecated
     version: "0.17"
+- name: MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.18"
 - name: MultiKueueBatchJobWithManagedBy
   versionedSpecs:
   - default: false
