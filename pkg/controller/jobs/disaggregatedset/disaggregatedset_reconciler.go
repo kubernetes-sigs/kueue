@@ -373,12 +373,12 @@ func podSets(ds *disaggregatedsetv1.DisaggregatedSet) ([]kueue.PodSet, error) {
 
 			workerCount := slices * replicas * (size - 1)
 			if workerCount > 0 {
-			workerPS, err := newPodSet(
-				kueue.PodSetReference(fmt.Sprintf("%s-%s", role.Name, workerPodSetSuffix)),
-				workerCount,
-				&role.Spec.LeaderWorkerTemplate.WorkerTemplate,
-				ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
-			)
+				workerPS, err := newPodSet(
+					kueue.PodSetReference(fmt.Sprintf("%s-%s", role.Name, workerPodSetSuffix)),
+					workerCount,
+					&role.Spec.LeaderWorkerTemplate.WorkerTemplate,
+					ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
+				)
 				if err != nil {
 					return nil, err
 				}
@@ -386,12 +386,12 @@ func podSets(ds *disaggregatedsetv1.DisaggregatedSet) ([]kueue.PodSet, error) {
 			}
 		} else {
 			mainCount := slices * replicas * size
-		mainPS, err := newPodSet(
-			kueue.PodSetReference(fmt.Sprintf("%s-%s", role.Name, mainPodSetSuffix)),
-			mainCount,
-			&role.Spec.LeaderWorkerTemplate.WorkerTemplate,
-			ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
-		)
+			mainPS, err := newPodSet(
+				kueue.PodSetReference(fmt.Sprintf("%s-%s", role.Name, mainPodSetSuffix)),
+				mainCount,
+				&role.Spec.LeaderWorkerTemplate.WorkerTemplate,
+				ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -478,7 +478,8 @@ func (r *Reconciler) reconcilePod(ctx context.Context, ds *disaggregatedsetv1.Di
 
 	needsDefaults := ds != nil && !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil
 
-	if needsDefaults && shouldUngate {
+	switch {
+	case needsDefaults && shouldUngate:
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			defaulted := r.setDefault(ds, pod)
 			ungated := utilstatefulset.UngatePod(sts, pod, ds == nil)
@@ -494,7 +495,7 @@ func (r *Reconciler) reconcilePod(ctx context.Context, ds *disaggregatedsetv1.Di
 			log.Error(err, "Failed to set defaults and ungate Pod")
 			return err
 		}
-	} else if shouldUngate {
+	case shouldUngate:
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			if utilstatefulset.UngatePod(sts, pod, ds == nil) {
 				log.V(3).Info("Ungating DisaggregatedSet Pod")
@@ -506,7 +507,7 @@ func (r *Reconciler) reconcilePod(ctx context.Context, ds *disaggregatedsetv1.Di
 			log.Error(err, "Failed to ungate Pod")
 			return err
 		}
-	} else if needsDefaults {
+	case needsDefaults:
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			updated := r.setDefault(ds, pod)
 			if updated {
