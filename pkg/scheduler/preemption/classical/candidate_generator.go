@@ -88,12 +88,14 @@ const (
 // or above nominal for any flavor-resource needing preemption.
 //
 // The band is collapsed conjunctively: it is exceedsBorrowing only when EVERY
-// flavor-resource needing preemption exceeds its borrowing limit. Cross-queue
-// preemption frees cohort quota, which cannot raise the queue's own borrowing
-// cap, so only then are hierarchy/priority candidates provably useless for all
-// resources driving preemption. A single over-limit resource must not poison
-// the classification — another resource may still be freed by reclaiming from
-// other queues.
+// flavor-resource needing preemption exceeds its borrowing limit AND the cohort's
+// free quota already covers request - usage (the amount that must come from the
+// cohort once the queue reclaims its own usage). Cross-queue preemption can only
+// help by freeing cohort quota (a queue's own borrowing cap cannot be raised), so
+// it is provably useless only when both conditions hold for all resources driving
+// preemption. A single over-limit resource, or a cohort whose free quota is held
+// by borrowing siblings, must not poison the classification — preempting other
+// queues may still be required to make the workload fit.
 func classifyQuotaBand(
 	cq *schdcache.ClusterQueueSnapshot,
 	requests resources.FlavorResourceQuantities,
@@ -118,7 +120,15 @@ func classifyQuotaBand(
 			upper = upper.Add(*quota.BorrowingLimit)
 		}
 		switch {
-		case hasBorrowingLimit && after.Cmp(upper) > 0:
+		// needed = request - usage is the amount the cohort must supply from its
+		// free capacity: same-queue preemption returns only local quota, so the
+		// rest must come from the cohort. Using after - nominal instead understates
+		// this by the queue's unused nominal (nominal - usage) and over-prunes when
+		// a borrowing sibling holds that slack — cross-queue reclaim is then still
+		// required. Verified: with q nominal=4/limit=4 usage=1 request=8, same-queue
+		// preemption alone suffices only once cohort free >= 7 (= request - usage),
+		// not >= 5 (= after - nominal).
+		case hasBorrowingLimit && after.Cmp(upper) > 0 && cohortCanSupplyBorrowing(cq, fr, requests[fr].Sub(usage)):
 			band = min(band, exceedsBorrowing)
 		case after.Cmp(nominal) > 0:
 			band = min(band, withinBorrowing)
@@ -134,6 +144,21 @@ func classifyQuotaBand(
 		}
 	}
 	return band, usageAtOrAboveNominal
+}
+
+// cohortCanSupplyBorrowing reports whether the cohort's currently free quota
+// already covers needed. Callers pass needed = request - usage: reclaiming the
+// queue's own workloads returns only local quota (it cannot raise the queue's
+// borrowing cap), so request - usage is the amount that must instead come from
+// the cohort's free capacity. When the cohort already has that much free,
+// cross-queue preemption cannot help and is skipped; otherwise other queues may
+// still need to be preempted to release cohort quota, so they must be kept.
+func cohortCanSupplyBorrowing(cq *schdcache.ClusterQueueSnapshot, fr resources.FlavorResource, needed resources.Amount) bool {
+	if !cq.HasParent() {
+		// Without a cohort there are no cross-queue candidates to skip.
+		return true
+	}
+	return cq.Parent().Available(fr).Cmp(needed) >= 0
 }
 
 // NewCandidateIterator creates a new iterator that yields candidate workloads for preemption
@@ -181,12 +206,22 @@ func NewCandidateIterator(
 	var noCandidateFromOtherQueues bool
 	switch band {
 	// exceedsBorrowing: every resource needing preemption exceeds the borrowing
-	// limit, so preempting workloads in other queues would not free up any
-	// space usable by this queue — freed cohort quota cannot raise the queue's
-	// own borrowing cap. Only same-queue candidates are worth considering.
-	// The hierarchy/priority collection (the O(N) cohort scan) is skipped
-	// entirely — that is the short-circuit optimization, so
-	// collect_hierarchy_priority is not emitted.
+	// limit and the cohort can already supply all the borrowing the queue would
+	// need, so preempting workloads in other queues cannot free up anything
+	// usable by this queue. Only same-queue candidates are worth considering —
+	// we don't collect candidates from other ClusterQueues in the cohort, which
+	// avoids the O(N) cohort scan on this path.
+	//
+	// By design this path can only ever preempt within the queue:
+	// sameQueueCandidates is built by collectSameQueueCandidates, which scans
+	// exactly ctx.Cq's own workloads. The hierarchy/priority pools — the only
+	// source of other-queue candidates — are not collected here at all. That is
+	// safe because a case that genuinely needs a cross-queue victim implies the
+	// cohort cannot supply request-usage on its own, which makes
+	// cohortCanSupplyBorrowing return false and routes the band to
+	// withinBorrowing (where the cross-queue pools ARE collected) rather than
+	// here. So the two conditions are mutually exclusive: if we reach this
+	// branch, no other-queue preemption was ever required.
 	case exceedsBorrowing:
 		sortByOrdering(sameQueueCandidates)
 		allCandidates = sameQueueCandidates
