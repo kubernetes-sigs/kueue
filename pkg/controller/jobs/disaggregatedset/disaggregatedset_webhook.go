@@ -232,6 +232,12 @@ func validateCreate(ds *DisaggregatedSet) (field.ErrorList, error) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(ds.Object())...)
 	}
 
+	dsv1 := disaggregatedsetv1.DisaggregatedSet(*ds)
+	ps, psErr := podSets(&dsv1)
+	if psErr == nil && len(ps) > jobframework.MaxPodSets {
+		allErrs = append(allErrs, field.TooMany(rolesPath, len(ps), jobframework.MaxPodSets))
+	}
+
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := validateTopologyRequests(ds)
 		if err != nil {
@@ -240,7 +246,10 @@ func validateCreate(ds *DisaggregatedSet) (field.ErrorList, error) {
 		allErrs = append(allErrs, validationErrs...)
 	}
 
-	return allErrs, nil
+	if len(allErrs) > 0 {
+		return allErrs, nil
+	}
+	return nil, psErr
 }
 
 func validateTopologyRequests(ds *DisaggregatedSet) (field.ErrorList, error) {
@@ -309,6 +318,11 @@ func validateTopologyRequests(ds *DisaggregatedSet) (field.ErrorList, error) {
 func validateImmutableRoles(newDS, oldDS *disaggregatedsetv1.DisaggregatedSet) field.ErrorList {
 	var allErrs field.ErrorList
 
+	if len(newDS.Spec.Roles) != len(oldDS.Spec.Roles) {
+		allErrs = append(allErrs, field.Forbidden(rolesPath, "the number of roles is immutable while the workload is managed"))
+		return allErrs
+	}
+
 	oldRoleMap := make(map[string]*disaggregatedsetv1.DisaggregatedRoleSpec, len(oldDS.Spec.Roles))
 	for i := range oldDS.Spec.Roles {
 		oldRoleMap[oldDS.Spec.Roles[i].Name] = &oldDS.Spec.Roles[i]
@@ -317,15 +331,24 @@ func validateImmutableRoles(newDS, oldDS *disaggregatedsetv1.DisaggregatedSet) f
 	for i, newRole := range newDS.Spec.Roles {
 		oldRole, ok := oldRoleMap[newRole.Name]
 		if !ok {
+			allErrs = append(allErrs, field.Forbidden(rolesPath.Index(i).Child("name"), "role names are immutable while the workload is managed"))
 			continue
 		}
 		rolePath := rolesPath.Index(i)
+		leaderTemplatePath := rolePath.Child("spec", "leaderWorkerTemplate", "leaderTemplate")
 
-		if newRole.Spec.LeaderWorkerTemplate.LeaderTemplate != nil && oldRole.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		oldHasLeader := oldRole.Spec.LeaderWorkerTemplate.LeaderTemplate != nil
+		newHasLeader := newRole.Spec.LeaderWorkerTemplate.LeaderTemplate != nil
+		if oldHasLeader != newHasLeader {
+			allErrs = append(allErrs, field.Forbidden(leaderTemplatePath, "adding or removing a leader template is not allowed while the workload is managed"))
+			continue
+		}
+
+		if newHasLeader && oldHasLeader {
 			allErrs = append(allErrs, validateImmutablePodTemplateSpec(
 				newRole.Spec.LeaderWorkerTemplate.LeaderTemplate,
 				oldRole.Spec.LeaderWorkerTemplate.LeaderTemplate,
-				rolePath.Child("spec", "leaderWorkerTemplate", "leaderTemplate"),
+				leaderTemplatePath,
 			)...)
 		}
 		allErrs = append(allErrs, validateImmutablePodTemplateSpec(
