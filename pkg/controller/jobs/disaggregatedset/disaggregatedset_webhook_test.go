@@ -17,6 +17,7 @@ limitations under the License.
 package disaggregatedset
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -325,6 +326,27 @@ func TestValidateCreate(t *testing.T) {
 				Annotation(kueueconstants.AdmissionGatedByAnnotation, "this is invalid"),
 			wantErr: nil,
 		},
+		"too many PodSets rejected": {
+			ds: func() *testingds.DisaggregatedSetWrapper {
+				w := testingds.MakeDisaggregatedSet("test-ds", "").Queue("test-queue")
+				for i := range jobframework.MaxPodSets + 1 {
+					w.Role(fmt.Sprintf("role-%d", i), 1, 1)
+				}
+				return w
+			}(),
+			wantErr: field.ErrorList{
+				field.TooMany(rolesPath, jobframework.MaxPodSets+1, jobframework.MaxPodSets),
+			}.ToAggregate(),
+		},
+		"max PodSets accepted": {
+			ds: func() *testingds.DisaggregatedSetWrapper {
+				w := testingds.MakeDisaggregatedSet("test-ds", "").Queue("test-queue")
+				for i := range jobframework.MaxPodSets {
+					w.Role(fmt.Sprintf("role-%d", i), 1, 1)
+				}
+				return w
+			}(),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -490,6 +512,63 @@ func TestValidateUpdate(t *testing.T) {
 			newObj: testingds.MakeDisaggregatedSet("test-ds", "").
 				Role("role-a", 1, 2).
 				Queue("test-queue"),
+		},
+		"reject adding a role while managed": {
+			oldObj: testingds.MakeDisaggregatedSet("test-ds", "").
+				Role("role-a", 1, 2).
+				Queue("test-queue"),
+			newObj: testingds.MakeDisaggregatedSet("test-ds", "").
+				Role("role-a", 1, 2).
+				Role("role-b", 1, 2).
+				Queue("test-queue"),
+			wantErr: field.ErrorList{
+				field.Forbidden(rolesPath, ""),
+			}.ToAggregate(),
+		},
+		"reject removing a role while managed": {
+			oldObj: testingds.MakeDisaggregatedSet("test-ds", "").
+				Role("role-a", 1, 2).
+				Role("role-b", 1, 2).
+				Queue("test-queue"),
+			newObj: testingds.MakeDisaggregatedSet("test-ds", "").
+				Role("role-a", 1, 2).
+				Queue("test-queue"),
+			wantErr: field.ErrorList{
+				field.Forbidden(rolesPath, ""),
+			}.ToAggregate(),
+		},
+		"reject renaming a role while managed": {
+			oldObj: testingds.MakeDisaggregatedSet("test-ds", "").
+				Role("role-a", 1, 2).
+				Queue("test-queue"),
+			newObj: testingds.MakeDisaggregatedSet("test-ds", "").
+				Role("role-b", 1, 2).
+				Queue("test-queue"),
+			wantErr: field.ErrorList{
+				field.Forbidden(rolesPath.Index(0).Child("name"), ""),
+			}.ToAggregate(),
+		},
+		"reject adding leader template while managed": {
+			oldObj: testingds.MakeDisaggregatedSet("test-ds", "").
+				Role("role-a", 1, 2).
+				Queue("test-queue"),
+			newObj: testingds.MakeDisaggregatedSet("test-ds", "").
+				RoleWithLeader("role-a", 1, 2).
+				Queue("test-queue"),
+			wantErr: field.ErrorList{
+				field.Forbidden(rolesPath.Index(0).Child("spec", "leaderWorkerTemplate", "leaderTemplate"), ""),
+			}.ToAggregate(),
+		},
+		"reject removing leader template while managed": {
+			oldObj: testingds.MakeDisaggregatedSet("test-ds", "").
+				RoleWithLeader("role-a", 1, 2).
+				Queue("test-queue"),
+			newObj: testingds.MakeDisaggregatedSet("test-ds", "").
+				Role("role-a", 1, 2).
+				Queue("test-queue"),
+			wantErr: field.ErrorList{
+				field.Forbidden(rolesPath.Index(0).Child("spec", "leaderWorkerTemplate", "leaderTemplate"), ""),
+			}.ToAggregate(),
 		},
 	}
 
