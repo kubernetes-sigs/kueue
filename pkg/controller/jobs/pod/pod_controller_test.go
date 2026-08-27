@@ -6202,6 +6202,108 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"deleting prebuilt group pods are finalized when the workload is missing": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("test-group").
+					KueueFinalizer().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					StatusPhase(corev1.PodFailed).
+					DeletionTimestamp(now.Add(-time.Minute)).
+					Obj(),
+			},
+			wantPods:      []corev1.Pod{},
+			wantWorkloads: []kueue.Workload{},
+			wantErr:       jobframework.ErrPrebuiltWorkloadNotFound,
+		},
+		"replaced terminating pods are finalized for a prebuilt pod group": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("running").
+					UID("running-uid").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("prebuilt-workload").
+					KueueFinalizer().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					StatusPhase(corev1.PodRunning).
+					NodeName("test-node").
+					DeletionTimestamp(now.Add(-time.Minute)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("succeeded").
+					UID("succeeded-uid").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("prebuilt-workload").
+					KueueFinalizer().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					StatusPhase(corev1.PodSucceeded).
+					DeletionTimestamp(now.Add(-time.Minute)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("replacement").
+					UID("replacement-uid").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("prebuilt-workload").
+					KueueFinalizer().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("replacement").
+					UID("replacement-uid").
+					ManagedByKueueLabel().
+					PrebuiltWorkloadLabel("prebuilt-workload").
+					KueueFinalizer().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					StatusPhase(corev1.PodRunning).
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "running", "running-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "succeeded", "succeeded-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(1).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "running", "running-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "succeeded", "succeeded-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "replacement-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(1).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "prebuilt-workload", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "OwnerReferencesAdded",
+					Message:   "Added 1 owner reference(s)",
+				},
+			},
+		},
 		"when the prebuilt workload exists its owner info is updated": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
