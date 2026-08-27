@@ -230,7 +230,7 @@ The following table summarizes the effective default quota release behavior acro
 
 ## Drawbacks
 
-- Workloads under `OnTerminal` keep quota reserved until all underlying pods reach a terminal phase (`Succeeded`/`Failed`), which can slightly delay subsequent workload admissions in environments where fast turnover is preferred. This is mitigated by defaulting `.quotaReleaseStrategy` to `OnTerminating`.
+- Under `OnTerminal`, keeping `IsActive()` true until all underlying pods reach a terminal phase (`Succeeded`/`Failed`) means that if pods get stuck terminating or an integration controller fails to report terminal status (e.g., #14811), Kueue's eviction reconciliation exits waiting for status updates without scheduling a retry. In these scenarios, quota reservations can be held indefinitely rather than merely delayed, completely stalling quota recovery until manual or external remediation occurs. This is mitigated by defaulting `.quotaReleaseStrategy` to `OnTerminating`.
 
 ## Alternatives
 
