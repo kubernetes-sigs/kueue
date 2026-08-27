@@ -34,12 +34,14 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	workloadstatefulset "sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -676,6 +678,73 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 						Status: corev1.ConditionTrue,
 					},
 					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
+			})
+		})
+
+		ginkgo.It("Should not propagate Job TTL and should clean up the completed manager Job", ginkgo.Serial, func() {
+			defaultManagerKueueCfg := util.GetKueueConfiguration(ctx, k8sManagerClient)
+			ginkgo.DeferCleanup(func() {
+				ginkgo.By("Restoring the manager Kueue configuration", func() {
+					util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
+				})
+			})
+
+			ginkgo.By("Enabling worker Job TTL clearing", func() {
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *configapi.Configuration) {
+					if cfg.FeatureGates == nil {
+						cfg.FeatureGates = make(map[string]bool)
+					}
+					cfg.FeatureGates[string(features.MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster)] = true
+				})
+			})
+
+			ginkgo.By("Waiting for the MultiKueue remote clients to reconnect", func() {
+				// The Active condition survives a controller restart, so it can be stale while the new leader
+				// rebuilds its remote clients. If no worker is actually active when the Job is created, its Workload
+				// is requeued with a long delay, causing the test to time out. Force an observable False-to-True
+				// transition to ensure the remote caches are synchronized before creating the Job.
+				restoreWorker1Connection := util.BreakConnection(ctx, k8sManagerClient, workerCluster1, util.GetKueueNamespace())
+				restoreWorker1Connection()
+				restoreWorker2Connection := util.BreakConnection(ctx, k8sManagerClient, workerCluster2, util.GetKueueNamespace())
+				restoreWorker2Connection()
+			})
+
+			job := testingjob.MakeJob("job-with-ttl", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				TTLSecondsAfterFinished(0).
+				TerminationGracePeriod(1).
+				RequestAndLimit(corev1.ResourceCPU, "100m").
+				RequestAndLimit(corev1.ResourceMemory, "100M").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Obj()
+
+			ginkgo.By("Creating the job with immediate TTL cleanup", func() {
+				util.MustCreate(ctx, k8sManagerClient, job)
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+			admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorker := kubernetesClients[admittedWorkerName]
+
+			ginkgo.By("Checking that the remote Job does not inherit the manager Job TTL", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					remoteJob := &batchv1.Job{}
+					g.Expect(admittedWorker.client.Get(ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
+					g.Expect(remoteJob.Spec.TTLSecondsAfterFinished).To(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Finishing the remote Job", func() {
+				listOpts := util.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
+				util.WaitForActivePodsAndTerminate(ctx, admittedWorker.client, admittedWorker.restClient, admittedWorker.cfg, job.Namespace, 1, 0, listOpts)
+			})
+
+			ginkgo.By("Waiting for the completed manager Job to be deleted by the TTL controller", func() {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, job, false, util.MediumTimeout)
+			})
+
+			ginkgo.By("Checking that the remote Jobs are cleaned up", func() {
+				util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 			})
 		})
 	})
