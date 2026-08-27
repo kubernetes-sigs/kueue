@@ -22,6 +22,7 @@ import (
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -90,6 +91,7 @@ const (
 	refillStopNotAdmitted           refillStopReason = "EntryNotAdmitted"
 	refillStopSecondPass            refillStopReason = "SecondPassAdmission"
 	refillStopVariantAdmitted       refillStopReason = "VariantAdmitted"
+	refillStopNoFreeCapacity        refillStopReason = "NoFreeCapacity"
 	refillStopBudget                refillStopReason = "BudgetExhausted"
 	refillStopQueueEmpty            refillStopReason = "QueueEmpty"
 	refillStopSuccessorNotNominated refillStopReason = "SuccessorNotNominated"
@@ -143,9 +145,17 @@ func (r *refillPass) tryRefill(ctx context.Context, e *entry) (refillStopReason,
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
 		return refillStopVariantAdmitted, nil
 	}
+	// Fit needs unused capacity, so a pop into a full ClusterQueue could only
+	// end in a deferral. Both this stop and the budget one below report an empty
+	// backlog as QueueEmpty, so each keeps meaning a successor was really held
+	// back.
+	if !r.hasFreeCapacity(e.ClusterQueue) {
+		if !r.scheduler.queues.HasQueuedWorkloads(e.ClusterQueue) {
+			return refillStopQueueEmpty, nil
+		}
+		return refillStopNoFreeCapacity, nil
+	}
 	if r.budget <= 0 {
-		// Kept apart so BudgetExhausted measures how often the budget
-		// actually binds, not how often it is merely spent.
 		if !r.scheduler.queues.HasQueuedWorkloads(e.ClusterQueue) {
 			return refillStopQueueEmpty, nil
 		}
@@ -170,6 +180,22 @@ func (r *refillPass) tryRefill(ctx context.Context, e *entry) (refillStopReason,
 	}
 	r.parked = append(r.parked, &refilled)
 	return refillStopSuccessorNotNominated, &refilled
+}
+
+// hasFreeCapacity ignores what the successor asks for, so a workload requesting
+// nothing is the only one it could hold back. Available counts what the cohort
+// can lend and this cycle's admissions.
+func (r *refillPass) hasFreeCapacity(cqName kueue.ClusterQueueReference) bool {
+	cq := r.snapshot.ClusterQueue(cqName)
+	if cq == nil || len(cq.ResourceNode.Quotas) == 0 {
+		return true
+	}
+	for fr := range cq.ResourceNode.Quotas {
+		if cq.Available(fr).CmpInt64(0) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // refilledEntries returns the entries refill pushed into the tournament.
