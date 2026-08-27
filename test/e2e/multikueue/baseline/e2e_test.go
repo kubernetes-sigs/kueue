@@ -697,6 +697,13 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				})
 			})
 
+			ginkgo.By("Waiting for the MultiKueue remote clients to reconnect", func() {
+				restoreWorker1Connection := util.BreakConnection(ctx, k8sManagerClient, workerCluster1, util.GetKueueNamespace())
+				restoreWorker1Connection()
+				restoreWorker2Connection := util.BreakConnection(ctx, k8sManagerClient, workerCluster2, util.GetKueueNamespace())
+				restoreWorker2Connection()
+			})
+
 			job := testingjob.MakeJob("job-with-ttl", managerNs.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				TTLSecondsAfterFinished(0).
