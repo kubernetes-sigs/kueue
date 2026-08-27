@@ -687,40 +687,52 @@ func (s *Scheduler) nominate(ctx context.Context, heads []qcache.Head, snap *sch
 	var inadmissibleEntries []entry
 	for _, h := range heads {
 		log := log.WithValues("workload", klog.KObj(h.Obj), "clusterQueue", klog.KRef("", string(h.ClusterQueue)))
-		e := entry{Head: h}
-		e.clusterQueueSnapshot = snap.ClusterQueue(h.ClusterQueue)
 		if !workload.NeedsSecondPass(h.Obj) && s.cache.IsAdded(h.Info) {
 			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(h.Obj))
 			continue
-		} else if workload.HasRetryChecks(h.Obj) || workload.HasRejectedChecks(h.Obj) {
-			e.inadmissibleMsg = "The workload has failed admission checks"
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
-		} else if snap.InactiveClusterQueueSets.Has(h.ClusterQueue) {
-			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", h.ClusterQueue)
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonSuspended
-		} else if e.clusterQueueSnapshot == nil {
-			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", h.ClusterQueue)
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if err := workload.ValidateAdmissibility(ctx, s.client, &h.Info, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
-			e.inadmissibleMsg = err.Error()
-			if errors.Is(err, workload.ErrInternal) {
-				log.Error(err, "Failed to validate workload admissibility")
-				e.skipStatusUpdate = true
-			} else {
-				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-				if errors.Is(err, workload.ErrNamespaceMismatch) {
-					e.requeueReason = qcache.RequeueReasonNamespaceMismatch
-				}
-			}
-		} else {
-			assignment, targets := s.getAssignments(ctx, &e.Info, snap)
-			e.recordAssignment(assignment, targets)
-			entries = append(entries, e)
-			continue
 		}
-		inadmissibleEntries = append(inadmissibleEntries, e)
+		if e, nominated := s.nominateWorkload(ctx, log, h, snap); nominated {
+			entries = append(entries, e)
+		} else {
+			inadmissibleEntries = append(inadmissibleEntries, e)
+		}
 	}
 	return entries, inadmissibleEntries
+}
+
+// nominateWorkload computes the requirements (resource flavors, borrowing,
+// preemption targets) for admitting a single workload against the snapshot, and
+// reports whether it was nominated. A workload that was not carries the reason
+// in the entry's inadmissibleMsg and is requeued by the cycle.
+func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qcache.Head, snap *schdcache.Snapshot) (entry, bool) {
+	e := entry{Head: h}
+	e.clusterQueueSnapshot = snap.ClusterQueue(h.ClusterQueue)
+	if workload.HasRetryChecks(h.Obj) || workload.HasRejectedChecks(h.Obj) {
+		e.inadmissibleMsg = "The workload has failed admission checks"
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+	} else if snap.InactiveClusterQueueSets.Has(h.ClusterQueue) {
+		e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", h.ClusterQueue)
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonSuspended
+	} else if e.clusterQueueSnapshot == nil {
+		e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", h.ClusterQueue)
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+	} else if err := workload.ValidateAdmissibility(ctx, s.client, &h.Info, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
+		e.inadmissibleMsg = err.Error()
+		if errors.Is(err, workload.ErrInternal) {
+			log.Error(err, "Failed to validate workload admissibility")
+			e.skipStatusUpdate = true
+		} else {
+			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+			if errors.Is(err, workload.ErrNamespaceMismatch) {
+				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
+			}
+		}
+	} else {
+		assignment, targets := s.getAssignments(ctx, &e.Info, snap)
+		e.recordAssignment(assignment, targets)
+		return e, true
+	}
+	return e, false
 }
 
 func (s *Scheduler) updateAssignmentIfNeeded(
