@@ -156,13 +156,23 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 				util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlLookupKey)
 			})
 
-			createdWorkload := &kueue.Workload{}
-			ginkgo.By("Check workload has correct PodSets", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-					g.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(2))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			})
+		createdWorkload := &kueue.Workload{}
+		ginkgo.By("Check workload has correct PodSets", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				g.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(2))
+				for _, ps := range createdWorkload.Spec.PodSets {
+					switch string(ps.Name) {
+					case "decode-main":
+						g.Expect(ps.Count).To(gomega.Equal(int32(2)))
+					case "prefill-main":
+						g.Expect(ps.Count).To(gomega.Equal(int32(2)))
+					default:
+						g.Expect(string(ps.Name)).To(gomega.BeElementOf("decode-main", "prefill-main"))
+					}
+				}
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
 
 			ginkgo.By("Waiting for pods to be running", func() {
 				pods := &corev1.PodList{}
@@ -242,29 +252,46 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Check that a workload still exists for the DS", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					wl := &kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Delete the DisaggregatedSet", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, ds, true)
-			})
-
-			ginkgo.By("Check pods are deleted", func() {
-				pods := &corev1.PodList{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
-						disaggregatedsetv1.SetNameLabelKey: ds.Name,
-					}, client.InNamespace(ds.Namespace))).Should(gomega.Succeed())
-					g.Expect(pods.Items).To(gomega.BeEmpty())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			})
+		ginkgo.By("Check that the workload still exists for the DS", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("should scale down replicas in a role", func() {
+		ginkgo.By("Waiting for scaled-up pods to be running", func() {
+			pods := &corev1.PodList{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
+					disaggregatedsetv1.SetNameLabelKey: ds.Name,
+				}, client.InNamespace(ds.Namespace))).Should(gomega.Succeed())
+				g.Expect(len(pods.Items)).To(gomega.BeNumerically(">=", 3))
+				runningCount := 0
+				for _, pod := range pods.Items {
+					if pod.Status.Phase == corev1.PodRunning {
+						runningCount++
+					}
+				}
+				g.Expect(runningCount).To(gomega.BeNumerically(">=", 3))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Delete the DisaggregatedSet", func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ds, true)
+		})
+
+		ginkgo.By("Check pods are deleted", func() {
+			pods := &corev1.PodList{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
+					disaggregatedsetv1.SetNameLabelKey: ds.Name,
+				}, client.InNamespace(ds.Namespace))).Should(gomega.Succeed())
+				g.Expect(pods.Items).To(gomega.BeEmpty())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should scale down replicas in a role", func() {
 			ds := disaggregatedsettesting.MakeDisaggregatedSet("ds-scaledown", ns.Name).
 				Role("prefill", 1, 1).
 				Role("decode", 2, 1).
@@ -310,29 +337,39 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Check that a workload still exists for the DS", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					wl := &kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Delete the DisaggregatedSet", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, ds, true)
-			})
-
-			ginkgo.By("Check pods are deleted", func() {
-				pods := &corev1.PodList{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
-						disaggregatedsetv1.SetNameLabelKey: ds.Name,
-					}, client.InNamespace(ds.Namespace))).Should(gomega.Succeed())
-					g.Expect(pods.Items).To(gomega.BeEmpty())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			})
+		ginkgo.By("Check that the workload still exists for the DS", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("should cleanup workload when DS is deleted", func() {
+		ginkgo.By("Check pod count decreased after scale down", func() {
+			pods := &corev1.PodList{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
+					disaggregatedsetv1.SetNameLabelKey: ds.Name,
+				}, client.InNamespace(ds.Namespace))).Should(gomega.Succeed())
+				g.Expect(len(pods.Items)).To(gomega.BeNumerically("<=", 2))
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Delete the DisaggregatedSet", func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, ds, true)
+		})
+
+		ginkgo.By("Check pods are deleted", func() {
+			pods := &corev1.PodList{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
+					disaggregatedsetv1.SetNameLabelKey: ds.Name,
+				}, client.InNamespace(ds.Namespace))).Should(gomega.Succeed())
+				g.Expect(pods.Items).To(gomega.BeEmpty())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should cleanup workload when DS is deleted", func() {
 			ds := disaggregatedsettesting.MakeDisaggregatedSet("ds-cleanup", ns.Name).
 				Role("prefill", 1, 1).
 				Role("decode", 1, 1).
