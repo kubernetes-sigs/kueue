@@ -54,9 +54,9 @@ func newSecondPassQueue() *secondPassQueue {
 // takeAllReady removes and returns all workloads currently queued for the second pass.
 func (q *secondPassQueue) takeAllReady() iter.Seq[workload.Info] {
 	q.Lock()
+	defer q.Unlock()
 	queued := q.queued
 	q.queued = make(map[workload.Reference]*workload.Info)
-	q.Unlock()
 	return func(yield func(workload.Info) bool) {
 		for _, v := range queued {
 			if !yield(*v) {

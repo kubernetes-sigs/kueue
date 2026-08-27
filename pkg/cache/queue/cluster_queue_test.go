@@ -2427,6 +2427,8 @@ func TestPopHeadConcurrentWithRequeue(t *testing.T) {
 	stop := make(chan struct{})
 	started := make(chan struct{})
 	done := make(chan struct{})
+
+	// Continuously requeue the workload with pending preemption in a background goroutine.
 	go func() {
 		defer close(done)
 		for {
@@ -2438,16 +2440,29 @@ func TestPopHeadConcurrentWithRequeue(t *testing.T) {
 				select {
 				case <-started:
 				default:
+					// Signal that the background goroutine has performed at least one requeue
 					close(started)
 				}
 			}
 		}
 	}()
+	// Wait until the background goroutine has performed its first requeue
 	<-started
 
+	// Concurrently pop heads and verify that any returned head correctly reflects
+	// the pending preemptor state
 	for range 1000 {
-		cq.PopHead()
+		head := cq.PopHead()
+		if head != nil {
+			if !head.IsPreemptor {
+				t.Errorf("PopHead returned non-preemptor head for workload with pending preemption: %v", head)
+			}
+			if workload.Key(head.Obj) != workload.Key(wInfo.Obj) {
+				t.Errorf("PopHead returned unexpected workload: %v, want %v", head.Obj, wInfo.Obj)
+			}
+		}
 	}
+	// Signal the writer goroutine to stop and wait for it to exit
 	close(stop)
 	<-done
 }
