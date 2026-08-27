@@ -33,6 +33,7 @@
     - [E2E tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
 - [Implementation History](#implementation-history)
+- [Limitations](#limitations)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
 <!-- /toc -->
@@ -357,6 +358,9 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 - Integration for other job types that implements ElasticJob is added.
 
 ## Implementation History
+
+## Limitations
+The feature was not evaluated on Multikueue.
 
 ## Drawbacks
 
