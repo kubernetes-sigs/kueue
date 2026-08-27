@@ -270,6 +270,13 @@ leaderworkerset-operator-crd: gomod-download
 	mkdir -p $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
 	cp -f $(LEADERWORKERSET_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/leaderworkerset-operator/
 
+.PHONY: disaggregatedset-operator-crd
+disaggregatedset-operator-crd: ## Copy the DisaggregatedSet CRDs from the lws module to the dep-crds directory.
+disaggregatedset-operator-crd: gomod-download
+	@echo "→ Copying the DisaggregatedSet CRDs from the lws module to the dep-crds directory..."
+	mkdir -p $(EXTERNAL_CRDS_DIR)/disaggregatedset-operator/
+	cp -f $(LEADERWORKERSET_ROOT)/config/crd/bases/disaggregatedset.x-k8s.io_* $(EXTERNAL_CRDS_DIR)/disaggregatedset-operator/
+
 .PHONY: clusterprofile-crd
 clusterprofile-crd: ## Copy the CRDs from the clusterprofile to the dep-crds directory.
 clusterprofile-crd: gomod-download
@@ -283,7 +290,7 @@ spark-operator-crd: ## Copy the CRDs from the spark-operator to the dep-crds dir
 	cp -rf $(SPARKOPERATOR_ROOT)/config/crd/bases/* $(EXTERNAL_CRDS_DIR)/spark-operator-crds/
 
 .PHONY: dep-crds
-dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-runtimes ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests clusterprofile-crd spark-operator-crd ## Copy the CRDs from the external operators to the dep-crds directory.
+dep-crds: mpi-operator-crd kf-training-operator-crd kf-trainer-crd kf-trainer-runtimes ray-operator-crd jobset-operator-crd leaderworkerset-operator-crd disaggregatedset-operator-crd cluster-autoscaler-crd appwrapper-crd appwrapper-manifests kf-training-operator-manifests ray-operator-manifests kf-trainer-manifests clusterprofile-crd spark-operator-crd ## Copy the CRDs from the external operators to the dep-crds directory.
 	@echo "Copying CRDs from external operators to dep-crds directory"
 
 KUEUECTL_DOCS = $(BIN_DIR)/kueuectl-docs
