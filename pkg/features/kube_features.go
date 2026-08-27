@@ -309,6 +309,12 @@ const (
 	// Enable custom metadata labels on Kueue metrics
 	CustomMetricLabels featuregate.Feature = "CustomMetricLabels"
 
+	// owner: @sohankunkerkar
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/11952
+	// Enables the DisaggregatedSet integration for disaggregated LLM inference
+	DisaggregatedSetIntegration featuregate.Feature = "DisaggregatedSetIntegration"
+
 	// owner: @everpeace
 	//
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/7268#issuecomment-3890609376
@@ -801,6 +807,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	CustomMetricLabels: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	DisaggregatedSetIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	SparkApplicationIntegration: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
