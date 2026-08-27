@@ -61,6 +61,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	disaggregatedsetv1 "sigs.k8s.io/lws/api/disaggregatedset/v1"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 	"sigs.k8s.io/yaml"
 
@@ -211,6 +212,9 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config, 
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = leaderworkersetv1.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = disaggregatedsetv1.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	cfg.APIPath = "/api"
