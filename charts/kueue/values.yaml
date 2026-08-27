@@ -182,6 +182,7 @@ managerConfig:
       - "deployment"
       - "statefulset"
       - "leaderworkerset.x-k8s.io/leaderworkerset"
+      # - "disaggregatedset.x-k8s.io/disaggregatedset"  # alpha: requires DisaggregatedSetIntegration feature gate
     #  externalFrameworks:
     #  - "Foo.v1.example.com"
     #fairSharing:

@@ -555,6 +555,7 @@ type Integrations struct {
 	//  - "deployment"
 	//  - "statefulset"
 	//  - "leaderworkerset.x-k8s.io/leaderworkerset"
+	//  - "disaggregatedset.x-k8s.io/disaggregatedset"
 	Frameworks []string `json:"frameworks,omitempty"`
 	// List of GroupVersionKinds that are managed for Kueue by external controllers;
 	// the expected format is `Kind.version.group.com`.

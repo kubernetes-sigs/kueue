@@ -331,6 +331,22 @@ rules:
       - update
       - watch
   - apiGroups:
+      - disaggregatedset.x-k8s.io
+    resources:
+      - disaggregatedsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - disaggregatedset.x-k8s.io
+    resources:
+      - disaggregatedsets/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
       - leaderworkerset.x-k8s.io
     resources:
       - leaderworkersets
