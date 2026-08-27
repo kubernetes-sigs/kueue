@@ -293,10 +293,11 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 		}).
 		Admission(resvWorkAAdmission)
 
-	// Overlapping-targets fixture (dfit-*): dfit-work admits its head and
-	// refills dfit-work-b, whose nomination targets the borrowing
-	// dfit-victim-active; dfit-preempt's head preempts that victim first, so
-	// dfit-work-b's targets overlap and it takes the Fit-only requeue.
+	// Overlapping-targets fixture (dfit-*): dfit-work admits its head on
+	// memory (so one CPU stays free and the refill pop happens) and refills
+	// dfit-work-b, whose nomination targets the borrowing dfit-victim-active;
+	// dfit-preempt's head preempts that victim first, so dfit-work-b's targets
+	// overlap and it takes the Fit-only requeue.
 	dfitClusterQueues := []kueue.ClusterQueue{
 		*utiltestingapi.MakeClusterQueue("dfit-preempt").
 			Cohort("dfit").
@@ -309,7 +310,8 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 		*utiltestingapi.MakeClusterQueue("dfit-work").
 			Cohort("dfit").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
-				Resource(corev1.ResourceCPU, "4", "0").Obj()).
+				Resource(corev1.ResourceCPU, "4", "0").
+				Resource(corev1.ResourceMemory, "2Gi", "0").Obj()).
 			Preemption(kueue.ClusterQueuePreemption{
 				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 			}).
@@ -334,7 +336,32 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 			utiltestingapi.MakePodSetAssignment("one").
 				Assignment(corev1.ResourceCPU, "default", "5").Count(5).Obj(),
 		).Obj(), now)
-	dfitWorkA := pendingWl("dfit-work-a", "dfit-work-lq", now.Add(-5*time.Minute))
+	dfitWorkA := utiltestingapi.MakeWorkload("dfit-work-a", "default").
+		Queue("dfit-work-lq").
+		Creation(now.Add(-5 * time.Minute)).
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			Request(corev1.ResourceMemory, "1Gi").
+			Obj())
+	dfitWorkAAdmission := utiltestingapi.MakeAdmission("dfit-work").PodSets(
+		utiltestingapi.MakePodSetAssignment("one").
+			Assignment(corev1.ResourceMemory, "default", "1Gi").Count(1).Obj(),
+	).Obj()
+	dfitWorkAAdmitted := dfitWorkA.Clone().
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadQuotaReserved,
+			Status:             metav1.ConditionTrue,
+			Reason:             "QuotaReserved",
+			Message:            "Quota reserved in ClusterQueue dfit-work",
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Admitted",
+			Message:            "The workload is admitted",
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Admission(dfitWorkAAdmission)
 	dfitHead := utiltestingapi.MakeWorkload("dfit-head", "default").
 		Queue("dfit-preempt-lq").
 		UID("wl-dfit-head").
@@ -354,7 +381,7 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 	// fitonly-next, whose nomination finds a genuine lower-priority candidate.
 	fitonlyClusterQueue := utiltestingapi.MakeClusterQueue("fitonly-prio").
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
-			Resource(corev1.ResourceCPU, "3", "0").Obj()).
+			Resource(corev1.ResourceCPU, "4", "0").Obj()).
 		Preemption(kueue.ClusterQueuePreemption{
 			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 		}).
@@ -580,9 +607,8 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 		// competes while borrowing, so chain-b1 (within nominal) wins the
 		// second admission even though it is the newest workload. A ranking
 		// computed once at cycle start would keep refill-a at zero borrowing
-		// and let chain-a2 and chain-a3 win on FIFO instead. The refilled
-		// chain-a3 no longer fits, so the Fit-only rule requeues it back to
-		// the heap immediately.
+		// and let chain-a2 and chain-a3 win on FIFO instead. By the time
+		// chain-a2 admits, the cohort is full, so chain-a3 is never popped.
 		"consecutive refills rerank against fresh usage on every pop": {
 			enableFairSharing: true,
 			featureGates:      map[featuregate.Feature]bool{features.FairSharingRefill: true},
@@ -611,9 +637,7 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*admittedWl(pendingWl("chain-a1", "a-lq", now.Add(-4*time.Minute)), "refill-a").Obj(),
 				*admittedWl(pendingWl("chain-a2", "a-lq", now.Add(-3*time.Minute)), "refill-a").Obj(),
-				*unadmittedWl(pendingWl("chain-a3", "a-lq", now.Add(-2*time.Minute)),
-					kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-					"Workload was evaluated mid-cycle and is deferred to the next scheduling cycle: couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 1 more needed", "1").Obj(),
+				*pendingWl("chain-a3", "a-lq", now.Add(-2*time.Minute)).Obj(),
 				*admittedWl(pendingWl("chain-b1", "b-lq", now.Add(-time.Minute)), "refill-b").Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -929,13 +953,13 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 					}).
 					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
-				*admittedWl(dfitWorkA, "dfit-work").Obj(),
+				*dfitWorkAAdmitted.Clone().Obj(),
 				*dfitWorkB.Clone().
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload was evaluated mid-cycle and is deferred to the next scheduling cycle: couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 2 more needed",
+						Message:            "Workload was evaluated mid-cycle and is deferred to the next scheduling cycle: couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 1 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -957,7 +981,7 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 					utiltestingapi.MakePodSetAssignment("one").
 						Assignment(corev1.ResourceCPU, "default", "5").Count(5).Obj(),
 				).Obj(),
-				"default/dfit-work-a": *singleCPUAdmission("dfit-work"),
+				"default/dfit-work-a": *dfitWorkAAdmission,
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"dfit-preempt": {"default/dfit-head"},
@@ -997,7 +1021,7 @@ func TestScheduleForFairSharingRefill(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "Workload was evaluated mid-cycle and is deferred to the next scheduling cycle: couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 2 more needed",
+						Message:            "Workload was evaluated mid-cycle and is deferred to the next scheduling cycle: couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 1 more needed",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1451,8 +1475,8 @@ func TestRefillDeferralClearsFlavorScanProgress(t *testing.T) {
 // TestTryRefillStopsBeforePopping covers the stop reasons reachable without
 // popping a successor, including every entryStatus that must not start a chain.
 // BudgetExhausted must mean the budget actually bound, not merely that it was
-// spent. The reasons needing a snapshot are covered by
-// TestScheduleForFairSharingRefill.
+// spent, and NoFreeCapacity that a successor was actually held back. The
+// reasons needing a nomination are covered by TestScheduleForFairSharingRefill.
 func TestTryRefillStopsBeforePopping(t *testing.T) {
 	cases := map[string]struct {
 		entryStatus   entryStatus
@@ -1461,8 +1485,10 @@ func TestTryRefillStopsBeforePopping(t *testing.T) {
 		// concurrentAdmission enables the gate, so the two can be set apart.
 		variant             bool
 		concurrentAdmission bool
-		queuedSuccessor     bool
-		want                refillStopReason
+		// full fills the ClusterQueue's quota before the entry is processed.
+		full            bool
+		queuedSuccessor bool
+		want            refillStopReason
 		// Spelled out rather than derived from want, so renaming a constant
 		// cannot move the expectation with it.
 		wantLabel string
@@ -1530,6 +1556,20 @@ func TestTryRefillStopsBeforePopping(t *testing.T) {
 			want:        refillStopQueueEmpty,
 			wantLabel:   "QueueEmpty",
 		},
+		// Budget 0 as well, so the order of the two checks is pinned.
+		"no capacity is free and a successor is waiting": {
+			entryStatus:     assumed,
+			full:            true,
+			queuedSuccessor: true,
+			want:            refillStopNoFreeCapacity,
+			wantLabel:       "NoFreeCapacity",
+		},
+		"no capacity is free but nothing is waiting": {
+			entryStatus: assumed,
+			full:        true,
+			want:        refillStopQueueEmpty,
+			wantLabel:   "QueueEmpty",
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1582,10 +1622,26 @@ func TestTryRefillStopsBeforePopping(t *testing.T) {
 			if got := qManager.HasQueuedWorkloads("stop-cq"); got != tc.queuedSuccessor {
 				t.Fatalf("The fixture has a queued successor: %t, want %t", got, tc.queuedSuccessor)
 			}
+			if tc.full {
+				occupant := utiltestingapi.MakeWorkload("occupant", "default").Queue("stop-lq").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "8").Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("stop-cq").PodSets(
+						utiltestingapi.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "default", "8").Count(1).Obj(),
+					).Obj(), now).
+					Obj()
+				if !cqCache.AddOrUpdateWorkload(log, occupant) {
+					t.Fatalf("Adding the occupant to the cache")
+				}
+			}
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Taking the snapshot: %v", err)
+			}
 
-			// budget 0 stops on the budget branch, so no snapshot is needed.
 			r := &refillPass{
 				scheduler: &Scheduler{queues: qManager, cache: cqCache},
+				snapshot:  snapshot,
 				budget:    0,
 			}
 			e := &entry{
@@ -1606,6 +1662,7 @@ func TestTryRefillStopsBeforePopping(t *testing.T) {
 			capture, logger := newRefillLogCapture()
 			hook := &refillPass{
 				scheduler: &Scheduler{queues: qManager, cache: cqCache},
+				snapshot:  snapshot,
 				budget:    0,
 			}
 			hook.afterEntryProcessed(ctrl.LoggerInto(ctx, logger), e)
@@ -1624,6 +1681,7 @@ func TestRefillStopReasonLabels(t *testing.T) {
 		refillStopNotAdmitted:           "EntryNotAdmitted",
 		refillStopSecondPass:            "SecondPassAdmission",
 		refillStopVariantAdmitted:       "VariantAdmitted",
+		refillStopNoFreeCapacity:        "NoFreeCapacity",
 		refillStopBudget:                "BudgetExhausted",
 		refillStopQueueEmpty:            "QueueEmpty",
 		refillStopSuccessorNotNominated: "SuccessorNotNominated",
