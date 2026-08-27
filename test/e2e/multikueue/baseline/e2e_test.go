@@ -34,12 +34,14 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	workloadstatefulset "sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -679,7 +681,23 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
-		ginkgo.It("Should not propagate Job TTL and should clean up the completed manager Job", func() {
+		ginkgo.It("Should not propagate Job TTL and should clean up the completed manager Job", ginkgo.Serial, func() {
+			defaultManagerKueueCfg := util.GetKueueConfiguration(ctx, k8sManagerClient)
+			ginkgo.DeferCleanup(func() {
+				ginkgo.By("Restoring the manager Kueue configuration", func() {
+					util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
+				})
+			})
+
+			ginkgo.By("Enabling worker Job TTL clearing", func() {
+				util.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *configapi.Configuration) {
+					if cfg.FeatureGates == nil {
+						cfg.FeatureGates = make(map[string]bool)
+					}
+					cfg.FeatureGates[string(features.MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster)] = true
+				})
+			})
+
 			job := testingjob.MakeJob("job-with-ttl", managerNs.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				TTLSecondsAfterFinished(0).
