@@ -350,9 +350,7 @@ func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResou
 
 		for _, nr := range nrs {
 			resourceDeleteOptions := deleteOptions
-			if nr.UID != "" {
-				resourceDeleteOptions.Preconditions = &metav1.Preconditions{UID: &nr.UID}
-			}
+			resourceDeleteOptions.Preconditions = &metav1.Preconditions{UID: &nr.UID}
 			if o.DryRunStrategy != dryrun.Client {
 				if err := o.DynamicClient.Resource(nr.GroupVersionResource).Namespace(wl.Namespace).
 					Delete(ctx, nr.Name, resourceDeleteOptions); client.IgnoreNotFound(err) != nil {
