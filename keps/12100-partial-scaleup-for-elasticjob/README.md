@@ -217,7 +217,7 @@ Note, that PodsReady() for Ray jobs rely on RayCluster.Status.State value, so th
 
 There are multiple ways how to approach multiple podsets shrinking in case of insufficient quota. For simplicity reasons we'll start with the order-based one and will expand options if needed in future.
 
-- **`order-based` (default)**: Shrinks the counts of the PodSets sequentially starting from the last one (suits for the cases when the podsets are ordered by priority). The Workload PodSet order is usually the same as the order of the PodSets in the Job spec.
+- **`order-based`**: Shrinks the counts of the PodSets sequentially starting from the last one (suits for the cases when the podsets are ordered by priority). The Workload PodSet order is usually the same as the order of the PodSets in the Job spec.
 
 #### Order-Based policy (`order-based`)
 
