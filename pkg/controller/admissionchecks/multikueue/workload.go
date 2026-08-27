@@ -867,7 +867,6 @@ func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger,
 	return reconcile.Result{}, errors.Join(errs...)
 }
 
-
 func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, cl client.Client, group *wlGroup) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")

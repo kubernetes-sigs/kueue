@@ -1692,7 +1692,7 @@ func TestHeadsAsync(t *testing.T) {
 	cases := map[string]struct {
 		initialObjs []client.Object
 		op          func(context.Context, *Manager, *sync.WaitGroup)
-		wantHeads   []workload.Info
+		wantHeads   []Head
 	}{
 		"AddClusterQueue": {
 			initialObjs: []client.Object{&wl, &queues[0]},
@@ -1709,10 +1709,12 @@ func TestHeadsAsync(t *testing.T) {
 					}
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Info: workload.Info{
+						Obj:          &wl,
+						ClusterQueue: "fooCq",
+					},
 				},
 			},
 		},
@@ -1728,10 +1730,12 @@ func TestHeadsAsync(t *testing.T) {
 					}
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Info: workload.Info{
+						Obj:          &wl,
+						ClusterQueue: "fooCq",
+					},
 				},
 			},
 		},
@@ -1749,10 +1753,12 @@ func TestHeadsAsync(t *testing.T) {
 					}
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Info: workload.Info{
+						Obj:          &wl,
+						ClusterQueue: "fooCq",
+					},
 				},
 			},
 		},
@@ -1771,10 +1777,12 @@ func TestHeadsAsync(t *testing.T) {
 					}
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Info: workload.Info{
+						Obj:          &wl,
+						ClusterQueue: "fooCq",
+					},
 				},
 			},
 		},
@@ -1793,10 +1801,12 @@ func TestHeadsAsync(t *testing.T) {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination, "")
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Info: workload.Info{
+						Obj:          &wl,
+						ClusterQueue: "fooCq",
+					},
 				},
 			},
 		},
@@ -1821,10 +1831,12 @@ func TestHeadsAsync(t *testing.T) {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination, "")
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &newWl,
-					ClusterQueue: "fooCq",
+					Info: workload.Info{
+						Obj:          &newWl,
+						ClusterQueue: "fooCq",
+					},
 				},
 			},
 		},
@@ -1853,10 +1865,12 @@ func TestHeadsAsync(t *testing.T) {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination, "")
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &newWl,
-					ClusterQueue: "barCq",
+					Info: workload.Info{
+						Obj:          &newWl,
+						ClusterQueue: "barCq",
+					},
 				},
 			},
 		},
@@ -1908,7 +1922,7 @@ func TestHeadsCancelledNoLostWakeup(t *testing.T) {
 	const iterations = 50
 	for i := range iterations {
 		headsCtx, cancel := context.WithCancel(ctx)
-		headsDone := make(chan []workload.Info, 1)
+		headsDone := make(chan []Head, 1)
 
 		go manager.CleanUpOnContext(headsCtx)
 		go func() {
@@ -2169,8 +2183,8 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			fakeClock.Step(tc.passTime)
 
 			gotReady := sets.New[workload.Reference]()
-			for _, wlInfo := range manager.secondPassQueue.takeAllReady() {
-				gotReady.Insert(workload.Key(wlInfo.Obj))
+			for _, head := range manager.secondPassQueue.takeAllReady() {
+				gotReady.Insert(workload.Key(head.Obj))
 			}
 
 			if diff := cmp.Diff(tc.wantReady, gotReady); diff != "" {

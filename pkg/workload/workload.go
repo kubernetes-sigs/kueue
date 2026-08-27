@@ -399,14 +399,20 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 			effectiveCount = totalRequests[i].Count
 			effectiveRequests = totalRequests[i].Requests
 		}
-		podSetShapes = append(podSetShapes, map[string]any{
-			"name":            ps.Name,
+		podSetShape := map[string]any{
 			"spec":            utilpod.SpecShape(&ps.Template.Spec),
 			"count":           effectiveCount,
 			"requests":        resources.ToMap(effectiveRequests),
 			"minCount":        ps.MinCount,
 			"topologyRequest": ps.TopologyRequest,
-		})
+		}
+		// The name identifies a PodSet but does not affect how it is assigned.
+		// Two readers depend on this shape: the queue's equivalence classes, and
+		// LastAssignment reuse through MatchesSchedulingShape.
+		if !features.Enabled(features.SchedulingEquivalenceHashingIgnorePodSetName) {
+			podSetShape["name"] = ps.Name
+		}
+		podSetShapes = append(podSetShapes, podSetShape)
 	}
 	shape := map[string]any{
 		"podSets":  podSetShapes,
@@ -704,6 +710,11 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 				}
 			}
 			// Then, add the DRA logical resources
+			//
+			// A producer must not emit corev1.ResourcePods here: claim charges use
+			// mapping names, which validation refuses under this gate, and the
+			// extended-resource path treats pods as native. A ClusterQueue that
+			// tracks the key has it overwritten with PodSet.Count at assignment.
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
 				for resName, quantity := range draRes {
 					q := effectiveRequests[resName]

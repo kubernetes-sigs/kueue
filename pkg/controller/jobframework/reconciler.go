@@ -562,25 +562,45 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock)
 		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
 			log.V(3).Info("Updating the PodsReady condition", "reason", condition.Reason, "status", condition.Status)
+			var prevPodsReadyReason string
+			var prevPodsReadyTransitionTime time.Time
+			if prevCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady); prevCond != nil {
+				prevPodsReadyReason = prevCond.Reason
+				prevPodsReadyTransitionTime = prevCond.LastTransitionTime.Time
+			}
 			err := workload.SetConditionAndUpdate(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
 			if err != nil {
 				log.Error(err, "Updating workload status")
 				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
-			// update the metrics only when PodsReady condition status is true
-			if condition.Status == metav1.ConditionTrue {
+			// update the metrics only when PodsReady condition status is true and the workload started for the first time.
+			// This avoids re-emitting the time-to-readiness metrics when the workload recovered readiness (`kueue.WorkloadRecovered`).
+			if condition.Status == metav1.ConditionTrue && (condition.Reason == kueue.WorkloadStarted || condition.Reason == kueue.WorkloadRecovered) {
 				cqName := wl.Status.Admission.ClusterQueue
 				priorityClassName := workloadpatching.PriorityClassName(wl)
-				queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
-				metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
-				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-				admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
-				metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
-				if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
-					lqRef := metrics.LQRefFromWorkload(wl)
-					lqCustomLabels := r.customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
-					metrics.LocalQueueReadyWaitTime(lqRef, priorityClassName, queuedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
-					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(lqRef, priorityClassName, admittedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
+				switch condition.Reason {
+				case kueue.WorkloadStarted:
+					queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
+					metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
+					admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+					admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
+					metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
+					if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
+						lqRef := metrics.LQRefFromWorkload(wl)
+						lqCustomLabels := r.customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
+						metrics.LocalQueueReadyWaitTime(lqRef, priorityClassName, queuedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
+						metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(lqRef, priorityClassName, admittedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
+					}
+				case kueue.WorkloadRecovered:
+					if prevPodsReadyReason == kueue.WorkloadWaitForRecovery {
+						recoveryWaitTime := condition.LastTransitionTime.Sub(prevPodsReadyTransitionTime)
+						metrics.ReportWorkloadRecoveryWaitTime(cqName, priorityClassName, recoveryWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
+						if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
+							lqRef := metrics.LQRefFromWorkload(wl)
+							lqCustomLabels := r.customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
+							metrics.ReportLocalQueueWorkloadRecoveryWaitTime(lqRef, priorityClassName, recoveryWaitTime, lqCustomLabels, r.roleTracker)
+						}
+					}
 				}
 			}
 			return ctrl.Result{}, nil
@@ -936,6 +956,16 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 		if err := c.Get(ctx, client.ObjectKey{Name: owner.Name, Namespace: jobObj.GetNamespace()}, parentObj); err != nil {
 			return nil, errors.Join(ErrWorkloadOwnerNotFound, err)
 		}
+		if parentObj.GetUID() != owner.UID {
+			// Stop: owner reference UID does not match the referenced object.
+			// Per-hop UID checks catch stale/mismatched refs; same-namespace ownership spoofing is out of scope.
+			log.V(3).Info(
+				"stop walking up as the owner reference UID does not match the referenced object",
+				"currentObj", klog.KObj(currentObj),
+				"owner", klog.KRef(jobObj.GetNamespace(), owner.Name),
+			)
+			return topLevelJob, nil
+		}
 		if managed && (manageJobsWithoutQueueName || QueueNameForObject(parentObj) != "") {
 			topLevelJob = parentObj
 		}
@@ -1233,7 +1263,7 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 		return nil
 	}
 
-	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, needsClassChange[0].Spec.PodSets, customPriorityClassFunc)
+	priorityClassRef, priority, err := ExtractPriority(ctx, c, r, obj, needsClassChange[0].Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return fmt.Errorf("prepare workload priority: %w", err)
 	}
@@ -1672,8 +1702,8 @@ func getCustomPriorityClassFuncFromJob(job GenericJob) func() string {
 	return nil
 }
 
-func PrepareWorkloadPriority(ctx context.Context, c client.Client, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
-	priorityClassRef, priority, err := ExtractPriority(ctx, c, obj, wl.Spec.PodSets, customPriorityClassFunc)
+func PrepareWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload, customPriorityClassFunc func() string) error {
+	priorityClassRef, priority, err := ExtractPriority(ctx, c, r, obj, wl.Spec.PodSets, customPriorityClassFunc)
 	if err != nil {
 		return err
 	}
@@ -1693,7 +1723,7 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 		PropagateAdmissionGatedByAnnotation(job.Object(), wl)
 	}
 
-	if err := PrepareWorkloadPriority(ctx, r.client, job.Object(), wl, getCustomPriorityClassFuncFromJob(job)); err != nil {
+	if err := PrepareWorkloadPriority(ctx, r.client, r.record, job.Object(), wl, getCustomPriorityClassFuncFromJob(job)); err != nil {
 		return err
 	}
 
@@ -1706,9 +1736,24 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
-func ExtractPriority(ctx context.Context, c client.Client, obj client.Object, podSets []kueue.PodSet, customPriorityClassFunc func() string) (*kueue.PriorityClassRef, int32, error) {
+func ExtractPriority(
+	ctx context.Context,
+	c client.Client,
+	r events.EventRecorder,
+	obj client.Object,
+	podSets []kueue.PodSet,
+	customPriorityClassFunc func() string,
+) (*kueue.PriorityClassRef, int32, error) {
 	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
-		return utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
+		ref, priority, err := utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
+		// Reported here rather than from the error, which the callers
+		// aggregate and can drop. Only reached when the label named a class,
+		// so a NotFound is that class and not one of the fallbacks below.
+		if apierrors.IsNotFound(err) {
+			r.Eventf(obj, nil, corev1.EventTypeWarning, ReasonWorkloadPriorityClassNotFound,
+				"WorkloadPriorityClassNotFound", "WorkloadPriorityClass %q not found", workloadPriorityClass)
+		}
+		return ref, priority, err
 	}
 	if customPriorityClassFunc != nil {
 		return utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityClassFunc())
@@ -1739,7 +1784,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		if err != nil {
 			return nil, err
 		}
-		if features.Enabled(features.TopologyAwareScheduling) {
+		if features.Enabled(features.TopologyAwareScheduling) || features.Enabled(features.SchedulerLibraryIntegration) {
 			info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		}
 		if workloadslicing.IsElasticWorkload(w) {

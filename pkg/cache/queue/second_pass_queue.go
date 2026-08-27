@@ -50,13 +50,13 @@ func newSecondPassQueue() *secondPassQueue {
 	}
 }
 
-func (q *secondPassQueue) takeAllReady() []workload.Info {
+func (q *secondPassQueue) takeAllReady() []Head {
 	q.Lock()
 	defer q.Unlock()
 
-	var result []workload.Info
+	var result []Head
 	for _, v := range q.queued {
-		result = append(result, *v)
+		result = append(result, Head{Info: *v})
 	}
 	q.queued = make(map[workload.Reference]*workload.Info)
 	return result

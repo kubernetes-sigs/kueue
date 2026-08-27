@@ -455,6 +455,9 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
+// reservedResourceNameMsg repeats the Workload webhook's wording for the same refusal; the two are not linked.
+const reservedResourceNameMsg = "the key is reserved for internal kueue use"
+
 func validateResourceTransformations(c *configapi.Configuration) field.ErrorList {
 	res := c.Resources
 	if res == nil {
@@ -462,6 +465,7 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 	}
 	var allErrs field.ErrorList
 	seenKeys := make(sets.Set[corev1.ResourceName])
+	refuseReserved := features.Enabled(features.ReservedResourceNameValidation)
 	for idx, transform := range res.Transformations {
 		strategy := ptr.Deref(transform.Strategy, "")
 		if strategy != configapi.Retain && strategy != configapi.Replace {
@@ -472,6 +476,26 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 			allErrs = append(allErrs, field.Duplicate(resourceTransformationPath.Index(idx).Child("input"), transform.Input))
 		} else {
 			seenKeys.Insert(transform.Input)
+		}
+		// pods is reserved for the request Kueue synthesizes from the PodSet
+		// count, so a transformation must not name it in any position. Gated
+		// because the refusal exits the manager on a file that used to load.
+		if refuseReserved {
+			if transform.Input == corev1.ResourcePods {
+				allErrs = append(allErrs, field.Invalid(
+					resourceTransformationPath.Index(idx).Child("input"),
+					transform.Input, reservedResourceNameMsg))
+			}
+			if _, ok := transform.Outputs[corev1.ResourcePods]; ok {
+				allErrs = append(allErrs, field.Invalid(
+					resourceTransformationPath.Index(idx).Child("outputs").Key(string(corev1.ResourcePods)),
+					corev1.ResourcePods, reservedResourceNameMsg))
+			}
+			if transform.MultiplyBy == corev1.ResourcePods {
+				allErrs = append(allErrs, field.Invalid(
+					resourceTransformationPath.Index(idx).Child("multiplyBy"),
+					transform.MultiplyBy, reservedResourceNameMsg))
+			}
 		}
 	}
 	return allErrs
@@ -489,6 +513,7 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 		allErrs = append(allErrs, field.TooMany(dynamicResourceAllocationPath, len(mappings), 16))
 	}
 
+	refuseReserved := features.Enabled(features.ReservedResourceNameValidation)
 	seenResourceNames := make(sets.Set[corev1.ResourceName])
 	deviceClassToResource := make(map[corev1.ResourceName]corev1.ResourceName)
 	deviceClassCounterNames := make(map[corev1.ResourceName]sets.Set[string])
@@ -502,6 +527,13 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 
 		if len(string(mapping.Name)) > 253 {
 			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, "must not exceed 253 characters"))
+		}
+
+		// pods is reserved for the request Kueue synthesizes from the PodSet count.
+		// The mapper is only built with DRA on, so until then the name is dormant
+		// and refusing it would fail an upgrade over an entry that does nothing.
+		if refuseReserved && features.Enabled(features.KueueDRAIntegration) && mapping.Name == corev1.ResourcePods {
+			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, reservedResourceNameMsg))
 		}
 
 		if seenResourceNames.Has(mapping.Name) {
