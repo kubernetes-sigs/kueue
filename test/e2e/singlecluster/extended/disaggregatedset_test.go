@@ -161,16 +161,14 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(2))
+					podSetCounts := make(map[string]int32, len(createdWorkload.Spec.PodSets))
 					for _, ps := range createdWorkload.Spec.PodSets {
-						switch string(ps.Name) {
-						case "decode-main":
-							g.Expect(ps.Count).To(gomega.Equal(int32(2)))
-						case "prefill-main":
-							g.Expect(ps.Count).To(gomega.Equal(int32(2)))
-						default:
-							g.Expect(string(ps.Name)).To(gomega.BeElementOf("decode-main", "prefill-main"))
-						}
+						podSetCounts[string(ps.Name)] = ps.Count
 					}
+					g.Expect(podSetCounts).To(gomega.Equal(map[string]int32{
+						"decode-main":  2,
+						"prefill-main": 2,
+					}))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -252,10 +250,18 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Check that the workload still exists for the DS", func() {
+			ginkgo.By("Check that the workload has updated PodSet counts after scale-up", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					wl := &kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
+					podSetCounts := make(map[string]int32, len(wl.Spec.PodSets))
+					for _, ps := range wl.Spec.PodSets {
+						podSetCounts[string(ps.Name)] = ps.Count
+					}
+					g.Expect(podSetCounts).To(gomega.Equal(map[string]int32{
+						"decode-main":  2,
+						"prefill-main": 1,
+					}))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -265,14 +271,10 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 					g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
 						disaggregatedsetv1.SetNameLabelKey: ds.Name,
 					}, client.InNamespace(ds.Namespace))).Should(gomega.Succeed())
-					g.Expect(len(pods.Items)).To(gomega.BeNumerically(">=", 3))
-					runningCount := 0
+					g.Expect(pods.Items).To(gomega.HaveLen(3))
 					for _, pod := range pods.Items {
-						if pod.Status.Phase == corev1.PodRunning {
-							runningCount++
-						}
+						g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
 					}
-					g.Expect(runningCount).To(gomega.BeNumerically(">=", 3))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -337,10 +339,18 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Check that the workload still exists for the DS", func() {
+			ginkgo.By("Check that the workload has updated PodSet counts after scale-down", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					wl := &kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
+					podSetCounts := make(map[string]int32, len(wl.Spec.PodSets))
+					for _, ps := range wl.Spec.PodSets {
+						podSetCounts[string(ps.Name)] = ps.Count
+					}
+					g.Expect(podSetCounts).To(gomega.Equal(map[string]int32{
+						"decode-main":  1,
+						"prefill-main": 1,
+					}))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
@@ -350,7 +360,7 @@ var _ = ginkgo.Describe("DisaggregatedSet integration", ginkgo.Label("area:singl
 					g.Expect(k8sClient.List(ctx, pods, client.MatchingLabels{
 						disaggregatedsetv1.SetNameLabelKey: ds.Name,
 					}, client.InNamespace(ds.Namespace))).Should(gomega.Succeed())
-					g.Expect(len(pods.Items)).To(gomega.BeNumerically("<=", 2))
+					g.Expect(pods.Items).To(gomega.HaveLen(2))
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 
