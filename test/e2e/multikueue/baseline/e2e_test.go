@@ -698,6 +698,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Waiting for the MultiKueue remote clients to reconnect", func() {
+				// The Active condition survives a controller restart, so it can be stale while the new leader
+				// rebuilds its remote clients. Force an observable False-to-True transition to ensure the remote
+				// caches are synchronized before creating the Job.
 				restoreWorker1Connection := util.BreakConnection(ctx, k8sManagerClient, workerCluster1, util.GetKueueNamespace())
 				restoreWorker1Connection()
 				restoreWorker2Connection := util.BreakConnection(ctx, k8sManagerClient, workerCluster2, util.GetKueueNamespace())
