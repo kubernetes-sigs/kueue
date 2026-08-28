@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -112,7 +113,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 		nodes := buildBenchNodes(topo)
 		levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
 
-		tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+		tasCache := NewTASCache(nil, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
 		for i := range nodes {
 			tasCache.SyncNode(&nodes[i])
 		}
@@ -141,7 +142,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 		// cache-hit-only benchmark and gives the update modes a tree to
 		// invalidate.
 		for _, flavorCache := range flavorCaches {
-			if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+			if _, err := flavorCache.snapshot(b.Context(), log, simulator.NewDefaultSimulatorSnapshot(), nil); err != nil {
 				b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 			}
 		}
@@ -169,7 +170,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 				tasCache.SyncNode(invalidatingNodes[update%len(invalidatingNodes)])
 			}
 			for _, flavorCache := range flavorCaches {
-				if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+				if _, err := flavorCache.snapshot(b.Context(), log, simulator.NewDefaultSimulatorSnapshot(), nil); err != nil {
 					b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 				}
 			}
@@ -203,7 +204,7 @@ func runBenchmarkTASFlavorAssignment(b *testing.B, topo benchTopology, name stri
 		nodes := buildBenchNodes(topo)
 		levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
 
-		tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+		tasCache := NewTASCache(nil, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
 		for i := range nodes {
 			tasCache.SyncNode(&nodes[i])
 		}
@@ -211,7 +212,7 @@ func runBenchmarkTASFlavorAssignment(b *testing.B, topo benchTopology, name stri
 			topologyInformation{Levels: levels},
 			flavorInformation{TopologyName: "default"},
 		)
-		snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil)
+		snapshot, err := flavorCache.snapshot(b.Context(), log, simulator.NewDefaultSimulatorSnapshot(), nil)
 		if err != nil {
 			b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 		}

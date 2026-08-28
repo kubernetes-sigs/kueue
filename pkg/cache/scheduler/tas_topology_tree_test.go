@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -175,7 +176,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+			tasCache := NewTASCache(nil, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
 			for _, n := range []*corev1.Node{
 				makeTreeTestNode("n1", "b1", "r1"),
 				makeTreeTestNode("n2", "b1", "r1"),
@@ -199,7 +200,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 				Count:             2,
 			}})
 
-			cold, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+			cold, err := fc.snapshot(ctx, log, simulator.NewDefaultSimulatorSnapshot(), nil)
 			if err != nil {
 				t.Fatalf("cold snapshot failed: %v", err)
 			}
@@ -207,7 +208,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 			if tree == nil {
 				t.Fatal("expected the cold build to store the topology tree")
 			}
-			reused, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+			reused, err := fc.snapshot(ctx, log, simulator.NewDefaultSimulatorSnapshot(), nil)
 			if err != nil {
 				t.Fatalf("second snapshot failed: %v", err)
 			}
@@ -226,7 +227,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 
 func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
-	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
 	fc := tasCache.NewTASFlavorCache(
@@ -234,11 +235,11 @@ func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 		flavorInformation{TopologyName: "default"},
 	)
 
-	first, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	first, err := fc.snapshot(ctx, log, simulator.NewDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
-	second, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	second, err := fc.snapshot(ctx, log, simulator.NewDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
@@ -252,7 +253,7 @@ func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 	// leak into snapshots of other cycles.
 	second.addTASUsage(leafID, resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}))
 	second.addNonTASUsage(leafID, resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 500}))
-	third, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	third, err := fc.snapshot(ctx, log, simulator.NewDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
@@ -264,7 +265,7 @@ func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 func TestSnapshotsDoNotShareTreeWhenCachingDisabled(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASCacheTopologyTree, false)
 	ctx, log := utiltesting.ContextWithLog(t)
-	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
 	fc := tasCache.NewTASFlavorCache(
@@ -272,11 +273,11 @@ func TestSnapshotsDoNotShareTreeWhenCachingDisabled(t *testing.T) {
 		flavorInformation{TopologyName: "default"},
 	)
 
-	first, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	first, err := fc.snapshot(ctx, log, simulator.NewDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("first snapshot failed: %v", err)
 	}
-	second, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	second, err := fc.snapshot(ctx, log, simulator.NewDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("second snapshot failed: %v", err)
 	}
@@ -291,14 +292,14 @@ func TestSnapshotsDoNotShareTreeWhenCachingDisabled(t *testing.T) {
 func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASBalancedPlacement, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
 	fc := tasCache.NewTASFlavorCache(
 		topologyInformation{Levels: []string{treeTestBlockLabel, treeTestRackLabel, corev1.LabelHostname}},
 		flavorInformation{TopologyName: "default"},
 	)
-	snapshot, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+	snapshot, err := fc.snapshot(ctx, log, simulator.NewDefaultSimulatorSnapshot(), nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
 	}
@@ -324,7 +325,7 @@ func TestSnapshotReuseAfterBalancedPlacement(t *testing.T) {
 func TestSnapshotsSharingTreeCanAssignConcurrently(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TASBalancedPlacement, true)
 	ctx, log := utiltesting.ContextWithLog(t)
-	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
 	tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 	tasCache.SyncNode(makeTreeTestNode("n2", "b1", "r2"))
 	fc := tasCache.NewTASFlavorCache(
@@ -335,7 +336,7 @@ func TestSnapshotsSharingTreeCanAssignConcurrently(t *testing.T) {
 	snapshots := make([]*TASFlavorSnapshot, 2)
 	for i := range snapshots {
 		var err error
-		snapshots[i], err = fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+		snapshots[i], err = fc.snapshot(ctx, log, simulator.NewDefaultSimulatorSnapshot(), nil)
 		if err != nil {
 			t.Fatalf("snapshot %d failed: %v", i, err)
 		}
@@ -442,7 +443,7 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
-			tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+			tasCache := NewTASCache(nil, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
 			tasCache.SyncNode(makeTreeTestNode("n1", "b1", "r1"))
 			tasCache.SyncNode(makeTreeTestNode("n2", "b2", "r2"))
 			fc := tasCache.NewTASFlavorCache(
@@ -450,7 +451,7 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 				flavorInformation{TopologyName: "default", NodeLabels: tc.initialNodeLabels},
 			)
 
-			if _, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil); err != nil {
+			if _, err := fc.snapshot(ctx, log, simulator.NewDefaultSimulatorSnapshot(), nil); err != nil {
 				t.Fatalf("initial snapshot failed: %v", err)
 			}
 			tree := fc.cachedTree()
@@ -459,7 +460,7 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 			}
 
 			tc.mutate(&tasCache, fc)
-			snapshot, err := fc.snapshot(ctx, log, newDefaultSimulatorSnapshot(), nil)
+			snapshot, err := fc.snapshot(ctx, log, simulator.NewDefaultSimulatorSnapshot(), nil)
 			if err != nil {
 				t.Fatalf("snapshot after cache mutation failed: %v", err)
 			}
@@ -516,7 +517,7 @@ func validateTopologyTreeStateIndexes(t *testing.T, tree *topologyTree) {
 	_, log := utiltesting.ContextWithLog(t)
 	// Validate each domain's index against the per-snapshot domain state addressed
 	// by domain.idx.
-	snapshot := newTASFlavorSnapshot(log, "default", tree, nil, newDefaultSimulatorSnapshot())
+	snapshot := newTASFlavorSnapshot(log, "default", tree, nil, simulator.NewDefaultSimulatorSnapshot())
 	seen := make(map[int]*domain, tree.domainCount)
 	for _, levelDomains := range tree.domainsPerLevel {
 		for _, dom := range levelDomains {

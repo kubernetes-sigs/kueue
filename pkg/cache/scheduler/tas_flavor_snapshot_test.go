@@ -33,6 +33,7 @@ import (
 	crzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -513,7 +514,7 @@ func TestMergeTopologyAssignments(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", tree, nil, newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, "dummy", tree, nil, simulator.NewDefaultSimulatorSnapshot())
 
 			got := s.mergeTopologyAssignments(tc.a, tc.b)
 			if diff := cmp.Diff(tc.want, *got); diff != "" {
@@ -584,7 +585,7 @@ func TestHasLevel(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree(levels, nil, 0), nil, newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree(levels, nil, 0), nil, simulator.NewDefaultSimulatorSnapshot())
 			got := s.HasLevel(tc.podSetTopologyRequest)
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("unexpected HasLevel result (-want,+got): %s", diff)
@@ -860,7 +861,7 @@ func TestSortedDomainsWithLeader(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "test", newTopologyTree(levels, nil, 0), nil, newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, "test", newTopologyTree(levels, nil, 0), nil, simulator.NewDefaultSimulatorSnapshot())
 
 			sorted := s.sortedDomainsWithLeader(addDomainsWithState(s, tc.domains), tc.unconstrained)
 
@@ -1077,7 +1078,7 @@ func TestSortedDomains(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, tc.enableTASPreferredSchedulingAffinity)
 			_, log := utiltesting.ContextWithLog(t)
-			s := newTASFlavorSnapshot(log, "test", newTopologyTree(levels, nil, 0), nil, newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, "test", newTopologyTree(levels, nil, 0), nil, simulator.NewDefaultSimulatorSnapshot())
 
 			sorted := s.sortedDomains(addDomainsWithState(s, tc.domains), tc.unconstrained)
 
@@ -1141,7 +1142,7 @@ func TestCompareDomainLevelValues(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			s := newTASFlavorSnapshot(log, "test", newTopologyTree(tc.levels, nil, 0), nil, newDefaultSimulatorSnapshot())
+			s := newTASFlavorSnapshot(log, "test", newTopologyTree(tc.levels, nil, 0), nil, simulator.NewDefaultSimulatorSnapshot())
 			got := s.compareDomainLevelValues(tc.a, tc.b)
 			if (got < 0 && tc.want >= 0) || (got > 0 && tc.want <= 0) || (got == 0 && tc.want != 0) {
 				t.Errorf("compareDomainLevelValues() = %d, want sign matching %d", got, tc.want)
@@ -1460,7 +1461,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 				}).
 				Ready().
 				Obj()
-			snapshot := newTASFlavorSnapshot(log, "tas-topology", newTopologyTree([]string{"hostname"}, []*corev1.Node{nodeObj}, 0), nil, newDefaultSimulatorSnapshot())
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", newTopologyTree([]string{"hostname"}, []*corev1.Node{nodeObj}, 0), nil, simulator.NewDefaultSimulatorSnapshot())
 			domainID := snapshot.nodeToDomain[nodeObj.Name]
 
 			if snapshot.leaves[domainID] == nil {
@@ -1530,7 +1531,7 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 				Ready().
 				Obj())
 		}
-		return newTASFlavorSnapshot(log, "tas-topology", newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), nil, newDefaultSimulatorSnapshot())
+		return newTASFlavorSnapshot(log, "tas-topology", newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), nil, simulator.NewDefaultSimulatorSnapshot())
 	}
 	// One domain with capacity 1 cannot satisfy count 10.
 	callWithViolatedAssumptions := func(snapshot *TASFlavorSnapshot) []*domain {
