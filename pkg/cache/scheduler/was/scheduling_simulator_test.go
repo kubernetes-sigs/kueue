@@ -471,11 +471,10 @@ func TestWorkloadMapping(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			simRaw, err := NewWASSimulatorForTest(ctx)
+			sim, err := NewWASSimulatorForTest(ctx)
 			if err != nil {
 				t.Fatalf("NewWASSimulatorForTest failed: %v", err)
 			}
-			sim := simRaw.(*wasSimulator)
 
 			tc.operation(sim)
 
@@ -483,7 +482,10 @@ func TestWorkloadMapping(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Snapshot failed: %v", err)
 			}
-			snapshot := snapshotRaw.(*wasSimulatorSnapshot)
+			snapshot, ok := snapshotRaw.(*wasSimulatorSnapshot)
+			if !ok {
+				t.Fatalf("Snapshot is not a wasSimulatorSnapshot: %T", snapshotRaw)
+			}
 
 			if diff := cmp.Diff(tc.want, snapshot.podsByWorkload); diff != "" {
 				t.Errorf("Unexpected pod assignments (-want,+got):\n%s", diff)
@@ -612,11 +614,10 @@ func TestPreemptWorkload(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			simRaw, err := NewWASSimulatorForTest(ctx)
+			sim, err := NewWASSimulatorForTest(ctx)
 			if err != nil {
 				t.Fatalf("NewWASSimulatorForTest failed: %v", err)
 			}
-			sim := simRaw.(*wasSimulator)
 			tc.setup(sim)
 
 			snapshot, err := sim.Snapshot(ctx, nodes)
@@ -719,11 +720,10 @@ func TestSimulate(t *testing.T) {
 		return len(results) > 0
 	}
 
-	simRaw, err := NewWASSimulatorForTest(ctx)
+	sim, err := NewWASSimulatorForTest(ctx)
 	if err != nil {
 		t.Fatalf("NewWASSimulatorForTest failed: %v", err)
 	}
-	sim := simRaw.(*wasSimulator)
 	sim.TrackPod(existingPod)
 
 	snapshot, err := sim.Snapshot(ctx, nodes)
@@ -756,11 +756,10 @@ func TestSimulate(t *testing.T) {
 
 func TestTrackPodDeepCopy(t *testing.T) {
 	ctx := t.Context()
-	simRaw, err := NewWASSimulatorForTest(ctx)
+	sim, err := NewWASSimulatorForTest(ctx)
 	if err != nil {
 		t.Fatalf("NewWASSimulatorForTest failed: %v", err)
 	}
-	sim := simRaw.(*wasSimulator)
 
 	pod := makeSimplePod("pod1", "ns", kueue.WorkloadAnnotation, "wl1")
 	sim.TrackPod(pod)

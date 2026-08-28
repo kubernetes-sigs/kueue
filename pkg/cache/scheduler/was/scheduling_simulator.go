@@ -137,8 +137,16 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 
 // NewWASSimulatorForTest creates a WAS simulator backed by a fake client,
 // suitable for unit tests that need the full production plugin pipeline.
-func NewWASSimulatorForTest(ctx context.Context) (simulator.SchedulingSimulator, error) {
-	return newWASSimulator(ctx, fake.NewSimpleClientset())
+func NewWASSimulatorForTest(ctx context.Context) (*wasSimulator, error) {
+	iSim, err := newWASSimulator(ctx, fake.NewSimpleClientset())
+	if err == nil {
+		if sim, ok := iSim.(*wasSimulator); ok {
+			return sim, nil
+		} else {
+			err = fmt.Errorf("internal error: expected WAS simulator, got %T", iSim)
+		}
+	}
+	return nil, err
 }
 
 func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.SchedulingSimulator, error) {
