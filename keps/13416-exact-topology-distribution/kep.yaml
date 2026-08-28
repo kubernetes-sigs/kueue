@@ -16,11 +16,11 @@ see-also:
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha
 
-# The release target remains open while the KEP is provisional.
-latest-milestone: "TBD"
+# v0.19 is released, so v0.20 is the next development cycle.
+latest-milestone: "v0.20"
 
 milestone:
-  alpha: "TBD"
+  alpha: "v0.20"
   beta: "TBD"
   stable: "TBD"
 
@@ -28,4 +28,5 @@ feature-gates:
   - name: TASExactTopologyDistribution
 disable-supported: true
 
-metrics: []
+metrics:
+  - kueue_tas_exact_distribution_failures_total
