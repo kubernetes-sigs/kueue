@@ -672,6 +672,9 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 			logV.Info("Setting preemptor workload", "clusterQueue", wInfo.ClusterQueue, "workload", key)
 		}
 		c.pw.set(key, c.queueingStrategy == kueue.BestEffortFIFO, wInfo.LastEvaluatedGeneration)
+	} else if c.pw.matches(key, false, 0) {
+		log.V(3).Info("Clearing preemptor workload", "clusterQueue", wInfo.ClusterQueue, "workload", key, "reason", reason)
+		c.pw.clear()
 	}
 	c.forgetInflightByKey(key)
 
