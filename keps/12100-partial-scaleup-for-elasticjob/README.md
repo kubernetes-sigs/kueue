@@ -363,5 +363,6 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 The feature was not evaluated on Multikueue.
 
 ## Drawbacks
+The feature defines the kueue behavior and the user should make sure partial scale up is compatible with the job controller.
 
 ## Alternatives
