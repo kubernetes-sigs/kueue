@@ -299,57 +299,62 @@ func key(ns, name string) types.NamespacedName {
 func TestWorkloadMapping(t *testing.T) {
 	ctx := t.Context()
 
+	basicPod := makeSimplePod("ns", "pod", kueue.WorkloadAnnotation, "wl")
+	slicePod := makeSimplePod("ns", "pod", kueue.WorkloadSliceNameAnnotation, "slice-wl")
+	slicePodWithBasicAnnotation := func() *corev1.Pod {
+		pod := slicePod.DeepCopy()
+		pod.Annotations[kueue.WorkloadAnnotation] = "stale-wl"
+		return pod
+	}()
+	prebuiltWlPod := makeSimplePod(
+		"ns",
+		"pod",
+		controllerconstants.PrebuiltWorkloadAnnotation,
+		"prebuilt-wl",
+	)
+	groupPod := makeSimplePod("ns", "pod", podconstants.GroupNameAnnotation, "group-wl")
+
 	testCases := map[string]struct {
 		operation func(*wasSimulator)
 		want      podsByWorkload
 	}{
 		"add pod with workload annotation": {
 			operation: func(sim *wasSimulator) {
-				sim.TrackPod(makeSimplePod("ns", "pod", kueue.WorkloadAnnotation, "wl"))
+				sim.TrackPod(basicPod)
 			},
 			want: podsByWorkload{
 				key("ns", "wl"): podsByKey{
-					key("ns", "pod"): makeSimplePod("ns", "pod", kueue.WorkloadAnnotation, "wl"),
+					key("ns", "pod"): basicPod,
 				},
 			},
 		},
 		"add pod with slice name annotation": {
 			operation: func(sim *wasSimulator) {
-				sim.TrackPod(makeSimplePod("ns", "pod", kueue.WorkloadSliceNameAnnotation, "wl"))
+				sim.TrackPod(slicePod)
 			},
 			want: podsByWorkload{
-				key("ns", "wl"): podsByKey{
-					key("ns", "pod"): makeSimplePod("ns", "pod", kueue.WorkloadSliceNameAnnotation, "wl"),
+				key("ns", "slice-wl"): podsByKey{
+					key("ns", "pod"): slicePod,
 				},
 			},
 		},
 		"add pod with prebuilt workload annotation": {
 			operation: func(sim *wasSimulator) {
-				sim.TrackPod(makeSimplePod(
-					"ns",
-					"pod",
-					controllerconstants.PrebuiltWorkloadAnnotation,
-					"prebuilt-wl",
-				))
+				sim.TrackPod(prebuiltWlPod)
 			},
 			want: podsByWorkload{
 				key("ns", "prebuilt-wl"): podsByKey{
-					key("ns", "pod"): makeSimplePod(
-						"ns",
-						"pod",
-						controllerconstants.PrebuiltWorkloadAnnotation,
-						"prebuilt-wl",
-					),
+					key("ns", "pod"): prebuiltWlPod,
 				},
 			},
 		},
 		"add pod with group name annotation": {
 			operation: func(sim *wasSimulator) {
-				sim.TrackPod(makeSimplePod("ns", "pod", podconstants.GroupNameAnnotation, "group-wl"))
+				sim.TrackPod(groupPod)
 			},
 			want: podsByWorkload{
 				key("ns", "group-wl"): podsByKey{
-					key("ns", "pod"): makeSimplePod("ns", "pod", podconstants.GroupNameAnnotation, "group-wl"),
+					key("ns", "pod"): groupPod,
 				},
 			},
 		},
@@ -413,24 +418,18 @@ func TestWorkloadMapping(t *testing.T) {
 		},
 		"workload slice name annotation preferred over workload annotation": {
 			operation: func(sim *wasSimulator) {
-				pod := makeSimplePod("ns", "pod1", kueue.WorkloadSliceNameAnnotation, "slice-wl")
-				pod.Annotations[kueue.WorkloadAnnotation] = "regular-wl"
-				sim.TrackPod(pod)
+				sim.TrackPod(slicePodWithBasicAnnotation)
 			},
 			want: podsByWorkload{
 				key("ns", "slice-wl"): podsByKey{
-					key("ns", "pod1"): func() *corev1.Pod {
-						pod := makeSimplePod("ns", "pod1", kueue.WorkloadSliceNameAnnotation, "slice-wl")
-						pod.Annotations[kueue.WorkloadAnnotation] = "regular-wl"
-						return pod
-					}(),
+					key("ns", "pod"): slicePodWithBasicAnnotation,
 				},
 			},
 		},
 		"empty workload annotation with higher priority overrides non-empty workload annotation": {
 			operation: func(sim *wasSimulator) {
 				pod := makeSimplePod("ns", "pod1", podWorkloadAnnotations[0], "")
-				pod.Annotations[podWorkloadAnnotations[1]] = "regular-wl"
+				pod.Annotations[podWorkloadAnnotations[1]] = "non-empty-wl-name"
 				sim.TrackPod(pod)
 			},
 			want: podsByWorkload{},
