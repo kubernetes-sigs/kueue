@@ -35,9 +35,9 @@ const emptyResourceName = corev1.ResourceName("")
 func hashResourceName(name corev1.ResourceName) uint64 {
 	h := fnv.New64a()
 	// Write cannot fail: this is guaranteed by the hash.Hash interface contract:
-	// https://github.com/golang/go/blob/go1.26.5/src/hash/hash.go#L26-L29
+	// https://github.com/golang/go/blob/go1.27.0/src/hash/hash.go#L26-L29
 	// and by the fnv.New64a implementation, which always returns len(data), nil.
-	// https://github.com/golang/go/blob/go1.26.5/src/hash/fnv/fnv.go#L56-L115
+	// https://github.com/golang/go/blob/go1.27.0/src/hash/fnv/fnv.go#L63-L138
 	_, _ = h.Write([]byte(name))
 	return h.Sum64()
 }
