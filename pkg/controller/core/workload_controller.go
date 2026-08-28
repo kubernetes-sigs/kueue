@@ -606,11 +606,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		reason := kueue.WorkloadDeactivated
 		message := "The workload is deactivated"
 		dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
+		if dtCond != nil {
+			underlyingCause = kueue.EvictionUnderlyingCause(dtCond.Reason)
+			message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
+		}
 		if !workload.IsEvicted(&wl) {
-			if dtCond != nil {
-				underlyingCause = kueue.EvictionUnderlyingCause(dtCond.Reason)
-				message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
-			}
 			updated = true
 			evicted = true
 		}
@@ -625,10 +625,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			if dtCond != nil {
 				apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
 				// Consuming a DeactivationTarget on an already-evicted Workload (evicted is
-				// false) skips Evict(), the only other caller of ResetChecksOnEviction. Without
-				// this the checks keep whatever state they had, and a Rejected one would
-				// re-deactivate the Workload as soon as it is reactivated.
+				// false) skips Evict(), so record the deactivation reason and reset the checks
+				// here. Otherwise the Evicted condition keeps the reason of the earlier
+				// eviction, and a Rejected check would re-deactivate the Workload as soon as it
+				// is reactivated.
 				if !evicted {
+					workload.SetEvictedCondition(wl, r.clock.Now(),
+						workload.ReasonWithCause(reason, string(underlyingCause)), message)
 					workload.ResetChecksOnEviction(wl, r.clock.Now())
 				}
 			}

@@ -1183,8 +1183,8 @@ func TestReconcileEviction(t *testing.T) {
 					metav1.Condition{
 						Type:    kueue.WorkloadEvicted,
 						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
-						Message: "Evicted due to AdmissionCheck in Retry state",
+						Reason:  "DeactivatedDueToAdmissionCheck",
+						Message: `The workload is deactivated due to AdmissionCheck in Rejected state: "custom-check"`,
 					},
 				).
 				Obj(),
