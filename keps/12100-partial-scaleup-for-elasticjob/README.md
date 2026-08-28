@@ -78,8 +78,8 @@ As a user of a multi-podset RayJob (which defines a head pod and multiple worker
 
 ## Design Details
 
-For ElasticJobs, updating `job.spec.parallelism` could cause race conditions between partial scale up and scaling up/down activity. 
-To avoid this, the `job.spec.parallelism` won't be updated in `RunWithPodSetsInfo` for elastic jobs. Instead, the workload controller will use the `workload.Status.Admission.PodSetAssignments[*].Count` value to calculate the number of pods from which Kueue should remove scheduling gates. 
+For ElasticJobs, updating `job.spec.parallelism` or `rayClusterSpec.workerGroupSpecs[*].replicas` could cause race conditions between partial scale up and scaling up/down activity. 
+To avoid this, the `job.spec.parallelism` or `rayClusterSpec.workerGroupSpecs[*].replicas` won't be updated in `RunWithPodSetsInfo` for elastic jobs. Instead, the workload controller will use the `workload.Status.Admission.PodSetAssignments[*].Count` value to calculate the number of pods from which Kueue should remove scheduling gates. 
 The `Workload.Spec.PodSets[].MinCount` for an ElasticJob workload will equal to `min(admitted.count + 1, podset.count + 1)` of the previous workload and will represent the currently running pods + 1. The `podset.count` will represent currently running pods after scale down event, while `admitted.count` represents currently running pods after scale up event.
 Also, a new Workload representing the full job will be created and added to the queue, to admit the remaining capacity once it becomes available (opportunistic scale up).
 
@@ -118,7 +118,7 @@ The partial admission mechanism will be applied for the workload that represents
 ### Opportunistic scale up when capacity is freed
 
 In order to schedule remaining pods after partial scale up, the workload controller will create a new workload representing the full job and add it to the queue. The scheduler will admit the new workload and replace the old workload via the workload slice mechanism as capacity becomes available.
-The workload for the full capacity should be created despite the feature gate is enabled, in order to have consistent behaviour in case user disable feature gate. 
+The workload representing the full requested capacity is always created, regardless of whether the partial-scale-up feature gate is enabled. This keeps behavior consistent if a user disables the feature gate later
 
 #### WorkloadSlice Name
 
@@ -363,6 +363,7 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 The feature was not evaluated on Multikueue.
 
 ## Drawbacks
-The feature defines the kueue behavior and the user should make sure partial scale up is compatible with the job controller.
+- The feature defines the kueue behavior and the user should make sure partial scale up is compatible with the job controller.
+- see [StrictFIFO Constraint](#strictfifo-constraint)
 
 ## Alternatives
