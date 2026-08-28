@@ -5,7 +5,7 @@
 - [Motivation](#motivation)
   - [1. Defragmentation](#1-defragmentation)
   - [2. Hero workloads.](#2-hero-workloads)
-  - [3. Desired behavior of preemptions is buisness driven.](#3-desired-behavior-of-preemptions-is-buisness-driven)
+  - [3. Desired behavior of preemptions is business driven.](#3-desired-behavior-of-preemptions-is-business-driven)
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
@@ -182,14 +182,14 @@ quotas assigned to all cluster queue are bad from the user expierience perspecti
 Moreover they lead to wasted resources if hero workload failed for
 some reason, and quotas are not brought back to previous status.
 
-### 3. Desired behavior of preemptions is buisness driven
+### 3. Desired behavior of preemptions is business driven
 
 Many companies have speicific requirements when workload should be preempted or not,
-depending on their buisness needs.
+depending on their business needs.
 For example [issue](https://github.com/kubernetes-sigs/kueue/issues/9596) asks for minimal specifying minimal time before preemption can happen for a workload.
 Some buinsesses have SLAs for freshness of the provided information. Therefore,
 failure to run a workload in time (dictated by SLA) can lead to significant finacial penalties. On the other hand those workloads might not be super high priority - they should not preempt other workloads, just the fact that they will run in next "X hours" is enough to satisfy SLA.
-Other buisness might need workloads that are not preemptible at all.
+Other business might need workloads that are not preemptible at all.
 
 
 ### Other related issues:
@@ -208,7 +208,7 @@ demonstrate the interest in a KEP within the wider Kubernetes community.
 ### Goals
 1. Preemptions triggered by lack of sufficient topology domains to run the workload.
 2. Inter cluster queue premptions.
-3. Configurability of preemptions to satisfy various buisness requirements.
+3. Configurability of preemptions to satisfy various business requirements.
 4. Definition of most common fields that can be used to build preemption configurations.
 5. Definition of "golden" configurations for common preemption scenarios.
 
@@ -278,9 +278,9 @@ Each of the user stories mentioned in motivations can be fullfilled by appropria
 
 #### Story 1 - Defragmentation
 
-User can define a config with InsufficientTopology trigger that will allow preemption of workloads blocking specific topologies when scheduling of workload from connected cluster queue requires it. To avoid "flappy" preemption issues, the rules should be limited in a way that guarantes asymetry, if A can preempt B, B shouldn't be able to preempt A. This can be done in various ways, for example:
-* Only allow preemption of workloads with strictly smaller priority
-* Only allow preemption of workloads that require smaller topologies (e.g. using custom numeric label)
+User can define a config with InsufficientTopology trigger that will allow preemption of workloads blocking specific topologies when scheduling of workload from connected cluster queue requires it. To avoid "flappy" preemption issues, the rules should be limited in a way that guarantees asymmetry, if A can preempt B, B shouldn't be able to preempt A. This can be done in various ways, for example:
+* Only allow preemption of workloads with strictly smaller priority.
+* Only allow preemption of workloads that require smaller topologies (e.g. using custom numeric label).
 * Only allow preemption of workloads that should be preemptible according to FairSharing rules.
 
 Example config based on priority and slice size can look like this:
@@ -361,18 +361,27 @@ type PreemptionConfigSpec {
 	// Ordering of the preemption candidates.
 	// The order will be always deterministic, as UID
 	// of the workloads is used to break the ties
-	// If not set workloads will be just ordered by UID.
+	// If not set workloads will be ordered by Priority -> AdmissionTimestamp->  UID.
 	Ordering []Order
 }
 
-
 type PreemptionRuleTrigger string
-const (
-	InsufficientQuota PreemptionRuleTrigger = "InsufficientQuota"
-	QuotaReclaimRequired PreemptionRuleTrigger = "QuotaReclaimRequired"
-	InsufficientTopology PreemptionRuleTrigger = "InsufficientTopology"
-}
 
+const (
+	// InsufficientQuota means that there was an attempt to admit the workload,
+	// but there was not enough unused quota in the ClusterQueue or its Cohort to accommodate the Workload.
+	InsufficientQuota PreemptionRuleTrigger = "InsufficientQuota"
+
+	// QuotaReclaimRequired means that there was an attempt to admit the workload
+	// and workload should be admittable according to nominal quota of the ClusterQueue,
+	// but it cannot as quota was borrowed. Thereby, quota will have to be reclaimed before this workload is scheduled.
+	QuotaReclaimRequired PreemptionRuleTrigger = "QuotaReclaimRequired"
+
+	// InsufficientTopology means that there was an attempt to admit the workload,
+	// quota was available, but no topology domain satisfied its requirements.
+	// Unlike quota-related conditions, this condition is only reset on admission, as it is checked only after quota is available for the workload. 
+	InsufficientTopology PreemptionRuleTrigger = "InsufficientTopology"
+)
 
 type PreemptionRule struct {
 	Name string
@@ -392,10 +401,14 @@ type PreemptionRule struct {
 }
 ```
 
-The first observation timestamp that sepecific trigger occurred is put into workload conditions.  The conditions are cleared upon succesful addmition of the workload or if they are no longer true.
+The first observation timestamp that sepecific trigger occurred is put into workload conditions.  The conditions are cleared upon succesful addmition of the workload or if they are no longer true in case of quota related conditions.
+
 This will result in the following new condition types:
 `InsufficientQuota`, `InsufficientTopology`, `QuotaReclaimRequired`.
 
+For quota related conditions the `reason` field will be set to `QuotaFreed` if the condition was reset due to the fact:
+- in case of InsufficientQuota: enough quota become available to schedule the workload.
+- in case of QuotaReclaimRequired: quota became available for the workload or borrowed and free quota is no longer enough to schedule the workload.
 
 
 ```go
@@ -757,32 +770,32 @@ For example, consider ClusterQueues $A$ and $B$, each with a nominal quota of 5.
 - **Linear Filtering per Selection ($O(n \cdot m)$ to $O(n^2)$ ):** Dynamically filtering the candidate set and scanning for the minimum for each of the $m$ preemption targets requires $O(n)$ work per step, yielding $O(n \cdot m)$ time (up to $O(n^2)$ in the worst case where $m \approx n$).
 - **Dynamic Re-sorting ($O(m \cdot n \log n)$ to $O(n^2 \log n)$ ):** Naively re-sorting the candidate array whenever CQ borrowing or DRS metrics change introduces an $O(n \log n)$ sorting step per eviction, leading to $O(n^2 \log n)$ time and severe scheduler throughput degradation.
 
-#### Proposed Approach: Per-Rule, Per-CQ Priority Queues
-To achieve optimal scheduling performance without repetitive full-array scans or re-sorting, the evaluator maintains **separate priority queues partitioned by `(Rule, ClusterQueue)`**:
+#### Proposed Approach: Per-Selector, Per-CQ Priority Queues
+To achieve optimal scheduling performance without repetitive full-array scans or re-sorting, the evaluator maintains **separate priority queues partitioned by `(CandidateSelector, ClusterQueue)`**:
 
 1. **Static Intra-Queue Ordering (Sort Once):**
-   Within any given ClusterQueue, relative candidate ordering (e.g., by Priority, `AdmissionTimestamp`, Workload UID) is static and unaffected by dynamic quota borrowing or DRS changes. Therefore, candidate workloads within each `(Rule, CQ)` queue need to be sorted only once at the start of evaluation.
+   Within any given ClusterQueue, relative candidate ordering (e.g., by Priority, `AdmissionTimestamp`, Workload UID) is static and unaffected by dynamic quota borrowing or DRS changes. Therefore, candidate workloads within each `(Selector, CQ)` queue need to be sorted only once at the start of evaluation.
 
 2. **CQ-Level State Tracking & Fast Pruning ($O(1)$ Drop):**
-   Dynamic state—such as current borrowed quota and ClusterQueue DRS—is tracked via lightweight counters attached to each CQ queue. When a CQ property no longer satisfies the rule's criteria (e.g., borrowed quota reaches zero), the entire priority queue for that CQ under that rule is pruned from consideration in $O(1)$.
+   Dynamic state—such as current borrowed quota and ClusterQueue DRS—is tracked via lightweight counters attached to each CQ queue. When a CQ property no longer satisfies the selector's criteria (e.g., borrowed quota reaches zero for borrowing selectors), the entire priority queue for that CQ under that selector is pruned from consideration in $O(1)$.
 
 3. **Handling Workload-Specific Constraints (`DRSLessThanOrEqualToFinalShare`):**
-   For rules requiring workload-level evaluation (such as `DRSLessThanOrEqualToFinalShare`), the entire queue cannot simply be dropped at the CQ level because eligibility depends on the individual workload's DRS value. For these rules, candidates are evaluated at extraction time when inspected at the queue head. If a candidate violates the fair-sharing constraint under current simulated state, it is popped and discarded for that rule.
+   For selectors requiring workload-level evaluation (such as `DRSLessThanOrEqualToFinalShare`), the entire queue cannot simply be dropped at the CQ level because eligibility depends on the individual workload's DRS value. For these selectors, candidates are evaluated at extraction time when inspected at the queue head. If a candidate violates the fair-sharing constraint under current simulated state, it is popped and discarded for that selector.
 
 4. **Multi-Queue Head Selection:**
    At each preemption step, the evaluator inspects the heads of all active priority queues and selects the globally minimal candidate according to the configured `PreemptionConfig.Spec.Ordering`.
 
 5. **Deduplication & Multi-Queue Popping:**
-   A single workload can match multiple preemption rules and thus reside in multiple priority queues. Because the ordering comparator is consistent across queues, the selected minimal workload will always be at the head of all its corresponding queues. When chosen, it is popped from all matching queue heads simultaneously. Workloads are stored as shared pointers/references across queues to eliminate data duplication.
+   A single workload can match multiple candidate selectors (across one or more preemption rules) and thus reside in multiple priority queues. Because the ordering comparator is consistent across queues, the selected minimal workload will always be at the head of all its corresponding queues. When chosen, it is popped from all matching queue heads simultaneously. Workloads are stored as shared pointers/references across queues to eliminate data duplication.
 
 6. **Visibility and Preemption Justification:**
-   The set of priority queues from which a workload was popped directly identifies all matching rules, providing immediate justification and audit metadata for the preemption decision (see [Visibility](#visibility)).
+   The set of priority queues from which a workload was popped directly identifies all matching candidate selectors and rules, providing immediate justification and audit metadata for the preemption decision (see [Observability](#observability)).
 
 7. **Simulated State Updates:**
    After popping a candidate, the evaluator updates simulated state (reclaimed quota, updated DRS counters) and drops any newly ineligible CQ priority queues before the next selection step.
 
-#### Implementation Caveats and Rule Isolation
-Maintaining separate priority queues per rule is essential. If queues were pooled across rules, dropping an ineligible CQ queue due to exhausted borrowing or DRS thresholds would inadvertently discard candidates that matched other non-borrowing, static rules (such as priority-only preemption within the same CQ). Distinct per-rule queues permit aggressive filtering using static constraints up front while isolating dynamic state invalidation.
+#### Implementation Caveats and Selector Isolation
+Maintaining separate priority queues per candidate selector is essential. If queues were pooled across selectors (either within a rule or across rules), dropping an ineligible CQ queue due to exhausted borrowing or DRS thresholds would inadvertently discard candidates that matched other non-borrowing, static selectors (such as priority-only preemption within the same CQ). Distinct per-selector queues permit aggressive filtering using static constraints up front while isolating dynamic state invalidation.
 
 #### Open Challenges
 
@@ -795,7 +808,22 @@ Maintaining separate priority queues per rule is essential. If queues were poole
 **Vagueue implementation idea** - when backfilling hold the cohort tree with DRS values of minimal workloads that were preempted, if backfill will no change the DRS in a way that makes "fairness" rule no longer true for the minimal workloads, then don't reintroduce them.
 
 ### Observability
-TODO
+
+As new preemptions may be far more complex than existing classicial model it may be non trivial to judge why some workload was preempted just by looking at the ClusterQueue resource. Therefore we need to add more visibility into the preemption reasons. To satisy this needs details about the evction will be written in the `WorkloadSchedulingStatsEviction` structure in the Workload status.
+Reason will be set to a `ConfigurablePreemption` to indicate that the new mechanism was used for preemption. The `UnderlyingCause` will be filled with the following information up to the max characters:
+- preemtor workload reference,
+- preemption config name, rules and selectors index which resulted in chosing this workload as a candidate.
+
+Example message:
+`Preempted by <preemptor> because of preemption config <preemptionConfig> rule <ruleName>/<selectorIndex>`
+
+
+In case of multiple selectors which are triggered within one rule they will be concatenated with ",".
+
+Example message:
+`Preempted by <preemptor> because of preemption config <preemptionConfig> rule <ruleName_1>/<selectorIndex_1>,<selectorIndex_2>,...,<selectorIndex_n>; <ruleName_2>/<selectorIndex_1>,<selectorIndex_2>,...,<selectorIndex_n>; ...`
+
+New preemptions will overwrite previous underlying cause but increase the eviction count for this reason.
 
 ### Test Plan
 
