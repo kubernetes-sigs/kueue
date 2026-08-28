@@ -897,6 +897,37 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		// The state a Workload reaches once a max-execution-time deactivation has been carried
+		// out: inactive, evicted, and with the DeactivationTarget already consumed. Re-targeting
+		// it here would re-emit the warning on every reconcile.
+		"should not re-target an already deactivated workload that exceeded the maximum execution time": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				MaximumExecutionTimeSeconds(60).
+				AdmittedAt(true, now.Add(-2*time.Minute)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated due to exceeding the maximum execution time",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				MaximumExecutionTimeSeconds(60).
+				AdmittedAt(true, now.Add(-2*time.Minute)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated due to exceeding the maximum execution time",
+				}).
+				Obj(),
+		},
 		"should handle finished workload logic for orphaned workloads when FinishOrphanedWorkloads enabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns").

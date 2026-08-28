@@ -848,7 +848,10 @@ func isDisabledRequeuedByReason(w *kueue.Workload, reason string) bool {
 // reconcileMaxExecutionTime deactivates the workload if its MaximumExecutionTimeSeconds is exceeded or returns a retry after value.
 func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *kueue.Workload) (time.Duration, error) {
 	admittedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-	if admittedCondition == nil || admittedCondition.Status != metav1.ConditionTrue || wl.Spec.MaximumExecutionTimeSeconds == nil {
+	// A deactivated Workload keeps its Admitted condition until the Job controller releases the
+	// quota reservation, so without the IsActive check this would re-target it — and re-emit the
+	// warning — on every reconcile once the deactivation cleared the DeactivationTarget.
+	if !workload.IsActive(wl) || admittedCondition == nil || admittedCondition.Status != metav1.ConditionTrue || wl.Spec.MaximumExecutionTimeSeconds == nil {
 		return 0, nil
 	}
 
