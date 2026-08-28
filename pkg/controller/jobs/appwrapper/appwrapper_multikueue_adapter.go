@@ -60,6 +60,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		})
 	}
 
+	localAppWrapperRaw, err := jobframework.GetUnstructured(ctx, localClient, key, gvk)
+	if err != nil {
+		return false, err
+	}
+
 	// Make a copy of the local AppWrapper
 	remoteAppWrapper = awv1beta2.AppWrapper{
 		ObjectMeta: api.CloneObjectMetaForCreation(&localAppWrapper.ObjectMeta),
@@ -72,7 +77,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	// clear the managedBy to enable the remote AppWrapper controller to take over
 	remoteAppWrapper.Spec.ManagedBy = nil
 
-	return false, remoteClient.Create(ctx, &remoteAppWrapper)
+	return false, jobframework.CreateWithPreservedSpec(ctx, remoteClient, localAppWrapperRaw, &localAppWrapper, &remoteAppWrapper)
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {

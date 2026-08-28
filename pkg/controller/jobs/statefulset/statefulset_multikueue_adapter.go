@@ -57,6 +57,11 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 		return false, nil
 	}
 
+	localStatefulSetRaw, err := jobframework.GetUnstructured(ctx, localClient, key, gvk)
+	if err != nil {
+		return false, err
+	}
+
 	remoteStatefulSet = appsv1.StatefulSet{
 		ObjectMeta: api.CloneObjectMetaForCreation(&localStatefulSet.ObjectMeta),
 		Spec:       *localStatefulSet.Spec.DeepCopy(),
@@ -70,7 +75,7 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	}
 	remoteStatefulSet.Annotations[kueue.MultiKueueOriginUIDAnnotation] = string(localStatefulSet.UID)
 
-	return false, remoteClient.Create(ctx, &remoteStatefulSet)
+	return false, jobframework.CreateWithPreservedSpec(ctx, remoteClient, localStatefulSetRaw, &localStatefulSet, &remoteStatefulSet)
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
