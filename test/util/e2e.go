@@ -621,7 +621,7 @@ func ForceLeaderFailover(ctx context.Context, k8sClient client.Client) {
 
 	holderIdentity := ptr.Deref(lease.Spec.HolderIdentity, "")
 	gomega.Expect(holderIdentity).NotTo(gomega.BeEmpty(), "expected a current leader to be elected")
-	leaderPodName := strings.SplitN(holderIdentity, "_", 2)[0]
+	leaderPodName, _, _ := strings.Cut(holderIdentity, "_")
 
 	ginkgo.By(fmt.Sprintf("Deleting leader pod %q to force failover", leaderPodName))
 	leaderPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: kueueNS, Name: leaderPodName}}
