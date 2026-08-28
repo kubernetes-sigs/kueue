@@ -306,7 +306,7 @@ As it has "AnyClusterQueue" relation it can preempt workloads even if they are n
 ### Notes
 
 There are many possible extensions of the proposed selectors in the rules. For now we propose to support only those that for us seemed most common and natural, but the design allows for extensibility. Examples of possible extensions are:
--  advanced topology comparison selectors extending custom numeric label based selector - e.g. "require same podset required levels for considered workloads",
+- advanced topology comparison selectors extending custom numeric label based selector - e.g. "require same podset required levels for considered workloads",
 - resource requests/limits based selectors - "only preempt workloads that request less than X amount of resources",
 - detection of misconfigurations causing preemption cycles.
 
@@ -399,14 +399,40 @@ This will result in the following new condition types:
 
 
 ```go
+
+// PreemptionRelationConstraint specifies the relational boundary between
+// the preempting workload's queue and candidate workloads' queues.
+// Possible values are:
+// - "SameLocalQueue": restricts preemption candidates to workloads submitted to the exact same LocalQueue (matching name and namespace).
+// - "SameClusterQueue": restricts preemption candidates to workloads submitted to the same ClusterQueue as the preemptor.
+// - "SameCohort": restricts preemption candidates to workloads in ClusterQueues that share the exact same immediate direct Cohort, as well as workloads in the preemptor's own ClusterQueue (even if standalone).
+// - "SameCohortTree": restricts preemption candidates to workloads in ClusterQueues that belong to the same Cohort Tree (sharing the same root ancestor Cohort), as well as workloads in the preemptor's own ClusterQueue (even if standalone).
+// - "AnyClusterQueue": places no relationship restrictions on preemption candidates.
+//
+// +kubebuilder:validation:Enum=SameLocalQueue;SameClusterQueue;SameCohort;SameCohortTree;AnyClusterQueue
 type PreemptionRelationConstraint string
 
 const (
+  // SameLocalQueue restricts preemption candidates to workloads submitted
+	// to the exact same LocalQueue (matching name and namespace).
 	SameLocalQueue PreemptionRelationConstraint = "SameLocalQueue"
-	SameClusterQueue PreemptionRelationConstraint = "SameClusterQueue"
-	SameCohort PreemptionRelationConstraint = "SameCohort"
-	SameCohortTree PreemptionRelationConstraint = "SameCohortTree"
-	AnyClusterQueue PreemptionRelationConstraint = "AnyClusterQueue"
+
+  // SameClusterQueue restricts preemption candidates to workloads submitted
+	// to the same ClusterQueue as the preemptor.
+  SameClusterQueue PreemptionRelationConstraint = "SameClusterQueue"
+
+  // SameCohort restricts preemption candidates to workloads in ClusterQueues
+	// that share the exact same immediate direct Cohort, as well as workloads in the
+	// preemptor's own ClusterQueue (even if standalone and lacking a parent cohort).
+  SameCohort PreemptionRelationConstraint = "SameCohort"
+
+  // SameCohortTree restricts preemption candidates to workloads in ClusterQueues
+	// that belong to the same Cohort Tree (sharing the same root ancestor Cohort),
+	// as well as workloads in the preemptor's own ClusterQueue (even if standalone and lacking a parent cohort).
+  SameCohortTree PreemptionRelationConstraint = "SameCohortTree"
+
+  // AnyClusterQueue places no relationship restrictions on preemption candidates.
+  AnyClusterQueue PreemptionRelationConstraint = "AnyClusterQueue"
 )
 
 
@@ -420,7 +446,10 @@ const (
 )
 
 
+// PreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
 type PreemptionCandidateSelector struct{
+
+	// RelationRequirement specifies the queue or cohort relation boundary to the preemptor workload.
 	// Required. 
 	RelationRequirement PreemptionRelationConstraint
 
@@ -429,8 +458,7 @@ type PreemptionCandidateSelector struct{
 	Quota QuotaConstraint
 
 	// Accepts all if not set
-	// Filter candidate workloads using custom numeric labels from the workload
-	// resource.
+	// NumericLabels defines rules for filtering candidates using custom numeric labels on the Workload resource.
 	// Multiple numeric labels are joined using AND-rule (all have to be satisfied).
 	NumericLabels []NumericLabelConstraint
 
