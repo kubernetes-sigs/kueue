@@ -1280,11 +1280,7 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 		if priorityStateEqual(wl, priorityClassRef, priority) {
 			continue
 		}
-		if !priorityRefTransitionAllowed(wl, priorityClassRef) {
-			// The API server would refuse this write for as long as the reservation
-			// is held, so issuing it would only fail the reconcile and be retried
-			// forever. Leaving this workload behind keeps the rest of the batch
-			// moving instead of stopping on the first rejection.
+		if workload.HasQuotaReservation(wl) && !hasSameOrEmptyPriorityClass(wl.Spec.PriorityClassRef, priorityClassRef) {
 			log.V(2).Info("Leaving a workload that reserved quota on its current priority class, since the transition the owner asks for is immutable while quota is reserved",
 				"workload", klog.KObj(wl))
 			continue
@@ -1340,34 +1336,21 @@ func classifyWorkloadsForPriorityUpdate(log logr.Logger, jobPriorityClassName st
 	return sameClassName, needsClassChange
 }
 
-// priorityRefTransitionAllowed reports whether the API server will accept moving
-// wl onto the resolved ref. Once a workload has reserved quota the Workload CEL
-// rules freeze the priorityClassRef: it cannot be added or removed, its group and
-// kind cannot change, and for a Pod PriorityClass the name cannot change either.
-// A workload without a reservation is unconstrained.
-//
-// The classifier upstream cannot make this call, because it only sees the class
-// name; the group and kind of the target are not known until ExtractPriority has
-// resolved the ref.
-func priorityRefTransitionAllowed(wl *kueue.Workload, ref *kueue.PriorityClassRef) bool {
-	if !workload.HasQuotaReservation(wl) {
-		return true
-	}
-	current := wl.Spec.PriorityClassRef
-	// Adding or removing the ref. The addition half is already skipped by the
-	// classifier; the removal half reaches here when the owner's class stops
-	// resolving to anything.
-	if (current == nil) != (ref == nil) {
+// hasSameOrEmptyPriorityClass reports whether cur and ref agree on everything the
+// Workload CEL rules freeze while quota is reserved: presence, group and kind, and
+// for a Pod PriorityClass the name as well.
+func hasSameOrEmptyPriorityClass(cur, ref *kueue.PriorityClassRef) bool {
+	if (cur == nil) != (ref == nil) {
 		return false
 	}
-	if current == nil {
+	if cur == nil {
 		return true
 	}
-	if current.Group != ref.Group || current.Kind != ref.Kind {
+	if cur.Group != ref.Group || cur.Kind != ref.Kind {
 		return false
 	}
 	if ref.Group == kueue.PodPriorityClassGroup && ref.Kind == kueue.PodPriorityClassKind {
-		return current.Name == ref.Name
+		return cur.Name == ref.Name
 	}
 	return true
 }
