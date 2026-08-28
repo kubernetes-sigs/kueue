@@ -1,10 +1,12 @@
 title: Fair Sharing Refill
 kep-number: 14596
 authors:
+  - "@amy"
   - "@apullo777"
 status: provisional
 creation-date: 2026-08-17
 reviewers:
+  - "@amy"
 approvers:
   - "@mimowo"
 

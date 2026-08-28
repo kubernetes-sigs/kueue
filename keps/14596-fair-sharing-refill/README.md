@@ -62,8 +62,25 @@ The initial proposal is Fair-Sharing-only, Alpha, and disabled by default behind
 
 ## Motivation
 
-A backlogged ClusterQueue can contribute at most one candidate at cycle start, regardless of how far below its fair share it is.
-In the shape reported in [#9345](https://github.com/kubernetes-sigs/kueue/issues/9345), a ClusterQueue with a higher share can receive capacity that the fair-sharing ordering would otherwise have given to a poorer ClusterQueue, because the poorer one has no second candidate in the cycle.
+The concrete example from [#9345](https://github.com/kubernetes-sigs/kueue/issues/9345):
+
+```text
+- Root Cohort (4 GPU)
+  - CQ-A (0 GPU)
+  - CQ-B (0 GPU)
+```
+
+Each workload requests 1 GPU.
+
+|  | Without refill (as reported in #9345) | With refill |
+|---|---|---|
+| t0 | `create a0, a1` | `create a0, a1` |
+| t1 | `a0, a1 schedule; DRS(CQ-A): 500` | `a0, a1 schedule; DRS(CQ-A): 500` |
+| t2 | `create a2, b0, b1` | `create a2, b0, b1` |
+| t3 | `a2, b0 schedule; DRS(CQ-A): 750, DRS(CQ-B): 250` | `b0 schedules; ordering recomputed: DRS(CQ-B): 250 < DRS(CQ-A): 500, refill pops b1` |
+| t3 (cont.) | | `b1 schedules; DRS(CQ-A): 500, DRS(CQ-B): 500` |
+
+The fair-sharing ordering was never wrong here. CQ-B loses the second GPU because the cycle sees only one workload per ClusterQueue, so b1 never competes even though CQ-B is still furthest below its fair share. Refill lets the ordering keep deciding within the cycle until capacity or the budget runs out, converging to 500/500 instead of locking in 750/250.
 
 Refill changes a scheduler invariant that extends beyond Fair Sharing: the set of candidates in a scheduling cycle is no longer fixed at cycle start.
 Features that rely on the existing one-candidate-per-ClusterQueue behavior therefore need explicit interaction rules.
