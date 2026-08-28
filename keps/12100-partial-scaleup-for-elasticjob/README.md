@@ -364,6 +364,7 @@ The feature was not evaluated on Multikueue.
 
 ## Drawbacks
 - The feature defines the kueue behavior and the user should make sure partial scale up is compatible with the job controller.
+- For Ray, gated pods waiting for capacity are recycled by the Ray autoscaler rather than waiting indefinitely. On Ray 2.47+ this is RAY_AUTOSCALER_RECONCILE_ALLOCATE_STATUS_TIMEOUT_S, one hour by default.
 - see [StrictFIFO Constraint](#strictfifo-constraint)
 
 ## Alternatives
