@@ -477,10 +477,11 @@ type PreemptionCandidateSelector struct{
 	// Matches all workload priority classes if not set.
 	CandidateWorkloadPrioritySelector metav1.LabelSelector
 
-	// The comparison is made against the preempting workload.
-	// Lower means that the candidate
-	// has lower priority than the preemptor and so on. No check is made
-	// if the field is nil.
+	// RelativeWorkloadPriority defines how the preemptor's priority compares to the candidate's priority.
+	// For example "Lower" means that only workloads with lower
+	// priority will be allowed as preemption candidates.
+	// The comparison is made using effective priority (accounting for priority boost if enabled).
+	// If nil, no relative priority check is enforced.
 	RelativeWorkloadPrioirty *RelativeConstraint
 
 	// Accepts any execution times if not set
@@ -542,8 +543,8 @@ const (
 	Greater RelativeConstraint = "Greater"
 	// LowerOrEqual permits preemption if candidate field value <= preemptor field value
 	LowerOrEqual RelativeConstraint = "LowerOrEqual"
-	// GreaterOrEquals permits preemption if candidate field value >= preemptor field value
-	GreaterOrEquals RelativeConstraint = "GreaterOrEqual"
+	// GreaterOrEqual permits preemption if candidate field value >= preemptor field value
+	GreaterOrEqual RelativeConstraint = "GreaterOrEqual"
 )
 
 type OrderingField string
