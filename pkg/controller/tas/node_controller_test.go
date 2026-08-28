@@ -614,6 +614,52 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
+		// A pod pinned to the node by topology can never schedule while the node carries an
+		// untolerated taint. Terminating it without recording the node lets the recreated pod
+		// be ungated onto the same node and terminated again, indefinitely. The node must be
+		// recorded even though a running pod makes hasProgressingPods true.
+		"Node has untolerated NoSchedule taint, running pod and replacement pinned to node -> Unhealthy (node recorded, replacement terminated)": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				baseWorkload.DeepCopy(),
+				basePod.DeepCopy(),
+				pendingPodWithSelector.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			wantPatchedPods:    []string{"pending-pod-selector"},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASReplaceNodeOnPodTermination:   true,
+				features.TASFailedNodeReplacementFailFast: false,
+			},
+		},
+		// With ReplaceNodeOnPodTermination off, getWorkloadStatus short-circuits to Unhealthy
+		// before inspecting pods, so the node was always recorded. Pinned here so the
+		// gate-on case above cannot silently diverge from it again.
+		"Node has untolerated NoSchedule taint, replacement pinned to node, ReplaceNodeOnPodTermination off -> Unhealthy": {
+			initObjs: []client.Object{
+				baseNode.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: now}).
+					Taints(corev1.Taint{Key: "foo", Effect: corev1.TaintEffectNoSchedule}).Obj(),
+				baseWorkload.DeepCopy(),
+				basePod.DeepCopy(),
+				pendingPodWithSelector.DeepCopy(),
+			},
+			reconcileRequests:  []reconcile.Request{{NamespacedName: types.NamespacedName{Name: nodeName}}},
+			wantUnhealthyNodes: []kueue.UnhealthyNode{{Name: nodeName}},
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnNodeTaints:       true,
+				features.TASReplaceNodeOnPodTermination:   false,
+				features.TASFailedNodeReplacementFailFast: false,
+			},
+		},
 		"Node has untolerated NoExecute taint, ReplaceNodeOnPodTermination off -> Unhealthy (Immediate)": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
