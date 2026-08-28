@@ -31,6 +31,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -90,6 +91,9 @@ func TestReconcileGenericJob(t *testing.T) {
 		Queue(testLocalQueueName).
 		PodSets(basePodSets...).
 		Priority(0)
+	// No pod set assignments, so equivalence compares against the workload spec.
+	reservedIn := &kueue.Admission{ClusterQueue: "cq"}
+	reservedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 	testCases := map[string]struct {
 		featureGates      map[featuregate.Feature]bool
@@ -498,6 +502,66 @@ func TestReconcileGenericJob(t *testing.T) {
 					},
 					NodeSelector: map[string]string{},
 				},
+			},
+		},
+		// Group and kind are frozen while quota is reserved.
+		"quota-reserved workload is not moved onto a pod priority class": {
+			req: baseReq,
+			job: baseJob.DeepCopy(),
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("main", 1).PriorityClass("podpc").Obj(),
+			},
+			objs: []client.Object{
+				&schedulingv1.PriorityClass{ObjectMeta: metav1.ObjectMeta{Name: "podpc"}, Value: 50},
+				baseWl.Clone().Name("job-test-job-1").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("high").Priority(100).
+					ReserveQuotaAt(reservedIn, reservedAt).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("high").Priority(100).
+					ReserveQuotaAt(reservedIn, reservedAt).
+					Obj(),
+			},
+		},
+		// A nil resolved ref is a removal, frozen while quota is reserved.
+		"quota-reserved workload keeps its priority class when the owner's stops resolving": {
+			req:     baseReq,
+			job:     baseJob.DeepCopy(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					WorkloadPriorityClassRef("high").Priority(100).
+					ReserveQuotaAt(reservedIn, reservedAt).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").
+					WorkloadPriorityClassRef("high").Priority(100).
+					ReserveQuotaAt(reservedIn, reservedAt).
+					Obj(),
+			},
+		},
+		// Same group and kind, so the rename is legal while reserved.
+		"quota-reserved workload follows the owner to another workload priority class": {
+			req:     baseReq,
+			job:     baseJob.Clone().WorkloadPriorityClass("low").Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(10).Obj(),
+				baseWl.Clone().Name("job-test-job-1").
+					WorkloadPriorityClassRef("high").Priority(100).
+					ReserveQuotaAt(reservedIn, reservedAt).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").
+					WorkloadPriorityClassRef("low").Priority(10).
+					ReserveQuotaAt(reservedIn, reservedAt).
+					Obj(),
 			},
 		},
 	}
