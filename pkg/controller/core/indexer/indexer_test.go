@@ -298,16 +298,6 @@ func TestIndexWorkloadQuotaReserved(t *testing.T) {
 }
 
 func TestIndexWorkloadRuntimeClass(t *testing.T) {
-	rc1, rc2 := "rc-fast", "rc-slow"
-
-	podSet := func(name string, rc *string) kueue.PodSet {
-		w := utiltestingapi.MakePodSet(kueue.PodSetReference(name), 1)
-		if rc != nil {
-			w = w.RuntimeClass(*rc)
-		}
-		return *w.Obj()
-	}
-
 	cases := map[string]struct {
 		obj  client.Object
 		want []string
@@ -321,19 +311,33 @@ func TestIndexWorkloadRuntimeClass(t *testing.T) {
 			want: nil,
 		},
 		"podset with no runtime class returns nil": {
-			obj:  utiltestingapi.MakeWorkload("wl", "ns").PodSets(podSet("main", nil)).Obj(),
+			obj: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Obj(),
 			want: nil,
 		},
 		"workload with single runtime class": {
-			obj:  utiltestingapi.MakeWorkload("wl", "ns").PodSets(podSet("main", &rc1)).Obj(),
+			obj: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("rc-fast").Obj()).
+				Obj(),
 			want: []string{"rc-fast"},
 		},
 		"workload with multiple distinct runtime classes": {
-			obj:  utiltestingapi.MakeWorkload("wl", "ns").PodSets(podSet("ps1", &rc1), podSet("ps2", &rc2)).Obj(),
+			obj: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(
+					*utiltestingapi.MakePodSet("ps1", 1).RuntimeClass("rc-fast").Obj(),
+					*utiltestingapi.MakePodSet("ps2", 1).RuntimeClass("rc-slow").Obj(),
+				).
+				Obj(),
 			want: []string{"rc-fast", "rc-slow"},
 		},
 		"duplicate runtime class across podsets is deduplicated": {
-			obj:  utiltestingapi.MakeWorkload("wl", "ns").PodSets(podSet("ps1", &rc1), podSet("ps2", &rc1)).Obj(),
+			obj: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(
+					*utiltestingapi.MakePodSet("ps1", 1).RuntimeClass("rc-fast").Obj(),
+					*utiltestingapi.MakePodSet("ps2", 1).RuntimeClass("rc-fast").Obj(),
+				).
+				Obj(),
 			want: []string{"rc-fast"},
 		},
 	}
@@ -596,10 +600,6 @@ func TestIndexWorkloadExtendedResources(t *testing.T) {
 		return *c.Obj()
 	}
 
-	podSetWithContainers := func(containers ...corev1.Container) kueue.PodSet {
-		return *utiltestingapi.MakePodSet("main", 1).Containers(containers...).Obj()
-	}
-
 	containerWithLimits := func(name string, limits corev1.ResourceList) corev1.Container {
 		c := utiltesting.MakeContainer().Name(name)
 		for r, q := range limits {
@@ -618,44 +618,44 @@ func TestIndexWorkloadExtendedResources(t *testing.T) {
 		},
 		"workload with only cpu and memory": {
 			obj: utiltestingapi.MakeWorkload("wl", "ns").
-				PodSets(podSetWithContainers(container("c", corev1.ResourceList{
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(container("c", corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("1"),
 					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				}))).
+				})).Obj()).
 				Obj(),
 			want: nil,
 		},
 		"workload with single extended resource": {
 			obj: utiltestingapi.MakeWorkload("wl", "ns").
-				PodSets(podSetWithContainers(container("c", corev1.ResourceList{
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(container("c", corev1.ResourceList{
 					"nvidia.com/gpu": resource.MustParse("1"),
-				}))).
+				})).Obj()).
 				Obj(),
 			want: []string{"nvidia.com/gpu"},
 		},
 		"workload with extended resource only in limits": {
 			obj: utiltestingapi.MakeWorkload("wl", "ns").
-				PodSets(podSetWithContainers(containerWithLimits("c", corev1.ResourceList{
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(containerWithLimits("c", corev1.ResourceList{
 					"nvidia.com/gpu": resource.MustParse("1"),
-				}))).
+				})).Obj()).
 				Obj(),
 			want: []string{"nvidia.com/gpu"},
 		},
 		"workload with multiple extended resources": {
 			obj: utiltestingapi.MakeWorkload("wl", "ns").
-				PodSets(podSetWithContainers(
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(
 					container("c1", corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("1")}),
 					container("c2", corev1.ResourceList{"google.com/tpu": resource.MustParse("2")}),
-				)).
+				).Obj()).
 				Obj(),
 			want: []string{"google.com/tpu", "nvidia.com/gpu"},
 		},
 		"duplicate extended resource across containers is deduplicated": {
 			obj: utiltestingapi.MakeWorkload("wl", "ns").
-				PodSets(podSetWithContainers(
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(
 					container("c1", corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("1")}),
 					container("c2", corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("2")}),
-				)).
+				).Obj()).
 				Obj(),
 			want: []string{"nvidia.com/gpu"},
 		},
