@@ -28,7 +28,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -592,22 +591,6 @@ func TestSetupToleratesNoMatchErrorForDeviceClass(t *testing.T) {
 }
 
 func TestIndexWorkloadExtendedResources(t *testing.T) {
-	container := func(name string, requests corev1.ResourceList) corev1.Container {
-		c := utiltesting.MakeContainer().Name(name)
-		for r, q := range requests {
-			c = c.WithResourceReq(r, q.String())
-		}
-		return *c.Obj()
-	}
-
-	containerWithLimits := func(name string, limits corev1.ResourceList) corev1.Container {
-		c := utiltesting.MakeContainer().Name(name)
-		for r, q := range limits {
-			c = c.WithResourceLimit(r, q.String())
-		}
-		return *c.Obj()
-	}
-
 	cases := map[string]struct {
 		obj  client.Object
 		want []string
@@ -618,34 +601,36 @@ func TestIndexWorkloadExtendedResources(t *testing.T) {
 		},
 		"workload with only cpu and memory": {
 			obj: utiltestingapi.MakeWorkload("wl", "ns").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(container("c", corev1.ResourceList{
-					corev1.ResourceCPU:    resource.MustParse("1"),
-					corev1.ResourceMemory: resource.MustParse("1Gi"),
-				})).Obj()).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(
+					*utiltesting.MakeContainer().Name("c").
+						WithResourceReq(corev1.ResourceCPU, "1").
+						WithResourceReq(corev1.ResourceMemory, "1Gi").
+						Obj(),
+				).Obj()).
 				Obj(),
 			want: nil,
 		},
 		"workload with single extended resource": {
 			obj: utiltestingapi.MakeWorkload("wl", "ns").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(container("c", corev1.ResourceList{
-					"nvidia.com/gpu": resource.MustParse("1"),
-				})).Obj()).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(
+					*utiltesting.MakeContainer().Name("c").WithResourceReq("nvidia.com/gpu", "1").Obj(),
+				).Obj()).
 				Obj(),
 			want: []string{"nvidia.com/gpu"},
 		},
 		"workload with extended resource only in limits": {
 			obj: utiltestingapi.MakeWorkload("wl", "ns").
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(containerWithLimits("c", corev1.ResourceList{
-					"nvidia.com/gpu": resource.MustParse("1"),
-				})).Obj()).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(
+					*utiltesting.MakeContainer().Name("c").WithResourceLimit("nvidia.com/gpu", "1").Obj(),
+				).Obj()).
 				Obj(),
 			want: []string{"nvidia.com/gpu"},
 		},
 		"workload with multiple extended resources": {
 			obj: utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(
-					container("c1", corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("1")}),
-					container("c2", corev1.ResourceList{"google.com/tpu": resource.MustParse("2")}),
+					*utiltesting.MakeContainer().Name("c1").WithResourceReq("nvidia.com/gpu", "1").Obj(),
+					*utiltesting.MakeContainer().Name("c2").WithResourceReq("google.com/tpu", "2").Obj(),
 				).Obj()).
 				Obj(),
 			want: []string{"google.com/tpu", "nvidia.com/gpu"},
@@ -653,8 +638,8 @@ func TestIndexWorkloadExtendedResources(t *testing.T) {
 		"duplicate extended resource across containers is deduplicated": {
 			obj: utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Containers(
-					container("c1", corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("1")}),
-					container("c2", corev1.ResourceList{"nvidia.com/gpu": resource.MustParse("2")}),
+					*utiltesting.MakeContainer().Name("c1").WithResourceReq("nvidia.com/gpu", "1").Obj(),
+					*utiltesting.MakeContainer().Name("c2").WithResourceReq("nvidia.com/gpu", "2").Obj(),
 				).Obj()).
 				Obj(),
 			want: []string{"nvidia.com/gpu"},
