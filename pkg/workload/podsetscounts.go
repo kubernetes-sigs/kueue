@@ -64,16 +64,19 @@ func ExtractPodSetCounts(podSets []kueue.PodSet) PodSetsCounts {
 	})
 }
 
-// ExtractPodSetAssignmentsCounts builds a PodSetsCounts map from a list of PodSetAssignments.
+// ExtractGrantedPodSetCounts builds a PodSetsCounts map from a list of PodSetAssignments.
 // Each entry maps PodSet name to its replica count.
-func ExtractPodSetAssignmentsCounts(podSets []kueue.PodSetAssignment) PodSetsCounts {
-	return utilslices.ToMap(podSets, func(i int) (kueue.PodSetReference, int32) {
-		val := int32(0)
-		if podSets[i].Count != nil {
-			val = *podSets[i].Count
-		}
-		return podSets[i].Name, val
-	})
+func ExtractGrantedPodSetCounts(wl *kueue.Workload) PodSetsCounts {
+	if wl.Status.Admission == nil {
+		return nil
+	}
+	counts := ExtractPodSetSetCountsFromWorkload(wl)
+	granted := make(PodSetCounts, len(wl.Status.Admission.PodSetAssignments))
+	for _, psa := range wl.Status.Admission.PodSetAssignments {
+		count := counts[psa.Name]
+		granted[psa.Name] = min(ptr.Deref(psa.Count, count), count)
+	}
+	return granted
 }
 
 // ExtractPodSetCountsFromWorkload returns a PodSetsCounts map derived from the provided Workload.
