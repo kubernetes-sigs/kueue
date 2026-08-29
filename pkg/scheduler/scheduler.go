@@ -398,9 +398,10 @@ func (s *Scheduler) requeueHeadsAfterSnapshotError(ctx context.Context, heads []
 	}
 }
 
-// finishEntry takes an entry down the terminal path its status calls for, and reports
-// whether the cycle counts as a successful admission attempt. Admitted entries skip
-// the requeue, and so do evicted ones: the workload controller finalizes the eviction.
+// finishEntry concludes an entry's scheduling cycle and reports whether the
+// entry counts as a successful admission attempt. Assumed and evicted entries
+// need no requeue: assumed workloads are admitted, and evicted ones are
+// finalized by the workload controller. All other entries are requeued.
 func (s *Scheduler) finishEntry(ctx context.Context, log logr.Logger, e *entry) bool {
 	logAdmissionAttemptIfVerbose(log, e)
 	if e.status == assumed || e.status == evicted {
