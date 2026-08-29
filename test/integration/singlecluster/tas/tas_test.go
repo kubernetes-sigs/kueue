@@ -4142,6 +4142,18 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						}).
 						Ready().
 						Obj(),
+					*testingnode.MakeNode("x3").
+						Label("node-group", "tas").
+						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+						Label(utiltesting.DefaultRackTopologyLevel, "r3").
+						Label(corev1.LabelHostname, "x3").
+						StatusAllocatable(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("2"),
+							corev1.ResourceMemory: resource.MustParse("5Gi"),
+							corev1.ResourcePods:   resource.MustParse("10"),
+						}).
+						Ready().
+						Obj(),
 				}
 				util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
@@ -4436,18 +4448,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						StatusAllocatable(corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("1"),
 							corev1.ResourceMemory: resource.MustParse("1Gi"),
-							corev1.ResourcePods:   resource.MustParse("10"),
-						}).
-						Ready().
-						Obj(),
-					*testingnode.MakeNode("x3").
-						Label("node-group", "tas").
-						Label(utiltesting.DefaultBlockTopologyLevel, "b1").
-						Label(utiltesting.DefaultRackTopologyLevel, "r3").
-						Label(corev1.LabelHostname, "x3").
-						StatusAllocatable(corev1.ResourceList{
-							corev1.ResourceCPU:    resource.MustParse("2"),
-							corev1.ResourceMemory: resource.MustParse("5Gi"),
 							corev1.ResourcePods:   resource.MustParse("10"),
 						}).
 						Ready().
