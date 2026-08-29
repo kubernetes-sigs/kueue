@@ -68,13 +68,6 @@ func TestExtractPodSetCounts(t *testing.T) {
 	}
 }
 
-func testPodSetAssignment(name string, count int32) kueue.PodSetAssignment {
-	return kueue.PodSetAssignment{
-		Name:  kueue.NewPodSetReference(name),
-		Count: &count,
-	}
-}
-
 func TestExtractPodSetAssignmentsCounts(t *testing.T) {
 	type args struct {
 		podSets []kueue.PodSetAssignment
