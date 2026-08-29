@@ -92,16 +92,14 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	// Register node and pod informers with the factory; sync errors are caught by AsError() below.
 	_ = informerFactory.Core().V1().Nodes().Informer()
 	_ = informerFactory.Core().V1().Pods().Informer()
-	simCtx := klog.NewContext(ctx, logr.Discard())
-	informerFactory.StartWithContext(simCtx)
-	if err := informerFactory.WaitForCacheSyncWithContext(simCtx).AsError(); err != nil {
+	informerFactory.StartWithContext(ctx)
+	if err := informerFactory.WaitForCacheSyncWithContext(ctx).AsError(); err != nil {
 		return nil, err
 	}
 
 	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error) {
 		snap := cache.NewSnapshot(pods, nodes)
-		simCtx := klog.NewContext(ctx, logr.Discard())
-		profiles, err := framework.NewProfileMap(simCtx, client, informerFactory, snap, cfg)
+		profiles, err := framework.NewProfileMap(ctx, client, informerFactory, snap, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -118,8 +116,10 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 
 // NewWASSimulatorForTest creates a WAS simulator backed by a fake client,
 // suitable for unit tests that need the full production plugin pipeline.
+// It wraps ctx with a discard logger to prevent background informer goroutines
+// from racing with test teardown when t.Context() carries a test logger.
 func NewWASSimulatorForTest(ctx context.Context) (simulator.SchedulingSimulator, error) {
-	return newWASSimulator(ctx, fake.NewSimpleClientset())
+	return newWASSimulator(klog.NewContext(ctx, logr.Discard()), fake.NewSimpleClientset())
 }
 
 func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.SchedulingSimulator, error) {
