@@ -211,7 +211,7 @@ func validateMultiKueue(c *configapi.Configuration, integrationManager *jobframe
 		}
 
 		if cp := c.MultiKueue.ClusterProfile; cp != nil {
-			credentialsProviders := cp.CredentialsProviders //nolint:staticcheck // SA1019: CredentialsProviders is validated for backward compatibility.
+			credentialsProviders := cp.CredentialsProviders
 			if len(cp.AccessProviders) > 0 && len(credentialsProviders) > 0 {
 				allErrs = append(allErrs, field.Forbidden(clusterProfileCredentialProvidersPath, "must not be specified when accessProviders is specified"))
 			}
