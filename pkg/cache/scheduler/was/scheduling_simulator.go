@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"iter"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
+	"k8s.io/klog/v2"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
@@ -90,14 +92,16 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	// Register node and pod informers with the factory; sync errors are caught by AsError() below.
 	_ = informerFactory.Core().V1().Nodes().Informer()
 	_ = informerFactory.Core().V1().Pods().Informer()
-	informerFactory.StartWithContext(ctx)
-	if err := informerFactory.WaitForCacheSyncWithContext(ctx).AsError(); err != nil {
+	simCtx := klog.NewContext(ctx, logr.Discard())
+	informerFactory.StartWithContext(simCtx)
+	if err := informerFactory.WaitForCacheSyncWithContext(simCtx).AsError(); err != nil {
 		return nil, err
 	}
 
 	snapshotFn := func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error) {
 		snap := cache.NewSnapshot(pods, nodes)
-		profiles, err := framework.NewProfileMap(ctx, client, informerFactory, snap, cfg)
+		simCtx := klog.NewContext(ctx, logr.Discard())
+		profiles, err := framework.NewProfileMap(simCtx, client, informerFactory, snap, cfg)
 		if err != nil {
 			return nil, err
 		}
