@@ -770,9 +770,8 @@ func (h *lwsStsHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 	)
 	log.V(3).Info("Enqueue LeaderWorkerSet StatefulSet")
 
-	// Handle only when .Status.CurrentRevision != .Status.UpdateRevision.
-	// This ensures that Pod scheduling gates are removed when the revision changes.
-	if sts.Status.CurrentRevision == "" || sts.Status.UpdateRevision == "" &&
+	// Handle only a rollout, since that is when the Pod scheduling gates come off.
+	if sts.Status.CurrentRevision == "" || sts.Status.UpdateRevision == "" ||
 		sts.Status.CurrentRevision == sts.Status.UpdateRevision {
 		return
 	}
