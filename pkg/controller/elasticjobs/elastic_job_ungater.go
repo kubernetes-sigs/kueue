@@ -305,7 +305,7 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		return nil, fmt.Errorf("listing pods for workload slice: %w", err)
 	}
 
-	granted := workload.ExtractPodSetAssignmentsCounts(wl.Status.Admission.PodSetAssignments)
+	granted := workload.ExtractGrantedPodSetCounts(wl)
 	gatedPerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
 	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
 	admissionUpdates := make(map[kueue.PodSetReference]podAdmissionUpdate)

@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
@@ -68,28 +69,59 @@ func TestExtractPodSetCounts(t *testing.T) {
 	}
 }
 
-func TestExtractPodSetAssignmentsCounts(t *testing.T) {
-	type args struct {
-		podSets []kueue.PodSetAssignment
-	}
+func TestExtractGrantedPodSetCounts(t *testing.T) {
 	tests := map[string]struct {
-		args args
-		want PodSetsCounts
+		podSets           []kueue.PodSet
+		podSetsAssignment []kueue.PodSetAssignment
+		wantGranted       PodSetsCounts
 	}{
-		"EmptyPodSets": {},
-		"SinglePodSet": {
-			args: args{
-				podSets: []kueue.PodSetAssignment{testPodSetAssignment("test", 10)},
+		"EmptyPodSets": {
+			wantGranted: PodSetsCounts{},
+		},
+		"SinglePodSetAssignment": {
+			podSets: []kueue.PodSet{
+				{Name: kueue.NewPodSetReference("test"), Count: 20},
 			},
-			want: PodSetsCounts{
+			podSetsAssignment: []kueue.PodSetAssignment{
+				{
+					Name:  kueue.NewPodSetReference("test"),
+					Count: ptr.To[int32](10),
+				},
+			},
+			wantGranted: PodSetsCounts{
 				"test": 10,
 			},
 		},
-		"MultiplePodSets": {
-			args: args{
-				podSets: []kueue.PodSetAssignment{testPodSetAssignment("test-a", 10), testPodSetAssignment("test-b", 11)},
+		"MultiplePodSetAssignments": {
+			podSets: []kueue.PodSet{
+				{Name: kueue.NewPodSetReference("test-a"), Count: 20},
+				{Name: kueue.NewPodSetReference("test-b"), Count: 25},
 			},
-			want: PodSetsCounts{
+			podSetsAssignment: []kueue.PodSetAssignment{
+				{
+					Name:  kueue.NewPodSetReference("test-a"),
+					Count: ptr.To[int32](10),
+				},
+				{
+					Name:  kueue.NewPodSetReference("test-b"),
+					Count: ptr.To[int32](11),
+				},
+			},
+			wantGranted: PodSetsCounts{
+				"test-a": 10,
+				"test-b": 11,
+			},
+		},
+		"WorkloadAfterScaleDown": {
+			podSets: []kueue.PodSet{
+				{Name: kueue.NewPodSetReference("test-a"), Count: 10},
+				{Name: kueue.NewPodSetReference("test-b"), Count: 11},
+			},
+			podSetsAssignment: []kueue.PodSetAssignment{
+				{Name: kueue.NewPodSetReference("test-a"), Count: ptr.To[int32](20)},
+				{Name: kueue.NewPodSetReference("test-b"), Count: ptr.To[int32](25)},
+			},
+			wantGranted: PodSetsCounts{
 				"test-a": 10,
 				"test-b": 11,
 			},
@@ -97,7 +129,17 @@ func TestExtractPodSetAssignmentsCounts(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			if diff := cmp.Diff(ExtractPodSetAssignmentsCounts(tt.args.podSets), tt.want); diff != "" {
+			wl := &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: tt.podSets,
+				},
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{
+						PodSetAssignments: tt.podSetsAssignment,
+					},
+				},
+			}
+			if diff := cmp.Diff(ExtractGrantedPodSetCounts(wl), tt.wantGranted); diff != "" {
 				t.Errorf("ExtractPodSetAssignmentsCounts() got(-),want(+): %s", diff)
 			}
 		})

@@ -19,6 +19,8 @@ package workload
 import (
 	"maps"
 
+	"k8s.io/utils/ptr"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -70,8 +72,8 @@ func ExtractGrantedPodSetCounts(wl *kueue.Workload) PodSetsCounts {
 	if wl.Status.Admission == nil {
 		return nil
 	}
-	counts := ExtractPodSetSetCountsFromWorkload(wl)
-	granted := make(PodSetCounts, len(wl.Status.Admission.PodSetAssignments))
+	counts := ExtractPodSetCounts(wl.Spec.PodSets)
+	granted := make(PodSetsCounts, len(wl.Status.Admission.PodSetAssignments))
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		count := counts[psa.Name]
 		granted[psa.Name] = min(ptr.Deref(psa.Count, count), count)
