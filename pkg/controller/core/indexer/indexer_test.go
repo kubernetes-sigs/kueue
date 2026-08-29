@@ -601,12 +601,11 @@ func TestIndexWorkloadExtendedResources(t *testing.T) {
 	}
 
 	containerWithLimits := func(name string, limits corev1.ResourceList) corev1.Container {
-		return corev1.Container{
-			Name: name,
-			Resources: corev1.ResourceRequirements{
-				Limits: limits,
-			},
+		c := utiltesting.MakeContainer().Name(name)
+		for r, q := range limits {
+			c = c.WithResourceLimit(r, q.String())
 		}
+		return *c.Obj()
 	}
 
 	cases := map[string]struct {
@@ -635,23 +634,11 @@ func TestIndexWorkloadExtendedResources(t *testing.T) {
 			want: []string{"nvidia.com/gpu"},
 		},
 		"workload with extended resource only in limits": {
-			obj: func() client.Object {
-				wl := makeWorkload("wl", "ns")
-				wl.Spec.PodSets = []kueue.PodSet{{
-					Name:  "main",
-					Count: 1,
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{
-								containerWithLimits("c", corev1.ResourceList{
-									"nvidia.com/gpu": resource.MustParse("1"),
-								}),
-							},
-						},
-					},
-				}}
-				return wl
-			}(),
+			obj: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(podSetWithContainers(containerWithLimits("c", corev1.ResourceList{
+					"nvidia.com/gpu": resource.MustParse("1"),
+				}))).
+				Obj(),
 			want: []string{"nvidia.com/gpu"},
 		},
 		"workload with multiple extended resources": {
