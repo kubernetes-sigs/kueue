@@ -17,7 +17,6 @@ limitations under the License.
 package trainjob
 
 import (
-	"context"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -33,7 +32,7 @@ func TestValidateTrainJobCRDVersion_V2_2_Compatible(t *testing.T) {
 		WithObjects(crd).
 		Build()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	err := ValidateTrainJobCRDVersion(ctx, client)
 
 	if err != nil {
@@ -50,7 +49,7 @@ func TestValidateTrainJobCRDVersion_V2_1_Incompatible(t *testing.T) {
 		WithObjects(crd).
 		Build()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	err := ValidateTrainJobCRDVersion(ctx, client)
 
 	if err == nil {
@@ -73,7 +72,7 @@ func TestValidateTrainJobCRDVersion_NotInstalled(t *testing.T) {
 	// Create an empty client with no CRDs
 	client := fake.NewClientBuilder().Build()
 
-	ctx := context.Background()
+	ctx := t.Context()
 	err := ValidateTrainJobCRDVersion(ctx, client)
 
 	if err == nil {
@@ -132,32 +131,32 @@ func createMockTrainJobCRDv22() *unstructured.Unstructured {
 	crd.SetName("trainjobs.trainer.kubeflow.org")
 
 	// Set the schema with runtimePatches field (v2.2+)
-	_ = unstructured.SetNestedField(crd.Object, []map[string]interface{}{
+	_ = unstructured.SetNestedField(crd.Object, []map[string]any{
 		{
 			"name":    "v1alpha1",
 			"served":  true,
 			"storage": true,
-			"schema": map[string]interface{}{
-				"openAPIV3Schema": map[string]interface{}{
+			"schema": map[string]any{
+				"openAPIV3Schema": map[string]any{
 					"type": "object",
-					"properties": map[string]interface{}{
-						"spec": map[string]interface{}{
+					"properties": map[string]any{
+						"spec": map[string]any{
 							"type": "object",
-							"properties": map[string]interface{}{
-								"runtimeRef": map[string]interface{}{
+							"properties": map[string]any{
+								"runtimeRef": map[string]any{
 									"type": "object",
 								},
-								"trainer": map[string]interface{}{
+								"trainer": map[string]any{
 									"type": "object",
 								},
 								// v2.2+ field
-								"runtimePatches": map[string]interface{}{
+								"runtimePatches": map[string]any{
 									"type": "array",
-									"items": map[string]interface{}{
+									"items": map[string]any{
 										"type": "object",
 									},
 								},
-								"suspend": map[string]interface{}{
+								"suspend": map[string]any{
 									"type": "boolean",
 								},
 							},
@@ -179,26 +178,26 @@ func createMockTrainJobCRDv21() *unstructured.Unstructured {
 	crd.SetName("trainjobs.trainer.kubeflow.org")
 
 	// Set the schema WITHOUT runtimePatches field (v2.1)
-	_ = unstructured.SetNestedField(crd.Object, []map[string]interface{}{
+	_ = unstructured.SetNestedField(crd.Object, []map[string]any{
 		{
 			"name":    "v1alpha1",
 			"served":  true,
 			"storage": true,
-			"schema": map[string]interface{}{
-				"openAPIV3Schema": map[string]interface{}{
+			"schema": map[string]any{
+				"openAPIV3Schema": map[string]any{
 					"type": "object",
-					"properties": map[string]interface{}{
-						"spec": map[string]interface{}{
+					"properties": map[string]any{
+						"spec": map[string]any{
 							"type": "object",
-							"properties": map[string]interface{}{
-								"runtimeRef": map[string]interface{}{
+							"properties": map[string]any{
+								"runtimeRef": map[string]any{
 									"type": "object",
 								},
-								"trainer": map[string]interface{}{
+								"trainer": map[string]any{
 									"type": "object",
 								},
 								// v2.1 does NOT have runtimePatches
-								"suspend": map[string]interface{}{
+								"suspend": map[string]any{
 									"type": "boolean",
 								},
 							},

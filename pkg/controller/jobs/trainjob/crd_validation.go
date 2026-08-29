@@ -18,6 +18,7 @@ package trainjob
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -45,12 +46,11 @@ func ValidateTrainJobCRDVersion(ctx context.Context, c client.Client) error {
 	// Check if the CRD schema has the runtimePatches field in TrainJobSpec
 	// This field was added in Kubeflow Trainer v2.2.0
 	if !hasRuntimePatchesField(crd) {
-		return fmt.Errorf(
-			"TrainJob CRD does not support the 'runtimePatches' field. " +
-				"This field is required by Kueue and was added in Kubeflow Trainer v2.2.0. " +
-				"Currently installed TrainJob CRD appears to be v2.1 or earlier. " +
-				"Please upgrade Kubeflow Trainer to v2.2.0 or later. " +
-				"See: https://github.com/kubeflow/trainer/releases",
+		return errors.New("TrainJob CRD does not support the 'runtimePatches' field. " +
+			"This field is required by Kueue and was added in Kubeflow Trainer v2.2.0. " +
+			"Currently installed TrainJob CRD appears to be v2.1 or earlier. " +
+			"Please upgrade Kubeflow Trainer to v2.2.0 or later. " +
+			"See: https://github.com/kubeflow/trainer/releases",
 		)
 	}
 
@@ -68,7 +68,7 @@ func hasRuntimePatchesField(crd *unstructured.Unstructured) bool {
 
 	// Get the first version (should be the served one, but we check first non-empty)
 	for _, v := range versions {
-		versionMap, ok := v.(map[string]interface{})
+		versionMap, ok := v.(map[string]any)
 		if !ok {
 			continue
 		}
