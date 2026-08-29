@@ -67,7 +67,9 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 }
 
 func (c *cluster) stopAndTeardown() {
-	c.fwk.StopManager(c.ctx)
+	ctx, cancel := context.WithTimeout(c.ctx, util.LongTimeout)
+	defer cancel()
+	c.fwk.StopManager(ctx)
 	c.fwk.Teardown()
 }
 
