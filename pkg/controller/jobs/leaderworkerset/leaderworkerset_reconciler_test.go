@@ -70,6 +70,36 @@ var (
 	stsGVK = appsv1.SchemeGroupVersion.WithKind("StatefulSet")
 )
 
+func TestEnqueue(t *testing.T) {
+	queued := []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: testNS, Name: testLWS}}}
+	cases := map[string]struct {
+		current string
+		update  string
+		want    []reconcile.Request
+	}{
+		"a rollout in progress is queued":     {current: "rev1", update: "rev2", want: queued},
+		"a settled revision is left alone":    {current: "rev1", update: "rev1"},
+		"and so is an unset update revision":  {current: "rev1", update: ""},
+		"and so is an unset current revision": {current: "", update: "rev1"},
+		"and so are two unset revisions":      {current: "", update: ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			sts := statefulset.MakeStatefulSet(testSTS, testNS).
+				Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				CurrentRevision(tc.current).
+				UpdateRevision(tc.update).
+				Obj()
+			q := &utiltesting.MockTypedRateLimitingInterface{}
+			(&lwsStsHandler{}).enqueue(t.Context(), sts, q)
+			if diff := cmp.Diff(tc.want, q.Items); diff != "" {
+				t.Errorf("enqueue() queued (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestReconciler(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}

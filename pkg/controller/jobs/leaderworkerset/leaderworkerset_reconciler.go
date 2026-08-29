@@ -771,7 +771,7 @@ func (h *lwsStsHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 	// Handle only when .Status.CurrentRevision != .Status.UpdateRevision.
 	// This ensures that Pods are finalized and scheduling gates are removed
 	// when the revision changes.
-	if sts.Status.CurrentRevision == "" || sts.Status.UpdateRevision == "" &&
+	if sts.Status.CurrentRevision == "" || sts.Status.UpdateRevision == "" ||
 		sts.Status.CurrentRevision == sts.Status.UpdateRevision {
 		return
 	}
