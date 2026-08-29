@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iter"
 	"sync"
 	"testing"
 	"time"
@@ -41,6 +42,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -258,6 +260,7 @@ func TestScheduleForTAS(t *testing.T) {
 		clusterQueues           []kueue.ClusterQueue
 		workloads               []kueue.Workload
 		patchStatusErr          error
+		snapshotErr             error
 
 		// wantNewAssignments is a summary of all new admissions in the cache after this cycle.
 		wantNewAssignments map[workload.Reference]kueue.Admission
@@ -469,6 +472,70 @@ func TestScheduleForTAS(t *testing.T) {
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
+		"snapshot fails; the popped head is requeued": {
+			nodes:           defaultSingleNode,
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			snapshotErr: errors.New("snapshot failed"),
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/foo"},
+			},
+		},
+		"snapshot fails; the popped second pass head is neither admitted nor left in the queue": {
+			nodes:           defaultSingleNode,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{clusterQueueWithProvReq},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("one").
+									Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+									DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:  "prov-check",
+						State: kueue.CheckStateReady,
+					}).
+					Obj(),
+			},
+			snapshotErr: errors.New("snapshot failed"),
+			// After the failed cycle the head waits out its backoff in the second
+			// pass queue, out of reach of the queue dump. What this case pins is
+			// that nothing else happened to it: the first pass admission is
+			// untouched and it is not back on the heap.
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+							Obj(),
+					).
+					Obj(),
 			},
 		},
 		"workload in CQ with ProvisioningRequest; second pass; multi-resource workload fully consumes quota": {
@@ -3744,6 +3811,9 @@ func TestScheduleForTAS(t *testing.T) {
 							t.Fatalf("Failed to initialize WAS scheduling simulator: %v", err)
 						}
 						cacheOptions = append(cacheOptions, schdcache.WithSchedulingSimulator(sim))
+					}
+					if tc.snapshotErr != nil {
+						cacheOptions = append(cacheOptions, schdcache.WithSchedulingSimulator(&failOnceSimulator{err: tc.snapshotErr}))
 					}
 					cqCache := schdcache.New(cl, cacheOptions...)
 					fakeClock := testingclock.NewFakeClock(now)
@@ -10497,4 +10567,31 @@ func TestSecondPassSkipsWaitForPodsReadyBlock(t *testing.T) {
 			}
 		})
 	}
+}
+
+// failOnceSimulator fails the first snapshot it is asked for, so a case can run
+// a cycle whose snapshot fails and still inspect the cache afterwards.
+type failOnceSimulator struct {
+	err    error
+	failed bool
+}
+
+func (s *failOnceSimulator) Snapshot(context.Context, []*corev1.Node) (simulator.SimulatorSnapshot, error) {
+	if s.failed {
+		return &failOnceSimulatorSnapshot{}, nil
+	}
+	s.failed = true
+	return nil, s.err
+}
+
+func (s *failOnceSimulator) TrackPod(*corev1.Pod) {}
+
+func (s *failOnceSimulator) UntrackPod(client.ObjectKey) {}
+
+// failOnceSimulatorSnapshot is the snapshot after the failure. No scheduling is
+// expected on it, so it does not simulate anything.
+type failOnceSimulatorSnapshot struct{}
+
+func (s *failOnceSimulatorSnapshot) FindFeasibleNodes(context.Context, iter.Seq[simulator.Candidate], *simulator.PodRequirements, *simulator.NodeExclusionStats) ([]simulator.MatchedCandidate, error) {
+	return nil, errors.New("no scheduling is expected after the failed snapshot")
 }
