@@ -453,7 +453,12 @@ func TestReconciler(t *testing.T) {
 				ManagedByKueueLabel().
 				PrebuiltWorkloadLabel("prebuilt-workload").
 				KueueFinalizer().
-				KueueSchedulingGate().
+				TopologySchedulingGate().
+				Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Label(constants.LocalQueueLabel, localUserQueueName).
+				Label(constants.ClusterQueueLabel, clusterQueueName).
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Annotation(kueue.WorkloadAnnotation, "prebuilt-workload").
 				Obj()},
 			wantPods: []corev1.Pod{*basePodWrapper.
 				Clone().
@@ -508,14 +513,6 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "Started",
-					Message:   "Admitted by clusterQueue cq",
-				},
-			},
 		},
 		"non-matching admitted workload is deleted and pod is finalized": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},

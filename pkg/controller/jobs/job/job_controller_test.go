@@ -4267,8 +4267,15 @@ func TestReconciler(t *testing.T) {
 			},
 			job: baseJobWrapper.
 				Clone().
+				Suspend(false).
 				PrebuiltWorkloadLabel("prebuilt-workload").
 				UID("test-uid").
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				PodAnnotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				SchedulingGate(kueue.TopologySchedulingGate).
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
@@ -4321,14 +4328,6 @@ func TestReconciler(t *testing.T) {
 					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
 					Obj(),
-			},
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
-					EventType: "Normal",
-					Reason:    "Started",
-					Message:   "Admitted by clusterQueue cq",
-				},
 			},
 		},
 		"prebuilt workload with a different topology request is out of sync": {
