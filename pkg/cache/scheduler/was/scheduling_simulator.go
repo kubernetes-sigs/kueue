@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"iter"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
+	"k8s.io/klog/v2"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
@@ -88,8 +90,10 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 
 // NewWASSimulatorForTest creates a WAS simulator backed by a fake client,
 // suitable for unit tests that need the full filter plugin pipeline.
+// It wraps ctx with a discard logger to prevent background informer goroutines
+// from racing with test teardown when t.Context() carries a test logger.
 func NewWASSimulatorForTest(ctx context.Context) (simulator.SchedulingSimulator, error) {
-	return NewWASSimulator(ctx, &rest.Config{})
+	return NewWASSimulator(klog.NewContext(ctx, logr.Discard()), &rest.Config{})
 }
 
 func (s *wasSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
