@@ -53,13 +53,13 @@ func isCapacityRevoked(pr *autoscaling.ProvisioningRequest) bool {
 }
 
 func ProvisioningRequestName(workloadName string, checkName kueue.AdmissionCheckReference, attempt int32) string {
-	fullName := fmt.Sprintf("%s-%s-%d", workloadName, checkName, int(attempt))
-	return limitObjectName(fullName)
+	// Limit the prefix first so the attempt stays a stable, matchable suffix.
+	return fmt.Sprintf("%s%d", getProvisioningRequestNamePrefix(workloadName, checkName), attempt)
 }
 
 func getProvisioningRequestNamePrefix(workloadName string, checkName kueue.AdmissionCheckReference) string {
 	fullName := fmt.Sprintf("%s-%s-", workloadName, checkName)
-	return limitObjectName(fullName)
+	return limitObjectNameWithReservedSuffix(fullName, provisioningRequestAttemptMaxDigits)
 }
 
 func getProvisioningRequestPodTemplateName(prName string, podsetName kueue.PodSetReference) string {
