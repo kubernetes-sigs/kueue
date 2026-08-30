@@ -18,8 +18,10 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -88,6 +91,10 @@ func TestScheduleForAFS(t *testing.T) {
 		workloads     []kueue.Workload
 		wantWorkloads []kueue.Workload
 		deleteQueue   string
+		// failFirstSnapshot fails the LocalQueue lookup that the snapshot makes
+		// to resolve the fair-sharing weight, once, so the first cycle of the
+		// case runs with a failing snapshot.
+		failFirstSnapshot bool
 	}{
 		"admits workload from less active localqueue": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
@@ -824,6 +831,81 @@ func TestScheduleForAFS(t *testing.T) {
 					Obj(),
 			},
 		},
+		// Nothing but the scheduler puts a popped head back, so wl-a2 only
+		// reaches the second cycle, the one with a working snapshot, if the
+		// failed cycle requeued it.
+		"snapshot fails; the popped head is requeued": {
+			featureGates:      map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
+			failFirstSnapshot: true,
+			workloads: []kueue.Workload{
+				// Admitted so that the snapshot resolves a LocalQueue
+				// weight, and a second entry so the harness runs two cycles.
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq1").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "4").
+								Count(1).
+								Obj()).
+							Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-a2", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Creation(now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq1").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "4").
+								Count(1).
+								Obj()).
+							Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-a2", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue cq1",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(
+						utiltestingapi.MakeAdmission("cq1").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "4").
+								Count(1).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
 	}
 
 	scenarios := []map[featuregate.Feature]bool{
@@ -861,6 +943,7 @@ func TestScheduleForAFS(t *testing.T) {
 						utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
 					}
 
+					var snapshotToFail atomic.Bool
 					clientBuilder := utiltesting.NewClientBuilder().
 						WithLists(
 							&kueue.WorkloadList{Items: tc.workloads},
@@ -870,7 +953,15 @@ func TestScheduleForAFS(t *testing.T) {
 							utiltesting.MakeNamespace("default"),
 						).
 						WithStatusSubresource(&kueue.Workload{}).
-						WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+						WithInterceptorFuncs(interceptor.Funcs{
+							SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
+							Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+								if _, isLocalQueue := obj.(*kueue.LocalQueue); isLocalQueue && snapshotToFail.CompareAndSwap(true, false) {
+									return errors.New("injected LocalQueue get failure")
+								}
+								return c.Get(ctx, key, obj, opts...)
+							},
+						})
 					cl := clientBuilder.Build()
 
 					cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.featureGates[features.AdmissionFairSharing]), schdcache.WithAdmissionFairSharing(afsConfig))
@@ -925,9 +1016,16 @@ func TestScheduleForAFS(t *testing.T) {
 					go qManager.CleanUpOnContext(ctx)
 					defer cancel()
 
+					// Armed here rather than at build time so that only a
+					// scheduling cycle can consume it.
+					snapshotToFail.Store(tc.failFirstSnapshot)
 					for range len(tc.workloads) {
 						scheduler.schedule(ctx)
 						wg.Wait()
+					}
+
+					if snapshotToFail.Load() {
+						t.Fatal("No snapshot read a LocalQueue, so none of them failed")
 					}
 
 					gotWorkloads := &kueue.WorkloadList{}
