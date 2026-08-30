@@ -710,12 +710,6 @@ func TestReconciler(t *testing.T) {
 					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
 					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
 				},
-				{
-					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
-					EventType: corev1.EventTypeWarning,
-					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
-					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
-				},
 			},
 		},
 		// The other path into the boundary: the label is changed on a set that
@@ -807,12 +801,6 @@ func TestReconciler(t *testing.T) {
 			},
 			wantErr: cmpopts.AnyError,
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
-					EventType: corev1.EventTypeWarning,
-					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
-					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
-				},
 				{
 					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
 					EventType: corev1.EventTypeWarning,
@@ -2864,4 +2852,22 @@ func TestReconcileWorkloadsDoesNotCancelTheOtherBranches(t *testing.T) {
 	if created.Spec.Priority == nil || *created.Spec.Priority != 100 {
 		t.Errorf("created Workload priority = %v, want the class value 100", created.Spec.Priority)
 	}
+}
+
+func lwsComponent(index, className string, priority int32) *kueue.Workload {
+	return utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, index), testNS).
+		JobUID(testLWS).
+		OwnerReference(gvk, testLWS, testLWS).
+		Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+		Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+		Annotation(constants.JobOwnerNameAnnotation, testLWS).
+		Annotation(constants.ComponentWorkloadIndexAnnotation, index).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			RestartPolicy("").
+			Image(utiltestingjobs.TestDefaultContainerImage).
+			Obj()).
+		WorkloadPriorityClassRef(className).
+		Priority(priority).
+		Obj()
 }

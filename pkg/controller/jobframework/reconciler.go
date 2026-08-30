@@ -1244,21 +1244,20 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 	return false
 }
 
-// UpdateWorkloadPriority reconciles the priority of each workload that still
-// follows the object's kueue.x-k8s.io/priority-class label. Every workload
-// passed must belong to obj, since the class is resolved once for the whole set
-// rather than per workload, so one batch cannot itself write two different
-// values. The resolved value is applied to every eligible workload whose full
-// priority state has drifted, so a partial write followed by a class-value
-// change converges on retry instead of leaving same-name workloads pinned to a
-// stale value. The workloads are written one by one rather than atomically, and
-// a class edited once every workload already names it is not re-resolved here.
+// UpdateWorkloadPriority reconciles the priority of every workload in wls that
+// still follows obj's kueue.x-k8s.io/priority-class label. The class is read
+// only when one of them has to change class name, and what it resolves to then
+// goes to the whole set, so a transition cannot leave obj split across two
+// values.
+//
+// wls must hold workloads of obj alone: one resolution covers all of them, so
+// another owner's would be given obj's value. The writes are serial, and one
+// that fails leaves its class name mismatched for the next reconcile to find.
 func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, customPriorityClassFunc func() string, wls ...*kueue.Workload) error {
-	sameClassName, needsClassChange := classifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), WorkloadPriorityClassName(obj), wls)
+	sameClassName, needsClassChange := ClassifyWorkloadsForPriorityUpdate(ctrl.LoggerFrom(ctx), obj, wls)
 
-	// Resolving only when at least one workload needs a transition keeps
-	// steady-state reconciles from re-resolving and overwriting the
-	// otherwise-mutable priority value.
+	// Re-resolving on a steady-state reconcile would overwrite the mutable
+	// priority value; a stale one is WorkloadPriorityClassReconciler's to repair.
 	if len(needsClassChange) == 0 {
 		return nil
 	}
@@ -1268,10 +1267,32 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 		return fmt.Errorf("prepare workload priority: %w", err)
 	}
 
-	// Apply the resolved ref/value to every eligible workload whose full priority
-	// state differs. Same-name workloads with a stale value are repaired before the
-	// name-changing ones, so a name mismatch survives as the retry marker if a
-	// write in this batch fails.
+	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, sameClassName, needsClassChange)
+}
+
+// ApplyWorkloadPriority is UpdateWorkloadPriority with the class already
+// resolved, so two lookups in one reconcile cannot leave one owner's workloads
+// on different values. Pass obj's workloads whose class name has to change,
+// the second result of ClassifyWorkloadsForPriorityUpdate, with the resolution
+// obj got in this reconcile. Neither is checked here.
+func ApplyWorkloadPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
+	priorityClassRef *kueue.PriorityClassRef, priority int32, targetsToUpdate ...*kueue.Workload) error {
+	if len(targetsToUpdate) == 0 {
+		return nil
+	}
+	return applyResolvedPriority(ctx, c, r, obj, priorityClassRef, priority, nil, targetsToUpdate)
+}
+
+// applyResolvedPriority is the write path shared by UpdateWorkloadPriority and
+// ApplyWorkloadPriority. It writes one resolved (priorityClassRef, priority) to
+// every workload whose state differs, taking those already naming the class
+// before those transitioning to it.
+//
+// That order is the retry marker: the writes are serial and stop at the first
+// error, so a failed repair leaves a class name still mismatched, which is
+// what makes the next reconcile resolve at all.
+func applyResolvedPriority(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object,
+	priorityClassRef *kueue.PriorityClassRef, priority int32, sameClassName, needsClassChange []*kueue.Workload) error {
 	targets := make([]*kueue.Workload, 0, len(sameClassName)+len(needsClassChange))
 	targets = append(targets, sameClassName...)
 	targets = append(targets, needsClassChange...)
@@ -1294,12 +1315,13 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 	return nil
 }
 
-// classifyWorkloadsForPriorityUpdate splits the workloads this helper may manage
+// ClassifyWorkloadsForPriorityUpdate splits the workloads this helper may manage
 // into those that already carry the object's class name, whose value may still be
 // stale, and those whose class name has to transition. The rest are left out: a
 // Pod PriorityClass-backed workload does not follow the label at all, and one that
 // reserved quota without a priorityClassRef can no longer be given one.
-func classifyWorkloadsForPriorityUpdate(log logr.Logger, jobPriorityClassName string, wls []*kueue.Workload) (sameClassName, needsClassChange []*kueue.Workload) {
+func ClassifyWorkloadsForPriorityUpdate(log logr.Logger, obj client.Object, wls []*kueue.Workload) (sameClassName, needsClassChange []*kueue.Workload) {
+	jobPriorityClassName := WorkloadPriorityClassName(obj)
 	for _, wl := range wls {
 		if wl == nil {
 			continue
