@@ -19,6 +19,7 @@ package scheduler
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -151,6 +152,60 @@ func TestFreeCapacityPerDomain(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// Usage recorded against a domain the snapshot does not hold is skipped rather
+// than panicking. This happens when the backing node was deleted or stopped
+// being Ready between the Workload being admitted and the snapshot being taken.
+func TestApplyTASUsageSkipsDomainTheSnapshotDoesNotHold(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	const rackLabel = "cloud.provider.com/topology-rack"
+	_, log := utiltesting.ContextWithLog(t)
+
+	rackNode := node.MakeNode("n1").
+		Label(rackLabel, "r1").
+		StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
+		Ready().
+		Obj()
+	tree := newTopologyTree([]string{rackLabel}, []*corev1.Node{rackNode}, 0)
+	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot())
+
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+	snapshot.updateTASUsage(tas.DomainID([]string{"gone"}), oneCPU, add, 1)
+
+	if got := len(snapshot.domainTASUsage); got != 0 {
+		t.Errorf("usage recorded for %d domains, want none", got)
+	}
+}
+
+// A virtual topology keeps usage on the domains rather than the leaves, so the
+// dump must report those domains or it reads as if nothing is used.
+func TestFreeCapacityPerDomainReportsUsageDomains(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	const rackLabel = "cloud.provider.com/topology-rack"
+	_, log := utiltesting.ContextWithLog(t)
+
+	rackNode := node.MakeNode("").
+		Label(rackLabel, "r1").
+		StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
+		Ready()
+	tree := newTopologyTree([]string{rackLabel}, []*corev1.Node{
+		rackNode.Clone().Name("n1").Obj(),
+		rackNode.Clone().Name("n2").Obj(),
+	}, 0)
+	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot(),
+		withResourceFormatter(resources.NewResourceFormatter()))
+	snapshot.updateTASUsage(tas.DomainID([]string{"r1"}),
+		resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}), add, 1)
+
+	got, err := snapshot.SerializeFreeCapacityPerDomain()
+	if err != nil {
+		t.Fatalf("SerializeFreeCapacityPerDomain() error = %v", err)
+	}
+	want := `"r1":{"freeCapacity":{"cpu":"4"},"tasUsage":{"cpu":"1","pods":"1"}}`
+	if !strings.Contains(got, want) {
+		t.Errorf("SerializeFreeCapacityPerDomain() = %s, want it to contain %s", got, want)
 	}
 }
 
@@ -1112,19 +1167,19 @@ func TestCompareDomainLevelValues(t *testing.T) {
 		b      *domain
 		want   int
 	}{
-		"isLowestLevelNode with same-parent sibling domains: ascending by hostname": {
+		"leafIsNode with same-parent sibling domains: ascending by hostname": {
 			levels: hostnameLevels,
 			a:      &domain{id: "node-a", parent: parent1, levelValues: []string{"b1", "r1", "node-a"}},
 			b:      &domain{id: "node-b", parent: parent1, levelValues: []string{"b1", "r1", "node-b"}},
 			want:   -1,
 		},
-		"isLowestLevelNode with same-parent sibling domains: descending by hostname": {
+		"leafIsNode with same-parent sibling domains: descending by hostname": {
 			levels: hostnameLevels,
 			a:      &domain{id: "node-b", parent: parent1, levelValues: []string{"b1", "r1", "node-b"}},
 			b:      &domain{id: "node-a", parent: parent1, levelValues: []string{"b1", "r1", "node-a"}},
 			want:   1,
 		},
-		"isLowestLevelNode with same-parent sibling domains: equal hostname": {
+		"leafIsNode with same-parent sibling domains: equal hostname": {
 			levels: hostnameLevels,
 			a:      &domain{id: "node-a", parent: parent1, levelValues: []string{"b1", "r1", "node-a"}},
 			b:      &domain{id: "node-a", parent: parent1, levelValues: []string{"b1", "r1", "node-a"}},
@@ -1510,6 +1565,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 }
 
 func TestFitsNonHostnameLowestLevel(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const blockLabel = "cloud.provider.com/topology-block"
 	const rackLabel = "cloud.provider.com/topology-rack"
 
@@ -1557,10 +1613,103 @@ func TestFitsNonHostnameLowestLevel(t *testing.T) {
 	}
 }
 
-// Usage domain IDs reference the user-lowest level while the hostname level
-// is virtual; a node whose name equals a domain ID must not capture the
+// Usage recorded against a domain that spans several nodes bounds the domain,
+// not its nodes: which node inside the domain holds a Pod is decided by
+// kube-scheduler after ungating and is never reported back. Charging a share
+// of it to every node instead makes the nodes look full and rejects Workloads
+// the domain has room for.
+func TestFindAssignmentsWithDomainRecordedUsage(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	const blockLabel = "cloud.provider.com/topology-block"
+	const rackLabel = "cloud.provider.com/topology-rack"
+	rack := rackLabel
+	oneCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000})
+
+	// A rack of two nodes, one CPU each.
+	rackNode := node.MakeNode("").
+		Label(blockLabel, "b1").
+		Label(rackLabel, "r1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		Ready()
+	nodes := []*corev1.Node{
+		rackNode.Clone().Name("n1").Label(corev1.LabelHostname, "n1").Obj(),
+		rackNode.Clone().Name("n2").Label(corev1.LabelHostname, "n2").Obj(),
+	}
+
+	podSet := func(name kueue.PodSetReference) TASPodSetRequests {
+		return TASPodSetRequests{
+			PodSet: &kueue.PodSet{
+				Name:            name,
+				TopologyRequest: &kueue.PodSetTopologyRequest{Preferred: &rack},
+			},
+			SinglePodRequests: oneCPU,
+			Count:             1,
+		}
+	}
+
+	// A PodSet pinned to one node by its nodeSelector.
+	podSetOn := func(name kueue.PodSetReference, nodeName string) TASPodSetRequests {
+		tr := podSet(name)
+		tr.PodSet.Template.Spec.NodeSelector = map[string]string{corev1.LabelHostname: nodeName}
+		return tr
+	}
+
+	cases := map[string]struct {
+		priorRackUsage int32
+		requests       FlavorTASRequests
+		wantFit        bool
+	}{
+		// Both PodSets can only run on n1, which holds one of them. The rack
+		// has room for both, so only per-node in-cycle usage rejects this.
+		"two PodSets pinned to the same node do not both fit on it": {
+			requests: FlavorTASRequests{podSetOn("ps-a", "n1"), podSetOn("ps-b", "n1")},
+			wantFit:  false,
+		},
+		"two PodSets pinned to different nodes fit": {
+			requests: FlavorTASRequests{podSetOn("ps-a", "n1"), podSetOn("ps-b", "n2")},
+			wantFit:  true,
+		},
+		"two PodSets of one Pod each land on a node of their own": {
+			requests: FlavorTASRequests{podSet("ps-a"), podSet("ps-b")},
+			wantFit:  true,
+		},
+		"a Pod fits next to a Workload already admitted on the rack": {
+			priorRackUsage: 1,
+			requests:       FlavorTASRequests{podSet("ps-b")},
+			wantFit:        true,
+		},
+		"no Pod fits once the rack's capacity is fully used": {
+			priorRackUsage: 2,
+			requests:       FlavorTASRequests{podSet("ps-b")},
+			wantFit:        false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			tree := newTopologyTree([]string{blockLabel, rackLabel}, nodes, 0)
+			snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot())
+			if tc.priorRackUsage > 0 {
+				snapshot.updateTASUsage(tas.DomainID([]string{"b1", "r1"}),
+					oneCPU.ScaledUp(int64(tc.priorRackUsage)), add, tc.priorRackUsage)
+			}
+			gotFit := snapshot.FindTopologyAssignmentsForFlavor(ctx, tc.requests).Failure() == nil
+			if gotFit != tc.wantFit {
+				t.Errorf("FindTopologyAssignmentsForFlavor() fit = %t, want %t", gotFit, tc.wantFit)
+			}
+		})
+	}
+}
+
+// Usage domain IDs name the explicit-lowest level while the hostname level is
+// virtual, so a node whose name equals a domain ID must not capture that
 // domain's usage.
-func TestLeavesForUsageDomainIgnoresNameCollision(t *testing.T) {
+func TestUsageDomainIgnoresNodeNameCollision(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const rackLabel = "cloud.provider.com/topology-rack"
 	_, log := utiltesting.ContextWithLog(t)
 
@@ -1574,13 +1723,13 @@ func TestLeavesForUsageDomainIgnoresNameCollision(t *testing.T) {
 
 	tree := newTopologyTree([]string{rackLabel}, []*corev1.Node{nodeA, nodeB, nodeNamedR1}, 0)
 	snapshot := newTASFlavorSnapshot(log, "tas-topology", tree, nil, newDefaultSimulatorSnapshot())
-	leaves := snapshot.leavesForUsageDomain("r1")
+	leaves := slices.Collect(snapshot.leavesOf(snapshot.usageDomain("r1")))
 	if len(leaves) != 2 {
-		t.Fatalf("leavesForUsageDomain(\"r1\") = %d leaves, want rack r1's 2 leaves", len(leaves))
+		t.Fatalf("usageDomain(\"r1\") holds %d leaves, want rack r1's 2 leaves", len(leaves))
 	}
 	for _, leaf := range leaves {
 		if leaf.node.Name == "r1" {
-			t.Error("leavesForUsageDomain(\"r1\") returned the node named \"r1\" instead of the rack's leaves")
+			t.Error("usageDomain(\"r1\") resolved to the node named \"r1\" instead of the rack")
 		}
 	}
 
@@ -1588,18 +1737,16 @@ func TestLeavesForUsageDomainIgnoresNameCollision(t *testing.T) {
 	// the leaves themselves and the leaf lookup must keep working.
 	declaredTree := newTopologyTree([]string{rackLabel, corev1.LabelHostname}, []*corev1.Node{nodeA, nodeB}, 0)
 	declaredSnapshot := newTASFlavorSnapshot(log, "tas-topology", declaredTree, nil, newDefaultSimulatorSnapshot())
-	declaredLeaves := declaredSnapshot.leavesForUsageDomain("node-a")
+	declaredLeaves := slices.Collect(declaredSnapshot.leavesOf(declaredSnapshot.usageDomain("node-a")))
 	if len(declaredLeaves) != 1 || declaredLeaves[0].node.Name != "node-a" {
-		t.Errorf("leavesForUsageDomain(\"node-a\") = %d leaves, want the node-a leaf", len(declaredLeaves))
+		t.Errorf("usageDomain(\"node-a\") holds %d leaves, want the node-a leaf", len(declaredLeaves))
 	}
 }
 
-// Removing one Workload's usage must not erase the usage of Workloads that
-// remain admitted. This holds only when the snapshot records usage per
-// Workload: rounded-up per-leaf shares are not additive, so an
-// aggregate-initialized snapshot loses the survivor's usage on removal and
-// Fits overreports free capacity.
+// Simulated removal of one Workload's usage must not erase the usage of the
+// Workloads that remain admitted, or preemption would free capacity twice.
 func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
 	const blockLabel = "cloud.provider.com/topology-block"
 	const rackLabel = "cloud.provider.com/topology-rack"
 	dev := corev1.ResourceName("example.com/device")

@@ -107,7 +107,7 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 		placementLeader = nil
 	}
 
-	deltaAssignments, reason := s.findTopologyAssignment(ctx, deltaRequest, placementLeader, assumedUsage, opts.simulateEmpty, "", opts.workload)
+	deltaAssignments, deltaLeafAssignments, reason := s.findTopologyAssignment(ctx, deltaRequest, placementLeader, assumedUsage, opts.simulateEmpty, "", opts.workload)
 	if reason != "" {
 		result[workers.PodSet.Name] = tasPodSetAssignmentResult{FailureReason: reason}
 		return elasticPlacementResult{applied: true, assignments: result}
@@ -122,12 +122,12 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 			result[leader.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: leaderPrevAssignment}
 		} else {
 			result[leader.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: deltaAssignments[leader.PodSet.Name]}
-			addAssumedUsage(assumedUsage, deltaAssignments[leader.PodSet.Name], leader)
+			addAssumedUsageForCycle(assumedUsage, deltaAssignments[leader.PodSet.Name], deltaLeafAssignments[leader.PodSet.Name], leader)
 		}
 	}
 
 	// Add only delta to avoid double-counting previous pods.
-	addAssumedUsage(assumedUsage, deltaAssignment, &workers)
+	addAssumedUsageForCycle(assumedUsage, deltaAssignment, deltaLeafAssignments[workers.PodSet.Name], &workers)
 	return elasticPlacementResult{applied: true, assignments: result}
 }
 
