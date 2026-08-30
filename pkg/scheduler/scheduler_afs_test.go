@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -85,16 +84,18 @@ func TestScheduleForAFS(t *testing.T) {
 			Obj(),
 	}
 
+	snapshotErr := errors.New("snapshot failed")
+
 	cases := map[string]struct {
 		featureGates  map[featuregate.Feature]bool
 		initialUsage  map[string]corev1.ResourceList
 		workloads     []kueue.Workload
 		wantWorkloads []kueue.Workload
 		deleteQueue   string
-		// failFirstSnapshot fails the LocalQueue lookup that the snapshot makes
-		// to resolve the fair-sharing weight, once, so the first cycle of the
-		// case runs with a failing snapshot.
-		failFirstSnapshot bool
+		wantLeft      map[kueue.ClusterQueueReference][]workload.Reference
+		// wantErr fails every LocalQueue lookup made to resolve a fair-sharing
+		// weight, so the cycles of the case run with a failing snapshot.
+		wantErr error
 	}{
 		"admits workload from less active localqueue": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
@@ -831,12 +832,11 @@ func TestScheduleForAFS(t *testing.T) {
 					Obj(),
 			},
 		},
-		// Nothing but the scheduler puts a popped head back, so wl-a2 only
-		// reaches the second cycle, the one with a working snapshot, if the
-		// failed cycle requeued it.
+		// Nothing but the scheduler puts a popped head back, so wl-a2 is only
+		// still queued at the end if every failed cycle requeued it.
 		"snapshot fails; the popped head is requeued": {
-			featureGates:      map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
-			failFirstSnapshot: true,
+			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
+			wantErr:      snapshotErr,
 			workloads: []kueue.Workload{
 				// Admitted so that the snapshot resolves a LocalQueue
 				// weight, and a second entry so the harness runs two cycles.
@@ -881,29 +881,10 @@ func TestScheduleForAFS(t *testing.T) {
 						Request(corev1.ResourceCPU, "4").
 						Obj()).
 					Creation(now).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadQuotaReserved,
-						Status:             metav1.ConditionTrue,
-						Reason:             "QuotaReserved",
-						Message:            "Quota reserved in ClusterQueue cq1",
-						LastTransitionTime: metav1.NewTime(now),
-					}).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionTrue,
-						Reason:             "Admitted",
-						Message:            "The workload is admitted",
-						LastTransitionTime: metav1.NewTime(now),
-					}).
-					Admission(
-						utiltestingapi.MakeAdmission("cq1").
-							PodSets(utiltestingapi.MakePodSetAssignment("one").
-								Assignment(corev1.ResourceCPU, "default", "4").
-								Count(1).
-								Obj()).
-							Obj(),
-					).
 					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/wl-a2"},
 			},
 		},
 	}
@@ -943,7 +924,6 @@ func TestScheduleForAFS(t *testing.T) {
 						utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
 					}
 
-					var snapshotToFail atomic.Bool
 					clientBuilder := utiltesting.NewClientBuilder().
 						WithLists(
 							&kueue.WorkloadList{Items: tc.workloads},
@@ -956,8 +936,8 @@ func TestScheduleForAFS(t *testing.T) {
 						WithInterceptorFuncs(interceptor.Funcs{
 							SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
 							Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-								if _, isLocalQueue := obj.(*kueue.LocalQueue); isLocalQueue && snapshotToFail.CompareAndSwap(true, false) {
-									return errors.New("injected LocalQueue get failure")
+								if _, isLocalQueue := obj.(*kueue.LocalQueue); isLocalQueue && errors.Is(tc.wantErr, snapshotErr) {
+									return tc.wantErr
 								}
 								return c.Get(ctx, key, obj, opts...)
 							},
@@ -1016,16 +996,9 @@ func TestScheduleForAFS(t *testing.T) {
 					go qManager.CleanUpOnContext(ctx)
 					defer cancel()
 
-					// Armed here rather than at build time so that only a
-					// scheduling cycle can consume it.
-					snapshotToFail.Store(tc.failFirstSnapshot)
 					for range len(tc.workloads) {
 						scheduler.schedule(ctx)
 						wg.Wait()
-					}
-
-					if snapshotToFail.Load() {
-						t.Fatal("No snapshot read a LocalQueue, so none of them failed")
 					}
 
 					gotWorkloads := &kueue.WorkloadList{}
@@ -1042,6 +1015,10 @@ func TestScheduleForAFS(t *testing.T) {
 
 					if diff := cmp.Diff(wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
 						t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
+					}
+
+					if diff := cmp.Diff(tc.wantLeft, qManager.Dump(), cmpDump...); diff != "" {
+						t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
 					}
 				},
 			)

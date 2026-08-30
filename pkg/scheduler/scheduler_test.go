@@ -33,7 +33,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
@@ -54,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/routine"
+	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -9545,7 +9545,8 @@ func TestRequeueHeadsAfterSnapshotError(t *testing.T) {
 
 	// Popping the regular head leaves the second-pass one as the only one still
 	// to return, so the assertions below cannot confuse the two.
-	if diff := cmp.Diff(sets.New(workload.Key(pending)), headKeys(qManager.Heads(ctx))); diff != "" {
+	gotHeadKeys := slices.Map(qManager.Heads(ctx), func(h *qcache.Head) workload.Reference { return workload.Key(h.Obj) })
+	if diff := cmp.Diff([]workload.Reference{workload.Key(pending)}, gotHeadKeys); diff != "" {
 		t.Fatalf("Unexpected heads before the second pass backoff (-want,+got):\n%s", diff)
 	}
 
@@ -9556,18 +9557,11 @@ func TestRequeueHeadsAfterSnapshotError(t *testing.T) {
 	}
 	fakeClock.Step(time.Nanosecond)
 	gotHeads := qManager.Heads(ctx)
-	if diff := cmp.Diff(sets.New(workload.Key(secondPass)), headKeys(gotHeads)); diff != "" {
+	gotHeadKeys = slices.Map(gotHeads, func(h *qcache.Head) workload.Reference { return workload.Key(h.Obj) })
+	if diff := cmp.Diff([]workload.Reference{workload.Key(secondPass)}, gotHeadKeys); diff != "" {
 		t.Fatalf("Unexpected heads after the second pass backoff (-want,+got):\n%s", diff)
 	}
 	if got := gotHeads[0].SecondPassIteration; got != 2 {
 		t.Errorf("Unexpected second pass iteration: want 2, got %d", got)
 	}
-}
-
-func headKeys(heads []qcache.Head) sets.Set[workload.Reference] {
-	keys := sets.New[workload.Reference]()
-	for _, h := range heads {
-		keys.Insert(workload.Key(h.Obj))
-	}
-	return keys
 }
