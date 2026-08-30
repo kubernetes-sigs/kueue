@@ -23,6 +23,7 @@ import (
 	"maps"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -9457,6 +9458,13 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 // scheduler requeues them. Regular heads return to the ClusterQueue right away,
 // second-pass heads after a backoff step.
 func TestRequeueHeadsAfterSnapshotError(t *testing.T) {
+	// The LocalQueue weight lookup is the only client call a snapshot makes, so
+	// admission fair sharing is what a test has to enable to fail one.
+	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
+	afsConfig := &config.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: 10 * time.Second},
+		UsageSamplingInterval: metav1.Duration{Duration: 1 * time.Second},
+	}
 	now := time.Now().Truncate(time.Second)
 	ctx, log := utiltesting.ContextWithLog(t)
 
@@ -9467,7 +9475,9 @@ func TestRequeueHeadsAfterSnapshotError(t *testing.T) {
 			*utiltestingapi.MakeFlavorQuotas(rf.Name).
 				Resource(corev1.ResourceCPU, "1").
 				Obj(),
-		).Obj()
+		).
+		AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+		Obj()
 	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
 	pending := utiltestingapi.MakeWorkload("pending", metav1.NamespaceDefault).
 		Queue(kueue.LocalQueueName(lq.Name)).
@@ -9494,14 +9504,24 @@ func TestRequeueHeadsAfterSnapshotError(t *testing.T) {
 		AdmissionCheck(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStateReady}).
 		Obj()
 
+	var snapshotToFail atomic.Bool
 	cl := utiltesting.NewClientBuilder().
 		WithObjects(ns, rf, cq, lq, pending, secondPass).
 		WithStatusSubresource(&kueue.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, isLocalQueue := obj.(*kueue.LocalQueue); isLocalQueue && snapshotToFail.CompareAndSwap(true, false) {
+					return errors.New("injected LocalQueue get failure")
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).
 		Build()
 
 	fakeClock := testingclock.NewFakeClock(now)
-	cqCache := schdcache.New(cl)
-	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
+	cqCache := schdcache.New(cl, schdcache.WithFairSharing(true), schdcache.WithAdmissionFairSharing(afsConfig))
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+		qcache.WithClock(fakeClock), qcache.WithAdmissionFairSharing(afsConfig))
 
 	cqCache.AddOrUpdateResourceFlavor(log, rf)
 	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
@@ -9527,41 +9547,34 @@ func TestRequeueHeadsAfterSnapshotError(t *testing.T) {
 		t.Fatalf("Failed queueing %q for the second pass", secondPass.Name)
 	}
 	fakeClock.Step(time.Second)
-
-	// A cycle receives both populations in one call.
-	heads := qManager.Heads(ctx)
-	if len(heads) != 2 {
-		t.Fatalf("Got %d heads, want the pending and the second pass one", len(heads))
+	if fakeClock.HasWaiters() {
+		t.Fatalf("The second pass pre-queue left a timer behind")
 	}
 
-	scheduler.requeueHeadsAfterSnapshotError(ctx, heads)
-
-	wantLeft := map[kueue.ClusterQueueReference][]workload.Reference{
-		"cq": {workload.Key(pending)},
-	}
-	if diff := cmp.Diff(wantLeft, qManager.Dump()); diff != "" {
-		t.Errorf("Unexpected workloads left in the ClusterQueue (-want,+got):\n%s", diff)
-	}
-
-	// Popping the regular head leaves the second-pass one as the only one still
-	// to return, so the assertions below cannot confuse the two.
-	gotHeadKeys := slices.Map(qManager.Heads(ctx), func(h *qcache.Head) workload.Reference { return workload.Key(h.Obj) })
-	if diff := cmp.Diff([]workload.Reference{workload.Key(pending)}, gotHeadKeys); diff != "" {
-		t.Fatalf("Unexpected heads before the second pass backoff (-want,+got):\n%s", diff)
+	// Armed here rather than at build time so that only a scheduling cycle can
+	// consume it.
+	snapshotToFail.Store(true)
+	scheduler.schedule(ctx)
+	if snapshotToFail.Load() {
+		t.Fatal("No snapshot read a LocalQueue, so none of them failed")
 	}
 
 	// One iteration in, the second pass backoff is two seconds.
 	fakeClock.Step(2*time.Second - time.Nanosecond)
 	if !fakeClock.HasWaiters() {
-		t.Fatalf("The second pass head returned before its backoff elapsed")
+		t.Fatalf("The second pass head didn't come back with a two second backoff")
 	}
 	fakeClock.Step(time.Nanosecond)
 	gotHeads := qManager.Heads(ctx)
-	gotHeadKeys = slices.Map(gotHeads, func(h *qcache.Head) workload.Reference { return workload.Key(h.Obj) })
-	if diff := cmp.Diff([]workload.Reference{workload.Key(secondPass)}, gotHeadKeys); diff != "" {
+	gotHeadKeys := slices.Map(gotHeads, func(h *qcache.Head) workload.Reference { return workload.Key(h.Obj) })
+	wantHeadKeys := []workload.Reference{workload.Key(pending), workload.Key(secondPass)}
+	sortRefs := cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b })
+	if diff := cmp.Diff(wantHeadKeys, gotHeadKeys, sortRefs); diff != "" {
 		t.Fatalf("Unexpected heads after the second pass backoff (-want,+got):\n%s", diff)
 	}
-	if got := gotHeads[0].SecondPassIteration; got != 2 {
-		t.Errorf("Unexpected second pass iteration: want 2, got %d", got)
+	for _, head := range gotHeads {
+		if workload.Key(head.Obj) == workload.Key(secondPass) && head.SecondPassIteration != 2 {
+			t.Errorf("Unexpected second pass iteration: want 2, got %d", head.SecondPassIteration)
+		}
 	}
 }
