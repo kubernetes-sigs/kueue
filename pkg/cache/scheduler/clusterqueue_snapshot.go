@@ -228,7 +228,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		// level, as only node names identify the same capacity across
 		// flavors. Aggregating at node granularity for virtual hostname
 		// topologies is left to a follow-up.
-		if features.Enabled(features.TASHandleOverlappingFlavors) && !tasFlavorCache.virtualHostname {
+		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.declaresHostnameLevel() {
 			flvOpts = append(slices.Clone(options), WithAggregatedDomainUsages(aggregatedDomainUsages))
 		}
 		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, flvOpts...)
