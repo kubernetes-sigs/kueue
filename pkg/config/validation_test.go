@@ -1921,6 +1921,35 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"capacity source with malformed qualified name (more than one slash)": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "a/b/c",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity.name",
+				},
+			},
+		},
 		"capacity source with CC gate disabled": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,

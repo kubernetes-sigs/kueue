@@ -899,17 +899,12 @@ func validateQualifiedName(name resourcev1.QualifiedName, fldPath *field.Path) f
 		} else {
 			allErrs = append(allErrs, validateCIdentifier(parts[1], fldPath)...)
 		}
-		// TODO: This validation is incomplete. It should reject qualified names
-		// that contain more than one slash. Currently, names like "a/b/c" are not
-		// handled and are implicitly accepted.
-		//
-		// This needs to be fixed in two places:
-		// 1. Here in this function.
-		// 2. In the corresponding declarative validation utility `resourcesQualifiedName`
-		//    in `staging/src/k8s.io/apimachinery/pkg/api/validate/strfmt.go`.
-		//
-		// The fix should be introduced carefully, possibly using ratcheting to avoid
-		// breaking existing, non-compliant objects.
+		// TODO: The corresponding declarative validation utility
+		// `resourcesQualifiedName` in
+		// `staging/src/k8s.io/apimachinery/pkg/api/validate/strfmt.go` has the
+		// same gap and should be fixed upstream; not addressed here.
+	default:
+		allErrs = append(allErrs, field.Invalid(fldPath, string(name), "a qualified name must consist of at most one '/'"))
 	}
 
 	return allErrs
