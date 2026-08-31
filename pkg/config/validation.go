@@ -957,6 +957,10 @@ func validateDeviceClassSource(driver string, selector *resourcev1.DeviceSelecto
 func validateQualifiedName(name resourcev1.QualifiedName, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	parts := strings.Split(string(name), "/")
+	// Note: unlike validateLabelKey above, this cannot simply delegate to an
+	// upstream apimachinery helper — QualifiedName has different validation
+	// rules than a label key, and upstream's own equivalent helper has this
+	// same multi-slash gap (see TODO below).
 	switch len(parts) {
 	case 1:
 		allErrs = append(allErrs, validateCIdentifier(parts[0], fldPath)...)
