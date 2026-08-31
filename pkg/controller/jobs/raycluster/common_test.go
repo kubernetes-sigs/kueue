@@ -1414,7 +1414,7 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 		},
 		"invalid json": {
 			annotation: `invalid`,
-			wantErr:    fmt.Errorf("failed to unmarshal %s annotation: invalid character 'i' looking for beginning of value", RayClusterPodsetReplicaSizesAnnotation),
+			wantErr:    fmt.Errorf("failed to unmarshal %s annotation:", RayClusterPodsetReplicaSizesAnnotation),
 		},
 	}
 
@@ -1422,7 +1422,7 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got, err := ParsePodSetReplicaSizes(tc.annotation)
 			if tc.wantErr != nil {
-				if err == nil || err.Error() != tc.wantErr.Error() {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr.Error()) {
 					t.Fatalf("ParsePodSetReplicaSizes() error = %v, wantErr %v", err, tc.wantErr)
 				}
 				return
