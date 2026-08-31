@@ -98,16 +98,16 @@ When both conditions are met, Kueue treats the Workload as eligible for partial 
 
 #### ElasticJob ScaleUp Annotation
 ```go
-type ElasticJobScaleUpAnnotationValue string
+type ElasticJobScaleUpStrategyAnnotationValue string
 
 const (
 	// ElasticJobScaleUpAnnotationKey refers to the annotation key present on Jobs that support
 	// partial scale up.
 	// This annotation is alpha-level.
-	ElasticJobScaleUpAnnotationKey = "kueue.x-k8s.io/elastic-job-scale-up-strategy"
+	ElasticJobScaleUpStrategyAnnotationKey = "kueue.x-k8s.io/elastic-job-scale-up-strategy"
 
-	ElasticJobScaleUpAtomic  ElasticJobScaleUpAnnotationValue = "atomic"
-	ElasticJobScaleUpPartial ElasticJobScaleUpAnnotationValue = "partial"
+	ElasticJobScaleUpStrategyAtomic  ElasticJobScaleUpStrategyAnnotationValue = "atomic"
+	ElasticJobScaleUpStrategyPartial ElasticJobScaleUpStrategyAnnotationValue = "partial"
 )
 ```
 
