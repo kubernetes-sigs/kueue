@@ -228,7 +228,7 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 					log.V(2).Info("RayCluster does not exist, do not update podsets",
 						"rayCluster", rayClusterName)
 				} else {
-					return nil, fmt.Errorf("%w %s: %w", errGetRayCluster, rayClusterName, err)
+					return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
 				}
 			} else {
 				// Create a map of podSets from Ray object spec for quick lookup by name

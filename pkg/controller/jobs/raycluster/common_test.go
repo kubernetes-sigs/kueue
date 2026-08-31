@@ -1524,7 +1524,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				{Name: "head", Count: 1},
 			},
 			rayClusterName: "test-raycluster",
-			wantErr:       rayClusterGetErr,
+			wantErr:        rayClusterGetErr,
 		},
 	}
 
