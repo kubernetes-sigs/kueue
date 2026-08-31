@@ -11,7 +11,7 @@ description: >
 
 Check the [MultiKueue installation guide](/v0.19/docs/tasks/manage/setup_multikueue) on how to properly setup MultiKueue clusters.
 
-For the ease of setup and use we recommend using at least Kueue v0.11.0 and for Kubeflow Trainer at least v2.0.0.
+For the ease of setup and use we recommend using at least Kueue v0.11.0 and for Kubeflow Trainer at least v2.2.0.
 
 See [Trainer Installation](https://www.kubeflow.org/docs/components/trainer/operator-guides/installation/) for installation and configuration details of Kubeflow Trainer v2.
 
