@@ -64,6 +64,7 @@ const (
 	RequeueReasonPreemptionFailed       RequeueReason = "PreemptionFailed"
 	RequeueReasonNoFit                  RequeueReason = "NoFit"
 	RequeueReasonPreemptionNoCandidates RequeueReason = "PreemptionNoCandidates"
+	RequeueReasonSnapshotFailed         RequeueReason = "SnapshotFailed"
 )
 
 // QuotaReservedReason represents the reason for the WorkloadQuotaReserved condition
@@ -169,7 +170,7 @@ type ClusterQueue struct {
 
 	// inadmissibleWorkloads are workloads that have been tried at least once and couldn't be admitted.
 	//
-	// Invariant: a pending workload is tracked in exactly one of heap,
+	// Invariant: a pending workload is tracked in at most one of heap,
 	// inadmissibleWorkloads, or inflight at any time, and contributes to
 	// pendingResourcesTotal exactly once while in heap or inadmissibleWorkloads.
 	// All transitions between these places must go through the helpers next to
@@ -192,7 +193,8 @@ type ClusterQueue struct {
 	popCycle int64
 
 	// inflight is non-nil when a workload has been popped by the scheduler but
-	// not yet requeued or deleted.
+	// not yet requeued, deleted, or released because it could not be placed
+	// back into a queue.
 	inflight *workload.Info
 
 	// queueInadmissibleCycle stores the popId at the time when
@@ -715,6 +717,14 @@ func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 	}
 }
 
+// forgetInflight releases the claim on a popped workload. Only correct under the
+// Manager lock, which orders it against the other transitions of the claim.
+func (c *ClusterQueue) forgetInflight(key workload.Reference) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
+	c.forgetInflightByKey(key)
+}
+
 // handleInadmissibleHash bulk-moves all heap workloads matching the given
 // scheduling hash to inadmissibleWorkloads. Returns the number moved.
 // Only applies to BestEffortFIFO queues; in StrictFIFO the head workload
@@ -1047,6 +1057,7 @@ func (c *ClusterQueue) RequeueIfNotPresent(ctx context.Context, wInfo *workload.
 		immediate = reason != RequeueReasonNamespaceMismatch
 	} else {
 		immediate = reason == RequeueReasonFailedAfterNomination ||
+			reason == RequeueReasonSnapshotFailed ||
 			reason == RequeueReasonPendingPreemption ||
 			reason == RequeueReasonPendingMigration ||
 			reason == RequeueReasonPreemptionFailed
