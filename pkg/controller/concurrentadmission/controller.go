@@ -206,7 +206,28 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	log = log.WithValues("clusterQueue", cq.Name)
 	log.V(2).Info("Found Workload family and ClusterQueue", "variants", klog.KObjSlice(variants))
 
-	// TODO: If ConcurrentAdmission is no longer enabled for this CQ, delete parent and variants.
+	if cq.Spec.ConcurrentAdmissionPolicy == nil {
+		log.V(2).Info("ConcurrentAdmission is no longer enabled for this ClusterQueue, cleaning up parent and variants")
+		for i := range variants {
+			if err := r.deactivateVariant(ctx, &variants[i], "ConcurrentAdmission is no longer enabled for this ClusterQueue"); err != nil {
+				return ctrl.Result{}, fmt.Errorf("deactivating variant: %w", err)
+			}
+		}
+		if workload.IsAdmitted(parent) {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
+				return workloadevict.SetEvictedCondition(wl, r.clock.Now(), "ConcurrentAdmissionDisabled", "ConcurrentAdmission is no longer enabled for this ClusterQueue"), nil
+			}); err != nil {
+				return ctrl.Result{}, fmt.Errorf("evicting parent: %w", err)
+			}
+		}
+		if _, ok := parent.Labels[controllerconsts.ConcurrentAdmissionParentLabelKey]; ok {
+			delete(parent.Labels, controllerconsts.ConcurrentAdmissionParentLabelKey)
+			if err := r.client.Update(ctx, parent); err != nil {
+				return ctrl.Result{}, fmt.Errorf("removing parent label: %w", err)
+			}
+		}
+		return ctrl.Result{}, nil
+	}
 
 	log.V(3).Info("Reconciling variants against ClusterQueue flavors", "desired", len(flavorOrder), "actual", len(variants))
 	if err := r.createVariants(ctx, parent, variants, cq.Spec.ResourceGroups[0].Flavors); err != nil {
