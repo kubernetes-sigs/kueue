@@ -1,1 +1,1 @@
-FROM rayproject/ray:2.57.0@sha256:e094f5745034514531df4caeaa5c7bf119eb2508609faba5ad603a6ea9c02e8b
+FROM rayproject/ray:2.58.0@sha256:61fee5839b2c5e640059a132be3312019c61badbb2396b513d8536b6db82ac4d

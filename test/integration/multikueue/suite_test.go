@@ -98,8 +98,10 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 	return utiltesting.RestConfigToKubeConfig(c.cfg)
 }
 
-func (c *cluster) StopAndTeardown() {
-	c.fwk.StopManager(c.ctx)
+func (c *cluster) stopAndTeardown() {
+	ctx, cancel := context.WithTimeout(c.ctx, util.LongTimeout)
+	defer cancel()
+	c.fwk.StopManager(ctx)
 	c.fwk.Teardown()
 }
 
@@ -567,7 +569,7 @@ var _ = ginkgo.BeforeSuite(func() {
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	managerTestCluster.StopAndTeardown()
-	worker1TestCluster.StopAndTeardown()
-	worker2TestCluster.StopAndTeardown()
+	managerTestCluster.stopAndTeardown()
+	worker1TestCluster.stopAndTeardown()
+	worker2TestCluster.stopAndTeardown()
 })

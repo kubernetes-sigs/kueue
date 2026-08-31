@@ -10,11 +10,13 @@ import (
 	"slices"
 	"sync"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
+	"k8s.io/klog/v2"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
@@ -137,16 +139,17 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 
 // NewWASSimulatorForTest creates a WAS simulator backed by a fake client,
 // suitable for unit tests that need the full production plugin pipeline.
+// It wraps ctx with a discard logger to prevent background informer goroutines
+// from racing with test teardown when t.Context() carries a test logger.
 func NewWASSimulatorForTest(ctx context.Context) (*wasSimulator, error) {
-	iSim, err := newWASSimulator(ctx, fake.NewSimpleClientset())
-	if err == nil {
-		if sim, ok := iSim.(*wasSimulator); ok {
-			return sim, nil
-		} else {
-			err = fmt.Errorf("internal error: expected WAS simulator, got %T", iSim)
-		}
+	iSim, err := newWASSimulator(klog.NewContext(ctx, logr.Discard()), fake.NewSimpleClientset())
+	if err != nil {
+		return nil, err
 	}
-	return nil, err
+  if sim, ok := iSim.(*wasSimulator); ok {
+		return sim, nil
+  }
+	return nil, fmt.Errorf("internal error: expected WAS simulator, got %T", iSim)
 }
 
 func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.SchedulingSimulator, error) {
