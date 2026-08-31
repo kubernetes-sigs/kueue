@@ -53,16 +53,18 @@ type PendingWorkloads struct {
 	inadmissible        inadmissibleWorkloads
 	inadmissibleTracker *metrics.LabelValsTracker
 
-	// inflight holds workloads the scheduler has popped and not yet returned.
-	// While a key is here the ClusterQueue refuses to re-add it (PushOrUpdate is
-	// a no-op), so the scheduler's copy is the one that comes back; updates still
-	// reach the LocalQueue copy, see Get below. Fair sharing refill pops more than
-	// once per ClusterQueue per cycle, hence a map.
+	// inflight is the queue's checkout record: the workloads the scheduler has
+	// taken from this ClusterQueue for the current cycle. While a workload is
+	// checked out the ClusterQueue refuses to put it back on its heap, so the
+	// scheduler's copy is the one that comes back; otherwise the heap and the
+	// scheduler would each hold a copy of the same workload. Updates still reach
+	// the LocalQueue copy, see Get below.
 	//
-	// Invariant: every popped workload must leave, by requeue, delete, or
-	// ForgetInflight. Only deleting the LocalQueue releases keys in bulk, and
-	// nothing reclaims one on its own, so a leftover key silently keeps its
-	// workload out of scheduling until the object is deleted.
+	// Every checkout must end: requeued, deleted, abandoned (ForgetInflight), or
+	// released along with the rest when its LocalQueue is deleted. Nothing expires
+	// an entry, so a missed exit keeps the workload out of scheduling until it is
+	// deleted. We use a map because refill lets the scheduler check out several
+	// workloads per queue per cycle.
 	inflight map[workload.Reference]*workload.Info
 
 	// schedulingHashes tracks the scheduling equivalence hashes of pending
@@ -116,9 +118,10 @@ func (p *PendingWorkloads) PopActive() *workload.Info {
 	defer p.Unlock()
 
 	if p.active.Len() == 0 {
-		// The scheduler may pop several workloads per cycle; already-inflight
-		// workloads are cleared per-key on requeue/delete, so we must not
-		// wipe them when a later pop finds the heap empty.
+		// An empty heap only means there is nothing left to hand out. Workloads
+		// checked out earlier in the cycle are still with the scheduler. Do not
+		// clear their inflight entries here. Each entry is removed when its own
+		// workload is requeued, deleted, or abandoned.
 		return nil
 	}
 

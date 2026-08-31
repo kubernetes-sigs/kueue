@@ -693,11 +693,10 @@ func (c *ClusterQueue) Pop() *workload.Info {
 }
 
 // PopMidCycle removes the head of the queue like Pop, but does not advance
-// popCycle. Workloads popped mid-cycle (fair sharing refill) are evaluated
-// against the snapshot taken at the start of the cycle, so an
-// inadmissible-requeue event that arrived since the cycle's heads were
-// popped must still send them (and the heads) back to the active heap;
-// advancing popCycle here would mask that event.
+// popCycle. Advancing it declares the previous scheduling attempt over and its
+// signals consumed; a mid-cycle pop (refill) is part of an attempt still in
+// progress, whose pending "requeue the inadmissible workloads" signal must stay
+// fresh.
 func (c *ClusterQueue) PopMidCycle() *workload.Info {
 	return c.pop(false)
 }

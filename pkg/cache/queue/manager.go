@@ -759,21 +759,20 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(info.Obj)
 
-	// This call decides where the workload goes, so the claim taken by Pop does
-	// not survive it: a claim left behind makes PushOrUpdate a no-op, keeping
-	// the workload out of the queues even once it could be added again.
-	// Releasing it unconditionally here means no branch below has to be audited
-	// for it. Read before info.Update, which resets info.ClusterQueue.
+	// The scheduler is giving this workload back. End its checkout first,
+	// unconditionally, so every branch below starts from the same state: the
+	// queue will accept this workload again. End it while we still remember
+	// which queue it was borrowed from; info.Update below forgets that.
 	m.forgetInflight(info.ClusterQueue, wlKey)
 
 	var w kueue.Workload
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
 	// Since the client is cached, the only expected error is NotFound.
-	// We should not requeue a workload that is not admissible. In all these
-	// cases the caller popped this workload and no requeue follows, so the
-	// records it left in the queues are dropped here; which of them survive
-	// depends on whether the object itself is gone.
+	// We should not requeue a workload that is not admissible. None of the three
+	// branches below requeues, so each has to clear what the checkout left in the
+	// queues: if the object is gone its queue assignment goes with it, and if it
+	// still exists that record belongs to the workload controller.
 	if apierrors.IsNotFound(err) {
 		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
 		return false
@@ -971,9 +970,11 @@ func (m *Manager) heads() []Head {
 	return heads
 }
 
-// takePopped brings the rest of the queue layer in line with a pop that has
-// already moved the workload off the ClusterQueue's heap: dropping it from its
-// LocalQueue is what AddFromLocalQueue would otherwise replay.
+// takePopped completes a checkout. Popping only takes the workload off the
+// ClusterQueue's heap; its LocalQueue keeps a copy, and that copy is what seeds
+// a heap when a ClusterQueue is added or a LocalQueue is repointed at another
+// one. Those heaps know nothing about this checkout, so drop the LocalQueue's
+// copy here, then hand the workload to the scheduler as a Head.
 func (m *Manager) takePopped(cq *ClusterQueue, wl *workload.Info) *Head {
 	reportCQPendingWorkloads(m, cq)
 	if wl == nil {
@@ -994,9 +995,9 @@ func (m *Manager) takePopped(cq *ClusterQueue, wl *workload.Info) *Head {
 
 // PopFrom pops the head of the given ClusterQueue so it can join the running
 // scheduling cycle mid-way (fair sharing refill), with the same per-queue
-// bookkeeping as heads(). The popped workload becomes inflight and, like the
-// workloads returned by Heads, must be requeued or deleted by the caller
-// before the end of the cycle.
+// bookkeeping as heads(). The popped workload is checked out and, like the
+// workloads returned by Heads, the caller must end that checkout before the
+// cycle ends.
 func (m *Manager) PopFrom(cqName kueue.ClusterQueueReference) *Head {
 	m.Lock()
 	defer m.Unlock()
@@ -1027,10 +1028,10 @@ func (m *Manager) HasQueuedWorkloads(cqName kueue.ClusterQueueReference) bool {
 	return cq.hasQueuedWorkloads()
 }
 
-// ForgetInflight releases the claim on a workload that leaves the scheduling
-// cycle without being requeued or deleted, for the callers outside
-// RequeueWorkload (e.g. a refill pop that is already accounted in the
-// scheduler cache).
+// ForgetInflight ends a scheduler checkout by walking away: the scheduler took
+// this workload but found nothing to do with it, so the checkout ends without
+// the workload being requeued or deleted. This happens when a popped workload
+// turns out to be already accounted in the scheduler cache.
 func (m *Manager) ForgetInflight(cqName kueue.ClusterQueueReference, key workload.Reference) {
 	m.Lock()
 	defer m.Unlock()
