@@ -26,11 +26,14 @@ import (
 	"gomodules.xyz/jsonpatch/v2"
 	admissionv1 "k8s.io/api/admission/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -42,6 +45,9 @@ const (
 	// GangDefaultedAnnotation marks a Job whose spec.scheduling Kueue set. It
 	// outlives the field, which the API server drops when WorkloadWithJob is off.
 	GangDefaultedAnnotation = "kueue.x-k8s.io/gang-defaulted"
+
+	ReasonGangSchedulingDefaulted      = "GangSchedulingDefaulted"
+	ReasonGangSchedulingDefaultDropped = "GangSchedulingDefaultDropped"
 )
 
 // minKubeVersionForJobScheduling is the first release that serves
@@ -196,4 +202,29 @@ func (w *JobWebhook) serverVersion() *versionutil.Version {
 		return nil
 	}
 	return &v
+}
+
+// CheckDefaultedFields reports, as an event on the Job, whether the API
+// server kept the spec.scheduling that Kueue set at admission.
+func (j *Job) CheckDefaultedFields(ctx context.Context, c client.Client, recorder events.EventRecorder) error {
+	if j.Annotations[GangDefaultedAnnotation] == "" {
+		return nil
+	}
+	stored := &unstructured.Unstructured{}
+	stored.SetGroupVersionKind(gvk)
+	if err := c.Get(ctx, client.ObjectKeyFromObject(j.Object()), stored); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	_, found, err := unstructured.NestedFieldNoCopy(stored.Object, "spec", "scheduling")
+	if err != nil {
+		return err
+	}
+	if !found {
+		recorder.Eventf(j.Object(), nil, corev1.EventTypeWarning, ReasonGangSchedulingDefaultDropped, "GangSchedulingDefaultDropped",
+			"Kueue set spec.scheduling at admission but the API server did not store it; the Job runs without gang scheduling. Check the WorkloadWithJob feature gate on the API server.")
+		return nil
+	}
+	recorder.Eventf(j.Object(), nil, corev1.EventTypeNormal, ReasonGangSchedulingDefaulted, "GangSchedulingDefaulted",
+		"Kueue set the gang scheduling policy with disruptionMode all")
+	return nil
 }

@@ -520,6 +520,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// 3. handle workload is nil.
 	if wl == nil {
 		log.V(3).Info("The workload is nil, handle job with no workload")
+		if jdc, ok := job.(JobWithDefaultedFieldCheck); ok {
+			if err := jdc.CheckDefaultedFields(ctx, r.client, r.record); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
 		err := r.handleJobWithNoWorkload(ctx, job, object)
 		if err != nil {
 			if apierrors.IsAlreadyExists(err) {
