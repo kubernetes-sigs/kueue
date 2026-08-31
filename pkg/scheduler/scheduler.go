@@ -733,19 +733,21 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	usage := e.assignmentUsage(log)
 	fitsCheck := fits(snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
 
-	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
-	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
+	needsRecomputeAssignmentDueToUsageConflict :=
+		(fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)) ||
+			(fitsCheck == schdcache.FitsCheckNoQuota && features.Enabled(features.RecomputeAssignmentUponQuotaExhaustion))
+	needsRecomputeAssignmentDueToPreemptionTargetsOverlap := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
 
 	var revertRemoval func()
 	switch {
-	case needsOverlapRecompute:
-		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
+	case needsRecomputeAssignmentDueToPreemptionTargetsOverlap:
+		log.V(3).Info("Re-computing the assignment as preemption targets overlap")
 		// To get the projected cluster state after other preemptions complete,
 		// we simulate the removal of their victims.
 		victimsOfOtherPreemptions := slices.Collect(maps.Values(preemptedWorkloads))
 		revertRemoval = snapshot.SimulateWorkloadRemoval(victimsOfOtherPreemptions)
-	case needsTASRecompute:
-		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
+	case needsRecomputeAssignmentDueToUsageConflict:
+		log.V(3).Info("Re-computing the assignment as the workload doesn't fit anymore after processing another workload", "fitsCheck", fitsCheck)
 	default:
 		// Short-circuit, nothing to recompute.
 		return usage, schdcache.FitsCheckOk == fitsCheck
@@ -756,7 +758,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	e.NominationMapping = e.readResourceToFlavorMapping()
 	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
 	e.recordAssignment(newAssignment, newTargets)
-	if needsOverlapRecompute {
+	if needsRecomputeAssignmentDueToPreemptionTargetsOverlap {
 		if revertRemoval != nil {
 			revertRemoval()
 		}

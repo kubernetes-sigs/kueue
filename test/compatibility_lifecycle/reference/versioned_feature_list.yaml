@@ -329,6 +329,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: RecomputeAssignmentUponQuotaExhaustion
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: RejectUpdatesToCQWithInvalidOnFlavors
   versionedSpecs:
   - default: false
