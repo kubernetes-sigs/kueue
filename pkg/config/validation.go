@@ -885,6 +885,10 @@ func validateDeviceClassSource(driver string, selector *resourcev1.DeviceSelecto
 func validateQualifiedName(name resourcev1.QualifiedName, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	parts := strings.Split(string(name), "/")
+	// Note: unlike validateLabelKey above, this cannot simply delegate to an
+	// upstream apimachinery helper — QualifiedName has different validation
+	// rules than a label key, and upstream's own equivalent helper has this
+	// same multi-slash gap (see TODO below).
 	switch len(parts) {
 	case 1:
 		allErrs = append(allErrs, validateCIdentifier(parts[0], fldPath)...)
@@ -899,17 +903,12 @@ func validateQualifiedName(name resourcev1.QualifiedName, fldPath *field.Path) f
 		} else {
 			allErrs = append(allErrs, validateCIdentifier(parts[1], fldPath)...)
 		}
-		// TODO: This validation is incomplete. It should reject qualified names
-		// that contain more than one slash. Currently, names like "a/b/c" are not
-		// handled and are implicitly accepted.
-		//
-		// This needs to be fixed in two places:
-		// 1. Here in this function.
-		// 2. In the corresponding declarative validation utility `resourcesQualifiedName`
-		//    in `staging/src/k8s.io/apimachinery/pkg/api/validate/strfmt.go`.
-		//
-		// The fix should be introduced carefully, possibly using ratcheting to avoid
-		// breaking existing, non-compliant objects.
+		// TODO: The corresponding declarative validation utility
+		// `resourcesQualifiedName` in
+		// `staging/src/k8s.io/apimachinery/pkg/api/validate/strfmt.go` has the
+		// same gap and should be fixed upstream; not addressed here.
+	default:
+		allErrs = append(allErrs, field.Invalid(fldPath, string(name), "a qualified name must consist of at most one '/'"))
 	}
 
 	return allErrs
