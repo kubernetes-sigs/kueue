@@ -773,7 +773,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	e.NominationMapping = nil
 
 	// Determine the overlap recomputation result for metrics reporting.
-	if needsOverlapRecompute {
+	if needsRecomputeAssignmentDueToPreemptionTargetsOverlap {
 		var overlapRecomputeResult metrics.PreemptionTargetRecomputationResult
 		switch {
 		case e.assignment.RepresentativeMode() == flavorassigner.DeferredFit:
