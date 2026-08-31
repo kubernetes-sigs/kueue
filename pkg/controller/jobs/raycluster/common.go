@@ -62,7 +62,7 @@ var (
 	// ErrRedisCleanupMissingRayContainer is returned when GCS fault tolerance is
 	// enabled but the head Pod template does not include the Ray container needed
 	// to account for the Redis cleanup Job's resource requests.
-	ErrRedisCleanupMissingRayContainer = errors.New("cannot account for Redis cleanup resources: head pod template must include the Ray container")
+	errRedisCleanupMissingRayContainer = errors.New("cannot account for Redis cleanup resources: head pod template must include the Ray container")
 	// ErrPodSetNameMismatch is returned when a RayCluster's worker group has no
 	// matching PodSet in the Ray object's spec.
 	ErrPodSetNameMismatch = errors.New("PodSet name mismatch")
@@ -71,7 +71,7 @@ var (
 	ErrGetRayCluster = errors.New("failed to get RayCluster")
 	// ErrUnmarshalPodSetReplicaSizes is returned when the
 	// RayClusterPodsetReplicaSizesAnnotation value cannot be parsed.
-	ErrUnmarshalPodSetReplicaSizes = errors.New("failed to unmarshal podset replica sizes annotation")
+	errUnmarshalPodSetReplicaSizes = fmt.Errorf("failed to unmarshal %s annotation", RayClusterPodsetReplicaSizesAnnotation)
 )
 
 // effectiveWorkerCount returns the effective worker pod count for a worker
