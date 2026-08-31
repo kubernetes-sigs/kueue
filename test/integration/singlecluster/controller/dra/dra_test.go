@@ -982,11 +982,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			// Named rather than left to any pending reason: six of the seven that
-			// helper accepts are ones a Workload passes through on its way to being
-			// admitted, so one of those would satisfy a weaker assertion while the
-			// overhead went missing.
-			ginkgo.By("Waiting on the original name, rather than refused as misconfigured DRA")
+			ginkgo.By("Verifying the Pod overhead charge uses the original extended resource name")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
@@ -997,7 +993,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(cond.Message).To(gomega.ContainSubstring(extendedResourceName))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("And staying there, rather than reaching quota once the overhead is dropped")
+			ginkgo.By("Verifying the Pod overhead charge under the original extended resource name continues to prevent quota reservation")
 			gomega.Consistently(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
@@ -1085,7 +1081,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			ginkgo.By("Both names are covered, so each contribution is charged where it belongs")
+			ginkgo.By("Verifying the DRA charge uses the logical name and Pod overhead uses the original name")
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())

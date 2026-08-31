@@ -1140,10 +1140,8 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
-		// The case above without a deviceClassMappings entry, so the quota key falls
-		// back to the original name. That is the setup the extended-resource guide
-		// describes, and the two contributions have nowhere to go but the one key, so
-		// the total under it is no longer a count of devices.
+		// Without a deviceClassMappings entry, the DRA charge for the container
+		// request and the Pod overhead both use the original resource name.
 		"withNoMappingTheChargeAndTheOverheadShareOneKey": {
 			workload: *utiltestingapi.MakeWorkload("dra", "").
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
@@ -1166,8 +1164,8 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
-		// A transformation output landing on the replaced name is not the container
-		// request either, so only the container's share is taken back.
+		// The DRA replacement subtracts only the container request; a transformation
+		// output under the same name remains.
 		"transformOutputOnAReplacedKeySurvives": {
 			workload: *utiltestingapi.MakeWorkload("dra", "").
 				PodSets(*utiltestingapi.MakePodSet("a", 1).
