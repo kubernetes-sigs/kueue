@@ -795,7 +795,15 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 	qKey := queue.KeyFromWorkload(&w)
 	if assignedQueue, ok := m.workloadAssignedQueues[wlKey]; ok && assignedQueue != qKey {
+		// The workload changed LocalQueue while it was checked out, so drop what
+		// it left in the old one. Its entry in the unadmitted-workloads registry
+		// is only labelled by queue, not held by it, so count it again under the
+		// new labels: this call is the scheduler's, and no reconcile follows it
+		// to rebuild the entry.
 		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			m.updateUnadmittedWorkloadWithoutLock(log, &w)
+		}
 	}
 
 	q := m.localQueues[qKey]
