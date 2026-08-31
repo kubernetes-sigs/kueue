@@ -725,9 +725,6 @@ func TestUpdatePodSets(t *testing.T) {
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want +got):\n%s", diff)
 			}
-			if tc.wantErr != nil {
-				return
-			}
 
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")); diff != "" {
 				t.Errorf("Unexpected podSets (-want +got):\n%s", diff)
@@ -1424,6 +1421,8 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 }
 
 func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
+	rayClusterGetErr := errors.New("failed to get RayCluster")
+
 	testCases := map[string]struct {
 		annotations      map[string]string
 		podSets          []kueue.PodSet
@@ -1525,7 +1524,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				{Name: "head", Count: 1},
 			},
 			rayClusterName: "test-raycluster",
-			wantErr:        errGetRayCluster,
+			wantErr:       rayClusterGetErr,
 		},
 	}
 
@@ -1540,7 +1539,16 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				_ = rayv1.AddToScheme(scheme)
 			}
 
-			builder := fake.NewClientBuilder().WithScheme(scheme)
+			builder := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if _, ok := obj.(*rayv1.RayCluster); ok && errors.Is(tc.wantErr, rayClusterGetErr) {
+							return rayClusterGetErr
+						}
+						return c.Get(ctx, key, obj, opts...)
+					},
+				})
 
 			var jobObject client.Object
 			if tc.createRayCluster {
@@ -1566,10 +1574,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 
 			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, jobObject, tc.rayClusterName)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
-				t.Fatalf("GetWorkloadslicingCustomAnnotations() error mismatch (-want +got):\n%s", diff)
-			}
-			if tc.wantErr != nil {
-				return
+				t.Errorf("GetWorkloadslicingCustomAnnotations() error mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantAnnotation, got); diff != "" {
 				t.Errorf("GetWorkloadslicingCustomAnnotations() mismatch (-want +got):\n%s", diff)

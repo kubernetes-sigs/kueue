@@ -66,9 +66,6 @@ var (
 	// errPodSetNameMismatch is returned when a RayCluster's worker group has no
 	// matching PodSet in the Ray object's spec.
 	errPodSetNameMismatch = errors.New("PodSet name mismatch")
-	// errGetRayCluster is returned when fetching the RayCluster fails for a reason
-	// other than it not existing.
-	errGetRayCluster = errors.New("failed to get RayCluster")
 	// errUnmarshalPodSetReplicaSizes is returned when the
 	// RayClusterPodsetReplicaSizesAnnotation value cannot be parsed.
 	errUnmarshalPodSetReplicaSizes = fmt.Errorf("failed to unmarshal %s annotation", RayClusterPodsetReplicaSizesAnnotation)
@@ -456,7 +453,7 @@ func GetWorkloadslicingRayClusterCustomAnnotations(ctx context.Context, c client
 			if apierrors.IsNotFound(err) {
 				log.V(3).Info("RayCluster not found, skipping generation annotation", "rayCluster", rayClusterName)
 			} else {
-				return nil, fmt.Errorf("%w %s: %w", errGetRayCluster, rayClusterName, err)
+				return nil, fmt.Errorf("failed to get RayCluster %s: %w", rayClusterName, err)
 			}
 		} else {
 			if isStandaloneRayCluster(jobObject, rayClusterName) {
