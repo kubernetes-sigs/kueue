@@ -56,12 +56,10 @@ updates.
 
 ### 1. Defragmentation
 
-Kueue does not support topology based preemptions.
-Right now Kueue takes into account only workload priorities and quota limits when
-deciding if preemption is needed.
-In many situations workloads that have quota satisfied but require specific toplogy cannot be scheduled due to cluster fragmentation. Currently Kueue does not support in any way preemption due to lack of topology or other way of defragmentation of the cluster.
+Kueue does not support topology based preemptions when other workloads are within their nominal quota. Because of this small workloads can sometimes block large topology domains.
+In some clusters this may be desired - as disruptions of critical workloads should be avoided as much as possible.
 
-The "desired" behavior can be seen in the example:
+In other setups better cluster utilization or ability to schedule higher priority jobs that are blocked due to cluster fragmentation is more important. Thereby, additional defragmentation mechanism are needed to allow higher priorirty workloads to move smaller workloads between topology domains. The expected behavior in this case can be seen in the following example:
 
 Let us consider cluster with 2 racks where each rack has 4 nodes.
 For simplicity we will identify resources with nodes. And there is only one resource flavor with natural 2 level topology: rack, hostname.
@@ -224,9 +222,9 @@ create a good baseline for configurations that can be extended in the future. it
 ## Proposal
 
 Introduce a new CRD **PreemptionConfig** that will be used to define:
-- triggers when preemption should occur (e.g. insufficient topology to schedule the workload)
-- rules defining which workloads should be considered for preemption
-- order in which workloads should be preempted (until considered workload cane be scheduled)
+- triggers when preemption should occur (e.g. insufficient topology to schedule the workload),
+- rules defining which workloads should be considered for preemption,
+- order in which workloads should be preempted (until considered workload cane be scheduled).
 
 The **PreemptionConfig** object is cluster-wide resource that can be referenced by multiple ClusterQueues.
 
@@ -289,19 +287,59 @@ spec:
   rules:
     - trigger: "InsufficientTopology"
       MinTriggerRequiredDuration: "30s"
-			candidates:
-			- relativeWorkloadPriority: "LowerOrEqual"
-				relationRequirement: "AnyClusterQueue"
-				TODO numeric label selector
-
-			order:
-				- orderingField: "Priority"
-      
+      candidates:
+        - relativeWorkloadPriority: "LowerOrEqual"
+          relationRequirement: "AnyClusterQueue"
+          numericLabels:
+            - key: "tpus-count"
+              relation: "LessOrEqual"
+              default: 0
+  ordering:
+    - orderingField: "Priority"
 ```
 
-As it has "AnyClusterQueue" relation it can preempt workloads even if they are not related in any way to the preemptor cluster queue. In combination with custom numeric label selector this should result in eviction of smaller less important workloads blocking larger topologies, even if they are within the guaranted quota. Effectively if they are re-admitted again they should be placed in smaller domains(where  considered workload cannot be scheduled), thereby defragmenting the cluster.
+As it has "AnyClusterQueue" relation it can preempt workloads even if they are not related in any way to the preemptor cluster queue. In combination with custom numeric label selector this should result in eviction of smaller less important workloads blocking larger topologies, even if they are within the guaranted quota. Effectively if they are re-admitted again they should be placed in smaller domains(where the considered workload cannot be scheduled), thereby defragmenting the cluster.
 
-#### Story 2 (Optional)
+#### Story 2 - Hero job
+
+This example shows how hero job's preemption configuraiton can be set up. It proposes a examplary separate preemption configuration for the hero job's cluster queue, but in practical deployments it should be tailored to the user needs.
+
+Assumptions:
+ - hero job we would like to have elevated privilages to preempt other workloads,
+ - hero job is a mission critical job and should be scheduled as soon as possible,
+ - hero job should not be preemptable by any other workload.
+
+ This can be achieved by a separate preemption config for the hero job. The config should be referenced by the hero job's cluster queue. The config will have 2 rules, allowing it to preempt any workload either because of quota or topology reasons:
+
+```
+spec:
+  rules:
+    - trigger: "InsufficientTopology"
+      candidates:
+        - relativeWorkloadPriority: "Lower"
+          relationRequirement: "AnyClusterQueue"
+    - trigger: "InsufficientQuota"
+      candidates:
+        - relativeWorkloadPriority: "Lower"
+          relationRequirement: "AnyClusterQueue"
+  ordering:
+    - orderingField: "Priority"
+```
+
+And then to make sure that the hero job is never preempted one may:
+1. Have preemption limits with 0 allowed preemptions from hero job's CQ. (Doable after milestone 5)
+2. Define in cadidate selectors subfiel `ClusterQueueSelector` of other configurations that they cannot preempt from the hero job's CQ.
+3. Make hero job's priority higher than any other workload's priority and do not allow for preemption of workloads with higher or equal priority.
+
+Thanks to the elevated preemption privilages the hero job will be able to preempt any workloads and borrow the quota from other CQs in the cohort tree (this job will still be affected by lending limits - so they have to be set appropriately to allow for the quota gathering). It will also effectively lock this quota, as no other workload will be able to preempt it.
+
+### Story 3 - Business driven preemption rules
+
+Requested functionalities from the community can be satisfied with the following rules:
+ 1.[Issue #9596](https://github.com/kubernetes-sigs/kueue/issues/9596)  can be satisfied by using `MinExecutionDuration` in the defined configuration rules.
+ 2 [Issue #12001](https://github.com/kubernetes-sigs/kueue/issues/12001) can be satisfied by using `CandidateWorkloadPrioritySelector` and "SameClusterQueue" `PreemptionRelationConstraint` in appropriate rules.
+ 3. [Issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046) can be also satisfied by using `CandidateWorkloadPrioritySelector` in rules with combination of "SameCohort" `PreemptionRelationConstraint` and  "BorrowingCapacityFromPreemptor" `QuotaConstraint.
+ 4. Netbuibed SLA can be modeled with `MaxTimeFromCreationDuration` - to avoid preempting workloads that are older than X and are from a specific cluster queue or that have specific label.
 
 ### Notes
 
