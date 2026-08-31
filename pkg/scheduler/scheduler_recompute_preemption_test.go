@@ -1187,6 +1187,7 @@ func TestScheduleRecomputePreemptionTargets(t *testing.T) {
 				features.RecomputeAssignmentUponPreemptionTargetsOverlap: false,
 				features.TopologyAwareScheduling:                         false,
 				features.TASRecomputeAssignmentWithinSchedulingCycle:     false,
+				features.RecomputeAssignmentUponQuotaExhaustion:          false,
 			},
 			enableFairSharing: true,
 			cohorts: []kueue.Cohort{
