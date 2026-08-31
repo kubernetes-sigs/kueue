@@ -40,19 +40,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-func testHistoryServerOptions() *rayv1.HistoryServerOptions {
-	return &rayv1.HistoryServerOptions{
-		CollectorOptions: &rayv1.CollectorOptions{
-			Image: new("quay.io/kuberay/collector:v1.7.0"),
-			Env: []corev1.EnvVar{
-				{Name: "STORAGE_BACKEND", Value: "s3"},
-				{Name: "S3_BUCKET", Value: "ray-historyserver"},
-				{Name: "S3_REGION", Value: "us-east-1"},
-			},
-		},
-	}
-}
-
 var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var f *multiKueueFixture
 
@@ -82,8 +69,12 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 		rayjob := testingrayjob.MakeJob("rayjob1", f.managerNs.Name).
 			WithSubmissionMode(rayv1.InteractiveMode).
 			Queue(f.managerLq.Name).
+			WithHistoryServerOptions(&rayv1.HistoryServerOptions{
+				CollectorOptions: &rayv1.CollectorOptions{
+					Image: new("quay.io/kuberay/collector:v1.7.0"),
+				},
+			}).
 			Obj()
-		rayjob.Spec.RayClusterSpec.HistoryServerOptions = testHistoryServerOptions()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayjob)
 		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: f.managerNs.Name}
 		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
@@ -133,8 +124,12 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 		)
 		raycluster := testingraycluster.MakeCluster("raycluster1", f.managerNs.Name).
 			Queue(f.managerLq.Name).
+			WithHistoryServerOptions(&rayv1.HistoryServerOptions{
+				CollectorOptions: &rayv1.CollectorOptions{
+					Image: new("quay.io/kuberay/collector:v1.7.0"),
+				},
+			}).
 			Obj()
-		raycluster.Spec.HistoryServerOptions = testHistoryServerOptions()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, raycluster)
 		wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID), Namespace: f.managerNs.Name}
 		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
@@ -175,8 +170,12 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 		rayService := testingrayservice.MakeService("rayservice1", f.managerNs.Name).
 			Queue(f.managerLq.Name).
 			WithServeConfigV2("serve-config-v1").
+			WithHistoryServerOptions(&rayv1.HistoryServerOptions{
+				CollectorOptions: &rayv1.CollectorOptions{
+					Image: new("quay.io/kuberay/collector:v1.7.0"),
+				},
+			}).
 			Obj()
-		rayService.Spec.RayClusterSpec.HistoryServerOptions = testHistoryServerOptions()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayService)
 		wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: f.managerNs.Name}
 		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())

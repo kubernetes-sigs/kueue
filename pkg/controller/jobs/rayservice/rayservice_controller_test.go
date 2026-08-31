@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -55,26 +56,6 @@ func headSpecWithAutoscaler(rayService *RayService) corev1.PodSpec {
 		},
 	})
 	return *spec
-}
-
-// podSpecWithHistoryServerCollector returns the PodSpec with the History Server
-// collector appended, matching KubeRay's default resources.
-func podSpecWithHistoryServerCollector(spec *corev1.PodSpec) corev1.PodSpec {
-	result := spec.DeepCopy()
-	result.Containers = append(result.Containers, corev1.Container{
-		Name: rayutils.CollectorContainerName,
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("50m"),
-				corev1.ResourceMemory: resource.MustParse("64Mi"),
-			},
-			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("200m"),
-				corev1.ResourceMemory: resource.MustParse("256Mi"),
-			},
-		},
-	})
-	return *result
 }
 
 func TestPodSets(t *testing.T) {
@@ -131,47 +112,46 @@ func TestPodSets(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
 		"with history server collector": {
-			rayService: (*RayService)(&rayv1.RayService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rayservice",
-					Namespace: "ns",
-				},
-				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{
-						HistoryServerOptions: &rayv1.HistoryServerOptions{
-							CollectorOptions: &rayv1.CollectorOptions{
-								Image: new("quay.io/kuberay/collector:v1.7.0"),
-								Env: []corev1.EnvVar{
-									{Name: "STORAGE_BACKEND", Value: "s3"},
-									{Name: "S3_BUCKET", Value: "ray-historyserver"},
-									{Name: "S3_REGION", Value: "us-east-1"},
-								},
-							},
+			rayService: (*RayService)(testingrayservice.MakeService("rayservice", "ns").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+					},
+				}).
+				WithWorkerGroups(rayv1.WorkerGroupSpec{
+					GroupName: "group1",
+					Replicas:  new(int32(2)),
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+					},
+				}).
+				WithHistoryServerOptions(&rayv1.HistoryServerOptions{
+					CollectorOptions: &rayv1.CollectorOptions{
+						Image: new("quay.io/kuberay/collector:v1.7.0"),
+					},
+				}).
+				Obj()),
+			wantPodSets: func(_ *RayService) []kueue.PodSet {
+				collector := corev1.Container{
+					Name:  rayutils.CollectorContainerName,
+					Image: "quay.io/kuberay/collector:v1.7.0",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("50m"),
+							corev1.ResourceMemory: resource.MustParse("64Mi"),
 						},
-						HeadGroupSpec: rayv1.HeadGroupSpec{
-							Template: corev1.PodTemplateSpec{
-								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
-							},
-						},
-						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-							{
-								GroupName: "group1",
-								Replicas:  new(int32(2)),
-								Template: corev1.PodTemplateSpec{
-									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
-								},
-							},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("200m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
 						},
 					},
-				},
-			}),
-			wantPodSets: func(rayService *RayService) []kueue.PodSet {
+				}
 				return []kueue.PodSet{
 					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(podSpecWithHistoryServerCollector(&rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec)).
+						PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}, collector}}).
 						Obj(),
 					*utiltestingapi.MakePodSet("group1", 2).
-						PodSpec(podSpecWithHistoryServerCollector(&rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec)).
+						PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}, collector}}).
 						Obj(),
 				}
 			},

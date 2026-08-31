@@ -238,7 +238,9 @@ func defaultHistoryServerCollectorResources() corev1.ResourceRequirements {
 
 // historyServerCollectorContainer returns a container mirroring the collector
 // that KubeRay injects into every head and worker Pod when History Server
-// collection is configured.
+// collection is configured. Image is copied from CollectorOptions so
+// ProvisioningRequest PodSpec validation succeeds; it is left empty when unset
+// because KubeRay rejects a missing collectorOptions.image.
 func historyServerCollectorContainer(opts *rayv1.CollectorOptions) corev1.Container {
 	resources := defaultHistoryServerCollectorResources()
 	if opts.Resources != nil {
@@ -247,6 +249,7 @@ func historyServerCollectorContainer(opts *rayv1.CollectorOptions) corev1.Contai
 	return corev1.Container{
 		Name:      rayutils.CollectorContainerName,
 		Resources: resources,
+		Image:     ptr.Deref(opts.Image, ""),
 	}
 }
 

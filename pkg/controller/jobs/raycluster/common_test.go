@@ -49,31 +49,6 @@ import (
 
 func TestBuildPodSets(t *testing.T) {
 	collectorImage := "quay.io/kuberay/collector:v1.7.0"
-	collectorEnv := []corev1.EnvVar{
-		{Name: "STORAGE_BACKEND", Value: "s3"},
-		{Name: "S3_BUCKET", Value: "ray-historyserver"},
-		{Name: "S3_REGION", Value: "us-east-1"},
-	}
-	defaultCollectorResources := corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("50m"),
-			corev1.ResourceMemory: resource.MustParse("64Mi"),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("200m"),
-			corev1.ResourceMemory: resource.MustParse("256Mi"),
-		},
-	}
-	customCollectorResources := corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("100m"),
-			corev1.ResourceMemory: resource.MustParse("128Mi"),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("400m"),
-			corev1.ResourceMemory: resource.MustParse("512Mi"),
-		},
-	}
 
 	testCases := map[string]struct {
 		rayClusterSpec              *rayv1.RayClusterSpec
@@ -583,7 +558,6 @@ func TestBuildPodSets(t *testing.T) {
 				HistoryServerOptions: &rayv1.HistoryServerOptions{
 					CollectorOptions: &rayv1.CollectorOptions{
 						Image: &collectorImage,
-						Env:   collectorEnv,
 					},
 				},
 				HeadGroupSpec: rayv1.HeadGroupSpec{
@@ -610,10 +584,7 @@ func TestBuildPodSets(t *testing.T) {
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
 							{Name: "head"},
-							{
-								Name:      rayutils.CollectorContainerName,
-								Resources: defaultCollectorResources,
-							},
+							historyServerCollectorContainer(&rayv1.CollectorOptions{Image: &collectorImage}),
 						},
 					}).
 					Obj(),
@@ -621,10 +592,7 @@ func TestBuildPodSets(t *testing.T) {
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
 							{Name: "worker"},
-							{
-								Name:      rayutils.CollectorContainerName,
-								Resources: defaultCollectorResources,
-							},
+							historyServerCollectorContainer(&rayv1.CollectorOptions{Image: &collectorImage}),
 						},
 					}).
 					Obj(),
@@ -634,9 +602,17 @@ func TestBuildPodSets(t *testing.T) {
 			rayClusterSpec: &rayv1.RayClusterSpec{
 				HistoryServerOptions: &rayv1.HistoryServerOptions{
 					CollectorOptions: &rayv1.CollectorOptions{
-						Image:     &collectorImage,
-						Resources: &customCollectorResources,
-						Env:       collectorEnv,
+						Image: &collectorImage,
+						Resources: &corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("100m"),
+								corev1.ResourceMemory: resource.MustParse("128Mi"),
+							},
+							Limits: corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("400m"),
+								corev1.ResourceMemory: resource.MustParse("512Mi"),
+							},
+						},
 					},
 				},
 				HeadGroupSpec: rayv1.HeadGroupSpec{
@@ -663,10 +639,19 @@ func TestBuildPodSets(t *testing.T) {
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
 							{Name: "head"},
-							{
-								Name:      rayutils.CollectorContainerName,
-								Resources: customCollectorResources,
-							},
+							historyServerCollectorContainer(&rayv1.CollectorOptions{
+								Image: &collectorImage,
+								Resources: &corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("100m"),
+										corev1.ResourceMemory: resource.MustParse("128Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("400m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+								},
+							}),
 						},
 					}).
 					Obj(),
@@ -674,10 +659,19 @@ func TestBuildPodSets(t *testing.T) {
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{
 							{Name: "worker"},
-							{
-								Name:      rayutils.CollectorContainerName,
-								Resources: customCollectorResources,
-							},
+							historyServerCollectorContainer(&rayv1.CollectorOptions{
+								Image: &collectorImage,
+								Resources: &corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("100m"),
+										corev1.ResourceMemory: resource.MustParse("128Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceCPU:    resource.MustParse("400m"),
+										corev1.ResourceMemory: resource.MustParse("512Mi"),
+									},
+								},
+							}),
 						},
 					}).
 					Obj(),
