@@ -19,12 +19,13 @@ limitations under the License.
 package was
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -33,6 +34,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 type testCandidate struct {
@@ -67,57 +69,40 @@ func TestNodePortsFeasibility(t *testing.T) {
 		Obj()
 	nodes := []*corev1.Node{node1, node2}
 
-	existingPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "existing-pod",
-			Namespace: "default",
-			UID:       "uid-1",
-			Annotations: map[string]string{
-				kueue.WorkloadAnnotation: "test-workload",
-			},
-		},
-		Spec: corev1.PodSpec{
-			NodeName: "node1",
-			Containers: []corev1.Container{{
-				Name:  "c",
-				Image: "busybox",
-				Ports: []corev1.ContainerPort{{
-					ContainerPort: 8080,
-					HostPort:      8080,
-					Protocol:      corev1.ProtocolTCP,
-				}},
-			}},
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
-	}
+	existingPod := testingpod.MakePod("existing-pod", "default").
+		UID("uid-1").
+		Annotation(kueue.WorkloadAnnotation, "test-workload").
+		NodeName("node1").
+		StatusPhase(corev1.PodRunning).
+		Port(8080, 8080, corev1.ProtocolTCP).
+		Obj()
 
 	tests := map[string]struct {
-		pods         []*corev1.Pod
-		candidatePod corev1.PodTemplateSpec
-		wantFeasible map[string]bool
+		addExistingPod bool
+		candidateSpec  corev1.PodSpec
+		wantFeasible   map[string]bool
 	}{
 		"hostPort conflict excludes node with occupied port": {
-			pods: []*corev1.Pod{existingPod},
-			candidatePod: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{
-						Name:  "c",
-						Image: "busybox",
-						Ports: []corev1.ContainerPort{{
-							ContainerPort: 8080,
-							HostPort:      8080,
-							Protocol:      corev1.ProtocolTCP,
-						}},
+			addExistingPod: true,
+			candidateSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name:  "c",
+					Image: "busybox",
+					Ports: []corev1.ContainerPort{{
+						ContainerPort: 8080,
+						HostPort:      8080,
+						Protocol:      corev1.ProtocolTCP,
 					}},
-				},
+				}},
 			},
+
 			wantFeasible: map[string]bool{"node2": true},
 		},
 		"different hostPort has no conflict": {
-			pods: []*corev1.Pod{existingPod},
-			candidatePod: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{
+			addExistingPod: true,
+			candidateSpec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
 						Name:  "c",
 						Image: "busybox",
 						Ports: []corev1.ContainerPort{{
@@ -125,40 +110,35 @@ func TestNodePortsFeasibility(t *testing.T) {
 							HostPort:      9090,
 							Protocol:      corev1.ProtocolTCP,
 						}},
-					}},
+					},
 				},
 			},
 			wantFeasible: map[string]bool{"node1": true, "node2": true},
 		},
 		"pod without hostPort passes through unaffected": {
-			pods: []*corev1.Pod{existingPod},
-			candidatePod: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{
-						Name:  "c",
-						Image: "busybox",
-						Resources: corev1.ResourceRequirements{
-							Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")},
-						},
-					}},
-				},
+			addExistingPod: true,
+			candidateSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name:  "c",
+					Image: "busybox",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")},
+					},
+				}},
 			},
 			wantFeasible: map[string]bool{"node1": true, "node2": true},
 		},
 		"no existing pods means all nodes feasible": {
-			pods: nil,
-			candidatePod: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{{
-						Name:  "c",
-						Image: "busybox",
-						Ports: []corev1.ContainerPort{{
-							ContainerPort: 8080,
-							HostPort:      8080,
-							Protocol:      corev1.ProtocolTCP,
-						}},
+			candidateSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{
+					Name:  "c",
+					Image: "busybox",
+					Ports: []corev1.ContainerPort{{
+						ContainerPort: 8080,
+						HostPort:      8080,
+						Protocol:      corev1.ProtocolTCP,
 					}},
-				},
+				}},
 			},
 			wantFeasible: map[string]bool{"node1": true, "node2": true},
 		},
@@ -179,8 +159,8 @@ func TestNodePortsFeasibility(t *testing.T) {
 				}
 			}
 
-			for _, pod := range tc.pods {
-				sim.TrackPod(pod)
+			if tc.addExistingPod {
+				sim.TrackPod(existingPod)
 			}
 			snapshot, err := sim.Snapshot(ctx, nodes)
 			if err != nil {
@@ -189,7 +169,7 @@ func TestNodePortsFeasibility(t *testing.T) {
 
 			stats := &simulator.NodeExclusionStats{}
 			results, err := snapshot.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
-				PodTemplate: &tc.candidatePod,
+				PodTemplate: &corev1.PodTemplateSpec{Spec: tc.candidateSpec},
 			}, stats)
 			if err != nil {
 				t.Fatalf("FindFeasibleNodes failed: %v", err)
@@ -218,101 +198,71 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 
 	node1 := testingnode.MakeNode("node1").
 		Label(corev1.LabelHostname, "node1").
-		Unschedulable().
 		Obj()
 	node2 := testingnode.MakeNode("node2").
 		Label(corev1.LabelHostname, "node2").
 		Obj()
+	unschedulable := testingnode.MakeNode("node-unschedulable").
+		Label(corev1.LabelHostname, "node-unschedulable").
+		Unschedulable().
+		Obj()
+	nodes := []*corev1.Node{node1, unschedulable, node2}
 
-	tests := map[string]struct {
-		nodes        []*corev1.Node
-		candidatePod corev1.PodTemplateSpec
-		wantFeasible map[string]bool
-	}{
-		"unschedulable node is excluded": {
-			nodes:        []*corev1.Node{node1, node2},
-			candidatePod: corev1.PodTemplateSpec{},
-			wantFeasible: map[string]bool{"node2": true},
-		},
-		"all schedulable nodes are feasible": {
-			nodes:        []*corev1.Node{node2},
-			candidatePod: corev1.PodTemplateSpec{},
-			wantFeasible: map[string]bool{"node2": true},
-		},
-	}
+	t.Run("return all schedulable notes, skip unschedulable ones", func(t *testing.T) {
+		sim, err := NewWASSimulatorForTest(ctx)
+		if err != nil {
+			t.Fatalf("NewWASSimulatorForTest failed: %v", err)
+		}
 
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			sim, err := NewWASSimulatorForTest(ctx)
-			if err != nil {
-				t.Fatalf("NewWASSimulatorForTest failed: %v", err)
-			}
+		snapshot, err := sim.Snapshot(ctx, nodes)
+		if err != nil {
+			t.Fatalf("Snapshot failed: %v", err)
+		}
 
-			candidates := func(yield func(simulator.Candidate) bool) {
-				for _, n := range tc.nodes {
-					if !yield(&testCandidate{node: n, id: utiltas.TopologyDomainID(n.Name)}) {
-						return
-					}
+		candidates := func(yield func(simulator.Candidate) bool) {
+			for _, n := range nodes {
+				if !yield(&testCandidate{node: n, id: utiltas.TopologyDomainID(n.Name)}) {
+					return
 				}
 			}
+		}
 
-			snapshot, err := sim.Snapshot(ctx, tc.nodes)
-			if err != nil {
-				t.Fatalf("Snapshot failed: %v", err)
-			}
+		want := []simulator.MatchedCandidate{
+			&testCandidate{node: node1, id: utiltas.TopologyDomainID("node1")},
+			&testCandidate{node: node2, id: utiltas.TopologyDomainID("node2")},
+		}
 
-			results, err := snapshot.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
-				PodTemplate: &tc.candidatePod,
-			}, &simulator.NodeExclusionStats{})
-			if err != nil {
-				t.Fatalf("FindFeasibleNodes failed: %v", err)
-			}
-
-			gotNames := make(map[string]bool)
-			for _, r := range results {
-				gotNames[r.GetNode().Name] = true
-			}
-
-			if diff := cmp.Diff(tc.wantFeasible, gotNames); diff != "" {
-				t.Errorf("Unexpected feasible nodes (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func makeSimplePod(ns, name, annotation, wl string) *corev1.Pod {
-	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ns,
-			Annotations: map[string]string{
-				annotation: wl,
+		got, err := snapshot.FindFeasibleNodes(
+			ctx,
+			candidates,
+			&simulator.PodRequirements{
+				PodTemplate: &corev1.PodTemplateSpec{},
 			},
-		},
-	}
-}
+			&simulator.NodeExclusionStats{},
+		)
+		if err != nil {
+			t.Fatalf("FindFeasibleNodes failed: %v", err)
+		}
 
-func key(ns, name string) types.NamespacedName {
-	return types.NamespacedName{Namespace: ns, Name: name}
+		slices.SortFunc(got, func(a, b simulator.MatchedCandidate) int {
+			return strings.Compare(a.GetNode().Name, b.GetNode().Name)
+		})
+		if diff := cmp.Diff(want, got, cmp.AllowUnexported(testCandidate{})); diff != "" {
+			t.Errorf("Unexpected feasible nodes (-want,+got):\n%s", diff)
+		}
+	})
+
 }
 
 func TestWorkloadMapping(t *testing.T) {
-	ctx := t.Context()
-
-	basicPod := makeSimplePod("ns", "pod", kueue.WorkloadAnnotation, "wl")
-	slicePod := makeSimplePod("ns", "pod", kueue.WorkloadSliceNameAnnotation, "slice-wl")
-	slicePodWithBasicAnnotation := func() *corev1.Pod {
-		pod := slicePod.DeepCopy()
-		pod.Annotations[kueue.WorkloadAnnotation] = "stale-wl"
-		return pod
-	}()
-	prebuiltWlPod := makeSimplePod(
-		"ns",
-		"pod",
-		controllerconstants.PrebuiltWorkloadAnnotation,
-		"prebuilt-wl",
-	)
-	groupPod := makeSimplePod("ns", "pod", podconstants.GroupNameAnnotation, "group-wl")
+	basicPod := testingpod.MakePod("pod", "ns").Annotation(kueue.WorkloadAnnotation, "wl").Obj()
+	slicePod := testingpod.MakePod("pod", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "slice-wl").Obj()
+	slicePodWithBasicAnnotation := testingpod.MakePod("pod", "ns").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "slice-wl").
+		Annotation(kueue.WorkloadAnnotation, "stale-wl").
+		Obj()
+	prebuiltWlPod := testingpod.MakePod("pod", "ns").Annotation(controllerconstants.PrebuiltWorkloadAnnotation, "prebuilt-wl").Obj()
+	groupPod := testingpod.MakePod("pod", "ns").Annotation(podconstants.GroupNameAnnotation, "group-wl").Obj()
 
 	testCases := map[string]struct {
 		operation func(*wasSimulator)
@@ -323,8 +273,8 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.TrackPod(basicPod)
 			},
 			want: podsByWorkload{
-				key("ns", "wl"): podsByKey{
-					key("ns", "pod"): basicPod,
+				types.NamespacedName{Namespace: "ns", Name: "wl"}: podsByKey{
+					types.NamespacedName{Namespace: "ns", Name: "pod"}: basicPod,
 				},
 			},
 		},
@@ -333,8 +283,8 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.TrackPod(slicePod)
 			},
 			want: podsByWorkload{
-				key("ns", "slice-wl"): podsByKey{
-					key("ns", "pod"): slicePod,
+				types.NamespacedName{Namespace: "ns", Name: "slice-wl"}: podsByKey{
+					types.NamespacedName{Namespace: "ns", Name: "pod"}: slicePod,
 				},
 			},
 		},
@@ -343,8 +293,8 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.TrackPod(prebuiltWlPod)
 			},
 			want: podsByWorkload{
-				key("ns", "prebuilt-wl"): podsByKey{
-					key("ns", "pod"): prebuiltWlPod,
+				types.NamespacedName{Namespace: "ns", Name: "prebuilt-wl"}: podsByKey{
+					types.NamespacedName{Namespace: "ns", Name: "pod"}: prebuiltWlPod,
 				},
 			},
 		},
@@ -353,66 +303,66 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.TrackPod(groupPod)
 			},
 			want: podsByWorkload{
-				key("ns", "group-wl"): podsByKey{
-					key("ns", "pod"): groupPod,
+				types.NamespacedName{Namespace: "ns", Name: "group-wl"}: podsByKey{
+					types.NamespacedName{Namespace: "ns", Name: "pod"}: groupPod,
 				},
 			},
 		},
 		"remove pod": {
 			operation: func(sim *wasSimulator) {
-				sim.TrackPod(makeSimplePod("ns", "pod1", kueue.WorkloadAnnotation, "wl1"))
-				sim.TrackPod(makeSimplePod("ns", "pod2", kueue.WorkloadAnnotation, "wl1"))
-				sim.TrackPod(makeSimplePod("ns", "pod3", kueue.WorkloadAnnotation, "wl2"))
-				sim.TrackPod(makeSimplePod("ns", "pod4", kueue.WorkloadAnnotation, "wl2"))
-				sim.UntrackPod(key("ns", "pod1"))
+				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+				sim.TrackPod(testingpod.MakePod("pod2", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+				sim.TrackPod(testingpod.MakePod("pod3", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
+				sim.TrackPod(testingpod.MakePod("pod4", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
+				sim.UntrackPod(types.NamespacedName{Namespace: "ns", Name: "pod1"})
 			},
 			want: podsByWorkload{
-				key("ns", "wl1"): podsByKey{
-					key("ns", "pod2"): makeSimplePod("ns", "pod2", kueue.WorkloadAnnotation, "wl1"),
+				types.NamespacedName{Namespace: "ns", Name: "wl1"}: podsByKey{
+					types.NamespacedName{Namespace: "ns", Name: "pod2"}: testingpod.MakePod("pod2", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj(),
 				},
-				key("ns", "wl2"): podsByKey{
-					key("ns", "pod3"): makeSimplePod("ns", "pod3", kueue.WorkloadAnnotation, "wl2"),
-					key("ns", "pod4"): makeSimplePod("ns", "pod4", kueue.WorkloadAnnotation, "wl2"),
+				types.NamespacedName{Namespace: "ns", Name: "wl2"}: podsByKey{
+					types.NamespacedName{Namespace: "ns", Name: "pod3"}: testingpod.MakePod("pod3", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj(),
+					types.NamespacedName{Namespace: "ns", Name: "pod4"}: testingpod.MakePod("pod4", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj(),
 				},
 			},
 		},
 		"remove all pods": {
 			operation: func(sim *wasSimulator) {
-				sim.TrackPod(makeSimplePod("ns", "pod1", kueue.WorkloadAnnotation, "wl1"))
-				sim.TrackPod(makeSimplePod("ns", "pod2", kueue.WorkloadAnnotation, "wl1"))
-				sim.TrackPod(makeSimplePod("ns", "pod3", kueue.WorkloadAnnotation, "wl2"))
-				sim.UntrackPod(key("ns", "pod1"))
-				sim.UntrackPod(key("ns", "pod2"))
-				sim.UntrackPod(key("ns", "pod3"))
+				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+				sim.TrackPod(testingpod.MakePod("pod2", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+				sim.TrackPod(testingpod.MakePod("pod3", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
+				sim.UntrackPod(types.NamespacedName{Namespace: "ns", Name: "pod1"})
+				sim.UntrackPod(types.NamespacedName{Namespace: "ns", Name: "pod2"})
+				sim.UntrackPod(types.NamespacedName{Namespace: "ns", Name: "pod3"})
 			},
 			want: podsByWorkload{},
 		},
 		"update pod workload annotation": {
 			operation: func(sim *wasSimulator) {
-				sim.TrackPod(makeSimplePod("ns", "pod1", kueue.WorkloadAnnotation, "wl1"))
-				sim.TrackPod(makeSimplePod("ns", "pod1", kueue.WorkloadAnnotation, "wl2"))
+				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
 			},
 			want: podsByWorkload{
-				key("ns", "wl2"): podsByKey{
-					key("ns", "pod1"): makeSimplePod("ns", "pod1", kueue.WorkloadAnnotation, "wl2"),
+				types.NamespacedName{Namespace: "ns", Name: "wl2"}: podsByKey{
+					types.NamespacedName{Namespace: "ns", Name: "pod1"}: testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj(),
 				},
 			},
 		},
 		"update unassigned pod to have workload annotation": {
 			operation: func(sim *wasSimulator) {
-				sim.TrackPod(makeSimplePod("ns", "pod1", "", ""))
-				sim.TrackPod(makeSimplePod("ns", "pod1", kueue.WorkloadAnnotation, "wl1"))
+				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation("", "").Obj())
+				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
 			},
 			want: podsByWorkload{
-				key("ns", "wl1"): podsByKey{
-					key("ns", "pod1"): makeSimplePod("ns", "pod1", kueue.WorkloadAnnotation, "wl1"),
+				types.NamespacedName{Namespace: "ns", Name: "wl1"}: podsByKey{
+					types.NamespacedName{Namespace: "ns", Name: "pod1"}: testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj(),
 				},
 			},
 		},
 		"update_pod_from_workload_annotation_to_unassigned": {
 			operation: func(sim *wasSimulator) {
-				sim.TrackPod(makeSimplePod("ns", "pod1", kueue.WorkloadAnnotation, "wl1"))
-				sim.TrackPod(makeSimplePod("ns", "pod1", "", ""))
+				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation("", "").Obj())
 			},
 			want: podsByWorkload{},
 		},
@@ -421,14 +371,14 @@ func TestWorkloadMapping(t *testing.T) {
 				sim.TrackPod(slicePodWithBasicAnnotation)
 			},
 			want: podsByWorkload{
-				key("ns", "slice-wl"): podsByKey{
-					key("ns", "pod"): slicePodWithBasicAnnotation,
+				types.NamespacedName{Namespace: "ns", Name: "slice-wl"}: podsByKey{
+					types.NamespacedName{Namespace: "ns", Name: "pod"}: slicePodWithBasicAnnotation,
 				},
 			},
 		},
 		"empty workload annotation with higher priority overrides non-empty workload annotation": {
 			operation: func(sim *wasSimulator) {
-				pod := makeSimplePod("ns", "pod1", podWorkloadAnnotations[0], "")
+				pod := testingpod.MakePod("pod1", "ns").Annotation(podWorkloadAnnotations[0], "").Obj()
 				pod.Annotations[podWorkloadAnnotations[1]] = "non-empty-wl-name"
 				sim.TrackPod(pod)
 			},
@@ -436,7 +386,7 @@ func TestWorkloadMapping(t *testing.T) {
 		},
 		"add pod with empty workload annotation": {
 			operation: func(sim *wasSimulator) {
-				sim.TrackPod(makeSimplePod("ns", "pod1", kueue.WorkloadAnnotation, ""))
+				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "").Obj())
 			},
 			want: podsByWorkload{},
 		},
@@ -444,6 +394,7 @@ func TestWorkloadMapping(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
 			sim, err := NewWASSimulatorForTest(ctx)
 			if err != nil {
 				t.Fatalf("NewWASSimulatorForTest failed: %v", err)
@@ -480,43 +431,17 @@ func TestPreemptWorkload(t *testing.T) {
 		Obj()
 	nodes := []*corev1.Node{node1}
 
-	existingPodWlKey := key("default", "wl1")
-	existingPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "existing-pod",
-			Namespace: existingPodWlKey.Namespace,
-			UID:       "uid-1",
-			Annotations: map[string]string{
-				kueue.WorkloadAnnotation: existingPodWlKey.Name,
-			},
-		},
-		Spec: corev1.PodSpec{
-			NodeName: "node1",
-			Containers: []corev1.Container{{
-				Name:  "c",
-				Image: "busybox",
-				Ports: []corev1.ContainerPort{{
-					ContainerPort: 8080,
-					HostPort:      8080,
-					Protocol:      corev1.ProtocolTCP,
-				}},
-			}},
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
-	}
+	existingPodWlKey := types.NamespacedName{Namespace: "default", Name: "wl1"}
+	existingPod := testingpod.MakePod("existing-pod", existingPodWlKey.Namespace).
+		UID("uid-1").
+		Annotation(kueue.WorkloadAnnotation, existingPodWlKey.Name).
+		NodeName("node1").
+		StatusPhase(corev1.PodRunning).
+		Port(8080, 8080, corev1.ProtocolTCP).
+		Obj()
 
 	candidatePod := corev1.PodTemplateSpec{
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name:  "c",
-				Image: "busybox",
-				Ports: []corev1.ContainerPort{{
-					ContainerPort: 8080,
-					HostPort:      8080,
-					Protocol:      corev1.ProtocolTCP,
-				}},
-			}},
-		},
+		Spec: *existingPod.Spec.DeepCopy(),
 	}
 
 	candidates := func(yield func(simulator.Candidate) bool) {
@@ -553,13 +478,13 @@ func TestPreemptWorkload(t *testing.T) {
 			setup: func(sim *wasSimulator) {
 				sim.TrackPod(existingPod)
 			},
-			preemptKey:   key("default", "non-existent"),
+			preemptKey:   types.NamespacedName{Namespace: "default", Name: "non-existent"},
 			wantFeasible: false,
 		},
 		"preempt when unassigned pod exists": {
 			setup: func(sim *wasSimulator) {
 				sim.TrackPod(existingPod)
-				unassignedPod := makeSimplePod("default", "unassigned", "", "")
+				unassignedPod := testingpod.MakePod("unassigned", "default").Annotation("", "").Obj()
 				sim.TrackPod(unassignedPod)
 			},
 			preemptKey:   existingPodWlKey,
@@ -617,54 +542,24 @@ func TestSimulate(t *testing.T) {
 		Obj()
 	nodes := []*corev1.Node{node1}
 
-	existingPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "existing-pod",
-			Namespace: "default",
-			UID:       "uid-1",
-			Annotations: map[string]string{
-				kueue.WorkloadAnnotation: "wl1",
-			},
-		},
-		Spec: corev1.PodSpec{
-			NodeName: "node1",
-			Containers: []corev1.Container{{
-				Name:  "c",
-				Image: "busybox",
-				Ports: []corev1.ContainerPort{{
-					ContainerPort: 8080,
-					HostPort:      8080,
-					Protocol:      corev1.ProtocolTCP,
-				}},
-			}},
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
-	}
+	existingPod := testingpod.MakePod("existing-pod", "default").
+		UID("uid-1").
+		Annotation(kueue.WorkloadAnnotation, "wl1").
+		NodeName("node1").
+		StatusPhase(corev1.PodRunning).
+		Port(8080, 8080, corev1.ProtocolTCP).
+		Obj()
 
 	candidatePod := corev1.PodTemplateSpec{
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name:  "c",
-				Image: "busybox",
-				Ports: []corev1.ContainerPort{{
-					ContainerPort: 8080,
-					HostPort:      8080,
-					Protocol:      corev1.ProtocolTCP,
-				}},
-			}},
-		},
+		Spec: *existingPod.Spec.DeepCopy(),
 	}
 
-	candidates := func(yield func(simulator.Candidate) bool) {
-		for _, n := range nodes {
-			if !yield(&testCandidate{node: n, id: utiltas.TopologyDomainID(n.Name)}) {
-				return
-			}
-		}
+	candidateIter := func(yield func(simulator.Candidate) bool) {
+		yield(&testCandidate{node: node1, id: utiltas.TopologyDomainID(node1.Name)})
 	}
 
 	checkFeasible := func(snapshot simulator.SimulatorSnapshot) bool {
-		results, err := snapshot.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
+		results, err := snapshot.FindFeasibleNodes(ctx, candidateIter, &simulator.PodRequirements{
 			PodTemplate: &candidatePod,
 		}, &simulator.NodeExclusionStats{})
 		if err != nil {
@@ -689,7 +584,7 @@ func TestSimulate(t *testing.T) {
 	}
 
 	simErr := snapshot.Simulate(ctx, func() {
-		_, err := snapshot.PreemptWorkload(ctx, key("default", "wl1"))
+		_, err := snapshot.PreemptWorkload(ctx, types.NamespacedName{Namespace: "default", Name: "wl1"})
 		if err != nil {
 			t.Fatalf("PreemptWorkload inside Simulate failed: %v", err)
 		}
@@ -714,7 +609,7 @@ func TestTrackPodDeepCopy(t *testing.T) {
 		t.Fatalf("NewWASSimulatorForTest failed: %v", err)
 	}
 
-	pod := makeSimplePod("ns", "pod1", kueue.WorkloadAnnotation, "wl1")
+	pod := testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj()
 	sim.TrackPod(pod)
 
 	// Mutate the pod object that was passed into TrackPod
@@ -727,8 +622,8 @@ func TestTrackPodDeepCopy(t *testing.T) {
 	snapshot := snapshotRaw.(*wasSimulatorSnapshot)
 
 	want := podsByWorkload{
-		key("ns", "wl1"): podsByKey{
-			key("ns", "pod1"): makeSimplePod("ns", "pod1", kueue.WorkloadAnnotation, "wl1"),
+		types.NamespacedName{Namespace: "ns", Name: "wl1"}: podsByKey{
+			types.NamespacedName{Namespace: "ns", Name: "pod1"}: testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj(),
 		},
 	}
 
