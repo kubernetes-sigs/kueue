@@ -78,6 +78,7 @@ import (
 const (
 	FailedToStartFinishedReason = "FailedToStart"
 	managedOwnersChainLimit     = 10
+	fullScaleUpProbeExtra       = "full-scaleup-probe"
 )
 
 var (
@@ -1637,13 +1638,12 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (
 // newWorkloadName generates a new workload name for the given job, incorporating the job's name, UID,
 // and GroupVersionKind (GVK). If workload slicing is enabled, it includes the job's generation
 // in the generated workload name.
-func newWorkloadName(job GenericJob) string {
+func newWorkloadName(job GenericJob, extra string) string {
 	object := job.Object()
 	if WorkloadSliceEnabled(job) {
-		extra := ""
 		if elasticWorkloadNameProvider, ok := job.(ElasticWorkloadNameProvider); ok {
 			extra = elasticWorkloadNameProvider.GetWorkloadNameExtraPart()
-		} else {
+		} else if extra == "" {
 			extra = strconv.FormatInt(object.GetGeneration(), 10)
 		}
 		return GenerateWorkloadNameWithExtra(object.GetName(), object.GetUID(), job.GVK(), extra)
@@ -1659,8 +1659,15 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	if err != nil {
 		return nil, err
 	}
+	extra := ""
+	if WorkloadSliceEnabled(job) {
+		extra, err = prepareWorkloadSliceForScaleUp(ctx, c, job, podSets)
+		if err != nil {
+			return nil, err
+		}
+	}
 
-	wl := NewWorkload(newWorkloadName(job), object, podSets, labelKeysToCopy, annotationsToCopy)
+	wl := NewWorkload(newWorkloadName(job, extra), object, podSets, labelKeysToCopy, annotationsToCopy)
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string)
 	}
@@ -1680,6 +1687,39 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	}
 
 	return wl, nil
+}
+
+func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job GenericJob, podSets []kueue.PodSet) (string, error) {
+	object := job.Object()
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) ||
+		object.GetAnnotations()[constants.ElasticJobScaleUpStrategyAnnotationKey] != constants.ElasticJobScaleUpStrategyPartial {
+		return "", nil
+	}
+	prevWl, err := workloadslicing.FindLatestActiveWorkload(ctx, c, object, job.GVK())
+	if err != nil {
+		return "", err
+	}
+	extra := ""
+	if prevWl != nil && workload.HasQuotaReservation(prevWl) {
+		extra = fullScaleUpProbeExtra
+		if len(prevWl.Spec.PodSets) != len(podSets) {
+			extra = ""
+		} else {
+			for i := range podSets {
+				if prevWl.Spec.PodSets[i].Count != podSets[i].Count {
+					extra = ""
+				}
+			}
+		}
+		grantedCounts := workload.ExtractGrantedPodSetCounts(prevWl)
+		for i := range podSets {
+			if prevAdmittedCount, ok := grantedCounts[podSets[i].Name]; ok && podSets[i].Count > prevAdmittedCount {
+				minCount := prevAdmittedCount + 1
+				podSets[i].MinCount = &minCount
+			}
+		}
+	}
+	return extra, nil
 }
 
 // prepareWorkloadSlice adds necessary workload slice annotations.
