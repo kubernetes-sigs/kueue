@@ -295,45 +295,6 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
-
-		ginkgo.It("Should requeue workload to inadmissible and admit it once quota is available", framework.SlowSpec, func() {
-			var wl2 *kueue.Workload
-			ginkgo.By("Create and wait for the first workload to consume all quota", func() {
-				wl = utiltestingapi.MakeWorkload("one", ns.Name).
-					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Request(corev1.ResourceCPU, "5").
-					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Create a second workload with non-existent RuntimeClass, should stay pending in inadmissible", func() {
-				wl2 = utiltestingapi.MakeWorkload("two", ns.Name).
-					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Request(corev1.ResourceCPU, "1").
-					RuntimeClass("kata").
-					Obj()
-				util.MustCreate(ctx, k8sClient, wl2)
-
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
-				util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
-			})
-
-			ginkgo.By("Delete the first workload, the second workload should now be admitted", func() {
-				gomega.Expect(util.DeleteObject(ctx, k8sClient, wl)).To(gomega.Succeed())
-
-				gomega.Eventually(func(g gomega.Gomega) {
-					read := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &read)).Should(gomega.Succeed())
-					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-		})
 	})
 
 	ginkgo.When("LimitRanges are defined", func() {
