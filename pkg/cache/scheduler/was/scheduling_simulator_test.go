@@ -251,7 +251,6 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 			t.Errorf("Unexpected feasible nodes (-want,+got):\n%s", diff)
 		}
 	})
-
 }
 
 func TestWorkloadMapping(t *testing.T) {

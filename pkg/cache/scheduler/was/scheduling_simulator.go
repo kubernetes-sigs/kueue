@@ -184,6 +184,9 @@ func (s *wasSimulator) UntrackPod(key client.ObjectKey) {
 }
 
 func (m podsByWorkload) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
+	if len(m) == 0 {
+		return nil
+	}
 	if podSet, ok := m[wlKey]; ok {
 		return slices.Collect(maps.Values(podSet))
 	}
@@ -315,7 +318,7 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 	return feasibleCandidates, nil
 }
 
-func (s *wasSimulatorSnapshot) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (revertFunc func() error, err error) {
+func (s *wasSimulatorSnapshot) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
 	// Pods with indeterminate workloads are not stored in s.podsByWorkload and are omitted from preemptions.
 	// This means the simulation may be more restrictive than the real scheduler would be,
 	// if the preempted workload has pods that do not identify with it directly.
