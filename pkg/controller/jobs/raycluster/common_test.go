@@ -307,7 +307,7 @@ func TestBuildPodSets(t *testing.T) {
 					Template: corev1.PodTemplateSpec{},
 				},
 			},
-			wantErr: ErrRedisCleanupMissingRayContainer,
+			wantErr: errRedisCleanupMissingRayContainer,
 		},
 		"autoscaler sidecar added to head podSet with default resources when in-tree autoscaling is enabled": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -699,7 +699,7 @@ func TestUpdatePodSets(t *testing.T) {
 			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
 				ScaleFirstWorkerGroup(5).
 				Obj(),
-			wantErr: ErrPodSetNameMismatch,
+			wantErr: errPodSetNameMismatch,
 		},
 	}
 
@@ -1403,7 +1403,7 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 		},
 		"invalid json": {
 			annotation: `invalid`,
-			wantErr:    ErrUnmarshalPodSetReplicaSizes,
+			wantErr:    errUnmarshalPodSetReplicaSizes,
 		},
 	}
 
@@ -1525,7 +1525,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				{Name: "head", Count: 1},
 			},
 			rayClusterName: "test-raycluster",
-			wantErr:        ErrGetRayCluster,
+			wantErr:        errGetRayCluster,
 		},
 	}
 
