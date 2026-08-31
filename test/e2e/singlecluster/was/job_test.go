@@ -22,8 +22,10 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -43,6 +45,9 @@ import (
 //     (make test-e2e-was) or k/k main (make test-e2e-k8s-main-was)
 //   - The GenericWorkload and WorkloadWithJob feature gates enabled
 //   - The scheduling.k8s.io/v1beta1 API enabled via runtime-config
+//
+// The specs asserting the policy Kueue defaults skip unless Kueue runs with
+// GangSchedulingByDefault, so the lane tracking k/k main still runs the rest.
 //
 // See patch_kind_config_for_was in hack/testing/e2e-common.sh.
 var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", "feature:was", "feature:was-job"), func() {
@@ -91,14 +96,12 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
-		ginkgo.XIt("Should create a Workload with PodSet count matching Job parallelism", func() {
+		ginkgo.It("Should create a Workload with PodSet count matching Job parallelism", func() {
+			skipUnlessGangDefaulting()
 			const parallelism int32 = 3
 
-			// This job is being skipped because in 1.37 the job controller has an
-			// api to control gang scheduling.
-			// The default behavior is not have gang scheduling so PodSet will not match podgroup mincount
-			// unless we bring in 1.37 apis to create the right job.
-			// Skipping for now but will reenable once we have 1.37 apis.
+			// This Job sets no spec.scheduling; the gang policy asserted below
+			// is the one Kueue defaults (KEP-13715).
 			job := testingjob.MakeJob("was-test-job", ns.Name).
 				Queue("main").
 				Parallelism(parallelism).
@@ -152,8 +155,111 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
+
+		ginkgo.It("Should compile the gang minCount from the parallelism reduced by partial admission", func() {
+			skipUnlessGangDefaulting()
+			const parallelism int32 = 5
+			const admitted int32 = 4
+			// The ClusterQueue has 4 CPUs, so five one-CPU Pods are admitted partially.
+			job := testingjob.MakeJob("was-partial-job", ns.Name).
+				Queue("main").
+				Parallelism(parallelism).
+				Completions(parallelism).
+				Indexed(true).
+				SetAnnotation(workloadjob.JobMinParallelismAnnotation, "2").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				RequestAndLimit(corev1.ResourceMemory, "20Mi").
+				TerminationGracePeriod(1).
+				Obj()
+			jobKey := client.ObjectKeyFromObject(job)
+			util.MustCreate(ctx, k8sClient, job)
+
+			ginkgo.By("verifying the Job is admitted with the reduced parallelism and unchanged completions", func() {
+				createdJob := &batchv1.Job{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+					g.Expect(*createdJob.Spec.Suspend).Should(gomega.BeFalse())
+					g.Expect(*createdJob.Spec.Parallelism).Should(gomega.Equal(admitted))
+					g.Expect(*createdJob.Spec.Completions).Should(gomega.Equal(parallelism))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying the compiled gang minCount follows the admitted count", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload := workloadForJob(g, jobKey)
+					// Partial admission keeps spec.podSets[].count at the requested
+					// size and records the admitted size in the admission.
+					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
+					g.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
+					g.Expect(ptr.Deref(createdWorkload.Status.Admission.PodSetAssignments[0].Count, 0)).Should(gomega.Equal(admitted))
+
+					minCount, found, err := gangMinCountForJob(ns.Name, job.Name)
+					g.Expect(err).ShouldNot(gomega.HaveOccurred())
+					g.Expect(found).Should(gomega.BeTrue(), "expected a PodGroup owned by the Job with a gang scheduling policy")
+					g.Expect(minCount).Should(gomega.Equal(int64(admitted)))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should leave a Job that opts out with an explicit basic policy alone", func() {
+			job := testingjob.MakeJob("was-basic-job", ns.Name).
+				Queue("main").
+				Parallelism(3).
+				Completions(3).
+				Indexed(true).
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "200m").
+				RequestAndLimit(corev1.ResourceMemory, "20Mi").
+				TerminationGracePeriod(1).
+				Obj()
+			jobKey := client.ObjectKeyFromObject(job)
+			util.MustCreate(ctx, k8sClient, jobWithScheduling(job, map[string]any{
+				"schedulingPolicy": map[string]any{"basic": map[string]any{}},
+			}))
+
+			ginkgo.By("verifying Kueue did not mark the Job as defaulted", func() {
+				createdJob := &batchv1.Job{}
+				gomega.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
+				gomega.Expect(createdJob.Annotations).ShouldNot(gomega.HaveKey(workloadjob.GangDefaultedAnnotation))
+			})
+
+			ginkgo.By("verifying the PodGroup keeps the basic policy and the single disruption mode", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					podGroup, err := podGroupForJob(ns.Name, job.Name)
+					g.Expect(err).ShouldNot(gomega.HaveOccurred())
+					g.Expect(podGroup).ShouldNot(gomega.BeNil(), "expected a PodGroup owned by the Job")
+
+					_, found, err := unstructured.NestedMap(podGroup.Object, "spec", "schedulingPolicy", "basic")
+					g.Expect(err).ShouldNot(gomega.HaveOccurred())
+					g.Expect(found).Should(gomega.BeTrue(), "expected the PodGroup to keep the basic scheduling policy")
+
+					_, found, err = unstructured.NestedMap(podGroup.Object, "spec", "disruptionMode", "single")
+					g.Expect(err).ShouldNot(gomega.HaveOccurred())
+					g.Expect(found).Should(gomega.BeTrue(), "expected the PodGroup disruptionMode to stay single")
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 })
+
+func skipUnlessGangDefaulting() {
+	ginkgo.GinkgoHelper()
+	if !gangDefaultingEnabled {
+		ginkgo.Skip("Kueue does not run with the GangSchedulingByDefault feature gate")
+	}
+}
+
+// jobWithScheduling converts a typed Job to unstructured data and sets
+// spec.scheduling, which batch/v1 in the vendored k8s.io/api does not have.
+func jobWithScheduling(job *batchv1.Job, scheduling map[string]any) *unstructured.Unstructured {
+	content, err := runtime.DefaultUnstructuredConverter.ToUnstructured(job)
+	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+	u := &unstructured.Unstructured{Object: content}
+	u.SetGroupVersionKind(batchv1.SchemeGroupVersion.WithKind("Job"))
+	gomega.Expect(unstructured.SetNestedMap(u.Object, scheduling, "spec", "scheduling")).Should(gomega.Succeed())
+	return u
+}
 
 // podGroupListGVK identifies the upstream scheduling.k8s.io/v1beta1 PodGroup
 // list kind. We deliberately query it as unstructured data (instead of
@@ -185,22 +291,32 @@ func workloadForJob(g gomega.Gomega, jobKey types.NamespacedName) *kueue.Workloa
 	return createdWorkload
 }
 
-// gangMinCountForJob returns the gang scheduling minCount of the upstream
-// PodGroup owned by the given Job name, if one exists.
-func gangMinCountForJob(namespace, jobName string) (int64, bool, error) {
+// podGroupForJob returns the upstream PodGroup owned by the given Job name,
+// or nil if there is none.
+func podGroupForJob(namespace, jobName string) (*unstructured.Unstructured, error) {
 	podGroupList := &unstructured.UnstructuredList{}
 	podGroupList.SetGroupVersionKind(podGroupListGVK)
 	if err := k8sClient.List(ctx, podGroupList, client.InNamespace(namespace)); err != nil {
-		return 0, false, err
+		return nil, err
 	}
 
 	for i := range podGroupList.Items {
 		pg := &podGroupList.Items[i]
 		for _, ownerRef := range pg.GetOwnerReferences() {
 			if ownerRef.Kind == "Job" && ownerRef.Name == jobName {
-				return unstructured.NestedInt64(pg.Object, "spec", "schedulingPolicy", "gang", "minCount")
+				return pg, nil
 			}
 		}
 	}
-	return 0, false, nil
+	return nil, nil
+}
+
+// gangMinCountForJob returns the gang scheduling minCount of the upstream
+// PodGroup owned by the given Job name, if one exists.
+func gangMinCountForJob(namespace, jobName string) (int64, bool, error) {
+	pg, err := podGroupForJob(namespace, jobName)
+	if err != nil || pg == nil {
+		return 0, false, err
+	}
+	return unstructured.NestedInt64(pg.Object, "spec", "schedulingPolicy", "gang", "minCount")
 }
