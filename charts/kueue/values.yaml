@@ -107,6 +107,8 @@ controllerManager:
   tolerations: []
   # -- ControllerManager's topologySpreadConstraints
   topologySpreadConstraints: []
+  # -- ControllerManager's affinity
+  affinity: {}
   podDisruptionBudget:
     # -- Enable PodDisruptionBudget
     enabled: false

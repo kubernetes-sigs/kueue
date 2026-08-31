@@ -112,6 +112,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | certManager.issuerRef | object | `{}` | Override the default self-signed cert-manager issuer reference. When set, the chart skips creating its own Issuer and uses this reference for webhook, metrics, and visibility certificates. The referenced issuer must provide the CA data required by Kueue's cert-manager integration. |
+| controllerManager.affinity | object | `{}` | ControllerManager's affinity |
 | controllerManager.dnsPolicy | string | `""` | ControllerManager pod's dnsPolicy. Set to ClusterFirstWithHostNet when hostNetwork is enabled. |
 | controllerManager.featureGates | list | `[]` | ControllerManager's feature gates |
 | controllerManager.hostNetwork | bool | `false` | Run the ControllerManager pod on the host network. Needed where the API server reaches the webhook/visibility endpoints via node IPs rather than pod IPs. |
