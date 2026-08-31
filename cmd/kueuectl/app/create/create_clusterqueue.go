@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
@@ -37,7 +38,6 @@ import (
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
-	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
 
 const (
@@ -462,40 +462,23 @@ func mergeResourceQuotas(rQuotas1, rQuotas2 []kueue.ResourceQuota) ([]kueue.Reso
 func mergeFlavorsByCoveredResources(resourceGroups []kueue.ResourceGroup) ([]kueue.ResourceGroup, error) {
 	var mergedResources []kueue.ResourceGroup
 
-	indexByResourceGroupID := make(map[string]int)
-	var index int
+	coveredResources := sets.New[corev1.ResourceName]()
 	for _, rg := range resourceGroups {
-		resourcesGroupID := getResourcesGroupID(rg.CoveredResources)
-		if idx, found := indexByResourceGroupID[resourcesGroupID]; found {
+		resourceGroupResources := sets.New(rg.CoveredResources...)
+		idx := slices.IndexFunc(mergedResources, func(existing kueue.ResourceGroup) bool {
+			return resourceGroupResources.Equal(sets.New(existing.CoveredResources...))
+		})
+		if idx != -1 {
 			mergedResources[idx].Flavors = append(mergedResources[idx].Flavors, rg.Flavors...)
 			continue
 		}
 
-		if !isResourceGroupValid(indexByResourceGroupID, resourcesGroupID) {
+		if coveredResources.HasAny(rg.CoveredResources...) {
 			return mergedResources, errInvalidResourceGroup
 		}
 		mergedResources = append(mergedResources, rg)
-		indexByResourceGroupID[resourcesGroupID] = index
-		index++
+		coveredResources.Insert(rg.CoveredResources...)
 	}
 
 	return mergedResources, nil
-}
-
-func getResourcesGroupID(coveredResources []corev1.ResourceName) string {
-	s := utilslices.Map(coveredResources, func(rn *corev1.ResourceName) string { return string(*rn) })
-	slices.Sort(s)
-
-	return strings.Join(s, ".")
-}
-
-func isResourceGroupValid(indexByResourceGroup map[string]int, newResourceGroup string) bool {
-	// check that new resource groups doesn't share resources with another group
-	for k := range indexByResourceGroup {
-		if strings.Contains(k, newResourceGroup) {
-			return false
-		}
-	}
-
-	return true
 }

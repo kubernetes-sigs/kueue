@@ -320,6 +320,54 @@ func TestParseResourceQuotas(t *testing.T) {
 			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:cpu=1"},
 			wantErr:   errInvalidResourceGroup,
 		},
+		"should fail to create when a resource is shared by a later larger resource group": {
+			quotaArgs: []string{"alpha:cpu=1", "beta:cpu=1;memory=1"},
+			wantErr:   errInvalidResourceGroup,
+		},
+		"should create separate resource groups for resource names with a common substring": {
+			quotaArgs: []string{"alpha:cpu.example=1", "beta:cpu=1"},
+			wantResourceGroups: []kueue.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu.example"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
+							Resource("cpu.example", "1").
+							Obj(),
+					},
+				},
+				{
+					CoveredResources: []corev1.ResourceName{"cpu"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("beta").
+							Resource("cpu", "1").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should create separate resource groups whose resource names produce the same dotted string": {
+			quotaArgs: []string{"alpha:a.b=1;c=1", "beta:a=1;b.c=1"},
+			wantResourceGroups: []kueue.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"a.b", "c"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
+							Resource("a.b", "1").
+							Resource("c", "1").
+							Obj(),
+					},
+				},
+				{
+					CoveredResources: []corev1.ResourceName{"a", "b.c"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("beta").
+							Resource("a", "1").
+							Resource("b.c", "1").
+							Obj(),
+					},
+				},
+			},
+		},
 		"should fail to create a resource group with an invalid flavor and multiple quotas set": {
 			quotaArgs:     []string{"alpha:cpu=1;memory=1"},
 			borrowingArgs: []string{"alpha:example.com/gpu=2"},
