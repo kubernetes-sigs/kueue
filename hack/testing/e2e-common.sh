@@ -52,6 +52,10 @@ export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
 
 export KIND_VERSION="${E2E_KIND_VERSION#kindest/node:v}"
 
+# Non-retriable: missing image, denied access, or a full disk.
+# Shared by `e2e_docker_pull_if_needed` and `e2e_docker_manifest_available` below.
+export E2E_NON_RETRIABLE_IMAGE_ERRORS="manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device"
+
 function build_kind_node_image {
     if [[ "$E2E_KIND_VERSION" != kindest/node:v* ]]; then
         echo "Skipping kind node image build for non-standard image: $E2E_KIND_VERSION"
@@ -91,12 +95,21 @@ function e2e_docker_pull_if_needed {
         return 0
     fi
 
-    local non_retriable_errors="manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device"
-
     "${ROOT_DIR}/hack/testing/retry.sh" \
         --attempts 7 --delay 2 --exponential --stream \
-        --continue-if "! grep -qiE '${non_retriable_errors}' {output}" \
+        --continue-if "! grep -qiE '${E2E_NON_RETRIABLE_IMAGE_ERRORS}' {output}" \
         -- docker pull "$image"
+}
+
+# $1 image reference
+function e2e_docker_manifest_available {
+    local image="$1"
+
+    # shellcheck disable=SC2016 # the $1 expansion is evaluated by the inner bash -c
+    "${ROOT_DIR}/hack/testing/retry.sh" \
+        --attempts 7 --delay 2 --exponential --stream \
+        --continue-if "! grep -qiE '${E2E_NON_RETRIABLE_IMAGE_ERRORS}' {output}" \
+        -- bash -c 'docker manifest inspect "$1" 2>&1 >/dev/null' _ "$image"
 }
 
 function e2e_download_url {
@@ -636,14 +649,12 @@ function prepare_docker_images {
 
     # When using a pre-built Kueue image (released or staging), ensure it's available for kind load.
     # Check remote first; if not found remotely, use local image if present; otherwise error.
-    local manifest_error
-    if manifest_error=$(docker manifest inspect "$IMAGE_TAG" 2>&1 >/dev/null); then
+    if e2e_docker_manifest_available "$IMAGE_TAG"; then
         # E2E_SKIP_IMAGE_RELOAD covers dependency images only: the Kueue image may
         # have been rebuilt with the same tag, so it is always pulled.
         E2E_SKIP_IMAGE_RELOAD=false e2e_docker_pull_if_needed "$IMAGE_TAG"
     elif ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
         echo "ERROR: Image '$IMAGE_TAG' is not available remotely or locally." >&2
-        echo "$manifest_error" >&2
         return 1
     fi
 
@@ -670,7 +681,7 @@ function prepare_docker_images {
         determine_kuberay_ray_image
         if [[ "${USE_RAY_FOR_TESTS:-}" == "ray" ]]; then
             e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
-        elif docker manifest inspect "${KUBERAY_RAY_IMAGE}" >/dev/null 2>&1; then
+        elif e2e_docker_manifest_available "${KUBERAY_RAY_IMAGE}"; then
             e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
         else
             echo "Raymini image not available in registry, building locally..."
