@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -30,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -82,12 +84,18 @@ func TestScheduleForAFS(t *testing.T) {
 			Obj(),
 	}
 
+	snapshotErr := errors.New("snapshot failed")
+
 	cases := map[string]struct {
 		featureGates  map[featuregate.Feature]bool
 		initialUsage  map[string]corev1.ResourceList
 		workloads     []kueue.Workload
 		wantWorkloads []kueue.Workload
 		deleteQueue   string
+		wantLeft      map[kueue.ClusterQueueReference][]workload.Reference
+		// wantErr fails every LocalQueue lookup made to resolve a fair-sharing
+		// weight, so the cycles of the case run with a failing snapshot.
+		wantErr error
 	}{
 		"admits workload from less active localqueue": {
 			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
@@ -824,6 +832,61 @@ func TestScheduleForAFS(t *testing.T) {
 					Obj(),
 			},
 		},
+		// Nothing but the scheduler puts a popped head back, so wl-a2 is only
+		// still queued at the end if every failed cycle requeued it.
+		"snapshot fails; the popped head is requeued": {
+			featureGates: map[featuregate.Feature]bool{features.AdmissionFairSharing: true},
+			wantErr:      snapshotErr,
+			workloads: []kueue.Workload{
+				// Admitted so that the snapshot resolves a LocalQueue
+				// weight, and a second entry so the harness runs two cycles.
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq1").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "4").
+								Count(1).
+								Obj()).
+							Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-a2", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Creation(now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-a1", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq1").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "4").
+								Count(1).
+								Obj()).
+							Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-a2", "default").
+					Queue("lq-a").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						Request(corev1.ResourceCPU, "4").
+						Obj()).
+					Creation(now).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq1": {"default/wl-a2"},
+			},
+		},
 	}
 
 	scenarios := []map[featuregate.Feature]bool{
@@ -870,7 +933,15 @@ func TestScheduleForAFS(t *testing.T) {
 							utiltesting.MakeNamespace("default"),
 						).
 						WithStatusSubresource(&kueue.Workload{}).
-						WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+						WithInterceptorFuncs(interceptor.Funcs{
+							SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
+							Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+								if _, isLocalQueue := obj.(*kueue.LocalQueue); isLocalQueue && errors.Is(tc.wantErr, snapshotErr) {
+									return tc.wantErr
+								}
+								return c.Get(ctx, key, obj, opts...)
+							},
+						})
 					cl := clientBuilder.Build()
 
 					cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.featureGates[features.AdmissionFairSharing]), schdcache.WithAdmissionFairSharing(afsConfig))
@@ -936,6 +1007,10 @@ func TestScheduleForAFS(t *testing.T) {
 
 					if diff := cmp.Diff(wantWorkloads, gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
 						t.Errorf("Unexpected workloads (-want,+got):\n%s", diff)
+					}
+
+					if diff := cmp.Diff(tc.wantLeft, qManager.Dump(), cmpDump...); diff != "" {
+						t.Errorf("Unexpected elements left in the queue (-want,+got):\n%s", diff)
 					}
 				},
 			)
