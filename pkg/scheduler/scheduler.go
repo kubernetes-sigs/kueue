@@ -316,6 +316,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	snapshot, err := s.cache.Snapshot(ctx, snapshotOpts...)
 	if err != nil {
 		log.Error(err, "failed to build snapshot for scheduling")
+		s.requeueHeadsAfterSnapshotError(ctx, heads)
 		return wait.SlowDown
 	}
 	logSnapshotIfVerbose(log, snapshot)
@@ -365,6 +366,24 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		return wait.SlowDown
 	}
 	return wait.KeepGoing
+}
+
+// requeueHeadsAfterSnapshotError puts back the workloads popped by Heads, which
+// nothing else does. The failure is transient, so they are requeued to be retried
+// rather than parked as inadmissible; second-pass workloads return after a backoff
+// step, as they do on the other failure paths of a cycle.
+func (s *Scheduler) requeueHeadsAfterSnapshotError(ctx context.Context, heads []qcache.Head) {
+	log := ctrl.LoggerFrom(ctx)
+	for i := range heads {
+		wl := &heads[i].Info
+		if s.queues.QueueSecondPassIfNeeded(ctx, wl.Obj, wl.SecondPassIteration) {
+			continue
+		}
+		if !s.queues.RequeueWorkload(ctx, wl, qcache.RequeueReasonSnapshotFailed, "") {
+			log.V(2).Info("Popped head was not requeued after a failed snapshot",
+				"workload", klog.KObj(wl.Obj), "clusterQueue", klog.KRef("", string(wl.ClusterQueue)))
+		}
+	}
 }
 
 // processEntry runs the admission pipeline for a single entry: TAS replacement,
