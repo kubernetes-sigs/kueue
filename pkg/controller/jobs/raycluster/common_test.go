@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -308,7 +307,7 @@ func TestBuildPodSets(t *testing.T) {
 					Template: corev1.PodTemplateSpec{},
 				},
 			},
-			wantErr: errors.New("cannot account for Redis cleanup resources: head pod template must include the Ray container"),
+			wantErr: ErrRedisCleanupMissingRayContainer,
 		},
 		"autoscaler sidecar added to head podSet with default resources when in-tree autoscaling is enabled": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -559,15 +558,10 @@ func TestBuildPodSets(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, tc.enablePartialScaleUpFeature)
 			gotPodSets, err := BuildPodSets(tc.rayClusterSpec, tc.annotations)
 
-			if tc.wantErr != nil {
-				if err == nil || err.Error() != tc.wantErr.Error() {
-					t.Errorf("Expected error %q, got %v", tc.wantErr, err)
-				}
-				return
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want +got):\n%s", diff)
 			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
+			if tc.wantErr != nil {
 				return
 			}
 
@@ -705,7 +699,7 @@ func TestUpdatePodSets(t *testing.T) {
 			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
 				ScaleFirstWorkerGroup(5).
 				Obj(),
-			wantErr: errors.New("PodSet name mismatch: RayCluster target-raycluster has worker group workers-group-0 which is not found in Ray object raycluster spec"),
+			wantErr: ErrPodSetNameMismatch,
 		},
 	}
 
@@ -728,15 +722,10 @@ func TestUpdatePodSets(t *testing.T) {
 
 			gotPodSets, err := UpdatePodSets(t.Context(), tc.podSets, c, tc.object, tc.enableInTreeAutoscaling, tc.rayClusterName)
 
-			if tc.wantErr != nil {
-				if err == nil || err.Error() != tc.wantErr.Error() {
-					t.Errorf("Expected error %q, got %v", tc.wantErr, err)
-				}
-				return
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want +got):\n%s", diff)
 			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
+			if tc.wantErr != nil {
 				return
 			}
 
@@ -1414,21 +1403,18 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 		},
 		"invalid json": {
 			annotation: `invalid`,
-			wantErr:    fmt.Errorf("failed to unmarshal %s annotation:", RayClusterPodsetReplicaSizesAnnotation),
+			wantErr:    ErrUnmarshalPodSetReplicaSizes,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			got, err := ParsePodSetReplicaSizes(tc.annotation)
-			if tc.wantErr != nil {
-				if err == nil || !strings.Contains(err.Error(), tc.wantErr.Error()) {
-					t.Fatalf("ParsePodSetReplicaSizes() error = %v, wantErr %v", err, tc.wantErr)
-				}
-				return
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("ParsePodSetReplicaSizes() error mismatch (-want +got):\n%s", diff)
 			}
-			if err != nil {
-				t.Fatalf("ParsePodSetReplicaSizes() unexpected error: %v", err)
+			if tc.wantErr != nil {
+				return
 			}
 			if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
 				t.Errorf("ParsePodSetReplicaSizes() mismatch (-want +got):\n%s", diff)
@@ -1539,7 +1525,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				{Name: "head", Count: 1},
 			},
 			rayClusterName: "test-raycluster",
-			wantErr:        errors.New("failed to get RayCluster test-raycluster:"),
+			wantErr:        ErrGetRayCluster,
 		},
 	}
 
@@ -1579,14 +1565,11 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			}
 
 			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, jobObject, tc.rayClusterName)
-			if tc.wantErr != nil {
-				if err == nil || !strings.Contains(err.Error(), tc.wantErr.Error()) {
-					t.Fatalf("GetWorkloadslicingCustomAnnotations() expected error containing %q, got %v", tc.wantErr, err)
-				}
-				return
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("GetWorkloadslicingCustomAnnotations() error mismatch (-want +got):\n%s", diff)
 			}
-			if err != nil {
-				t.Fatalf("GetWorkloadslicingCustomAnnotations() unexpected error: %v", err)
+			if tc.wantErr != nil {
+				return
 			}
 			if diff := cmp.Diff(tc.wantAnnotation, got); diff != "" {
 				t.Errorf("GetWorkloadslicingCustomAnnotations() mismatch (-want +got):\n%s", diff)
