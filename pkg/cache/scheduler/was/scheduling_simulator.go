@@ -146,9 +146,9 @@ func NewWASSimulatorForTest(ctx context.Context) (*wasSimulator, error) {
 	if err != nil {
 		return nil, err
 	}
-  if sim, ok := iSim.(*wasSimulator); ok {
+	if sim, ok := iSim.(*wasSimulator); ok {
 		return sim, nil
-  }
+	}
 	return nil, fmt.Errorf("internal error: expected WAS simulator, got %T", iSim)
 }
 
