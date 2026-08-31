@@ -11,6 +11,7 @@
     - [Story 2: Capacity discovered by an external controller](#story-2-capacity-discovered-by-an-external-controller)
   - [Notes](#notes)
     - [Rationale for effectiveCapacityMultiplier](#rationale-for-effectivecapacitymultiplier)
+    - [Relation to KEP-9988](#relation-to-kep-9988)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [User confusion about effective quota](#user-confusion-about-effective-quota)
     - [Overcommitted quota after a capacity reduction](#overcommitted-quota-after-a-capacity-reduction)
@@ -161,6 +162,15 @@ workloads are inadmissible or are very picky about the worker cluster. See also
 [this section](https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation#potential-reasons-for-increasing-manager-quota) 
 in the related "MultiKueue Manager Quota Automation" KEP.
 
+#### Relation to KEP-9988
+
+For MultiKueue, DQO builds foundation to decomission the Alpha1 manager-quota controller
+described in [KEP-9988](https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation).
+The mechanism will no longer update ClusterQueue's `.spec.resourceGroups`.
+
+The integration-specific API and migration are defined by an update to KEP-9988
+for its Alpha2, see the related discussion [here](https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation#move-the-aggregated-quota-out-of-clusterqueuespec).
+
 ### Risks and Mitigations
 
 #### User confusion about effective quota
@@ -242,6 +252,9 @@ type ClusterQueueStatus struct {
     // effectiveQuotas is used for scheduling instead of spec.resourceGroups when
     // present.
     //
+    // This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
+    // feature gate is disabled.
+    //
     // +optional
     EffectiveQuotas *EffectiveQuotaStatus `json:"effectiveQuotas,omitempty"`
 }
@@ -266,6 +279,8 @@ type EffectiveQuotaStatus struct {
     OrchestratorRef EffectiveQuotaStatusOrchestratorRef `json:"orchestratorRef"`
 
     // resourceGroups is the effective quota used by the scheduler.
+    // An empty list is a valid complete override and does not cause fallback to
+    // spec.resourceGroups.
     //
     // +listType=atomic
     // +kubebuilder:validation:MaxItems=16
@@ -660,6 +675,14 @@ In particular this means the metrics such as `kueue_cluster_queue_nominal_quota`
 `borrowing_limit` or `cohort_subtree_quota` will report using
 `status.effectiveQuotas.resourceGroups` when (1.) is satisfied.
 
+As a result, an update to the effective quotas refreshes the scheduler cache
+for the affected ClusterQueues or Cohorts, and requests retry of affected inadmissible
+workloads.
+
+Note that, the presence of `status.effectiveQuotas` indicates the effetive quotas,
+even if `.resourceGroups` is empty, ie. `.status.effectiveQuotas.resourceGroups: []`
+exposes no quota resource groups as `spec.resourceGroups: []` would.
+
 ### Proportional distribution and rounding
 
 Effective quota is computed independently for each `(ResourceFlavor, Resource)`
@@ -679,8 +702,14 @@ Kueue uses the largest-remainder method:
   result is the expected capacity which can be collected from the fractional remainders.
 - Collect the capacity in descending order of the fractional remainders.
 
+Equal remainders are resolved by the UUIDs of the ClusterQueue or Cohorts.
+
 For example, distributing 10 units among three ClusterQueues initially assigns
 3 units to each. After the largest-remainder method we obtain: 4, 3, and 3.
+Here the value 4 is picked for the ClusterQueue with the smallest UUID.
+
+For CPU the distribution unit is milliCPU (1m), while for other resources - 1.
+For example, one byte for memory or one item for an extended scalar resource.
 
 ### Effective quota construction
 
@@ -691,7 +720,11 @@ reported by the specified providers. For a pair in that union, a provider that o
 contributes zero. A pair omitted by all specified providers remains unchanged from `spec.resourceGroups`.
 
 Specifically, `status.effectiveQuotas` does not override the administrator-configured
-borrowing or lending limits - it copies them directly from `spec.resourceGroups`.
+borrowing or lending limits. DQO treats borrowingLimit and lendingLimit as absolute quantities
+and does not scale them proportionally with nominalQuota.
+
+More precisely, borrowingLimit is copied unchanged while the a non-null effective lendingLimit
+is capped at the effective nominalQuota.
 
 This behavior is subject to be re-evaluated in the later releases.
 

@@ -7,8 +7,12 @@ status: provisional
 creation-date: 2026-08-09
 reviewers:
   - "@olekzabl"
+  - "@sohankunkerkar"
 approvers:
   - "@tenzen-y"
+
+see-also:
+  - "keps/9988-multikueue-manager-quota-automation"
 
 # The target maturity stage in the current dev cycle for this KEP.
 stage: alpha
