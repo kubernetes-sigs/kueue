@@ -233,6 +233,12 @@ func (j *JobSetWrapper) ManagedBy(c string) *JobSetWrapper {
 	return j
 }
 
+// TTLSecondsAfterFinished sets the JobSet cleanup TTL.
+func (j *JobSetWrapper) TTLSecondsAfterFinished(seconds int32) *JobSetWrapper {
+	j.Spec.TTLSecondsAfterFinished = &seconds
+	return j
+}
+
 // TerminationGracePeriod sets the termination grace period for all replicated jobs.
 func (j *JobSetWrapper) TerminationGracePeriod(seconds int64) *JobSetWrapper {
 	for i := range j.Spec.ReplicatedJobs {

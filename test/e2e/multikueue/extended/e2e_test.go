@@ -522,6 +522,55 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 		})
 
+		ginkgo.It("Should not propagate JobSet TTL and should clean up the completed manager JobSet", ginkgo.Label("feature:jobset"), func() {
+			jobSet := testingjobset.MakeJobSet("job-set-with-ttl", managerNs.Name).
+				Queue(managerLq.Name).
+				TTLSecondsAfterFinished(0).
+				ReplicatedJobs(
+					testingjobset.ReplicatedJobRequirements{
+						Name:        "replicated-job",
+						Replicas:    1,
+						Parallelism: 1,
+						Completions: 1,
+						Image:       util.GetAgnHostImage(),
+						Args:        util.BehaviorWaitForDeletion,
+					},
+				).
+				RequestAndLimit("replicated-job", corev1.ResourceCPU, "100m").
+				RequestAndLimit("replicated-job", corev1.ResourceMemory, "100M").
+				TerminationGracePeriod(1).
+				Obj()
+
+			ginkgo.By("Creating the JobSet with immediate TTL cleanup", func() {
+				util.MustCreate(ctx, k8sManagerClient, jobSet)
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: managerNs.Name}
+			admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorker := kubernetesClients[admittedWorkerName]
+
+			ginkgo.By("Checking that the remote JobSet does not inherit the manager JobSet TTL", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					remoteJobSet := &jobset.JobSet{}
+					g.Expect(admittedWorker.client.Get(ctx, client.ObjectKeyFromObject(jobSet), remoteJobSet)).To(gomega.Succeed())
+					g.Expect(remoteJobSet.Spec.TTLSecondsAfterFinished).To(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Finishing the remote JobSet", func() {
+				listOpts := util.GetListOptsFromLabel(fmt.Sprintf("jobset.sigs.k8s.io/jobset-name=%s", jobSet.Name))
+				util.WaitForActivePodsAndTerminate(ctx, admittedWorker.client, admittedWorker.restClient, admittedWorker.cfg, jobSet.Namespace, 1, 0, listOpts)
+			})
+
+			ginkgo.By("Waiting for the completed manager JobSet to be deleted by the TTL controller", func() {
+				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, jobSet, false, util.MediumTimeout)
+			})
+
+			ginkgo.By("Checking that the remote JobSets are cleaned up", func() {
+				util.ExpectObjectToBeDeletedOnClusters(ctx, jobSet, k8sWorker1Client, k8sWorker2Client)
+			})
+		})
+
 		ginkgo.It("Should run an appwrapper containing a job on worker if admitted", ginkgo.Label("feature:appwrapper"), func() {
 			jobName := "job-1"
 			aw := testingaw.MakeAppWrapper("aw", managerNs.Name).

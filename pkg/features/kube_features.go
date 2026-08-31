@@ -88,6 +88,12 @@ const (
 	// Enables clearing ttlSecondsAfterFinished when creating remote batch Jobs.
 	MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster featuregate.Feature = "MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster"
 
+	// owner: @kevin85421
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/14779
+	//
+	// Enables clearing ttlSecondsAfterFinished when creating remote JobSets.
+	MultiKueueJobSetClearingTTLSecondsAfterFinishedOnWorkerCluster featuregate.Feature = "MultiKueueJobSetClearingTTLSecondsAfterFinishedOnWorkerCluster"
+
 	// owner: @mimowo
 	//
 	// Enable Topology Aware Scheduling allowing to optimize placement of Pods
@@ -685,6 +691,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+	MultiKueueJobSetClearingTTLSecondsAfterFinishedOnWorkerCluster: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TopologyAwareScheduling: {
