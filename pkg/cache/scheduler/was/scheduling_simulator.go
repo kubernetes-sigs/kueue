@@ -68,6 +68,8 @@ type wasSimulatorSnapshot struct {
 	podsByWorkload podsByWorkload
 }
 
+var _ SimulatorSnapshot = (*wasSimulatorSnapshot)(nil)
+
 func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
