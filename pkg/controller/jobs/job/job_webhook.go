@@ -72,6 +72,7 @@ type JobWebhook struct {
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
+	kubeServerVersion            serverVersionGetter
 }
 
 // SetupWebhook configures the webhook for batchJob.
@@ -85,14 +86,29 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		queues:                       options.Queues,
 		cache:                        options.Cache,
 	}
+	if options.KubeServerVersion != nil {
+		wh.kubeServerVersion = options.KubeServerVersion
+	}
 	obj := &batchv1.Job{}
 	if options.NoopWebhook {
 		return webhook.SetupNoopWebhook(mgr, obj)
 	}
+	logConstructor := jobframework.WebhookLogConstructor(fromObject(obj).GVK(), options.RoleTracker)
+	if features.Enabled(features.GangSchedulingByDefault) {
+		// Register the mutating path first so the builder below keeps only
+		// the validating webhook for it; the typed defaulter runs inside.
+		mgr.GetWebhookServer().Register("/mutate-batch-v1-job", &admission.Webhook{
+			Handler: &gangDefaultingHandler{
+				typed:   admission.WithDefaulter(mgr.GetScheme(), wh).Handler,
+				webhook: wh,
+			},
+			LogConstructor: logConstructor,
+		})
+	}
 	return ctrl.NewWebhookManagedBy(mgr, obj).
 		WithDefaulter(wh).
 		WithValidator(wh).
-		WithLogConstructor(jobframework.WebhookLogConstructor(fromObject(obj).GVK(), options.RoleTracker)).
+		WithLogConstructor(logConstructor).
 		Complete()
 }
 

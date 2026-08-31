@@ -613,6 +613,13 @@ const (
 	// Note: This feature can be promoted to "beta" once https://github.com/kubernetes-sigs/kueue/issues/14543
 	// is fixed because it might boost chances for issue #14543 to appear.
 	FairSharingReevaluatePreemptionCandidates featuregate.Feature = "FairSharingReevaluatePreemptionCandidates"
+
+	// owner: @apullo777
+	// kep: https://github.com/kubernetes-sigs/kueue/issues/13715
+	//
+	// Defaults eligible Kueue-managed batch/v1 Jobs to upstream gang scheduling
+	// by setting spec.scheduling at admission.
+	GangSchedulingByDefault featuregate.Feature = "GangSchedulingByDefault"
 )
 
 func init() {
@@ -948,6 +955,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	FairSharingReevaluatePreemptionCandidates: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	GangSchedulingByDefault: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
