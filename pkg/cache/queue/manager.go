@@ -923,11 +923,10 @@ func (m *Manager) Heads(ctx context.Context) []Head {
 func (m *Manager) heads() []Head {
 	var heads []Head
 	for wInfo := range m.secondPassQueue.takeAllReady() {
-		cq := m.getClusterQueueLockless(wInfo.ClusterQueue)
-		if cq == nil {
-			continue
+		isPreemptor := false
+		if cq := m.getClusterQueueLockless(wInfo.ClusterQueue); cq != nil {
+			isPreemptor = cq.IsPreemptor(&wInfo)
 		}
-		isPreemptor := cq.IsPreemptor(&wInfo)
 		heads = append(heads, Head{
 			Info:        wInfo,
 			IsPreemptor: isPreemptor,
