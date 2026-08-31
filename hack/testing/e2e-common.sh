@@ -636,10 +636,14 @@ function prepare_docker_images {
 
     # When using a pre-built Kueue image (released or staging), ensure it's available for kind load.
     # Check remote first; if not found remotely, use local image if present; otherwise error.
-    if docker manifest inspect "$IMAGE_TAG" >/dev/null 2>&1; then
-        docker pull "$IMAGE_TAG"
+    local manifest_error
+    if manifest_error=$(docker manifest inspect "$IMAGE_TAG" 2>&1 >/dev/null); then
+        # E2E_SKIP_IMAGE_RELOAD covers dependency images only: the Kueue image may
+        # have been rebuilt with the same tag, so it is always pulled.
+        E2E_SKIP_IMAGE_RELOAD=false e2e_docker_pull_if_needed "$IMAGE_TAG"
     elif ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
-        echo "ERROR: Image '$IMAGE_TAG' not found remotely or locally." >&2
+        echo "ERROR: Image '$IMAGE_TAG' is not available remotely or locally." >&2
+        echo "$manifest_error" >&2
         return 1
     fi
 
