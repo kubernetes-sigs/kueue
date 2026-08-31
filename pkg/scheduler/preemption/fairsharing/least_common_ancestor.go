@@ -33,6 +33,26 @@ func getAlmostLCAs(t *TargetClusterQueue) (almostLCA, almostLCA) {
 	return getAlmostLCA(t.ordering.preemptorCq, lca), getAlmostLCA(t.targetCq, lca)
 }
 
+// preemptorPathToLCA returns every node (the preemptor ClusterQueue and
+// each ancestor Cohort) on the path from the preemptor ClusterQueue up
+// to, and including, the LeastCommonAncestor with the target. This
+// matches the set of nodes the fair sharing admission-ordering
+// tournament evaluates borrowing on (see entryComparer.less and
+// computeDRS in fair_sharing_iterator.go), so a preemption decision
+// and the following scheduling cycle's tournament agree on whether the
+// preemptor is within nominal quota.
+func preemptorPathToLCA(t *TargetClusterQueue) []almostLCA {
+	lca := getLCA(t)
+	nodes := []almostLCA{t.ordering.preemptorCq}
+	for ancestor := range t.ordering.preemptorCq.PathParentToRoot() {
+		nodes = append(nodes, ancestor)
+		if ancestor == lca {
+			break
+		}
+	}
+	return nodes
+}
+
 // getLCA traverses from a ClusterQueue towards the root Cohort,
 // returning the first Cohort which contains the preemptor
 // ClusterQueue in its subtree.
