@@ -1523,6 +1523,108 @@ func TestRequeueWorkload(t *testing.T) {
 	}
 }
 
+// TestRequeueWorkloadTracksUnadmittedAfterRetarget covers a workload whose
+// spec.queueName is repointed at another LocalQueue while the scheduler holds
+// it. The requeue drops the records the workload left under the old queue, and
+// the unadmitted-workloads registry must count it again under the new one:
+// nothing else on this path re-adds it.
+func TestRequeueWorkloadTracksUnadmittedAfterRetarget(t *testing.T) {
+	cases := map[string]struct {
+		observability bool
+	}{
+		"counted under the new queue":       {observability: true},
+		"counted nowhere with the gate off": {observability: false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, tc.observability)
+			ctx, log := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
+			defer cancel()
+
+			clusterQueues := []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq").Obj(),
+				utiltestingapi.MakeClusterQueue("other-cq").Obj(),
+			}
+			localQueues := []*kueue.LocalQueue{
+				utiltestingapi.MakeLocalQueue("foo", "ns").ClusterQueue("cq").Obj(),
+				utiltestingapi.MakeLocalQueue("moved", "ns").ClusterQueue("other-cq").Obj(),
+			}
+			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("foo").Obj()
+
+			cl := utiltesting.NewClientBuilder().WithObjects(wl).Build()
+			manager := NewManagerForUnitTests(cl, nil, WithPreemptionExpectations(preemptexpectations.New()))
+			for _, cq := range clusterQueues {
+				if err := manager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
+				}
+			}
+			for _, q := range localQueues {
+				if err := manager.AddLocalQueue(ctx, q); err != nil {
+					t.Fatalf("Failed adding local queue %s: %v", q.Name, err)
+				}
+			}
+			if err := manager.AddOrUpdateWorkload(log, wl); err != nil {
+				t.Fatalf("Failed adding workload: %v", err)
+			}
+
+			_, tracked := manager.unadmittedWorkloads.statuses[workload.Key(wl)]
+			if tracked != tc.observability {
+				t.Fatalf("The workload is tracked as unadmitted before the pop: %t, want %t", tracked, tc.observability)
+			}
+			go manager.CleanUpOnContext(ctx)
+			heads := manager.Heads(ctx)
+			if len(heads) != 1 {
+				t.Fatalf("Heads returned %d workloads, want 1", len(heads))
+			}
+			if _, tracked := manager.unadmittedWorkloads.statuses[workload.Key(wl)]; tracked != tc.observability {
+				t.Fatalf("The workload is tracked as unadmitted after the pop: %t, want %t", tracked, tc.observability)
+			}
+
+			var retargeted kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &retargeted); err != nil {
+				t.Fatalf("Failed obtaining the workload: %v", err)
+			}
+			retargeted.Spec.QueueName = "moved"
+			if err := cl.Update(ctx, &retargeted); err != nil {
+				t.Fatalf("Failed repointing the workload: %v", err)
+			}
+
+			if requeued := manager.RequeueWorkload(ctx, &heads[0].Info, RequeueReasonGeneric, ""); !requeued {
+				t.Fatalf("RequeueWorkload returned false, want true against the new ClusterQueue")
+			}
+
+			if !tc.observability {
+				if n := len(manager.unadmittedWorkloads.statuses); n != 0 {
+					t.Errorf("The registry tracks %d workloads with the gate off, want 0", n)
+				}
+				return
+			}
+
+			wantStatus := unadmittedWorkloadStatus{
+				ClusterQueue:        "other-cq",
+				LocalQueueName:      "moved",
+				LocalQueueNamespace: "ns",
+				Reason:              kueue.WorkloadAdmittedReasonNoReservation,
+				UnderlyingCause:     kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			}
+			gotStatus, ok := manager.unadmittedWorkloads.statuses[workload.Key(wl)]
+			if !ok {
+				t.Fatalf("The workload is no longer tracked as unadmitted after the requeue")
+			}
+			if diff := gocmp.Diff(wantStatus, gotStatus); diff != "" {
+				t.Errorf("Unexpected unadmitted status (-want,+got):\n%s", diff)
+			}
+			if count := manager.unadmittedWorkloads.perCQ[wantStatus.ClusterQueueStatus()]; count != 1 {
+				t.Errorf("ClusterQueue unadmitted count is %d, want 1", count)
+			}
+			if count := manager.unadmittedWorkloads.perLQ[wantStatus]; count != 1 {
+				t.Errorf("LocalQueue unadmitted count is %d, want 1", count)
+			}
+		})
+	}
+}
+
 func TestUpdateWorkload(t *testing.T) {
 	now := time.Now()
 	cases := map[string]struct {
