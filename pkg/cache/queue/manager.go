@@ -300,34 +300,67 @@ func (m *Manager) deleteFinishedWorkloadWithoutLock(wlKey workload.Reference) {
 	reportCQFinishedWorkloads(cq, m.roleTracker, m.customLabels)
 }
 
-func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
+func (m *Manager) AddOrUpdateCohort(ctx context.Context, apiCohort *kueue.Cohort) {
 	m.Lock()
 	defer m.Unlock()
-	cohortName := kueue.CohortReference(cohort.Name)
+	cohortName := kueue.CohortReference(apiCohort.Name)
 
 	m.hm.AddCohort(cohortName)
 
 	c := m.hm.Cohort(cohortName)
 	oldParent := c.Parent()
 
-	m.hm.UpdateCohortEdge(cohortName, cohort.Spec.ParentName)
+	m.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
 
 	newParent := c.Parent()
-	// If the cohort moved parents, adjust all affected ancestor counts and re-emit.
+	// If the cohort moved parents, update counts and re-emit metrics.
+	// Collect both ancestor paths first so shared ancestors are only touched once.
 	if oldParent != newParent && !hierarchy.HasCycle(c) {
+		oldAncestors := make(map[*cohort]struct{})
 		if oldParent != nil && !hierarchy.HasCycle(oldParent) {
-			oldParent.updatePendingWorkloadsCount(-c.pendingActiveCount, -c.pendingInadmissibleCount)
 			for ancestor := range oldParent.PathSelfToRoot() {
-				metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusActive, ancestor.pendingActiveCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
-				metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusInadmissible, ancestor.pendingInadmissibleCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
+				oldAncestors[ancestor] = struct{}{}
 			}
 		}
+		newAncestors := make(map[*cohort]struct{})
 		if newParent != nil {
-			newParent.updatePendingWorkloadsCount(c.pendingActiveCount, c.pendingInadmissibleCount)
 			for ancestor := range newParent.PathSelfToRoot() {
-				metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusActive, ancestor.pendingActiveCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
-				metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusInadmissible, ancestor.pendingInadmissibleCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
+				newAncestors[ancestor] = struct{}{}
 			}
+		}
+
+		// Subtract from ancestors exclusive to the old path.
+		for ancestor := range oldAncestors {
+			if _, shared := newAncestors[ancestor]; !shared {
+				ancestor.pendingActiveCount -= c.pendingActiveCount
+				ancestor.pendingInadmissibleCount -= c.pendingInadmissibleCount
+			}
+		}
+		// Add to ancestors exclusive to the new path.
+		for ancestor := range newAncestors {
+			if _, shared := oldAncestors[ancestor]; !shared {
+				ancestor.pendingActiveCount += c.pendingActiveCount
+				ancestor.pendingInadmissibleCount += c.pendingInadmissibleCount
+			}
+		}
+
+		// Re-emit metrics for the union of both paths (each ancestor once).
+		emitted := sets.New[*cohort]()
+		for ancestor := range oldAncestors {
+			if emitted.Has(ancestor) {
+				continue
+			}
+			emitted.Insert(ancestor)
+			metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusActive, ancestor.pendingActiveCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
+			metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusInadmissible, ancestor.pendingInadmissibleCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
+		}
+		for ancestor := range newAncestors {
+			if emitted.Has(ancestor) {
+				continue
+			}
+			emitted.Insert(ancestor)
+			metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusActive, ancestor.pendingActiveCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
+			metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusInadmissible, ancestor.pendingInadmissibleCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
 		}
 	}
 
@@ -339,25 +372,24 @@ func (m *Manager) AddOrUpdateCohort(ctx context.Context, cohort *kueue.Cohort) {
 func (m *Manager) DeleteCohort(cohortName kueue.CohortReference) {
 	m.Lock()
 	defer m.Unlock()
+	var deletedActiveCount, deletedInadmissibleCount int
 	if cohort := m.hm.Cohort(cohortName); cohort != nil {
+		deletedActiveCount = cohort.pendingActiveCount
+		deletedInadmissibleCount = cohort.pendingInadmissibleCount
+		// Remove the cohort's contribution from ancestors before detaching.
+		// The implicit replacement (if any) is a new root — no ancestor propagation needed.
 		cohort.updatePendingWorkloadsCount(-cohort.pendingActiveCount, -cohort.pendingInadmissibleCount)
 	}
 	m.hm.DeleteCohort(cohortName)
-	metrics.ClearCohortPendingWorkloadsMetrics(cohortName)
-	// hm.DeleteCohort replaces an explicit cohort that still has children with a
-	// fresh implicit cohort (zero counts). Re-seed its counts from the children
-	// so that future delta reports are correct.
+	// If an implicit cohort took over, seed it with the deleted cohort's subtree
+	// counts and update the metric. Only clear when no children remain.
 	if implicit := m.hm.Cohort(cohortName); implicit != nil {
-		for _, cq := range implicit.ChildCQs() {
-			implicit.pendingActiveCount += cq.lastReportedCohort.active
-			implicit.pendingInadmissibleCount += cq.lastReportedCohort.inadmissible
-		}
-		for _, child := range implicit.ChildCohorts() {
-			implicit.pendingActiveCount += child.pendingActiveCount
-			implicit.pendingInadmissibleCount += child.pendingInadmissibleCount
-		}
+		implicit.pendingActiveCount = deletedActiveCount
+		implicit.pendingInadmissibleCount = deletedInadmissibleCount
 		metrics.ReportCohortSubtreePendingWorkloads(cohortName, metrics.PendingStatusActive, implicit.pendingActiveCount, m.customLabels.CohortGet(cohortName), m.roleTracker)
 		metrics.ReportCohortSubtreePendingWorkloads(cohortName, metrics.PendingStatusInadmissible, implicit.pendingInadmissibleCount, m.customLabels.CohortGet(cohortName), m.roleTracker)
+	} else {
+		metrics.ClearCohortPendingWorkloadsMetrics(cohortName)
 	}
 }
 
