@@ -122,7 +122,7 @@ func (s *defaultSimulatorSnapshot) PreemptWorkload(context.Context, types.Namesp
 	return func() error { return nil }, nil
 }
 
-func (s *defaultSimulatorSnapshot) Simulate(_ context.Context, fn func()) error {
+func (s *defaultSimulatorSnapshot) Simulate(context.Context, fn func()) error {
 	// Since default simulator does not hold any state,
 	// we can safely run the function immediately.
 	fn()
