@@ -1281,7 +1281,7 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 			continue
 		}
 		if workload.HasQuotaReservation(wl) && !hasSameOrEmptyPriorityClass(wl.Spec.PriorityClassRef, priorityClassRef) {
-			log.V(2).Info("Leaving a workload that reserved quota on its current priority class, since the transition the owner asks for is immutable while quota is reserved",
+			log.V(4).Info("Leaving a workload that reserved quota on its current priority class, since the transition the owner asks for is immutable while quota is reserved",
 				"workload", klog.KObj(wl))
 			continue
 		}
