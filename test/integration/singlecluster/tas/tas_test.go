@@ -4110,6 +4110,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 
 			ginkgo.BeforeEach(func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PrioritizePreemptorWorkloads, true)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 
 				//          b1
 				//     /    |    \
