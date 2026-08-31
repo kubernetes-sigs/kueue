@@ -43,6 +43,7 @@ func NewDefaultSimulatorSnapshot() SimulatorSnapshot {
 }
 
 type defaultSimulatorSnapshot struct{}
+var _ SimulatorSnapshot = (*defaultSimulatorSnapshot)(nil)
 
 func (s *defaultSimulator) Snapshot(_ context.Context, _ []*corev1.Node) (SimulatorSnapshot, error) {
 	return &defaultSimulatorSnapshot{}, nil
