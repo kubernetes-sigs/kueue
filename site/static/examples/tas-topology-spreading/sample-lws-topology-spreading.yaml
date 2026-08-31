@@ -1,0 +1,49 @@
+apiVersion: leaderworkerset.x-k8s.io/v1
+kind: LeaderWorkerSet
+metadata:
+  name: tas-sample-topology-spreading
+  labels:
+    kueue.x-k8s.io/queue-name: tas-user-queue
+    # Copied onto every Workload this LeaderWorkerSet creates, via the
+    # cluster's `integrations.labelKeysToCopy: ["app"]` config (see
+    # kueue-config-patch-label-keys-to-copy.yaml) - the topology-spreading
+    # annotation's workloadLabelSelector below matches on it.
+    app: main-inference
+spec:
+  replicas: 6
+  leaderWorkerTemplate:
+    size: 2
+    leaderTemplate:
+      metadata:
+        annotations:
+          # Engage TAS: the whole replica group (leader+worker) must land in
+          # one zone.
+          kueue.x-k8s.io/podset-required-topology: "topology.kubernetes.io/zone"
+          # Group leader+worker into a single spreading unit.
+          kueue.x-k8s.io/podset-group-name: "replica-group"
+          # Spread replica groups across zones: no zone may hold more than
+          # 34% of the matching Workloads (once the "+1" grace described in
+          # the KEP is used up).
+          kueue.x-k8s.io/topology-spreading: |
+            {"workloadLabelSelector":"app=main-inference","rules":[{"key":"topology.kubernetes.io/zone","maxDomainPercentage":34,"type":"Required"}]}
+      spec:
+        containers:
+        - name: leader
+          image: registry.k8s.io/e2e-test-images/agnhost:2.53
+          args: ["pause"]
+          resources:
+            requests:
+              cpu: "10m"
+    workerTemplate:
+      metadata:
+        annotations:
+          kueue.x-k8s.io/podset-required-topology: "topology.kubernetes.io/zone"
+          kueue.x-k8s.io/podset-group-name: "replica-group"
+      spec:
+        containers:
+        - name: worker
+          image: registry.k8s.io/e2e-test-images/agnhost:2.53
+          args: ["pause"]
+          resources:
+            requests:
+              cpu: "10m"

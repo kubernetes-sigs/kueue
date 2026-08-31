@@ -1655,8 +1655,12 @@ func TestHeads(t *testing.T) {
 var (
 	ignoreTypeMeta = cmpopts.IgnoreTypes(metav1.TypeMeta{})
 	// ignoreSchedulingHash is used in tests that compare workload.Info structs
-	// but don't care about the scheduling hash value (computed dynamically in NewInfo).
-	ignoreSchedulingHash = cmpopts.IgnoreFields(workload.Info{}, "SchedulingHash")
+	// but don't care about the scheduling hash value (computed dynamically in NewInfo)
+	// or other unexported derived fields computed the same way (e.g. topologySpreading).
+	ignoreSchedulingHash = cmp.Options{
+		cmpopts.IgnoreFields(workload.Info{}, "SchedulingHash"),
+		cmpopts.IgnoreUnexported(workload.Info{}),
+	}
 )
 
 // TestHeadAsync ensures that Heads call is blocked until the queues are filled

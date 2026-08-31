@@ -607,6 +607,13 @@ const (
 	// Note: This feature can be promoted to "beta" once https://github.com/kubernetes-sigs/kueue/issues/14543
 	// is fixed because it might boost chances for issue #14543 to appear.
 	FairSharingReevaluatePreemptionCandidates featuregate.Feature = "FairSharingReevaluatePreemptionCandidates"
+
+	// owner: @reruno
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13746
+	//
+	// Enable cross-Workload topology spreading, limiting how many Workloads
+	// matching a label selector may be placed in a single topology domain.
+	TASTopologySpreading featuregate.Feature = "TASTopologySpreading"
 )
 
 func init() {
@@ -633,6 +640,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	KueueDRAIntegrationConsumableCapacity:        {KueueDRAIntegration},
 	FlavorFungibilityPreserveScanProgress:        {FlavorFungibility},
 	SchedulingEquivalenceHashingIgnorePodSetName: {SchedulingEquivalenceHashing},
+	TASTopologySpreading:                         {TopologyAwareScheduling},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -938,6 +946,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	FairSharingReevaluatePreemptionCandidates: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	TASTopologySpreading: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

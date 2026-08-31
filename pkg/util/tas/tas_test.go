@@ -20,6 +20,9 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 func TestBelongsTo(t *testing.T) {
@@ -121,6 +124,39 @@ func TestNodeNameFromDomainID(t *testing.T) {
 			}
 			if gotNodeName != tc.wantNodeName {
 				t.Errorf("NodeNameFromDomainID() nodeName = %q, want %q", gotNodeName, tc.wantNodeName)
+			}
+		})
+	}
+}
+
+func TestGroupKeyForPodSet(t *testing.T) {
+	cases := map[string]struct {
+		podSet *kueue.PodSet
+		want   PodSetGroupKey
+	}{
+		"no topology request": {
+			podSet: &kueue.PodSet{Name: "workers"},
+			want:   "workers",
+		},
+		"topology request without group name": {
+			podSet: &kueue.PodSet{
+				Name:            "workers",
+				TopologyRequest: &kueue.PodSetTopologyRequest{Required: ptr.To(corev1.LabelHostname)},
+			},
+			want: "workers",
+		},
+		"group name set": {
+			podSet: &kueue.PodSet{
+				Name:            "workers",
+				TopologyRequest: &kueue.PodSetTopologyRequest{PodSetGroupName: ptr.To("group-a")},
+			},
+			want: "group-a",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := GroupKeyForPodSet(tc.podSet); got != tc.want {
+				t.Errorf("GroupKeyForPodSet() = %q, want %q", got, tc.want)
 			}
 		})
 	}

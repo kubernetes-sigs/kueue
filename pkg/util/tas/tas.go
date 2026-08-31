@@ -55,6 +55,27 @@ func NodeNameFromDomainID(levels []string, domainID TopologyDomainID) (string, b
 	return string(domainID), true
 }
 
+// PodSetGroupKey identifies a group of PodSets that TAS handles as one unit:
+// placed together in a single pass, and counted as 1 by topology spreading,
+// regardless of how many PodSets or pods it contains.
+type PodSetGroupKey string
+
+// GroupKeyForPodSet returns the PodSetGroupKey for ps: its
+// TopologyRequest.PodSetGroupName if set, otherwise ps.Name.
+//
+// The fallback is the PodSet's name rather than its index within the Workload,
+// so that the key is comparable across Workloads - two JobSets both have a
+// "prefill" PodSet, so their prefill groups count against each other with no
+// group name annotation set anywhere. An index is relative to the list being
+// iterated, and shifts whenever a PodSet goes to another flavor or has its
+// topology assignment delayed.
+func GroupKeyForPodSet(ps *kueue.PodSet) PodSetGroupKey {
+	if ps.TopologyRequest != nil && ps.TopologyRequest.PodSetGroupName != nil {
+		return PodSetGroupKey(*ps.TopologyRequest.PodSetGroupName)
+	}
+	return PodSetGroupKey(ps.Name)
+}
+
 func IsTAS(pod *corev1.Pod) bool {
 	if IsExplicitTAS(pod.Annotations) {
 		return true

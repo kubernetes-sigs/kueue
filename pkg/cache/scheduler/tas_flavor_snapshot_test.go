@@ -1605,3 +1605,65 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateSpreadingLevels(t *testing.T) {
+	const (
+		blockLabel = "cloud.com/block"
+		rackLabel  = "cloud.com/rack"
+	)
+	levels := []string{blockLabel, rackLabel, corev1.LabelHostname}
+
+	cases := map[string]struct {
+		spec       *tas.SpreadingSpec
+		requested  string
+		wantReason string
+	}{
+		"no spreading spec": {
+			requested: rackLabel,
+		},
+		"rule above the requested level": {
+			spec:      &tas.SpreadingSpec{Rules: []tas.SpreadingRule{{Key: blockLabel}}},
+			requested: rackLabel,
+		},
+		"rule at the requested level": {
+			spec:      &tas.SpreadingSpec{Rules: []tas.SpreadingRule{{Key: rackLabel}}},
+			requested: rackLabel,
+		},
+		"rule below the requested level": {
+			spec:       &tas.SpreadingSpec{Rules: []tas.SpreadingRule{{Key: rackLabel}}},
+			requested:  blockLabel,
+			wantReason: "topology spreading level cloud.com/rack is below the podset topology cloud.com/block",
+		},
+		"level absent from the topology is skipped": {
+			spec:      &tas.SpreadingSpec{Rules: []tas.SpreadingRule{{Key: "cloud.com/datacenter"}}},
+			requested: rackLabel,
+		},
+		"absent level skipped, second rule still rejected": {
+			spec: &tas.SpreadingSpec{Rules: []tas.SpreadingRule{
+				{Key: "cloud.com/datacenter"},
+				{Key: corev1.LabelHostname},
+			}},
+			requested:  rackLabel,
+			wantReason: "topology spreading level kubernetes.io/hostname is below the podset topology cloud.com/rack",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			snapshot := &TASFlavorSnapshot{
+				log:          logr.Discard(),
+				topologyName: "default",
+				topologyTree: &topologyTree{levelKeys: levels},
+			}
+			requestedLevelIdx, found := snapshot.resolveLevelIdx(tc.requested)
+			if !found {
+				t.Fatalf("requested level %q is not part of the test topology", tc.requested)
+			}
+
+			gotReason := snapshot.validateSpreadingLevels(tc.spec, requestedLevelIdx)
+			if diff := cmp.Diff(tc.wantReason, gotReason); diff != "" {
+				t.Errorf("unexpected reason (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

@@ -386,6 +386,47 @@ func TestFindTopologyAssignments(t *testing.T) {
 			Obj(),
 	}
 
+	// Topology spreading scenarios need three sibling domains at the level a
+	// rule applies to, and identically sized nodes, so that capacity-driven
+	// ordering degenerates into a lexicographic tie-break (b1, then b2, then
+	// b3) and any deviation is attributable to spreading alone.
+	//
+	//        b1              b2              b3
+	//      /    \          /    \          /    \
+	//     r1     r2       r1     r2       r1     r2
+	//     |      |        |      |        |      |
+	//     x1     x2       x3     x4       x5     x6
+	makeSpreadingNode := func(block, rack, host, cpu string) corev1.Node {
+		return *testingnode.MakeNode(fmt.Sprintf("%s-%s-%s", block, rack, host)).
+			Label(tasBlockLabel, block).
+			Label(tasRackLabel, rack).
+			Label(corev1.LabelHostname, host).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse(cpu),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj()
+	}
+	spreadingNodes := []corev1.Node{
+		makeSpreadingNode("b1", "r1", "x1", "2"),
+		makeSpreadingNode("b1", "r2", "x2", "2"),
+		makeSpreadingNode("b2", "r1", "x3", "2"),
+		makeSpreadingNode("b2", "r2", "x4", "2"),
+		makeSpreadingNode("b3", "r1", "x5", "2"),
+		makeSpreadingNode("b3", "r2", "x6", "2"),
+	}
+	// Same topology, but only b1's nodes can hold a 2 CPU pod, so b1 is the
+	// only block a PodSet requesting 2 CPU per pod can be placed in.
+	spreadingNodesOnlyB1Fits := []corev1.Node{
+		makeSpreadingNode("b1", "r1", "x1", "2"),
+		makeSpreadingNode("b1", "r2", "x2", "2"),
+		makeSpreadingNode("b2", "r1", "x3", "1"),
+		makeSpreadingNode("b2", "r2", "x4", "1"),
+		makeSpreadingNode("b3", "r1", "x5", "1"),
+		makeSpreadingNode("b3", "r2", "x6", "1"),
+	}
+
 	cases := map[string]struct {
 		featureGates           map[featuregate.Feature]bool
 		nodes                  []corev1.Node
@@ -396,7 +437,16 @@ func TestFindTopologyAssignments(t *testing.T) {
 		priorFlavorUsage       []workload.TopologyDomainRequests
 		priorOwnUsage          []workload.TopologyDomainRequests
 		workload               *kueue.Workload
-		podSets                []PodSetTestCase
+		// spreadingRules are the topology spreading rules of the Workload
+		// being placed, per PodSet group key (the PodSet group name, or the
+		// PodSet name when the PodSet has no group).
+		spreadingRules map[tas.PodSetGroupKey][]tas.SpreadingRule
+		// spreadCounts is how many Workloads matching the spreading selector
+		// already occupy each topology domain, per PodSet group key. The empty
+		// domain ID holds the total number of matching Workloads. Computing it
+		// is covered by TestTopologySpreadCounts.
+		spreadCounts PodSetGroupNameToTreeCount
+		podSets      []PodSetTestCase
 	}{
 		"node replacement skipped for single-Pod-owned workload; gate on": {
 			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
@@ -8329,6 +8379,439 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 		},
+
+		// Topology spreading. The rules limit how many Workloads matching the
+		// spreading selector may occupy one domain: a domain is over its
+		// allowance once
+		//
+		//	count_in_domain >= maxDomainPercentage/100 * count_in_parent_domain + 1
+		//
+		// (the +1 is what lets the first Workloads of a set be placed while
+		// every domain would otherwise look over its share). A Required rule
+		// excludes such domains, a Preferred rule only deprioritizes them.
+		"topology spreading: no rules, plain best-fit placement": {
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x1"}}},
+				},
+			}},
+		},
+		"topology spreading: cold start, no matching Workload placed yet": {
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: tasBlockLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRuleRequired}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x1"}}},
+				},
+			}},
+		},
+		"topology spreading: Required rule bans the over-allowance domain": {
+			// b1 holds 3 of the 4 matching Workloads, over the 34% allowance;
+			// b2 holds 1 and is still under it.
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: tasBlockLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRuleRequired}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {"": 4, "b1": 3, "b2": 1}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x3"}}},
+				},
+			}},
+		},
+		"topology spreading: an over-allowance domain loses to an empty one": {
+			// b2 alone accounts for 100% of the 1 matching Workload placed so
+			// far, over the 50% allowance, so it is banned; b1 and b3 are
+			// both still empty and tied, so placement picks the first empty
+			// domain (b1) rather than opening b3.
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: tasBlockLabel, MaxDomainPercentage: 50, Type: tas.TopologySpreadingRuleRequired}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {"": 1, "b2": 1}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x1"}}},
+				},
+			}},
+		},
+		"topology spreading: Required rule with every domain over its allowance fails": {
+			// Each of the 3 matching Workloads spans all 3 blocks, so no block
+			// may take another one. Required means the Workload waits.
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: tasBlockLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRuleRequired}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {"": 3, "b1": 3, "b2": 3, "b3": 3}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantReason:      `topology spreading excludes all topology domains at level: cloud.com/topology-block`,
+			}},
+		},
+		"topology spreading: Required rule fails when only the over-allowance domain has capacity": {
+			// b1 is the only block that can hold 2 CPU pods, and it is over
+			// its allowance, so the remaining domains cannot fit the PodSet.
+			nodes:  spreadingNodesOnlyB1Fits,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: tasBlockLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRuleRequired}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {"": 3, "b1": 3}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 2000},
+				count:           2,
+				wantReason:      `topology "default" doesn't allow to fit any of 2 pod(s). Total nodes: 6; excluded: resource "cpu": 4`,
+			}},
+		},
+		"topology spreading: Preferred rule only deprioritizes the over-allowance domain": {
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: tasBlockLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRulePreferred}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {"": 4, "b1": 3, "b2": 1}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x3"}}},
+				},
+			}},
+		},
+		"topology spreading: the least occupied domain wins once all of them are over the allowance": {
+			// Preferred means placement happens anyway, but it should still
+			// even out the skew: with all three blocks over the 20% allowance,
+			// the one holding the fewest matching Workloads takes the PodSet,
+			// rather than whichever the capacity-driven order puts first.
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: tasBlockLabel, MaxDomainPercentage: 20, Type: tas.TopologySpreadingRulePreferred}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {"": 15, "b1": 6, "b2": 5, "b3": 4}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x5"}}},
+				},
+			}},
+		},
+		"topology spreading: Preferred rule still uses the over-allowance domain if it is the only one with capacity": {
+			nodes:  spreadingNodesOnlyB1Fits,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: tasBlockLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRulePreferred}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {"": 3, "b1": 3}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 2000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x2"}},
+					},
+				},
+			}},
+		},
+		"topology spreading: rule above the requested topology level still constrains placement": {
+			// The PodSet requires a rack while the rule spreads over blocks:
+			// the racks of the banned b1 must not be considered either.
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: tasBlockLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRuleRequired}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {"": 4, "b1": 3, "b2": 1}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x3"}}},
+				},
+			}},
+		},
+		"topology spreading: rule below the requested topology level is rejected": {
+			// The whole PodSet group lands in a single block, so it takes
+			// whichever racks it needs there - a rack rule cannot be honoured,
+			// and the Workload must not be placed as if it were. This holds
+			// for a Preferred rule too: a rule must never name a level below
+			// the requested one.
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: tasRackLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRuleRequired}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantReason:      "topology spreading level cloud.com/topology-rack is below the podset topology cloud.com/topology-block",
+			}},
+		},
+		"topology spreading: rule naming a level absent from the topology is ignored": {
+			// A fleet-wide annotation must not make a Workload unschedulable
+			// on a flavor whose topology lacks the level it spreads over.
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: "cloud.com/datacenter", MaxDomainPercentage: 1, Type: tas.TopologySpreadingRuleRequired}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {"": 4, "b1": 4}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x1"}}},
+				},
+			}},
+		},
+		"topology spreading: two rules constrain the block and the rack": {
+			// b1 holds 6 of 10 matching Workloads, over the 50% block
+			// allowance, so all of its racks are out - including b1/r1, which
+			// is under the rack allowance and would otherwise be the tightest
+			// fit. Within b2, rack r1 holds 3 of b2's 4 Workloads, over the
+			// 50% rack allowance, so r2 takes the PodSet.
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {
+					{Key: tasBlockLabel, MaxDomainPercentage: 50, Type: tas.TopologySpreadingRuleRequired},
+					{Key: tasRackLabel, MaxDomainPercentage: 50, Type: tas.TopologySpreadingRuleRequired},
+				},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{
+				"main": {"": 10, "b1": 6, "b1,r1": 2, "b1,r2": 4, "b2": 4, "b2,r1": 3, "b2,r2": 1},
+			},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x4"}}},
+				},
+			}},
+		},
+		"topology spreading: a Required block rule combines with a Preferred rack rule": {
+			// Same counts as above: b2/r1 is only deprioritized now, but b2/r2
+			// still satisfies the preference, so the placement is unchanged.
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {
+					{Key: tasBlockLabel, MaxDomainPercentage: 50, Type: tas.TopologySpreadingRuleRequired},
+					{Key: tasRackLabel, MaxDomainPercentage: 50, Type: tas.TopologySpreadingRulePreferred},
+				},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{
+				"main": {"": 10, "b1": 6, "b1,r1": 2, "b1,r2": 4, "b2": 4, "b2,r1": 3, "b2,r2": 1},
+			},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x4"}}},
+				},
+			}},
+		},
+		"topology spreading: a Preferred rule above the requested topology level steers the placement": {
+			// b1 is over its allowance, and a Preferred rule cannot exclude it,
+			// so the racks of b1 must still lose to the racks of a block that
+			// is within its allowance - even though no rule names the rack
+			// level at all.
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: tasBlockLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRulePreferred}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {"": 3, "b1": 3}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x3"}}},
+				},
+			}},
+		},
+		"topology spreading: the block rule outranks the rack rule": {
+			// The two rules disagree. Judged on racks alone, b1/r2 is unused
+			// and would be taken first, but b1 is over its block allowance, so
+			// the coarser rule picks the block: b2, which is within its
+			// allowance and, unlike the untouched b3, already holds part of
+			// the group (bin-packing). The rack rule then only chooses between
+			// b2's own racks, and r1 is over its share of b2, leaving r2.
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {
+					{Key: tasBlockLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRulePreferred},
+					{Key: tasRackLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRulePreferred},
+				},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{
+				"main": {"": 10, "b1": 6, "b1,r1": 6, "b2": 3, "b2,r1": 3},
+			},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x4"}}},
+				},
+			}},
+		},
+		"topology spreading: PodSet groups are constrained independently": {
+			// group-a is banned from b1 and group-b from b2, so the two groups
+			// end up in different blocks even though both would pick b1.
+			nodes:  spreadingNodes,
+			levels: defaultThreeLevels,
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"group-a": {{Key: tasBlockLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRuleRequired}},
+				"group-b": {{Key: tasBlockLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRuleRequired}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{
+				"group-a": {"": 3, "b1": 3},
+				"group-b": {"": 3, "b2": 3},
+			},
+			podSets: []PodSetTestCase{
+				{
+					podSetName:      "a",
+					podSetGroupName: new("group-a"),
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           2,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x3"}}},
+					},
+				},
+				{
+					podSetName:      "b",
+					podSetGroupName: new("group-b"),
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           2,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels:  defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"x1"}}},
+					},
+				},
+			},
+		},
+		"topology spreading: not applied when replacing a node of an admitted Workload": {
+			// Spreading is a scheduling-time decision: an admitted Workload is
+			// never pulled out of a domain that went over its allowance, so it
+			// must not be denied a replacement node there either.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").
+					Label(tasRackLabel, "r1").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultThreeLevels,
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Admission(utiltestingapi.MakeAdmission("cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Count(1).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+							Obj()).
+						Obj()).
+					Obj()).
+				UnhealthyNodes("x1").
+				Obj(),
+			spreadingRules: map[tas.PodSetGroupKey][]tas.SpreadingRule{
+				"main": {{Key: tasBlockLabel, MaxDomainPercentage: 34, Type: tas.TopologySpreadingRuleRequired}},
+			},
+			spreadCounts: PodSetGroupNameToTreeCount{"main": {"": 4, "b1": 4}},
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(corev1.LabelHostname)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x2"}}},
+				},
+			}},
+		},
 	}
 	for name, tc := range cases {
 		for _, enableVectorizedRequests := range []bool{true, false} {
@@ -8336,6 +8819,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				ctx, log := utiltesting.ContextWithLog(t)
 				features.SetFeatureGateDuringTest(t, features.VectorizedResourceRequests, enableVectorizedRequests)
 				features.SetFeatureGatesDuringTest(t, tc.featureGates)
+				if len(tc.spreadingRules) > 0 {
+					features.SetFeatureGateDuringTest(t, features.TASTopologySpreading, true)
+				}
 
 				initialObjects := make([]client.Object, 0)
 				for i := range tc.nodes {
@@ -8402,10 +8888,22 @@ func TestFindTopologyAssignments(t *testing.T) {
 							NodeAffinity: ps.nodeAffinity,
 						}
 					}
+					// Mirror the group name onto the PodSet, as the flavor assigner
+					// does: TASPodSetRequests.PodSetGroupName is a copy of the
+					// PodSet's own group name, and grouping is keyed off the PodSet.
+					topologyRequest := ps.topologyRequest
+					if ps.podSetGroupName != nil {
+						if topologyRequest == nil {
+							topologyRequest = &kueue.PodSetTopologyRequest{}
+						} else {
+							topologyRequest = topologyRequest.DeepCopy()
+						}
+						topologyRequest.PodSetGroupName = ps.podSetGroupName
+					}
 					tasInput := TASPodSetRequests{
 						PodSet: &kueue.PodSet{
 							Name:            kueue.NewPodSetReference(ps.podSetName),
-							TopologyRequest: ps.topologyRequest,
+							TopologyRequest: topologyRequest,
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{
 									Tolerations:  ps.tolerations,
@@ -8435,8 +8933,22 @@ func TestFindTopologyAssignments(t *testing.T) {
 					wantResult[kueue.NewPodSetReference(ps.podSetName)] = wantPodSetResult
 				}
 				var findOpts []FindTopologyAssignmentsOption
-				if tc.workload != nil {
-					findOpts = append(findOpts, WithWorkload(tc.workload))
+				if tc.workload != nil || len(tc.spreadingRules) > 0 {
+					wlObj := tc.workload
+					if wlObj == nil {
+						wlObj = utiltestingapi.MakeWorkload("wl", "ns").Obj()
+					}
+					wlInfo := workload.NewInfo(wlObj)
+					for group, rules := range tc.spreadingRules {
+						if wlInfo.TopologySpreading == nil {
+							wlInfo.TopologySpreading = make(map[tas.PodSetGroupKey]*tas.SpreadingSpec, len(tc.spreadingRules))
+						}
+						wlInfo.TopologySpreading[group] = &tas.SpreadingSpec{Rules: rules}
+					}
+					findOpts = append(findOpts, WithWorkload(wlInfo))
+				}
+				if tc.spreadCounts != nil {
+					findOpts = append(findOpts, WithTopologySpreadCounts(tc.spreadCounts))
 				}
 				gotResult := snapshot.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, findOpts...)
 				if diff := cmp.Diff(wantResult, gotResult); diff != "" {
@@ -8908,7 +9420,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 				t.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 			}
 
-			result := snapshot.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, WithWorkload(wl))
+			result := snapshot.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, WithWorkload(workload.NewInfo(wl)))
 
 			psResult, ok := result[podSetName]
 			if !ok {

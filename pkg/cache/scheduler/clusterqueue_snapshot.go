@@ -210,6 +210,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 	for _, option := range options {
 		option(opts)
 	}
+	spreadCounts := c.topologySpreadCounts(opts.workload, tasRequestsByFlavor)
 
 	var aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests
 	if features.Enabled(features.TASHandleOverlappingFlavors) {
@@ -223,9 +224,12 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 		// already checked earlier during flavor assignment, and the set of
 		// flavors is immutable in snapshot.
 		tasFlavorCache := c.TASFlavors[tasFlavor]
-		flvOpts := options
+		flvOpts := slices.Clone(options)
+		if flavorSpreadCounts := spreadCounts[tasFlavor]; len(flavorSpreadCounts) > 0 {
+			flvOpts = append(flvOpts, WithTopologySpreadCounts(flavorSpreadCounts))
+		}
 		if features.Enabled(features.TASHandleOverlappingFlavors) && tasFlavorCache.isLowestLevelNode {
-			flvOpts = append(slices.Clone(options), WithAggregatedDomainUsages(aggregatedDomainUsages))
+			flvOpts = append(flvOpts, WithAggregatedDomainUsages(aggregatedDomainUsages))
 		}
 		flvResult := tasFlavorCache.FindTopologyAssignmentsForFlavor(ctx, flavorTASRequests, flvOpts...)
 		for psName, res := range flvResult {

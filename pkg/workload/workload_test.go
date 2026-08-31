@@ -3780,3 +3780,57 @@ func TestTotalExecutionTime(t *testing.T) {
 		})
 	}
 }
+
+func TestInfoTopologySpreading(t *testing.T) {
+	validAnnotation := `{"workloadLabelSelector":"app=main","rules":[{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45}]}`
+	malformedAnnotation := `{"workloadLabelSelector":`
+
+	cases := map[string]struct {
+		wl           *kueue.Workload
+		featureGates map[featuregate.Feature]bool
+		wantSpec     bool
+	}{
+		"annotation absent": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+		},
+		"gate off, annotation present: treated as absent": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Annotations(map[string]string{utiltas.PodSetTopologySpreadingAnnotation: validAnnotation}).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: false},
+		},
+		"valid annotation, gate on: populates spec": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Annotations(map[string]string{utiltas.PodSetTopologySpreadingAnnotation: validAnnotation}).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			wantSpec:     true,
+		},
+		"malformed annotation, gate on: no panic, treated as absent": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Annotations(map[string]string{utiltas.PodSetTopologySpreadingAnnotation: malformedAnnotation}).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			info := NewInfo(tc.wl)
+
+			if tc.wantSpec && info.TopologySpreading == nil {
+				t.Errorf("TopologySpreading = nil, want non-nil")
+			}
+			if !tc.wantSpec && info.TopologySpreading != nil {
+				t.Errorf("TopologySpreading = %+v, want nil", info.TopologySpreading)
+			}
+		})
+	}
+}

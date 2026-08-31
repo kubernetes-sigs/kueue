@@ -268,6 +268,16 @@ type Info struct {
 	// and will receive the same FlavorAssigner result given the same cluster state.
 	SchedulingHash EquivalenceHash
 
+	// TopologySpreading is the parsed topology-spreading configuration for
+	// each PodSet group (see tas.GroupKeyForPodSet) that carries one, keyed by
+	// group. Nil, or missing an entry for a given group, when the annotation is
+	// absent for that group, unparseable, or the feature gate is off. Parse
+	// failures are logged by computeTopologySpreading and otherwise ignored -
+	// a group whose annotation cannot be parsed schedules as if it carried
+	// none. Owned by Update, by convention - nothing enforces it, same as
+	// SchedulingHash.
+	TopologySpreading map[tas.PodSetGroupKey]*tas.SpreadingSpec
+
 	// NominationMapping is the mapping of PodSets resources and their flavors
 	// based on the nomination phase.
 	NominationMapping PodSetResourcesToFlavors
@@ -345,10 +355,22 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 	return info
 }
 
-// UpdateSchedulingHash computes and sets the scheduling hash using the
-// provided contextual logger. Called internally by Update.
+// UpdateSchedulingHash recomputes the fields derived from i.Obj and
+// i.TotalRequests, using the provided contextual logger. Called internally by
+// Update, and re-called by callers that only had a klog.Background() logger
+// available at NewInfo time (see i.Obj comment on Update for why).
 func (i *Info) UpdateSchedulingHash(log logr.Logger) {
+	i.updateDerived(log)
+}
+
+// updateDerived recomputes every field that is derived from i.Obj and
+// i.TotalRequests: the scheduling hash and the parsed topology-spreading
+// annotation. Kept as one function, named for what UpdateSchedulingHash's
+// call sites actually need, rather than adding a second
+// UpdateTopologySpreading with its own set of re-call sites.
+func (i *Info) updateDerived(log logr.Logger) {
 	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests)
+	i.TopologySpreading = computeTopologySpreading(log, i.Obj)
 }
 
 // Update refreshes the object reference, rebuilds TotalRequests, and
@@ -357,7 +379,7 @@ func (i *Info) UpdateSchedulingHash(log logr.Logger) {
 func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
 	i.Obj = wl
 	i.rebuildTotalRequests(opts...)
-	i.UpdateSchedulingHash(log)
+	i.updateDerived(log)
 }
 
 // rebuildTotalRequests refreshes ClusterQueue and recomputes TotalRequests
@@ -433,6 +455,50 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 		logV.Info("Computed scheduling hash", "workload", klog.KObj(wl), "hash", hash, "shapeJSON", string(shapeJSON))
 	}
 	return EquivalenceHash(hash)
+}
+
+// computeTopologySpreading parses the topology-spreading annotation for each
+// PodSet group in wl (see tas.GroupKeyForPodSet), returning the resulting
+// per-group map, or nil if no group resolves to a spec.
+//
+// For a multi-PodSet group, the first PodSet in line (in wl.Spec.PodSets
+// order) that carries the annotation supplies the config for the whole
+// group; later members' annotations are ignored, deliberately - so there is
+// no webhook rule forcing group members to agree, and no new failure mode
+// for a user who annotates only the leader. This holds even when that first
+// annotation fails to parse: the group is not resolved from a later member's
+// annotation instead, matching the annotation's godoc.
+func computeTopologySpreading(log logr.Logger, wl *kueue.Workload) map[tas.PodSetGroupKey]*tas.SpreadingSpec {
+	if !features.Enabled(features.TASTopologySpreading) {
+		return nil
+	}
+	var result map[tas.PodSetGroupKey]*tas.SpreadingSpec
+	resolved := make(map[tas.PodSetGroupKey]bool)
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		groupKey := tas.GroupKeyForPodSet(ps)
+		if resolved[groupKey] {
+			continue
+		}
+		value, found := ps.Template.Annotations[tas.PodSetTopologySpreadingAnnotation]
+		if !found {
+			continue
+		}
+		resolved[groupKey] = true
+		spec, err := tas.ParseSpreadingAnnotation(value)
+		if err != nil {
+			// The webhook rejects malformed values, so this is reachable only
+			// for prebuilt Workloads that bypassed it. Log and carry on
+			// without spreading for this group rather than blocking admission.
+			log.Error(err, "Failed to parse topology spreading annotation", "workload", klog.KObj(wl), "group", groupKey)
+			continue
+		}
+		if result == nil {
+			result = make(map[tas.PodSetGroupKey]*tas.SpreadingSpec)
+		}
+		result[groupKey] = spec
+	}
+	return result
 }
 
 func (i *Info) CanBePartiallyAdmitted() bool {

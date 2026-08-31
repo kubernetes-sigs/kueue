@@ -101,6 +101,20 @@ func (t *nodesCache) deleteWithoutLock(nodeName string) {
 	}
 }
 
+// get returns the cached view of the node named nodeName, or false if it
+// isn't currently tracked (not schedulable/ready, or not yet synced).
+//
+// Unlike find, this isn't filtered to any one flavor's node selector - nodes
+// is the cluster-wide, flavor-independent view, which is what makes this the
+// right lookup for resolving a node's real topology labels regardless of
+// which ResourceFlavor admitted the workload sitting on it.
+func (t *nodesCache) get(nodeName string) (*corev1.Node, bool) {
+	t.lock.RLock()
+	defer t.lock.RUnlock()
+	node, found := t.nodes[nodeName]
+	return node, found
+}
+
 // find returns the nodes matching the flavor along with the generation at
 // which they were read, so that structures derived from the result can later
 // be revalidated against currentGeneration.
