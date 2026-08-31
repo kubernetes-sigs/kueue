@@ -101,11 +101,12 @@ func TestWorkloadPriorityClassPredicates(t *testing.T) {
 
 func TestWorkloadPriorityClassReconcile(t *testing.T) {
 	cases := map[string]struct {
-		wpc           *kueue.WorkloadPriorityClass
-		workloads     []kueue.Workload
-		wantWorkloads []kueue.Workload
-		wantError     bool
-		clientFuncs   *interceptor.Funcs
+		wpc             *kueue.WorkloadPriorityClass
+		workloads       []kueue.Workload
+		wantWorkloads   []kueue.Workload
+		wantError       bool
+		wantSingleError bool
+		clientFuncs     *interceptor.Funcs
 	}{
 		"reconcile updates workload priority when WPC priority changes": {
 			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
@@ -239,6 +240,48 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"reconcile keeps a single error when all updates fail": {
+			// Pins the second half of the fix: the sweep now goes through
+			// parallelize.Until, which keeps a single error rather than
+			// accumulating one per failed Workload the way the old
+			// errors.Join(updateErrors...) loop did.
+			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl2", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl3", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+			clientFuncs: &interceptor.Funcs{
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					return fmt.Errorf("update failed for %s", obj.GetName())
+				},
+			},
+			wantError:       true,
+			wantSingleError: true,
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl2", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl3", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+		},
 		"reconcile handles WPC not found": {
 			wpc:           utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
 			workloads:     []kueue.Workload{},
@@ -281,6 +324,17 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 			} else if !tc.wantError && gotErr != nil {
 				t.Errorf("unexpected error: %v", gotErr)
 			}
+			if tc.wantSingleError && gotErr != nil {
+				named := 0
+				for _, wl := range tc.workloads {
+					if strings.Contains(gotErr.Error(), wl.Name) {
+						named++
+					}
+				}
+				if named != 1 {
+					t.Errorf("expected the error to name exactly one failed workload, got %d in %q", named, gotErr.Error())
+				}
+			}
 			// Verify workloads are in the expected state
 			for _, wantWl := range tc.wantWorkloads {
 				gotWl := &kueue.Workload{}
@@ -293,56 +347,5 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestWorkloadPriorityClassReconcileKeepsOneError pins the second half of the
-// fix: the sweep now goes through parallelize.Until, which keeps a single
-// error rather than accumulating one per failed Workload the way the old
-// errors.Join(updateErrors...) loop did. With three Workloads all failing
-// their update, the returned error must name exactly one of them.
-func TestWorkloadPriorityClassReconcileKeepsOneError(t *testing.T) {
-	ctx := t.Context()
-
-	wpc := utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj()
-	names := []string{"wl1", "wl2", "wl3"}
-	workloads := make([]kueue.Workload, len(names))
-	for i, name := range names {
-		workloads[i] = *utiltestingapi.MakeWorkload(name, "default").
-			Priority(100).
-			WorkloadPriorityClassRef("high").
-			Obj()
-	}
-
-	builder := utiltesting.NewClientBuilder().
-		WithObjects(wpc).
-		WithIndex(&kueue.Workload{}, indexer.WorkloadPriorityClassKey, indexer.IndexWorkloadPriorityClass).
-		WithStatusSubresource(&kueue.Workload{})
-	for i := range workloads {
-		builder = builder.WithObjects(&workloads[i])
-	}
-	builder = builder.WithInterceptorFuncs(interceptor.Funcs{
-		Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-			return fmt.Errorf("update failed for %s", obj.GetName())
-		},
-	})
-	k8sClient := builder.Build()
-
-	reconciler := NewWorkloadPriorityClassReconciler(k8sClient, nil)
-	req := reconcile.Request{NamespacedName: types.NamespacedName{Name: wpc.Name}}
-
-	_, gotErr := reconciler.Reconcile(ctx, req)
-	if gotErr == nil {
-		t.Fatalf("expected an error, got nil")
-	}
-
-	named := 0
-	for _, name := range names {
-		if strings.Contains(gotErr.Error(), name) {
-			named++
-		}
-	}
-	if named != 1 {
-		t.Errorf("expected the error to name exactly one failed workload, got %d in %q", named, gotErr.Error())
 	}
 }
