@@ -51,7 +51,7 @@ func TestBuildPodSets(t *testing.T) {
 		rayClusterSpec *rayv1.RayClusterSpec
 		annotations    map[string]string
 		wantPodSets    []kueue.PodSet
-		wantErr        bool
+		wantErr        error
 	}{
 		"basic spec with head and single worker group": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -305,7 +305,7 @@ func TestBuildPodSets(t *testing.T) {
 					Template: corev1.PodTemplateSpec{},
 				},
 			},
-			wantErr: true,
+			wantErr: errRedisCleanupMissingRayContainer,
 		},
 		"autoscaler sidecar added to head podSet with default resources when in-tree autoscaling is enabled": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -401,16 +401,8 @@ func TestBuildPodSets(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gotPodSets, err := BuildPodSets(tc.rayClusterSpec, tc.annotations)
 
-			if tc.wantErr {
-				if err == nil {
-					t.Error("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want +got):\n%s", diff)
 			}
 
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.IgnoreFields(kueue.PodSet{}, "TopologyRequest")); diff != "" {
@@ -428,7 +420,7 @@ func TestUpdatePodSets(t *testing.T) {
 		rayClusterName          string
 		rayClusterInClient      *rayv1.RayCluster
 		wantPodSets             []kueue.PodSet
-		wantErr                 bool
+		wantErr                 error
 	}{
 		"workload slicing disabled - no update": {
 			podSets: []kueue.PodSet{
@@ -547,7 +539,7 @@ func TestUpdatePodSets(t *testing.T) {
 			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
 				ScaleFirstWorkerGroup(5).
 				Obj(),
-			wantErr: true,
+			wantErr: errPodSetNameMismatch,
 		},
 	}
 
@@ -570,16 +562,8 @@ func TestUpdatePodSets(t *testing.T) {
 
 			gotPodSets, err := UpdatePodSets(t.Context(), tc.podSets, c, tc.object, tc.enableInTreeAutoscaling, tc.rayClusterName)
 
-			if tc.wantErr {
-				if err == nil {
-					t.Error("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want +got):\n%s", diff)
 			}
 
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")); diff != "" {
@@ -594,7 +578,7 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 		rayClusterSpec *rayv1.RayClusterSpec
 		podSetsInfo    []podset.PodSetInfo
 		wantSpec       *rayv1.RayClusterSpec
-		wantErr        bool
+		wantErr        error
 	}{
 		"basic update with node selector": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -808,16 +792,8 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			err := UpdateRayClusterSpecToRunWithPodSetsInfo(utiltesting.NewLogger(t), tc.rayClusterSpec, tc.podSetsInfo)
 
-			if tc.wantErr {
-				if err == nil {
-					t.Error("Expected error but got none")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("UpdateRayClusterSpecToRunWithPodSetsInfo() error mismatch (-want +got):\n%s", diff)
 			}
 
 			if diff := cmp.Diff(tc.wantSpec, tc.rayClusterSpec); diff != "" {
@@ -1243,7 +1219,7 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 	testCases := map[string]struct {
 		annotation string
 		wantCounts map[kueue.PodSetReference]int32
-		wantErr    bool
+		wantErr    error
 	}{
 		"empty annotation": {
 			annotation: "",
@@ -1264,20 +1240,18 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 		},
 		"invalid json": {
 			annotation: `invalid`,
-			wantErr:    true,
+			wantErr:    errUnmarshalPodSetReplicaSizes,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			got, err := ParsePodSetReplicaSizes(tc.annotation)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("ParsePodSetReplicaSizes() error = %v, wantErr %v", err, tc.wantErr)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("ParsePodSetReplicaSizes() error mismatch (-want +got):\n%s", diff)
 			}
-			if !tc.wantErr {
-				if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
-					t.Errorf("ParsePodSetReplicaSizes() mismatch (-want +got):\n%s", diff)
-				}
+			if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
+				t.Errorf("ParsePodSetReplicaSizes() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -1321,6 +1295,8 @@ func TestSerializePodSetCounts(t *testing.T) {
 }
 
 func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
+	rayClusterGetErr := errors.New("failed to get RayCluster")
+
 	testCases := map[string]struct {
 		annotations      map[string]string
 		podSets          []kueue.PodSet
@@ -1329,7 +1305,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 		createRayCluster bool
 		standalone       bool
 		wantAnnotation   map[string]string
-		wantErr          bool
+		wantErr          error
 	}{
 		"workload slicing disabled returns nil": {
 			annotations: map[string]string{},
@@ -1430,7 +1406,7 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				{Name: "head", Count: 1},
 			},
 			rayClusterName: "test-raycluster",
-			wantErr:        true,
+			wantErr:        rayClusterGetErr,
 		},
 	}
 
@@ -1445,7 +1421,16 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 				_ = rayv1.AddToScheme(scheme)
 			}
 
-			builder := fake.NewClientBuilder().WithScheme(scheme)
+			builder := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						if _, ok := obj.(*rayv1.RayCluster); ok && errors.Is(tc.wantErr, rayClusterGetErr) {
+							return rayClusterGetErr
+						}
+						return c.Get(ctx, key, obj, opts...)
+					},
+				})
 
 			var jobObject client.Object
 			if tc.createRayCluster {
@@ -1470,14 +1455,8 @@ func TestGetWorkloadslicingCustomAnnotations(t *testing.T) {
 			}
 
 			got, err := GetWorkloadslicingRayClusterCustomAnnotations(t.Context(), c, jobObject, tc.podSets, tc.rayClusterName)
-			if tc.wantErr {
-				if err == nil {
-					t.Fatalf("GetWorkloadslicingCustomAnnotations() expected error but got nil")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("GetWorkloadslicingCustomAnnotations() unexpected error: %v", err)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("GetWorkloadslicingCustomAnnotations() error mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantAnnotation, got); diff != "" {
 				t.Errorf("GetWorkloadslicingCustomAnnotations() mismatch (-want +got):\n%s", diff)
