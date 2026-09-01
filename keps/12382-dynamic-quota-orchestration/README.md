@@ -9,8 +9,8 @@
   - [User Stories](#user-stories)
     - [Story 1: Dynamically adjust quota based on built-in plugins](#story-1-dynamically-adjust-quota-based-on-built-in-plugins)
     - [Story 2: Capacity discovered by an external controller](#story-2-capacity-discovered-by-an-external-controller)
+    - [Story 3: Adjusting the discovered capacity before distributing as quota](#story-3-adjusting-the-discovered-capacity-before-distributing-as-quota)
   - [Notes](#notes)
-    - [Rationale for effectiveCapacityMultiplier](#rationale-for-effectivecapacitymultiplier)
     - [Relation to KEP-9988](#relation-to-kep-9988)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [User confusion about effective quota](#user-confusion-about-effective-quota)
@@ -67,9 +67,11 @@ distributing that capacity across a ClusterQueue/Cohort subtree.
 
 The mechanism has two phases:
 
-1. Capacity providers publish normalized capacity through `CapacityProvider`
-   objects. A `DynamicQuotaOrchestrator` aggregates capacity from the referenced providers.
-2. DQO proportionally distributes the
+1. Discovery: Capacity providers publish normalized capacity through `CapacityProvider`
+   objects. The `DynamicQuotaOrchestrator` aggregates capacity from the referenced
+   providers. While aggregating the capacity from each proivder can be transformed
+   by a fixed multiplier to indicate the portion of the capacity used for the actual quota distribution (phase 2).
+2. Distribution: DQO proportionally distributes the
    aggregated capacity and writes the resulting effective quota to the status of
    each managed ClusterQueue and Cohort.
 
@@ -143,13 +145,12 @@ cluster-autoscaler capacity using vendor-specific APIs.
 [#9988]: https://github.com/kubernetes-sigs/kueue/issues/9988
 [#8654]: https://github.com/kubernetes-sigs/kueue/issues/8654
 
-### Notes
+#### Story 3: Adjusting the discovered capacity before distributing as quota
 
-#### Rationale for effectiveCapacityMultiplier
+As a cluster administrator I need to adjust the discored capacity
+before distributing as quota.
 
-The effectiveCapacityMultiplier parameter provides flexibility in translating observed
-capacity into the effective capacity made available by Kueue for quota distribution.
-Some of the use-cases:
+Some of the situations:
 - **Operational headroom** (e.g. 0.95 or 950m): when TAS is not used, leaving a small capacity buffer
 can reduce the impact of node failures or resource fragmentation.
 - **Capacity partitioning** (e.g. 0.5 or 500m, or fractional values like 0.555 or 555m): Allows sharing the discovered node capacity
@@ -161,6 +162,11 @@ prevent other feasible workloads from being considered. This may happen when the
 workloads are inadmissible or are very picky about the worker cluster. See also
 [this section](https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation#potential-reasons-for-increasing-manager-quota) 
 in the related "MultiKueue Manager Quota Automation" KEP.
+
+The effectiveCapacityMultiplier parameter provides flexibility in translating observed
+capacity into the effective capacity made available by Kueue for quota distribution.
+
+### Notes
 
 #### Relation to KEP-9988
 
@@ -178,10 +184,16 @@ for its Alpha2, see the related discussion [here](https://github.com/kubernetes-
 This risk is an intrinsic [drawback](#drawbacks) of the proposal due to separating
 administrator-configured intent from controller-computed runtime state. 
 
+This is particularly important because all scheduler decisions (admissions, preemptions,
+scaling etc.) will consider the effective quotas, represented in `status.effectiveQuotas`,
+instead of `spec.resourceGroups` where admins may be used to look.
+
 **Mitigation tactics**:
 
 - `status.effectiveQuotas` records its `orchestratorRef` field
 useful for troubleshooting and observability.
+- The new ClusterQueue/Cohort condition `EffectiveCapacityComputed` will increase
+  discoverability of the flow.
 - The documentation will describe the precedence between `spec.resourceGroups` and
 `status.effectiveQuotas` and provide troubleshooting guidance.
 - Quota metrics report the values actually used by Kueue components.
@@ -434,8 +446,7 @@ type EffectiveCapacityFlavor struct {
     // resources contains total capacity by resource name.
     //
     // +required
-    // +kubebuilder:validation:MinProperties=1
-    // +kubebuilder:validation:MaxProperties=64
+    // +kubebuilder:validation:XValidation:rule="size(self) >= 1 && size(self) <= 64",message="resource capacity must have between 1 and 64 entries"
     // +kubebuilder:validation:XValidation:rule="self.all(r, type(self[r]) == string ? quantity(self[r]).sign() >= 0 : self[r] >= 0)",message="resource capacity must be non-negative"
     Resources corev1.ResourceList `json:"resources"`
 }
@@ -609,8 +620,7 @@ type CapacityProviderNormalizedCapacityFlavor struct {
     // resources contains total capacity by resource name.
     //
     // +required
-    // +kubebuilder:validation:MinProperties=1
-    // +kubebuilder:validation:MaxProperties=64
+    // +kubebuilder:validation:XValidation:rule="size(self) >= 1 && size(self) <= 64",message="resource capacity must have between 1 and 64 entries"
     // +kubebuilder:validation:XValidation:rule="self.all(r, type(self[r]) == string ? quantity(self[r]).sign() >= 0 : self[r] >= 0)",message="resource capacity must be non-negative"
     Resources corev1.ResourceList `json:"resources"`
 }
@@ -671,17 +681,20 @@ is defined as follows:
   defined, then use `status.effectiveQuotas.resourceGroups`
 2. otherwise use `spec.resourceGroups`
 
-In particular this means the metrics such as `kueue_cluster_queue_nominal_quota`, 
-`borrowing_limit` or `cohort_subtree_quota` will report using
-`status.effectiveQuotas.resourceGroups` when (1.) is satisfied.
-
-As a result, an update to the effective quotas refreshes the scheduler cache
+An update to the effective quotas refreshes the scheduler cache
 for the affected ClusterQueues or Cohorts, and requests retry of affected inadmissible
 workloads.
 
-Note that, the presence of `status.effectiveQuotas` indicates the effetive quotas,
+This entails:
+- all scheduler decisions (preemptions, admission, scaling of Jobs, etc.) consider the
+effective quotas defined in `status.effectiveQuotas.resourceGroups` as they would
+consider `.spec.resourceGroups` otherwise.
+- the presence of `status.effectiveQuotas` indicates the effective quotas,
 even if `.resourceGroups` is empty, ie. `.status.effectiveQuotas.resourceGroups: []`
 exposes no quota resource groups as `spec.resourceGroups: []` would.
+- the metrics such as `kueue_cluster_queue_nominal_quota`,
+`borrowing_limit` or `cohort_subtree_quota` will report using
+`status.effectiveQuotas.resourceGroups` when (1.) is satisfied.
 
 ### Proportional distribution and rounding
 
@@ -723,8 +736,8 @@ Specifically, `status.effectiveQuotas` does not override the administrator-confi
 borrowing or lending limits. DQO treats borrowingLimit and lendingLimit as absolute quantities
 and does not scale them proportionally with nominalQuota.
 
-More precisely, borrowingLimit is copied unchanged while the a non-null effective lendingLimit
-is capped at the effective nominalQuota.
+More precisely, borrowingLimit is copied unchanged. A non-null lendingLimit is copied unchanged
+for Cohorts, but capped at the effective nominalQuota for ClusterQueues.
 
 This behavior is subject to be re-evaluated in the later releases.
 
@@ -735,7 +748,8 @@ DQO does not apply resource transformations or DRA resource mappings during capa
 Instead, the responsibilities are handled at the existing system boundaries:
 1. **CapacityProvider controllers** discover underlying resources (such as physical nodes, accelerator devices, or DRA `ResourceSlice` objects) and publish them as normalized `(ResourceFlavor, resource)` pairs into `CapacityProvider.status.capacity`.
 2. **DQO controller** operates strictly on normalized `(ResourceFlavor, resource)` tuples to compute `status.effectiveQuotas.resourceGroups`.
-3. **Kueue Scheduler** applies any administrator-configured `resourceTransformations` and DRA `resourceMappings` defined on ClusterQueues when evaluating and admitting workloads against `status.effectiveQuotas`.
+3. **Kueue Scheduler** applies any administrator-configured `resourceTransformations` and DRA `resourceMappings`
+when evaluating and admitting workloads against `status.effectiveQuotas`.
 
 ### Stale Effective Quota
 
