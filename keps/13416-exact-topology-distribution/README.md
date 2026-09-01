@@ -40,9 +40,6 @@
   - [Multiple JobSet ReplicatedJobs](#multiple-jobset-replicatedjobs)
   - [A Separate Annotation](#a-separate-annotation)
   - [Binding Counts to Named Domains](#binding-counts-to-named-domains)
-  - [Repeating a Distribution Pattern](#repeating-a-distribution-pattern)
-  - [Multiple Exact Levels](#multiple-exact-levels)
-  - [Pod Topology Spread Constraints](#pod-topology-spread-constraints)
 <!-- /toc -->
 
 ## Summary
@@ -78,12 +75,6 @@ None of these determine the final count per domain. For an eight-pod PodSet with
 a rack slice size of two, the scheduler creates four equal slices, and multiple
 slices can share a rack — so `[2, 2, 4]`, `[2, 6]`, and `[8]` are all valid
 outcomes. No scalar slice size can require `[1, 3, 4]`.
-
-The default Kubernetes scheduler can balance pods using topology spread
-constraints or bind them to named domains using node affinity, but it cannot
-dynamically select domains and reserve an arbitrary exact distribution for a
-complete PodSet. Kueue already performs group-level admission and produces a
-`TopologyAssignment`, making it the right layer for this capability.
 
 ### Goals
 
@@ -218,34 +209,29 @@ The distribution is attached to one PodSet. A workload with multiple PodSets
 validates and schedules each independently, subject to existing restrictions on
 PodSet groups and multi-layer constraints.
 
-A single-entry list such as `sizes: [8]` is permitted: it places the whole
-PodSet in one domain, the same shape `podset-required-topology` produces at that
-level. The two are still not interchangeable. A request carrying only slice
-constraints counts as unconstrained, whereas `podset-required-topology` makes it
-a required request, and those two classes order candidate domains differently
-(see [Exact Domain Matching](#exact-domain-matching)) — so Kueue may pick a
-different domain for each. Use `podset-required-topology` for the single-domain
-case: it needs neither this feature gate nor a stable rank source.
+A single-entry list such as `sizes: [8]` is permitted and puts the whole PodSet
+in one domain, the same shape `podset-required-topology` gives. The two are not
+interchangeable: they fall into different request classes and so may pick
+different domains (see [Exact Domain Matching](#exact-domain-matching)). Use
+`podset-required-topology` for the single-domain case — it needs neither this
+feature gate nor a stable rank source.
 
 ### Risks and Mitigations
 
-**Scheduling cost:** Each candidate enclosing domain requires a feasibility check
-against its descendant domains. The alpha API bounds `sizes` to 128 entries and
-supports only one exact level. Matching uses sorted scalar pod capacities and is
-polynomial in the number of requested and available domains.
+**Scheduling cost:** free capacity alone cannot tell you whether a request fits,
+because the shape matters — racks with room for 2, 2, and 4 pods have eight
+slots free but cannot hold `[1, 3, 4]`. Kueue therefore runs the match separately
+inside each candidate enclosing domain. Two limits keep that cheap. Allowing only
+one exact level keeps it a flat problem — sort the capacities, place each entry,
+done — instead of a search that tries layouts and backs out of dead ends. The
+128-entry cap bounds a single match. Cost then grows in step with the number of
+domains rather than exploding.
 
-**Fragmentation and starvation:** An exact request is stricter than aggregate
-capacity. It can leave capacity unused in selected domains and remain pending
-even when the total number of free pod slots would suffice. This is inherent to
-making the distribution a hard requirement. The feature is opt-in, documentation
-directs users to ordinary TAS controls when exactness is unnecessary, domain
-selection follows the active TAS placement strategy, and the scheduler reports an
-explicit failure reason distinguishing exact-domain infeasibility from
-insufficient aggregate capacity.
-
-**Feature interaction:** Partial admission, elastic workload slices, repeating
-slices, and multiple exact levels introduce ambiguous grouping semantics. Alpha
-validation rejects these combinations rather than guessing.
+**Starvation:** an exact request can stay pending even when the cluster has
+plenty of free pod slots, because those slots are in the wrong shape. This is
+inherent to making the distribution a hard requirement; see
+[Drawbacks](#drawbacks) for when that cost is worth paying, and
+[Failure Reporting](#failure-reporting) for how it is surfaced.
 
 ## Design Details
 
@@ -320,7 +306,9 @@ Creation-time validation enforces:
 - The parent workload has not opted into elastic workload slicing with
   `kueue.x-k8s.io/elastic-job: "true"`, even when
   `ElasticJobsViaWorkloadSlicesWithTAS` is enabled.
-- `sizes` is not combined with preferred outer topology at alpha.
+- `sizes` is not combined with `podset-preferred-topology` at alpha.
+  `podset-required-topology` is accepted, and `podset-unconstrained-topology` is
+  accepted as a no-op.
 - Existing mutual exclusions with the legacy slice annotations and
   `podset-group-name` continue to apply.
 - The `TASExactTopologyDistribution` feature gate is enabled.
@@ -358,15 +346,23 @@ request contains `sizes`. The scalar path is unchanged.
 
 #### Scope Selection
 
-When `podset-required-topology` is present, Kueue evaluates candidate domains at
-that level as enclosing scopes — for a required block and exact rack sizes, each
-candidate block is evaluated using only its descendant racks. When no required
-topology is present, the eligible topology of the selected ResourceFlavor is the
-enclosing scope.
+The outer annotations are already mutually exclusive, so there are three cases:
 
-Preferred outer topology is not supported with exact distributions at alpha, to
-avoid an implicit fallback changing the enclosing scope while a hard inner
-distribution is retained.
+- **`podset-required-topology`.** Kueue evaluates each domain at that level as a
+  separate enclosing scope — for a required block and exact rack sizes, each
+  candidate block is evaluated using only its descendant racks. This is the only
+  way to require that the selected domains share a parent.
+- **No outer annotation, or `podset-unconstrained-topology`.** The eligible
+  topology of the selected ResourceFlavor is the scope. Both forms behave the
+  same, because a request carrying only slice constraints is already classified
+  as unconstrained; the annotation is accepted as a no-op rather than rejected.
+  Note that this gives **no containment at all**: `sizes: [1, 3, 4]` picks three
+  distinct racks, but nothing requires them to sit in the same block.
+- **`podset-preferred-topology`.** Rejected at alpha. Preferred widens the scope
+  on its own when a level does not fit, so a soft outer scope would shift
+  underneath a hard inner distribution. It is also the only class in which
+  balanced placement runs, and balanced placement spreads pods evenly, which
+  `sizes` contradicts.
 
 #### Exact Domain Matching
 
@@ -385,49 +381,40 @@ distinct domains, separating feasibility from policy-driven selection:
 4. Retain the original list index on every match so assignment construction can
    restore rank-block order.
 
-At the exact level the placement modes are interpreted as follows:
+Step 3 orders candidate domains by the active placement mode:
 
-- `BestFit` starts with fitting domains that have the most free pod capacity. It
-  applies to any exact request carrying `podset-required-topology`, and to every
-  exact request under a BestFit-only profile.
-- `LeastFreeCapacity` starts with the fitting domain that has the least free pod
-  capacity. It applies to unconstrained requests under the default TAS profile
-  (`TASProfileMixed`, default since v0.15), so an exact-only slice request uses
-  it unless a cluster overrides the profile.
-- `BalancedPlacement` never runs at alpha. It only runs when a request is
-  neither required nor unconstrained, and every `sizes` request alpha allows is
-  one of those two: a `sizes`-only request counts as unconstrained, and adding
-  `podset-required-topology` makes it required. So there is nothing to turn off
-  here. If preferred topology is ever allowed with `sizes`, then `sizes` must
-  win, because balanced placement spreads pods evenly while `sizes` asks for an
-  uneven split. Both cannot be true at once.
+- `BestFit` starts with the fitting domains that have the most free capacity.
+- `LeastFreeCapacity` starts with the fitting domain that has the least.
+- `BalancedPlacement` never runs at alpha, because it applies only to a request
+  that is neither required nor unconstrained, and every `sizes` request alpha
+  allows is one of those two.
 
-The request is classified using the existing TAS profile rules: an exact-only
-slice request is unconstrained, while a request with `podset-required-topology`
-is required. Exact matching does not override the resulting placement mode.
+Which mode applies follows the existing TAS profile rules, and exact matching
+does not override them. A `sizes`-only request counts as unconstrained, so under
+the default profile it gets `LeastFreeCapacity`; adding `podset-required-topology`
+makes it required, which gets `BestFit`.
 
-Following the profile has one side effect worth calling out. By default a
-`sizes`-only request gets `LeastFreeCapacity`, which picks the domains that
-barely fit, leaving almost no spare room in them. If a node then fails,
-replacement has to stay inside that same domain and is not allowed to move the
-group elsewhere, so there may be nowhere to put the replacement pods.
+If preferred topology is ever allowed with `sizes`, then `sizes` must win:
+balanced placement spreads pods evenly while `sizes` asks for an uneven split,
+and both cannot be true at once.
 
-`BestFit` would leave spare room, but it uses roomier domains and so wastes more
-capacity. Alpha keeps following whichever profile the cluster is set to, rather
-than picking one for the user: forcing a different algorithm for just this
-feature is a big change to make without data. Beta decides it, based on how
-often replacement actually fails.
+This has one side effect worth calling out. `LeastFreeCapacity` picks the
+domains that barely fit, so if a node later fails, replacement must stay in that
+same domain and may have nowhere to go. `BestFit` would leave spare room but
+waste more capacity. Alpha follows whichever profile the cluster is set to
+rather than picking for the user, and beta decides based on how often
+replacement actually fails.
 
 ```text
 requested sizes: [1, 3, 4]
 domain capacity: [1, 2, 3, 7, 10]
 
-BestFit matching (default):
+BestFit (with podset-required-topology):
 4 -> capacity 10
 3 -> capacity 7
 1 -> capacity 3
 
-LeastFreeCapacity matching (unconstrained request, TASProfileMixed enabled):
+LeastFreeCapacity (sizes only, default profile):
 4 -> capacity 7
 3 -> capacity 3
 1 -> capacity 1
@@ -486,20 +473,32 @@ once, which is a candidate beta improvement.
 
 #### Assignment Construction
 
-After matching, Kueue sets each selected exact-level domain's assigned pod count
-to its matched value. Existing downward traversal distributes that count through
-finer levels to leaves, and existing assignment construction encodes the selected
-leaves and counts into `TopologyAssignment`.
+Matching has already decided which domain gets which entry. Kueue sets each
+selected domain's pod count to its matched value, and the existing code that
+walks down the tree spreads that count over the hosts inside it. Those hosts and
+their counts are what gets written into `TopologyAssignment`.
 
-Assignment construction emits exact groups in original `sizes` order. All leaf
-entries descended from one selected exact-level domain are contiguous and their
-counts sum to that entry's requested size; within a group, existing TAS ordering
-determines leaf order. Construction must not reorder leaf entries across groups.
+The one new rule is about **order**. Hosts belonging to the same selected domain
+must stay together in the list, and the groups must appear in the order the
+entries were written in `sizes`:
 
-The topology ungater consumes domain counts in `TopologyAssignment` order and
-maps consecutive indexed-pod ranks to those domains. Preserving group order is
-therefore what gives each `sizes` entry its contiguous rank block, without
-requiring a new status format.
+```text
+sizes: [1, 3, 4]  matched to  rack-z, rack-m, rack-a
+
+written as:  z1:1  |  m1:2, m2:1  |  a1:4
+ranks:       0     |  1, 2, 3     |  4, 5, 6, 7
+```
+
+Order matters because of what the ungater does with this list. It reads the
+domains in the order they are stored and hands out pod ranks in blocks: the
+first domain takes ranks from 0, the next carries on from there. So the order of
+the list *is* the rank mapping, and nothing new has to be added to the API to
+record it.
+
+The catch is that today's code sorts hosts by name before writing them out. That
+would produce `a1, m1, m2, z1`, putting rank 0 in the four-pod group and turning
+`[1, 3, 4]` into `[4, 3, 1]`.
+
 
 ### Failed Node Replacement
 
@@ -521,18 +520,33 @@ Replacement updates leaf entries within the affected group's existing position
 and does not move that group relative to another, so each `sizes` entry's rank
 block stays stable.
 
-Preserving that position requires a change to assignment merging. Replacement
-currently merges the replacement assignment with the existing one, and that merge
-re-sorts every entry lexicographically by level values — which would reorder
-groups relative to `sizes` order and silently reassign rank blocks. Merging
-therefore needs an exact-aware path, gated by
-`TASExactTopologyDistribution`, that merges replacement leaves into their
-existing group and preserves group order; the scalar path keeps its current
-behavior. The same requirement applies to any other path that rebuilds a
-`TopologyAssignment` from parts. Leader and worker PodSets use the same merge
-routine, but PodSet groups are mutually exclusive with `sizes`, so that path is
-unreachable at alpha — validation must keep enforcing that exclusion, and a test
-asserts it.
+Keeping that position needs a change to how assignments are merged. Kueue does
+not rebuild the whole assignment on replacement — it merges the small
+replacement piece into the existing one, and that merge sorts everything by name
+as it goes. For ordinary placement that is harmless. Here it is not:
+
+```text
+placed:        z1:1  |  m1:2, m2:1  |  a1:4      ranks 0 | 1,2,3 | 4,5,6,7
+m2 dies, m3 replaces it
+
+merged by name:  a1:4, m1:2, m3:1, z1:1          ranks 0,1,2,3 | 4,5 | 6 | 7
+```
+
+Rank 0 has moved into the four-pod group and `[1, 3, 4]` has become `[4, 3, 1]`,
+purely because a node was replaced. Every count is still correct and nothing
+reports an error.
+
+Merging therefore needs a second version, turned on by
+`TASExactTopologyDistribution`, that puts the replacement host back into its own
+group and leaves the group order alone — giving `z1:1 | m1:2, m3:1 | a1:4`.
+Scalar workloads keep the existing merge unchanged.
+
+The same merge is also used for workloads with a leader pod and worker pods, so
+the bug could in principle arrive that way too. It cannot today, because `sizes`
+may not be combined with `podset-group-name`, which those workloads use. That
+rule is now load-bearing rather than incidental: if it is ever relaxed without
+revisiting merging, the reordering returns through a different door. A test
+asserts the exclusion so that it fails loudly instead.
 
 If replacement cannot fit within the affected domain, Kueue does not place the
 pods elsewhere, because that would change the distribution; the configured
@@ -699,7 +713,7 @@ scalar TAS end-to-end tests run unchanged.
 
 ## Implementation History
 
-- 2026-08-24: Initial draft.
+- 2026-09-01: Initial draft.
 
 ## Drawbacks
 
@@ -752,25 +766,3 @@ The API could map label values directly to counts (`rack-a: 1`, `rack-b: 3`,
 `rack-c: 4`). This supports physical-domain reproduction but couples workloads to
 a specific cluster and bypasses TAS domain selection. It is left for a separate
 feature if users require explicit domain identity.
-
-### Repeating a Distribution Pattern
-
-Kueue could allow a 16-pod PodSet to specify `[1, 3, 4]` and repeat it twice.
-This requires defining whether repeats share enclosing domains, whether entries
-from different repeats may share exact-level domains, and how pattern identity
-survives failure recovery. Alpha instead requires the complete list — a 16-pod
-PodSet can explicitly request `[1, 3, 4, 1, 3, 4]`, which needs six distinct
-domains and defines six rank blocks in that order.
-
-### Multiple Exact Levels
-
-A flat list cannot unambiguously describe different child distributions for
-different parent sizes. Block sizes `[8, 16]` would require separate rack
-distributions per block. Supporting this likely requires a nested tree-shaped API
-rather than multiple independent `sizes` lists.
-
-### Pod Topology Spread Constraints
-
-Kubernetes topology spread constraints bound the skew between eligible domains.
-They can encourage an even distribution but cannot require an arbitrary vector
-such as `[1, 3, 4]` across dynamically selected domains.
