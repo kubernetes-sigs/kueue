@@ -429,6 +429,8 @@ type reconcileTestCase struct {
 	wantDRAResourceTotal      *int64
 	wantAbsentDRAResources    []corev1.ResourceName
 	wantWorkloadsInQueue      *int
+	wantWorkloadInHeap        *bool
+	wantWorkloadInadmissible  *bool
 	wantWorkload              *kueue.Workload
 	wantWorkloadUseMergePatch *kueue.Workload // workload version to compensate for the difference between use of Apply and Merge patch in FakeClient
 	wantError                 error
@@ -2067,8 +2069,14 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 									}
 									for _, resName := range tc.wantAbsentDRAResources {
 										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
-											if got := wlInfo.TotalRequests[0].Requests.GetValue(resName); got > 0 {
-												t.Errorf("Expected resource %q to be absent from queued TotalRequests, but got %d", resName, got)
+											var found bool
+											wlInfo.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, _ int64) {
+												if name == resName {
+													found = true
+												}
+											})
+											if found {
+												t.Errorf("Expected resource %q to be absent from queued TotalRequests", resName)
 											}
 										}
 									}
@@ -2078,6 +2086,18 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 						}
 						if tc.wantWorkloadsInQueue != nil && *tc.wantWorkloadsInQueue > 0 && !foundInQueue {
 							t.Errorf("DRA workload not found in queue - expected to be queued for processing")
+						}
+
+						wlRef := workload.Key(testWl)
+						if tc.wantWorkloadInHeap != nil || tc.wantWorkloadInadmissible != nil {
+							inHeap := workloadRefInDump(qManager.Dump(), cqName, wlRef)
+							inInadmissible := workloadRefInDump(qManager.DumpInadmissible(), cqName, wlRef)
+							if tc.wantWorkloadInHeap != nil && inHeap != *tc.wantWorkloadInHeap {
+								t.Errorf("Expected workload in heap=%v, got %v", *tc.wantWorkloadInHeap, inHeap)
+							}
+							if tc.wantWorkloadInadmissible != nil && inInadmissible != *tc.wantWorkloadInadmissible {
+								t.Errorf("Expected workload in inadmissible=%v, got %v", *tc.wantWorkloadInadmissible, inInadmissible)
+							}
 						}
 					} else {
 						t.Errorf("LocalQueue not found in queue manager - DRA workload should have been queued")
@@ -2300,7 +2320,18 @@ func needsDRAQueueVerification(tc reconcileTestCase, testWl *kueue.Workload) boo
 		len(tc.resourceClaimTemplates) > 0 ||
 		tc.wantDRAResourceTotal != nil ||
 		len(tc.wantAbsentDRAResources) > 0 ||
-		tc.wantWorkloadsInQueue != nil
+		tc.wantWorkloadsInQueue != nil ||
+		tc.wantWorkloadInHeap != nil ||
+		tc.wantWorkloadInadmissible != nil
+}
+
+func workloadRefInDump(dump map[kueue.ClusterQueueReference][]workload.Reference, cqName kueue.ClusterQueueReference, wlRef workload.Reference) bool {
+	for _, ref := range dump[cqName] {
+		if ref == wlRef {
+			return true
+		}
+	}
+	return false
 }
 
 func setupDRACache(objs []client.Object) *dra.ExtendedResourceCache {
