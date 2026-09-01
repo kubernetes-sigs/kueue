@@ -22,11 +22,13 @@ import (
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	managedfields "k8s.io/apimachinery/pkg/util/managedfields"
+	v1alpha1 "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	v1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	v1beta2 "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	visibilityv1beta1 "sigs.k8s.io/kueue/apis/visibility/v1beta1"
 	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	internal "sigs.k8s.io/kueue/client-go/applyconfiguration/internal"
+	kueuev1alpha1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1alpha1"
 	kueuev1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta1"
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/applyconfiguration/kueue/v1beta2"
 	applyconfigurationvisibilityv1beta1 "sigs.k8s.io/kueue/client-go/applyconfiguration/visibility/v1beta1"
@@ -37,7 +39,41 @@ import (
 // apply configuration type exists for the given GroupVersionKind.
 func ForKind(kind schema.GroupVersionKind) interface{} {
 	switch kind {
-	// Group=kueue.x-k8s.io, Version=v1beta1
+	// Group=kueue.x-k8s.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityDiscovery"):
+		return &kueuev1alpha1.CapacityDiscoveryApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityDiscoveryProviderContribution"):
+		return &kueuev1alpha1.CapacityDiscoveryProviderContributionApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityDistribution"):
+		return &kueuev1alpha1.CapacityDistributionApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityDistributionSubtreeRootRef"):
+		return &kueuev1alpha1.CapacityDistributionSubtreeRootRefApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityProvider"):
+		return &kueuev1alpha1.CapacityProviderApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityProviderNormalizedCapacity"):
+		return &kueuev1alpha1.CapacityProviderNormalizedCapacityApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityProviderNormalizedCapacityFlavor"):
+		return &kueuev1alpha1.CapacityProviderNormalizedCapacityFlavorApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityProviderOrchestratedFlavor"):
+		return &kueuev1alpha1.CapacityProviderOrchestratedFlavorApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityProviderParametersReference"):
+		return &kueuev1alpha1.CapacityProviderParametersReferenceApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityProviderSpec"):
+		return &kueuev1alpha1.CapacityProviderSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("CapacityProviderStatus"):
+		return &kueuev1alpha1.CapacityProviderStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DynamicQuotaOrchestrator"):
+		return &kueuev1alpha1.DynamicQuotaOrchestratorApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DynamicQuotaOrchestratorSpec"):
+		return &kueuev1alpha1.DynamicQuotaOrchestratorSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("DynamicQuotaOrchestratorStatus"):
+		return &kueuev1alpha1.DynamicQuotaOrchestratorStatusApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("EffectiveCapacity"):
+		return &kueuev1alpha1.EffectiveCapacityApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("EffectiveCapacityFlavor"):
+		return &kueuev1alpha1.EffectiveCapacityFlavorApplyConfiguration{}
+
+		// Group=kueue.x-k8s.io, Version=v1beta1
 	case v1beta1.SchemeGroupVersion.WithKind("Admission"):
 		return &kueuev1beta1.AdmissionApplyConfiguration{}
 	case v1beta1.SchemeGroupVersion.WithKind("AdmissionCheck"):
