@@ -19,19 +19,26 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"gomodules.xyz/jsonpatch/v2"
 	admissionv1 "k8s.io/api/admission/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -214,6 +221,93 @@ func TestServerVersionUnknown(t *testing.T) {
 			wh := &JobWebhook{kubeServerVersion: getter}
 			if got := wh.serverVersion(); got != nil {
 				t.Errorf("serverVersion() = %v, want nil", got)
+			}
+		})
+	}
+}
+
+func TestCheckDefaultedFields(t *testing.T) {
+	const (
+		droppedNote = "Kueue set spec.scheduling at admission but the API server did not store it; " +
+			"the Job runs without gang scheduling. Check the WorkloadWithJob feature gate on the API server."
+		keptNote = "Kueue set the gang scheduling policy with disruptionMode all"
+	)
+	readErr := errors.New("read failed")
+	jobKey := types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: "job"}
+
+	// injectScheduling makes the stored Job look like one the API server kept the
+	// field on. The vendored batch/v1 Job has no spec.scheduling, so the fake
+	// client cannot store it.
+	injectScheduling := func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+		if err := c.Get(ctx, key, obj, opts...); err != nil {
+			return err
+		}
+		u, isUnstructured := obj.(*unstructured.Unstructured)
+		if !isUnstructured {
+			return nil
+		}
+		return unstructured.SetNestedMap(u.Object, gangSchedulingDefault(), "spec", "scheduling")
+	}
+
+	testcases := map[string]struct {
+		annotated  bool
+		get        func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error
+		wantEvents []utiltesting.EventRecord
+		wantErr    error
+	}{
+		"Job Kueue never defaulted is not read at all": {
+			get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+				t.Errorf("unexpected read for a Job without the annotation")
+				return nil
+			},
+		},
+		"field dropped by the API server": {
+			annotated: true,
+			wantEvents: []utiltesting.EventRecord{
+				{Key: jobKey, EventType: corev1.EventTypeWarning, Reason: ReasonGangSchedulingDefaultDropped, Message: droppedNote},
+			},
+		},
+		"field kept by the API server": {
+			annotated: true,
+			get:       injectScheduling,
+			wantEvents: []utiltesting.EventRecord{
+				{Key: jobKey, EventType: corev1.EventTypeNormal, Reason: ReasonGangSchedulingDefaulted, Message: keptNote},
+			},
+		},
+		"Job deleted before the check": {
+			annotated: true,
+			get: func(_ context.Context, _ client.WithWatch, key client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
+				return apierrors.NewNotFound(schema.GroupResource{Group: "batch", Resource: "jobs"}, key.Name)
+			},
+		},
+		"read fails": {
+			annotated: true,
+			get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+				return readErr
+			},
+			wantErr: readErr,
+		},
+	}
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			jobWrapper := eligibleJob()
+			if tc.annotated {
+				jobWrapper = jobWrapper.SetAnnotation(GangDefaultedAnnotation, "true")
+			}
+			job := jobWrapper.Obj()
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(job).
+				WithInterceptorFuncs(interceptor.Funcs{Get: tc.get}).
+				Build()
+			recorder := &utiltesting.EventRecorder{}
+
+			gotErr := fromObject(job).CheckDefaultedFields(ctx, cl, recorder)
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected error (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				t.Errorf("unexpected events (-want,+got):\n%s", diff)
 			}
 		})
 	}
