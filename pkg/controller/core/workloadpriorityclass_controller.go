@@ -95,6 +95,11 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 		wl := &workloads.Items[i]
 		wlLog := log.WithValues("workload", klog.KObj(wl))
 
+		if _, isMultiKueueRemote := wl.Labels[kueue.MultiKueueOriginLabel]; isMultiKueueRemote {
+			wlLog.V(3).Info("Skipping MultiKueue remote workload")
+			return nil
+		}
+
 		// Skip if priority is already up to date
 		if wl.Spec.Priority != nil && *wl.Spec.Priority == wpc.Value {
 			wlLog.V(3).Info("Workload priority already up to date")
