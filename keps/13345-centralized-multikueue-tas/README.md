@@ -85,7 +85,6 @@ Furthermore, this architectural shift eliminates the need for several complex wo
 
 - It removes the need for `MultiKueueOrchestratedPreemption` and its associated complexities.
 - It eliminates the need to declare higher, inflated quotas in the manager compared to the workers.
-- It removes the need to maintain a multiplier in the manager quota to account for fleet-wide capacity.
 
 ### User Stories (Optional)
 
