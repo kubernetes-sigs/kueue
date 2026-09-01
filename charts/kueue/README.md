@@ -132,7 +132,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.manager.resources | object | `{"limits":{"cpu":"2","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | ControllerManager's pod resources |
 | controllerManager.nodeSelector | object | `{}` | ControllerManager's nodeSelector |
 | controllerManager.podDisruptionBudget.enabled | bool | `false` | Enable PodDisruptionBudget |
-| controllerManager.podDisruptionBudget.minAvailable | int | `1` | PodDisruptionBudget's topologySpreadConstraints |
+| controllerManager.podDisruptionBudget.minAvailable | int | `1` | PodDisruptionBudget's minAvailable |
 | controllerManager.readinessProbe.failureThreshold | int | `3` | ControllerManager's readinessProbe failureThreshold |
 | controllerManager.readinessProbe.initialDelaySeconds | int | `5` | ControllerManager's readinessProbe initialDelaySeconds |
 | controllerManager.readinessProbe.periodSeconds | int | `10` | ControllerManager's readinessProbe periodSeconds |
