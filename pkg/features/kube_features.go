@@ -112,6 +112,15 @@ const (
 	// Enable admission fair sharing
 	AdmissionFairSharing featuregate.Feature = "AdmissionFairSharing"
 
+	// owner: @apullo777
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/4136-admission-fair-sharing
+	//
+	// Move the AFS accounting anchor from admission to actively holding a quota
+	// reservation. Entry-penalty settlement and sampled LocalQueue usage move
+	// together, so Workloads waiting on their AdmissionChecks already count
+	// towards AFS usage.
+	AdmissionFairSharingReservedAnchor featuregate.Feature = "AdmissionFairSharingReservedAnchor"
+
 	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -656,6 +665,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	KueueDRAIntegrationConsumableCapacity:        {KueueDRAIntegration},
 	FlavorFungibilityPreserveScanProgress:        {FlavorFungibility},
 	SchedulingEquivalenceHashingIgnorePodSetName: {SchedulingEquivalenceHashing},
+	AdmissionFairSharingReservedAnchor:           {AdmissionFairSharing},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -713,6 +723,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	AdmissionFairSharing: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
+	},
+	AdmissionFairSharingReservedAnchor: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASFailedNodeReplacement: {
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
