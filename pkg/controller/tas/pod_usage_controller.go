@@ -131,14 +131,14 @@ func (r *PodUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if removedNode := r.cache.TASCache().DeleteNonTASUsageByKey(req.NamespacedName, log); removedNode != "" {
 			r.notifyFreedNode(removedNode)
 		}
-		r.cache.TASCache().UntrackPod(ctx, req.NamespacedName)
+		r.cache.TASCache().UntrackPod(req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
 
 	if isScheduledAndRunning(&pod) {
-		r.cache.TASCache().TrackPod(ctx, &pod)
+		r.cache.TASCache().TrackPod(&pod)
 	} else {
-		r.cache.TASCache().UntrackPod(ctx, req.NamespacedName)
+		r.cache.TASCache().UntrackPod(req.NamespacedName)
 	}
 
 	if belongsToNonTASCache(&pod) {

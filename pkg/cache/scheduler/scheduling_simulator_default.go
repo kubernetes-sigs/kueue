@@ -49,9 +49,9 @@ func (s *defaultSimulator) Snapshot(_ context.Context, _ []*corev1.Node) (simula
 	return &defaultSimulatorSnapshot{}, nil
 }
 
-func (s *defaultSimulator) TrackPod(_ context.Context, _ *corev1.Pod) {}
+func (s *defaultSimulator) TrackPod(_ *corev1.Pod) {}
 
-func (s *defaultSimulator) UntrackPod(_ context.Context, _ client.ObjectKey) {}
+func (s *defaultSimulator) UntrackPod(_ client.ObjectKey) {}
 
 func (s *defaultSimulatorSnapshot) FindFeasibleNodes(
 	ctx context.Context,

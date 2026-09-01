@@ -32,9 +32,9 @@ import (
 type SchedulingSimulator interface {
 	Snapshot(ctx context.Context, nodes []*corev1.Node) (SimulatorSnapshot, error)
 	// TrackPod notifies the simulator that a pod is running on a node.
-	TrackPod(ctx context.Context, pod *corev1.Pod)
+	TrackPod(pod *corev1.Pod)
 	// UntrackPod notifies the simulator that a pod has been removed.
-	UntrackPod(ctx context.Context, key client.ObjectKey)
+	UntrackPod(key client.ObjectKey)
 }
 
 // SimulatorSnapshot allows running simulations on a snapshotted cluster state.
