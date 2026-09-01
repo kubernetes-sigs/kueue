@@ -220,6 +220,61 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 		})
 	})
 
+	ginkgo.It("Should retry a Job whose remote workload finishes OwnerNotFound instead of finishing the manager workload", func() {
+		job := testingjob.MakeJob("job-owner-not-found", f.managerNs.Name).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			Obj()
+		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, job)).Should(gomega.Succeed())
+
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: f.managerNs.Name}
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+			Obj()
+
+		ginkgo.By("setting workload reservation on the manager and worker1, AC becomes Ready", func() {
+			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdWorkload := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
+			util.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+				f.multiKueueAC.Name, kueue.CheckStateReady, `The workload was admitted on "worker1"`,
+			)
+		})
+
+		ginkgo.By("finishing the remote workload OwnerNotFound (simulating a worker-side orphan-detection race)", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteWl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, remoteWl)).To(gomega.Succeed())
+				apimeta.SetStatusCondition(&remoteWl.Status.Conditions, metav1.Condition{
+					Type:    kueue.WorkloadFinished,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadFinishedReasonOwnerNotFound,
+					Message: "The workload's owner no longer exists",
+				})
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, remoteWl)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the manager emits a reset event and does not finish the manager workload", func() {
+			resetMsg := `Remote workload on worker cluster "worker1" is out of sync with its user job, resetting for re-dispatch, Previously: "Ready"`
+			util.ExpectEventAppeared(managerTestCluster.ctx, managerTestCluster.client, eventsv1.Event{
+				Reason: "MultiKueue",
+				Type:   corev1.EventTypeWarning,
+				Note:   resetMsg,
+			})
+			gomega.Consistently(func(g gomega.Gomega) {
+				createdWorkload := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				if finished := apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadFinished); finished != nil {
+					g.Expect(finished.Reason).NotTo(gomega.Equal(kueue.WorkloadFinishedReasonOwnerNotFound))
+				}
+			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should run a job on worker if admitted (ManagedBy)", func() {
 		job := testingjob.MakeJob("job", f.managerNs.Name).
 			ManagedBy(kueue.MultiKueueControllerName).
