@@ -1727,6 +1727,14 @@ func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Update event")
 	h.handle(ctx, e.ObjectNew, q)
+	if oldLr, isLr := e.ObjectOld.(*corev1.LimitRange); isLr {
+		if newLr, isNewLr := e.ObjectNew.(*corev1.LimitRange); isNewLr && limitRangeConstraintsChanged(oldLr, newLr) {
+			log.V(3).Info("LimitRange constraint fields changed",
+				"limitRange", klog.KObj(newLr),
+				"oldLimits", oldLr.Spec.Limits, "newLimits", newLr.Spec.Limits)
+			h.retryInadmissibleForNamespace(ctx, newLr.Namespace)
+		}
+	}
 }
 
 func (h *resourceUpdatesHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -1734,9 +1742,69 @@ func (h *resourceUpdatesHandler) Delete(ctx context.Context, e event.DeleteEvent
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Delete event")
 	h.handle(ctx, e.Object, q)
+	if lr, isLr := e.Object.(*corev1.LimitRange); isLr && limitRangeHasConstraints(lr) {
+		log.V(3).Info("LimitRange with constraint fields deleted",
+			"limitRange", klog.KObj(lr), "limits", lr.Spec.Limits)
+		h.retryInadmissibleForNamespace(ctx, lr.Namespace)
+	}
 }
 
 func (h *resourceUpdatesHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+// limitRangeConstraintsChanged reports whether any of the LimitRange spec
+// fields the admission-time validation consults (max, min,
+// maxLimitRequestRatio) changed. Unlike default and defaultRequest, these
+// fields do not alter the workloads' adjusted resources, so a change to them
+// is invisible to the spec-diff based requeue in queueReconcileForPending.
+func limitRangeConstraintsChanged(oldLr, newLr *corev1.LimitRange) bool {
+	oldItems, newItems := oldLr.Spec.Limits, newLr.Spec.Limits
+	if len(oldItems) != len(newItems) {
+		return true
+	}
+	for i := range oldItems {
+		if oldItems[i].Type != newItems[i].Type ||
+			!equality.Semantic.DeepEqual(oldItems[i].Max, newItems[i].Max) ||
+			!equality.Semantic.DeepEqual(oldItems[i].Min, newItems[i].Min) ||
+			!equality.Semantic.DeepEqual(oldItems[i].MaxLimitRequestRatio, newItems[i].MaxLimitRequestRatio) {
+			return true
+		}
+	}
+	return false
+}
+
+func limitRangeHasConstraints(lr *corev1.LimitRange) bool {
+	for i := range lr.Spec.Limits {
+		item := &lr.Spec.Limits[i]
+		if len(item.Max) > 0 || len(item.Min) > 0 || len(item.MaxLimitRequestRatio) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// retryInadmissibleForNamespace requeues the inadmissible workloads of every
+// ClusterQueue that has pending workloads in the given namespace. A workload
+// rejected against the previous LimitRange constraints keeps a byte-identical
+// spec when only the constraints change, so it has to be retried explicitly.
+func (h *resourceUpdatesHandler) retryInadmissibleForNamespace(ctx context.Context, namespace string) {
+	log := ctrl.LoggerFrom(ctx)
+	lst := kueue.WorkloadList{}
+	err := h.r.client.List(ctx, &lst, client.InNamespace(namespace),
+		client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)})
+	if err != nil {
+		log.Error(err, "Could not list pending workloads")
+		return
+	}
+	cqNames := sets.New[kueue.ClusterQueueReference]()
+	for i := range lst.Items {
+		if cqName, ok := h.r.queues.ClusterQueueForWorkload(&lst.Items[i]); ok {
+			cqNames.Insert(cqName)
+		}
+	}
+	if len(cqNames) > 0 {
+		qcache.NotifyRetryInadmissible(h.r.queues, cqNames)
+	}
 }
 
 func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
