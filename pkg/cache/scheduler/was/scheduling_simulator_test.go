@@ -19,6 +19,7 @@ limitations under the License.
 package was
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
@@ -160,7 +161,7 @@ func TestNodePortsFeasibility(t *testing.T) {
 			}
 
 			if tc.addExistingPod {
-				sim.TrackPod(existingPod)
+				sim.TrackPod(ctx, existingPod)
 			}
 			snapshot, err := sim.Snapshot(ctx, nodes)
 			if err != nil {
@@ -264,12 +265,12 @@ func TestWorkloadMapping(t *testing.T) {
 	groupPod := testingpod.MakePod("pod", "ns").Annotation(podconstants.GroupNameAnnotation, "group-wl").Obj()
 
 	testCases := map[string]struct {
-		operation func(*wasSimulator)
+		operation func(context.Context, *wasSimulator)
 		want      podsByWorkload
 	}{
 		"add pod with workload annotation": {
-			operation: func(sim *wasSimulator) {
-				sim.TrackPod(basicPod)
+			operation: func(ctx context.Context, sim *wasSimulator) {
+				sim.TrackPod(ctx, basicPod)
 			},
 			want: podsByWorkload{
 				types.NamespacedName{Namespace: "ns", Name: "wl"}: podsByKey{
@@ -278,8 +279,8 @@ func TestWorkloadMapping(t *testing.T) {
 			},
 		},
 		"add pod with slice name annotation": {
-			operation: func(sim *wasSimulator) {
-				sim.TrackPod(slicePod)
+			operation: func(ctx context.Context, sim *wasSimulator) {
+				sim.TrackPod(ctx, slicePod)
 			},
 			want: podsByWorkload{
 				types.NamespacedName{Namespace: "ns", Name: "slice-wl"}: podsByKey{
@@ -288,8 +289,8 @@ func TestWorkloadMapping(t *testing.T) {
 			},
 		},
 		"add pod with prebuilt workload annotation": {
-			operation: func(sim *wasSimulator) {
-				sim.TrackPod(prebuiltWlPod)
+			operation: func(ctx context.Context, sim *wasSimulator) {
+				sim.TrackPod(ctx, prebuiltWlPod)
 			},
 			want: podsByWorkload{
 				types.NamespacedName{Namespace: "ns", Name: "prebuilt-wl"}: podsByKey{
@@ -298,8 +299,8 @@ func TestWorkloadMapping(t *testing.T) {
 			},
 		},
 		"add pod with group name annotation": {
-			operation: func(sim *wasSimulator) {
-				sim.TrackPod(groupPod)
+			operation: func(ctx context.Context, sim *wasSimulator) {
+				sim.TrackPod(ctx, groupPod)
 			},
 			want: podsByWorkload{
 				types.NamespacedName{Namespace: "ns", Name: "group-wl"}: podsByKey{
@@ -308,12 +309,12 @@ func TestWorkloadMapping(t *testing.T) {
 			},
 		},
 		"remove pod": {
-			operation: func(sim *wasSimulator) {
-				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
-				sim.TrackPod(testingpod.MakePod("pod2", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
-				sim.TrackPod(testingpod.MakePod("pod3", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
-				sim.TrackPod(testingpod.MakePod("pod4", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
-				sim.UntrackPod(types.NamespacedName{Namespace: "ns", Name: "pod1"})
+			operation: func(ctx context.Context, sim *wasSimulator) {
+				sim.TrackPod(ctx, testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+				sim.TrackPod(ctx, testingpod.MakePod("pod2", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+				sim.TrackPod(ctx, testingpod.MakePod("pod3", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
+				sim.TrackPod(ctx, testingpod.MakePod("pod4", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
+				sim.UntrackPod(ctx, types.NamespacedName{Namespace: "ns", Name: "pod1"})
 			},
 			want: podsByWorkload{
 				types.NamespacedName{Namespace: "ns", Name: "wl1"}: podsByKey{
@@ -326,20 +327,20 @@ func TestWorkloadMapping(t *testing.T) {
 			},
 		},
 		"remove all pods": {
-			operation: func(sim *wasSimulator) {
-				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
-				sim.TrackPod(testingpod.MakePod("pod2", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
-				sim.TrackPod(testingpod.MakePod("pod3", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
-				sim.UntrackPod(types.NamespacedName{Namespace: "ns", Name: "pod1"})
-				sim.UntrackPod(types.NamespacedName{Namespace: "ns", Name: "pod2"})
-				sim.UntrackPod(types.NamespacedName{Namespace: "ns", Name: "pod3"})
+			operation: func(ctx context.Context, sim *wasSimulator) {
+				sim.TrackPod(ctx, testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+				sim.TrackPod(ctx, testingpod.MakePod("pod2", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+				sim.TrackPod(ctx, testingpod.MakePod("pod3", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
+				sim.UntrackPod(ctx, types.NamespacedName{Namespace: "ns", Name: "pod1"})
+				sim.UntrackPod(ctx, types.NamespacedName{Namespace: "ns", Name: "pod2"})
+				sim.UntrackPod(ctx, types.NamespacedName{Namespace: "ns", Name: "pod3"})
 			},
 			want: podsByWorkload{},
 		},
 		"update pod workload annotation": {
-			operation: func(sim *wasSimulator) {
-				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
-				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
+			operation: func(ctx context.Context, sim *wasSimulator) {
+				sim.TrackPod(ctx, testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+				sim.TrackPod(ctx, testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl2").Obj())
 			},
 			want: podsByWorkload{
 				types.NamespacedName{Namespace: "ns", Name: "wl2"}: podsByKey{
@@ -348,9 +349,9 @@ func TestWorkloadMapping(t *testing.T) {
 			},
 		},
 		"update unassigned pod to have workload annotation": {
-			operation: func(sim *wasSimulator) {
-				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation("", "").Obj())
-				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+			operation: func(ctx context.Context, sim *wasSimulator) {
+				sim.TrackPod(ctx, testingpod.MakePod("pod1", "ns").Annotation("", "").Obj())
+				sim.TrackPod(ctx, testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
 			},
 			want: podsByWorkload{
 				types.NamespacedName{Namespace: "ns", Name: "wl1"}: podsByKey{
@@ -359,15 +360,15 @@ func TestWorkloadMapping(t *testing.T) {
 			},
 		},
 		"update_pod_from_workload_annotation_to_unassigned": {
-			operation: func(sim *wasSimulator) {
-				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
-				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation("", "").Obj())
+			operation: func(ctx context.Context, sim *wasSimulator) {
+				sim.TrackPod(ctx, testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj())
+				sim.TrackPod(ctx, testingpod.MakePod("pod1", "ns").Annotation("", "").Obj())
 			},
 			want: podsByWorkload{},
 		},
 		"workload slice name annotation preferred over workload annotation": {
-			operation: func(sim *wasSimulator) {
-				sim.TrackPod(slicePodWithBasicAnnotation)
+			operation: func(ctx context.Context, sim *wasSimulator) {
+				sim.TrackPod(ctx, slicePodWithBasicAnnotation)
 			},
 			want: podsByWorkload{
 				types.NamespacedName{Namespace: "ns", Name: "slice-wl"}: podsByKey{
@@ -376,16 +377,16 @@ func TestWorkloadMapping(t *testing.T) {
 			},
 		},
 		"empty workload annotation with higher priority overrides non-empty workload annotation": {
-			operation: func(sim *wasSimulator) {
+			operation: func(ctx context.Context, sim *wasSimulator) {
 				pod := testingpod.MakePod("pod1", "ns").Annotation(podWorkloadAnnotations[0], "").Obj()
 				pod.Annotations[podWorkloadAnnotations[1]] = "non-empty-wl-name"
-				sim.TrackPod(pod)
+				sim.TrackPod(ctx, pod)
 			},
 			want: podsByWorkload{},
 		},
 		"add pod with empty workload annotation": {
-			operation: func(sim *wasSimulator) {
-				sim.TrackPod(testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "").Obj())
+			operation: func(ctx context.Context, sim *wasSimulator) {
+				sim.TrackPod(ctx, testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "").Obj())
 			},
 			want: podsByWorkload{},
 		},
@@ -399,7 +400,7 @@ func TestWorkloadMapping(t *testing.T) {
 				t.Fatalf("NewWASSimulatorForTest failed: %v", err)
 			}
 
-			tc.operation(sim)
+			tc.operation(ctx, sim)
 
 			snapshotRaw, err := sim.Snapshot(ctx, []*corev1.Node{})
 			if err != nil {
@@ -468,23 +469,23 @@ func TestPreemptWorkload(t *testing.T) {
 	}{
 		"preempt existing workload": {
 			setup: func(sim *wasSimulator) {
-				sim.TrackPod(existingPod)
+				sim.TrackPod(ctx, existingPod)
 			},
 			preemptKey:   existingPodWlKey,
 			wantFeasible: true,
 		},
 		"preempt non-existent workload": {
 			setup: func(sim *wasSimulator) {
-				sim.TrackPod(existingPod)
+				sim.TrackPod(ctx, existingPod)
 			},
 			preemptKey:   types.NamespacedName{Namespace: "default", Name: "non-existent"},
 			wantFeasible: false,
 		},
 		"preempt when unassigned pod exists": {
 			setup: func(sim *wasSimulator) {
-				sim.TrackPod(existingPod)
+				sim.TrackPod(ctx, existingPod)
 				unassignedPod := testingpod.MakePod("unassigned", "default").Annotation("", "").Obj()
-				sim.TrackPod(unassignedPod)
+				sim.TrackPod(ctx, unassignedPod)
 			},
 			preemptKey:   existingPodWlKey,
 			wantFeasible: true,
@@ -571,7 +572,7 @@ func TestSimulate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWASSimulatorForTest failed: %v", err)
 	}
-	sim.TrackPod(existingPod)
+	sim.TrackPod(ctx, existingPod)
 
 	snapshot, err := sim.Snapshot(ctx, nodes)
 	if err != nil {
@@ -609,7 +610,7 @@ func TestTrackPodDeepCopy(t *testing.T) {
 	}
 
 	pod := testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj()
-	sim.TrackPod(pod)
+	sim.TrackPod(ctx, pod)
 
 	// Mutate the pod object that was passed into TrackPod
 	pod.Annotations[kueue.WorkloadAnnotation] = "mutated-wl"

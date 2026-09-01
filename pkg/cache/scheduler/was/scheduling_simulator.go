@@ -175,12 +175,14 @@ func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simu
 	}, nil
 }
 
-func (s *wasSimulator) TrackPod(pod *corev1.Pod) {
-	s.pods.track(pod)
+func (s *wasSimulator) TrackPod(ctx context.Context, pod *corev1.Pod) {
+	log := ctrl.LoggerFrom(ctx, "pod", client.ObjectKeyFromObject(pod))
+	s.pods.track(log, pod)
 }
 
-func (s *wasSimulator) UntrackPod(key client.ObjectKey) {
-	s.pods.untrack(key)
+func (s *wasSimulator) UntrackPod(ctx context.Context, key client.ObjectKey) {
+	log := ctrl.LoggerFrom(ctx, "pod", key)
+	s.pods.untrack(log, key)
 }
 
 func (m podsByWorkload) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
@@ -205,7 +207,7 @@ func (t *podTracker) snapshot() (allPods []*corev1.Pod, workloadPods podsByWorkl
 	return
 }
 
-func (t *podTracker) track(pod *corev1.Pod) {
+func (t *podTracker) track(log logr.Logger, pod *corev1.Pod) {
 	t.Lock()
 	defer t.Unlock()
 
@@ -215,24 +217,24 @@ func (t *podTracker) track(pod *corev1.Pod) {
 	pod = pod.DeepCopy()
 	key := client.ObjectKeyFromObject(pod)
 	if oldPod, found := t.pods[key]; found {
-		t.clearPod(key, oldPod)
+		t.clearPod(log, key, oldPod)
 	}
-	t.savePod(key, pod)
+	t.savePod(log, key, pod)
 }
 
-func (t *podTracker) untrack(key client.ObjectKey) {
+func (t *podTracker) untrack(log logr.Logger, key client.ObjectKey) {
 	t.Lock()
 	defer t.Unlock()
 
 	if pod, ok := t.pods[key]; ok {
-		t.clearPod(key, pod)
+		t.clearPod(log, key, pod)
 	}
 }
 
-func (t *podTracker) clearPod(key client.ObjectKey, pod *corev1.Pod) {
+func (t *podTracker) clearPod(log logr.Logger, key client.ObjectKey, pod *corev1.Pod) {
 	delete(t.pods, key)
 
-	wl := workloadName(pod)
+	wl := workloadName(log, pod)
 	if wl == "" {
 		return
 	}
@@ -244,13 +246,11 @@ func (t *podTracker) clearPod(key client.ObjectKey, pod *corev1.Pod) {
 	}
 }
 
-func (t *podTracker) savePod(podKey client.ObjectKey, pod *corev1.Pod) {
+func (t *podTracker) savePod(log logr.Logger, podKey client.ObjectKey, pod *corev1.Pod) {
 	t.pods[podKey] = pod
 
-	wl := workloadName(pod)
+	wl := workloadName(log, pod)
 	if wl == "" {
-		// Pods with indeterminate workloads are not
-		// eligible for preemption simulations.
 		return
 	}
 
@@ -261,13 +261,17 @@ func (t *podTracker) savePod(podKey client.ObjectKey, pod *corev1.Pod) {
 	t.workloadPods[wlKey][podKey] = pod
 }
 
-func workloadName(pod *corev1.Pod) string {
+func workloadName(log logr.Logger, pod *corev1.Pod) (name string) {
 	for _, annotation := range podWorkloadAnnotations {
-		if wl, ok := pod.Annotations[annotation]; ok {
-			return wl
+		if wlName, ok := pod.Annotations[annotation]; ok {
+			name = wlName
+			break
 		}
 	}
-	return ""
+	if name == "" {
+		log.V(1).Info("Unable to identify workload of pod")
+	}
+	return
 }
 
 func (s *wasSimulatorSnapshot) FindFeasibleNodes(
