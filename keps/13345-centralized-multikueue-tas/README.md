@@ -108,12 +108,14 @@ cluster to make room for my job's topology requirements.
 ### Risks and Mitigations
 
 **Risk:** Scalability and performance bottlenecks on the manager cluster.
+
 **Mitigation:** The manager's TAS cache does not store full pod specs. It only
 caches a highly optimized, pre-aggregated counter of the resources used by
 non-TAS pods per node. This ensures the memory footprint and CPU overhead remain
 minimal even at large scale.
 
 **Risk:** Worker cluster disconnection.
+
 **Mitigation:** The system relies on MultiKueue's existing `workerLostTimeout`
 mechanism. If a worker disconnects, the manager waits for a grace period. If the
 worker does not reconnect, the manager evicts the workload and retries
@@ -159,7 +161,7 @@ single-cluster controller to track non-TAS usage on the remote nodes.
 ### Manager-Authoritative Placement
 
 When scheduling a workload, the manager computes the `TopologyAssignment` using
-the worker cluster as the top level and hostname as the lowest level. 
+the worker cluster as the top level and hostname as the lowest level.
 
 Before stamping the admission onto the remote workload, the manager projects
 this assignment: it strips the cluster level and collapses the assignment to a
@@ -168,7 +170,7 @@ host-exact placement (`Levels: []string{corev1.LabelHostname}`).
 ### Worker Pass-Through
 
 Workers are configured with a single, massive quota per resource flavor
-(effectively acting as infinite compute pools from a quota perspective). 
+(effectively acting as infinite compute pools from a quota perspective).
 
 When the worker receives the remote workload with the manager-stamped admission,
 it recognizes that the workload is already admitted. The worker skips its own
@@ -191,7 +193,8 @@ TBD
 
 ## Alternatives
 
-**Distributed TAS**: Let workers compute TAS and report back to the manager. 
+**Distributed TAS**: Let workers compute TAS and report back to the manager.
+
 *Drawback*: This cannot guarantee strict global fair sharing or accurate
 cross-cluster preemption without implementing complex two-phase commit protocols
 between the manager and workers. The manager would have to blindly guess which
@@ -202,6 +205,7 @@ churn.
 based on aggregated capacity advertised by each worker cluster organized by
 resource and topological domain instead of watching all Nodes and Pods across
 all worker clusters.
+
 *Drawback*: Requires a new API resource definition, more likely to provide
 outdated information at less-than-extraordinary scale and load, overlaps less
 with how utilization is calculated in single-cluster scenarios.
