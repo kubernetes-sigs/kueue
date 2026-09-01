@@ -56,10 +56,10 @@ updates.
 
 ### 1. Defragmentation
 
-Kueue does not support topology based preemptions when other workloads are within their nominal quota. Because of this small workloads can sometimes block large topology domains.
+Kueue does not support inter cluster queue topology based preemptions when workloads are within their cluster queue's nominal quota. Because of this small workloads can sometimes block large topology domains.
 In some clusters this may be desired - as disruptions of critical workloads should be avoided as much as possible.
 
-In other setups better cluster utilization or ability to schedule higher priority jobs that are blocked due to cluster fragmentation is more important. Thereby, additional defragmentation mechanism are needed to allow higher priorirty workloads to move smaller workloads between topology domains. The expected behavior in this case can be seen in the following example:
+In other setups, better cluster utilization or ability to schedule higher priority jobs that are blocked due to cluster fragmentation is more important. Thereby, additional defragmentation mechanism are needed to allow higher priorirty workloads to move smaller workloads between topology domains. The expected behavior in this case can be seen in the following example:
 
 Let us consider cluster with 2 racks where each rack has 4 nodes.
 For simplicity we will identify resources with nodes. And there is only one resource flavor with natural 2 level topology: rack, hostname.
@@ -108,7 +108,7 @@ style rack2C fill:#369,stroke:#333,stroke-width:4px
 Then Workload C comes, which requires 4 nodes. The quota is available, but becasue of placement of Workload A and B in separate racks, each topology domain is blocked.
 
 
-To allow Workload C to be scheduled, we need to preempt one of the workloads and move it to other rack. This functionality is currently not supported by Kueue.
+To allow Workload C to be scheduled, we need to preempt one of the workloads and move it to other rack. This functionality is currently not supported by Kueue as all of the scheduled workloads are within nominal quota.
 
 ```mermaid
 block-beta
@@ -184,9 +184,9 @@ some reason, and quotas are not brought back to previous status.
 
 Many companies have speicific requirements when workload should be preempted or not,
 depending on their business needs.
-For example [issue](https://github.com/kubernetes-sigs/kueue/issues/9596) asks for minimal specifying minimal time before preemption can happen for a workload.
-Some buinsesses have SLAs for freshness of the provided information. Therefore,
-failure to run a workload in time (dictated by SLA) can lead to significant finacial penalties. On the other hand those workloads might not be super high priority - they should not preempt other workloads, just the fact that they will run in next "X hours" is enough to satisfy SLA.
+For example [issue](https://github.com/kubernetes-sigs/kueue/issues/9596) asks for adding param for minimal execution time before preemption.
+Some businesses have SLAs for freshness of the provided information. Therefore,
+failure to run a workload in time (dictated by SLA) can lead to significant financial penalties. On the other hand those workloads might not be super high priority - they should not preempt other workloads, just the fact that they will run in next "X hours" is enough to satisfy SLA.
 Other business might need workloads that are not preemptible at all.
 
 
@@ -231,23 +231,23 @@ The **PreemptionConfig** object is cluster-wide resource that can be referenced 
 The new **PreemptionConfig** object will be referencable in the **ClusterQueueSpec** in the following way:
 
 ```go
-	// preemption defines the preemption policies. Must be null if PreemptionConfigName is specified.
-	// +kubebuilder:default={}
-	// +optional
-	Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
+  // preemption defines the preemption policies. Must be null if PreemptionConfigName is specified.
+  // +kubebuilder:default={}
+  // +optional
+  Preemption *ClusterQueuePreemption `json:"preemption,omitempty"`
 
-	// Reference to the PreemptionConfig to be used. If specified, Preemption
-	// must be null. Settings in PreemptionConfig overwrite any preemption
+  // Reference to the PreemptionConfig to be used. If specified, Preemption
+  // must be null. Settings in PreemptionConfig overwrite any preemption
   // defaults that may be in the system. Indicated config defines which workloads
   // will be considered for preemption if workload from this cluster queue cannot be
   // scheduled due to resource or topology constraints.
-	PreemptionConfigName string
+  PreemptionConfigName string
 
 ```
 
 
 In paralel introduce **PreemptionLimit** cluster scope CRD. This CRD will allow cluster administrators to define overal number of preemptions for specific "scope" in a particular time window. This will give administrators fine-grained settings to control the number of preemptions that can occur in the cluster, thereby giving them more control over cluster stability.
-The preemptions of workloads will be performed only if they would not violate any of the defined limits. The following scopes will be supported:
+Workloads will only be preempted if doing so respects all defined limits. The following scopes will be supported:
 
 - Global - total number of preemptions that can occur in the cluster,
 - PreemptingClusterQueue - total number of preemptions triggered by a specific workload from a particular ClusterQueue,
@@ -388,54 +388,54 @@ The documation will also clearly indicate that creation of large number of compl
 
 ```go
 type PreemptionConfig struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-	Spec PreemptionConfigSpec `json:"spec,omitempty"`
+  metav1.TypeMeta `json:",inline"`
+  metav1.ObjectMeta `json:"metadata,omitempty"`
+  Spec PreemptionConfigSpec `json:"spec,omitempty"`
 }
 
 type PreemptionConfigSpec {
-	// Rules to select preemption candidates.
-	Rules []PreemptionRule
-	// Ordering of the preemption candidates.
-	// The order will be always deterministic, as UID
-	// of the workloads is used to break the ties
-	// If not set workloads will be ordered by Priority -> AdmissionTimestamp->  UID.
-	Ordering []Order
+  // Rules to select preemption candidates.
+  Rules []PreemptionRule
+  // Ordering of the preemption candidates.
+  // The order will be always deterministic, as UID
+  // of the workloads is used to break the ties
+  // If not set workloads will be ordered by Priority -> AdmissionTimestamp->  UID.
+  Ordering []Order
 }
 
 type PreemptionRuleTrigger string
 
 const (
-	// InsufficientQuota means that there was an attempt to admit the workload,
-	// but there was not enough unused quota in the ClusterQueue or its Cohort to accommodate the Workload.
-	InsufficientQuota PreemptionRuleTrigger = "InsufficientQuota"
+  // InsufficientQuota means that there was an attempt to admit the workload,
+  // but there was not enough unused quota in the ClusterQueue or its Cohort to accommodate the Workload.
+  InsufficientQuota PreemptionRuleTrigger = "InsufficientQuota"
 
-	// QuotaReclaimRequired means that there was an attempt to admit the workload
-	// and workload should be admittable according to nominal quota of the ClusterQueue,
-	// but it cannot as quota was borrowed. Thereby, quota will have to be reclaimed before this workload is scheduled.
-	QuotaReclaimRequired PreemptionRuleTrigger = "QuotaReclaimRequired"
+  // QuotaReclaimRequired means that there was an attempt to admit the workload
+  // and workload should be admittable according to nominal quota of the ClusterQueue,
+  // but it cannot as quota was borrowed. Thereby, quota will have to be reclaimed before this workload is scheduled.
+  QuotaReclaimRequired PreemptionRuleTrigger = "QuotaReclaimRequired"
 
-	// InsufficientTopology means that there was an attempt to admit the workload,
-	// quota was available, but no topology domain satisfied its requirements.
-	// Unlike quota-related conditions, this condition is only reset on admission, as it is checked only after quota is available for the workload. 
-	InsufficientTopology PreemptionRuleTrigger = "InsufficientTopology"
+  // InsufficientTopology means that there was an attempt to admit the workload,
+  // quota was available, but no topology domain satisfied its requirements.
+  // Unlike quota-related conditions, this condition is only reset on admission, as it is checked only after quota is available for the workload. 
+  InsufficientTopology PreemptionRuleTrigger = "InsufficientTopology"
 )
 
 type PreemptionRule struct {
-	Name string
+  Name string
 
-	// Label Selector indicating which workloads can trigger preemptions
-	// using this rule.
-	MatchingPreemptorWorkloads metav1.LabelSelector
+  // Label Selector indicating which workloads can trigger preemptions
+  // using this rule.
+  MatchingPreemptorWorkloads metav1.LabelSelector
 
-	Trigger PreemptionRuleTrigger
+  Trigger PreemptionRuleTrigger
 
-	// How long the trigger has to occur to start preempting workloads specified by candidates. 0s indicates that preemptions can be started immediately. Default is 0s.
-	MinTriggerRequiredDuration metav1.Duration
+  // How long the trigger has to occur to start preempting workloads specified by candidates. 0s indicates that preemptions can be started immediately. Default is 0s.
+  MinTriggerRequiredDuration metav1.Duration
 
-	// Selection rules for workloads that are candidates for preemption.
-	// Candidates resulting from multiple selectors are summed into one set. No selectors result in empty candidate set, thereby disalowing any preemptions with this rule.
-	Candidates  []PreemptionCandidateSelector
+  // Selection rules for workloads that are candidates for preemption.
+  // Candidates resulting from multiple selectors are summed into one set. No selectors result in empty candidate set, thereby disalowing any preemptions with this rule.
+  Candidates  []PreemptionCandidateSelector
 }
 ```
 
@@ -465,21 +465,21 @@ type PreemptionRelationConstraint string
 
 const (
   // SameLocalQueue restricts preemption candidates to workloads submitted
-	// to the exact same LocalQueue (matching name and namespace).
-	SameLocalQueue PreemptionRelationConstraint = "SameLocalQueue"
+  // to the exact same LocalQueue (matching name and namespace).
+  SameLocalQueue PreemptionRelationConstraint = "SameLocalQueue"
 
   // SameClusterQueue restricts preemption candidates to workloads submitted
-	// to the same ClusterQueue as the preemptor.
+  // to the same ClusterQueue as the preemptor.
   SameClusterQueue PreemptionRelationConstraint = "SameClusterQueue"
 
   // SameCohort restricts preemption candidates to workloads in ClusterQueues
-	// that share the exact same immediate direct Cohort, as well as workloads in the
-	// preemptor's own ClusterQueue (even if standalone and lacking a parent cohort).
+  // that share the exact same immediate direct Cohort, as well as workloads in the
+  // preemptor's own ClusterQueue (even if standalone and lacking a parent cohort).
   SameCohort PreemptionRelationConstraint = "SameCohort"
 
   // SameCohortTree restricts preemption candidates to workloads in ClusterQueues
-	// that belong to the same Cohort Tree (sharing the same root ancestor Cohort),
-	// as well as workloads in the preemptor's own ClusterQueue (even if standalone and lacking a parent cohort).
+  // that belong to the same Cohort Tree (sharing the same root ancestor Cohort),
+  // as well as workloads in the preemptor's own ClusterQueue (even if standalone and lacking a parent cohort).
   SameCohortTree PreemptionRelationConstraint = "SameCohortTree"
 
   // AnyClusterQueue places no relationship restrictions on preemption candidates.
@@ -490,60 +490,60 @@ const (
 type QuotaConstraint string
 
 const (
-	BorrowingCapacityFromPreemptor QuotaConstraint = "BorrowingCapacityFromPreemptor"
-	DRSLessThanOrEqualToFinalShare QuotaConstraint = "DRSLessThanOrEqualToFinalShare"
-	DRSLessThanInitialShare QuotaConstraint = "DRSLessThanInitialShare"
-	DRSAllStrategies QuotaConstraint = "DRSAllStrategies"
+  BorrowingCapacityFromPreemptor QuotaConstraint = "BorrowingCapacityFromPreemptor"
+  DRSLessThanOrEqualToFinalShare QuotaConstraint = "DRSLessThanOrEqualToFinalShare"
+  DRSLessThanInitialShare QuotaConstraint = "DRSLessThanInitialShare"
+  DRSAllStrategies QuotaConstraint = "DRSAllStrategies"
 )
 
 
 // PreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
 type PreemptionCandidateSelector struct{
 
-	// RelationRequirement specifies the queue or cohort relation boundary to the preemptor workload.
-	// Required. 
-	RelationRequirement PreemptionRelationConstraint
+  // RelationRequirement specifies the queue or cohort relation boundary to the preemptor workload.
+  // Required. 
+  RelationRequirement PreemptionRelationConstraint
 
-	// Accepts all if not set. 
-	// Cannot be set if RelationRequirement is SameLocalQueue or SamleClustrQueue.
-	Quota QuotaConstraint
+  // Accepts all if not set. 
+  // Cannot be set if RelationRequirement is SameLocalQueue or SamleClustrQueue.
+  Quota QuotaConstraint
 
-	// Accepts all if not set
-	// NumericLabels defines rules for filtering candidates using custom numeric labels on the Workload resource.
-	// Multiple numeric labels are joined using AND-rule (all have to be satisfied).
-	NumericLabels []NumericLabelConstraint
+  // Accepts all if not set
+  // NumericLabels defines rules for filtering candidates using custom numeric labels on the Workload resource.
+  // Multiple numeric labels are joined using AND-rule (all have to be satisfied).
+  NumericLabels []NumericLabelConstraint
 
-	// Accepts all if not set.
-	ClusterQueueSelector metav1.LabelSelector
+  // Accepts all if not set.
+  ClusterQueueSelector metav1.LabelSelector
 
-	// Accepts all if not set
-	WorkloadSelector metav1.LabelSelector
+  // Accepts all if not set
+  WorkloadSelector metav1.LabelSelector
 
-	// Accepts all if not set
-	HostNodeSelector metav1.LabelSelector
+  // Accepts all if not set
+  HostNodeSelector metav1.LabelSelector
 
-	// Matches all workload priority classes if not set.
-	PreemptingWorkloadPrioritySelector metav1.LabelSelector
+  // Matches all workload priority classes if not set.
+  PreemptingWorkloadPrioritySelector metav1.LabelSelector
 
-	// Matches all workload priority classes if not set.
-	CandidateWorkloadPrioritySelector metav1.LabelSelector
+  // Matches all workload priority classes if not set.
+  CandidateWorkloadPrioritySelector metav1.LabelSelector
 
-	// RelativeWorkloadPriority defines how the preemptor's priority compares to the candidate's priority.
-	// For example "Lower" means that only workloads with lower
-	// priority will be allowed as preemption candidates.
-	// The comparison is made using effective priority (accounting for priority boost if enabled).
-	// If nil, no relative priority check is enforced.
-	RelativeWorkloadPrioirty *RelativeConstraint
+  // RelativeWorkloadPriority defines how the preemptor's priority compares to the candidate's priority.
+  // For example "Lower" means that only workloads with lower
+  // priority will be allowed as preemption candidates.
+  // The comparison is made using effective priority (accounting for priority boost if enabled).
+  // If nil, no relative priority check is enforced.
+  RelativeWorkloadPrioirty *RelativeConstraint
 
-	// Accepts any execution times if not set
-	MinExecutionDuration *metav1.Duration
-	MaxExecutionDuration *metav1.Duration
-	ExecutionTimeRelation *RelativeConstraint
+  // Accepts any execution times if not set
+  MinExecutionDuration *metav1.Duration
+  MaxExecutionDuration *metav1.Duration
+  ExecutionTimeRelation *RelativeConstraint
 
-	// Accepts any time from creation if not set
-	MinTimeFromCreationDuration *metav1.Duration
-	MaxTimeFromCreationDuration *metav1.Duration
-	TimeFromCreationRelation *RelativeConstraint
+  // Accepts any time from creation if not set
+  MinTimeFromCreationDuration *metav1.Duration
+  MaxTimeFromCreationDuration *metav1.Duration
+  TimeFromCreationRelation *RelativeConstraint
 }
 
 
@@ -560,65 +560,75 @@ type PreemptionCandidateSelector struct{
 // copied to the workload via the Kueue main configuration
 // if you wish to use a custom label.
 type NumericLabelConstraint struct {
-	// Key is the label key that stores the integer value in the workload that will
-	// be used for candidate selection.
-	Key string `json:"key"`
+  // Key is the label key that stores the integer value in the workload that will
+  // be used for candidate selection.
+  Key string `json:"key"`
 
-	// DefaultValue is used when a workload does not have the label key
-	// or value under the key cannot be parsed as an integer.
-	// If not specified workloads without the label or 
-	// with label value not parsable as int are treated as incomparable, 
-	// and therefore excluded from preemption candidates.
-	// +optional
-	DefaultValue *int32 `json:"defaultValue,omitempty"`
+  // DefaultValue is used when a workload does not have the label key
+  // or value under the key cannot be parsed as an integer.
+  // If not specified workloads without the label or 
+  // with label value not parsable as int are treated as incomparable, 
+  // and therefore excluded from preemption candidates.
+  // +optional
+  DefaultValue *int32 `json:"defaultValue,omitempty"`
 
-	// Relation defines how the preemptor compares to the candidate.
-	// +optional
-	Relation *RelativeConstraint `json:"relation,omitempty"`
+  // Relation defines how the preemptor compares to the candidate.
+  // +optional
+  Relation *RelativeConstraint `json:"relation,omitempty"`
 
-	// MinValue specifies the lowest label value a candidate workload can have to be considered for preemption.
-	// +optional
-	MinValue *int32 `json:"minValue,omitempty"`
+  // MinValue specifies the lowest label value a candidate workload can have to be considered for preemption.
+  // +optional
+  MinValue *int32 `json:"minValue,omitempty"`
 
-	// MaxValue specifies the highest label value a candidate workload can have to be considered for preemption.
-	// +optional
-	MaxValue *int32 `json:"maxValue,omitempty"`
+  // MaxValue specifies the highest label value a candidate workload can have to be considered for preemption.
+  // +optional
+  MaxValue *int32 `json:"maxValue,omitempty"`
 }
 
+// RelativeConstraint defines how a specified numeric property (e.g., effective priority) of the candidate compares to the same property of the preemptor.
+// Possible values are:
+// - "Lower": permits preemption if candidate field value < preemptor field value
+// - "Greater": permits preemption if candidate field value > preemptor field value
+// - "LowerOrEqual": permits preemption if candidate field value <= preemptor field value
+// - "GreaterOrEqual": permits preemption if candidate field value >= preemptor field value
 type RelativeConstraint string
 
 const (
-	// Lower permits preemption if candidate field value < preemptor field value
-	Lower RelativeConstraint = "Lower"
-	// Greater permits preemption if candidate field value > preemptor field value
-	Greater RelativeConstraint = "Greater"
-	// LowerOrEqual permits preemption if candidate field value <= preemptor field value
-	LowerOrEqual RelativeConstraint = "LowerOrEqual"
-	// GreaterOrEqual permits preemption if candidate field value >= preemptor field value
-	GreaterOrEqual RelativeConstraint = "GreaterOrEqual"
+  // Lower permits preemption if candidate field value < preemptor field value
+  Lower RelativeConstraint = "Lower"
+  // Greater permits preemption if candidate field value > preemptor field value
+  Greater RelativeConstraint = "Greater"
+  // LowerOrEqual permits preemption if candidate field value <= preemptor field value
+  LowerOrEqual RelativeConstraint = "LowerOrEqual"
+  // GreaterOrEqual permits preemption if candidate field value >= preemptor field value
+  GreaterOrEqual RelativeConstraint = "GreaterOrEqual"
 )
 
 type OrderingField string
 const (
-	Priority OrderingField = "Priority"
-	AdmissionTimestamp OrderingField = "AdmissionTimestamp"
-	ClusterQueueDRS OrderingField = "ClusterQueueDRS"
-	IsOtherCQ OrderingField = "IsOtherCQ"
-	IsOtherCohort OrderingField = "IsOtherCohort"
-	IsDRSLessThanInitialShare OrderingField = "IsDRSLessThanInitialShare"
-	IsDRSLessThanOrEqualToFinalShare OrderingField = "IsDRSLessThanOrEqualToFinalShare"
+  Priority OrderingField = "Priority"
+  AdmissionTimestamp OrderingField = "AdmissionTimestamp"
+  ClusterQueueDRS OrderingField = "ClusterQueueDRS"
+  IsOtherCQ OrderingField = "IsOtherCQ"
+  IsOtherCohort OrderingField = "IsOtherCohort"
+
+  // IsDRSLessThanInitialShare is a boolean value that indicates if preemption of the workload would be considered fair according to DRSLessThanInitialShare fair sharing strategy.
+  IsDRSLessThanInitialShare OrderingField = "IsDRSLessThanInitialShare"
+
+  // IsDRSLessThanOrEqualToFinalShare is a boolean value that indicates if preemption of the workload would be considered fair according to DRSLessThanOrEqualToFinalShare fair sharing strategy.
+  IsDRSLessThanOrEqualToFinalShare OrderingField = "IsDRSLessThanOrEqualToFinalShare"
 )
 
 
 type OrderingDirection string
 const (
-	Ascending OrderingDirection = "Ascending"
-	Descending OrderingDirection = "Descending"
+  Ascending OrderingDirection = "Ascending"
+  Descending OrderingDirection = "Descending"
 )
 
 type Order struct {
-	OrderingField OrderingField
-	Direction OrderingDirection = Ascending
+  OrderingField OrderingField
+  Direction OrderingDirection = Ascending
 }
 
 ```
@@ -641,49 +651,49 @@ Thereby, the new ordering fields should cover it well.
 
 ```go
 type PreemptionLimit struct {
-	metav1.TypeMeta 
-	metav1.ObjectMeta 
-	Spec PreemptionLimitSpec
+  metav1.TypeMeta 
+  metav1.ObjectMeta 
+  Spec PreemptionLimitSpec
 Status PreemptionLimitStatus
 }
 
 type PreemptionLimitScope string
 const (
-	GlobalPreemptionLimitScope PreemptionLimitScope = "Global"
-	PreemptingCQLimitScope PreemptionLimitScope = "PreemptingClusterQueue"
-	PreemptedCQLimitScope PreemptionLimitScope = "PreemptedClusterQueue"
-	PerPreemptedWorkloadLimitScope PreemptionLimitScope = "Workload"
+  GlobalPreemptionLimitScope PreemptionLimitScope = "Global"
+  PreemptingCQLimitScope PreemptionLimitScope = "PreemptingClusterQueue"
+  PreemptedCQLimitScope PreemptionLimitScope = "PreemptedClusterQueue"
+  PerPreemptedWorkloadLimitScope PreemptionLimitScope = "Workload"
 )
 
 type PreemptionLimitSpec struct {
-	// Required
-	Scope PreemptionLimitScope
+  // Required
+  Scope PreemptionLimitScope
 
-	// If empty, it applies to all PreemptionConfigs
-	ConfigSelector metav1.LabelSelector
-	
-	// If empty, it applies to all CQ that may want to preempt.
-	ClusterQueueSelector metav1.LabelSelector
+  // If empty, it applies to all PreemptionConfigs
+  ConfigSelector metav1.LabelSelector
+  
+  // If empty, it applies to all CQ that may want to preempt.
+  ClusterQueueSelector metav1.LabelSelector
 
-	// If Empty, it applies to all rules.
-	RuleNames []string
-	
-	// How many preemption events can there be in the givent time window. 
-	Limit  int
-	LimitWindowDuration metav1.Duration
+  // If Empty, it applies to all rules.
+  RuleNames []string
+
+  // How many preemption events can there be in the givent time window.
+  Limit  int
+  LimitWindowDuration metav1.Duration
 }
 
 type PreemptionLimitStatus struct {
 Conditions []metav1.Condition
 
 
-	// Periodically updated, for reference only.
-	// Map key depends on the scope. For Global it is just Global.
-	// For CQ it is Cluster Queue name
-	// For Workload it is namespace +/"+ workload name
+  // Periodically updated, for reference only.
+  // Map key depends on the scope. For Global it is just Global.
+  // For CQ it is Cluster Queue name
+  // For Workload it is namespace +/"+ workload name
   // If all of the counts cannot be writted to the resource due to CRD size limit,
   // then only top K counts are stored to fit in the limit.
-	Count map[string]int
+  Count map[string]int
 }
 ```
 
