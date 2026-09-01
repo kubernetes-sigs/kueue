@@ -561,9 +561,6 @@ func TestBuildPodSets(t *testing.T) {
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want +got):\n%s", diff)
 			}
-			if tc.wantErr != nil {
-				return
-			}
 
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.IgnoreFields(kueue.PodSet{}, "TopologyRequest")); diff != "" {
 				t.Errorf("Unexpected podSets (-want +got):\n%s", diff)
@@ -1409,9 +1406,6 @@ func TestParsePodSetReplicaSizes(t *testing.T) {
 			got, err := ParsePodSetReplicaSizes(tc.annotation)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("ParsePodSetReplicaSizes() error mismatch (-want +got):\n%s", diff)
-			}
-			if tc.wantErr != nil {
-				return
 			}
 			if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
 				t.Errorf("ParsePodSetReplicaSizes() mismatch (-want +got):\n%s", diff)
