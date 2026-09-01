@@ -34,6 +34,7 @@
   - [Use per-user Kubernetes clients](#use-per-user-kubernetes-clients)
   - [Use impersonation instead of SubjectAccessReview](#use-impersonation-instead-of-subjectaccessreview)
   - [Rely on frontend filtering](#rely-on-frontend-filtering)
+  - [Use SelfSubjectRulesReview (SSRR) instead of SAR](#use-selfsubjectrulesreview-ssrr-instead-of-sar)
   - [Keep authorization optional](#keep-authorization-optional)
 <!-- /toc -->
 
@@ -96,7 +97,8 @@ when using `kubectl get` directly against the Kubernetes API server.
 5. Redesigning the KueueViz UI or API schemas beyond necessary authorization
    failures and filtered aggregate results.
 6. Per-message authentication or token refresh for existing WebSocket
-   connections.
+   connections. However, periodic background re-validation of the token on open
+   WebSockets is required to prevent infinitely long sessions if a token is revoked.
 7. Supporting authorization when `auth.mode` is `Disabled`. Without an
    authenticated user identity, KueueViz cannot evaluate user RBAC.
 
@@ -175,10 +177,11 @@ semantics.
 | `/api/resourceflavor/{name}?output=yaml` | `get` `resourceflavors.kueue.x-k8s.io` | 403 |
 | `/api/node/{name}?output=yaml` | `get` `nodes` | 403 |
 | `/ws/workloads?namespace={ns}` | `list` and `watch` `workloads.kueue.x-k8s.io` in `{ns}` | 403 before upgrade |
-| `/ws/workloads` | `list` and `watch` `workloads.kueue.x-k8s.io` per namespace | filtered namespaces |
+| `/ws/workloads` | `list` and `watch` `workloads.kueue.x-k8s.io` cluster-scoped | 403 before upgrade |
 | `/ws/workload/{ns}/{name}` | `get` `workloads.kueue.x-k8s.io` named `{name}` in `{ns}`; `watch` `workloads.kueue.x-k8s.io` in `{ns}` | 403 before upgrade |
 | `/ws/workload/{ns}/{name}/events` | `get` `workloads.kueue.x-k8s.io` named `{name}` in `{ns}`; `list` and `watch` `events` in `{ns}` | 403 before upgrade |
-| `/ws/local-queues` | `list` and `watch` `localqueues.kueue.x-k8s.io` per namespace | filtered namespaces |
+| `/ws/local-queues?namespace={ns}` | `list` and `watch` `localqueues.kueue.x-k8s.io` in `{ns}` | 403 before upgrade |
+| `/ws/local-queues` | `list` and `watch` `localqueues.kueue.x-k8s.io` cluster-scoped | 403 before upgrade |
 | `/ws/local-queue/{ns}/{name}` | `get` `localqueues.kueue.x-k8s.io` named `{name}` in `{ns}`; `watch` `localqueues.kueue.x-k8s.io` in `{ns}` | 403 before upgrade |
 | `/ws/local-queue/{ns}/{name}/workloads` | `list` and `watch` `workloads.kueue.x-k8s.io` in `{ns}` | 403 before upgrade |
 | `/ws/namespaces` | `list` and `watch` `localqueues.kueue.x-k8s.io` per namespace | filtered namespaces |
@@ -188,7 +191,8 @@ semantics.
 | `/ws/cohort/{name}` | `get` `cohorts.kueue.x-k8s.io` named `{name}`; `watch` `cohorts.kueue.x-k8s.io`; related ClusterQueues require `list` and `watch` `clusterqueues` | 403 before upgrade for primary checks; omit unauthorized related data |
 | `/ws/resource-flavors` | `list` and `watch` `resourceflavors.kueue.x-k8s.io` | 403 before upgrade |
 | `/ws/resource-flavor/{name}` | `get` `resourceflavors.kueue.x-k8s.io` named `{name}`; `watch` `resourceflavors.kueue.x-k8s.io`; related Nodes require `list` and `watch` `nodes`; related ClusterQueues require `list` and `watch` `clusterqueues` | 403 before upgrade for primary checks; omit unauthorized related data |
-| `/ws/workloads/dashboard?namespace={ns}` | non-empty `{ns}`; `list` and `watch` Workloads in `{ns}`; Pods require `list` and `watch` pods in `{ns}`; cluster-scoped panels require their own `list` and `watch` checks | 400 for missing or empty namespace; 403 before upgrade for primary checks; omit unauthorized panels/details |
+| `/ws/workloads/dashboard?namespace={ns}` | non-empty `{ns}`; `list` and `watch` Workloads in `{ns}`; Pods require `list` and `watch` pods in `{ns}` | 400 for missing or empty namespace; 403 before upgrade for primary checks; omit unauthorized panels/details |
+| `/ws/workloads/dashboard` | cluster-scoped `list` and `watch` for Workloads, Pods, LocalQueues, ClusterQueues, and ResourceFlavors | 403 before upgrade for primary checks; omit unauthorized panels |
 
 ### Notes/Constraints/Caveats
 
@@ -211,16 +215,17 @@ ClusterQueue informers. The alpha implementation must add Cohort informer
 coverage for endpoints that require `watch` on `cohorts.kueue.x-k8s.io`, or it
 must not claim Cohort watch semantics.
 
-The `/ws/workloads/dashboard` endpoint is namespace-scoped for alpha. An empty
-or missing `namespace` query parameter is rejected with HTTP 400 before the
-WebSocket upgrade. A cluster-wide dashboard would require all-namespace
-filtering across Workloads, Pods, LocalQueues, ClusterQueues, and
-ResourceFlavors, and is out of scope for the first implementation.
+The `/ws/workloads/dashboard` endpoint supports both namespace-scoped and
+cluster-scoped views. An explicit but empty `namespace=` query parameter must be
+rejected with HTTP 400. If the namespace parameter is omitted entirely, the
+backend must use a cluster-scoped `SubjectAccessReview`. This avoids an
+expensive per-namespace filtering while still allowing users with broad permissions 
+to access the cluster-wide dashboard.
 
 The frontend currently initializes the dashboard with an empty namespace
-selection. The alpha implementation must avoid opening
-`/ws/workloads/dashboard?namespace=` by selecting an authorized namespace first
-or by showing an empty-state prompt until the user chooses one.
+selection. The alpha implementation must attempt to open the cluster-scoped
+dashboard first, or prompt the user to select an authorized namespace if
+cluster-wide access is denied.
 
 ### Risks and Mitigations
 
@@ -229,7 +234,7 @@ or by showing an empty-state prompt until the user chooses one.
 | Authorization gaps in aggregate endpoints | Define endpoint-to-resource policy in one backend package and cover each route with tests |
 | API server load from repeated SubjectAccessReview calls | Add bounded TTL cache keyed by user identity and resource attributes |
 | Stale authorization after RBAC changes | Keep authorization cache TTL short and document the delay |
-| Confusing partial dashboard data | Return only authorized panels/details and expose generic forbidden messages without leaking object names |
+| Confusing partial dashboard data | Return only authorized panels/details and include non-sensitive metadata (e.g. `omittedPanels`) so the frontend can display an informative banner without leaking object names |
 | Regression for unauthenticated deployments | Keep `auth.mode: Disabled` behavior unchanged, but document that authorization requires TokenReview |
 | Security-sensitive error messages | Do not reveal whether a denied object exists; return 403 for denied and 404 only after an allowed get fails |
 
@@ -305,8 +310,9 @@ before it is written to the WebSocket. The same filtering is applied on the
 initial snapshot and on every informer-triggered update.
 
 KueueViz will not re-authenticate the token for every WebSocket message in this
-KEP. Token lifetime and refresh remain part of the authentication KEP's
-limitations.
+KEP. Instead, the backend must periodically re-validate the token on open
+WebSockets. If the token becomes invalid or expires,
+the backend will close the connection with an unauthorized error.
 
 ### Partial Results for Aggregated Views
 
@@ -325,9 +331,18 @@ Examples:
 The backend should not include object names, counts, or status information for
 unauthorized resources.
 
+Without a non-sensitive signal, genuinely empty data is indistinguishable from
+filtered data. To allow the frontend to detect partial results and present clear
+indicators without leaking sensitive details, aggregate REST responses and
+WebSocket payloads will include stable, non-sensitive metadata (such as
+`omittedPanels` or `unauthorizedResources`). This metadata explicitly lists the
+sections or resource types that were omitted due to lack of permissions
+(for example, `["pods"]`), without revealing names or existence of unauthorized
+objects.
+
 ### Caching
 
-SubjectAccessReview results may be cached to reduce API server load. The cache
+SubjectAccessReview results must be cached to reduce API server load. The cache
 key must include:
 
 - authenticated user identity: username, uid, groups, and extras
@@ -388,6 +403,11 @@ from 401:
 - 401 means the token is missing, invalid, or expired; redirect to login.
 - 403 means the user is authenticated but not authorized; show a permission
   error without clearing the token.
+
+The frontend must match user UX expectations for partial results and unauthorized requests:
+- Aggregate REST responses and WebSocket payloads will include non-sensitive metadata indicating when secondary data was filtered due to missing permissions.
+- When an aggregate view (like the dashboard) omits data due to missing permissions, the UI MUST display a banner or clear indicator explaining what data is missing and why based on this metadata.
+- Silent omission of data causes user confusion and must be avoided.
 
 The frontend should not attempt client-side filtering as a security boundary.
 All filtering must happen in the backend.
@@ -486,7 +506,7 @@ KueueViz e2e tests should include a TokenReview-enabled deployment and verify:
 
 ### Graduation Criteria
 
-Alpha (v0.19):
+Alpha (v0.20):
 
 - [ ] SubjectAccessReview-based authorizer implemented.
 - [ ] All protected REST and WebSocket endpoints mapped to resource checks.
@@ -494,6 +514,9 @@ Alpha (v0.19):
 - [ ] Helm chart and generated KueueViz manifest grant
   `subjectaccessreviews/create` when auth is enabled.
 - [ ] KueueViz docs explain 401 versus 403 behavior.
+- [ ] Stable per-section metadata implemented in REST and WebSocket payloads for filtered results.
+- [ ] Frontend displays banners/indicators when data is omitted due to missing
+  permissions based on backend omission metadata.
 
 Beta (TBD):
 
@@ -555,6 +578,15 @@ asking the API server whether a user may perform a specific action.
 Frontend filtering cannot be a security boundary. Users can call backend APIs
 directly and bypass the UI. Authorization must happen in the backend before
 data is returned.
+
+### Use SelfSubjectRulesReview (SSRR) instead of SAR
+
+`SelfSubjectRulesReview` could theoretically be used to fetch all of a user's
+permissions at once to evaluate them locally. However, this goes against
+Kubernetes API recommendations. SSRR is intended for UIs to prefetch permissions
+(e.g., to disable buttons or show/hide actions), not for backend systems to
+drive definitive authorization decisions. The actual transmission of data must
+use `SubjectAccessReview` for precise, resource-specific authorization gates.
 
 ### Keep authorization optional
 
