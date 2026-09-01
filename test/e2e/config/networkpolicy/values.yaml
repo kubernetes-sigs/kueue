@@ -1,0 +1,5 @@
+# Layered on top of ../default/values.yaml, so this only carries what the
+# NetworkPolicy suite adds. Egress stays off: default-deny egress breaks
+# MultiKueue, and the suite does not cover it.
+networkPolicy:
+  enabled: true

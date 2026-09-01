@@ -346,6 +346,9 @@ test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:
 .PHONY: test-e2e-networkpolicy
 test-e2e-networkpolicy: setup-e2e-env run-test-e2e-networkpolicy-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the NetworkPolicy e2e test suite.
 
+.PHONY: test-e2e-networkpolicy-sequential
+test-e2e-networkpolicy-sequential: setup-e2e-env run-test-e2e-networkpolicy-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the baseline sequential e2e test suite with the NetworkPolicies enforcing.
+
 ## Label Taxonomy:
 ##   Features: admissionfairsharing, certs, failurerecoverypolicy, localqueuemetrics, managejobswithoutqueuename, objectretentionpolicies, podintegrationautoenablement, reconcile, visibility, waitforpodsready
 ## Examples:
@@ -543,6 +546,22 @@ run-test-e2e-networkpolicy-%:
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="networkpolicy" \
+		E2E_CONFIG_FOLDER="networkpolicy" \
+		NETWORK_POLICIES_VERSION=$(NETWORK_POLICIES_VERSION) \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-test.sh
+
+run-test-e2e-networkpolicy-sequential-%: K8S_VERSION = $(@:run-test-e2e-networkpolicy-sequential-%=%)
+run-test-e2e-networkpolicy-sequential-%:
+	@echo Running sequential baseline e2e under the NetworkPolicies for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="sequential/baseline" \
+		E2E_CONFIG_FOLDER="networkpolicy" \
 		NETWORK_POLICIES_VERSION=$(NETWORK_POLICIES_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
