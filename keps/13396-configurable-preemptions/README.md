@@ -862,7 +862,9 @@ Maintaining separate priority queues per candidate selector is essential. If que
 
 **Challange 2** - how to make sure that preemptions are fair even if we backfil some workloads. The algorithm described above is fair if no backfilling is happening, but if we preempt and then backfill it can lead to issues like desribed in [issue #14543](https://github.com/kubernetes-sigs/kueue/issues/14543). 
 
-**Vagueue implementation idea** - when backfilling hold the cohort tree with DRS values of minimal workloads that were preempted, if backfill will no change the DRS in a way that makes "fairness" rule no longer true for the minimal workloads, then don't reintroduce them.
+**Vague implementation idea** - when backfilling hold the required values (attached to the CQs or in cohort tree like struct) to make preemption of suffix workloads still fair according to the DRS rules. If backfill will change the DRS in a way that makes "fairness" rule no longer true for suffix workloads, then don't reintroduce them.
+As such more strict backfilling can lead to lower cluster utilization (tradeoff with fairness) this should be probably introduced as additional preemption config parameter (boolean flag).
+There are some additonal caveats here that should be addressed here - for example what if suffix candidate preemption is still possible because other non DRS rules allows it, then probably we should allow backfilling of the workloads, but this may lead to change of ordering of the candidates. To simplify it may be worth to indicate this as known limitation that candidates are only ordered once according to the original plan and not reordered during backfilling.
 
 ### Observability
 
