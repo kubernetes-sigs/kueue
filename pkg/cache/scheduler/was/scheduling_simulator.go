@@ -234,7 +234,7 @@ func (t *podTracker) untrack(log logr.Logger, key client.ObjectKey) {
 func (t *podTracker) clearPod(log logr.Logger, key client.ObjectKey, pod *corev1.Pod) {
 	delete(t.pods, key)
 
-	wl := workloadName(log, pod)
+	wl := findPreemptingWorkload(log, pod)
 	if wl == "" {
 		return
 	}
@@ -249,7 +249,7 @@ func (t *podTracker) clearPod(log logr.Logger, key client.ObjectKey, pod *corev1
 func (t *podTracker) savePod(log logr.Logger, podKey client.ObjectKey, pod *corev1.Pod) {
 	t.pods[podKey] = pod
 
-	wl := workloadName(log, pod)
+	wl := findPreemptingWorkload(log, pod)
 	if wl == "" {
 		return
 	}
@@ -261,7 +261,7 @@ func (t *podTracker) savePod(log logr.Logger, podKey client.ObjectKey, pod *core
 	t.workloadPods[wlKey][podKey] = pod
 }
 
-func workloadName(log logr.Logger, pod *corev1.Pod) (name string) {
+func findPreemptingWorkload(log logr.Logger, pod *corev1.Pod) (name string) {
 	for _, annotation := range podWorkloadAnnotations {
 		if wlName, ok := pod.Annotations[annotation]; ok {
 			name = wlName
@@ -269,7 +269,7 @@ func workloadName(log logr.Logger, pod *corev1.Pod) (name string) {
 		}
 	}
 	if name == "" {
-		log.V(1).Info("Unable to identify workload of pod")
+		log.V(1).Info("Unable to identify preempting workload of pod")
 	}
 	return
 }
