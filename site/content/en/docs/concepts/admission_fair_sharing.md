@@ -33,9 +33,25 @@ When multiple workloads compete for resources within a ClusterQueue:
 Entry Penalty is available since Kueue v0.13.0.
 {{% /alert %}}
 
-To prevent exploitation where tenants could submit many workloads quickly before usage statistics are updated, Kueue applies an entry penalty to each admitted workload. This penalty is immediately added to the LocalQueue's usage statistics. This ensures that even if a tenant submits multiple workloads rapidly, subsequent workloads will be properly prioritized based on the updated usage including the penalty.
+To prevent exploitation where tenants could submit many workloads quickly before usage statistics are updated, Kueue applies an entry penalty to each admitted workload. This penalty is immediately added to the LocalQueue's usage statistics. This ensures that even if a tenant submits multiple workloads rapidly, subsequent workloads will be properly prioritized based on the updated usage including the penalty. The point at which the penalty settles is the [accounting anchor](#accounting-anchor).
 
 For example, if Tenant A has low historical usage and Tenant B has high usage, but Tenant B submits 100 workloads simultaneously, without the entry penalty all 100 workloads might be admitted before the usage statistics update. With the entry penalty, each admitted workload immediately increases Tenant B's usage statistics, so subsequent workloads from Tenant B will be properly deprioritized in favor of workloads from Tenant A.
+
+### Accounting anchor
+{{< feature-state state="alpha" for_version="v0.20" >}}
+
+Usage is accounted from the point a workload is admitted. The `AdmissionFairSharingReservedAnchor`
+feature gate moves that point to quota reservation, for ClusterQueues that use
+`UsageBasedAdmissionFairSharing`: a workload then contributes to fair-sharing usage as soon as it
+actively holds quota, even while its AdmissionChecks are pending, and its entry penalty settles at the
+same point. The reported `consumedResources` does not follow at once, since it is a decaying average:
+it closes half of the remaining gap every `usageHalfLifeTime`.
+
+{{% alert title="Note" color="primary" %}}
+`AdmissionFairSharingReservedAnchor` is an alpha feature and is disabled by default.
+
+You can enable it by editing the `AdmissionFairSharingReservedAnchor` feature gate. Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
+{{% /alert %}}
 
 ## Configuration
 
