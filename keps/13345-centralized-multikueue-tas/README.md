@@ -143,8 +143,10 @@ performs a fresh `List` to rebuild the TAS cache for that cluster.
 
 ### Remote Inventory Sync
 
-The manager will watch `Node` and `Pod` objects from all connected worker
-clusters. These events are fed directly into the manager's scheduler TAS cache. 
+The manager will watch Node and Pod objects from all connected worker
+clusters. These events are fed directly into the manager's scheduler TAS cache,
+which will be extended to index Nodes by cluster name in addition to their own
+name.
 
 To differentiate nodes across clusters, a cluster label (e.g.,
 `kueue.x-k8s.io/multikueue-cluster`) is injected into the remote Node objects as
