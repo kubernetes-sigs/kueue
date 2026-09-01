@@ -77,7 +77,8 @@ type Configuration struct {
 	WaitForPodsReady *WaitForPodsReady `json:"waitForPodsReady,omitempty"`
 
 	// ClientConnection provides additional configuration options for Kubernetes
-	// API server client.
+	// API server client. Both fields are defaulted, so the section may be omitted.
+	// +optional
 	ClientConnection *ClientConnection `json:"clientConnection,omitempty"`
 
 	// Integrations provide configuration options for AI/ML/Batch frameworks
@@ -457,13 +458,18 @@ type TLSOptions struct {
 }
 
 type ClientConnection struct {
-	// QPS controls the number of queries per second allowed for K8S api server
-	// connection.
+	// QPS controls the number of queries per second allowed for Kubernetes API
+	// server connections.
 	//
-	// Setting this to a negative value will disable client-side ratelimiting.
+	// A negative value disables client-side rate limiting. Zero is invalid.
+	// Defaults to 300.
+	// +optional
 	QPS *float32 `json:"qps,omitempty"`
 
-	// Burst allows extra queries to accumulate when a client is exceeding its rate.
+	// Burst controls the token bucket capacity.
+	// It must be greater than 0 when client-side rate limiting is enabled.
+	// Defaults to 500.
+	// +optional
 	Burst *int32 `json:"burst,omitempty"`
 }
 

@@ -36,6 +36,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	clienttesting "k8s.io/client-go/testing"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -48,13 +49,13 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	configapiv1beta1 "sigs.k8s.io/kueue/apis/config/v1beta1"
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
-
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
 var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
@@ -98,6 +99,113 @@ func defaultControlOptions(namespace string) ctrl.Options {
 		LeaseDuration:                 new(configapi.DefaultLeaderElectionLeaseDuration),
 		RenewDeadline:                 new(configapi.DefaultLeaderElectionRenewDeadline),
 		RetryPeriod:                   new(configapi.DefaultLeaderElectionRetryPeriod),
+	}
+}
+
+// TestLoadAndValidateClientConnection exercises the production path
+// (decode -> default -> convert -> validate) for both config versions, so that
+// omitted values are defaulted and explicit zeros survive to validation. It goes
+// through the exported Validate that cmd/kueue/main.go calls, rather than the
+// clientConnection rule on its own, so that dropping the rule from Validate
+// fails here too.
+func TestLoadAndValidateClientConnection(t *testing.T) {
+	testScheme := runtime.NewScheme()
+	if err := configapiv1beta1.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := configapi.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientgoscheme.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]struct {
+		config   string
+		wantErrs []string
+	}{
+		"v1beta2 omitted burst defaults and passes": {
+			config: `
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+clientConnection:
+  qps: 100
+`,
+		},
+		"v1beta2 zero qps is rejected": {
+			config: `
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+clientConnection:
+  qps: 0
+  burst: 100
+`,
+			wantErrs: []string{"clientConnection.qps"},
+		},
+		"v1beta2 zero burst is rejected": {
+			config: `
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+clientConnection:
+  qps: 100
+  burst: 0
+`,
+			wantErrs: []string{"clientConnection.burst"},
+		},
+		// An omitted qps leaves the rule looking at a nil and returning early, so
+		// only Load defaulting it to 300 makes the explicit zero burst reachable.
+		// This also pins that defaulting leaves that zero alone rather than
+		// replacing it with 500.
+		"v1beta2 omitted qps defaults and zero burst is rejected": {
+			config: `
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+clientConnection:
+  burst: 0
+`,
+			wantErrs: []string{"clientConnection.burst"},
+		},
+		"v1beta1 zero qps is rejected after conversion": {
+			config: `
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+clientConnection:
+  qps: 0
+  burst: 100
+`,
+			wantErrs: []string{"clientConnection.qps"},
+		},
+		"v1beta1 zero burst is rejected after conversion": {
+			config: `
+apiVersion: config.kueue.x-k8s.io/v1beta1
+kind: Configuration
+clientConnection:
+  qps: 100
+  burst: 0
+`,
+			wantErrs: []string{"clientConnection.burst"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(file, []byte(tc.config), os.FileMode(0600)); err != nil {
+				t.Fatal(err)
+			}
+			_, cfg, err := Load(testScheme, file)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			var gotErrs []string
+			for _, e := range Validate(&cfg, testScheme, jobs.NewIntegrationManager()) {
+				gotErrs = append(gotErrs, e.Field)
+			}
+			if diff := cmp.Diff(tc.wantErrs, gotErrs); diff != "" {
+				t.Errorf("Validate after Load (-want +got):\n%s", diff)
+			}
+			if len(tc.wantErrs) == 0 && (cfg.ClientConnection == nil || cfg.ClientConnection.Burst == nil) {
+				t.Errorf("Load did not default the client connection burst")
+			}
+		})
 	}
 }
 
