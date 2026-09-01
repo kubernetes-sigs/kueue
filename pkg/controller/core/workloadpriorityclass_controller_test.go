@@ -146,6 +146,31 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"reconcile updates local workload and skips MultiKueue remote workload": {
+			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("local", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("remote", "default").
+					Label(kueue.MultiKueueOriginLabel, "manager").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("local", "default").
+					Priority(1000).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("remote", "default").
+					Label(kueue.MultiKueueOriginLabel, "manager").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+		},
 		"reconcile skips workloads with up-to-date priority": {
 			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
 			workloads: []kueue.Workload{
