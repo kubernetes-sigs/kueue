@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -653,6 +654,44 @@ func TestIndexWorkloadExtendedResources(t *testing.T) {
 				cmpopts.SortSlices(func(a, b string) bool { return a < b }),
 				cmpopts.EquateEmpty(),
 			); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestIndexDynamicQuotaOrchestratorCapacityProvider(t *testing.T) {
+	cases := map[string]struct {
+		obj  client.Object
+		want []string
+	}{
+		"not DynamicQuotaOrchestrator": {
+			obj:  &kueue.Workload{},
+			want: nil,
+		},
+		"no providers": {
+			obj:  &kueuealpha.DynamicQuotaOrchestrator{},
+			want: []string{},
+		},
+		"multiple providers": {
+			obj: &kueuealpha.DynamicQuotaOrchestrator{
+				Spec: kueuealpha.DynamicQuotaOrchestratorSpec{
+					CapacityDiscovery: kueuealpha.CapacityDiscovery{
+						Providers: []kueuealpha.CapacityDiscoveryProviderContribution{
+							{Name: "cp1"},
+							{Name: "cp2"},
+						},
+					},
+				},
+			},
+			want: []string{"cp1", "cp2"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := indexer.IndexDynamicQuotaOrchestratorCapacityProvider(tc.obj)
+			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("mismatch (-want +got):\n%s", diff)
 			}
 		})
