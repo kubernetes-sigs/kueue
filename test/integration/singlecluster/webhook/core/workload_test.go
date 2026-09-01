@@ -366,6 +366,24 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						Obj()
 				},
 				utiltesting.BeInvalidError()),
+			ginkgo.Entry("valid podSet minCount (zero with count zero)",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("ps1", 0).SetMinimumCount(0).Obj(),
+						).
+						Obj()
+				},
+				gomega.Succeed()),
+			ginkgo.Entry("valid podSet minCount (zero with count greater than zero)",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("ps1", 3).SetMinimumCount(0).Obj(),
+						).
+						Obj()
+				},
+				gomega.Succeed()),
 			ginkgo.Entry("too many variable count podSets",
 				func() *kueue.Workload {
 					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
