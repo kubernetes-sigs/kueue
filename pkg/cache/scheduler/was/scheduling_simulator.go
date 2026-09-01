@@ -25,6 +25,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
@@ -32,18 +33,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
-	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 )
-
-// Order is important. WorkloadSliceNameAnnotation should be checked before WorkloadAnnotation.
-var podWorkloadAnnotations = []string{
-	kueue.WorkloadSliceNameAnnotation,
-	kueue.WorkloadAnnotation,
-	controllerconstants.PrebuiltWorkloadAnnotation,
-	podconstants.GroupNameAnnotation,
-}
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error)
 type podsByKey map[client.ObjectKey]*corev1.Pod
@@ -174,11 +165,18 @@ func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simu
 	}, nil
 }
 
-func (s *wasSimulator) TrackPod(pod *corev1.Pod) {
+func (s *wasSimulator) TrackPod(ctx context.Context, pod *corev1.Pod) {
+	if _, ok := pod.Annotations[kueue.WorkloadAnnotation]; !ok {
+		ctrl.LoggerFrom(ctx).V(1).Info(
+			"Missing annotation on Pod object; Quality of WAS simulation may be degraded.",
+			"pod", client.ObjectKeyFromObject(pod).String(),
+			"missing annotation", kueue.WorkloadAnnotation,
+		)
+	}
 	s.pods.track(pod)
 }
 
-func (s *wasSimulator) UntrackPod(key client.ObjectKey) {
+func (s *wasSimulator) UntrackPod(_ context.Context, key client.ObjectKey) {
 	s.pods.untrack(key)
 }
 
@@ -190,6 +188,20 @@ func (m podsByWorkload) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod
 		return slices.Collect(maps.Values(podSet))
 	}
 	return nil
+}
+
+func (m podsByWorkload) recordPod(wlKey client.ObjectKey, podKey client.ObjectKey, pod *corev1.Pod) {
+	if _, ok := m[wlKey]; !ok {
+		m[wlKey] = make(podsByKey)
+	}
+	m[wlKey][podKey] = pod
+}
+
+func (m podsByWorkload) forgetPod(wlKey client.ObjectKey, podKey client.ObjectKey) {
+	delete(m[wlKey], podKey)
+	if len(m[wlKey]) == 0 {
+		delete(m, wlKey)
+	}
 }
 
 func (t *podTracker) snapshot() (allPods []*corev1.Pod, workloadPods podsByWorkload) {
@@ -228,45 +240,24 @@ func (t *podTracker) untrack(key client.ObjectKey) {
 	}
 }
 
-func (t *podTracker) clearPod(key client.ObjectKey, pod *corev1.Pod) {
-	delete(t.pods, key)
+func (t *podTracker) clearPod(podKey client.ObjectKey, pod *corev1.Pod) {
+	delete(t.pods, podKey)
 
-	wl := findPreemptingWorkload(pod)
-	if wl == "" {
-		return
-	}
-
-	wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
-	delete(t.workloadPods[wlKey], key)
-	if len(t.workloadPods[wlKey]) == 0 {
-		delete(t.workloadPods, wlKey)
+	wl := pod.Annotations[kueue.WorkloadAnnotation]
+	if wl != "" {
+		wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
+		t.workloadPods.forgetPod(wlKey, podKey)
 	}
 }
 
 func (t *podTracker) savePod(podKey client.ObjectKey, pod *corev1.Pod) {
 	t.pods[podKey] = pod
 
-	wl := findPreemptingWorkload(pod)
-	if wl == "" {
-		// Pods with indeterminate workloads are not
-		// eligible for preemption simulations.
-		return
+	wl := pod.Annotations[kueue.WorkloadAnnotation]
+	if wl != "" {
+		wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
+		t.workloadPods.recordPod(wlKey, podKey, pod)
 	}
-
-	wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
-	if _, ok := t.workloadPods[wlKey]; !ok {
-		t.workloadPods[wlKey] = make(podsByKey)
-	}
-	t.workloadPods[wlKey][podKey] = pod
-}
-
-func findPreemptingWorkload(pod *corev1.Pod) string {
-	for _, annotation := range podWorkloadAnnotations {
-		if wl, ok := pod.Annotations[annotation]; ok {
-			return wl
-		}
-	}
-	return ""
 }
 
 func (s *wasSimulatorSnapshot) FindFeasibleNodes(
