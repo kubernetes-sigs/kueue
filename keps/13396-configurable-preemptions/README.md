@@ -67,6 +67,10 @@ updates.
 [documentation style guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
 
+This KEP introduces **Configurable Preemptions** in Kueue through two cluster-scoped CRDs: `PreemptionConfig` and `PreemptionLimit`.
+This enables declarative preemption policies for scenarios unsupported by existing heuristics, including topology defragmentation, mission-critical "hero" workloads, and business SLA constraints.
+With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints), candidate selectors (such as priority relations, execution age, and custom numeric labels), and deterministic ordering. `PreemptionLimit` provides rate-limiting guardrails across global, queue, and workload scopes to prevent cascading preemptions and maintain cluster stability.
+
 ## Motivation
 
 ### 1. Defragmentation
