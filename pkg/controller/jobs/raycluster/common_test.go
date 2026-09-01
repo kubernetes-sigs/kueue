@@ -50,7 +50,6 @@ func TestBuildPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		rayClusterSpec              *rayv1.RayClusterSpec
 		annotations                 map[string]string
-		enablePartialScaleUpFeature bool
 		wantPodSets                 []kueue.PodSet
 		wantErr                     error
 	}{
