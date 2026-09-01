@@ -17,6 +17,7 @@ limitations under the License.
 package features
 
 import (
+	"strings"
 	"testing"
 
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -78,6 +79,27 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// AdmissionFairSharingReservedAnchor only does anything while AdmissionFairSharing
+// is enabled, so the registry has to reject the combination rather than silently
+// ignoring the anchor.
+func TestReservedAnchorRequiresAdmissionFairSharing(t *testing.T) {
+	// A copy, because SetFromMap records the raw values before it validates them
+	// and does not roll them back when the validation fails. DeepCopy carries the
+	// registered dependencies over; DeepCopyAndReset would drop them.
+	gate := utilfeature.DefaultMutableFeatureGate.DeepCopy()
+	err := gate.SetFromMap(map[string]bool{
+		string(AdmissionFairSharing):               false,
+		string(AdmissionFairSharingReservedAnchor): true,
+	})
+	if err == nil {
+		t.Fatal("enabling AdmissionFairSharingReservedAnchor with AdmissionFairSharing disabled should be rejected")
+	}
+	if !strings.Contains(err.Error(), string(AdmissionFairSharingReservedAnchor)) ||
+		!strings.Contains(err.Error(), string(AdmissionFairSharing)) {
+		t.Errorf("the rejection does not name both gates, so it may not be the dependency check: %v", err)
 	}
 }
 
