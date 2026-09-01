@@ -159,7 +159,8 @@ The end-to-end flow of a worker-side autoscaler resize:
    editing the worker RayCluster's replicas; KubeRay then adds or removes worker
    pods.
 4. On the next manager reconcile, the adapter's reverse-sync **`Fetch`** reads the
-   worker's effective per-worker-group counts plus a revision, and **`Apply`**
+   effective per-worker-group counts from the worker-side RayCluster's **spec**
+   plus a revision, and **`Apply`**
    records them on the manager copy as annotations — the manager spec is never
    touched.
 5. The manager's PodSets follow the reflected counts, so the workload-slicing
@@ -184,8 +185,9 @@ manager spec untouched.
 
 ```go
 type RuntimeReplicaSync[PtrT any] struct {
-	// Fetch reads the effective per-worker-group pod counts from the worker
-	// cluster, plus a revision identifying the observed runtime state.
+	// Fetch reads the effective per-worker-group pod counts from the
+	// worker-side RayCluster's spec, plus a revision identifying the observed
+	// runtime state.
 	Fetch func(ctx context.Context, remoteClient client.Client, remoteJob PtrT) (
 		counts map[kueue.PodSetReference]int32, revision string, found bool, err error)
 	// Apply records them onto the manager copy (as annotations), returning
@@ -197,9 +199,10 @@ type RuntimeReplicaSync[PtrT any] struct {
 Each reconcile of an autoscaling object:
 
 1. `Fetch(remoteClient, remoteJob)` reads the effective per-worker-group pod counts
-   from the worker cluster, plus a `UID-generation` **revision** of the object that
-   holds those counts. The revision's role is to give each reflected scale-up a
-   distinct workload-slice name (details under [Workload-slice
+   from the worker-side RayCluster's **spec** (the object's own remote copy, or a
+   RayJob's child cluster), plus a `UID-generation` **revision** of the object that
+   holds those counts. The revision's role is to give each reflected
+   scale-up a distinct workload-slice name (details under [Workload-slice
    naming](#workload-slice-naming-under-annotation-reflection)).
 2. `Apply(localJob, counts, revision)` records them on the **manager** copy as two
    annotations — `raycluster-podset-replica-sizes` (the counts) and
@@ -225,8 +228,8 @@ The two `Fetch` implementations map onto these:
 
 #### RayCluster
 
-The worker replicas live on the remote RayCluster copy itself, so `Fetch` reads
-that copy directly; the revision is the remote RayCluster's `UID-generation`.
+The worker replicas live on the remote RayCluster copy's spec, so `Fetch` reads
+that spec directly; the revision is the remote RayCluster's `UID-generation`.
 
 ```go
 // RayCluster: Fetch reads the remote RayCluster copy itself.
@@ -235,9 +238,10 @@ revision := fmt.Sprintf("%s-%d", remoteCluster.UID, remoteCluster.Generation)
 
 #### RayJob
 
-The worker replicas live on the **child RayCluster** that KubeRay creates on the
-worker cluster (the child never exists on the manager), so `Fetch` reads the child
-by `status.rayClusterName`; the revision is the child's `UID-generation`.
+The worker replicas live on the spec of the **child RayCluster** that KubeRay
+creates on the worker cluster (the child never exists on the manager), so `Fetch`
+resolves the child by `status.rayClusterName` and reads its spec; the revision is
+the child's `UID-generation`.
 
 ```go
 // RayJob: Fetch reads the child RayCluster (status.rayClusterName) on the worker.
