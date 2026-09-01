@@ -131,11 +131,12 @@ It stops when:
 - the successor cannot safely act on the current cycle's state.
 
 A refilled Workload may act in the current cycle only when its assignment is `Fit`.
-It sees the capacity that earlier admissions in the same cycle consumed, so any other outcome, such as no capacity, preemption, or deferred placement, may rest on state that will not exist in the next snapshot, and refill must not turn that transient view into a reservation or preemption decision.
-Such a Workload returns to the queue and is reconsidered from fresh cycle state, carrying nothing forward from what it saw mid-cycle.
+For example, it may see capacity consumed by an earlier admission in the same cycle, so a non-`Fit` result can reflect transient state.
+Refill must not turn that view into a reservation or preemption decision.
+The Workload instead returns to the queue and is reconsidered from fresh cycle state, carrying nothing forward from what it saw mid-cycle.
 
-A refilled Workload still belongs to the cycle it joined, so a requeue signal that arrived after the cycle began remains visible to it.
-Otherwise the Workload could be parked as inadmissible and wait for a further event instead of for the next cycle.
+Requeue signals that arrive during the cycle must remain visible to a refilled Workload.
+Otherwise it could be parked as inadmissible and wait for another event instead of being reconsidered in the next cycle.
 
 ### Refill budget
 
@@ -149,32 +150,30 @@ It is a provisional operating point, not a benchmark-derived optimum: the benchm
 
 ### Interaction with other scheduling features
 
-- **ConcurrentAdmission**: refill stops the chain when the admitted Workload is a variant.
-  KEP-8691 states that the scheduler "picks up only one Variant per scheduling cycle", and relies on that to keep siblings of the same parent from being admitted against the same frozen snapshot.
-  The successor scan reads a snapshot that does not carry this cycle's admissions, so refilling into a variant's ClusterQueue could admit a second variant of the same parent.
+- **ConcurrentAdmission**: refill stops the chain after admitting a Variant.
+  KEP-8691 relies on at most one Variant per scheduling cycle so that siblings of the same parent are not admitted against the same frozen snapshot.
 - **Preemption**: refilled Workloads do not act on preemption or other non-`Fit` outcomes in the current cycle, and are re-evaluated from a fresh snapshot in the next one.
 - **WaitForPodsReady**: refill is disabled when `blockAdmission` serializes admission, because another candidate cannot make progress in the same cycle.
 - **Topology Aware Scheduling**: placement semantics are unchanged, and a refilled Workload is evaluated against the same current-cycle snapshot as other candidates.
   Correctness is covered at Alpha, and scheduler cost on topology-heavy workloads remains a Beta validation item.
 - **Admission Fair Sharing**: the existing accounting semantics are unchanged.
-  Admission Fair Sharing orders LocalQueues by recorded usage and records an entry penalty when a Workload is assumed, so a refilling cycle records more penalties while the usage ledger it reasons about stays as captured in the snapshot taken at cycle start.
+  A refilling cycle makes several admissions, each recording an entry penalty, while the usage it reasons about stays as captured at cycle start.
   What a refilled candidate observes has to be characterized and tested before the gate is enabled by default.
 
 ### Observability
 
-Every way a refill chain can stop has a stable reason, so an outcome can be logged and later exposed as a metric.
-Budget exhaustion is distinguished from an empty queue, so a metric can report how often the bound actually binds rather than how often it is merely spent.
-Which reasons become metric labels, and how they relate to the in-cycle recompute metric discussed in [#14205](https://github.com/kubernetes-sigs/kueue/issues/14205), is decided together with that work.
+Why a refill chain stopped is observable, with budget exhaustion distinguished from an empty queue, so an operator can tell when the bound actually limits progress rather than when it is merely spent.
+The metric surface follows the in-cycle recompute metrics discussed in [#14205](https://github.com/kubernetes-sigs/kueue/issues/14205).
 
-Refill lets more than one Workload from a ClusterQueue be in flight within a cycle, so queue diagnostics report which Workloads the scheduler currently holds, keeping a leak visible.
+Queue diagnostics also report which Workloads the scheduler currently holds, so leaked ownership stays visible now that a ClusterQueue can have more than one Workload in flight within a cycle.
 
 ### Configuration
 
 At Alpha the refill budget is a constant, with a test and benchmark hook that sets arbitrary values.
 No user-facing field is introduced.
 
-Publishing a field before [Budget allocation](#budget-allocation) is decided would fix one of the candidate models into the API, and a field named for a global allowance is the wrong surface if the answer turns out to be a global cap combined with per-cohort limits.
-The allocation model is settled first, and the field then follows the scheduler configuration work in [#14190](https://github.com/kubernetes-sigs/kueue/issues/14190).
+A user-facing field waits until [Budget allocation](#budget-allocation) is settled, so that Alpha does not encode the global-budget model into the API before it is chosen.
+The field then follows the scheduler configuration work in [#14190](https://github.com/kubernetes-sigs/kueue/issues/14190).
 
 ### Notes, Constraints, and Caveats
 
@@ -205,7 +204,6 @@ The refill budget exists to bound this, and the benchmark reports per-cycle quan
 Refill can reduce latency for a new Workload that enters a ClusterQueue which continues admitting in the same cycle.
 It can increase latency for an unrelated new Workload by lengthening the cycle that Workload must wait for.
 
-The second effect is the one to keep in view.
 Refill does not necessarily add a cycle of waiting, but it can make the cycle a new Workload is already waiting for longer.
 
 #### Fairness residue when the refill budget binds
