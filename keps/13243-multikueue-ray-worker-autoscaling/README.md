@@ -16,6 +16,7 @@
     - [RayCluster](#raycluster)
     - [RayJob](#rayjob)
     - [Workload-slice naming under annotation reflection](#workload-slice-naming-under-annotation-reflection)
+  - [Manager-side replicas pinning](#manager-side-replicas-pinning)
   - [Worker-side resize tolerance](#worker-side-resize-tolerance)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
@@ -136,18 +137,11 @@ temporarily.
 ### Risks and Mitigations
 
 - **The owner of the worker group's `replicas` differs with and without
-  autoscaling.** **Without** autoscaling the manager owns them: a manager-side
-  `replicas` edit is allowed, and the existing forward sync
-  ([#12885](https://github.com/kubernetes-sigs/kueue/pull/12885), which implements
-  elastic RayCluster sync from the manager to the worker) propagates it down to the
-  worker copy's workload. **With** autoscaling on, the Ray autoscaler on the worker
-  cluster owns them instead, and they flow the other way — worker→manager — through
-  the reverse sync.
-  The reason for the split: if both the manager and the autoscaler could write the
-  worker group's `replicas`, they would fight (fight loop). So while autoscaling is
-  on, a mutating webhook on the manager pins the worker group's `replicas` and
-  reverts any manager-side edit, keeping the autoscaler as the single writer —
-  matching the Non-Goal of resizing the same object from both sides.
+  autoscaling.** Without autoscaling the manager owns them; with autoscaling on, the
+  worker autoscaler does, and letting both write the same fields would fight. While
+  autoscaling is on, a validating webhook on the manager rejects manager-side
+  `replicas` edits (see
+  [Manager-side replicas pinning](#manager-side-replicas-pinning)).
 - **The handover finishes the workload `OutOfSync` and tears the job down.** A
   worker-scoped resize tolerance absorbs the transient job/slice count mismatch
   during handover (see below).
@@ -272,6 +266,19 @@ func GetWorkloadNameExtraPart(obj metav1.Object) string {
 
 // slice name = <kind>-<name>-sha1(Kind "\n" Group "\n" name "\n" UID "\n" extra)[:5]
 ```
+
+### Manager-side replicas pinning
+
+While the worker autoscaler owns the replicas, a **validating webhook** on the
+manager cluster rejects manager-side edits to the pinned fields. Without it, the
+forward sync ([#12885](https://github.com/kubernetes-sigs/kueue/pull/12885))
+propagates a manager-side edit down to the worker copy, where it lands on the same
+fields the autoscaler writes: two writers, each overwriting the other's value in an
+endless fight loop. The webhook keeps the autoscaler as the single writer.
+
+Pinned field paths:
+
+- `RayCluster`: `spec.workerGroupSpecs[*].replicas`
 
 ### Worker-side resize tolerance
 
