@@ -142,6 +142,58 @@ performs a fresh `List` to rebuild the TAS cache for that cluster.
 
 ## Design Details
 
+### Configuration
+
+This KEP proposes adding a new mode for MultiKueue and preserving its current
+strategy as the default. The new "centralized" mode necessarily changes the
+scalability profile of the Kueue manager by requiring more data which comes from
+other clusters.
+
+To enable centralized TAS, users must first enable the
+`MultiKueueCentralizedTAS` feature gate in the Kueue manager on the manager
+cluster and each worker cluster. The feature gate allows a new
+`multikueue.centralizedTAS` field to be set in the Kueue Configuration API:
+
+```go
+type MultiKueue struct {
+	...
+
+	// CentralizedTAS configures MultiKueue's "centralized" scheduling scheme.
+	// This field is ignored when the MultiKueueCentralizedTAS feature gate is
+	// disabled.
+	// +optional
+	CentralizedTAS *CentralizedTAS `json:"centralizedTAS,omitempty"`
+}
+
+// CentralizedTAS configures MultiKueue's "centralized" scheduling scheme.
+type CentralizedTAS struct {
+	// Enable controls whether a MultiKueue manager watches the required
+	// resources in each worker cluster. It must be true to allow a ClusterQueue
+	// to be configured to use centralized TAS.
+	// +optional
+	Enable *bool `json:"enable,omitempty"`
+}
+```
+
+The Configuration API changes are intended to allow this functionality to be
+disabled even if the feature gate is graduated to stable and removed.
+
+When the Configuration's `multikueue.centralizedTAS.enabled` is `true`, a
+ClusterQueue can be configured to use centralized TAS with the
+`kueue.x-k8s.io/multikueue-centralized-tas="true"` annotation in addition to a
+MultiKueue AdmissionCheck. ClusterQueues may be created with a MultiKueue
+AdmissionCheck without the annotation to use the existing MultiKueue scheduling
+behavior.
+
+In short, to enable centralized TAS for a Workload:
+
+1. Enable the `MultiKueueCentralizedTAS` feature gate in the Kueue managers for
+   the manager and worker clusters.
+1. Set the manager's Configuration object to include
+   `multikueue.centralizedTAS.enabled=true`.
+1. Annotate the appropriate ClusterQueues with
+   `kueue.x-k8s.io/multikueue-centralized-tas="true"`.
+
 ### Remote Inventory Sync
 
 The manager will watch Node and Pod objects from all connected worker
