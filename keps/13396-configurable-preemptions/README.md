@@ -84,10 +84,10 @@ Queue A with quota 1.
 Queue B with quota 1.
 Queue C with quota 4.
 
-Then the total quota of the entire cluster is 8, which is strictly larger than the sum of the queues' requirements.
+The total cluster capacity is 8 nodes, which is strictly larger than the sum of the queues' nominal quotas (6 nodes across all queues).
 
-Then at **Timestamp 1**, 2 workloads are running:
-Workload A from Queue A, and Workload B from Queue B, each consuming a queue's quota.
+At **Timestamp 1**, two workloads are running:
+Workload A from Queue A and Workload B from Queue B, each consuming 1 node (their respective queue's nominal quota).
 
 ```mermaid
 block-beta
@@ -119,10 +119,10 @@ style rack2C fill:#369,stroke:#333,stroke-width:4px
 
 ```
 
-Then Workload C arrives, which requires 4 nodes. The quota is available, but because of the placement of Workload A and Workload B in separate racks, each topology domain is blocked.
+Next, Workload C arrives requiring 4 nodes in a single rack. Although sufficient quota is available, neither rack can accommodate it because Workload A and Workload B occupy one node in each rack, fragmenting both topology domains.
 
 
-To allow Workload C to be scheduled, we need to preempt one of the workloads and move it to the other rack. This functionality is currently not supported by Kueue as all of the scheduled workloads are within cluster queues' nominal quota.
+To schedule Workload C, one of the running workloads must be preempted and relocated to the other rack. However, Kueue currently does not support this because all running workloads are within their ClusterQueues' nominal quotas.
 
 ```mermaid
 block-beta
