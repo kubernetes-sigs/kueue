@@ -329,7 +329,7 @@ const (
 	MultiKueueOrchestratedPreemption featuregate.Feature = "MultiKueueOrchestratedPreemption"
 
 	// owner: @vladikkuzn
-	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7990-preemption-cost
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7990-priority-boost
 	//
 	// Enable priority boost via the kueue.x-k8s.io/priority-boost annotation,
 	// allowing external controllers to adjust a workload's effective priority.
