@@ -107,7 +107,7 @@ This document writes `kueue.Workload` for the Kueue queueing unit and `schedulin
 ### Policy source
 
 The feature gate is the policy source and the mutating webhook is the execution point.
-`GangSchedulingByDefault` applies the default to every eligible Kueue-managed Job in the cluster; alpha adds no Kueue configuration field.
+`BatchJobGangSchedulingByDefault` applies the default to every eligible Kueue-managed Job in the cluster; alpha adds no Kueue configuration field.
 An administrator who wants gang scheduling for only part of the cluster can scope which Jobs Kueue manages at all, through `managedJobsNamespaceSelector`.
 
 The alternative, a per-framework policy in the Kueue Configuration API, is recorded under [Alternatives](#alternatives).
@@ -161,7 +161,7 @@ That is separate work, tracked in #13149.
 
 On a Job CREATE request, Kueue injects `schedulingPolicy.gang: {}` and `disruptionMode.all: {}` only when all of the following hold:
 
-1. `GangSchedulingByDefault` is enabled.
+1. `BatchJobGangSchedulingByDefault` is enabled.
 2. The Job is managed by Kueue.
 3. The Job has no Kueue-managed ancestor.
 4. The Job is not a copy dispatched by a MultiKueue manager.
@@ -224,11 +224,11 @@ Eligibility does not depend on `completionMode`; Indexed and NonIndexed Jobs of 
 | `ProvisioningRequest` | No interaction defined in alpha. Provisioning is unaware of WAS, and what it writes back are Pod template updates rather than WAS fields, so the two compose as they are. What alpha does not analyze is timing: the booking is not retried once the Workload is admitted, so a gang that cannot be placed can outlive it, which is the same window as [OQ3](#open-questions). |
 | CronJob | Each scheduled Job is defaulted on its own, since the fields can only be set at creation. A CronJob-created Job has no Kueue-managed ancestor, so it receives the default whenever Kueue manages it and its shape qualifies. |
 | BYO PodGroup ([KEP-13150](/keps/13150-bring-your-own-podgroup)) | Wherever that KEP derives a `PodSet` size from a user-set gang, `gang.minCount` is a floor rather than the group size, so using it as the count under-reserves quota by up to `parallelism - minCount`; a Kueue-injected gang is unaffected, because Kueue writes no `minCount` and the floor then equals `parallelism` ([OQ2](#open-questions)). Whether that derivation reaches a Job at all is that KEP's question to answer: it states the Job integration already sizes `PodSet`s from `parallelism`, and lists reading `batch/v1`'s own gang as future work. |
-| DRA `resourceClaims` | Out of scope. This KEP writes none. |
+| DRA `resourceClaims` | This KEP writes none. Rule 5 still treats any existing `spec.scheduling` as user-owned, so a Job that sets only `resourceClaims` receives neither default. Whether the presence check should distinguish policy-bearing fields is left to [Future extensions](#future-extensions). |
 
 ### Feature gate and API availability
 
-`GangSchedulingByDefault` is alpha and disabled by default.
+`BatchJobGangSchedulingByDefault` is alpha and disabled by default.
 
 **Kueue can only write a field it is built against.**
 The Job mutating webhook is a typed `admission.Defaulter[*batchv1.Job]`, so it can emit only what the vendored `k8s.io/api/batch/v1` declares, and Kueue is on `k8s.io/api v0.36.3` while `spec.scheduling` first appears in 1.37.
@@ -298,7 +298,7 @@ That work depends on upstream settling what a partially specified `spec.scheduli
 | OQ1 | Should partial admission later support an explicit `gang.minCount` by updating it together with `parallelism`? | Beta, not alpha. The apiserver accepts the atomic update, but the published documentation does not describe that path. |
 | OQ2 | With KEP-13150 enabled, which source controls `PodSet.Count`? | The Job spec. `minCount` is a floor rather than the group size, so sizing the PodSet from it under-reserves quota; a Kueue-injected gang does not change the Job's represented Pod count. The opposite direction, mapping a user-set `minCount` to the partial-admission floor `Workload.spec.podSets[].minCount`, is the OQ1 path and shares its atomic-update constraint. |
 | OQ3 | Do gang waiting and `waitForPodsReady.timeout` need coordination? | Probably not a hard constraint. Kueue can distinguish an unplaceable gang from ordinary startup delay through the Pod-level `Unschedulable` condition; the `PodGroup` latch cannot carry that, as described under [Observability](#observability). |
-| OQ4 | What carries the administrator's cluster-level choice once `GangSchedulingByDefault` graduates? | Open. Alpha needs nothing, since the gate is default-off and enabling it is itself the administrator's choice. Once the gate defaults on, the behavior becomes cluster-wide with only a per-Job opt-out. `WorkloadPriorityClass` defaulting has a second switch, the presence of a `WorkloadPriorityClass` named `default`, and gang has no object whose presence can carry the same intent. |
+| OQ4 | What carries the administrator's cluster-level choice once `BatchJobGangSchedulingByDefault` graduates? | Open. Alpha needs nothing, since the gate is default-off and enabling it is itself the administrator's choice. Once the gate defaults on, the behavior becomes cluster-wide with only a per-Job opt-out. `WorkloadPriorityClass` defaulting has a second switch, the presence of a `WorkloadPriorityClass` named `default`, and gang has no object whose presence can carry the same intent. |
 | OQ5 | Should defaulting be skipped when workload slices are enabled? | Yes for alpha, because the Kueue-side slice semantics are unverified. |
 | OQ6 | Should a preflight probe replace the check after creation for clusters that discard the field? | Beta. The version rule and the annotation comparison in [Feature gate and API availability](#feature-gate-and-api-availability) are enough while the gate is default-off; a probe buys pre-admission detection, and a per-cluster result that MultiKueue workers could be checked against, at the cost of a cache contract. |
 
@@ -359,7 +359,7 @@ A second `envtest` with the gate disabled on the API server covers the check aft
 #### Alpha
 
 - Kueue's vendored `k8s.io/api` declares `batch/v1 Job.spec.scheduling`; implementation starts after that dependency bump.
-- `GangSchedulingByDefault` is implemented behind a default-off feature gate, with no additional Kueue configuration field.
+- `BatchJobGangSchedulingByDefault` is implemented behind a default-off feature gate, with no additional Kueue configuration field.
 - Every defaulting rule has unit and integration coverage, including the annotation, the MultiKueue skip, and the workload-slice skip; defaulting, opt-out, and partial admission additionally have end-to-end coverage.
 - An unsupported cluster is handled safely and observably: the webhook skips the mutation below the required version, and the reconciler reports a field that the cluster discarded.
 - Partial admission is not performed for Jobs carrying an explicit `gang.minCount`.
