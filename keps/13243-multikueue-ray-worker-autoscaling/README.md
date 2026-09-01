@@ -168,6 +168,9 @@ The end-to-end flow of a worker-side autoscaler resize:
 6. On scale-up the admitted slice changes name, so the forward sync **repoints**
    the worker job's prebuilt-workload marker to the new slice, keeping the
    already-running worker job linked to the current slice.
+7. When the manager **suspends** the job (eviction, preemption, requeue), the
+   reflected annotations are **cleared** alongside the existing PodSets restore, so
+   re-admission reserves at the spec baseline rather than the last autoscaled size.
 
 The subsections below detail each step.
 
