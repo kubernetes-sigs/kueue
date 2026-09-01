@@ -136,36 +136,27 @@ It stops when:
 - the refill budget is exhausted; or
 - the successor cannot safely act on the current cycle's state.
 
-A mid-cycle pop does not advance the ClusterQueue's pop cycle counter.
-The refilled Workload belongs to the evaluation epoch the cycle started with, so a requeue signal that arrived after the cycle's heads were taken remains visible to it.
-Without this, the Workload would be parked as inadmissible and would wait for a further event rather than for the next cycle.
+A refilled Workload still belongs to the cycle it joined, so a requeue signal that arrived after the cycle began remains visible to it.
+Otherwise the Workload could be parked as inadmissible and wait for a further event instead of for the next cycle.
 
 ### Safety of mid-cycle evaluation
 
 A refilled Workload may act in the current cycle only when its assignment is `Fit`.
 
-Mid-cycle evaluation observes reservations created earlier in the same cycle.
-Outcomes that depend on unavailable capacity, preemption, or deferred placement may therefore reflect transient state that will not exist in the next snapshot.
-Such Workloads are returned to the queue and evaluated normally in the next cycle, with their recorded flavor scan cleared so the next evaluation is not shaped by the reservations they saw.
-
-This rule keeps refill from turning transient mid-cycle state into a reservation or preemption decision.
+A refilled Workload sees the capacity that earlier admissions in the same cycle consumed.
+Any outcome other than `Fit`, such as no capacity, preemption, or deferred placement, may therefore rest on state that will not exist in the next snapshot, and refill must not turn that transient view into a reservation or preemption decision.
+Such a Workload returns to the queue and is reconsidered from fresh cycle state, carrying nothing forward from what it saw mid-cycle.
 
 ### Refill budget
 
 The refill budget is spent on each Workload actually pulled into the cycle, whether or not it is then admitted.
 An attempt that finds the queue empty spends nothing.
 
-Charging failed evaluations is deliberate.
-The purpose of the budget is to bound the additional scheduling work a cycle performs, not to allow a fixed number of additional admissions.
-If only successful admissions were charged, failed evaluations would not be bounded by the refill budget at all, which is the case the bound exists for.
+Charging failed evaluations is deliberate: the budget bounds the additional work a cycle performs, not the number of extra admissions it may make.
 
-The Alpha default is 8 refill pops per cycle.
-This is a provisional operating point for the Alpha experiment, not a benchmark-derived optimum.
-It is large enough to exercise refill beyond a single successor while retaining a fixed global bound on additional cycle work, and the gate is disabled by default, so the bound applies only to clusters that opt into the experiment.
-
-The benchmark shows that no single fixed value is universally best: the useful allowance depends primarily on the number of ClusterQueues actively admitting.
-Replacing 8 with another fixed number would not make the default more principled, since any constant is fitted to the shape it was measured on.
-The default therefore needs to be revisited together with the budget-allocation model and the configuration surface before Beta.
+The Alpha default is 8 refill pops per cycle, enough to exercise refill beyond a single successor.
+It is a provisional operating point, not a benchmark-derived optimum: the benchmark shows that no fixed value is universally best, because the useful allowance depends mainly on how many ClusterQueues are actively admitting.
+The default is revisited before Beta together with the budget-allocation model and the configuration surface.
 
 ### Budget allocation
 
@@ -220,9 +211,7 @@ Correctness is covered at Alpha, and scheduler cost on topology-heavy workloads 
 
 Admission Fair Sharing maintains additional accounting that can change as a cycle makes progress: it orders LocalQueues by recorded usage, and records an entry penalty when a Workload is assumed.
 Refill increases the number of admissions a single cycle performs, so more penalties are recorded within one cycle, while the usage ledger the cycle reasons about is captured in the snapshot taken at cycle start.
-Alpha does not change those semantics.
-Before Beta we need to characterize and test what a refilled candidate observes.
-This is not a refill policy choice, which is why it is not listed among the three open questions above, but it does need to be settled before the gate is enabled by default.
+Alpha does not change those semantics, and what a refilled candidate observes has to be characterized and tested before the gate is enabled by default.
 
 ### Related mechanisms
 
@@ -232,12 +221,11 @@ The two do not overlap today, but they answer neighbouring questions about which
 
 ### Observability
 
-The implementation assigns stable reasons to the termination cases above, so that a chain's outcome can be logged and later exposed as a metric.
-Exhaustion of the budget is distinguished from an empty queue, so that a metric can report how often the bound actually binds rather than how often it is merely spent.
-Which reasons become metric labels, and how they relate to the in-cycle recompute metric discussed in [#14205](https://github.com/kubernetes-sigs/kueue/issues/14205), is decided together with that work rather than independently.
+Every way a refill chain can stop has a stable reason, so an outcome can be logged and later exposed as a metric.
+Budget exhaustion is distinguished from an empty queue, so a metric can report how often the bound actually binds rather than how often it is merely spent.
+Which reasons become metric labels, and how they relate to the in-cycle recompute metric discussed in [#14205](https://github.com/kubernetes-sigs/kueue/issues/14205), is decided together with that work.
 
-Refill permits multiple Workloads from one ClusterQueue to be in flight within a cycle.
-Queue diagnostics therefore include in-flight claims, so that leaked scheduler ownership remains observable.
+Refill lets more than one Workload from a ClusterQueue be in flight within a cycle, so queue diagnostics report which Workloads the scheduler currently holds, keeping a leak visible.
 
 ### Configuration
 
