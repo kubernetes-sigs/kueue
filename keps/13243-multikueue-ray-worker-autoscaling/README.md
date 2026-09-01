@@ -296,11 +296,22 @@ transiently differ from its admitted slice's count. Without tolerance, the **wor
 cluster's** Kueue would finish that workload `OutOfSync` and tear the job down.
 This KEP adds a resize tolerance in the jobframework that applies **on the worker
 cluster** — scoped to the MultiKueue-dispatched copy via the origin label — so a
-transient mismatch during handover is not treated as divergence:
+transient mismatch during handover is not treated as divergence.
 
-- On scale-up, extra pods stay behind scheduling gates and are never admitted
-  past quota.
-- On scale-down, the workload briefly over-reserves and is never under-reserved.
+**Scale-up.** KubeRay creates the new worker pods immediately, but each lands
+behind the `kueue.x-k8s.io/elastic-job` scheduling gate; the worker's ungater
+releases them — up to the granted count — only once the manager has admitted the
+replacement slice. Until then the job's desired count exceeds the admitted
+slice's: the tolerance absorbs that gap, and the gates keep it from becoming
+scheduled pods beyond quota.
+
+**Scale-down.** The two sides proceed independently: KubeRay makes sure the pods
+the autoscaler lists in `workersToDelete` are eventually deleted, without
+waiting for the workload's in-place update, and the reverse sync shrinks the
+slice without waiting for those pods to terminate. If that eventual guarantee
+proves insufficient, a future refinement could defer the workload update until
+KubeRay has cleared `workersToDelete` — that is, until the listed pods are
+actually gone.
 
 ### Test Plan
 
