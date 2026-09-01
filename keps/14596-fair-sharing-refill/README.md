@@ -10,20 +10,9 @@
     - [Story 1: a deep backlog drains one Workload per cycle](#story-1-a-deep-backlog-drains-one-workload-per-cycle)
     - [Story 2: available capacity goes to a ClusterQueue with a higher share](#story-2-available-capacity-goes-to-a-clusterqueue-with-a-higher-share)
   - [Terminology](#terminology)
-- [Design Details](#design-details)
-  - [Refill trigger and termination](#refill-trigger-and-termination)
-  - [Safety of mid-cycle evaluation](#safety-of-mid-cycle-evaluation)
+  - [Refill behavior](#refill-behavior)
   - [Refill budget](#refill-budget)
-  - [Budget allocation](#budget-allocation)
-  - [Budget exhaustion](#budget-exhaustion)
-  - [Scope](#scope)
   - [Interaction with other scheduling features](#interaction-with-other-scheduling-features)
-    - [ConcurrentAdmission](#concurrentadmission)
-    - [Preemption](#preemption)
-    - [WaitForPodsReady](#waitforpodsready)
-    - [Topology Aware Scheduling](#topology-aware-scheduling)
-    - [Admission Fair Sharing](#admission-fair-sharing)
-  - [Related mechanisms](#related-mechanisms)
   - [Observability](#observability)
   - [Configuration](#configuration)
   - [Notes, Constraints, and Caveats](#notes-constraints-and-caveats)
@@ -31,15 +20,18 @@
     - [Longer cycles act on an older snapshot](#longer-cycles-act-on-an-older-snapshot)
     - [Latency for Workloads arriving mid-cycle](#latency-for-workloads-arriving-mid-cycle)
     - [Fairness residue when the refill budget binds](#fairness-residue-when-the-refill-budget-binds)
-  - [Test Plan](#test-plan)
-    - [Unit tests](#unit-tests)
-    - [Integration tests](#integration-tests)
-    - [Benchmark](#benchmark)
-  - [Proposed Alpha semantics](#proposed-alpha-semantics)
-  - [Open questions before Beta](#open-questions-before-beta)
-  - [Graduation Criteria](#graduation-criteria)
-    - [Alpha (v0.20)](#alpha-v020)
-    - [Beta](#beta)
+- [Test Plan](#test-plan)
+  - [Unit tests](#unit-tests)
+  - [Integration tests](#integration-tests)
+  - [Benchmark](#benchmark)
+- [Proposed Alpha semantics](#proposed-alpha-semantics)
+- [Open questions before Beta](#open-questions-before-beta)
+  - [Budget allocation](#budget-allocation)
+  - [Budget exhaustion](#budget-exhaustion)
+  - [Scope beyond Fair Sharing](#scope-beyond-fair-sharing)
+- [Graduation Criteria](#graduation-criteria)
+  - [Alpha (v0.20)](#alpha-v020)
+  - [Beta](#beta)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -47,6 +39,7 @@
   - [Scanning past a blocked ClusterQueue head](#scanning-past-a-blocked-clusterqueue-head)
   - [An unbounded refill](#an-unbounded-refill)
   - [Charging the budget only for successful admissions](#charging-the-budget-only-for-successful-admissions)
+  - [Related mechanisms](#related-mechanisms)
 <!-- /toc -->
 
 ## Summary
@@ -120,11 +113,12 @@ The fair-sharing ordering decides who receives the freed capacity, not who happe
   It bounds scheduling work only, and grants a ClusterQueue no additional quota.
   [KEP-1714](../1714-fair-sharing/README.md) uses "budget" for a ClusterQueue's quota allowance, so this document always qualifies the term as *refill budget* to keep the two apart.
 
-## Design Details
+### Refill behavior
 
 The mechanism is simple: after each admission, the winner's successor joins the cycle's ordering and is picked next if its ClusterQueue is still the poorest, at most N times per cycle.
 
-### Refill trigger and termination
+Refill is available only with Fair Sharing, where the ordering is recomputed on every pop.
+This makes a mid-cycle candidate meaningful: the successor competes under the ordering that holds after its predecessor's admission.
 
 A refill chain starts only after a fresh admission.
 
@@ -136,88 +130,35 @@ It stops when:
 - the refill budget is exhausted; or
 - the successor cannot safely act on the current cycle's state.
 
+A refilled Workload may act in the current cycle only when its assignment is `Fit`.
+It sees the capacity that earlier admissions in the same cycle consumed, so any other outcome, such as no capacity, preemption, or deferred placement, may rest on state that will not exist in the next snapshot, and refill must not turn that transient view into a reservation or preemption decision.
+Such a Workload returns to the queue and is reconsidered from fresh cycle state, carrying nothing forward from what it saw mid-cycle.
+
 A refilled Workload still belongs to the cycle it joined, so a requeue signal that arrived after the cycle began remains visible to it.
 Otherwise the Workload could be parked as inadmissible and wait for a further event instead of for the next cycle.
 
-### Safety of mid-cycle evaluation
-
-A refilled Workload may act in the current cycle only when its assignment is `Fit`.
-
-A refilled Workload sees the capacity that earlier admissions in the same cycle consumed.
-Any outcome other than `Fit`, such as no capacity, preemption, or deferred placement, may therefore rest on state that will not exist in the next snapshot, and refill must not turn that transient view into a reservation or preemption decision.
-Such a Workload returns to the queue and is reconsidered from fresh cycle state, carrying nothing forward from what it saw mid-cycle.
-
 ### Refill budget
 
-The refill budget is spent on each Workload actually pulled into the cycle, whether or not it is then admitted.
-An attempt that finds the queue empty spends nothing.
-
+Alpha uses one global refill budget per scheduling cycle, so the additional scheduling work has a single upper bound regardless of how many cohorts exist.
+Each Workload actually pulled into the cycle spends one unit, whether or not it is then admitted, and an attempt that finds the queue empty spends nothing.
 Charging failed evaluations is deliberate: the budget bounds the additional work a cycle performs, not the number of extra admissions it may make.
+Once the budget is exhausted, no new successors enter the cycle, and candidates already present continue to be processed.
 
 The Alpha default is 8 refill pops per cycle, enough to exercise refill beyond a single successor.
 It is a provisional operating point, not a benchmark-derived optimum: the benchmark shows that no fixed value is universally best, because the useful allowance depends mainly on how many ClusterQueues are actively admitting.
-The default is revisited before Beta together with the budget-allocation model and the configuration surface.
-
-### Budget allocation
-
-**Alpha**: the refill budget is global per scheduling cycle.
-This provides one upper bound on additional scheduling work regardless of the number of cohorts, which is the simplest property to state and to verify.
-A per-cohort allowance would instead let the additional work grow with the number of cohorts, so Alpha starts from the stronger bound.
-
-**Open for Beta**: a global allowance does not guarantee how refill work is divided between independent cohorts.
-Alternatives include a per-cohort allowance, or a global cap combined with per-cohort limits.
-The Beta decision should balance per-cycle work bounds against cross-cohort predictability.
-
-### Budget exhaustion
-
-**Alpha**: when the budget is exhausted, no new successors enter the cycle, and candidates already present continue to be processed.
-
-**Open for Beta**: ending the cycle immediately would avoid further admissions while successors are hidden behind the exhausted budget, but it would defer the remaining candidates and may repeat some scheduling work in the next cycle.
-A third option is to end the cycle only when the ClusterQueue that just won still has a backlog.
-The exhaustion policy will be revisited using the benchmark and operational data.
-
-### Scope
-
-**Alpha**: refill is available only with Fair Sharing.
-The fair-sharing ordering is recomputed on every pop, which is what makes a mid-cycle candidate meaningful, because the successor competes at the ordering that holds after its predecessor's admission.
-
-**Open for Beta**: the underlying mechanism is not inherently fair-sharing-specific.
-Generalizing it requires defining ordering semantics for non-fair-sharing schedulers, and is not part of Alpha.
 
 ### Interaction with other scheduling features
 
-#### ConcurrentAdmission
-
-KEP-8691 states that the scheduler "picks up only one Variant per scheduling cycle", and relies on that to keep siblings of the same parent from being admitted against the same frozen snapshot.
-Refill therefore stops the chain when the admitted Workload is a variant.
-The successor scan reads a snapshot that does not carry this cycle's admissions, so refilling into a variant's ClusterQueue could admit a second variant of the same parent.
-
-#### Preemption
-
-Refilled Workloads do not act on preemption or other non-`Fit` outcomes in the current cycle.
-They are re-evaluated from a fresh snapshot in the next cycle.
-
-#### WaitForPodsReady
-
-Refill is disabled when `blockAdmission` serializes admission, because another candidate cannot make progress in the same cycle.
-
-#### Topology Aware Scheduling
-
-Refill does not change topology placement semantics.
-A refilled Workload is evaluated against the same current-cycle snapshot as other candidates.
-Correctness is covered at Alpha, and scheduler cost on topology-heavy workloads remains a Beta validation item.
-
-#### Admission Fair Sharing
-
-Admission Fair Sharing maintains additional accounting that can change as a cycle makes progress: it orders LocalQueues by recorded usage, and records an entry penalty when a Workload is assumed.
-Refill increases the number of admissions a single cycle performs, so more penalties are recorded within one cycle, while the usage ledger the cycle reasons about is captured in the snapshot taken at cycle start.
-Alpha does not change those semantics, and what a refilled candidate observes has to be characterized and tested before the gate is enabled by default.
-
-### Related mechanisms
-
-The Sticky ClusterQueue Head Policy applies to `BestEffortFIFO` ClusterQueues, and governs which Workload a ClusterQueue offers as its head across cycles.
-Refill applies only under Fair Sharing, and governs whether a ClusterQueue offers a further Workload within one cycle.
-The two do not overlap today, but they answer neighbouring questions about which Workload the scheduler serves next, so a future generalization of either should account for the other.
+- **ConcurrentAdmission**: refill stops the chain when the admitted Workload is a variant.
+  KEP-8691 states that the scheduler "picks up only one Variant per scheduling cycle", and relies on that to keep siblings of the same parent from being admitted against the same frozen snapshot.
+  The successor scan reads a snapshot that does not carry this cycle's admissions, so refilling into a variant's ClusterQueue could admit a second variant of the same parent.
+- **Preemption**: refilled Workloads do not act on preemption or other non-`Fit` outcomes in the current cycle, and are re-evaluated from a fresh snapshot in the next one.
+- **WaitForPodsReady**: refill is disabled when `blockAdmission` serializes admission, because another candidate cannot make progress in the same cycle.
+- **Topology Aware Scheduling**: placement semantics are unchanged, and a refilled Workload is evaluated against the same current-cycle snapshot as other candidates.
+  Correctness is covered at Alpha, and scheduler cost on topology-heavy workloads remains a Beta validation item.
+- **Admission Fair Sharing**: the existing accounting semantics are unchanged.
+  Admission Fair Sharing orders LocalQueues by recorded usage and records an entry penalty when a Workload is assumed, so a refilling cycle records more penalties while the usage ledger it reasons about stays as captured in the snapshot taken at cycle start.
+  What a refilled candidate observes has to be characterized and tested before the gate is enabled by default.
 
 ### Observability
 
@@ -273,18 +214,18 @@ When the budget is exhausted, a poorer ClusterQueue may have a successor that ne
 The benchmark demonstrates that this situation occurs under contested shares, although it does not establish that the hidden successor would necessarily have been admitted.
 The exhaustion policy is therefore treated as an open question rather than as settled behavior, as described under [Budget exhaustion](#budget-exhaustion).
 
-### Test Plan
+## Test Plan
 
-#### Unit tests
+### Unit tests
 
 Scheduler coverage includes the #9345 scenario with the gate on and off, budget boundaries, failed and dropped evaluations, re-ranking against the ordering recomputed after an admission, mid-cycle requeue signals, deferral of non-`Fit` outcomes, `ConcurrentAdmission`, topology-aware contention within one cycle, and the queue-layer bookkeeping for more than one in-flight Workload.
 The shared scheduler test body asserts after every case that any in-flight claim left standing belongs to a Workload that was admitted.
 
-#### Integration tests
+### Integration tests
 
 The #9345 shape is exercised end to end with the gate enabled and disabled.
 
-#### Benchmark
+### Benchmark
 
 A drain-to-empty benchmark measures repeated cycles until a fixture's Workloads are all admitted, across the gate being disabled and a range of bounded and unbounded refill budgets.
 The fixtures vary backlog concentration, cohort width, how much capacity is available per cycle, contested shares, two independent cohorts sharing one allowance, and assignment cost.
@@ -293,7 +234,7 @@ It reports drain wall-clock time, cycles, per-cycle quantiles, allocations, CPU 
 Preemption-heavy and topology-aware benchmark shapes are not yet covered.
 Preemption benchmarking in particular requires simulating the workload controller so that evictions take effect.
 
-### Proposed Alpha semantics
+## Proposed Alpha semantics
 
 Fair Sharing Refill is proposed as an Alpha, Fair-Sharing-only behavior:
 
@@ -307,24 +248,38 @@ Fair Sharing Refill is proposed as an Alpha, Fair-Sharing-only behavior:
 These choices are intended to make the Alpha behavior easy to bound and reason about.
 They are not all proposed as the final policy for Beta.
 
-### Open questions before Beta
+## Open questions before Beta
 
-This KEP intentionally leaves three policy choices open for Beta:
+This KEP intentionally leaves three policy choices open for Beta.
 
-- whether the refill allowance remains global or is divided between cohorts;
-- whether budget exhaustion finishes the current candidate set or ends the cycle;
-- whether refill remains a Fair Sharing feature or becomes a general bounded candidate-refill mechanism.
+### Budget allocation
 
-### Graduation Criteria
+A global allowance does not guarantee how refill work is divided between independent cohorts.
+Alternatives include a per-cohort allowance, or a global cap combined with per-cohort limits.
+A per-cohort allowance would let the additional work grow with the number of cohorts, which is why Alpha starts from the stronger bound.
+The Beta decision should balance per-cycle work bounds against cross-cohort predictability, and the default of 8 is revisited together with it and with the configuration surface.
 
-#### Alpha (v0.20)
+### Budget exhaustion
+
+Ending the cycle immediately would avoid further admissions while successors are hidden behind the exhausted budget, but it would defer the remaining candidates and may repeat some scheduling work in the next cycle.
+A third option is to end the cycle only when the ClusterQueue that just won still has a backlog.
+The exhaustion policy will be revisited using the benchmark and operational data.
+
+### Scope beyond Fair Sharing
+
+The underlying mechanism is not inherently fair-sharing-specific.
+Generalizing it requires defining ordering semantics for non-fair-sharing schedulers, and is not part of Alpha.
+
+## Graduation Criteria
+
+### Alpha (v0.20)
 
 - Feature gate disabled by default.
 - Fair Sharing only, and a refilled Workload acts only on `Fit`.
 - Global per-cycle refill budget with a constant default, and no user-facing configuration.
 - Drain benchmark covering cycle duration, arrival latency, and a budget sweep.
 
-#### Beta
+### Beta
 
 - Select and document the refill-budget allocation model.
 - Select and document the budget-exhaustion behavior.
@@ -378,3 +333,9 @@ Everything the scheduler learns during a cycle is learned from one snapshot, whi
 
 This would make the budget a promise about admissions rather than about work.
 On a contended cohort, where most refill pops are returned, failed evaluations would no longer be bounded by the configured refill budget, which is the case the bound exists for.
+
+### Related mechanisms
+
+The Sticky ClusterQueue Head Policy applies to `BestEffortFIFO` ClusterQueues, and governs which Workload a ClusterQueue offers as its head across cycles.
+Refill applies only under Fair Sharing, and governs whether a ClusterQueue offers a further Workload within one cycle.
+The two do not overlap today, but they answer neighbouring questions about which Workload the scheduler serves next, so a future generalization of either should account for the other.
