@@ -23,7 +23,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -65,7 +64,7 @@ func BenchmarkTASFlavorSnapshotOverlappingUsage(b *testing.B) {
 		for _, v := range []int{2, 3} {
 			b.Run(fmt.Sprintf("held=%d/flavors=%d/v%d", tc.held, tc.flavors, v), func(b *testing.B) {
 				nodes := buildBenchNodes(benchTopology{nodes: tc.held, nodesPerRack: 16, racksPerBlock: 16})
-				tasCache := NewTASCache(nil, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
+				tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
 				for i := range nodes {
 					tasCache.SyncNode(&nodes[i])
 				}

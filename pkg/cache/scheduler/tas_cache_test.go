@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -8350,7 +8349,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 				client := clientBuilder.Build()
 
-				tasCache := NewTASCache(client, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
+				tasCache := NewTASCache(client, newDefaultSimulator(), resources.NewResourceFormatter())
 				for i := range tc.nodes {
 					tasCache.SyncNode(&tc.nodes[i])
 				}
@@ -8388,7 +8387,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				snapshot, err := tasFlavorCache.snapshot(
 					ctx,
 					log,
-					simulator.NewDefaultSimulatorSnapshot(),
+					newDefaultSimulatorSnapshot(),
 					aggregatedDomainUsage,
 				)
 				if err != nil {
@@ -8867,7 +8866,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
 			c := clientBuilder.Build()
 
-			tasCache := NewTASCache(c, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
+			tasCache := NewTASCache(c, newDefaultSimulator(), resources.NewResourceFormatter())
 			for i := range tc.nodes {
 				tasCache.SyncNode(&tc.nodes[i])
 			}
@@ -8902,7 +8901,7 @@ func TestFindTopologyAssignmentsMultiLayerReplacement(t *testing.T) {
 			snapshot, err := tasFlavorCache.snapshot(
 				ctx,
 				log,
-				simulator.NewDefaultSimulatorSnapshot(),
+				newDefaultSimulatorSnapshot(),
 				aggregatedDomainUsages,
 			)
 			if err != nil {
