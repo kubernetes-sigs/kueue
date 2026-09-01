@@ -941,7 +941,14 @@ function cluster_kueue_deploy {
             build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/whole-device"
         fi
     elif [ "$E2E_USE_HELM" == 'true' ]; then
-        helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
+        # Suites that need chart values beyond the defaults ship their own values.yaml,
+        # layered on top rather than replacing them.
+        local extra_values="${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}/values.yaml"
+        if [[ "${E2E_CONFIG_FOLDER:-default}" != "default" && -f "${extra_values}" ]]; then
+            helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml" "${extra_values}"
+        else
+            helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml"
+        fi
     else
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}"
     fi
@@ -950,15 +957,22 @@ function cluster_kueue_deploy {
 }
 
 # $1 kubeconfig
-# $2 values file
+# $2.. values files, applied in order so a later file overrides an earlier one
 function helm_install {
+    local kubeconfig=$1
+    shift
+    local values_args=()
+    local values_file
+    for values_file in "$@"; do
+        values_args+=(-f "${values_file}")
+    done
     $HELM install \
-      -f "$2" \
+      "${values_args[@]}" \
       --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
       --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
       --create-namespace \
       --namespace kueue-system \
-      --kubeconfig "$1" \
+      --kubeconfig "${kubeconfig}" \
       kueue "${ROOT_DIR}/charts/kueue"
 }
 
@@ -1423,13 +1437,6 @@ function install_network_policies_enforcement {
     e2e_kubectl_apply_url "${NETWORK_POLICIES_MANIFEST}" --kubeconfig="${kubeconfig}"
     kubectl rollout status daemonset/kube-network-policies -n kube-system \
         --timeout=5m --kubeconfig="${kubeconfig}"
-}
-
-# $1 kubeconfig option
-function deploy_kueue_network_policies {
-    local kubeconfig=${1:-}
-    $KUSTOMIZE build "${ROOT_DIR}/config/networkpolicy" | \
-        kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
 }
 
 # $1 kubeconfig option
