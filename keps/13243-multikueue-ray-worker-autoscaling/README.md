@@ -128,8 +128,10 @@ temporarily.
 
 ### Notes/Constraints/Caveats
 
-- The feature applies only to elastic (`ElasticJobsViaWorkloadSlices`) Ray objects
-  dispatched through MultiKueue with `enableInTreeAutoscaling` set.
+- The feature is gated by the new `MultiKueueRayInTreeAutoscaling` feature gate
+  (alpha, off by default) and applies only to elastic
+  (`ElasticJobsViaWorkloadSlices`) Ray objects dispatched through MultiKueue with
+  `enableInTreeAutoscaling` set.
 - Only per-worker-group replica counts move in the worker→manager direction, and
   only as annotations — the manager spec is never rewritten. Structural changes
   (adding/removing worker groups, resource shapes) remain manager-owned.
@@ -327,12 +329,15 @@ None beyond the coverage described below.
 
 ### Graduation Criteria
 
-The feature follows the standard Kueue maturity progression, riding the existing
-`ElasticJobsViaWorkloadSlices` alpha feature gate together with MultiKueue.
+The feature follows the standard Kueue maturity progression on its own
+`MultiKueueRayInTreeAutoscaling` feature gate; it additionally requires
+`ElasticJobsViaWorkloadSlices` and MultiKueue.
 
 **Alpha**: Reverse elastic sync is implemented for RayCluster and RayJob behind the
-`ElasticJobsViaWorkloadSlices` gate, with basic functionality covered by tests and
-accompanying documentation.
+`MultiKueueRayInTreeAutoscaling` gate (off by default), with basic functionality
+covered by tests and accompanying documentation. While the gate is off, the
+validating webhook keeps rejecting `enableInTreeAutoscaling` on a
+MultiKueue-managed elastic Ray object, exactly as it does today.
 
 **Beta**: Positive feedback from Alpha, broader test coverage, and any documented
 follow-ups addressed.

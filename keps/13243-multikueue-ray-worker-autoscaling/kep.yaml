@@ -30,11 +30,11 @@ milestone:
   stable: TBD
 
 # The following PRR answers are required at alpha release.
-# This feature does not introduce a new feature gate; it is enabled when the
-# existing ElasticJobsViaWorkloadSlices gate is on, MultiKueue is configured,
-# and the RayCluster/RayJob sets enableInTreeAutoscaling.
+# The feature has its own alpha gate (off by default); it additionally requires
+# the ElasticJobsViaWorkloadSlices gate, MultiKueue, and the RayCluster/RayJob
+# setting enableInTreeAutoscaling.
 feature-gates:
-  - name: ElasticJobsViaWorkloadSlices
+  - name: MultiKueueRayInTreeAutoscaling
 disable-supported: true
 
 # The following PRR answers are required at beta release.
