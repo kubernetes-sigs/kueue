@@ -6,10 +6,12 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"maps"
+	"slices"
+	"sync"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
@@ -23,28 +25,50 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/scheduler-library/pkg/framework"
 	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
 	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
+// Order is important. WorkloadSliceNameAnnotation should be checked before WorkloadAnnotation.
+var podWorkloadAnnotations = []string{
+	kueue.WorkloadSliceNameAnnotation,
+	kueue.WorkloadAnnotation,
+	controllerconstants.PrebuiltWorkloadAnnotation,
+	podconstants.GroupNameAnnotation,
+}
+
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error)
+type podsByKey map[client.ObjectKey]*corev1.Pod
+type podsByWorkload map[client.ObjectKey]podsByKey
 
 // podTracker maintains pod state for scheduler plugins that need
 // existing pod information.
 type podTracker struct {
-	pods *utilmaps.SyncMap[types.NamespacedName, *corev1.Pod]
+	sync.RWMutex
+	pods         podsByKey
+	workloadPods podsByWorkload
 }
 
 type wasSimulator struct {
 	newSnapshot snapshotFactory
 	pods        podTracker
 }
+
+type wasSimulatorSnapshot struct {
+	wasSnapshot    *schedLibSnapshot.ClusterSnapshot
+	podsByWorkload podsByWorkload
+}
+
+var _ simulator.SimulatorSnapshot = (*wasSimulatorSnapshot)(nil)
 
 func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 	return &schedulerconfig.KubeSchedulerConfiguration{
@@ -109,7 +133,8 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	return &wasSimulator{
 		newSnapshot: snapshotFn,
 		pods: podTracker{
-			pods: utilmaps.NewSyncMap[types.NamespacedName, *corev1.Pod](0),
+			pods:         make(podsByKey),
+			workloadPods: make(podsByWorkload),
 		},
 	}, nil
 }
@@ -118,8 +143,15 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 // suitable for unit tests that need the full production plugin pipeline.
 // It wraps ctx with a discard logger to prevent background informer goroutines
 // from racing with test teardown when t.Context() carries a test logger.
-func NewWASSimulatorForTest(ctx context.Context) (simulator.SchedulingSimulator, error) {
-	return newWASSimulator(klog.NewContext(ctx, logr.Discard()), fake.NewSimpleClientset())
+func NewWASSimulatorForTest(ctx context.Context) (*wasSimulator, error) {
+	iSim, err := newWASSimulator(klog.NewContext(ctx, logr.Discard()), fake.NewSimpleClientset())
+	if err != nil {
+		return nil, err
+	}
+	if sim, ok := iSim.(*wasSimulator); ok {
+		return sim, nil
+	}
+	return nil, fmt.Errorf("internal error: expected WAS simulator, got %T", iSim)
 }
 
 func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.SchedulingSimulator, error) {
@@ -131,38 +163,111 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
 
-type wasSimulatorSnapshot struct {
-	wasSnapshot *schedLibSnapshot.ClusterSnapshot
-}
-
 func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simulator.SimulatorSnapshot, error) {
-	pods := s.pods.allPods()
-	clusterSnap, err := s.newSnapshot(ctx, pods, nodes)
+	allPods, podsByWorkload := s.pods.snapshot()
+	clusterSnap, err := s.newSnapshot(ctx, allPods, nodes)
 	if err != nil {
 		return nil, err
 	}
-	return &wasSimulatorSnapshot{wasSnapshot: clusterSnap}, nil
+	return &wasSimulatorSnapshot{
+		wasSnapshot:    clusterSnap,
+		podsByWorkload: podsByWorkload,
+	}, nil
 }
 
 func (s *wasSimulator) TrackPod(pod *corev1.Pod) {
 	s.pods.track(pod)
 }
 
-func (s *wasSimulator) UntrackPod(key types.NamespacedName) {
+func (s *wasSimulator) UntrackPod(key client.ObjectKey) {
 	s.pods.untrack(key)
 }
 
-func (t *podTracker) allPods() []*corev1.Pod {
-	return t.pods.Values()
+func (m podsByWorkload) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
+	if len(m) == 0 {
+		return nil
+	}
+	if podSet, ok := m[wlKey]; ok {
+		return slices.Collect(maps.Values(podSet))
+	}
+	return nil
+}
+
+func (t *podTracker) snapshot() (allPods []*corev1.Pod, workloadPods podsByWorkload) {
+	t.RLock()
+	defer t.RUnlock()
+
+	allPods = slices.Collect(maps.Values(t.pods))
+	workloadPods = podsByWorkload{}
+	for k, v := range t.workloadPods {
+		workloadPods[k] = maps.Clone(v)
+	}
+	return
 }
 
 func (t *podTracker) track(pod *corev1.Pod) {
+	t.Lock()
+	defer t.Unlock()
+
+	if pod == nil {
+		return
+	}
+	pod = pod.DeepCopy()
 	key := client.ObjectKeyFromObject(pod)
-	t.pods.Add(key, pod)
+	if oldPod, found := t.pods[key]; found {
+		t.clearPod(key, oldPod)
+	}
+	t.savePod(key, pod)
 }
 
-func (t *podTracker) untrack(key types.NamespacedName) {
-	t.pods.Delete(key)
+func (t *podTracker) untrack(key client.ObjectKey) {
+	t.Lock()
+	defer t.Unlock()
+
+	if pod, ok := t.pods[key]; ok {
+		t.clearPod(key, pod)
+	}
+}
+
+func (t *podTracker) clearPod(key client.ObjectKey, pod *corev1.Pod) {
+	delete(t.pods, key)
+
+	wl := workloadName(pod)
+	if wl == "" {
+		return
+	}
+
+	wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
+	delete(t.workloadPods[wlKey], key)
+	if len(t.workloadPods[wlKey]) == 0 {
+		delete(t.workloadPods, wlKey)
+	}
+}
+
+func (t *podTracker) savePod(podKey client.ObjectKey, pod *corev1.Pod) {
+	t.pods[podKey] = pod
+
+	wl := workloadName(pod)
+	if wl == "" {
+		// Pods with indeterminate workloads are not
+		// eligible for preemption simulations.
+		return
+	}
+
+	wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
+	if _, ok := t.workloadPods[wlKey]; !ok {
+		t.workloadPods[wlKey] = make(podsByKey)
+	}
+	t.workloadPods[wlKey][podKey] = pod
+}
+
+func workloadName(pod *corev1.Pod) string {
+	for _, annotation := range podWorkloadAnnotations {
+		if wl, ok := pod.Annotations[annotation]; ok {
+			return wl
+		}
+	}
+	return ""
 }
 
 func (s *wasSimulatorSnapshot) FindFeasibleNodes(
@@ -211,4 +316,27 @@ func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 	stats.SchedulerLibraryNoFit = len(candidateNodeNames) - len(feasibleNodeNames)
 
 	return feasibleCandidates, nil
+}
+
+func (s *wasSimulatorSnapshot) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
+	// Pods with indeterminate workloads are not stored in s.podsByWorkload and are omitted from preemptions.
+	// This means the simulation may be more restrictive than the real scheduler would be,
+	// if the preempted workload has pods that do not identify with it directly.
+	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsByWorkload.getPodsForWorkload(wlKey))
+	if err != nil {
+		ctrl.LoggerFrom(ctx).V(4).Error(err, "Failed to preempt workload's pods from WAS snapshot.", "workload", wlKey.String())
+		return nil, err
+	}
+
+	return func() error {
+		_, err := s.wasSnapshot.Unpreempt(unpreempt)
+		return err
+	}, nil
+}
+
+func (s *wasSimulatorSnapshot) Simulate(ctx context.Context, fn func()) error {
+	return s.wasSnapshot.Transaction(ctx, func() (schedLibSnapshot.TransactionResult, error) {
+		fn()
+		return schedLibSnapshot.Revert, nil
+	})
 }
