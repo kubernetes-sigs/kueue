@@ -73,6 +73,33 @@ func validateTorchTune(runtimeInfo *runtime.Info, newObj *trainer.TrainJob) (adm
 			)
 		}
 	}
+	// LoRA fine-tuning is not supported for multi-node training in TorchTune.
+	// getRecipeAndConfig silently falls through to full_finetune_distributed when
+	// numNodes > 1, discarding LoRA args without any user-visible error.
+	if numNodes > 1 && (isLoraConfigEnabled(newObj.Spec.Trainer.Args) || isUseQLoraFinetune(newObj.Spec.Trainer.Args)) {
+		allErrs = append(allErrs, field.Invalid(
+			numNodesRefPath,
+			numNodes,
+			"LoRA fine-tuning is not supported for multi-node training in TorchTune",
+		))
+	}
+
+	// Immutable runtime configs must not be set in spec.trainer.args.
+	// output_dir, tokenizer.path, checkpointer.checkpoint_dir, and tokenizer.merges_file
+	// are injected by the runtime via extractOverridesFromRuntime and must not be
+	// overridden by the user.
+	trainerArgsPath := specPath.Child("trainer").Child("args")
+	for i, arg := range newObj.Spec.Trainer.Args {
+		key := strings.SplitN(arg, "=", 2)[0]
+		if constants.TorchTuneImmutableConfigs.Has(key) {
+			allErrs = append(allErrs, field.Invalid(
+				trainerArgsPath.Index(i),
+				arg,
+				fmt.Sprintf("must not set immutable config %q in trainer args; it is managed by the runtime", key),
+			))
+		}
+	}
+
 	return nil, allErrs
 }
 
@@ -115,19 +142,30 @@ func isLoraConfigEnabled(args []string) bool {
 	return false
 }
 
-// isUseQLoraFinetune checks if QLoRA fine-tuning should be used.
-func isUseQLoraFinetune(args []string) bool {
-	hasQuantizeBase := false
+// isBoolArgEnabled reports whether args contains a "key=value" entry whose key
+// matches configItem and whose value is a Python-style truthy boolean (e.g.
+// "model.quantize_base=True"). Entries with a falsy value such as
+// "model.quantize_base=False" are treated as disabled.
+func isBoolArgEnabled(args []string, configItem string) bool {
 	for _, arg := range args {
-		switch {
-		case strings.Contains(arg, constants.TorchTuneUseDora):
-			// If Dora is enabled, no need to continue
-			return false
-		case strings.Contains(arg, constants.TorchTuneQuantizeBase):
-			hasQuantizeBase = true
+		name, value, found := strings.Cut(arg, "=")
+		if !found {
+			continue
+		}
+		if strings.Contains(name, configItem) && strings.EqualFold(strings.TrimSpace(value), "true") {
+			return true
 		}
 	}
-	return hasQuantizeBase
+	return false
+}
+
+// isUseQLoraFinetune checks if QLoRA fine-tuning should be used.
+func isUseQLoraFinetune(args []string) bool {
+	// If DoRA is enabled, QLoRA is not used.
+	if isBoolArgEnabled(args, constants.TorchTuneUseDora) {
+		return false
+	}
+	return isBoolArgEnabled(args, constants.TorchTuneQuantizeBase)
 }
 
 // extractOverridesFromRuntime extracts overrides from the TorchTune Trainer Node.

@@ -315,7 +315,7 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 		return err
 	}
 
-	err = jobframework.PrepareWorkloadPriority(ctx, r.client, lws, createdWorkload, nil)
+	err = jobframework.PrepareWorkloadPriority(ctx, r.client, r.record, lws, createdWorkload, nil)
 	if err != nil {
 		log.Error(err, "Failed to prepare Workload priority")
 		return err
@@ -508,20 +508,20 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 	}
 	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
-	if lws == nil || utilstatefulset.ShouldFinalizePod(sts, pod) {
+	if lws == nil || utilstatefulset.ShouldUngatePod(sts, pod) {
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-			if utilstatefulset.UngateAndFinalizePod(sts, pod, lws == nil) {
-				log.V(3).Info("Finalizing LeaderWorkerSet Pod")
+			if utilstatefulset.UngatePod(sts, pod, lws == nil) {
+				log.V(3).Info("Ungating LeaderWorkerSet Pod")
 				return true, nil
 			}
-			log.V(3).Info("Skipping finalizing LeaderWorkerSet Pod")
+			log.V(3).Info("Skipping ungating LeaderWorkerSet Pod")
 			return false, nil
 		})
 		if client.IgnoreNotFound(err) != nil {
-			log.Error(err, "Failed to finalize Pod")
+			log.Error(err, "Failed to ungate Pod")
 			return err
 		}
-	} else {
+	} else if !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil {
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			updated := r.setDefault(lws, pod)
 			if updated {
@@ -539,8 +539,18 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 }
 
 func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *corev1.Pod) bool {
-	// Pod already has managed-by-kueue label, skipping.
+	queueName := jobframework.QueueNameForObject(lws)
+
 	if _, ok := pod.Labels[constants.ManagedByKueueLabelKey]; ok {
+		// TODO(#13968): Candidate for removal once LeaderWorkerSets admitted before #4932
+		// are gone, no earlier than 0.21. The webhook stamps the queue name on the pod
+		// templates, so it is only missing here on those, which #4932 did not migrate.
+		// Only gated pods qualify: the pod webhook rejects the change on others.
+		if queueName != "" && utilpod.HasGate(pod, podconstants.SchedulingGateName) &&
+			pod.Labels[controllerconstants.QueueLabel] != string(queueName) {
+			pod.Labels[controllerconstants.QueueLabel] = string(queueName)
+			return true
+		}
 		return false
 	}
 
@@ -556,6 +566,14 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 	}
 
 	pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
+	// TODO(#13968): Candidate for removal together with the backfill above, no earlier
+	// than 0.21. Normally the webhook has already stamped the queue name on the pod
+	// template, so this only matters for a LeaderWorkerSet admitted before #4932;
+	// setting it here saves reconciling the pod a second time to backfill it.
+	// Only gated pods qualify: the pod webhook rejects the change on others.
+	if queueName != "" && utilpod.HasGate(pod, podconstants.SchedulingGateName) {
+		pod.Labels[controllerconstants.QueueLabel] = string(queueName)
+	}
 	podcontroller.SetPodGroupName(pod, wlName)
 	jobframework.SetPrebuiltWorkloadName(pod, wlName)
 	pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
@@ -660,8 +678,8 @@ func (h *lwsWorkloadHandler) enqueue(ctx context.Context, obj client.Object, q w
 }
 
 // lwsPodHandler watches for Pod create and update events and triggers reconciliation
-// of the owning LeaderWorkerSet. This ensures that we will finalize and ungate pods
-// and set default values.
+// of the owning LeaderWorkerSet. This ensures that we will ungate Pods and set
+// default values.
 type lwsPodHandler struct{}
 
 var _ handler.EventHandler = (*lwsPodHandler)(nil)
@@ -720,7 +738,7 @@ func (h *lwsPodHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 // lwsStsHandler watches for StatefulSet update events and triggers reconciliation
 // of the owning LeaderWorkerSet.
 // Subscribe to StatefulSet updates and watch .Status.CurrentRevision and .Status.UpdateRevision
-// to finalize Pods and remove scheduling gates when a new revision appears.
+// to remove Pod scheduling gates when a new revision appears.
 type lwsStsHandler struct{}
 
 var _ handler.EventHandler = (*lwsStsHandler)(nil)
@@ -752,10 +770,8 @@ func (h *lwsStsHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 	)
 	log.V(3).Info("Enqueue LeaderWorkerSet StatefulSet")
 
-	// Handle only when .Status.CurrentRevision != .Status.UpdateRevision.
-	// This ensures that Pods are finalized and scheduling gates are removed
-	// when the revision changes.
-	if sts.Status.CurrentRevision == "" || sts.Status.UpdateRevision == "" &&
+	// Handle only a rollout, since that is when the Pod scheduling gates come off.
+	if sts.Status.CurrentRevision == "" || sts.Status.UpdateRevision == "" ||
 		sts.Status.CurrentRevision == sts.Status.UpdateRevision {
 		return
 	}

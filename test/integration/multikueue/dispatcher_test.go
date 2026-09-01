@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -36,6 +37,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -449,6 +451,97 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
+
+	ginkgo.DescribeTable("MutatingAdmissionPolicy clear nominatedClusterNames test matrix",
+		func(updateWlStatus func(wl *kueue.Workload), wantCleared bool) {
+			job := testingjob.MakeJob("job-map-table", managerNs.Name).
+				ManagedBy(kueue.MultiKueueControllerName).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				Obj()
+			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+
+			ginkgo.By("setting workload reservation in the management cluster", func() {
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+					Obj()
+				util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+			})
+
+			ginkgo.By("updating workload nomination using SSA with a custom external field manager", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					managerWl := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+
+					err := workloadpatching.PatchStatus(
+						managerTestCluster.ctx,
+						managerTestCluster.client,
+						managerWl,
+						client.FieldOwner("external-dispatcher-app"),
+						func(wl *kueue.Workload) (bool, error) {
+							wl.Status.NominatedClusterNames = []string{workerCluster1.Name, workerCluster2.Name}
+							return true, nil
+						},
+						workloadpatching.WithForceApply(),
+					)
+					g.Expect(err).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					managerWl := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+					g.Expect(managerWl.Status.NominatedClusterNames).To(gomega.ConsistOf(workerCluster1.Name, workerCluster2.Name))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("updating workload status according to test case", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					managerWl := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+					g.Expect(workloadpatching.PatchAdmissionStatus(managerTestCluster.ctx, managerTestCluster.client, managerWl, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+						updateWlStatus(wl)
+						return true, nil
+					})).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					managerWl := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+					if wantCleared {
+						g.Expect(managerWl.Status.NominatedClusterNames).To(gomega.BeEmpty())
+					} else {
+						g.Expect(managerWl.Status.NominatedClusterNames).To(gomega.ConsistOf(workerCluster1.Name, workerCluster2.Name))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		},
+		ginkgo.Entry("when clusterName is set (admission)",
+			func(wl *kueue.Workload) {
+				wl.Status.ClusterName = &workerCluster1.Name
+			},
+			true,
+		),
+		ginkgo.Entry("when Evicted condition is set to True",
+			func(wl *kueue.Workload) {
+				workloadevict.SetEvictedCondition(wl, util.RealClock.Now(), kueue.WorkloadEvictedByAdmissionCheck, "check rejected")
+			},
+			true,
+		),
+		ginkgo.Entry("when clusterName and Evicted condition are both set",
+			func(wl *kueue.Workload) {
+				wl.Status.ClusterName = &workerCluster1.Name
+				workloadevict.SetEvictedCondition(wl, util.RealClock.Now(), kueue.WorkloadEvictedByAdmissionCheck, "check rejected")
+			},
+			true,
+		),
+		ginkgo.Entry("when status update does not trigger clusterName or Evicted condition (negative test)",
+			func(wl *kueue.Workload) {
+				wl.Status.RequeueState = &kueue.RequeueState{Count: ptr.To[int32](1)}
+			},
+			false,
+		),
+	)
 })
 
 var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {

@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -572,11 +573,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		var requeueAfter time.Duration
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); cond != nil && cond.Status == metav1.ConditionFalse {
-				switch cond.Reason {
-				case kueue.WorkloadDeactivated:
+				switch {
+				// Matches both the base "Deactivated" reason and derived "DeactivatedDueTo<Cause>" reasons.
+				case strings.HasPrefix(cond.Reason, kueue.WorkloadDeactivated):
 					workload.SetRequeuedCondition(wl, kueue.WorkloadReactivated, "The workload was reactivated", true)
 					updated = true
-				case kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadEvictedByAdmissionCheck:
+				case cond.Reason == kueue.WorkloadEvictedByPodsReadyTimeout || cond.Reason == kueue.WorkloadEvictedByAdmissionCheck:
 
 					if wl.Status.RequeueState != nil && wl.Status.RequeueState.RequeueAt != nil {
 						requeueAfter = wl.Status.RequeueState.RequeueAt.Sub(r.clock.Now())
@@ -606,20 +608,34 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		reason := kueue.WorkloadDeactivated
 		message := "The workload is deactivated"
 		dtCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
+		if dtCond != nil {
+			underlyingCause = kueue.EvictionUnderlyingCause(dtCond.Reason)
+			message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
+		}
 		if !workloadevict.IsEvicted(&wl) {
-			if dtCond != nil {
-				underlyingCause = kueue.EvictionUnderlyingCause(dtCond.Reason)
-				message = fmt.Sprintf("%s due to %s", message, dtCond.Message)
-			}
 			updated = true
 			evicted = true
 		}
-		if wl.Status.RequeueState != nil {
+		// If the Workload is already evicted, the branch below calls `clientutil.PatchStatus`
+		// instead of Evict(), which is the only place that clears DeactivationTarget.
+		// Left in place, that condition would still be true the next time this Workload is
+		// activated, causing it to be deactivated again immediately.
+		if dtCond != nil || wl.Status.RequeueState != nil {
 			updated = true
 		}
 		prepare := func(wl *kueue.Workload) {
 			if dtCond != nil {
 				apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadDeactivationTarget)
+				// Consuming a DeactivationTarget on an already-evicted Workload (evicted is
+				// false) skips Evict(), so record the deactivation reason and reset the checks
+				// here. Otherwise the Evicted condition keeps the reason of the earlier
+				// eviction, and a Rejected check would re-deactivate the Workload as soon as it
+				// is reactivated.
+				if !evicted {
+					workloadevict.SetEvictedCondition(wl, r.clock.Now(),
+						workloadpatching.ReasonWithCause(reason, string(underlyingCause)), message)
+					workloadevict.ResetChecksOnEviction(wl, r.clock.Now())
+				}
 			}
 			if wl.Status.RequeueState != nil {
 				// Clear RequeueState using Merge Patch instead of SSA.
@@ -841,7 +857,10 @@ func isDisabledRequeuedByReason(w *kueue.Workload, reason string) bool {
 // reconcileMaxExecutionTime deactivates the workload if its MaximumExecutionTimeSeconds is exceeded or returns a retry after value.
 func (r *WorkloadReconciler) reconcileMaxExecutionTime(ctx context.Context, wl *kueue.Workload) (time.Duration, error) {
 	admittedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-	if admittedCondition == nil || admittedCondition.Status != metav1.ConditionTrue || wl.Spec.MaximumExecutionTimeSeconds == nil {
+	// A deactivated Workload keeps its Admitted condition until the Job controller releases the
+	// quota reservation, so without the IsActive check this would re-target it — and re-emit the
+	// warning — on every reconcile once the deactivation cleared the DeactivationTarget.
+	if !workload.IsActive(wl) || admittedCondition == nil || admittedCondition.Status != metav1.ConditionTrue || wl.Spec.MaximumExecutionTimeSeconds == nil {
 		return 0, nil
 	}
 
@@ -907,12 +926,19 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		// Parent Workloads are not supposed to have admission checks.
 		return false, nil
 	}
-	if workloadevict.IsEvicted(wl) || (!workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl)) {
+	if !workload.HasRetryChecks(wl) && !workload.HasRejectedChecks(wl) {
 		return false, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
 	log.V(3).Info("Workload is evicted due to admission checks")
+	// Rejected is terminal, so it applies even mid-eviction: an external controller can set it
+	// after an earlier Retry already evicted the Workload and reset the checks to Pending.
 	if workload.HasRejectedChecks(wl) {
+		// A deactivated Workload is already in its terminal state; re-targeting it would
+		// undo the DeactivationTarget cleanup and leave it permanently un-reactivatable.
+		if !workload.IsActive(wl) {
+			return false, nil
+		}
 		rejectedChecks := workload.RejectedChecks(wl)
 		message := buildAdmissionChecksMessage(rejectedChecks, kueue.CheckStateRejected)
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
@@ -926,6 +952,10 @@ func (r *WorkloadReconciler) reconcileCheckBasedEviction(ctx context.Context, wl
 		return true, nil
 	}
 	// at this point we know a Workload has at least one Retry AdmissionCheck
+	// Retry evicts, so skip it while an eviction is already in flight.
+	if workloadevict.IsEvicted(wl) {
+		return false, nil
+	}
 	retryChecks := workload.RetryChecks(wl)
 	message := fmt.Sprintf("Evicted due to %s", buildAdmissionChecksMessage(retryChecks, kueue.CheckStateRetry))
 	exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)

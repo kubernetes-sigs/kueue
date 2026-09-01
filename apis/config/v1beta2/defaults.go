@@ -116,9 +116,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 		cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds = cmp.Or(cfg.WaitForPodsReady.RequeuingStrategy.BackoffMaxSeconds, new(int32(DefaultRequeuingBackoffMaxSeconds)))
 	}
 
-	if cfg.QuotaReleaseStrategy == nil {
-		cfg.QuotaReleaseStrategy = new(QuotaReleaseOnTerminating)
-	}
+	cfg.QuotaReleaseStrategy = cmp.Or(cfg.QuotaReleaseStrategy, new(QuotaReleaseOnTerminating))
 
 	cfg.Integrations = cmp.Or(cfg.Integrations, &Integrations{})
 	if len(cfg.Integrations.Frameworks) == 0 {

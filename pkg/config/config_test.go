@@ -1105,6 +1105,7 @@ webhook:
 				},
 				WaitForPodsReady:     defaultWaitForPodsReady,
 				QuotaReleaseStrategy: ptr.To[configapi.QuotaReleaseStrategy](configapi.QuotaReleaseOnTerminating),
+
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
 					Burst: new(configapi.DefaultClientConnectionBurst),
@@ -1116,7 +1117,7 @@ webhook:
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
 					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{

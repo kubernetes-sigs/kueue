@@ -8,7 +8,7 @@ on:
 permissions: {}
 
 jobs:
-  test_bom_action:
+  generate-sbom:
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -16,26 +16,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Set tag name
-        shell: bash
-        run: |
-          TAG=${{ github.event.inputs.tag }}
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
-          check-latest: true
-          cache: true
-      - name: Install bom
-        uses: kubernetes-sigs/release-actions/setup-bom@c130b4494862d330a1aa4de320076c666d0708da # v0.4.4
+          persist-credentials: false
       - name: Generate SBOM
-        shell: bash
-        run: |
-          bom generate --format=json -o /tmp/kueue-$TAG.spdx.json .
-         
-      - name: Upload SBOM
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          gh release upload $TAG /tmp/kueue-$TAG.spdx.json
+        uses: ./.github/actions/generate-sbom
+        with:
+          tag: ${{ inputs.tag }}

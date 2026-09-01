@@ -273,13 +273,16 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 		)
 	}
 
-	kueueRuntimePatch := getKueueRuntimePatch(t)
-	if kueueRuntimePatch == nil {
-		return errors.New("kueue runtime patch not found")
-	}
-	kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs = replicatedJobPatches
-	// Update the runtimePatches while the job is suspended, since is a requirement from the trainjob admission webhook
-	err = c.Update(ctx, t.Object())
+	// Update the runtimePatches while the job is suspended, since is a requirement from the trainjob admission webhook.
+	// Use merge patch to only update the kueue-managed fields.
+	err = clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
+		kueueRuntimePatch := getKueueRuntimePatch(t)
+		if kueueRuntimePatch == nil {
+			return false, errors.New("kueue runtime patch not found")
+		}
+		kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs = replicatedJobPatches
+		return true, nil
+	})
 	if err != nil {
 		return err
 	}
@@ -290,8 +293,10 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 
 func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
 	if !t.IsSuspended() {
-		t.Suspend()
-		if err := c.Update(ctx, t.Object()); err != nil {
+		if err := clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
+			t.Suspend()
+			return true, nil
+		}); err != nil {
 			return false, fmt.Errorf("error suspending trainjob: %w", err)
 		}
 	}

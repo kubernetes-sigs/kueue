@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -48,10 +49,11 @@ import (
 
 func TestBuildPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		rayClusterSpec *rayv1.RayClusterSpec
-		annotations    map[string]string
-		wantPodSets    []kueue.PodSet
-		wantErr        bool
+		rayClusterSpec              *rayv1.RayClusterSpec
+		annotations                 map[string]string
+		enablePartialScaleUpFeature bool
+		wantPodSets                 []kueue.PodSet
+		wantErr                     bool
 	}{
 		"basic spec with head and single worker group": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -395,10 +397,165 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"partial scale up enabled with feature gate and annotation": {
+			enablePartialScaleUpFeature: true,
+			annotations: map[string]string{
+				constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
+			},
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "workers",
+						Replicas:    new(int32(3)),
+						MinReplicas: new(int32(1)),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "head"}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).
+					SetMinimumCount(3).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"partial scale up enabled with feature gate and annotation, but no minReplicas set": {
+			enablePartialScaleUpFeature: true,
+			annotations: map[string]string{
+				constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
+			},
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers",
+						Replicas:  new(int32(3)),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "head"}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"partial scale up disabled when feature gate is disabled": {
+			enablePartialScaleUpFeature: false,
+			annotations: map[string]string{
+				constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
+			},
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "workers",
+						Replicas:    new(int32(3)),
+						MinReplicas: new(int32(1)),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "head"}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
+		"partial scale up disabled when annotation is not present": {
+			enablePartialScaleUpFeature: true,
+			annotations:                 nil,
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName:   "workers",
+						Replicas:    new(int32(3)),
+						MinReplicas: new(int32(1)),
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker"}},
+							},
+						},
+					},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "head"}},
+					}).
+					Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{Name: "worker"}},
+					}).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, tc.enablePartialScaleUpFeature)
 			gotPodSets, err := BuildPodSets(tc.rayClusterSpec, tc.annotations)
 
 			if tc.wantErr {

@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -597,9 +598,12 @@ func TestValidateCreate(t *testing.T) {
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, result := wh.ValidateCreate(ctx, tc.job)
+			warns, result := wh.ValidateCreate(ctx, tc.job)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
-				t.Errorf("ValidateCreate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("ValidateCreate() errors mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+				t.Errorf("ValidateCreate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -607,15 +611,29 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testcases := map[string]struct {
-		oldJob    *rayv1.RayCluster
-		newJob    *rayv1.RayCluster
-		manageAll bool
-		wantErr   error
+		oldJob         *rayv1.RayCluster
+		newJob         *rayv1.RayCluster
+		manageAll      bool
+		defaultLqExist bool
+		featureGates   map[featuregate.Feature]bool
+		wantErr        error
 	}{
 		"invalid unmanaged": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Obj(),
 			newJob: testingrayutil.MakeCluster("job", "ns").
+				Obj(),
+			wantErr: nil,
+		},
+		"queue name unchanged while unsuspended": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				Label("test-label", "test-value").
 				Obj(),
 			wantErr: nil,
 		},
@@ -643,6 +661,79 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"queue name removal is rejected when the job is unsuspended and ValidateRayAndSparkJobUpdates is enabled": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(false).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
+		"queue name removal is allowed when the job is unsuspended and ValidateRayAndSparkJobUpdates is disabled": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Suspend(false).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(false).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
+			wantErr:      nil,
+		},
+		"queue name removal is rejected when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is enabled": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue(string(constants.DefaultLocalQueueName)).
+				Suspend(true).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(true).
+				Obj(),
+			defaultLqExist: true,
+			featureGates:   map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "labels").Key(constants.QueueLabel), "", "queue-name must not be empty in namespace with default queue"),
+			}.ToAggregate(),
+		},
+		"queue name removal is allowed when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is disabled": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue(string(constants.DefaultLocalQueueName)).
+				Suspend(true).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(true).
+				Obj(),
+			defaultLqExist: true,
+			featureGates:   map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
+			wantErr:        nil,
+		},
+		"queue name removal is allowed when the job is suspended in a namespace without a default queue and ValidateRayAndSparkJobUpdates is enabled": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Queue("queue").
+				Suspend(true).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(true).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+			wantErr:      nil,
+		},
+		"prebuilt workload name change is not validated when the job is unmanaged and ValidateRayAndSparkJobUpdates is enabled": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(false).
+				PrebuiltWorkloadLabel("wl1").
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(false).
+				PrebuiltWorkloadLabel("wl2").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
+			wantErr:      nil,
+		},
 		"priorityClassName is mutable": {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Queue("queue").
@@ -657,13 +748,28 @@ func TestValidateUpdate(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cli := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cli)
+			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
+			if tc.defaultLqExist {
+				if err := queueManager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue(
+					string(constants.DefaultLocalQueueName), "ns").ClusterQueue("cluster-queue").Obj()); err != nil {
+					t.Fatalf("Failed to add the default LocalQueue: %v", err)
+				}
+			}
 			wh := &RayClusterWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
+				queues:                     queueManager,
+				cache:                      cqCache,
 			}
-			ctx, _ := utiltesting.ContextWithLog(t)
-			_, result := wh.ValidateUpdate(ctx, tc.oldJob, tc.newJob)
+			warnings, result := wh.ValidateUpdate(ctx, tc.oldJob, tc.newJob)
 			if diff := cmp.Diff(tc.wantErr, result); diff != "" {
-				t.Errorf("ValidateUpdate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("ValidateUpdate() error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warnings); diff != "" {
+				t.Errorf("ValidateUpdate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
