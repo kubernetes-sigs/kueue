@@ -48,10 +48,10 @@ import (
 
 func TestBuildPodSets(t *testing.T) {
 	testCases := map[string]struct {
-		rayClusterSpec              *rayv1.RayClusterSpec
-		annotations                 map[string]string
-		wantPodSets                 []kueue.PodSet
-		wantErr                     error
+		rayClusterSpec *rayv1.RayClusterSpec
+		annotations    map[string]string
+		wantPodSets    []kueue.PodSet
+		wantErr        error
 	}{
 		"basic spec with head and single worker group": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
