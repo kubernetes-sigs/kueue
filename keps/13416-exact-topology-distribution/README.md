@@ -26,9 +26,10 @@
   - [Feature Gate](#feature-gate)
   - [Upgrade, Downgrade, and Backwards Compatibility](#upgrade-downgrade-and-backwards-compatibility)
   - [Test Plan](#test-plan)
-    - [Unit Tests](#unit-tests)
-    - [Integration Tests](#integration-tests)
-    - [End-to-End Tests](#end-to-end-tests)
+    - [Prerequisite testing updates](#prerequisite-testing-updates)
+    - [Unit tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+    - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
     - [Alpha](#alpha)
     - [Beta](#beta)
@@ -96,8 +97,7 @@ complete PodSet. Kueue already performs group-level admission and produces a
   satisfied.
 - Preserve existing scalar `size` behavior unchanged, and keep exact distribution
   opt-in.
-- Bound the alpha scheduling problem so feasibility is decidable with a
-  deterministic matching algorithm.
+
 
 ### Non-Goals
 
@@ -110,7 +110,6 @@ complete PodSet. Kueue already performs group-level admission and produces a
 - Partial admission or elastic changes to the PodSet count.
 - Exact distributions for PodSets without stable pod indexes at alpha.
 - Rebalancing an admitted and running PodSet when topology capacity changes.
-- Extending topology spread constraints in the default Kubernetes scheduler.
 
 ## Proposal
 
@@ -173,24 +172,25 @@ the block level.
 
 ### Semantics
 
-1. `sizes` is ordered. `[1, 3, 4]` and `[4, 3, 1]` request the same aggregate
-   domain counts but different pod-rank mappings.
-2. Each entry is assigned to one distinct domain at the entry's `topology` level,
-   and its value is the exact number of pods Kueue assigns to that domain.
-3. Entry `i` owns the next `sizes[i]` contiguous pod ranks after all preceding
-   entries. For `[1, 3, 4]`, the rank blocks are rank 0, ranks 1-3, and ranks 4-7.
-4. Kueue selects the physical domain for each entry. A list position identifies a
-   rank block, not a topology label value.
-5. Duplicate values are allowed. `[2, 2, 4]` requests three distinct domains.
-6. The sum of the list must equal the fixed PodSet count.
-7. An exact distribution is a required constraint. Kueue does not fall back to
+1. `sizes` is ordered. Entry `i` defines the next `sizes[i]` contiguous pod ranks.
+   For `[1, 3, 4]`, the groups are rank 0, ranks 1-3, and ranks 4-7.
+2. Each entry specifies the exact pod count for one distinct domain at the named
+   topology level, so the list length is the number of domains used at that
+   level. Kueue selects the physical domains; a list position does not name a
+   domain or correspond to any ordering of the topology itself.
+3. Thus, `[1, 3, 4]` and `[4, 3, 1]` require the same three domain sizes but group
+   ranks differently.
+4. Duplicate values are allowed. `[2, 2, 4]` requests three distinct domains.
+5. The sum of the list must equal the fixed PodSet count.
+6. An exact distribution is a required constraint. Kueue does not fall back to
    scalar slicing or ordinary greedy placement when it cannot be satisfied.
-8. At alpha, an entry using `sizes` must be the only entry in the constraints
+7. At alpha, an entry using `sizes` must be the only entry in the constraints
    list. Containment is expressed using `podset-required-topology`, which must be
    strictly coarser than the exact level when `sizes` has more than one entry. A
-   request naming the same level in both is contradictory and is rejected at
-   scheduling time.
-9. Below the exact level, Kueue uses its existing capacity-based placement to
+   request naming the same level in both is contradictory: the identical-string
+   case is rejected at creation time, and the general ordering check happens at
+   scheduling time, once the topology hierarchy is known.
+8. Below the exact level, Kueue uses its existing capacity-based placement to
    assign pods to finer domains and hosts.
 
 Ordered rank-block semantics require every pod to have a stable, unique rank in
@@ -200,9 +200,10 @@ Integrations using subgroup indexes must also provide `SubGroupIndexLabel` and
 `SubGroupCount`, which are what make one unique rank space derivable for the
 complete PodSet.
 
-If a pod is missing its rank label, has a duplicate rank, or has an out-of-range
-rank, the topology ungater keeps the affected pods gated and reports an error. It
-must not fall back to greedy domain assignment for an exact-distribution PodSet.
+If any pod is missing its rank label, has a duplicate rank, or has an
+out-of-range rank, ranks cannot be derived for the PodSet at all, so the topology
+ungater keeps every gated pod in that PodSet gated and reports an error. It must
+not fall back to greedy domain assignment for an exact-distribution PodSet.
 Greedy assignment still satisfies the aggregate per-domain counts, so the
 violation would be silent — the workload would run with the wrong ranks
 co-located and nothing would report a failure.
@@ -217,10 +218,14 @@ The distribution is attached to one PodSet. A workload with multiple PodSets
 validates and schedules each independently, subject to existing restrictions on
 PodSet groups and multi-layer constraints.
 
-A single-entry list such as `sizes: [8]` is permitted and is equivalent to
-required topology at that level. It is allowed for uniformity rather than
-expressiveness; documentation directs single-domain users to
-`podset-required-topology`.
+A single-entry list such as `sizes: [8]` is permitted: it places the whole
+PodSet in one domain, the same shape `podset-required-topology` produces at that
+level. The two are still not interchangeable. A request carrying only slice
+constraints counts as unconstrained, whereas `podset-required-topology` makes it
+a required request, and those two classes order candidate domains differently
+(see [Exact Domain Matching](#exact-domain-matching)) — so Kueue may pick a
+different domain for each. Use `podset-required-topology` for the single-domain
+case: it needs neither this feature gate nor a stable rank source.
 
 ### Risks and Mitigations
 
@@ -282,19 +287,17 @@ type PodsetSliceRequiredTopologyConstraint struct {
 }
 ```
 
-The existing beta `Size` field changes from `+required` to `+optional`, so the
-generated CRD no longer unconditionally lists `size` in each item's `required`
-set; the CEL union enforces exactly one arm instead. Existing objects containing
-`size` remain valid. `Size` stays an `int32` rather than becoming a pointer, to
-preserve Go source compatibility for clients constructing the existing type. With
-`omitempty`, a client setting `Size: 0` serializes `size` as absent, and if
-`Sizes` is also absent the CEL union rejects the object as specifying neither.
+`Size` changes from `+required` to `+optional`, so the generated CRD stops
+listing it in each item's `required` set and the CEL union enforces exactly one
+arm instead. It stays an `int32` rather than a pointer, to preserve Go source
+compatibility for clients constructing the existing type — and with `omitempty`,
+a client setting `Size: 0` serializes it as absent, so the union correctly
+rejects an object that sets neither field.
 
-The annotation name `kueue.x-k8s.io/podset-slice-required-topology-constraints`
-is unchanged. `TopologyAssignment` needs no change — it already records domain
-paths and assigned counts. The `v1beta1` Workload API has no multi-layer
-constraint field, and the existing behavior of dropping multi-layer constraints
-during `v1beta2` to `v1beta1` conversion is unchanged.
+The `podset-slice-required-topology-constraints` annotation name is unchanged,
+and `TopologyAssignment` already records domain paths and assigned counts, so
+neither needs a change. `v1beta1` has no multi-layer constraint field, so `sizes`
+inherits the existing behavior of dropping those constraints during conversion.
 
 ### Validation
 
@@ -306,6 +309,9 @@ Creation-time validation enforces:
 - The structural schema above: exactly one of `size` and `sizes`, 1 to 128
   entries, every value greater than zero.
 - At alpha, an entry using `sizes` is the only entry in the constraints list.
+- The exact topology key is not the same string as `podset-required-topology`.
+  This catches the contradictory same-level request without needing the topology
+  hierarchy; the coarser-than ordering check happens at scheduling time.
 - The sum, computed using `int64`, equals `PodSet.Count`.
 - The integration provides a stable `PodIndexLabel`; for Kubernetes Jobs,
   `completionMode` must be `Indexed`. Subgroup-based integrations must also
@@ -320,17 +326,23 @@ Creation-time validation enforces:
 - The `TASExactTopologyDistribution` feature gate is enabled.
 
 The Workload webhook repeats the structural, numeric, partial-admission, and
-elastic-workload checks as defense in depth for direct Workload writes.
+elastic-workload checks, so that a Workload written directly is checked too.
 
-Update-time validation preserves the fixed-count invariant:
+Update-time validation preserves the fixed-count invariant. Existing Workload
+validation already makes the whole PodSet immutable once quota is reserved, so
+`sizes` and the count inherit that. Two additions:
 
-- Before quota reservation, `sizes` or the PodSet count may change only when the
-  resulting ordered list remains valid and its sum equals the new count.
-- After quota reservation, the PodSet count and the value and order of `sizes`
-  are immutable. Job integration webhooks reject updates to `parallelism`,
-  `completions`, `replicas`, or another integration-specific field that would
-  change the effective PodSet count, and direct Workload updates changing the
-  count or `sizes` are rejected.
+- Before quota reservation, `sizes` or the count may change only when the new sum
+  equals the new count.
+- That immutability check has an exception letting elastic jobs shrink the
+  count. The exception is keyed on the `ElasticJobsViaWorkloadSlices` gate, not
+  on whether this particular workload is elastic, so it must be refused for
+  `sizes` PodSets. Otherwise the sum stops matching the count.
+
+Job integration webhooks also reject `parallelism`, `completions`, or `replicas`
+updates that would change an exact-distribution PodSet's count. This is a
+behavior change scoped to those PodSets: today the edit is accepted and the
+workload is later finished as out of sync.
 
 Scheduling-time validation enforces that the exact topology key exists in the
 selected ResourceFlavor's `Topology`, that the exact level is below the required
@@ -375,19 +387,36 @@ distinct domains, separating feasibility from policy-driven selection:
 
 At the exact level the placement modes are interpreted as follows:
 
-- `BestFit` starts with fitting domains that have the most free pod capacity.
-  This is the default and applies to every exact request unless
-  `LeastFreeCapacity` is selected below.
+- `BestFit` starts with fitting domains that have the most free pod capacity. It
+  applies to any exact request carrying `podset-required-topology`, and to every
+  exact request under a BestFit-only profile.
 - `LeastFreeCapacity` starts with the fitting domain that has the least free pod
-  capacity. It applies only when the request is classified as unconstrained
-  **and** `TASProfileMixed` is enabled. With `TASProfileMixed` disabled, which is
-  the default, exact requests always use `BestFit`.
-- `BalancedPlacement` is not applicable at alpha, because it requires preferred
-  topology, which is rejected for `sizes`.
+  capacity. It applies to unconstrained requests under the default TAS profile
+  (`TASProfileMixed`, default since v0.15), so an exact-only slice request uses
+  it unless a cluster overrides the profile.
+- `BalancedPlacement` never runs at alpha. It only runs when a request is
+  neither required nor unconstrained, and every `sizes` request alpha allows is
+  one of those two: a `sizes`-only request counts as unconstrained, and adding
+  `podset-required-topology` makes it required. So there is nothing to turn off
+  here. If preferred topology is ever allowed with `sizes`, then `sizes` must
+  win, because balanced placement spreads pods evenly while `sizes` asks for an
+  uneven split. Both cannot be true at once.
 
 The request is classified using the existing TAS profile rules: an exact-only
 slice request is unconstrained, while a request with `podset-required-topology`
 is required. Exact matching does not override the resulting placement mode.
+
+Following the profile has one side effect worth calling out. By default a
+`sizes`-only request gets `LeastFreeCapacity`, which picks the domains that
+barely fit, leaving almost no spare room in them. If a node then fails,
+replacement has to stay inside that same domain and is not allowed to move the
+group elsewhere, so there may be nowhere to put the replacement pods.
+
+`BestFit` would leave spare room, but it uses roomier domains and so wastes more
+capacity. Alpha keeps following whichever profile the cluster is set to, rather
+than picking one for the user: forcing a different algorithm for just this
+feature is a big change to make without data. Beta decides it, based on how
+often replacement actually fails.
 
 ```text
 requested sizes: [1, 3, 4]
@@ -404,14 +433,10 @@ LeastFreeCapacity matching (unconstrained request, TASProfileMixed enabled):
 1 -> capacity 1
 ```
 
-At most one requested entry is assigned to each domain, so this is threshold
-matching rather than general bin packing, and largest-first processing ensures a
-smaller entry does not consume the only domain capable of satisfying a larger
-one. Both greedy variants above are optimal for threshold matching by the usual
-exchange argument, so step 3 cannot fail on a scope that step 2 declared
-feasible. The passes are kept separate so feasibility remains a property of
-capacity alone: a future placement mode that is not capacity-monotonic can then
-be added without silently making previously admissible workloads unschedulable.
+Each domain takes at most one entry from the list, so this is a simpler problem
+than bin packing: nothing is ever split across domains. Working from the largest
+entry down matters, because otherwise a small entry could take the only domain
+big enough for a large one.
 
 #### Parent Domain Feasibility
 
@@ -423,25 +448,41 @@ entry.
 The scheduler therefore performs exact matching while evaluating candidate
 enclosing domains, treating a candidate as feasible only if the complete list can
 be matched within it, and then uses the normal TAS strategy to choose among
-feasible candidates. This prevents selecting an aggregate-capacity fit that fails
-during downward traversal when another enclosing domain could have satisfied the
-request.
+feasible candidates.
 
 #### Preemption
 
-TAS already evaluates assignments against both current free capacity and a
-snapshot simulating the capacity preemption would release. Exact distributions
-reuse that mechanism unchanged: matching runs against whichever snapshot is being
-evaluated, so a preempting workload becomes admissible exactly when the complete
-list is matchable within simulated capacity.
+TAS already validates a preempting workload's placement twice, and exact
+matching plugs into both without new code:
 
-Two consequences are accepted for alpha. Preemption targets are still chosen by
-the existing logic, which reasons about quota and priority rather than
-exact-domain feasibility, so it is possible to preempt enough aggregate capacity
-without making the distribution matchable — the same property required topology
-already has. And Kueue does not attempt to minimize preemptions with respect to
-the matching, since that is a joint optimization over both. Making preemption
-exact-domain aware is a candidate beta improvement.
+1. **Upper bound.** Before preemption is contemplated, the assignment is
+   recomputed against a snapshot simulating the whole cluster as empty. If the
+   PodSet does not fit even then, the mode becomes `NoFit` and no preemption is
+   issued. For an exact distribution this catches the case where the topology
+   simply lacks enough eligible domains.
+2. **Candidate set.** Once specific preemption targets are chosen, the
+   assignment is recomputed against a snapshot with exactly those targets'
+   usage removed. Exact matching therefore runs against the capacity those
+   targets would actually release, rather than against aggregate quota.
+
+Step 2 is what stops this feature from preempting for nothing, and it needs one
+fix. Today the recomputed result is saved but the assignment mode is left alone,
+so even when no placement was found the mode stays at `Preempt` and the
+preemption goes ahead.
+
+For ordinary placement this rarely matters, because freeing more capacity almost
+always means more pods fit. Exact matching does not work that way. Freeing room
+for eight pods spread as `[2, 2, 4]` still cannot hold `[1, 3, 4]`, because
+nothing has room for three. So alpha treats a missing assignment after step 2 as
+`NoFit` and puts the workload back in the queue, instead of evicting other
+workloads for a shape that will not fit anyway.
+
+One limitation is accepted for alpha: Kueue does not *choose* preemption targets
+to make the distribution matchable. Target selection remains driven by quota and
+priority, and the checks above only reject unusable candidate sets rather than
+searching for a usable one. Selecting the target set that makes `[1, 3, 4]`
+feasible while evicting as little as possible means solving both problems at
+once, which is a candidate beta improvement.
 
 #### Assignment Construction
 
@@ -563,79 +604,64 @@ out this prerequisite.
 existing tests to make the code solid enough before committing the changes
 necessary to implement this enhancement.
 
-#### Unit Tests
+#### Prerequisite testing updates
 
-API and job framework tests cover:
+None. The existing TAS scheduler and ungater tests already cover the scalar
+paths this feature branches from, and those tests must keep passing unchanged.
 
-- Parsing valid `sizes` annotations, and preserving list order through annotation
-  parsing, JSON round trips, and deepcopy.
-- The field union: accepting either arm, rejecting both and neither, including
-  the Go client case where `Size: 0` is omitted and `Sizes` is absent.
-- Schema bounds: empty lists, non-positive values, more than 128 entries, and
-  accepting duplicates.
-- Rejecting a sum different from the PodSet count.
-- Rejecting non-indexed Jobs and integrations without a stable rank source.
-- Rejecting partial admission, preferred outer topology, multiple constraint
-  entries at alpha, and a disabled feature gate.
-- Rejecting `sizes` for an elastic Job, including when
-  `ElasticJobsViaWorkloadSlicesWithTAS` is enabled.
-- Rejecting post-reservation changes to the effective PodSet count, and allowing
-  a pre-reservation update only when the new sum and count match.
-- Workload webhook defense-in-depth validation.
-- An older CRD schema rejects an exact constraint that omits `size`.
+#### Unit tests
 
-Scheduler unit tests cover:
+New code gets full unit coverage as usual, so the validation and schema cases
+are not listed here. The packages this touches, and their coverage at the time
+of writing:
 
-- Distinct rank-block semantics for `[1, 3, 4]` and `[4, 3, 1]`, with matching
-  retaining each entry's original list index.
-- Missing, duplicate, or out-of-range pod ranks remaining gated rather than
-  falling back to greedy assignment.
-- Placement mode selection: `LeastFreeCapacity` only for an unconstrained request
-  with `TASProfileMixed` enabled, `BestFit` otherwise, each producing its
-  documented matching for the same capacities; no `BalancedPlacement` at alpha.
-- Deterministic selection when multiple domains have equal capacity.
-- Aggregate capacity sufficient but matching infeasible; too few distinct
-  domains; duplicate sizes such as `[2, 2, 4]`.
-- Selecting a feasible enclosing block over an aggregate-only fit, and applying
-  the active TAS strategy among multiple feasible scopes.
-- Exact distributions at block, rack, and hostname levels.
-- Replacement constrained to the affected exact domain without changing rank
-  blocks, with merging preserving group order rather than re-sorting
-  lexicographically, and deriving the ancestor when the unhealthy leaf is the
-  only leaf of its group — failing cleanly when that ancestor is gone.
-- Scalar assignments still merging lexicographically with the gate enabled.
-- Matching against a preemption-simulated snapshot admitting only when the
-  complete list is matchable within simulated capacity.
-- Failure reasons distinguishing infeasibility from too few domains, and the
-  counter incrementing with the matching `reason` label.
-- No regression in existing scalar slice and multi-layer tests.
+- `apis/kueue/v1beta2`: TBD
+- `pkg/controller/jobframework`: TBD
+- `pkg/cache/scheduler`: TBD
+- `pkg/controller/tas`: TBD
 
-#### Integration Tests
+A handful of cases are worth naming, because each one is a behavioral claim made
+elsewhere in this KEP rather than routine coverage:
+
+- `[1, 3, 4]` and `[4, 3, 1]` produce different rank blocks from the same
+  aggregate domain counts.
+- Merging a replacement assignment keeps exact groups in `sizes` order instead
+  of re-sorting them by label value, while scalar assignments still re-sort.
+- A pod with a missing, duplicate, or out-of-range rank leaves the whole PodSet
+  gated, rather than falling back to greedy assignment.
+- A `LeastFreeCapacity` placement that exactly fills its domains fails
+  replacement, while the same placement under `BestFit` has room to absorb it.
+- The elastic shrink exception is refused for a `sizes` PodSet and still allowed
+  for a scalar one.
+- Enough free capacity in total, but no matchable distribution, is reported as
+  infeasible and does not trigger preemption.
+
+#### Integration tests
 
 Single-cluster TAS integration tests verify:
 
 - An eight-pod indexed Job obtains rack-level counts `[1, 3, 4]`, with rank 0 in
   the first selected rack, ranks 1-3 in the second, and ranks 4-7 in the third.
-- Reordering to `[4, 3, 1]` changes those rank ranges while retaining the same
-  aggregate multiset of domain counts.
+- Reordering to `[4, 3, 1]` changes those rank ranges while keeping the same
+  aggregate counts.
 - A 24-pod Job obtains block-level counts `[8, 16]`.
-- A workload remains pending when matching is impossible despite sufficient
-  aggregate capacity, reporting the exact-distribution failure reason.
-- A workload selects a feasible enclosing domain when another candidate is
-  infeasible.
+- A workload stays pending when no matching is possible even though total free
+  capacity would be enough, and reports the exact-distribution failure reason.
+- A workload picks an enclosing domain that works when another candidate does
+  not.
 - Disabling the feature gate rejects the annotation.
-- Replacing an unhealthy node preserves both the distribution and the original
-  rank-to-domain mapping, including when the replaced leaf was the only leaf of
+- Replacing an unhealthy node keeps both the distribution and the original
+  rank-to-domain mapping, including when the replaced leaf was the only one in
   its group.
-- A workload admitted by preempting a lower-priority workload obtains the full
+- A workload admitted by preempting a lower-priority workload gets the full
   ordered distribution.
 
-#### End-to-End Tests
+#### e2e tests
 
-Add an extended TAS end-to-end test using a fixed test topology. It creates an
-indexed Job, waits for admission, and verifies the aggregate topology assignment,
-the contiguous rank range assigned to each exact domain, and the resulting pod
-placement. Existing scalar TAS end-to-end tests run unchanged.
+Add an extended TAS end-to-end test on a fixed test topology. It creates an
+indexed Job, waits for admission, and checks the topology assignment, the rank
+range given to each exact domain, and where the pods actually land. Existing
+scalar TAS end-to-end tests run unchanged.
 
 ### Graduation Criteria
 
@@ -659,6 +685,9 @@ placement. Existing scalar TAS end-to-end tests run unchanged.
 - Whether preemption should become exact-domain aware is decided from observed
   workloads that had enough preemptible aggregate capacity but no matchable
   distribution.
+- Whether exact requests should always use `BestFit` instead of following the
+  configured profile is decided from observed failed node replacements on
+  tightly packed exact placements.
 
 #### Stable
 
@@ -670,13 +699,7 @@ placement. Existing scalar TAS end-to-end tests run unchanged.
 
 ## Implementation History
 
-- 2026-08-24: Initial KEP draft.
-- 2026-08-28: Defined ordered rank mapping, placement-policy interaction, API
-  compatibility, and fixed-count lifecycle validation.
-- 2026-08-28: Added preemption behavior, failure reporting and metric, exact
-  group ordering requirements for assignment merging, and exact-level ancestor
-  derivation during failed node replacement.
-- 2026-09-01: Condensed for length; no semantic changes.
+- 2026-08-24: Initial draft.
 
 ## Drawbacks
 
