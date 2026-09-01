@@ -84,9 +84,9 @@ Let us consider a cluster with 2 racks where each rack has 4 nodes.
 For simplicity, we will equate resources with nodes, and assume there is only one resource flavor with a natural 2-level topology: rack, hostname.
 
 And 3 cluster queues:
-Queue A with quota 1.
-Queue B with quota 1.
-Queue C with quota 4.
+* Queue A with quota 1.
+* Queue B with quota 1.
+* Queue C with quota 4.
 
 The total cluster capacity is 8 nodes, which is strictly larger than the sum of the queues' nominal quotas (6 nodes across all queues).
 
@@ -858,8 +858,34 @@ To achieve optimal scheduling performance without repetitive full-array scans or
 7. **Simulated State Updates:**
    After popping a candidate, the evaluator updates simulated state (reclaimed quota, updated DRS counters) and drops any newly ineligible CQ priority queues before the next selection step.
 
+Example:
+
+Consider 3 cluster queues (A, B, C), each with 2 admitted workloads (e.g., A1, A2 in cluster queue A), and 2 distinct candidate selectors: one based on priority and one based on fair sharing. Ordering is configured by priority. This translates to the policy: *"we allow preemption of workloads that have lower priority or that make the cluster resource distribution fairer."*
+
+Now, suppose a new workload A3 arrives in cluster queue A and requires preemption to be admitted:
+
+1. **Queue Initialization ($2 \times 3 = 6$ priority queues):**
+   After filtering workloads by static constraints (such as priority thresholds), the algorithm initializes $2 \times 3 = 6$ distinct priority queues ($\text{selectors} \times \text{cluster queues}$).
+   - For the priority selector, DRS is ignored; these queues are ordered statically by `Priority`.
+   - For the fair sharing selector, DRS is computed dynamically for each cluster queue and saved in the evaluation state. In this initial state, preemption of workloads from cluster queue B can be fair (depending on the workload's DRS), but preemption from cluster queue C is not fair right now.
+
+2. **Candidate Selection (B1, B2, A1):**
+   To select the first candidate, the evaluator inspects the heads of all 6 priority queues and picks the minimal candidate according to the ordering. Suppose those are B1 and B2, and we preempt those first. As the cohort structure was flat, this does not change the DRS of C. Suppose we then preempt A1. Because preemption within the same cluster queue is also considered fair, A1 also passes the fair sharing condition. Therefore, it is popped simultaneously from both priority queues representing cluster queue A.
+
+3. **Dynamic State Recomputation & C1 selection:**
+   Popping A1 changes the DRS, so the evaluator updates the dynamic state for the affected cluster queues. Under the updated DRS values, preemptions from cluster queue C now become eligible according to the fair sharing selector. The evaluator can now select C1 (which has higher priority but also a higher DRS share). (This selection would not be possible without dynamic recomputation of DRS.)
+
+4. **Termination:**
+   Workload A3 can fit after C1 preemption, so candidate iteration terminates successfully.
+
 #### Implementation Caveats and Selector Isolation
 Maintaining separate priority queues per candidate selector is essential. If queues were pooled across selectors (either within a rule or across rules), dropping an ineligible CQ queue due to exhausted borrowing or DRS thresholds would inadvertently discard candidates that matched other non-borrowing, static selectors (such as priority-only preemption within the same CQ). Distinct per-selector queues permit aggressive filtering using static constraints up front while isolating dynamic state invalidation.
+
+#### Complexity of the proposed solution
+
+Note: this is really rough estimation, that has many assumptions about distribution of workloads among cluster queues, flat cohort structure, small number of selectors etc. Proper performance tests should be conducted to show the efficency of the solution in real circumstances.
+
+For $n$ workloads total in the assumption that they are evenly distributed among $c$ cluster queues and $m$ preemption are need. If we have a configuration with $s$ distinct selectors, we will have $c \times s$ priority queues. Popping a single workload will take up to $O(c \times s)$ time, so preemption of all of the workloads needed will take $O(m \times c \times s)$. The updates will require DRS recomputation - for simplcity we will not include this here as assuming that cohort structure is flat and therefore it is $O(1)$. Then as the initial sorting requires $O(s \times n \times \log(n/c))$ the complexity of the whole algorithm will be $O(m \times c \times s + s \times n \times \log(n/c))$. Under assumtion that s < 10 and can be treated as a constant becomes $O(m \times c + n \log(n/c))$ which is considerably better than naive alternatives.
 
 #### Open Challenges
 
