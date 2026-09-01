@@ -94,7 +94,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		return webhook.SetupNoopWebhook(mgr, obj)
 	}
 	logConstructor := jobframework.WebhookLogConstructor(fromObject(obj).GVK(), options.RoleTracker)
-	if features.Enabled(features.GangSchedulingByDefault) {
+	if features.Enabled(features.BatchJobGangSchedulingByDefault) {
 		// Register the mutating path first so the builder below keeps only
 		// the validating webhook for it; the typed defaulter runs inside.
 		mgr.GetWebhookServer().Register("/mutate-batch-v1-job", &admission.Webhook{

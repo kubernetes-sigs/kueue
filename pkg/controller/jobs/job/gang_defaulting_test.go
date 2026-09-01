@@ -266,7 +266,7 @@ func TestGangDefaultingHandler(t *testing.T) {
 	}
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.GangSchedulingByDefault, tc.gateEnabled)
+			features.SetFeatureGateDuringTest(t, features.BatchJobGangSchedulingByDefault, tc.gateEnabled)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault)).Build()
 			cqCache := schdcache.New(cl)
@@ -335,7 +335,7 @@ func TestGangDefaultingHandler(t *testing.T) {
 }
 
 func TestGangDefaultingHandlerIsIdempotent(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.GangSchedulingByDefault, true)
+	features.SetFeatureGateDuringTest(t, features.BatchJobGangSchedulingByDefault, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace(metav1.NamespaceDefault)).Build()
 	cqCache := schdcache.New(cl)

@@ -77,7 +77,7 @@ type gangDefaultingHandler struct {
 
 func (h *gangDefaultingHandler) Handle(ctx context.Context, req admission.Request) admission.Response {
 	resp := h.typed.Handle(ctx, req)
-	if !resp.Allowed || req.Operation != admissionv1.Create || !features.Enabled(features.GangSchedulingByDefault) {
+	if !resp.Allowed || req.Operation != admissionv1.Create || !features.Enabled(features.BatchJobGangSchedulingByDefault) {
 		return resp
 	}
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")

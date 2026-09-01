@@ -655,7 +655,7 @@ E2E_WAS_K8S_FULL_VERSION := $(or $(filter $(E2E_WAS_K8S_VERSION).%,$(E2E_K8S_VER
 # The Job specs assert the gang scheduling policy Kueue defaults, so the lane
 # turns its gate on. The script reads the environment, which a target-specific
 # variable does not reach, so the recipe passes it explicitly.
-E2E_WAS_KUEUE_FEATURE_GATES ?= GangSchedulingByDefault=true
+E2E_WAS_KUEUE_FEATURE_GATES ?= BatchJobGangSchedulingByDefault=true
 
 .PHONY: test-e2e-was
 test-e2e-was: setup-e2e-env run-test-e2e-was-$(E2E_WAS_K8S_FULL_VERSION) ## Run the WAS e2e test suite on a kind cluster of a released Kubernetes version (follows E2E_K8S_VERSION, defaults to 1.37).

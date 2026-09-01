@@ -60,5 +60,5 @@ var _ = ginkgo.BeforeSuite(func() {
 	)
 
 	gangDefaultingEnabled = util.GetKueueConfiguration(ctx, k8sClient).
-		FeatureGates[string(features.GangSchedulingByDefault)]
+		FeatureGates[string(features.BatchJobGangSchedulingByDefault)]
 })

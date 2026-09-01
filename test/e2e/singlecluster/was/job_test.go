@@ -47,7 +47,7 @@ import (
 //   - The scheduling.k8s.io/v1beta1 API enabled via runtime-config
 //
 // The specs asserting the policy Kueue defaults skip unless Kueue runs with
-// GangSchedulingByDefault, so the lane tracking k/k main still runs the rest.
+// BatchJobGangSchedulingByDefault, so the lane tracking k/k main still runs the rest.
 //
 // See patch_kind_config_for_was in hack/testing/e2e-common.sh.
 var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", "feature:was", "feature:was-job"), func() {
@@ -246,7 +246,7 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 func skipUnlessGangDefaulting() {
 	ginkgo.GinkgoHelper()
 	if !gangDefaultingEnabled {
-		ginkgo.Skip("Kueue does not run with the GangSchedulingByDefault feature gate")
+		ginkgo.Skip("Kueue does not run with the BatchJobGangSchedulingByDefault feature gate")
 	}
 }
 

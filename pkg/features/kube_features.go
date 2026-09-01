@@ -619,7 +619,7 @@ const (
 	//
 	// Defaults eligible Kueue-managed batch/v1 Jobs to upstream gang scheduling
 	// by setting spec.scheduling at admission.
-	GangSchedulingByDefault featuregate.Feature = "GangSchedulingByDefault"
+	BatchJobGangSchedulingByDefault featuregate.Feature = "BatchJobGangSchedulingByDefault"
 )
 
 func init() {
@@ -957,7 +957,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
-	GangSchedulingByDefault: {
+	BatchJobGangSchedulingByDefault: {
 		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
