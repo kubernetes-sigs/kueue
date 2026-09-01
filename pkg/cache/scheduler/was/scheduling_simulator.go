@@ -328,8 +328,7 @@ func (s *wasSimulatorSnapshot) PreemptWorkload(ctx context.Context, wlKey client
 	// if the preempted workload has pods that do not identify with it directly.
 	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsByWorkload.getPodsForWorkload(wlKey))
 	if err != nil {
-		ctrl.LoggerFrom(ctx).V(4).Error(err, "Failed to preempt workload's pods from WAS snapshot.", "workload", wlKey.String())
-		return nil, err
+		return nil, fmt.Errorf("failed to preempt workload's pods from WAS snapshot: %w", err)
 	}
 
 	return func() error {
