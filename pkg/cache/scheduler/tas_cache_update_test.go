@@ -23,7 +23,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -32,7 +31,7 @@ import (
 )
 
 func TestTASCacheUpdateFlavorTolerationsPreservesUsage(t *testing.T) {
-	tasCache := NewTASCache(nil, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
 	topology := utiltestingapi.MakeDefaultOneLevelTopology("default")
 	tasCache.AddTopology(topology)
 
@@ -98,7 +97,7 @@ func TestTASCacheUpdateFlavorTolerationsPreservesUsage(t *testing.T) {
 }
 
 func TestTASCacheUpdateFlavorNodeLabelsPreservesUsage(t *testing.T) {
-	tasCache := NewTASCache(nil, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
 	topology := utiltestingapi.MakeDefaultOneLevelTopology("default")
 	tasCache.AddTopology(topology)
 
@@ -151,7 +150,7 @@ func TestTASCacheUpdateFlavorNodeLabelsPreservesUsage(t *testing.T) {
 }
 
 func TestTASCacheUpdateTopologyLevelsPreservesUsage(t *testing.T) {
-	tasCache := NewTASCache(nil, simulator.NewDefaultSimulator(), resources.NewResourceFormatter())
+	tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
 	topology := utiltestingapi.MakeTopology("default").
 		Levels(utiltesting.DefaultRackTopologyLevel, corev1.LabelHostname).
 		Obj()

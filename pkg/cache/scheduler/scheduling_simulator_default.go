@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package scheduler
 
 import (
 	"context"
@@ -28,25 +28,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
 
 type defaultSimulator struct{}
 
-func NewDefaultSimulator() SchedulingSimulator {
+func newDefaultSimulator() simulator.SchedulingSimulator {
 	return &defaultSimulator{}
 }
 
-func NewDefaultSimulatorSnapshot() SimulatorSnapshot {
+func newDefaultSimulatorSnapshot() simulator.SimulatorSnapshot {
 	return &defaultSimulatorSnapshot{}
 }
 
 type defaultSimulatorSnapshot struct{}
 
-var _ SimulatorSnapshot = (*defaultSimulatorSnapshot)(nil)
-
-func (s *defaultSimulator) Snapshot(_ context.Context, _ []*corev1.Node) (SimulatorSnapshot, error) {
+func (s *defaultSimulator) Snapshot(_ context.Context, _ []*corev1.Node) (simulator.SimulatorSnapshot, error) {
 	return &defaultSimulatorSnapshot{}, nil
 }
 
@@ -56,13 +55,13 @@ func (s *defaultSimulator) UntrackPod(_ client.ObjectKey) {}
 
 func (s *defaultSimulatorSnapshot) FindFeasibleNodes(
 	ctx context.Context,
-	candidates iter.Seq[Candidate],
-	requirements *PodRequirements,
-	exclusionStats *NodeExclusionStats,
-) ([]MatchedCandidate, error) {
+	candidates iter.Seq[simulator.Candidate],
+	requirements *simulator.PodRequirements,
+	exclusionStats *simulator.NodeExclusionStats,
+) ([]simulator.MatchedCandidate, error) {
 	logger := log.FromContext(ctx)
 
-	var feasibleCandidates []MatchedCandidate
+	var feasibleCandidates []simulator.MatchedCandidate
 	respectNodeAffinityPreferredEnabled := features.Enabled(features.TASRespectNodeAffinityPreferred)
 
 	for candidate := range candidates {
@@ -71,7 +70,7 @@ func (s *defaultSimulatorSnapshot) FindFeasibleNodes(
 		domainID := candidate.GetID()
 
 		// 0. Cast to matching candidate
-		matchedCandidate, ok := candidate.(MatchedCandidate)
+		matchedCandidate, ok := candidate.(simulator.MatchedCandidate)
 		if !ok {
 			return nil, fmt.Errorf("failed to cast candidate %T to simulator.MatchedCandidate", candidate)
 		}
@@ -85,7 +84,7 @@ func (s *defaultSimulatorSnapshot) FindFeasibleNodes(
 		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(logger, nodeTaints, requirements.Tolerations, utiltaints.IsSchedulingTaint, true)
 		if untolerated {
 			logger.V(5).Info("excluding node with untolerated taint", "domainID", domainID, "taint", taint)
-			exclusionStats.RecordExclusion(ExclusionTaints, &taint)
+			exclusionStats.RecordExclusion(simulator.ExclusionTaints, &taint)
 			continue
 		}
 
@@ -97,14 +96,14 @@ func (s *defaultSimulatorSnapshot) FindFeasibleNodes(
 
 		if requirements.Selector != nil && !requirements.Selector.Matches(nodeLabelSet) {
 			logger.V(5).Info("excluding node that doesn't match nodeSelectors", "domainID", domainID, "nodeLabels", nodeLabelSet)
-			exclusionStats.RecordExclusion(ExclusionNodeSelector, nil)
+			exclusionStats.RecordExclusion(simulator.ExclusionNodeSelector, nil)
 			continue
 		}
 
 		// 3. Check Node against Affinity Node Selector
 		if requirements.AffinitySelector != nil && !requirements.AffinitySelector.Match(nodeObj) {
 			logger.V(5).Info("excluding node due to an affinity mismatch", "domainID", domainID)
-			exclusionStats.RecordExclusion(ExclusionAffinity, nil)
+			exclusionStats.RecordExclusion(simulator.ExclusionAffinity, nil)
 			continue
 		}
 
