@@ -620,13 +620,17 @@ const (
   Priority OrderingField = "Priority"
   AdmissionTimestamp OrderingField = "AdmissionTimestamp"
   ClusterQueueDRS OrderingField = "ClusterQueueDRS"
+
+  // IsOtherCQ is a boolean value that indicates if the candidate is in a different ClusterQueue than the preemptor. It can be used to order candidates from different CQ as preempted first or last depending on the direction.
   IsOtherCQ OrderingField = "IsOtherCQ"
+
+  // IsOtherCohort is a boolean value that indicates if the candidate is in a different Cohort than the preemptor. It can be used to order candidates from different Cohort as preempted first or last depending on the direction.
   IsOtherCohort OrderingField = "IsOtherCohort"
 
-  // IsDRSLessThanInitialShare is a boolean value that indicates if preemption of the workload would be considered fair according to DRSLessThanInitialShare fair sharing strategy.
+  // IsDRSLessThanInitialShare is a boolean value that indicates if preemption of the workload would be considered fair according to DRSLessThanInitialShare fair sharing strategy. It can be used to order candidates that are considered fair according to this strategy as preempted first.
   IsDRSLessThanInitialShare OrderingField = "IsDRSLessThanInitialShare"
 
-  // IsDRSLessThanOrEqualToFinalShare is a boolean value that indicates if preemption of the workload would be considered fair according to DRSLessThanOrEqualToFinalShare fair sharing strategy.
+  // IsDRSLessThanOrEqualToFinalShare is a boolean value that indicates if preemption of the workload would be considered fair according to DRSLessThanOrEqualToFinalShare fair sharing strategy. It can be used to order candidates that are considered fair according to this strategy as preempted first.
   IsDRSLessThanOrEqualToFinalShare OrderingField = "IsDRSLessThanOrEqualToFinalShare"
 )
 
