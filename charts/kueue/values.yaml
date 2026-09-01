@@ -112,7 +112,7 @@ controllerManager:
   podDisruptionBudget:
     # -- Enable PodDisruptionBudget
     enabled: false
-    # -- PodDisruptionBudget's topologySpreadConstraints
+    # -- PodDisruptionBudget's minAvailable
     minAvailable: 1
 managerConfig:
   # -- controller_manager_config.yaml.
