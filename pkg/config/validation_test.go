@@ -34,6 +34,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -73,6 +74,18 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
 					Field: "integrations",
+				},
+			},
+		},
+		"invalid quota release strategy": {
+			cfg: &configapi.Configuration{
+				Integrations:         defaultIntegrations,
+				QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseStrategy("InvalidStrategy")),
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "quotaReleaseStrategy",
 				},
 			},
 		},
