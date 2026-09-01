@@ -258,17 +258,11 @@ Details about the API can be seen in the [Design Details](#design-details) secti
 
 Success criteria:
 
-1. TODO
-
-
-<!--
-This is where we get down to the specifics of what the proposal actually is.
-This should have enough detail that reviewers can understand exactly what
-you're proposing, but should not include things like API designs or
-implementation. What is the desired outcome and how do we measure success?.
-The "Design Details" section below is for the real
-nitty-gritty.
--->
+1. Cluster administrator is able to configure preemptions in the cluster in a way that satisfies their organization needs.
+2. Workloads are preempted only if allowed by appropriate preemption config (or classical `preemption` field) and preemption limits.
+3. Most popular setups are possible, tested and covered by documentation:
+    - Defragmentation
+    - Hero jobs
 
 ### User Stories
 
@@ -327,9 +321,9 @@ spec:
 ```
 
 And then to make sure that the hero job is never preempted one may:
-1. Have preemption limits with 0 allowed preemptions from hero job's CQ. (Doable after milestone 5)
-2. Define in cadidate selectors subfiel `ClusterQueueSelector` of other configurations that they cannot preempt from the hero job's CQ.
-3. Make hero job's priority higher than any other workload's priority and do not allow for preemption of workloads with higher or equal priority.
+1. Make hero job's priority higher than any other workload's priority and do not allow for preemption of workloads with higher or equal priority.
+2. Have preemption limits with 0 allowed preemptions from hero job's CQ. (Doable after milestone 5)
+3. Define in cadidate selectors subfield `ClusterQueueSelector` of other configurations that they cannot preempt from the hero job's CQ.
 
 Thanks to the elevated preemption privilages the hero job will be able to preempt any workloads and borrow the quota from other CQs in the cohort tree (this job will still be affected by lending limits - so they have to be set appropriately to allow for the quota gathering). It will also effectively lock this quota, as no other workload will be able to preempt it.
 
