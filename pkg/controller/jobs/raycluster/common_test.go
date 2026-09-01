@@ -735,6 +735,7 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 		rayClusterSpec *rayv1.RayClusterSpec
 		podSetsInfo    []podset.PodSetInfo
 		wantSpec       *rayv1.RayClusterSpec
+		wantErr        error
 	}{
 		"basic update with node selector": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -948,9 +949,8 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			err := UpdateRayClusterSpecToRunWithPodSetsInfo(utiltesting.NewLogger(t), tc.rayClusterSpec, tc.podSetsInfo)
 
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("UpdateRayClusterSpecToRunWithPodSetsInfo() error mismatch (-want +got):\n%s", diff)
 			}
 
 			if diff := cmp.Diff(tc.wantSpec, tc.rayClusterSpec); diff != "" {
