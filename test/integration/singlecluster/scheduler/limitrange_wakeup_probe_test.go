@@ -86,34 +86,26 @@ var _ = ginkgo.Describe("LimitRange constraint relaxation wake-up probe", func()
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 	})
 
-	ginkgo.It("admits the workload after the LimitRange max is raised above its request", func() {
-		ginkgo.By("Raising the LimitRange max", func() {
+	ginkgo.DescribeTable("admits the workload after the LimitRange constraints are relaxed",
+		func(relax func()) {
+			relax()
+
+			ginkgo.By("Expecting the workload to be admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					read := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&read)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		},
+		ginkgo.Entry("when the max is raised above its request", func() {
 			updatedLr := corev1.LimitRange{}
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(limitRange), &updatedLr)).To(gomega.Succeed())
 			updatedLr.Spec.Limits[0].Max[corev1.ResourceCPU] = resource.MustParse("8")
 			gomega.Expect(k8sClient.Update(ctx, &updatedLr)).To(gomega.Succeed())
-		})
-
-		ginkgo.By("Expecting the workload to be admitted", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				read := kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&read)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-	})
-
-	ginkgo.It("admits the workload after the LimitRange is deleted", func() {
-		ginkgo.By("Deleting the LimitRange", func() {
+		}),
+		ginkgo.Entry("when the LimitRange is deleted", func() {
 			gomega.Expect(k8sClient.Delete(ctx, limitRange)).To(gomega.Succeed())
-		})
-
-		ginkgo.By("Expecting the workload to be admitted", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				read := kueue.Workload{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
-				g.Expect(workload.HasQuotaReservation(&read)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-	})
+		}),
+	)
 })
