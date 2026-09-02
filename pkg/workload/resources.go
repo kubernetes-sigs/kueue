@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -73,7 +72,6 @@ func handlePodOverhead(ctx context.Context, cl client.Client, wl *kueue.Workload
 }
 
 func handlePodLimitRange(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
-	// get the list of limit ranges
 	var limitRanges corev1.LimitRangeList
 	if err := cl.List(ctx, &limitRanges, &client.ListOptions{Namespace: wl.Namespace}, client.MatchingFields{indexer.LimitRangeHasContainerOrPodType: "true"}); err != nil {
 		return err
@@ -141,15 +139,13 @@ func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 // - PodOverhead
 // - LimitRanges
 // - Limits
-func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) {
-	log := ctrl.LoggerFrom(ctx)
-	for _, err := range handlePodOverhead(ctx, cl, wl) {
-		log.Error(err, "Failures adjusting requests for pod overhead")
-	}
+func AdjustResources(ctx context.Context, cl client.Client, wl *kueue.Workload) error {
+	errs := handlePodOverhead(ctx, cl, wl)
 	if err := handlePodLimitRange(ctx, cl, wl); err != nil {
-		log.Error(err, "Failed adjusting requests for LimitRanges")
+		errs = append(errs, err)
 	}
 	handleLimitsToRequests(wl)
+	return errors.Join(errs...)
 }
 
 // ValidateResources validates that requested resources are less or equal

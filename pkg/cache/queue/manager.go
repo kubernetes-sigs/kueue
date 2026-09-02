@@ -531,7 +531,9 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 			continue
 		}
 
-		workload.AdjustResources(ctx, m.client, &w)
+		if err := workload.AdjustResources(ctx, m.client, &w); err != nil {
+			log.Error(err, "Failed to adjust workload resources")
+		}
 		wInfo := workload.NewInfo(&w, m.workloadInfoOptions...)
 		wInfo.UpdateSchedulingHash(log)
 		qImpl.AddOrUpdate(wInfo)
@@ -784,7 +786,9 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 		return false
 	}
 	log := ctrl.LoggerFrom(ctx)
-	workload.AdjustResources(ctx, m.client, &w)
+	if err := workload.AdjustResources(ctx, m.client, &w); err != nil {
+		log.Error(err, "Failed to adjust workload resources", "workload", klog.KObj(&w))
+	}
 	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
 		info.Update(log, &w, workload.WithPreserveTotalRequests())
 	} else {
