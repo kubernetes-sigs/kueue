@@ -18,6 +18,7 @@
     - [Workload-slice naming under annotation reflection](#workload-slice-naming-under-annotation-reflection)
   - [Manager-side replicas pinning](#manager-side-replicas-pinning)
   - [Worker-side resize tolerance](#worker-side-resize-tolerance)
+  - [Triggering the reverse sync](#triggering-the-reverse-sync)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [e2e tests](#e2e-tests)
@@ -317,6 +318,20 @@ slice without waiting for those pods to terminate. If that eventual guarantee
 proves insufficient, a future refinement could defer the workload update until
 KubeRay has cleared `workersToDelete` — that is, until the listed pods are
 actually gone.
+
+### Triggering the reverse sync
+
+A resize must wake the manager's workload reconcile. MultiKueue watches each
+worker object and maps it back to a workload through its prebuilt-workload marker.
+
+- **RayCluster** — the autoscaler edits the watched RayCluster itself, so the
+  reconcile wakes directly.
+- **RayJob** — the autoscaler edits the child RayCluster. The wake-up relies on
+  KubeRay mirroring the child's status into `RayJob.status`.
+
+As a possible follow-up, the child RayCluster event could wake the RayJob
+reconcile directly, removing the dependency on KubeRay's status mirroring. This
+is not a priority, since KubeRay always performs that status mirroring.
 
 ### Test Plan
 
