@@ -161,6 +161,62 @@ func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
 	}
 }
 
+func TestValidateTASPodSetRequest_GroupingWithSlicing(t *testing.T) {
+	replicaPath := field.NewPath("spec", "template", "metadata")
+
+	testCases := map[string]struct {
+		annotations map[string]string
+		wantErrNum  int
+	}{
+		"valid: podset grouping with 2-level slicing and required topology": {
+			annotations: map[string]string{
+				kueue.PodSetGroupName:                       "group1",
+				kueue.PodSetRequiredTopologyAnnotation:      "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetSliceSizeAnnotation:             "4",
+			},
+			wantErrNum: 0,
+		},
+		"valid: podset grouping with 2-level slicing and preferred topology": {
+			annotations: map[string]string{
+				kueue.PodSetGroupName:                       "group1",
+				kueue.PodSetPreferredTopologyAnnotation:     "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetSliceSizeAnnotation:             "4",
+			},
+			wantErrNum: 0,
+		},
+		"invalid: podset grouping with 2-level slicing but neither required nor preferred topology": {
+			annotations: map[string]string{
+				kueue.PodSetGroupName:                       "group1",
+				kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/rack",
+				kueue.PodSetSliceSizeAnnotation:             "4",
+			},
+			wantErrNum: 1,
+		},
+		"invalid: podset grouping with slice size missing slice required topology": {
+			annotations: map[string]string{
+				kueue.PodSetGroupName:                  "group1",
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetSliceSizeAnnotation:        "4",
+			},
+			wantErrNum: 1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			meta := &metav1.ObjectMeta{
+				Annotations: tc.annotations,
+			}
+			errs := ValidateTASPodSetRequest(replicaPath, meta)
+			if got := len(errs); got != tc.wantErrNum {
+				t.Errorf("ValidateTASPodSetRequest() returned %d errors, want %d:\n%v", got, tc.wantErrNum, errs)
+			}
+		})
+	}
+}
+
 func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 	replicaPath := field.NewPath("spec", "template", "metadata")
 
