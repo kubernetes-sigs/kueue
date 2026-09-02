@@ -1241,8 +1241,14 @@ func updateWorkloadPriorities(ctx context.Context, c client.Client, r events.Eve
 	targets := make([]*kueue.Workload, 0, len(sameClassName)+len(needsClassChange))
 	targets = append(targets, sameClassName...)
 	targets = append(targets, needsClassChange...)
+	log := ctrl.LoggerFrom(ctx)
 	for _, wl := range targets {
 		if priorityStateEqual(wl, priorityClassRef, priority) {
+			continue
+		}
+		if workload.HasQuotaReservation(wl) && !hasSameOrEmptyPriorityClass(wl.Spec.PriorityClassRef, priorityClassRef) {
+			log.V(2).Info("Leaving a workload that reserved quota on its current priority class, since the transition the owner asks for is immutable while quota is reserved",
+				"workload", klog.KObj(wl))
 			continue
 		}
 		wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
@@ -1294,6 +1300,25 @@ func classifyWorkloadsForPriorityUpdate(log logr.Logger, jobPriorityClassName st
 		}
 	}
 	return sameClassName, needsClassChange
+}
+
+// hasSameOrEmptyPriorityClass reports whether cur and ref agree on everything the
+// Workload CEL rules freeze while quota is reserved: presence, group and kind, and
+// for a Pod PriorityClass the name as well.
+func hasSameOrEmptyPriorityClass(cur, ref *kueue.PriorityClassRef) bool {
+	if (cur == nil) != (ref == nil) {
+		return false
+	}
+	if cur == nil {
+		return true
+	}
+	if cur.Group != ref.Group || cur.Kind != ref.Kind {
+		return false
+	}
+	if ref.Group == kueue.PodPriorityClassGroup && ref.Kind == kueue.PodPriorityClassKind {
+		return cur.Name == ref.Name
+	}
+	return true
 }
 
 // priorityStateEqual reports whether the workload's priority already matches the

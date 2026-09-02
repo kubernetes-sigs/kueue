@@ -22,6 +22,7 @@ import (
 	"testing"
 
 	batchv1 "k8s.io/api/batch/v1"
+	schedulingv1 "k8s.io/api/scheduling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,11 +55,13 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		class        *kueue.WorkloadPriorityClass
-		workloads    []*kueue.Workload
-		interceptors func(s *priorityStats) interceptor.Funcs
-		steps        []step
-		want         map[string]wantWorkload
+		class            *kueue.WorkloadPriorityClass
+		workloads        []*kueue.Workload
+		job              *batchv1.Job
+		podPriorityClass []schedulingv1.PriorityClass
+		interceptors     func(s *priorityStats) interceptor.Funcs
+		steps            []step
+		want             map[string]wantWorkload
 		// Nil where the count is not part of what the case pins.
 		wantClassReads     *int
 		wantWorkloadWrites *int
@@ -121,6 +124,122 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				"reserved": {refName: new("")},
 			},
 			wantWorkloadWrites: new(0),
+		},
+
+		// Group and kind are frozen while quota is reserved.
+		"leaves a quota-reserved workload alone when the owner falls back to a pod priority class": {
+			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
+			podPriorityClass: []schedulingv1.PriorityClass{
+				{ObjectMeta: metav1.ObjectMeta{Name: "podpc"}, Value: 50},
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "reserved",
+						LastTransitionTime: metav1.Now(),
+					}).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"reserved": {refName: new("low"), priority: new(int32(10))},
+			},
+			wantWorkloadWrites: new(0),
+		},
+
+		// A nil resolved ref is a removal, frozen while quota is reserved.
+		"leaves a quota-reserved workload alone when the owner's class stops resolving": {
+			job: testingjob.MakeJob("job", "ns").Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					WorkloadPriorityClassRef("low").Priority(10).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "reserved",
+						LastTransitionTime: metav1.Now(),
+					}).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"reserved": {refName: new("low"), priority: new(int32(10))},
+			},
+			wantWorkloadWrites: new(0),
+		},
+
+		// Same group and kind, so the rename is legal while reserved.
+		"moves a quota-reserved workload between workload priority classes": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(10).Obj(),
+			job:   testingjob.MakeJob("job", "ns").WorkloadPriorityClass("low").Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					WorkloadPriorityClassRef("high").Priority(100).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "reserved",
+						LastTransitionTime: metav1.Now(),
+					}).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"reserved": {refName: new("low"), priority: new(int32(10))},
+			},
+			wantWorkloadWrites: new(1),
+		},
+
+		"still moves a workload without a reservation onto a pod priority class": {
+			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
+			podPriorityClass: []schedulingv1.PriorityClass{
+				{ObjectMeta: metav1.ObjectMeta{Name: "podpc"}, Value: 50},
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("free", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			steps: []step{{}},
+			want: map[string]wantWorkload{
+				"free": {refName: new("podpc"), priority: new(int32(50))},
+			},
+		},
+
+		"writes the unreserved half of a batch and skips the reserved half": {
+			job: testingjob.MakeJob("job", "ns").PriorityClass("podpc").Obj(),
+			podPriorityClass: []schedulingv1.PriorityClass{
+				{ObjectMeta: metav1.ObjectMeta{Name: "podpc"}, Value: 50},
+			},
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("reserved", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "AdmittedByTest",
+						Message:            "reserved",
+						LastTransitionTime: metav1.Now(),
+					}).Obj(),
+				utiltestingapi.MakeWorkload("free", "ns").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PriorityClass("podpc").Obj()).
+					WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: countingWrites,
+			steps:        []step{{}},
+			want: map[string]wantWorkload{
+				"reserved": {refName: new("low"), priority: new(int32(10))},
+				"free":     {refName: new("podpc"), priority: new(int32(50))},
+			},
+			wantWorkloadWrites: new(1),
 		},
 
 		// A workload that already carries the right class name but a stale value is
@@ -207,9 +326,18 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			job := testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+			job := tc.job
+			if job == nil {
+				job = testingjob.MakeJob("job", "ns").WorkloadPriorityClass("high").Obj()
+			}
 
-			objs := []client.Object{job, tc.class}
+			objs := []client.Object{job}
+			if tc.class != nil {
+				objs = append(objs, tc.class)
+			}
+			for i := range tc.podPriorityClass {
+				objs = append(objs, &tc.podPriorityClass[i])
+			}
 			names := make([]string, 0, len(tc.workloads))
 			for _, wl := range tc.workloads {
 				objs = append(objs, wl)
