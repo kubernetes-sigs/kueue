@@ -45,4 +45,5 @@ test/e2e/kueueviz/cypress/videos
 __pycache__/
 *.pyc
 
-
+# Used by GitHub workflows
+.automation

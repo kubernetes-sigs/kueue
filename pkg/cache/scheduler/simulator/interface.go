@@ -24,19 +24,24 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// NodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
-type NodeFeasibilityChecker interface {
-	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
-}
-
-// SchedulingSimulator acts as a factory for the feasibility checker and
-// maintains any per-pod state that its plugins require (e.g. hostPort tracking).
+// SchedulingSimulator acts as a factory for SimulatorSnapshots.
+// It also tracks all existing Pods (even those not managed by Kueue),
+// to ensure they're included in the snapshots.
+// This interface is purposed to control Kueue-WAS integration.
+// The "default" (non-WAS) implementation may trivialize some methods.
 type SchedulingSimulator interface {
-	NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (NodeFeasibilityChecker, error)
+	Snapshot(ctx context.Context, nodes []*corev1.Node) (SimulatorSnapshot, error)
 	// TrackPod notifies the simulator that a pod is running on a node.
 	TrackPod(pod *corev1.Pod)
 	// UntrackPod notifies the simulator that a pod has been removed.
 	UntrackPod(key client.ObjectKey)
+}
+
+// SimulatorSnapshot represents the cluster state as needed for scheduling simulations.
+// This interface is purposed to control Kueue-WAS integration.
+// The "default" (non-WAS) implementation may trivialize some methods.
+type SimulatorSnapshot interface {
+	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {

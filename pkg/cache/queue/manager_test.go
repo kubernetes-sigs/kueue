@@ -1199,18 +1199,33 @@ func TestStatus(t *testing.T) {
 	}
 }
 
-func TestRequeueWorkloadStrictFIFO(t *testing.T) {
+func TestRequeueWorkload(t *testing.T) {
 	now := time.Now()
-	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	clusterQueues := []*kueue.ClusterQueue{
+		utiltestingapi.MakeClusterQueue("cq").Obj(),
+		utiltestingapi.MakeClusterQueue("other-cq").Obj(),
+	}
 	queues := []*kueue.LocalQueue{
 		utiltestingapi.MakeLocalQueue("foo", "").ClusterQueue("cq").Obj(),
 		utiltestingapi.MakeLocalQueue("bar", "").Obj(),
+		utiltestingapi.MakeLocalQueue("moved", "").ClusterQueue("other-cq").Obj(),
 	}
 	cases := map[string]struct {
-		workload     *kueue.Workload
-		inClient     bool
-		inQueue      bool
-		wantRequeued bool
+		workload *kueue.Workload
+		inClient bool
+		inQueue  bool
+		popped   bool
+		// requeueWorkload is what the cluster holds by the time of the requeue,
+		// when it changed after the pop. Defaults to workload.
+		requeueWorkload *kueue.Workload
+		wantRequeued    bool
+		// wantTrackedClusterQueue is where the workload ends up right after the
+		// requeue.
+		wantTrackedClusterQueue kueue.ClusterQueueReference
+		// wantRecoveredClusterQueue is where the original workload must land when
+		// it is added back: the ClusterQueue it was popped from must have let go
+		// of it by then.
+		wantRecoveredClusterQueue kueue.ClusterQueueReference
 	}{
 		"existing queue and obj": {
 			workload: utiltestingapi.MakeWorkload("wl", "").
@@ -1244,7 +1259,7 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 		"has no quota reservation": {
 			workload: utiltestingapi.MakeWorkload("wl", "").
 				Queue("foo").
-				ReserveQuotaAt(&kueue.Admission{ClusterQueue: kueue.ClusterQueueReference(cq.Name)}, now).
+				ReserveQuotaAt(&kueue.Admission{ClusterQueue: "cq"}, now).
 				Obj(),
 			inClient:     true,
 			inQueue:      true,
@@ -1285,15 +1300,82 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 			inQueue:      true,
 			wantRequeued: false,
 		},
+		"workload deleted between the pop and the requeue": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				Obj(),
+			inClient:                  false,
+			inQueue:                   true,
+			popped:                    true,
+			wantRequeued:              false,
+			wantRecoveredClusterQueue: "cq",
+		},
+		"workload deactivated between the pop and the requeue": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				Obj(),
+			inClient: true,
+			inQueue:  true,
+			popped:   true,
+			requeueWorkload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				Active(false).
+				Obj(),
+			wantRequeued:              false,
+			wantRecoveredClusterQueue: "cq",
+		},
+		"queue name points at a missing LocalQueue": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				Obj(),
+			inClient: true,
+			inQueue:  true,
+			popped:   true,
+			requeueWorkload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("baz").
+				Obj(),
+			wantRequeued:              false,
+			wantRecoveredClusterQueue: "cq",
+		},
+		"queue name points at a LocalQueue without a ClusterQueue": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				Obj(),
+			inClient: true,
+			inQueue:  true,
+			popped:   true,
+			requeueWorkload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("bar").
+				Obj(),
+			wantRequeued:              false,
+			wantRecoveredClusterQueue: "cq",
+		},
+		"queue name points at another ClusterQueue": {
+			workload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("foo").
+				Obj(),
+			inClient: true,
+			inQueue:  true,
+			popped:   true,
+			requeueWorkload: utiltestingapi.MakeWorkload("wl", "").
+				Queue("moved").
+				Obj(),
+			wantRequeued:            true,
+			wantTrackedClusterQueue: "other-cq",
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewFakeClient()
 			ctx, log := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
+			defer cancel()
 			queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
 			manager := NewManagerForUnitTests(cl, nil, queueOptions...)
-			if err := manager.AddClusterQueue(ctx, cq); err != nil {
-				t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
+			for _, cq := range clusterQueues {
+				if err := manager.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Failed adding cluster queue %s: %v", cq.Name, err)
+				}
 			}
 			for _, q := range queues {
 				if err := manager.AddLocalQueue(ctx, q); err != nil {
@@ -1303,7 +1385,11 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 			// Adding workload to client after the queues are created, otherwise it
 			// will be in the queue.
 			if tc.inClient {
-				if err := cl.Create(ctx, tc.workload); err != nil {
+				cliWl := tc.requeueWorkload
+				if cliWl == nil {
+					cliWl = tc.workload
+				}
+				if err := cl.Create(ctx, cliWl); err != nil {
 					t.Fatalf("Failed adding workload to client: %v", err)
 				}
 			}
@@ -1311,8 +1397,33 @@ func TestRequeueWorkloadStrictFIFO(t *testing.T) {
 				_ = manager.AddOrUpdateWorkload(log, tc.workload)
 			}
 			info := workload.NewInfo(tc.workload)
+			if tc.popped {
+				go manager.CleanUpOnContext(ctx)
+				heads := manager.Heads(ctx)
+				if len(heads) != 1 {
+					t.Fatalf("Heads returned %d workloads, want 1", len(heads))
+				}
+				info = &heads[0].Info
+				if !manager.hm.ClusterQueue("cq").workloads.HasInflight(workload.Key(tc.workload)) {
+					t.Fatalf("ClusterQueue %q does not claim %q after the pop", "cq", workload.Key(tc.workload))
+				}
+			}
 			if requeued := manager.RequeueWorkload(ctx, info, RequeueReasonGeneric, ""); requeued != tc.wantRequeued {
 				t.Errorf("RequeueWorkload returned %t, want %t", requeued, tc.wantRequeued)
+			}
+			if tc.popped && manager.hm.ClusterQueue("cq").workloads.HasInflight(workload.Key(tc.workload)) {
+				t.Errorf("ClusterQueue %q still claims %q", "cq", workload.Key(tc.workload))
+			}
+			if tc.wantTrackedClusterQueue != "" && manager.hm.ClusterQueue(tc.wantTrackedClusterQueue).workloads.Get(workload.Key(tc.workload)) == nil {
+				t.Errorf("ClusterQueue %q does not track %q", tc.wantTrackedClusterQueue, workload.Key(tc.workload))
+			}
+			if tc.wantRecoveredClusterQueue != "" {
+				if err := manager.AddOrUpdateWorkload(log, tc.workload); err != nil {
+					t.Fatalf("Failed re-adding workload: %v", err)
+				}
+				if manager.hm.ClusterQueue(tc.wantRecoveredClusterQueue).workloads.GetActive(workload.Key(tc.workload)) == nil {
+					t.Errorf("ClusterQueue %q does not hold %q on the heap once the workload is added back", tc.wantRecoveredClusterQueue, workload.Key(tc.workload))
+				}
 			}
 		})
 	}
@@ -1692,7 +1803,7 @@ func TestHeadsAsync(t *testing.T) {
 	cases := map[string]struct {
 		initialObjs []client.Object
 		op          func(context.Context, *Manager, *sync.WaitGroup)
-		wantHeads   []workload.Info
+		wantHeads   []Head
 	}{
 		"AddClusterQueue": {
 			initialObjs: []client.Object{&wl, &queues[0]},
@@ -1709,10 +1820,12 @@ func TestHeadsAsync(t *testing.T) {
 					}
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Info: workload.Info{
+						Obj:          &wl,
+						ClusterQueue: "fooCq",
+					},
 				},
 			},
 		},
@@ -1728,10 +1841,12 @@ func TestHeadsAsync(t *testing.T) {
 					}
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Info: workload.Info{
+						Obj:          &wl,
+						ClusterQueue: "fooCq",
+					},
 				},
 			},
 		},
@@ -1749,10 +1864,12 @@ func TestHeadsAsync(t *testing.T) {
 					}
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Info: workload.Info{
+						Obj:          &wl,
+						ClusterQueue: "fooCq",
+					},
 				},
 			},
 		},
@@ -1771,10 +1888,12 @@ func TestHeadsAsync(t *testing.T) {
 					}
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Info: workload.Info{
+						Obj:          &wl,
+						ClusterQueue: "fooCq",
+					},
 				},
 			},
 		},
@@ -1793,10 +1912,12 @@ func TestHeadsAsync(t *testing.T) {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination, "")
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &wl,
-					ClusterQueue: "fooCq",
+					Info: workload.Info{
+						Obj:          &wl,
+						ClusterQueue: "fooCq",
+					},
 				},
 			},
 		},
@@ -1821,10 +1942,12 @@ func TestHeadsAsync(t *testing.T) {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination, "")
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &newWl,
-					ClusterQueue: "fooCq",
+					Info: workload.Info{
+						Obj:          &newWl,
+						ClusterQueue: "fooCq",
+					},
 				},
 			},
 		},
@@ -1853,10 +1976,12 @@ func TestHeadsAsync(t *testing.T) {
 					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination, "")
 				})
 			},
-			wantHeads: []workload.Info{
+			wantHeads: []Head{
 				{
-					Obj:          &newWl,
-					ClusterQueue: "barCq",
+					Info: workload.Info{
+						Obj:          &newWl,
+						ClusterQueue: "barCq",
+					},
 				},
 			},
 		},
@@ -1908,7 +2033,7 @@ func TestHeadsCancelledNoLostWakeup(t *testing.T) {
 	const iterations = 50
 	for i := range iterations {
 		headsCtx, cancel := context.WithCancel(ctx)
-		headsDone := make(chan []workload.Info, 1)
+		headsDone := make(chan []Head, 1)
 
 		go manager.CleanUpOnContext(headsCtx)
 		go func() {
@@ -2169,8 +2294,8 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			fakeClock.Step(tc.passTime)
 
 			gotReady := sets.New[workload.Reference]()
-			for _, wlInfo := range manager.secondPassQueue.takeAllReady() {
-				gotReady.Insert(workload.Key(wlInfo.Obj))
+			for _, head := range manager.secondPassQueue.takeAllReady() {
+				gotReady.Insert(workload.Key(head.Obj))
 			}
 
 			if diff := cmp.Diff(tc.wantReady, gotReady); diff != "" {

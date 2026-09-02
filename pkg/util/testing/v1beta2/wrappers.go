@@ -30,8 +30,10 @@ import (
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/csv"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/tas"
@@ -315,6 +317,11 @@ func (w *WorkloadWrapper) Annotation(k, v string) *WorkloadWrapper {
 	}
 	w.ObjectMeta.Annotations[k] = v
 	return w
+}
+
+// Group marks the Workload as created by the pod-group framework.
+func (w *WorkloadWrapper) Group() *WorkloadWrapper {
+	return w.Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue)
 }
 
 func (w *WorkloadWrapper) AdmissionChecks(checks ...kueue.AdmissionCheckState) *WorkloadWrapper {
@@ -1806,4 +1813,38 @@ func (cpw *ClusterProfileWrapper) ClusterManager(clusterManagerName string) *Clu
 		Name: clusterManagerName,
 	}
 	return cpw
+}
+
+// CustomLabelWrapper wraps a ControllerMetricsCustomLabel.
+type CustomLabelWrapper struct {
+	label configapi.ControllerMetricsCustomLabel
+}
+
+func MakeCustomLabel(name string) *CustomLabelWrapper {
+	return &CustomLabelWrapper{label: configapi.ControllerMetricsCustomLabel{Name: name}}
+}
+
+func (w *CustomLabelWrapper) SourceLabelKey(key string) *CustomLabelWrapper {
+	w.label.SourceLabelKey = key
+	return w
+}
+
+func (w *CustomLabelWrapper) SourceAnnotationKey(key string) *CustomLabelWrapper {
+	w.label.SourceAnnotationKey = key
+	return w
+}
+
+func (w *CustomLabelWrapper) SourceKind(kind configapi.SourceKind) *CustomLabelWrapper {
+	w.label.SourceKind = new(kind)
+	return w
+}
+
+func (w *CustomLabelWrapper) TrackedValues(values ...string) *CustomLabelWrapper {
+	w.label.TrackedValues = values
+	return w
+}
+
+// Obj returns the built ControllerMetricsCustomLabel.
+func (w *CustomLabelWrapper) Obj() configapi.ControllerMetricsCustomLabel {
+	return w.label
 }

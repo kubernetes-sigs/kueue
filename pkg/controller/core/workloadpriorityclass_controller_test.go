@@ -19,6 +19,8 @@ package core
 import (
 	"context"
 	stderrors "errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -99,11 +101,12 @@ func TestWorkloadPriorityClassPredicates(t *testing.T) {
 
 func TestWorkloadPriorityClassReconcile(t *testing.T) {
 	cases := map[string]struct {
-		wpc           *kueue.WorkloadPriorityClass
-		workloads     []kueue.Workload
-		wantWorkloads []kueue.Workload
-		wantError     bool
-		clientFuncs   *interceptor.Funcs
+		wpc             *kueue.WorkloadPriorityClass
+		workloads       []kueue.Workload
+		wantWorkloads   []kueue.Workload
+		wantError       bool
+		wantSingleError bool
+		clientFuncs     *interceptor.Funcs
 	}{
 		"reconcile updates workload priority when WPC priority changes": {
 			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
@@ -139,6 +142,31 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl2", "default").
 					Priority(1000).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+		},
+		"reconcile updates local workload and skips MultiKueue remote workload": {
+			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("local", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("remote", "default").
+					Label(kueue.MultiKueueOriginLabel, "manager").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("local", "default").
+					Priority(1000).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("remote", "default").
+					Label(kueue.MultiKueueOriginLabel, "manager").
+					Priority(100).
 					WorkloadPriorityClassRef("high").
 					Obj(),
 			},
@@ -237,6 +265,48 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"reconcile keeps a single error when all updates fail": {
+			// Pins the second half of the fix: the sweep now goes through
+			// parallelize.Until, which keeps a single error rather than
+			// accumulating one per failed Workload the way the old
+			// errors.Join(updateErrors...) loop did.
+			wpc: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl2", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl3", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+			clientFuncs: &interceptor.Funcs{
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					return fmt.Errorf("update failed for %s", obj.GetName())
+				},
+			},
+			wantError:       true,
+			wantSingleError: true,
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl2", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl3", "default").
+					Priority(100).
+					WorkloadPriorityClassRef("high").
+					Obj(),
+			},
+		},
 		"reconcile handles WPC not found": {
 			wpc:           utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj(),
 			workloads:     []kueue.Workload{},
@@ -278,6 +348,17 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 				t.Errorf("expected error but got nil")
 			} else if !tc.wantError && gotErr != nil {
 				t.Errorf("unexpected error: %v", gotErr)
+			}
+			if tc.wantSingleError && gotErr != nil {
+				named := 0
+				for _, wl := range tc.workloads {
+					if strings.Contains(gotErr.Error(), wl.Name) {
+						named++
+					}
+				}
+				if named != 1 {
+					t.Errorf("expected the error to name exactly one failed workload, got %d in %q", named, gotErr.Error())
+				}
 			}
 			// Verify workloads are in the expected state
 			for _, wantWl := range tc.wantWorkloads {

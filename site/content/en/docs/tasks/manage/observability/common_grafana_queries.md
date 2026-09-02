@@ -117,6 +117,42 @@ histogram_quantile(0.99,
 )
 ```
 
+## Post-admission startup latency
+
+Monitor the time from Workload admission until Kueue removes one of its scheduling
+gates from the associated Pods. Kueue records this latency for the
+`kueue.x-k8s.io/admission` (Pod integration), the `kueue.x-k8s.io/topology`
+ (Topology-Aware Scheduling, for any supported job framework), and the
+`kueue.x-k8s.io/elastic-job` scheduling gates (elastic jobs). For example, the following query
+shows the 95th percentile (P95) by ClusterQueue, gate name, and whether the Pods
+belong to a group:
+
+```promql
+histogram_quantile(0.95,
+  sum by (le, cluster_queue, name, is_group) (
+    rate(kueue_pod_scheduling_gate_removal_seconds_bucket[5m])
+  )
+)
+```
+
+This latency isolates the controller handoff after admission. It does not include
+the time that Kubernetes takes to schedule or start the Pods.
+
+When `waitForPodsReady` is enabled, monitor the time from Workload admission until
+the Workload reaches `PodsReady=True`. For example, the following query shows the
+P95 by ClusterQueue and priority class:
+
+```promql
+histogram_quantile(0.95,
+  sum by (le, cluster_queue, priority_class) (
+    rate(kueue_admitted_until_ready_wait_time_seconds_bucket[5m])
+  )
+)
+```
+
+This latency includes Kubernetes scheduling, container startup, and Pod readiness.
+It does not establish that the application has started useful work.
+
 ## Workload throughput
 
 To monitor how many workloads are being admitted per hour:
@@ -154,6 +190,20 @@ sum by (cluster_queue, reason) (
 ```
 
 See [Prometheus Metrics](/docs/reference/metrics) for the full list of `reason` label values.
+
+## Eviction recovery latency
+
+To monitor the time from Workload eviction until quota is released and the
+Workload returns to Pending, use the workload eviction latency histogram. For
+example, the following query shows the P95 by ClusterQueue and eviction reason:
+
+```promql
+histogram_quantile(0.95,
+  sum by (le, cluster_queue, reason) (
+    rate(kueue_workload_eviction_latency_seconds_bucket[5m])
+  )
+)
+```
 
 ## ClusterQueue status
 

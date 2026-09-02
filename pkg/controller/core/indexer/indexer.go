@@ -217,25 +217,29 @@ func IndexWorkloadPriorityClass(obj client.Object) []string {
 }
 
 // IndexWorkloadExtendedResources indexes Workloads by the extended resource names
-// in their container requests. Used by the DeviceClass handler to find workloads
+// in their container requests or limits. Used by the DeviceClass handler to find workloads
 // affected by a specific DeviceClass change.
 func IndexWorkloadExtendedResources(obj client.Object) []string {
 	wl, ok := obj.(*kueue.Workload)
 	if !ok {
 		return nil
 	}
+
 	resNames := sets.New[string]()
 	for _, ps := range wl.Spec.PodSets {
 		for _, containers := range [][]corev1.Container{ps.Template.Spec.InitContainers, ps.Template.Spec.Containers} {
 			for _, c := range containers {
-				for name, qty := range c.Resources.Requests {
-					if !qty.IsZero() && utilresource.IsExtendedResourceName(name) {
-						resNames.Insert(string(name))
+				for _, resources := range []corev1.ResourceList{c.Resources.Requests, c.Resources.Limits} {
+					for name, qty := range resources {
+						if !qty.IsZero() && utilresource.IsExtendedResourceName(name) {
+							resNames.Insert(string(name))
+						}
 					}
 				}
 			}
 		}
 	}
+
 	if resNames.Len() > 0 {
 		return resNames.UnsortedList()
 	}

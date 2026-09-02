@@ -6,19 +6,21 @@ import (
 	"context"
 	"fmt"
 	"iter"
-	"sync"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
+	"k8s.io/klog/v2"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,25 +30,15 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 )
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error)
 
-// podTracker maintains per-node pod state for scheduler plugins that need
+// podTracker maintains pod state for scheduler plugins that need
 // existing pod information.
 type podTracker struct {
-	mu sync.RWMutex
-	// podsByNode maps node names to the set of tracked pods on that node.
-	podsByNode map[string]map[types.UID]*corev1.Pod
-	// podIndex maps each tracked pod to its current node so that TrackPod can
-	// remove the old entry when a pod migrates between nodes.
-	podIndex map[types.NamespacedName]podNodeInfo
-}
-
-// podNodeInfo records which node a tracked pod is placed on.
-type podNodeInfo struct {
-	nodeName string
-	podUID   types.UID
+	pods *utilmaps.SyncMap[types.NamespacedName, *corev1.Pod]
 }
 
 type wasSimulator struct {
@@ -69,6 +61,7 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 					},
 					Filter: schedulerconfig.PluginSet{
 						Enabled: []schedulerconfig.Plugin{
+							{Name: nodeunschedulable.Name},
 							{Name: tainttoleration.Name},
 							{Name: nodeaffinity.Name},
 							{Name: nodeports.Name},
@@ -116,16 +109,17 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	return &wasSimulator{
 		newSnapshot: snapshotFn,
 		pods: podTracker{
-			podsByNode: make(map[string]map[types.UID]*corev1.Pod),
-			podIndex:   make(map[types.NamespacedName]podNodeInfo),
+			pods: utilmaps.NewSyncMap[types.NamespacedName, *corev1.Pod](0),
 		},
 	}, nil
 }
 
 // NewWASSimulatorForTest creates a WAS simulator backed by a fake client,
 // suitable for unit tests that need the full production plugin pipeline.
+// It wraps ctx with a discard logger to prevent background informer goroutines
+// from racing with test teardown when t.Context() carries a test logger.
 func NewWASSimulatorForTest(ctx context.Context) (simulator.SchedulingSimulator, error) {
-	return newWASSimulator(ctx, fake.NewSimpleClientset())
+	return newWASSimulator(klog.NewContext(ctx, logr.Discard()), fake.NewSimpleClientset())
 }
 
 func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.SchedulingSimulator, error) {
@@ -137,13 +131,17 @@ func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.Sc
 	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
 
-func (s *wasSimulator) NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (simulator.NodeFeasibilityChecker, error) {
-	pods := s.pods.podsForNodes(nodes)
+type wasSimulatorSnapshot struct {
+	wasSnapshot *schedLibSnapshot.ClusterSnapshot
+}
+
+func (s *wasSimulator) Snapshot(ctx context.Context, nodes []*corev1.Node) (simulator.SimulatorSnapshot, error) {
+	pods := s.pods.allPods()
 	clusterSnap, err := s.newSnapshot(ctx, pods, nodes)
 	if err != nil {
 		return nil, err
 	}
-	return &wasChecker{snap: clusterSnap}, nil
+	return &wasSimulatorSnapshot{wasSnapshot: clusterSnap}, nil
 }
 
 func (s *wasSimulator) TrackPod(pod *corev1.Pod) {
@@ -154,57 +152,20 @@ func (s *wasSimulator) UntrackPod(key types.NamespacedName) {
 	s.pods.untrack(key)
 }
 
-func (t *podTracker) podsForNodes(nodes []*corev1.Node) []*corev1.Pod {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	var pods []*corev1.Pod
-	for _, node := range nodes {
-		for _, pod := range t.podsByNode[node.Name] {
-			pods = append(pods, pod)
-		}
-	}
-	return pods
+func (t *podTracker) allPods() []*corev1.Pod {
+	return t.pods.Values()
 }
 
 func (t *podTracker) track(pod *corev1.Pod) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	key := client.ObjectKeyFromObject(pod)
-	if old, found := t.podIndex[key]; found {
-		delete(t.podsByNode[old.nodeName], old.podUID)
-		if len(t.podsByNode[old.nodeName]) == 0 {
-			delete(t.podsByNode, old.nodeName)
-		}
-	}
-	node := pod.Spec.NodeName
-	if t.podsByNode[node] == nil {
-		t.podsByNode[node] = make(map[types.UID]*corev1.Pod)
-	}
-	t.podsByNode[node][pod.UID] = pod
-	t.podIndex[key] = podNodeInfo{nodeName: node, podUID: pod.UID}
+	t.pods.Add(key, pod)
 }
 
 func (t *podTracker) untrack(key types.NamespacedName) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	old, found := t.podIndex[key]
-	if !found {
-		return
-	}
-	delete(t.podsByNode[old.nodeName], old.podUID)
-	if len(t.podsByNode[old.nodeName]) == 0 {
-		delete(t.podsByNode, old.nodeName)
-	}
-	delete(t.podIndex, key)
+	t.pods.Delete(key)
 }
 
-type wasChecker struct {
-	snap *schedLibSnapshot.ClusterSnapshot
-}
-
-func (c *wasChecker) FindFeasibleNodes(
+func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 	ctx context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	requirements *simulator.PodRequirements,
@@ -230,11 +191,11 @@ func (c *wasChecker) FindFeasibleNodes(
 		ObjectMeta: requirements.PodTemplate.ObjectMeta,
 		Spec:       requirements.PodTemplate.Spec,
 	}
-	placement, err := c.snap.MakePlacement(candidateNodeNames)
+	placement, err := s.wasSnapshot.MakePlacement(candidateNodeNames)
 	if err != nil {
 		return nil, err
 	}
-	feasibleNodeNames, _, err := c.snap.CanSchedulePod(ctx, dummyPod, placement)
+	feasibleNodeNames, _, err := s.wasSnapshot.CanSchedulePod(ctx, dummyPod, placement)
 	if err != nil {
 		return nil, err
 	}

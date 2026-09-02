@@ -1601,9 +1601,12 @@ func TestValidateUpdate(t *testing.T) {
 			wh := &Webhook{integrationManager: integrationManager}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
+			warns, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+				t.Errorf("Unexpected warnings (-want,+got):\n%s", diff)
 			}
 		})
 	}

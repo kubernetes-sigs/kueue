@@ -29,7 +29,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -219,15 +218,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 				// Block if workload is still being deleted (exists without OnHold).
 				// If the workload is on hold, it is intentionally kept alive during
 				// scale-to-zero and will be re-admitted on scale-up.
-				wlName, err := findWorkloadName(ctx, wh.client, oldSTSObj)
+				_, wl, err := findWorkload(ctx, wh.client, (*appsv1.StatefulSet)(oldStatefulSet))
 				if err != nil {
 					return nil, err
-				}
-				var wl kueue.Workload
-				err = wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTSObj.GetNamespace(), Name: wlName}, &wl)
-				if client.IgnoreNotFound(err) != nil {
-					return nil, err
-				} else if err == nil && !workload.IsOnHold(&wl) {
+				} else if wl != nil && !workload.IsOnHold(wl) {
 					allErrs = append(allErrs, field.Forbidden(replicasPath, "workload from previous scale-down is still being deleted"))
 				}
 			}

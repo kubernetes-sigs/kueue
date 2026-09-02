@@ -42,7 +42,7 @@ type Info struct {
 	// Scheduler parameters to add to the RuntimeJobTemplate.
 	Scheduler *Scheduler
 	// TemplateSpec is TrainingRuntime Template object.
-	// ObjApply podSpecs and this PodSets should be kept in sync by info.SyncPodSetsToTemplateSpec().
+	// ObjApply podSpecs and this PodSets should be kept in sync by ComponentBuilderPlugin.SyncParallelCount.
 	TemplateSpec TemplateSpec
 }
 
@@ -159,6 +159,8 @@ func toPodSetContainer(containerApply ...corev1ac.ContainerApplyConfiguration) i
 		for _, cApply := range containerApply {
 			container := Container{
 				Name:         ptr.Deref(cApply.Name, ""),
+				Image:        ptr.Deref(cApply.Image, ""),
+				Command:      cApply.Command,
 				Env:          cApply.Env,
 				Ports:        cApply.Ports,
 				VolumeMounts: cApply.VolumeMounts,
@@ -221,6 +223,22 @@ func (i *Info) FindPodSetByAncestor(ancestor string) *PodSet {
 func (i *Info) FindPodSetByName(psName string) *PodSet {
 	if idx := slices.IndexFunc(i.TemplateSpec.PodSets, func(ps PodSet) bool { return ps.Name == psName }); idx != -1 {
 		return &i.TemplateSpec.PodSets[idx]
+	}
+	return nil
+}
+
+// FindContainerByPodSetName finds a runtime.Container within the named PodSet,
+// searching regular containers before init containers; returns nil if no match.
+func (i *Info) FindContainerByPodSetName(psName, containerName string) *Container {
+	ps := i.FindPodSetByName(psName)
+	if ps == nil {
+		return nil
+	}
+	if idx := slices.IndexFunc(ps.Containers, func(c Container) bool { return c.Name == containerName }); idx != -1 {
+		return &ps.Containers[idx]
+	}
+	if idx := slices.IndexFunc(ps.InitContainers, func(c Container) bool { return c.Name == containerName }); idx != -1 {
+		return &ps.InitContainers[idx]
 	}
 	return nil
 }

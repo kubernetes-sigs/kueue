@@ -308,8 +308,7 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					if err == nil {
 						t.Fatalf("expected read error due to connection closure, but got none")
 					}
-					var closeErr *websocket.CloseError
-					if errors.As(err, &closeErr) {
+					if closeErr, ok := errors.AsType[*websocket.CloseError](err); ok {
 						if closeErr.Code != websocket.ClosePolicyViolation {
 							t.Fatalf("expected close code %d, got %d", websocket.ClosePolicyViolation, closeErr.Code)
 						}
