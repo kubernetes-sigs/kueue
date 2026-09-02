@@ -211,7 +211,8 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 	// Initialize retry-idempotent flags early so that a partial failure in a
 	// previous reconcile (e.g. owner-ref update succeeded but status patch
 	// failed) does not leave the workload stuck.
-	shouldReleaseReservation := replicas == 0 && workload.HasActiveQuotaReservation(wl) && !workloadfinish.IsFinished(wl) && workload.IsActive(wl)
+	isActiveUnfinished := !workloadfinish.IsFinished(wl) && workload.IsActive(wl)
+	shouldPutOnHold := replicas == 0 && isActiveUnfinished && !workload.IsOnHold(wl)
 	shouldClearOnHold := replicas > 0 && workload.IsOnHold(wl)
 
 	switch {
@@ -219,11 +220,11 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		// Keep the owner reference when scaling to zero so that the workload
 		// is not considered orphaned by the workload controller. The workload
 		// will be put on hold instead.
-	case !hasOwnerReference && replicas == 0:
-		// Owner reference was already removed in a previous reconcile (before
-		// OnHold was introduced), but quota reservation release may have
-		// failed. Retry the release if still active.
-	case !hasOwnerReference && replicas > 0:
+	case !hasOwnerReference && (replicas > 0 || isActiveUnfinished):
+		// Restore the owner reference for active legacy workloads before changing
+		// their status. This lets the Workload watch enqueue the StatefulSet for
+		// subsequent status transitions. Keep inactive zero-replica legacy
+		// workloads ownerless for backwards compatibility.
 		shouldUpdate = true
 		err = controllerutil.SetOwnerReference(sts, wl, r.client.Scheme())
 		if wl.Annotations == nil {
@@ -267,8 +268,8 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
 	}
 
-	if shouldReleaseReservation {
-		return r.releaseScaleDownReservation(ctx, wl)
+	if shouldPutOnHold {
+		return r.putWorkloadOnHold(ctx, wl)
 	}
 
 	if shouldClearOnHold {
@@ -299,8 +300,8 @@ func (r *Reconciler) clearOnHold(ctx context.Context, wl *kueue.Workload) error 
 	}, clientutil.WithRetryOnConflict())
 }
 
-func (r *Reconciler) releaseScaleDownReservation(ctx context.Context, wl *kueue.Workload) error {
-	if wl == nil || workloadfinish.IsFinished(wl) || !workload.HasActiveQuotaReservation(wl) {
+func (r *Reconciler) putWorkloadOnHold(ctx context.Context, wl *kueue.Workload) error {
+	if wl == nil || workloadfinish.IsFinished(wl) || !workload.IsActive(wl) || workload.IsOnHold(wl) {
 		return nil
 	}
 
@@ -391,6 +392,9 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&appsv1.StatefulSet{}).
 		WithEventFilter(r).
 		Watches(&corev1.Pod{}, &podHandler{}).
+		Watches(&kueue.Workload{}, handler.EnqueueRequestForOwner(
+			mgr.GetScheme(), mgr.GetRESTMapper(), &appsv1.StatefulSet{},
+		)).
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "statefulset-reconciler"),
 		}).

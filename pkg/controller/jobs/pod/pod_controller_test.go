@@ -27,6 +27,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -364,6 +365,45 @@ func TestReconciler(t *testing.T) {
 		Image("", nil)
 
 	podUID := "dc85db45"
+	emptyGroupOwner := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "sts",
+			Namespace: "ns",
+			UID:       "sts-uid",
+		},
+	}
+	emptyGroupIntegrationManager := jobframework.NewIntegrationManager()
+	t.Cleanup(emptyGroupIntegrationManager.EnableExternalIntegrationsForTest(t, "StatefulSet.v1.apps"))
+	emptyGroupWorkload := utiltestingapi.MakeWorkload("test-group", "ns").Group().
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Queue(localUserQueueName).
+		OwnerReference(appsv1.SchemeGroupVersion.WithKind("StatefulSet"), "sts", "sts-uid").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).Obj(), now).
+		AdmittedAt(true, now.Add(-time.Second)).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadEvicted,
+			Status:  metav1.ConditionTrue,
+			Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+			Message: "Exceeded the PodsReady timeout",
+		}).
+		Obj()
+	emptyGroupWantWorkload := emptyGroupWorkload.DeepCopy()
+	emptyGroupWantWorkload.Status.Admission = nil
+	workload.SetRequeuedCondition(emptyGroupWantWorkload, kueue.WorkloadEvictedByPodsReadyTimeout, "Exceeded the PodsReady timeout", false)
+	workload.UnsetQuotaReservationWithCondition(
+		emptyGroupWantWorkload,
+		workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
+		"Exceeded the PodsReady timeout",
+		now,
+	)
+	emptyGroupFinalizedWorkload := emptyGroupWorkload.DeepCopy()
+	emptyGroupFinalizedWorkload.Finalizers = nil
+	unmanagedOwner := metav1.OwnerReference{
+		APIVersion: corev1.SchemeGroupVersion.String(),
+		Kind:       "ConfigMap",
+		Name:       "config",
+		UID:        "config-uid",
+	}
 
 	testCases := map[string]struct {
 		reconcileKey           *types.NamespacedName
@@ -4164,6 +4204,91 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted-pod", "deleted-pod-uid").
 					Obj(),
 			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"empty pod group with a live StatefulSet owner completes eviction with FinishOrphanedWorkloads disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects:  []client.Object{emptyGroupOwner.DeepCopy()},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads: []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads: []kueue.Workload{
+				*emptyGroupWantWorkload.DeepCopy(),
+			},
+			workloadCmpOpts: cmp.Options{
+				defaultWorkloadCmpOpts,
+				cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"),
+			},
+		},
+		"empty pod group with a live StatefulSet owner completes eviction with FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects:  []client.Object{emptyGroupOwner.DeepCopy()},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads: []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads: []kueue.Workload{
+				*emptyGroupWantWorkload.DeepCopy(),
+			},
+			workloadCmpOpts: cmp.Options{
+				defaultWorkloadCmpOpts,
+				cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"),
+			},
+		},
+		"empty pod group with a UID-mismatched StatefulSet owner is finalized": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects: []client.Object{func() *appsv1.StatefulSet {
+				owner := emptyGroupOwner.DeepCopy()
+				owner.UID = "replacement-sts-uid"
+				return owner
+			}()},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads:       []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads:   []kueue.Workload{*emptyGroupFinalizedWorkload.DeepCopy()},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"empty pod group with a deleting StatefulSet owner is finalized": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects: []client.Object{func() *appsv1.StatefulSet {
+				owner := emptyGroupOwner.DeepCopy()
+				deletionTimestamp := metav1.NewTime(now)
+				owner.DeletionTimestamp = &deletionTimestamp
+				owner.Finalizers = []string{"test-finalizer"}
+				return owner
+			}()},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads:       []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads:   []kueue.Workload{*emptyGroupFinalizedWorkload.DeepCopy()},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"empty pod group with an unmanaged live owner is finalized": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects: []client.Object{&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: "config", Namespace: "ns", UID: "config-uid"},
+			}},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads: []kueue.Workload{*func() *kueue.Workload {
+				wl := emptyGroupWorkload.DeepCopy()
+				wl.OwnerReferences[0] = unmanagedOwner
+				return wl
+			}()},
+			wantWorkloads: []kueue.Workload{*func() *kueue.Workload {
+				wl := emptyGroupFinalizedWorkload.DeepCopy()
+				wl.OwnerReferences[0] = unmanagedOwner
+				return wl
+			}()},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"replacement pods are owning the workload": {
