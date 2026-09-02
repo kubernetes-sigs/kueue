@@ -210,7 +210,6 @@ func TestLocalQueueConvertTo(t *testing.T) {
 				},
 				Status: v1beta2.LocalQueueStatus{
 					FairSharing: &v1beta2.LocalQueueFairSharingStatus{
-						WeightedShare: 100,
 						AdmissionFairSharingStatus: &v1beta2.LocalQueueAdmissionFairSharingStatus{
 							ConsumedResources: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("10"),
@@ -260,6 +259,7 @@ func TestLocalQueueConvertFrom(t *testing.T) {
 		Name:      "test-localqueue",
 		Namespace: "default",
 	}
+	now := metav1.Now()
 
 	testCases := map[string]struct {
 		input    *v1beta2.LocalQueue
@@ -400,6 +400,14 @@ func TestLocalQueueConvertFrom(t *testing.T) {
 					ClusterQueue: "cluster-queue-1",
 				},
 				Status: v1beta2.LocalQueueStatus{
+					FairSharing: &v1beta2.LocalQueueFairSharingStatus{
+						AdmissionFairSharingStatus: &v1beta2.LocalQueueAdmissionFairSharingStatus{
+							ConsumedResources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("10"),
+							},
+							LastUpdate: now,
+						},
+					},
 					Conditions: []metav1.Condition{
 						{
 							Type:   "Active",
@@ -427,6 +435,15 @@ func TestLocalQueueConvertFrom(t *testing.T) {
 					ClusterQueue: "cluster-queue-1",
 				},
 				Status: LocalQueueStatus{
+					FairSharing: &FairSharingStatus{
+						WeightedShare: 0,
+						AdmissionFairSharingStatus: &AdmissionFairSharingStatus{
+							ConsumedResources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("10"),
+							},
+							LastUpdate: now,
+						},
+					},
 					Conditions: []metav1.Condition{
 						{
 							Type:   "Active",
@@ -465,8 +482,11 @@ func TestLocalQueueConvertFrom(t *testing.T) {
 }
 
 func TestLocalQueueConversion_RoundTrip(t *testing.T) {
+	now := metav1.Now()
+
 	testCases := map[string]struct {
 		v1beta1Obj *LocalQueue
+		expected   *LocalQueue
 	}{
 		"complete LocalQueue with multiple flavors": {
 			v1beta1Obj: &LocalQueue{
@@ -524,6 +544,48 @@ func TestLocalQueueConversion_RoundTrip(t *testing.T) {
 				},
 			},
 		},
+		"LocalQueue with FairSharing is lossy for WeightedShare": {
+			v1beta1Obj: &LocalQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "fairsharing-localqueue",
+					Namespace: "default",
+				},
+				Spec: LocalQueueSpec{
+					ClusterQueue: "main-cluster-queue",
+				},
+				Status: LocalQueueStatus{
+					FairSharing: &FairSharingStatus{
+						WeightedShare: 100,
+						AdmissionFairSharingStatus: &AdmissionFairSharingStatus{
+							ConsumedResources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("10"),
+							},
+							LastUpdate: now,
+						},
+					},
+				},
+			},
+			expected: &LocalQueue{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "fairsharing-localqueue",
+					Namespace: "default",
+				},
+				Spec: LocalQueueSpec{
+					ClusterQueue: "main-cluster-queue",
+				},
+				Status: LocalQueueStatus{
+					FairSharing: &FairSharingStatus{
+						WeightedShare: 0,
+						AdmissionFairSharingStatus: &AdmissionFairSharingStatus{
+							ConsumedResources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("10"),
+							},
+							LastUpdate: now,
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -541,8 +603,106 @@ func TestLocalQueueConversion_RoundTrip(t *testing.T) {
 			}
 
 			// Verify round-trip
-			if diff := cmp.Diff(tc.v1beta1Obj, roundTripped); diff != "" {
-				t.Errorf("round-trip conversion produced diff (-original +roundtripped):\n%s", diff)
+			want := tc.expected
+			if want == nil {
+				want = tc.v1beta1Obj
+			}
+			if diff := cmp.Diff(want, roundTripped); diff != "" {
+				t.Errorf("round-trip conversion produced diff (-want +roundtripped):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestConvert_v1beta1_FairSharingStatus_To_v1beta2_LocalQueueFairSharingStatus(t *testing.T) {
+	now := metav1.Now()
+
+	testCases := map[string]struct {
+		input    *FairSharingStatus
+		expected *v1beta2.LocalQueueFairSharingStatus
+	}{
+		"drops WeightedShare and copies AdmissionFairSharingStatus": {
+			input: &FairSharingStatus{
+				WeightedShare: 100,
+				AdmissionFairSharingStatus: &AdmissionFairSharingStatus{
+					ConsumedResources: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("5"),
+					},
+					LastUpdate: now,
+				},
+			},
+			expected: &v1beta2.LocalQueueFairSharingStatus{
+				AdmissionFairSharingStatus: &v1beta2.LocalQueueAdmissionFairSharingStatus{
+					ConsumedResources: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("5"),
+					},
+					LastUpdate: now,
+				},
+			},
+		},
+		"nil AdmissionFairSharingStatus": {
+			input: &FairSharingStatus{
+				WeightedShare: 50,
+			},
+			expected: &v1beta2.LocalQueueFairSharingStatus{},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			out := &v1beta2.LocalQueueFairSharingStatus{}
+			if err := Convert_v1beta1_FairSharingStatus_To_v1beta2_LocalQueueFairSharingStatus(tc.input, out, nil); err != nil {
+				t.Fatalf("conversion failed: %v", err)
+			}
+			if diff := cmp.Diff(tc.expected, out); diff != "" {
+				t.Errorf("unexpected result (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestConvert_v1beta2_LocalQueueFairSharingStatus_To_v1beta1_FairSharingStatus(t *testing.T) {
+	now := metav1.Now()
+
+	testCases := map[string]struct {
+		input    *v1beta2.LocalQueueFairSharingStatus
+		expected *FairSharingStatus
+	}{
+		"sets WeightedShare to zero and copies AdmissionFairSharingStatus": {
+			input: &v1beta2.LocalQueueFairSharingStatus{
+				AdmissionFairSharingStatus: &v1beta2.LocalQueueAdmissionFairSharingStatus{
+					ConsumedResources: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("5"),
+					},
+					LastUpdate: now,
+				},
+			},
+			expected: &FairSharingStatus{
+				WeightedShare: 0,
+				AdmissionFairSharingStatus: &AdmissionFairSharingStatus{
+					ConsumedResources: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("5"),
+					},
+					LastUpdate: now,
+				},
+			},
+		},
+		"nil AdmissionFairSharingStatus": {
+			input: &v1beta2.LocalQueueFairSharingStatus{},
+			expected: &FairSharingStatus{
+				WeightedShare: 0,
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			out := &FairSharingStatus{}
+			if err := Convert_v1beta2_LocalQueueFairSharingStatus_To_v1beta1_FairSharingStatus(tc.input, out, nil); err != nil {
+				t.Fatalf("conversion failed: %v", err)
+			}
+			if diff := cmp.Diff(tc.expected, out); diff != "" {
+				t.Errorf("unexpected result (-want +got):\n%s", diff)
 			}
 		})
 	}
