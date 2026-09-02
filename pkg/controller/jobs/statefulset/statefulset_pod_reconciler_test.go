@@ -51,7 +51,7 @@ func TestPodReconciler(t *testing.T) {
 		featureGates               map[featuregate.Feature]bool
 	}{
 		"should ignore succeeded pod": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false},
 			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				OwnerReference("sts", gvk).
@@ -67,7 +67,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should ignore failed pod": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false},
 			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				OwnerReference("sts", gvk).
@@ -83,7 +83,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should ignore deleted pod": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false},
 			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				OwnerReference("sts", gvk).
@@ -99,7 +99,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't set default values without controller reference": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false},
 			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
@@ -111,7 +111,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't set default values without queue name": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false},
 			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Obj(),
 			pod: testingjobspod.MakePod("pod", "ns").
 				OwnerReference("sts", gvk).
@@ -125,7 +125,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should set default values": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false},
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("queue").
@@ -151,8 +151,36 @@ func TestPodReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"should set WorkloadAnnotation when SchedulerLibraryIntegration is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false, features.SchedulerLibraryIntegration: true},
+			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("queue").
+				Replicas(3).
+				Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				OwnerReference("sts", gvk).
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReference("sts", gvk).
+					Queue("queue").
+					ManagedByKueueLabel().
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					GroupTotalCount("3").
+					PrebuiltWorkloadLabel(GetWorkloadName("sts-uid", "sts")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName("sts-uid", "sts")).
+					Obj(),
+			},
+		},
 		"should set default values with priority class": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false},
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("queue").
@@ -181,7 +209,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't update pod if already labeled": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false},
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("queue").
@@ -207,7 +235,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should sync queue label on already labeled pod": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false},
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("new-queue").
@@ -233,7 +261,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"shouldn't relabel pod with legacy workload name when legacy workload exists": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false},
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("queue").
@@ -262,7 +290,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should label new pod with legacy name when legacy workload exists": {
-			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false},
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				Queue("queue").
@@ -292,7 +320,7 @@ func TestPodReconciler(t *testing.T) {
 			},
 		},
 		"should set default values without queue name when manageJobsWithoutQueueName": {
-			featureGates:               map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			featureGates:               map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false},
 			manageJobsWithoutQueueName: true,
 			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
