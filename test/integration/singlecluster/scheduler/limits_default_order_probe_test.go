@@ -52,8 +52,10 @@ var _ = ginkgo.Describe("LimitRange default vs limits-only accounting probe", fu
 				Resource(corev1.ResourceCPU, "10").Obj()).
 			Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 		localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
+		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
 
 		limitRange := utiltesting.MakeLimitRange("limits", ns.Name).
 			WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()
