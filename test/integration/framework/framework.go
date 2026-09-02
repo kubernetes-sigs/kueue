@@ -54,6 +54,7 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 	"sigs.k8s.io/kueue/test/util"
@@ -107,6 +108,9 @@ func (f *Framework) Init() *rest.Config {
 		err = kueue.AddToScheme(f.testEnv.Scheme)
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
+		err = kueuealpha.AddToScheme(f.testEnv.Scheme)
+		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
 		if len(f.WebhookPath) > 0 {
 			f.testEnv.WebhookInstallOptions.Paths = []string{f.WebhookPath}
 		}
@@ -143,6 +147,9 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithW
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kueue.AddToScheme(f.scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = kueuealpha.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = awv1beta2.AddToScheme(f.scheme)
