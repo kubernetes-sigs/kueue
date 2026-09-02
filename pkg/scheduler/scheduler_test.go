@@ -9761,7 +9761,7 @@ func TestResourcesToReserve(t *testing.T) {
 
 			i := 0
 			for fr, v := range tc.cqUsage {
-				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
+				quantity := mustQuantity(resources.NewResourceFormatter(), fr.Resource, v)
 				admission := utiltestingapi.MakeAdmission("cq").
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Assignment(fr.Resource, fr.Flavor, quantity.String()).
@@ -10342,4 +10342,10 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 	if got != schdcache.FitsCheckNoQuota {
 		t.Fatalf("fits() = %v, want %v (overlapping victim must be subtracted once)", got, schdcache.FitsCheckNoQuota)
 	}
+}
+
+// mustQuantity is the test-side spelling of the API boundary conversion.
+func mustQuantity(f *resources.ResourceFormatter, name corev1.ResourceName, a resources.Amount) resource.Quantity {
+	q, _ := f.AmountQuantity(name, a)
+	return q
 }

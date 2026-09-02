@@ -90,9 +90,27 @@ func (f *ResourceFormatter) ResourceQuantityString(name corev1.ResourceName, v i
 	return quantity.String()
 }
 
-func (f *ResourceFormatter) AmountQuantityString(name corev1.ResourceName, a Amount) string {
-	if a.Equal(Unlimited) {
-		return Unlimited.String()
+// AmountQuantity returns a in the format the API reports name in, applying the
+// resource's scale before any narrowing. CPU amounts are held in milliCPU, so
+// one past int64 there can still be an ordinary Quantity once the scale is
+// applied, and narrowing first would report a smaller number than the amount.
+// The bool is false when the value had to be capped to build a Quantity at all.
+func (f *ResourceFormatter) AmountQuantity(name corev1.ResourceName, a Amount) (resource.Quantity, bool) {
+	if v, ok := a.AsInt64(); ok {
+		return f.ResourceQuantity(name, v), true
 	}
-	return f.ResourceQuantityString(name, a.Int64())
+	digits := a.String()
+	if name == corev1.ResourceCPU {
+		digits += "m"
+	}
+	q, err := resource.ParseQuantity(digits)
+	if err != nil {
+		return f.ResourceQuantity(name, a.AsSaturatedInt64()), false
+	}
+	return q, true
+}
+
+func (f *ResourceFormatter) AmountQuantityString(name corev1.ResourceName, a Amount) string {
+	q, _ := f.AmountQuantity(name, a)
+	return q.String()
 }

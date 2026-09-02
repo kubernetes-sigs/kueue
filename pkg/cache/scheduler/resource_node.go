@@ -33,8 +33,8 @@ type resourceNode struct {
 	Quotas map[resources.FlavorResource]ResourceQuota
 	// SubtreeQuota is the sum of the node's quota, as well as
 	// resources available from its children, constrained by
-	// LendingLimits. It uses Amount because individual quotas (or their
-	// aggregation) may saturate to Unlimited.
+	// LendingLimits. It uses Amount because individual quotas, and more so
+	// their aggregation, can leave the int64 range.
 	SubtreeQuota resources.FlavorResourceQuantities
 	// Usage is the quantity which counts against this node's
 	// SubtreeQuota. For ClusterQueues, this is simply its
@@ -111,7 +111,7 @@ func available(node hierarchicalResourceNode, fr resources.FlavorResource) resou
 	parentAvailable := available(node.parentHRN(), fr)
 
 	if borrowingLimit := r.Quotas[fr].BorrowingLimit; borrowingLimit != nil {
-		// All of these can be Unlimited; Amount methods propagate that.
+		// Any of these can be past int64; Amount arithmetic stays exact.
 		lq := r.localQuota(fr)
 		storedInParent := r.SubtreeQuota[fr].Sub(lq)
 		usedInParent := resources.MaxAmount(resources.NewAmount(0), r.Usage[fr].Sub(lq))

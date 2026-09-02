@@ -733,8 +733,8 @@ func TestDominantResourceShare(t *testing.T) {
 			},
 		},
 		// When the lending CQ holds an "exabyte-scale" quota (1E CPU), AmountFromQuantity
-		// returns Unlimited (math.MaxInt64 sentinel). calculateLendable then aggregates
-		// potentialAvailable and lendable["cpu"] saturates to Unlimited (MaxInt64).
+		// is exact past int64. calculateLendable then aggregates potentialAvailable
+		// and lendable["cpu"] carries the whole of it.
 		// The ratio float64(b.Int64())*1000/float64(lr.Int64()) evaluates to a tiny
 		// positive finite number; math.Ceil rounds it up to 1. This test pins that
 		// behaviour and guards against NaN/Inf regressions.
@@ -755,7 +755,7 @@ func TestDominantResourceShare(t *testing.T) {
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").
-						// "1E" CPU overflows int64 milliCPU → AmountFromQuantity returns Unlimited.
+						// "1E" CPU is past int64 in milliCPU and is charged as the number it is.
 						ResourceQuotaWrapper("cpu").NominalQuota("1E").Append().
 						Obj(),
 				).Obj(),
@@ -811,7 +811,7 @@ func TestDominantResourceShare(t *testing.T) {
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
-				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
+				quantity := quantityForTest(fr.Resource, v)
 				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
@@ -960,7 +960,7 @@ func TestIsBorrowingOn(t *testing.T) {
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
-				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
+				quantity := quantityForTest(fr.Resource, v)
 				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
@@ -1040,4 +1040,10 @@ func TestPreciseWeightedShareSerialized(t *testing.T) {
 			}
 		})
 	}
+}
+
+// quantityForTest is the API boundary conversion the cache uses.
+func quantityForTest(name corev1.ResourceName, a resources.Amount) resource.Quantity {
+	q, _ := resources.NewResourceFormatter().AmountQuantity(name, a)
+	return q
 }
