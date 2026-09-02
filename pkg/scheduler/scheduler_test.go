@@ -7188,6 +7188,111 @@ func TestSchedule(t *testing.T) {
 				"hash-cq": {"default/wl-head"},
 			},
 		},
+		"admit workload using EffectiveQuotas when DynamicQuotaOrchestration is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.DynamicQuotaOrchestration: true},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("eff-cq").
+					NamespaceSelector(&metav1.LabelSelector{}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					EffectiveQuotas(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("eff-queue", "default").ClusterQueue("eff-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("eff-wl", "default").
+					Queue("eff-queue").
+					PodSets(*utiltestingapi.MakePodSet("ps", 1).Request(corev1.ResourceCPU, "5").Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("eff-wl", "default").
+					Queue("eff-queue").
+					PodSets(*utiltestingapi.MakePodSet("ps", 1).Request(corev1.ResourceCPU, "5").Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue eff-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("eff-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment("ps").
+							Assignment(corev1.ResourceCPU, "default", "5").
+							Count(1).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				workload.Key(utiltestingapi.MakeWorkload("eff-wl", "default").Obj()): *utiltestingapi.MakeAdmission("eff-cq").
+					PodSets(utiltestingapi.MakePodSetAssignment("ps").
+						Assignment(corev1.ResourceCPU, "default", "5").
+						Count(1).
+						Obj()).
+					Obj(),
+			},
+		},
+		"ignore EffectiveQuotas when DynamicQuotaOrchestration is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.DynamicQuotaOrchestration: false},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("eff-cq-disabled").
+					NamespaceSelector(&metav1.LabelSelector{}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					EffectiveQuotas(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("eff-queue-disabled", "default").ClusterQueue("eff-cq-disabled").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("eff-wl-disabled", "default").
+					Queue("eff-queue-disabled").
+					PodSets(*utiltestingapi.MakePodSet("ps", 1).Request(corev1.ResourceCPU, "5").Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("eff-wl-disabled", "default").
+					Queue("eff-queue-disabled").
+					PodSets(*utiltestingapi.MakePodSet("ps", 1).Request(corev1.ResourceCPU, "5").Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+						Message:            "couldn't assign flavors to pod set ps: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (5) > maximum capacity (1)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "ps",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("5"),
+						},
+					}).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"eff-cq-disabled": {"default/eff-wl-disabled"},
+			},
+		},
 	}
 	runScheduleTestCases(t, scheduleTestConfig{
 		queues:          queues,
