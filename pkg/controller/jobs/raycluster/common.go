@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-logr/logr"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayctrlcommon "github.com/ray-project/kuberay/ray-operator/controllers/ray/common"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -220,36 +221,17 @@ func autoscalerContainer(opts *rayv1.AutoscalerOptions) corev1.Container {
 	}
 }
 
-// defaultHistoryServerCollectorResources mirrors the resources KubeRay assigns
-// to the History Server collector when CollectorOptions.Resources is not set
-// (ray-operator/controllers/ray/common/pod.go: BuildCollectorContainer).
-func defaultHistoryServerCollectorResources() corev1.ResourceRequirements {
-	return corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("50m"),
-			corev1.ResourceMemory: resource.MustParse("64Mi"),
-		},
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("200m"),
-			corev1.ResourceMemory: resource.MustParse("256Mi"),
-		},
-	}
-}
-
 // historyServerCollectorContainer returns a container mirroring the collector
 // that KubeRay injects into every head and worker Pod when History Server
-// collection is configured. Image is copied from CollectorOptions so
-// ProvisioningRequest PodSpec validation succeeds; it is left empty when unset
-// because KubeRay rejects a missing collectorOptions.image.
+// collection is configured. Only the fields that affect quota and PodSpec
+// validation are kept: the image is required by ProvisioningRequest, and is
+// empty when unset because KubeRay rejects a missing collectorOptions.image.
 func historyServerCollectorContainer(opts *rayv1.CollectorOptions) corev1.Container {
-	resources := defaultHistoryServerCollectorResources()
-	if opts.Resources != nil {
-		resources = *opts.Resources.DeepCopy()
-	}
+	collector := rayctrlcommon.BuildCollectorContainer(opts, rayv1.RayNodeType(""), "", "", "", nil)
 	return corev1.Container{
-		Name:      rayutils.CollectorContainerName,
-		Resources: resources,
-		Image:     ptr.Deref(opts.Image, ""),
+		Name:      collector.Name,
+		Image:     collector.Image,
+		Resources: *collector.Resources.DeepCopy(),
 	}
 }
 
