@@ -29,7 +29,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
-func TestReleaseScaleDownReservation(t *testing.T) {
+func TestPutWorkloadOnHold(t *testing.T) {
 	now := time.Now()
 
 	cases := map[string]struct {
@@ -49,10 +49,14 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 			},
 			wantAdmissionNil: true,
 		},
-		"ignores workload without active reservation": {
+		"puts workload without active reservation on hold": {
 			workload: utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 				Queue("lq").
 				Obj(),
+			wantQuotaReserved: &metav1.Condition{
+				Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadOnHold,
+			},
 			wantAdmissionNil: true,
 		},
 		"ignores finished workload": {
@@ -81,8 +85,8 @@ func TestReleaseScaleDownReservation(t *testing.T) {
 			c := utiltesting.NewFakeClient(tc.workload.DeepCopy())
 			r := &Reconciler{client: c}
 
-			if err := r.releaseScaleDownReservation(ctx, tc.workload); err != nil {
-				t.Fatalf("releaseScaleDownReservation() error = %v", err)
+			if err := r.putWorkloadOnHold(ctx, tc.workload); err != nil {
+				t.Fatalf("putWorkloadOnHold() error = %v", err)
 			}
 
 			got := &kueue.Workload{}
