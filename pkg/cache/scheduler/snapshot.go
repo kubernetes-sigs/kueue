@@ -39,7 +39,6 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type inactiveCQReason string
@@ -50,64 +49,14 @@ const (
 	inactiveCQReasonTASUsageNotSynced inactiveCQReason = "TASUsageNotSynced"
 )
 
+// Snapshot is a snapshot of the cluster state.
+// Mutating this object outside of the Simulator function risks corrupting the state
+// and should be avoided.
 type Snapshot struct {
 	hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
 	SimulatorSnapshot        simulator.SimulatorSnapshot
-}
-
-// RemoveWorkload removes a workload from its corresponding ClusterQueue and
-// updates resource usage.
-func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
-	cq := s.ClusterQueue(wl.ClusterQueue)
-	delete(cq.Workloads, workload.Key(wl.Obj))
-	cq.RemoveUsage(wl.Usage())
-}
-
-// AddWorkload adds a workload to its corresponding ClusterQueue and
-// updates resource usage.
-func (s *Snapshot) AddWorkload(wl *workload.Info) {
-	cq := s.ClusterQueue(wl.ClusterQueue)
-	cq.Workloads[workload.Key(wl.Obj)] = wl
-	cq.AddUsage(wl.Usage())
-}
-
-// SimulateWorkloadUsageRemoval modifies the snapshot by removing the usage
-// corresponding to the list of workloads from workloads' respective
-// ClusterQueues. It returns a function which can be used to restore
-// this usage.
-func (s *Snapshot) SimulateWorkloadUsageRemoval(workloads []*workload.Info) func() {
-	type cqUsage struct {
-		cq    kueue.ClusterQueueReference
-		usage workload.Usage
-	}
-	cqUsages := make([]cqUsage, 0, len(workloads))
-	for _, w := range workloads {
-		cqUsages = append(cqUsages, cqUsage{cq: w.ClusterQueue, usage: w.Usage()})
-	}
-	for _, cqUsage := range cqUsages {
-		s.ClusterQueue(cqUsage.cq).RemoveUsage(cqUsage.usage)
-	}
-	return func() {
-		for _, cqUsage := range cqUsages {
-			s.ClusterQueue(cqUsage.cq).AddUsage(cqUsage.usage)
-		}
-	}
-}
-
-// SimulateWorkloadRemoval modifies the snapshot by removing the list
-// of workloads from workloads' respective ClusterQueues. It returns a
-// function which can be used to restore these workloads.
-func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
-	for _, w := range workloads {
-		s.RemoveWorkload(w)
-	}
-	return func() {
-		for _, w := range workloads {
-			s.AddWorkload(w)
-		}
-	}
 }
 
 func (s *Snapshot) Log(log logr.Logger) {
@@ -189,6 +138,8 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		if err != nil {
 			return nil, err
 		}
+	} else {
+		snap.SimulatorSnapshot = newDefaultSimulatorSnapshot()
 	}
 
 	for _, cohort := range c.hm.Cohorts() {

@@ -808,6 +808,7 @@ func TestDominantResourceShare(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
+			sim := newClusterSimulator(snapshot)
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
@@ -819,7 +820,7 @@ func TestDominantResourceShare(t *testing.T) {
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuotaAt(admission.Obj(), now).Obj()
 
 				cache.AddOrUpdateWorkload(log, wl)
-				snapshot.AddWorkload(workload.NewInfo(wl))
+				sim.addWorkload(workload.NewInfo(wl))
 				i++
 			}
 
@@ -957,6 +958,7 @@ func TestIsBorrowingOn(t *testing.T) {
 			if err != nil {
 				t.Fatalf("snapshot: %v", err)
 			}
+			sim := newClusterSimulator(snapshot)
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
@@ -967,7 +969,7 @@ func TestIsBorrowingOn(t *testing.T) {
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", i), "default-namespace").
 					ReserveQuotaAt(admission.Obj(), now).Obj()
 				cache.AddOrUpdateWorkload(log, wl)
-				snapshot.AddWorkload(workload.NewInfo(wl))
+				sim.addWorkload(workload.NewInfo(wl))
 				i++
 			}
 

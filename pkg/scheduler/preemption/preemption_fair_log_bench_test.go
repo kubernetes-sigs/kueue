@@ -47,7 +47,10 @@ func BenchmarkRunFirstFsStrategy(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 				for range b.N {
-					runFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, alwaysFails)
+					_, _, _, err := fixture.preemptionCtx.runFirstFsStrategy(fixture.candidates, alwaysFails)
+					if err != nil {
+						b.Errorf("Unexpected error: %v", err)
+					}
 				}
 				b.ReportMetric(float64(sink.n)/float64(b.N), "logB/op")
 			})

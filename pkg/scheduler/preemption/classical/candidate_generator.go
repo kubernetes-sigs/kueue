@@ -32,6 +32,11 @@ import (
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
+type CandidateIterator interface {
+	Next(borrow bool) (*workload.Info, string)
+	Reset()
+}
+
 type candidateIterator struct {
 	candidates                        []*candidateElem
 	runIndex                          int

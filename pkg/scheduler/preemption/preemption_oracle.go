@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -48,7 +49,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 	quantity resources.Amount,
 ) (preemptioncommon.PreemptionPossibility, int) {
 	log := log.FromContext(ctx)
-	candidates := p.preemptor.getTargets(&preemptionCtx{
+	candidates, err := p.preemptor.getTargets(&preemptionCtx{
 		ctx:               ctx,
 		clock:             p.preemptor.clock,
 		log:               log,
@@ -62,6 +63,10 @@ func (p *PreemptionOracle) SimulatePreemption(
 			},
 		},
 	})
+	if err != nil {
+		log.Error(err, "Failed to simulate preemption")
+		return preemptioncommon.NoCandidates, 0
+	}
 
 	if len(candidates) == 0 {
 		borrow, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
@@ -72,9 +77,11 @@ func (p *PreemptionOracle) SimulatePreemption(
 	for i, c := range candidates {
 		workloadsToPreempt[i] = c.WorkloadInfo
 	}
-	revertRemoval := p.snapshot.SimulateWorkloadUsageRemoval(workloadsToPreempt)
-	borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
-	revertRemoval()
+	var borrowAfterPreemptions int
+	scheduler.Simulate(ctx, p.snapshot, func(simulator *scheduler.ClusterSimulator) {
+		simulator.RemoveUsage(workloadsToPreempt)
+		borrowAfterPreemptions, _ = classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
+	})
 
 	for _, candidate := range candidates {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
