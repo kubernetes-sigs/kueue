@@ -350,14 +350,19 @@ func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 }
 
 func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
+	return NewInfoWithLogger(klog.Background(), w, opts...)
+}
+
+// NewInfoWithLogger builds an Info, computing the scheduling hash with log.
+func NewInfoWithLogger(log logr.Logger, w *kueue.Workload, opts ...InfoOption) *Info {
 	info := &Info{}
-	info.Update(klog.Background(), w, opts...)
+	info.Update(log, w, opts...)
 	return info
 }
 
-// UpdateSchedulingHash computes and sets the scheduling hash using the
+// updateSchedulingHash computes and sets the scheduling hash using the
 // provided contextual logger. Called internally by Update.
-func (i *Info) UpdateSchedulingHash(log logr.Logger) {
+func (i *Info) updateSchedulingHash(log logr.Logger) {
 	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests)
 }
 
@@ -367,7 +372,7 @@ func (i *Info) UpdateSchedulingHash(log logr.Logger) {
 func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
 	i.Obj = wl
 	i.rebuildTotalRequests(opts...)
-	i.UpdateSchedulingHash(log)
+	i.updateSchedulingHash(log)
 }
 
 // rebuildTotalRequests refreshes ClusterQueue and recomputes TotalRequests
