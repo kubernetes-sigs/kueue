@@ -69,6 +69,9 @@ func (a *Assignment) WorkloadsTopologyRequests(log logr.Logger, wl *workload.Inf
 				}
 				previousAssignment = getPreviousTopologyAssignment(a.replaceWorkloadSlice, podSet.Name)
 			}
+			if previousAssignment == nil && wl.LastAssignment != nil && wl.LastAssignment.PreemptionTopologyAssignments != nil {
+				previousAssignment = wl.LastAssignment.PreemptionTopologyAssignments[podSet.Name]
+			}
 
 			psTASRequest, err := podSetTopologyRequest(psAssignment, wl, cq, isTASImplied, i, previousAssignment)
 			if err != nil {
