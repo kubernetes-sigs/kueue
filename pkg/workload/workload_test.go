@@ -3175,9 +3175,9 @@ func TestSchedulingHash(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			info1 := NewInfo(tc.wl1)
-			info1.UpdateSchedulingHash(logr.Discard())
+			info1.updateSchedulingHash(logr.Discard())
 			info2 := NewInfo(tc.wl2)
-			info2.UpdateSchedulingHash(logr.Discard())
+			info2.updateSchedulingHash(logr.Discard())
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
 			}
@@ -3197,7 +3197,7 @@ func TestSchedulingHash(t *testing.T) {
 		wl := utiltestingapi.MakeWorkload("wl", "ns").
 			Request("example.com/gpu", "1").Obj()
 		before := NewInfo(wl)
-		before.UpdateSchedulingHash(logr.Discard())
+		before.updateSchedulingHash(logr.Discard())
 
 		after := NewInfo(wl, WithPreprocessedDRAResources(
 			map[kueue.PodSetReference]corev1.ResourceList{
@@ -3209,7 +3209,7 @@ func TestSchedulingHash(t *testing.T) {
 				kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		))
-		after.UpdateSchedulingHash(logr.Discard())
+		after.updateSchedulingHash(logr.Discard())
 
 		if diff := cmp.Diff(before.TotalRequests, after.TotalRequests, cmp.Comparer(resources.Equal)); diff == "" {
 			t.Fatal("precondition failed: TotalRequests should differ after DRA translation")
