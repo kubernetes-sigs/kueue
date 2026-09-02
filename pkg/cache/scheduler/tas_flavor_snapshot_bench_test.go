@@ -242,7 +242,8 @@ func balancedPlacementBenchRequests(topo benchTopology, withLeader bool) FlavorT
 		PodSet: &kueue.PodSet{
 			Name: "workers",
 			TopologyRequest: &kueue.PodSetTopologyRequest{
-				Preferred: &preferredLevel,
+				Preferred:       &preferredLevel,
+				PodSetGroupName: &groupName,
 			},
 		},
 		SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
@@ -253,7 +254,10 @@ func balancedPlacementBenchRequests(topo benchTopology, withLeader bool) FlavorT
 	}}
 	if withLeader {
 		requests = append(requests, TASPodSetRequests{
-			PodSet: &kueue.PodSet{Name: "leader"},
+			PodSet: &kueue.PodSet{
+				Name:            "leader",
+				TopologyRequest: &kueue.PodSetTopologyRequest{PodSetGroupName: &groupName},
+			},
 			SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 				corev1.ResourceCPU: 72000,
 			}),

@@ -517,6 +517,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: TASTopologySpreading
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: TASValidateWorkloadSliceSize
   versionedSpecs:
   - default: true

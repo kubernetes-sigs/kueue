@@ -701,7 +701,7 @@ func workloadFits(preemptionCtx *preemptionCtx, allowBorrowing bool) bool {
 	tasResult := preemptionCtx.preemptorCQ.FindTopologyAssignmentsForWorkload(
 		preemptionCtx.ctx,
 		preemptionCtx.tasRequests,
-		schdcache.WithWorkload(preemptionCtx.preemptor.Obj),
+		schdcache.WithWorkload(&preemptionCtx.preemptor),
 	)
 	return tasResult.Failure() == nil
 }

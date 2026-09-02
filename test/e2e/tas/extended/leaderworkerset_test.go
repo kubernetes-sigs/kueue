@@ -31,11 +31,28 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/test/util"
 )
+
+// blockOfNode maps each e2e TAS cluster node to the topology block it
+// belongs to (see hack/testing/kind-cluster-tas.yaml): kind-worker through
+// kind-worker4 are in block "b1", kind-worker5 through kind-worker8 are in
+// block "b2".
+var blockOfNode = map[string]string{
+	"kind-worker":  "b1",
+	"kind-worker2": "b1",
+	"kind-worker3": "b1",
+	"kind-worker4": "b1",
+	"kind-worker5": "b2",
+	"kind-worker6": "b2",
+	"kind-worker7": "b2",
+	"kind-worker8": "b2",
+}
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.Label("area:tas", "feature:leaderworkerset"), func() {
 	var (
@@ -544,5 +561,135 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 			})
 		},
 		)
+	})
+
+	ginkgo.When("creating a LeaderWorkerSet with leader+worker grouped and topology spreading across replicas", func() {
+		ginkgo.It("should not let a single block absorb every replica's group", func() {
+			const (
+				replicas = int32(3)
+				size     = int32(2)
+			)
+
+			podsTotalCount := replicas * size
+
+			// Every replica's leader+worker group is spread against every
+			// other replica's group of the same LeaderWorkerSet: the
+			// workloadLabelSelector matches on the presence of the
+			// kueue.x-k8s.io/job-uid label, which every Workload the
+			// LeaderWorkerSet creates carries with the same value, and the
+			// namespace is otherwise empty. With 3 replicas and a 50%
+			// per-block allowance, a block can end up holding at most 2 of
+			// them - the pods are small enough (10m CPU) that all 3 groups
+			// would otherwise physically fit on a single node, so this is a
+			// property only the spreading rule can be responsible for.
+			spreadingAnnotation := fmt.Sprintf(
+				`{"workloadLabelSelector":%q,"rules":[{"key":%q,"maxDomainPercentage":50,"type":"Required"}]}`,
+				controllerconstants.JobUIDLabel, utiltesting.DefaultBlockTopologyLevel,
+			)
+
+			podResources := corev1.ResourceRequirements{
+				Limits: map[corev1.ResourceName]resource.Quantity{
+					corev1.ResourceCPU: resource.MustParse("10m"),
+				},
+				Requests: map[corev1.ResourceName]resource.Quantity{
+					corev1.ResourceCPU: resource.MustParse("10m"),
+				},
+			}
+
+			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
+				Replicas(replicas).
+				Size(size).
+				Queue(localQueue.Name).
+				WorkerTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation:    utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetGroupName:                     "replica-group",
+							utiltas.PodSetTopologySpreadingAnnotation: spreadingAnnotation,
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:      "c",
+								Image:     util.GetAgnHostImage(),
+								Args:      util.BehaviorWaitForDeletion,
+								Resources: podResources,
+							},
+						},
+					},
+				}).
+				LeaderTemplate(corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation:    utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetGroupName:                     "replica-group",
+							utiltas.PodSetTopologySpreadingAnnotation: spreadingAnnotation,
+						},
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:      "c",
+								Image:     util.GetAgnHostImage(),
+								Args:      util.BehaviorWaitForDeletion,
+								Resources: podResources,
+							},
+						},
+					},
+				}).
+				TerminationGracePeriod(1).
+				Obj()
+			ginkgo.By("Creating a LeaderWorkerSet", func() {
+				util.MustCreate(ctx, k8sClient, lws)
+			})
+
+			ginkgo.By("Waiting for replicas to be ready", func() {
+				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
+					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(replicas))
+					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			pods := &corev1.PodList{}
+			ginkgo.By("ensure all pods are scheduled", func() {
+				listOpts := &client.ListOptions{
+					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(int(podsTotalCount)))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying each replica's leader+worker land in the same block, and no block holds more than 2 of the 3 replicas", func() {
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+
+				blockByReplicaIndex := make(map[string]string, replicas)
+				for _, pod := range pods.Items {
+					index := pod.Labels[leaderworkersetv1.GroupIndexLabelKey]
+					block, found := blockOfNode[pod.Spec.NodeName]
+					gomega.Expect(found).To(gomega.BeTrue(), "pod %s landed on unexpected node %s", pod.Name, pod.Spec.NodeName)
+					if existing, ok := blockByReplicaIndex[index]; ok {
+						gomega.Expect(block).To(gomega.Equal(existing),
+							"replica %s has pods split across blocks %s and %s", index, existing, block)
+					} else {
+						blockByReplicaIndex[index] = block
+					}
+				}
+				gomega.Expect(blockByReplicaIndex).To(gomega.HaveLen(int(replicas)))
+
+				groupsPerBlock := make(map[string]int, 2)
+				for _, block := range blockByReplicaIndex {
+					groupsPerBlock[block]++
+				}
+				for block, count := range groupsPerBlock {
+					gomega.Expect(count).To(gomega.BeNumerically("<=", 2),
+						"block %s holds %d of the %d replica groups, exceeding the 50%% spreading allowance", block, count, replicas)
+				}
+			})
+		})
 	})
 })

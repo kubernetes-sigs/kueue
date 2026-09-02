@@ -59,6 +59,7 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreFields(schdcache.CohortSnapshot{}, "Cohort"),
 	cmp.AllowUnexported(schdcache.ClusterQueueSnapshot{}),
 	cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "ClusterQueue"),
+	cmpopts.IgnoreUnexported(workload.Info{}),
 	cmp.Comparer(resources.Equal),
 }
 

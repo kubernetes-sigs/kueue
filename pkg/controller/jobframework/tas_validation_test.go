@@ -25,6 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
@@ -141,6 +142,124 @@ func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
 			annotations: map[string]string{
 				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
 				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"kubernetes.io/hostname","size":4},{"topology":"cloud.com/rack","size":2}]`,
+			},
+			wantErrNum: 1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			meta := &metav1.ObjectMeta{
+				Annotations: tc.annotations,
+			}
+			errs := ValidateTASPodSetRequest(replicaPath, meta)
+			if got := len(errs); got != tc.wantErrNum {
+				t.Errorf("ValidateTASPodSetRequest() returned %d errors, want %d:\n%v", got, tc.wantErrNum, errs)
+			}
+		})
+	}
+}
+
+func TestValidateTopologySpreadingAnnotation(t *testing.T) {
+	replicaPath := field.NewPath("spec", "template", "metadata")
+
+	testCases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		annotations  map[string]string
+		wantErrNum   int
+	}{
+		"valid: single rule with required companion": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:    "cloud.com/block",
+				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"app=main","rules":[{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45}]}`,
+			},
+			wantErrNum: 0,
+		},
+		"valid: two rules with required companion": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"app=main","rules":[` +
+					`{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45,"type":"Required"},` +
+					`{"key":"cloud.com/gke-tpu-partition","maxDomainPercentage":22,"type":"Preferred"}]}`,
+			},
+			wantErrNum: 0,
+		},
+		"invalid: gate off": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: false},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:    "cloud.com/block",
+				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"app=main","rules":[{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45}]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: no companion TAS annotation": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"app=main","rules":[{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45}]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: preferred companion": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetPreferredTopologyAnnotation:   "cloud.com/block",
+				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"app=main","rules":[{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45}]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: unconstrained companion": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetUnconstrainedTopologyAnnotation: "true",
+				utiltas.PodSetTopologySpreadingAnnotation:   `{"workloadLabelSelector":"app=main","rules":[{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45}]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: malformed JSON": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:    "cloud.com/block",
+				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: empty rules": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:    "cloud.com/block",
+				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"app=main","rules":[]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: too many rules": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"app=main","rules":[` +
+					`{"key":"a","maxDomainPercentage":10},{"key":"b","maxDomainPercentage":10},{"key":"c","maxDomainPercentage":10}]}`,
+			},
+			wantErrNum: 1,
+		},
+		"invalid: empty selector, bad key, bad percentage, bad type": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:    "cloud.com/block",
+				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"","rules":[{"key":"_bad_","maxDomainPercentage":150,"type":"Sometimes"}]}`,
+			},
+			// workloadLabelSelector required + key + maxDomainPercentage + type = 4
+			wantErrNum: 4,
+		},
+		"invalid: duplicate rule keys": {
+			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"app=main","rules":[` +
+					`{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45},` +
+					`{"key":"topology.kubernetes.io/zone","maxDomainPercentage":22}]}`,
 			},
 			wantErrNum: 1,
 		},

@@ -73,6 +73,7 @@ func Test_PushOrUpdate(t *testing.T) {
 	cmpOpts := cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+		cmpopts.IgnoreUnexported(workload.Info{}),
 	}
 	wlBase := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).Clone()
 
@@ -411,7 +412,7 @@ func TestSnapshotDeterministicOrder(t *testing.T) {
 
 			firstSnap := cq.Snapshot()
 			for i := 1; i < 10; i++ {
-				if diff := cmp.Diff(firstSnap, cq.Snapshot()); diff != "" {
+				if diff := cmp.Diff(firstSnap, cq.Snapshot(), cmpopts.IgnoreUnexported(workload.Info{})); diff != "" {
 					t.Errorf("Snapshot order changed on call %d (-first,+got):\n%s", i+1, diff)
 				}
 			}

@@ -6104,6 +6104,108 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 	}
 }
 
+// TestAssignFlavors_TopologySpreadingRequiresLevel verifies that a flavor whose
+// topology is missing a level named by a Required topology-spreading rule is
+// rejected during flavor assignment, rather than silently admitted with
+// spreading left unenforced.
+func TestAssignFlavors_TopologySpreadingRequiresLevel(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.TASTopologySpreading, true)
+
+	const spreadingAnnotation = `{"workloadLabelSelector":"","rules":[{"key":"rack","maxDomainPercentage":50,"type":"Required"}]}`
+
+	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"tas-with-rack":    utiltestingapi.MakeResourceFlavor("tas-with-rack").TopologyName("topo-with-rack").Obj(),
+		"tas-without-rack": utiltestingapi.MakeResourceFlavor("tas-without-rack").TopologyName("topo-without-rack").Obj(),
+	}
+	topologies := []*kueue.Topology{
+		utiltestingapi.MakeTopology("topo-with-rack").Levels("rack", corev1.LabelHostname).Obj(),
+		utiltestingapi.MakeTopology("topo-without-rack").Levels(corev1.LabelHostname).Obj(),
+	}
+
+	cases := map[string]struct {
+		flavor    kueue.ResourceFlavorReference
+		wantFit   bool
+		wantErrIn string
+	}{
+		"flavor's topology lacks the rule's level: rejected": {
+			flavor:    "tas-without-rack",
+			wantFit:   false,
+			wantErrIn: "topology spreading",
+		},
+		"flavor's topology has the rule's level: admitted": {
+			flavor:  "tas-with-rack",
+			wantFit: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			wlPods := []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Annotations(map[string]string{tas.PodSetTopologySpreadingAnnotation: spreadingAnnotation}).
+					Obj(),
+			}
+			wlInfo := workload.NewInfo(&kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: wlPods}})
+
+			clusterQueue := utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(string(tc.flavor)).
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).Obj()
+
+			cache := schdcache.New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("Failed to add CQ to cache: %v", err)
+			}
+			for _, rf := range resourceFlavors {
+				cache.AddOrUpdateResourceFlavor(log, rf)
+			}
+			for _, topology := range topologies {
+				cache.AddOrUpdateTopology(log, topology)
+			}
+			node := testingnode.MakeNode("tas-node").
+				Label("rack", "rack-a").
+				Label(corev1.LabelHostname, "tas-node").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourcePods: resource.MustParse("32"),
+					corev1.ResourceCPU:  resource.MustParse("4"),
+				}).
+				Ready().
+				Obj()
+			cache.TASCache().SyncNode(node)
+			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(clusterQueue.Spec.CohortName).Obj()); err != nil {
+				t.Fatalf("Failed to create a cohort: %v", err)
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			cq := snapshot.ClusterQueue(kueue.ClusterQueueReference(clusterQueue.Name))
+			if cq == nil {
+				t.Fatalf("Failed to create CQ snapshot")
+			}
+
+			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
+			assignment := flvAssigner.Assign(ctx, nil)
+
+			status := assignment.PodSets[0].Status
+			if got := status.IsFit(); got != tc.wantFit {
+				t.Errorf("PodSet fit = %v, want %v (message: %q)", got, tc.wantFit, status.Message())
+			}
+			if tc.wantErrIn != "" && !strings.Contains(status.Message(), tc.wantErrIn) {
+				t.Errorf("PodSet status message = %q, want it to contain %q", status.Message(), tc.wantErrIn)
+			}
+		})
+	}
+}
+
 func TestWorkloadsTopologyRequests_RequiredTopologyRejectedForElasticWorkloadSlices(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)

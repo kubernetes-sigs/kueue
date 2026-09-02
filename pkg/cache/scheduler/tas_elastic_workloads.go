@@ -107,7 +107,10 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 		placementLeader = nil
 	}
 
-	deltaAssignments, reason := s.findTopologyAssignment(ctx, deltaRequest, placementLeader, assumedUsage, opts.simulateEmpty, "", opts.workload)
+	// Scaling up places new pods, so the group's spreading counts apply, exactly
+	// as they do on the fresh-placement path.
+	podSetGroupCountByDomain := opts.topologySpreadCounts[utiltas.GroupKeyForPodSet(workers.PodSet)]
+	deltaAssignments, reason := s.findTopologyAssignment(ctx, deltaRequest, placementLeader, assumedUsage, opts.simulateEmpty, "", opts.workload, podSetGroupCountByDomain)
 	if reason != "" {
 		result[workers.PodSet.Name] = tasPodSetAssignmentResult{FailureReason: reason}
 		return elasticPlacementResult{applied: true, assignments: result}

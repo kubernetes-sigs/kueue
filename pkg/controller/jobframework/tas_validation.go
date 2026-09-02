@@ -18,6 +18,7 @@ package jobframework
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -29,6 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
@@ -111,6 +113,9 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 
 	// validate multi-level constraints annotation
 	allErrs = append(allErrs, validateSliceRequiredTopologyConstraintsAnnotation(annotationsPath, replicaMetadata, sliceRequiredFound, sliceSizeFound, podSetGroupNameFound)...)
+
+	// validate topology spreading annotation
+	allErrs = append(allErrs, validateTopologySpreadingAnnotation(annotationsPath, replicaMetadata, requiredFound)...)
 
 	return allErrs
 }
@@ -263,6 +268,20 @@ func ValidatePodSetGroupingTopology(podSets []kueue.PodSet, podSetAnnotationsByN
 			)
 		}
 
+		if features.Enabled(features.TASTopologySpreading) &&
+			podSet1.Template.Annotations[utiltas.PodSetTopologySpreadingAnnotation] != podSet2.Template.Annotations[utiltas.PodSetTopologySpreadingAnnotation] {
+			spreadingErrorMessage := fmt.Sprintf(
+				"must specify the same '%s' annotation as '%s' in group '%s', or neither pod set may specify it",
+				utiltas.PodSetTopologySpreadingAnnotation,
+				"%s",
+				groupName,
+			)
+			allErrs = append(allErrs,
+				field.Invalid(annotationsPath1, field.OmitValueType{}, fmt.Sprintf(spreadingErrorMessage, annotationsPath2)),
+				field.Invalid(annotationsPath2, field.OmitValueType{}, fmt.Sprintf(spreadingErrorMessage, annotationsPath1)),
+			)
+		}
+
 		if !topologyRequestsValid(podSet1.TopologyRequest, podSet2.TopologyRequest) {
 			errorMessageTemplate := fmt.Sprintf(
 				"must specify '%s' or '%s' topology consistent with '%%s' in group '%s'",
@@ -383,6 +402,82 @@ func validateSliceRequiredTopologyConstraintsAnnotation(
 			allErrs = append(allErrs, field.Invalid(fldPath.Index(i+1).Child("size"),
 				constraints[i+1].Size,
 				fmt.Sprintf("must evenly divide the parent layer size %d", constraints[i].Size)))
+		}
+	}
+
+	return allErrs
+}
+
+// validateTopologySpreadingAnnotation validates the topology-spreading
+// annotation syntactically. It cannot validate anything that depends on the
+// ResourceFlavor's Topology - the ResourceFlavor is unassigned at admission
+// time - which rules out both checking that a rule's "key" is a level of that
+// Topology and checking that the key is not below the level requested by
+// PodSetRequiredTopologyAnnotation. Both happen at scheduling time.
+func validateTopologySpreadingAnnotation(
+	annotationsPath *field.Path,
+	replicaMetadata *metav1.ObjectMeta,
+	requiredFound bool,
+) field.ErrorList {
+	var allErrs field.ErrorList
+
+	value, found := replicaMetadata.Annotations[utiltas.PodSetTopologySpreadingAnnotation]
+	if !found {
+		return nil
+	}
+
+	fldPath := annotationsPath.Key(utiltas.PodSetTopologySpreadingAnnotation)
+
+	if !features.Enabled(features.TASTopologySpreading) {
+		allErrs = append(allErrs, field.Forbidden(fldPath,
+			fmt.Sprintf("the %s feature gate must be enabled to use this annotation", features.TASTopologySpreading)))
+		return allErrs
+	}
+
+	// Spreading counts a group as occupying one domain per rule level, which
+	// only holds for required topology - preferred/unconstrained placements
+	// spread a group across several domains, breaking maxDomainPercentage.
+	// Requiring the companion annotation also rules out a Workload that
+	// carries spreading but never engages TAS at all.
+	if !requiredFound {
+		allErrs = append(allErrs, field.Forbidden(fldPath,
+			fmt.Sprintf("may only be set together with '%s'", kueue.PodSetRequiredTopologyAnnotation)))
+		return allErrs
+	}
+
+	spec, err := utiltas.ParseSpreadingAnnotation(value)
+	if err != nil {
+		if errors.Is(err, utiltas.ErrTopologySpreadingRuleCount) {
+			allErrs = append(allErrs, field.Invalid(fldPath, value, err.Error()))
+		} else {
+			allErrs = append(allErrs, field.Invalid(fldPath, value, fmt.Sprintf("must be a valid JSON object: %v", err)))
+		}
+		return allErrs
+	}
+
+	if spec.WorkloadLabelSelectorStr == "" {
+		allErrs = append(allErrs, field.Required(fldPath.Child("workloadLabelSelector"), ""))
+	}
+
+	seen := make(map[string]int, len(spec.Rules))
+	for i, rule := range spec.Rules {
+		entryPath := fldPath.Index(i)
+
+		allErrs = append(allErrs, metavalidation.ValidateLabelName(rule.Key, entryPath.Child("key"))...)
+
+		if rule.MaxDomainPercentage < 1 || rule.MaxDomainPercentage > 99 {
+			allErrs = append(allErrs, field.Invalid(entryPath.Child("maxDomainPercentage"), rule.MaxDomainPercentage, "must be between 1 and 99"))
+		}
+
+		if rule.Type != utiltas.TopologySpreadingRuleRequired && rule.Type != utiltas.TopologySpreadingRulePreferred {
+			allErrs = append(allErrs, field.NotSupported(entryPath.Child("type"), rule.Type,
+				[]utiltas.TopologySpreadingRuleType{utiltas.TopologySpreadingRuleRequired, utiltas.TopologySpreadingRulePreferred}))
+		}
+
+		if prevIdx, ok := seen[rule.Key]; ok {
+			allErrs = append(allErrs, field.Duplicate(entryPath.Child("key"), fmt.Sprintf("%s (also at index %d)", rule.Key, prevIdx)))
+		} else {
+			seen[rule.Key] = i
 		}
 	}
 

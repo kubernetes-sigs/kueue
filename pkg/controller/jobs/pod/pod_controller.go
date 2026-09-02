@@ -60,6 +60,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
@@ -779,6 +780,13 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 			return kueue.PodSet{}, err
 		}
 		podSet.TopologyRequest = topologyRequest
+	}
+	if features.Enabled(features.TASTopologySpreading) {
+		if v, ok := p.Annotations[utiltas.PodSetTopologySpreadingAnnotation]; ok {
+			podSet.Template.Annotations = map[string]string{
+				utiltas.PodSetTopologySpreadingAnnotation: v,
+			}
+		}
 	}
 	return podSet, nil
 }

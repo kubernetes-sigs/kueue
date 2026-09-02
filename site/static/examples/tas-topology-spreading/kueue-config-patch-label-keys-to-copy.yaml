@@ -1,0 +1,16 @@
+# Kueue only copies a job's labels onto the Workload it creates for label
+# keys explicitly listed in `integrations.labelKeysToCopy` (see
+# apis/config/v1beta2/configuration_types.go). Without this, the "app"
+# label on the LeaderWorkerSet in sample-lws-topology-spreading.yaml would
+# never reach the Workload, and the topology-spreading annotation's
+# workloadLabelSelector ("app=main-inference") would match zero Workloads.
+#
+# This is a fragment to merge into the cluster's existing kueue-manager-config
+# ConfigMap (it is not a standalone Configuration to apply as-is - the
+# ConfigMap holds other required settings too, e.g. featureGates). After
+# merging, roll the kueue-controller-manager deployment to pick it up:
+#
+#   kubectl -n kueue-system rollout restart deployment/kueue-controller-manager
+integrations:
+  labelKeysToCopy:
+    - "app"
