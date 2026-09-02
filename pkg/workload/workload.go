@@ -135,6 +135,7 @@ type InfoOptions struct {
 	excludedResourcePrefixes []string
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
 	preserveTotalRequests    bool
+	adoptedTotalRequests     []PodSetResources
 	dra
 }
 
@@ -162,6 +163,19 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Inf
 func WithPreserveTotalRequests() InfoOption {
 	return func(o *InfoOptions) {
 		o.preserveTotalRequests = true
+	}
+}
+
+// WithTotalRequestsFrom makes Update adopt TotalRequests that were computed
+// elsewhere for the same Workload generation, instead of rebuilding them from
+// the object. Used when requeuing a DRA-backed workload whose preprocessing was
+// redone by the workload controller while the scheduler owned the workload:
+// DRA charges cannot be recomputed from the object, so the only way to keep the
+// object and its charges paired is to take both from that newer computation.
+// Takes precedence over WithPreserveTotalRequests.
+func WithTotalRequestsFrom(totalRequests []PodSetResources) InfoOption {
+	return func(o *InfoOptions) {
+		o.adoptedTotalRequests = totalRequests
 	}
 }
 
@@ -353,7 +367,8 @@ func (i *Info) UpdateSchedulingHash(log logr.Logger) {
 
 // Update refreshes the object reference, rebuilds TotalRequests, and
 // recomputes the scheduling hash. Pass WithPreserveTotalRequests to skip
-// the TotalRequests rebuild (e.g., to retain DRA preprocessing on requeue).
+// the TotalRequests rebuild (e.g., to retain DRA preprocessing on requeue),
+// or WithTotalRequestsFrom to adopt requests computed for the same generation.
 func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
 	i.Obj = wl
 	i.rebuildTotalRequests(opts...)
@@ -361,8 +376,8 @@ func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
 }
 
 // rebuildTotalRequests refreshes ClusterQueue and recomputes TotalRequests
-// from the current workload state. When WithPreserveTotalRequests is set,
-// only TotalRequests recomputation is skipped.
+// from the current workload state. When WithTotalRequestsFrom or
+// WithPreserveTotalRequests is set, only TotalRequests recomputation is skipped.
 func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -374,13 +389,49 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 	} else {
 		i.ClusterQueue = ""
 	}
-	if !options.preserveTotalRequests {
-		if admitted {
-			i.TotalRequests = totalRequestsFromAdmission(i.Obj)
-		} else {
-			i.TotalRequests = totalRequestsFromPodSets(i.Obj, &options)
+	switch {
+	case options.adoptedTotalRequests != nil:
+		i.TotalRequests = clonePodSetResources(options.adoptedTotalRequests)
+	case options.preserveTotalRequests:
+		// Keep whatever this Info already carries.
+	case admitted:
+		i.TotalRequests = totalRequestsFromAdmission(i.Obj)
+	default:
+		i.TotalRequests = totalRequestsFromPodSets(i.Obj, &options)
+	}
+}
+
+// clonePodSetResources deep-copies the mutable parts of src. The source belongs
+// to a different Info that may still be referenced elsewhere, and requests are
+// mutated in place (Mul, Divide, FloorToZero), so sharing them would let one
+// Info silently change the other's charges.
+func clonePodSetResources(src []PodSetResources) []PodSetResources {
+	dst := make([]PodSetResources, len(src))
+	for i, ps := range src {
+		dst[i] = ps
+		if ps.Requests != nil {
+			dst[i].Requests = ps.Requests.Clone()
+		}
+		dst[i].Flavors = maps.Clone(ps.Flavors)
+		if ps.DelayedTopologyRequest != nil {
+			dst[i].DelayedTopologyRequest = new(*ps.DelayedTopologyRequest)
+		}
+		if ps.TopologyRequest != nil {
+			tr := *ps.TopologyRequest
+			tr.Levels = slices.Clone(ps.TopologyRequest.Levels)
+			tr.DomainRequests = make([]TopologyDomainRequests, len(ps.TopologyRequest.DomainRequests))
+			for j, dr := range ps.TopologyRequest.DomainRequests {
+				cloned := dr
+				cloned.Values = slices.Clone(dr.Values)
+				if dr.SinglePodRequests != nil {
+					cloned.SinglePodRequests = dr.SinglePodRequests.Clone()
+				}
+				tr.DomainRequests[j] = cloned
+			}
+			dst[i].TopologyRequest = &tr
 		}
 	}
+	return dst
 }
 
 // computeSchedulingHash returns a deterministic hash of the workload's
