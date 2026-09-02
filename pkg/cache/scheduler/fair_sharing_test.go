@@ -989,7 +989,7 @@ func TestZeroWeightBorrows(t *testing.T) {
 		want bool
 	}{
 		"zero weight and borrowing returns true": {
-			drs:  DRS{fairWeight: 0, unweightedRatio: 100},
+			drs:  DRS{fairWeight: 0, unweightedRatio: 100, borrowing: true},
 			want: true,
 		},
 		"zero weight and not borrowing returns false": {
@@ -997,8 +997,14 @@ func TestZeroWeightBorrows(t *testing.T) {
 			want: false,
 		},
 		"non-zero weight and borrowing returns false": {
-			drs:  DRS{fairWeight: 1, unweightedRatio: 100},
+			drs:  DRS{fairWeight: 1, unweightedRatio: 100, borrowing: true},
 			want: false,
+		},
+		// A borrower whose share rounds to zero is still a borrower, which
+		// reading the ratio alone could not tell from not borrowing at all.
+		"zero weight borrowing a share too small to show returns true": {
+			drs:  DRS{fairWeight: 0, unweightedRatio: 0, borrowing: true},
+			want: true,
 		},
 	}
 	for name, tc := range cases {
