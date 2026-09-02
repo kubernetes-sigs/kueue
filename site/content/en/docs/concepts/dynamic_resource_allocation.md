@@ -290,9 +290,10 @@ The following limitations apply:
   charged the largest count among its alternatives, which is an upper bound on
   whichever one the scheduler picks. Every alternative of a request has to map
   to the same logical resource, and an alternative on a counter-backed or
-  capacity-backed mapping is refused rather than charged. An alternative
-  setting `capacity` is refused too, separately from that, since what a
-  capacity requirement consumes is not the device count this charges. Kueue
+  capacity-backed mapping is refused rather than charged. An alternative that
+  sets `capacity` on the subrequest is charged its declared count like any
+  other, since a capacity requirement does not change how many devices the
+  alternative asks for. Kueue
   does not check that any alternative can be satisfied by the cluster, so a
   request whose alternatives are all infeasible holds quota until something
   evicts the Workload. Nothing evicts it for being infeasible.

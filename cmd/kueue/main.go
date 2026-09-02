@@ -325,9 +325,6 @@ func main() {
 	if features.Enabled(features.KueueDRAIntegration) {
 		draMapper = dra.NewResourceMapper()
 		draBackedResources = dra.NewExtendedResourceCache()
-		if cfg.Resources != nil {
-			draMapper.SetExcludedResourcePrefixes(cfg.Resources.ExcludeResourcePrefixes)
-		}
 		if cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
 			if err := draMapper.PopulateFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
 				setupLog.Error(err, "Failed to initialize DRA mapper from configuration")
