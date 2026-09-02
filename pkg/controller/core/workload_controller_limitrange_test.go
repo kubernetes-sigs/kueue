@@ -90,32 +90,19 @@ func TestLimitRangeConstraintsChanged(t *testing.T) {
 	}
 }
 
-func TestLimitRangeHasConstraints(t *testing.T) {
-	cases := map[string]struct {
-		lr   *corev1.LimitRange
-		want bool
-	}{
-		"defaults only": {
-			lr: utiltesting.MakeLimitRange("limits", "ns").
-				WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj(),
-			want: false,
-		},
-		"max set": {
-			lr: utiltesting.MakeLimitRange("limits", "ns").
-				WithValue("Max", corev1.ResourceCPU, "2").Obj(),
-			want: true,
-		},
-		"min set": {
-			lr: utiltesting.MakeLimitRange("limits", "ns").
-				WithValue("Min", corev1.ResourceCPU, "1").Obj(),
-			want: true,
-		},
+func TestLimitRangeConstraintsChangedOnDeletion(t *testing.T) {
+	withConstraints := utiltesting.MakeLimitRange("limits", "ns").
+		WithValue("Max", corev1.ResourceCPU, "2").Obj()
+	defaultsOnly := utiltesting.MakeLimitRange("limits", "ns").
+		WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()
+
+	if !limitRangeConstraintsChanged(withConstraints, nil) {
+		t.Error("limitRangeConstraintsChanged(withConstraints, nil) = false, want true")
 	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			if got := limitRangeHasConstraints(tc.lr); got != tc.want {
-				t.Errorf("limitRangeHasConstraints() = %v, want %v", got, tc.want)
-			}
-		})
+	if !limitRangeConstraintsChanged(defaultsOnly, nil) {
+		t.Error("limitRangeConstraintsChanged(defaultsOnly, nil) = false, want true")
+	}
+	if limitRangeConstraintsChanged(nil, nil) {
+		t.Error("limitRangeConstraintsChanged(nil, nil) = true, want false")
 	}
 }
