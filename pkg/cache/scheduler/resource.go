@@ -17,8 +17,6 @@ limitations under the License.
 package scheduler
 
 import (
-	"k8s.io/utils/ptr"
-
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
 )
@@ -38,10 +36,20 @@ func (q ResourceQuota) Equal(other ResourceQuota) bool {
 	if !q.Nominal.Equal(other.Nominal) {
 		return false
 	}
-	if !ptr.Equal(q.BorrowingLimit, other.BorrowingLimit) {
+	if !amountPtrEqual(q.BorrowingLimit, other.BorrowingLimit) {
 		return false
 	}
-	return ptr.Equal(q.LendingLimit, other.LendingLimit)
+	return amountPtrEqual(q.LendingLimit, other.LendingLimit)
+}
+
+// amountPtrEqual compares the amounts rather than the pointers. ptr.Equal
+// dereferences and uses ==, which for an Amount holding a *big.Int answers for
+// the pointer, so two limits of the same size would read as different.
+func amountPtrEqual(a, b *resources.Amount) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Equal(*b)
 }
 
 func createResourceQuotas(kueueRgs []kueue.ResourceGroup) map[resources.FlavorResource]ResourceQuota {

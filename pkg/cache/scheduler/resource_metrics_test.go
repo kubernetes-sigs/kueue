@@ -27,12 +27,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/queue"
 )
 
-func TestClusterQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
+func TestClusterQueueResourceMetricsReportPastFloat64AsInf(t *testing.T) {
 	defer kueuemetrics.InitMetricVectors(nil)
 
 	formatter := resources.NewResourceFormatter()
 	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}
-	unlimited := resources.Unlimited
+	unlimited := pastFloat64()
 	cq := &clusterQueue{
 		Name:              "unlimited-cq",
 		AdmittedUsage:     resources.FlavorResourceQuantities{fr: unlimited},
@@ -63,12 +63,12 @@ func TestClusterQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
 	expectGaugeValue(t, kueuemetrics.ClusterQueueResourceUsage, labels, math.Inf(1))
 }
 
-func TestLocalQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
+func TestLocalQueueResourceMetricsReportPastFloat64AsInf(t *testing.T) {
 	defer kueuemetrics.InitMetricVectors(nil)
 
 	formatter := resources.NewResourceFormatter()
 	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}
-	unlimited := resources.Unlimited
+	unlimited := pastFloat64()
 	lq := &LocalQueue{
 		key:               queue.NewLocalQueueReference("namespace", "unlimited-lq"),
 		totalReserved:     resources.FlavorResourceQuantities{fr: unlimited},

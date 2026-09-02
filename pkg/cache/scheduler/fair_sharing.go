@@ -19,6 +19,7 @@ package scheduler
 import (
 	"cmp"
 	"math"
+	"math/big"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
@@ -171,7 +172,7 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	lendable := calculateLendable(node.parentHRN())
 	for rName, b := range borrowing {
 		if lr := lendable[rName]; lr.CmpInt64(0) > 0 {
-			ratio := float64(b.Int64()) * 1000.0 / float64(lr.Int64())
+			ratio := shareRatio(b, lr)
 			// Use alphabetical order to get a deterministic resource name.
 			if ratio > drs.unweightedRatio || (ratio == drs.unweightedRatio && rName < drs.dominantResource) {
 				drs.unweightedRatio = ratio
@@ -214,4 +215,18 @@ func parseFairWeight(fs *kueue.FairSharing) float64 {
 	// https://github.com/kubernetes/apimachinery/blob/da5b06e2fb6698d6db8866899150ec2c1b4518d9/pkg/api/resource/quantity.go#L538-L539
 	weightDeepCopy := fs.Weight.DeepCopy()
 	return weightDeepCopy.AsFloat64Slow()
+}
+
+// shareRatio returns borrowed over lendable in thousandths. Both operands are
+// exact, so the division is taken before anything is narrowed and only the
+// result becomes a float64.
+func shareRatio(borrowed, lendable resources.Amount) float64 {
+	if b, ok := borrowed.AsInt64(); ok {
+		if l, ok := lendable.AsInt64(); ok {
+			return float64(b) * 1000.0 / float64(l)
+		}
+	}
+	r := new(big.Rat).SetFrac(borrowed.AsBig(), lendable.AsBig())
+	f, _ := new(big.Rat).Mul(r, big.NewRat(1000, 1)).Float64()
+	return f
 }
