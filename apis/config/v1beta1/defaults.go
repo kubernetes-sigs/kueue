@@ -125,7 +125,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.MultiKueue.Origin = new(cmp.Or(ptr.Deref(cfg.MultiKueue.Origin, ""), DefaultMultiKueueOrigin))
 	cfg.MultiKueue.WorkerLostTimeout = cmp.Or(cfg.MultiKueue.WorkerLostTimeout, &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout})
 	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, new(MultiKueueDispatcherModeAllAtOnce))
-
+	cfg.MultiKueue.ClientConnection = cmp.Or(cfg.MultiKueue.ClientConnection, &ClientConnection{})
+	cfg.MultiKueue.ClientConnection.QPS = cmp.Or(cfg.MultiKueue.ClientConnection.QPS, new(DefaultClientConnectionQPS))
+	cfg.MultiKueue.ClientConnection.Burst = cmp.Or(cfg.MultiKueue.ClientConnection.Burst, new(DefaultClientConnectionBurst))
 	if fs := cfg.FairSharing; fs != nil && fs.Enable && len(fs.PreemptionStrategies) == 0 {
 		fs.PreemptionStrategies = []PreemptionStrategy{LessThanOrEqualToFinalShare, LessThanInitialShare}
 	}

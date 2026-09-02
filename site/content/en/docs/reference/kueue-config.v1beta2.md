@@ -214,6 +214,8 @@ Defaults to 1.</p>
 
 - [Configuration](#config-kueue-x-k8s-io-v1beta2-Configuration)
 
+- [MultiKueue](#config-kueue-x-k8s-io-v1beta2-MultiKueue)
+
 
 
 <table class="table">
@@ -1155,6 +1157,14 @@ GroupVersionKind (GVK) for MultiKueue operations.</p>
    <p>IncrementalDispatcherConfig contains the configuration for the incremental dispatcher.
 This field is only valid when DispatcherName is set to the incremental dispatcher.
 Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.</p>
+</td>
+</tr>
+<tr><td><code>clientConnection</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClientConnection"><code>ClientConnection</code></a>
+</td>
+<td>
+   <p>ClientConnection configuration for the connection to the worker clusters.
+If not specified, the default client connection will be used.</p>
 </td>
 </tr>
 </tbody>

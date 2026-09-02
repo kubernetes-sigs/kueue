@@ -97,6 +97,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		Origin:            new(DefaultMultiKueueOrigin),
 		WorkerLostTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
 		DispatcherName:    new(MultiKueueDispatcherModeAllAtOnce),
+		ClientConnection:  defaultClientConnection,
 	}
 
 	defaultVisibilityServer := &VisibilityServerConfiguration{
@@ -586,6 +587,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					IncrementalDispatcherConfig: &IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
+					ClientConnection: defaultClientConnection,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
@@ -617,6 +619,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Origin:            new(DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
 					DispatcherName:    defaultMultiKueue.DispatcherName,
+					ClientConnection:  defaultClientConnection,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
@@ -646,6 +649,42 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 15 * time.Minute},
 					DispatcherName:    defaultMultiKueue.DispatcherName,
+					ClientConnection:  defaultClientConnection,
+				},
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+			},
+		},
+		"multiKueue clientConnection customized": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				MultiKueue: &MultiKueue{
+					ClientConnection: &ClientConnection{
+						QPS:   new(float32(500)),
+						Burst: new(int32(1000)),
+					},
+				},
+			},
+			want: &Configuration{
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				MultiKueue: &MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
+					Origin:            defaultMultiKueue.Origin,
+					WorkerLostTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
+					DispatcherName:    defaultMultiKueue.DispatcherName,
+					ClientConnection: &ClientConnection{
+						QPS:   new(float32(500)),
+						Burst: new(int32(1000)),
+					},
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,

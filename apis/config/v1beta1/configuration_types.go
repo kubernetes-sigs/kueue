@@ -339,6 +339,11 @@ type MultiKueue struct {
 	// GroupVersionKind (GVK) for MultiKueue operations.
 	// +optional
 	ExternalFrameworks []MultiKueueExternalFramework `json:"externalFrameworks,omitempty"`
+
+	// ClientConnection configuration for the connection to the worker clusters.
+	// If not specified, the default client connection will be used.
+	// +optional
+	ClientConnection *ClientConnection `json:"clientConnection,omitempty"`
 }
 
 // MultiKueueExternalFramework defines a framework that is not built-in.
