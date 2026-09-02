@@ -121,11 +121,8 @@ func (s *TASFlavorSnapshot) occupiedDomainsForGroup(
 					continue
 				}
 				occupied.Insert(utiltas.DomainID(fullValues[:levelIdx+1]))
-				// Also record occupancy of the parent domain (one level up):
-				// this is the same "does this Workload's group touch this
-				// domain's subtree" count, just truncated one level
-				// shallower, so it doubles as the parent-scoped denominator
-				// evaluateSpreadRule uses for rule's threshold check.
+				// Also record the parent domain: evaluateSpreadRule needs its
+				// occupancy as the denominator for this rule's threshold check.
 				if levelIdx > 0 {
 					occupied.Insert(utiltas.DomainID(fullValues[:levelIdx]))
 				}

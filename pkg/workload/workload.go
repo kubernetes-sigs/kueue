@@ -269,13 +269,10 @@ type Info struct {
 	SchedulingHash EquivalenceHash
 
 	// TopologySpreading is the parsed topology-spreading configuration for
-	// each PodSet group (see tas.GroupKeyForPodSet) that carries one, keyed by
-	// group. Nil, or missing an entry for a given group, when the annotation is
-	// absent for that group, unparseable, or the feature gate is off. Parse
-	// failures are logged by computeTopologySpreading and otherwise ignored -
-	// a group whose annotation cannot be parsed schedules as if it carried
-	// none. Owned by Update, by convention - nothing enforces it, same as
-	// SchedulingHash.
+	// each PodSet group (see tas.GroupKeyForPodSet) that carries one. Missing
+	// an entry when the annotation is absent for that group, unparseable, or
+	// the feature gate is off; a group that fails to parse schedules as if it
+	// carried none. Owned by Update, same as SchedulingHash.
 	TopologySpreading map[tas.PodSetGroupKey]*tas.SpreadingSpec
 
 	// NominationMapping is the mapping of PodSets resources and their flavors
@@ -355,20 +352,12 @@ func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
 	return info
 }
 
-// UpdateSchedulingHash recomputes the fields derived from i.Obj and
-// i.TotalRequests, using the provided contextual logger. Called internally by
-// Update, and re-called by callers that only had a klog.Background() logger
-// available at NewInfo time (see i.Obj comment on Update for why).
-func (i *Info) UpdateSchedulingHash(log logr.Logger) {
-	i.updateDerived(log)
-}
-
-// updateDerived recomputes every field that is derived from i.Obj and
-// i.TotalRequests: the scheduling hash and the parsed topology-spreading
-// annotation. Kept as one function, named for what UpdateSchedulingHash's
-// call sites actually need, rather than adding a second
-// UpdateTopologySpreading with its own set of re-call sites.
-func (i *Info) updateDerived(log logr.Logger) {
+// UpdateDerivedFields recomputes the scheduling hash and parsed
+// topology-spreading annotation from i.Obj and i.TotalRequests, using the
+// provided contextual logger. Called internally by Update, and re-called by
+// callers that only had a klog.Background() logger available at NewInfo time
+// (see i.Obj comment on Update for why).
+func (i *Info) UpdateDerivedFields(log logr.Logger) {
 	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests)
 	i.TopologySpreading = computeTopologySpreading(log, i.Obj)
 }
@@ -379,7 +368,7 @@ func (i *Info) updateDerived(log logr.Logger) {
 func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
 	i.Obj = wl
 	i.rebuildTotalRequests(opts...)
-	i.updateDerived(log)
+	i.UpdateDerivedFields(log)
 }
 
 // rebuildTotalRequests refreshes ClusterQueue and recomputes TotalRequests
@@ -461,13 +450,9 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 // PodSet group in wl (see tas.GroupKeyForPodSet), returning the resulting
 // per-group map, or nil if no group resolves to a spec.
 //
-// For a multi-PodSet group, the first PodSet in line (in wl.Spec.PodSets
-// order) that carries the annotation supplies the config for the whole
-// group; later members' annotations are ignored, deliberately - so there is
-// no webhook rule forcing group members to agree, and no new failure mode
-// for a user who annotates only the leader. This holds even when that first
-// annotation fails to parse: the group is not resolved from a later member's
-// annotation instead, matching the annotation's godoc.
+// For a multi-PodSet group, only the first PodSet (in wl.Spec.PodSets order)
+// carrying the annotation is consulted; later members' annotations are
+// ignored, even if the first one fails to parse.
 func computeTopologySpreading(log logr.Logger, wl *kueue.Workload) map[tas.PodSetGroupKey]*tas.SpreadingSpec {
 	if !features.Enabled(features.TASTopologySpreading) {
 		return nil

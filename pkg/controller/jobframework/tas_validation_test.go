@@ -173,7 +173,7 @@ func TestValidateTopologySpreadingAnnotation(t *testing.T) {
 		"valid: single rule with required companion": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
 			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				kueue.PodSetRequiredTopologyAnnotation:    "cloud.com/block",
 				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"app=main","rules":[{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45}]}`,
 			},
 			wantErrNum: 0,
@@ -191,7 +191,7 @@ func TestValidateTopologySpreadingAnnotation(t *testing.T) {
 		"invalid: gate off": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: false},
 			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				kueue.PodSetRequiredTopologyAnnotation:    "cloud.com/block",
 				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"app=main","rules":[{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45}]}`,
 			},
 			wantErrNum: 1,
@@ -206,7 +206,7 @@ func TestValidateTopologySpreadingAnnotation(t *testing.T) {
 		"invalid: preferred companion": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
 			annotations: map[string]string{
-				kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block",
+				kueue.PodSetPreferredTopologyAnnotation:   "cloud.com/block",
 				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"app=main","rules":[{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45}]}`,
 			},
 			wantErrNum: 1,
@@ -215,14 +215,14 @@ func TestValidateTopologySpreadingAnnotation(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
 			annotations: map[string]string{
 				kueue.PodSetUnconstrainedTopologyAnnotation: "true",
-				utiltas.PodSetTopologySpreadingAnnotation:     `{"workloadLabelSelector":"app=main","rules":[{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45}]}`,
+				utiltas.PodSetTopologySpreadingAnnotation:   `{"workloadLabelSelector":"app=main","rules":[{"key":"topology.kubernetes.io/zone","maxDomainPercentage":45}]}`,
 			},
 			wantErrNum: 1,
 		},
 		"invalid: malformed JSON": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
 			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				kueue.PodSetRequiredTopologyAnnotation:    "cloud.com/block",
 				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":`,
 			},
 			wantErrNum: 1,
@@ -230,7 +230,7 @@ func TestValidateTopologySpreadingAnnotation(t *testing.T) {
 		"invalid: empty rules": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
 			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				kueue.PodSetRequiredTopologyAnnotation:    "cloud.com/block",
 				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"app=main","rules":[]}`,
 			},
 			wantErrNum: 1,
@@ -247,7 +247,7 @@ func TestValidateTopologySpreadingAnnotation(t *testing.T) {
 		"invalid: empty selector, bad key, bad percentage, bad type": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
 			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+				kueue.PodSetRequiredTopologyAnnotation:    "cloud.com/block",
 				utiltas.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelector":"","rules":[{"key":"_bad_","maxDomainPercentage":150,"type":"Sometimes"}]}`,
 			},
 			// workloadLabelSelector required + key + maxDomainPercentage + type = 4

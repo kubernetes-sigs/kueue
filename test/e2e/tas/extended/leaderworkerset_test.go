@@ -603,8 +603,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 				WorkerTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation:   utiltesting.DefaultBlockTopologyLevel,
-							kueue.PodSetGroupName:                    "replica-group",
+							kueue.PodSetRequiredTopologyAnnotation:    utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetGroupName:                     "replica-group",
 							utiltas.PodSetTopologySpreadingAnnotation: spreadingAnnotation,
 						},
 					},
@@ -622,8 +622,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 				LeaderTemplate(corev1.PodTemplateSpec{
 					ObjectMeta: metav1.ObjectMeta{
 						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation:   utiltesting.DefaultBlockTopologyLevel,
-							kueue.PodSetGroupName:                    "replica-group",
+							kueue.PodSetRequiredTopologyAnnotation:    utiltesting.DefaultBlockTopologyLevel,
+							kueue.PodSetGroupName:                     "replica-group",
 							utiltas.PodSetTopologySpreadingAnnotation: spreadingAnnotation,
 						},
 					},

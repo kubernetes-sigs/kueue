@@ -115,15 +115,11 @@ type SpreadingSpec struct {
 // ParseSpreadingAnnotation parses the value of the
 // kueue.x-k8s.io/topology-spreading annotation.
 //
-// It performs only the checks that make the resulting spec unusable if they
-// fail: invalid JSON, an out-of-range rule count, and an unparseable
-// workloadLabelSelector (phase 2 requires a compiled selector, so a spec
-// without one is as unusable as one that didn't parse at all). Per-field
-// checks that produce precise, field.Path-scoped user feedback - bad topology
-// keys, out-of-range percentages, unknown rule types, duplicate keys - are
-// the webhook's responsibility; it owns field.Path construction and needs to
-// accumulate every error rather than fail fast, so it re-validates those
-// fields itself after calling this helper.
+// It only checks what would make the spec entirely unusable: invalid JSON, an
+// out-of-range rule count, and an unparseable workloadLabelSelector.
+// Per-field, field.Path-scoped checks (bad topology keys, out-of-range
+// percentages, unknown rule types, duplicate keys) are the webhook's
+// responsibility and are re-validated there.
 func ParseSpreadingAnnotation(value string) (*SpreadingSpec, error) {
 	var spec SpreadingSpec
 	if err := json.Unmarshal([]byte(value), &spec); err != nil {

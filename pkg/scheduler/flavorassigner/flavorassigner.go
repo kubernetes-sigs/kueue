@@ -862,8 +862,6 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		// TODO(topology-spreading): flavors whose topology lacks a spreading rule's level
-		// should be skipped here; below, the rule is just ignored and the Workload gets no spreading.
 		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 		if assignment.RepresentativeMode() == Fit {
 			result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkload(a.wl))
@@ -1235,7 +1233,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 	for psIdx, psID := range psIDs {
 		if features.Enabled(features.TopologyAwareScheduling) {
 			ps := &a.wl.Obj.Spec.PodSets[psID]
-			if message := checkPodSetAndFlavorMatchForTAS(a.cq, ps, flavor, rg); message != nil {
+			if message := checkPodSetAndFlavorMatchForTAS(a.cq, a.wl, ps, flavor, rg); message != nil {
 				log.V(3).Info("Flavor does not match TAS requirements", "reason", *message)
 				status.appendf("%s", *message)
 				return status

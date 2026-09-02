@@ -61,14 +61,10 @@ func NodeNameFromDomainID(levels []string, domainID TopologyDomainID) (string, b
 type PodSetGroupKey string
 
 // GroupKeyForPodSet returns the PodSetGroupKey for ps: its
-// TopologyRequest.PodSetGroupName if set, otherwise ps.Name.
-//
-// The fallback is the PodSet's name rather than its index within the Workload,
-// so that the key is comparable across Workloads - two JobSets both have a
-// "prefill" PodSet, so their prefill groups count against each other with no
-// group name annotation set anywhere. An index is relative to the list being
-// iterated, and shifts whenever a PodSet goes to another flavor or has its
-// topology assignment delayed.
+// TopologyRequest.PodSetGroupName if set, otherwise ps.Name. The name (not an
+// index) is used as the fallback so the key is comparable across Workloads -
+// e.g. two JobSets' "prefill" PodSets count against each other with no group
+// name annotation needed.
 func GroupKeyForPodSet(ps *kueue.PodSet) PodSetGroupKey {
 	if ps.TopologyRequest != nil && ps.TopologyRequest.PodSetGroupName != nil {
 		return PodSetGroupKey(*ps.TopologyRequest.PodSetGroupName)

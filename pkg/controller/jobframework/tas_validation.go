@@ -434,13 +434,11 @@ func validateTopologySpreadingAnnotation(
 		return allErrs
 	}
 
-	// Spreading counts a PodSet group as occupying one domain per rule level,
-	// which only holds for required topology: preferred and unconstrained
-	// placements spread a group over several domains at once, so the group
-	// would contribute to several domain counts while raising the total by
-	// one, and maxDomainPercentage would stop bounding anything. Requiring the
-	// companion annotation also rules out a Workload that carries the
-	// spreading annotation alone and never engages TAS at all.
+	// Spreading counts a group as occupying one domain per rule level, which
+	// only holds for required topology - preferred/unconstrained placements
+	// spread a group across several domains, breaking maxDomainPercentage.
+	// Requiring the companion annotation also rules out a Workload that
+	// carries spreading but never engages TAS at all.
 	if !requiredFound {
 		allErrs = append(allErrs, field.Forbidden(fldPath,
 			fmt.Sprintf("may only be set together with '%s'", kueue.PodSetRequiredTopologyAnnotation)))

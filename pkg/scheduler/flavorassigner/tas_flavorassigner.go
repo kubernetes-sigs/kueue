@@ -164,7 +164,7 @@ func onlyTASFlavor(
 	return nil, &MultipleTASFlavorsAssignedError{Flavors: sets.List(flavors)}
 }
 
-func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kueue.PodSet, flavor *kueue.ResourceFlavor, rg *resourcegroups.ResourceGroup) *string {
+func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, ps *kueue.PodSet, flavor *kueue.ResourceFlavor, rg *resourcegroups.ResourceGroup) *string {
 	if isTASRequested(ps, cq) {
 		if isTASImplied(ps, cq) {
 			// If this is a TAS-only CQ, then we don't need to check the flavor because
@@ -192,6 +192,12 @@ func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kue
 		if !s.HasLevel(ps.TopologyRequest) {
 			// Skip flavors which don't have the requested level
 			return new(fmt.Sprintf("Flavor %q does not contain the requested level", flavor.Name))
+		}
+		if features.Enabled(features.TASTopologySpreading) {
+			spec := wl.TopologySpreading[tas.GroupKeyForPodSet(ps)]
+			if !s.HasRequiredSpreadingLevels(spec) {
+				return new(fmt.Sprintf("Flavor %q does not contain a topology level required by topology spreading", flavor.Name))
+			}
 		}
 		// PodSet requires TAS and the flavor supports it, so it's a match.
 		return nil

@@ -58,9 +58,9 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
-	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 

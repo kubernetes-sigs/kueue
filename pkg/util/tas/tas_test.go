@@ -148,7 +148,7 @@ func TestGroupKeyForPodSet(t *testing.T) {
 		"group name set": {
 			podSet: &kueue.PodSet{
 				Name:            "workers",
-				TopologyRequest: &kueue.PodSetTopologyRequest{PodSetGroupName: ptr.To("group-a")},
+				TopologyRequest: &kueue.PodSetTopologyRequest{PodSetGroupName: new("group-a")},
 			},
 			want: "group-a",
 		},
