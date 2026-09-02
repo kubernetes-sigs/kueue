@@ -191,7 +191,7 @@ func (m podsByWorkload) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod
 }
 
 func (m podsByWorkload) recordPod(wlKey client.ObjectKey, podKey client.ObjectKey, pod *corev1.Pod) {
-	if len(m) == 0 {
+	if m == nil {
 		return
 	}
 	if _, ok := m[wlKey]; !ok {
