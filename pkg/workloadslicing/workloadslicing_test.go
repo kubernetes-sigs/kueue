@@ -173,6 +173,21 @@ func testWorkload(name, jobName string, jobUID types.UID, created time.Time) *ut
 		Request(corev1.ResourceCPU, "100m")
 }
 
+func TestSortAndFilterNotFinishedWorkloadsDoesNotModifyInput(t *testing.T) {
+	now := time.Now()
+	workloads := []kueue.Workload{
+		*testWorkload("newer", testJobObject.Name, testJobObject.UID, now).Obj(),
+		*testWorkload("finished", testJobObject.Name, testJobObject.UID, now.Add(-time.Minute)).Finished().Obj(),
+	}
+	original := append([]kueue.Workload(nil), workloads...)
+
+	sortAndFilterNotFinishedWorkloads(workloads)
+
+	if diff := cmp.Diff(original, workloads); diff != "" {
+		t.Errorf("sortAndFilterNotFinishedWorkloads modified its input (-want,+got):\n%s", diff)
+	}
+}
+
 func TestFindNotFinishedWorkloads(t *testing.T) {
 	type args struct {
 		clnt         client.Client
