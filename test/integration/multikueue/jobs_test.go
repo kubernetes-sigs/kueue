@@ -26,6 +26,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -220,6 +221,23 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 					g.Expect(finished.Reason).NotTo(gomega.Equal(kueue.WorkloadFinishedReasonOutOfSync))
 				}
 			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("the stale remote workload is dropped so the Job can be dispatched again", func() {
+			// An OutOfSync remote stays Finished forever. If it survived, every later
+			// reconcile would match it again and stop before the dispatch phase, so the Job
+			// could never be re-dispatched once the reset moved the check off Ready.
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteWl := &kueue.Workload{}
+				err := worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, remoteWl)
+				if apierrors.IsNotFound(err) {
+					return
+				}
+				g.Expect(err).To(gomega.Succeed())
+				// A remote that is present again is a freshly dispatched one, never the
+				// OutOfSync leftover.
+				g.Expect(apimeta.FindStatusCondition(remoteWl.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

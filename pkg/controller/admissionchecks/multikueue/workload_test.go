@@ -910,24 +910,10 @@ func TestWlReconcile(t *testing.T) {
 			wantManagersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().Active(1).Obj(),
 			},
-			wantWorker1Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.Clone().
-					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadFinishedReasonOutOfSync,
-						Message: "The prebuilt workload is out of sync with its user job",
-					}).
-					Obj(),
-			},
-			wantWorker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					PrebuiltWorkloadLabel("wl1").
-					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
-					Obj(),
-			},
+			// The stale remote is dropped together with the reset: it can never be admitted
+			// again, so it must not survive into the re-dispatch that the Retry triggers.
+			wantWorker1Workloads: nil,
+			wantWorker1Jobs:      nil,
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.DeepCopy()),
@@ -937,7 +923,7 @@ func TestWlReconcile(t *testing.T) {
 				},
 			},
 		},
-		"remote wl finished OutOfSync but admission check already Retry: intercept without finishing (idempotent re-reconcile)": {
+		"remote wl finished OutOfSync but admission check already Retry: drop the stale remote without finishing (idempotent re-reconcile)": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
 			managersWorkloads: []kueue.Workload{
@@ -990,7 +976,40 @@ func TestWlReconcile(t *testing.T) {
 			wantManagersJobs: []batchv1.Job{
 				*baseJobManagedByKueueBuilder.Clone().Active(1).Obj(),
 			},
-			wantWorker1Workloads: []kueue.Workload{
+			// The stale remote is dropped even though the check is no longer Ready: it can
+			// never be admitted again, and keeping it would match on every later reconcile
+			// and stop the workload from ever being dispatched again.
+			wantWorker1Workloads: nil,
+			wantWorker1Jobs:      nil,
+		},
+		"remote wl finished OutOfSync and the eviction already reset the check to Pending: drop the stale remote and dispatch again": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			// State the workload lands in once the Retry above made the core controller evict
+			// it: the check is back to Pending and ClusterName was cleared, but the workload
+			// has already re-reserved quota, so the "no quota reservation" cleanup no longer
+			// removes the remote left behind on the worker.
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStatePending,
+						Message: `Reset to Pending after eviction. Previously: "Retry"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Active(1).Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			worker1Workloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
@@ -1002,12 +1021,30 @@ func TestWlReconcile(t *testing.T) {
 					}).
 					Obj(),
 			},
-			wantWorker1Jobs: []batchv1.Job{
-				*baseJobBuilder.Clone().
-					PrebuiltWorkloadLabel("wl1").
+			// The workload is nominated and dispatched again instead of being stuck with the
+			// check Pending forever.
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStatePending,
+						Message: `Reset to Pending after eviction. Previously: "Retry"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1").
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().Active(1).Obj(),
+			},
+			// The stale remote workload and job are gone, replaced by a fresh remote workload.
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
 					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
+			wantWorker1Jobs: nil,
 		},
 		"remote wl is finished, but the remote controller object must be owned before SyncJob": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -1140,6 +1177,99 @@ func TestWlReconcile(t *testing.T) {
 					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
 					Obj(),
 			},
+		},
+		"remote wl finished OutOfSync on a non-admitting worker: the genuine finish on the admitting worker still wins": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.DeepCopy(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			// worker1 is the admitting remote and it finished genuinely, before worker2 did.
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             "ByTest",
+						Message:            "by test",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
+			// worker2 holds a leftover OutOfSync remote that must not trigger a re-dispatch of
+			// a job that already completed on worker1.
+			useSecondWorker: true,
+			worker2Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadFinishedReasonOutOfSync,
+						Message:            "The prebuilt workload is out of sync with its user job",
+						LastTransitionTime: metav1.NewTime(now.Add(time.Minute)),
+					}).
+					Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: "ByTest", Message: `by test`}).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.Clone().
+					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			// The admitting remote is left alone; only the stale worker2 remote is dropped.
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             "ByTest",
+						Message:            "by test",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Condition(batchv1.JobCondition{Type: batchv1.JobComplete, Status: corev1.ConditionTrue}).
+					Obj(),
+			},
+			wantWorker2Workloads: nil,
 		},
 		"the local Job is marked finished, the remote objects are removed": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
