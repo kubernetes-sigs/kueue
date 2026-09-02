@@ -24,10 +24,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/klog/v2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
@@ -145,9 +147,9 @@ func TestNodePortsFeasibility(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			sim, err := NewWASSimulatorForTest(ctx)
+			sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
 			if err != nil {
-				t.Fatalf("NewWASSimulatorForTest failed: %v", err)
+				t.Fatalf("NewWASSimulator failed: %v", err)
 			}
 
 			candidates := func(yield func(simulator.Candidate) bool) {
@@ -208,9 +210,9 @@ func TestNodeUnschedulableFeasibility(t *testing.T) {
 	nodes := []*corev1.Node{node1, unschedulable, node2}
 
 	t.Run("return all schedulable notes, skip unschedulable ones", func(t *testing.T) {
-		sim, err := NewWASSimulatorForTest(ctx)
+		sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
 		if err != nil {
-			t.Fatalf("NewWASSimulatorForTest failed: %v", err)
+			t.Fatalf("NewWASSimulator failed: %v", err)
 		}
 
 		snapshot, err := sim.Snapshot(ctx, nodes)
@@ -338,9 +340,9 @@ func TestWorkloadMapping(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
-			sim, err := NewWASSimulatorForTest(ctx)
+			sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
 			if err != nil {
-				t.Fatalf("NewWASSimulatorForTest failed: %v", err)
+				t.Fatalf("NewWASSimulator failed: %v", err)
 			}
 
 			tc.operation(ctx, sim)
@@ -437,9 +439,9 @@ func TestPreemptWorkload(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			sim, err := NewWASSimulatorForTest(ctx)
+			sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
 			if err != nil {
-				t.Fatalf("NewWASSimulatorForTest failed: %v", err)
+				t.Fatalf("NewWASSimulator failed: %v", err)
 			}
 			tc.setup(ctx, sim)
 
@@ -511,9 +513,9 @@ func TestSimulate(t *testing.T) {
 		return len(results) > 0
 	}
 
-	sim, err := NewWASSimulatorForTest(ctx)
+	sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
 	if err != nil {
-		t.Fatalf("NewWASSimulatorForTest failed: %v", err)
+		t.Fatalf("NewWASSimulator failed: %v", err)
 	}
 	sim.TrackPod(ctx, existingPod)
 
@@ -547,9 +549,9 @@ func TestSimulate(t *testing.T) {
 
 func TestTrackPodDeepCopy(t *testing.T) {
 	ctx := t.Context()
-	sim, err := NewWASSimulatorForTest(ctx)
+	sim, err := NewWASSimulator(klog.NewContext(ctx, logr.Discard()), nil)
 	if err != nil {
-		t.Fatalf("NewWASSimulatorForTest failed: %v", err)
+		t.Fatalf("NewWASSimulator failed: %v", err)
 	}
 
 	pod := testingpod.MakePod("pod1", "ns").Annotation(kueue.WorkloadAnnotation, "wl1").Obj()
