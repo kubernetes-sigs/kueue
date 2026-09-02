@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 func charge(count int64, name corev1.ResourceName) corev1.ResourceList {
@@ -104,6 +105,38 @@ func TestChargeFitsCanonicalUnits(t *testing.T) {
 			wantFields:    []string{"spec.podSets[0]"},
 			wantBadValues: []string{"27670116110564327418"},
 		},
+		"a fraction of a device is refused rather than rounded up": {
+			podSets:       []kueue.PodSet{podSet("a", 1)},
+			perPodSet:     map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("0.5")}},
+			wantFields:    []string{"spec.podSets[0]"},
+			wantBadValues: []string{"500m"},
+		},
+		"and so is a cpu charge below the milli the queue accounts in": {
+			podSets:       []kueue.PodSet{podSet("a", 1)},
+			perPodSet:     map[kueue.PodSetReference]corev1.ResourceList{"a": {corev1.ResourceCPU: resource.MustParse("500u")}},
+			wantFields:    []string{"spec.podSets[0]"},
+			wantBadValues: []string{"500u"},
+		},
+		"a cpu charge of half a core is not, since milli holds it": {
+			podSets:   []kueue.PodSet{podSet("a", 1)},
+			perPodSet: map[kueue.PodSetReference]corev1.ResourceList{"a": {corev1.ResourceCPU: resource.MustParse("1500m")}},
+		},
+		"a negative charge is refused": {
+			podSets:       []kueue.PodSet{podSet("a", 1)},
+			perPodSet:     map[kueue.PodSetReference]corev1.ResourceList{"a": {"gpu": resource.MustParse("-1")}},
+			wantFields:    []string{"spec.podSets[0]"},
+			wantBadValues: []string{"-1"},
+		},
+		"one below the sentinel is charged": {
+			podSets:   []kueue.PodSet{podSet("a", 1)},
+			perPodSet: map[kueue.PodSetReference]corev1.ResourceList{"a": charge(math.MaxInt64-1, "gpu")},
+		},
+		"the sentinel itself is not": {
+			podSets:       []kueue.PodSet{podSet("a", 1)},
+			perPodSet:     map[kueue.PodSetReference]corev1.ResourceList{"a": charge(math.MaxInt64, "gpu")},
+			wantFields:    []string{"spec.podSets[0]"},
+			wantBadValues: []string{"9223372036854775807"},
+		},
 		"a product landing exactly on the unlimited sentinel is refused": {
 			// math.MaxInt64 is 7 * maxInt64Over7, so this multiplies out to the
 			// sentinel itself rather than past it.
@@ -132,6 +165,39 @@ func TestChargeFitsCanonicalUnits(t *testing.T) {
 				if diff := cmp.Diff(tc.wantBadValues, gotBadValues); diff != "" {
 					t.Errorf("chargeFitsCanonicalUnits() bad values (-want +got):\n%s", diff)
 				}
+			}
+		})
+	}
+}
+
+// The queue reads a charge through resources.ResourceValue. Scaling a rounded
+// device count instead answers 2000m for 1.5 CPU, so the two are pinned here
+// against each other rather than only through the bounds above.
+func TestCanonicalUnits(t *testing.T) {
+	cases := map[string]struct {
+		name      corev1.ResourceName
+		qty       string
+		want      int64
+		wantExact bool
+	}{
+		"a whole device":                {name: "gpu", qty: "3", want: 3, wantExact: true},
+		"half a device":                 {name: "gpu", qty: "0.5", want: 1},
+		"whole cores in milli":          {name: corev1.ResourceCPU, qty: "3", want: 3000, wantExact: true},
+		"half a core in milli":          {name: corev1.ResourceCPU, qty: "1.5", want: 1500, wantExact: true},
+		"a milli written as a fraction": {name: corev1.ResourceCPU, qty: "0.5", want: 500, wantExact: true},
+		"below a milli":                 {name: corev1.ResourceCPU, qty: "500u", want: 1},
+		"a negative device count":       {name: "gpu", qty: "-1", want: -1, wantExact: true},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, exact := canonicalUnits(tc.name, resource.MustParse(tc.qty))
+			if got != tc.want || exact != tc.wantExact {
+				t.Errorf("canonicalUnits(%s, %s) = (%d, %v), want (%d, %v)",
+					tc.name, tc.qty, got, exact, tc.want, tc.wantExact)
+			}
+			if want := resources.ResourceValue(tc.name, resource.MustParse(tc.qty)); got != want {
+				t.Errorf("canonicalUnits() = %d, but the queue reads %d", got, want)
 			}
 		})
 	}

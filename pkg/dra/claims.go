@@ -229,17 +229,18 @@ func chargeForPrioritizedList(req *resourcev1.DeviceRequest, mapper *ResourceMap
 	return logical, maxCount, nil
 }
 
-// canonicalUnits converts a device count to the unit the queue accounts the
-// logical resource in: milli for CPU, whole ones for everything else. The
-// conversion is where a count that reads as bounded stops being one.
-func canonicalUnits(name corev1.ResourceName, count int64) (int64, bool) {
-	if name != corev1.ResourceCPU {
-		return count, true
+// canonicalUnits converts a charge the way resources.ResourceValue does, so the
+// number checked here is the one the queue reads, and reports whether that
+// conversion was exact. Scaling a device count instead answers 2000m for 1.5
+// CPU where the queue answers 1500m. An amount the unit cannot hold, a fraction
+// of a device or a sub-milli CPU, is refused rather than rounded.
+func canonicalUnits(name corev1.ResourceName, qty resource.Quantity) (int64, bool) {
+	v := resources.ResourceValue(name, qty)
+	rounded := *resource.NewQuantity(v, resource.DecimalSI)
+	if name == corev1.ResourceCPU {
+		rounded = *resource.NewMilliQuantity(v, resource.DecimalSI)
 	}
-	if count > (math.MaxInt64-1)/1000 {
-		return 0, false
-	}
-	return count * 1000, true
+	return v, qty.Cmp(rounded) == 0
 }
 
 // chargeFitsCanonicalUnits reports the charges that cannot reach the queue
@@ -265,15 +266,14 @@ func chargeFitsCanonicalUnits(podSets []kueue.PodSet, perPodSet map[kueue.PodSet
 			qty := charged[name]
 			// The charge is accumulated with Quantity.Add and can leave int64
 			// behind, where Value wraps and reads back as an ordinary count.
-			count := utilmath.SafeValue(qty)
-			if count < 0 || count == math.MaxInt64 {
+			canonical, exact := canonicalUnits(name, qty)
+			if canonical < 0 || canonical == math.MaxInt64 {
 				errs = append(errs, field.Invalid(psPath, qty.String(),
 					fmt.Sprintf("device count charged to logical resource %s is not a bounded quota amount", name)))
 				continue
 			}
-			canonical, ok := canonicalUnits(name, count)
-			if !ok {
-				errs = append(errs, field.Invalid(psPath, count,
+			if !exact {
+				errs = append(errs, field.Invalid(psPath, qty.String(),
 					fmt.Sprintf("device count charged to logical resource %s is not representable in the units it is accounted in", name)))
 				continue
 			}
