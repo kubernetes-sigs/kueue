@@ -253,6 +253,11 @@ revision := fmt.Sprintf("%s-%d", child.UID, child.Generation)
 
 #### Workload-slice naming under annotation reflection
 
+The `raycluster-generation` annotation predates this KEP:
+[#9960](https://github.com/kubernetes-sigs/kueue/pull/9960) introduced it for
+RayJob and RayService with the child RayCluster's bare `generation`, skipping
+standalone RayClusters. Here the reflected value is `UID-generation` instead.
+
 Because the reverse sync reflects onto the manager as **annotations**, it never
 bumps the manager object's `metadata.generation`. The elastic workload-slice name
 must still change on each reflected scale-up so the manager mints a fresh
