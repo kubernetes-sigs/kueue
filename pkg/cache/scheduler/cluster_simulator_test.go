@@ -942,17 +942,17 @@ func TestSimulation(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		simFunc func(sim *ClusterSimulator)
+		simFunc func(sim ClusterSimulator)
 	}{
 		"preempt single workload inside simulation": {
-			simFunc: func(sim *ClusterSimulator) {
+			simFunc: func(sim ClusterSimulator) {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
 					t.Fatalf("unexpected error preempting wl1: %v", err)
 				}
 			},
 		},
 		"preempt multiple workloads inside simulation": {
-			simFunc: func(sim *ClusterSimulator) {
+			simFunc: func(sim ClusterSimulator) {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
 					t.Fatalf("unexpected error preempting wl1: %v", err)
 				}
@@ -962,7 +962,7 @@ func TestSimulation(t *testing.T) {
 			},
 		},
 		"preempt and partially restore workload inside simulation": {
-			simFunc: func(sim *ClusterSimulator) {
+			simFunc: func(sim ClusterSimulator) {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
 					t.Fatalf("unexpected error preempting wl1: %v", err)
 				}
@@ -975,7 +975,7 @@ func TestSimulation(t *testing.T) {
 			},
 		},
 		"preempt and restore snapshot subset inside simulation": {
-			simFunc: func(sim *ClusterSimulator) {
+			simFunc: func(sim ClusterSimulator) {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
 					t.Fatalf("unexpected error preempting wl1: %v", err)
 				}

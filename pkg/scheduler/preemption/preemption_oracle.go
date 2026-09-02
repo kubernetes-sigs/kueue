@@ -78,7 +78,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 		workloadsToPreempt[i] = c.WorkloadInfo
 	}
 	var borrowAfterPreemptions int
-	if err := scheduler.Simulate(ctx, p.snapshot, func(simulator *scheduler.ClusterSimulator) {
+	if err := scheduler.Simulate(ctx, p.snapshot, func(simulator scheduler.ClusterSimulator) {
 		simulator.RemoveUsage(workloadsToPreempt)
 		borrowAfterPreemptions, _ = classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
 	}); err != nil {

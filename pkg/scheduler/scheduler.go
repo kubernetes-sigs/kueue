@@ -834,7 +834,7 @@ func fits(
 ) (schdcache.FitsCheck, error) {
 	merged := preemptedWorkloads.MergeWithTargets(newTargets)
 	var result schdcache.FitsCheck
-	err := scheduler.Simulate(ctx, snapshot, func(simulator *scheduler.ClusterSimulator) {
+	err := scheduler.Simulate(ctx, snapshot, func(simulator scheduler.ClusterSimulator) {
 		simulator.RemoveUsage(merged.Workloads())
 		result = cq.Fits(*usage)
 	})
@@ -890,7 +890,7 @@ func (s *Scheduler) getAssignments(
 	preemptedWorkloads []*workload.Info,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, err error) {
 	var innerErr error
-	simErr := scheduler.Simulate(ctx, snap, func(simulator *scheduler.ClusterSimulator) {
+	simErr := scheduler.Simulate(ctx, snap, func(simulator scheduler.ClusterSimulator) {
 		for _, w := range preemptedWorkloads {
 			if err := simulator.PreemptWorkload(ctx, w); err != nil {
 				innerErr = err
@@ -964,7 +964,12 @@ func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentC
 //     identified during scheduling.
 //
 // If no valid assignment can be made, returns the original full assignment with no preemption targets.
-func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot, simulator *scheduler.ClusterSimulator) (_ flavorassigner.Assignment, _ []*preemption.Target, err error) {
+func (s *Scheduler) getInitialAssignments(
+	ctx context.Context,
+	wl *workload.Info,
+	snap *schdcache.Snapshot,
+	simulator scheduler.ClusterSimulator,
+) (_ flavorassigner.Assignment, _ []*preemption.Target, err error) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
 	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
@@ -1054,7 +1059,7 @@ func updateAssignmentForTAS(
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			if err := scheduler.Simulate(ctx, snapshot, func(simulator *scheduler.ClusterSimulator) {
+			if err := scheduler.Simulate(ctx, snapshot, func(simulator scheduler.ClusterSimulator) {
 				simulator.RemoveUsage(targetWorkloads)
 				tasResult = cq.FindTopologyAssignmentsForWorkload(
 					ctx,

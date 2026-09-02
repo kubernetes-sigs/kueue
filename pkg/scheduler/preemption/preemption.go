@@ -81,7 +81,7 @@ type preemptionCtx struct {
 	preemptor         workload.Info
 	preemptorCQ       *schdcache.ClusterQueueSnapshot
 	snapshot          *schdcache.Snapshot
-	simulator         *schdcache.ClusterSimulator
+	simulator         schdcache.ClusterSimulator
 	workloadUsage     workload.Usage
 	tasRequests       schdcache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
@@ -134,7 +134,7 @@ func (p *Preemptor) GetTargets(
 	wl workload.Info,
 	assignment flavorassigner.Assignment,
 	snapshot *schdcache.Snapshot,
-	simulator *schdcache.ClusterSimulator,
+	simulator schdcache.ClusterSimulator,
 ) ([]*Target, error) {
 	log := log.FromContext(ctx)
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)

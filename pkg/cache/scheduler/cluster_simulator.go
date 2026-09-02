@@ -32,7 +32,7 @@ import (
 // Simulation is a function encapsulating simulation logic.
 // The body of the function is provided with a ClusterSimulator object,
 // which allows performing simulation-scoped mutations on the snapshotted cluster state.
-type Simulation func(*ClusterSimulator)
+type Simulation func(ClusterSimulator)
 
 // ClusterSimulator represents the snapshotted state of the cluster
 // and allows mutating it in the scope of the running simulation.
@@ -54,8 +54,8 @@ type preemption struct {
 	revert func() error
 }
 
-func newClusterSimulator(snapshot *Snapshot) *ClusterSimulator {
-	return &ClusterSimulator{
+func newClusterSimulator(snapshot *Snapshot) ClusterSimulator {
+	return ClusterSimulator{
 		clusterState:         &snapshot.Manager,
 		simulatorSnapshot:    snapshot.SimulatorSnapshot,
 		simulatedPreemptions: make(map[workloadKey]preemption),
