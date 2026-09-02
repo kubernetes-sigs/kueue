@@ -36,7 +36,7 @@ endif
 # The final step of `make verify` enforces that these paths have:
 # - no unstaged/staged diffs (`git diff --exit-code`)
 # - no untracked files (e.g. newly generated files not added to git)
-PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netlify.toml $(MOCKS_DIR)
+PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netlify.toml test/compatibility_lifecycle $(MOCKS_DIR)
 
 .PHONY: verify
 ## Main target used by CI and local development.
