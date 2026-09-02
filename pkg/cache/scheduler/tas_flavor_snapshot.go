@@ -480,6 +480,19 @@ type topologyAssignmentParameters struct {
 	required              bool
 	unconstrained         bool
 	multiLayerConstraints []kueue.PodsetSliceRequiredTopologyConstraint
+
+	// exactGroupOrder maps a selected exact-level domain to the index of the
+	// sizes entry it holds. It is empty unless the request uses sizes.
+	//
+	// Assignment construction sorts leaves by this index first, so that the
+	// groups appear in the order the entries were written. The ungater hands
+	// out pod ranks in stored order, so group order is what gives each entry
+	// its contiguous rank block.
+	exactGroupOrder map[utiltas.TopologyDomainID]int
+
+	// exactLevelIdx is the topology level the sizes entries apply to. Only
+	// meaningful when exactGroupOrder is non-empty.
+	exactLevelIdx int
 }
 
 // findTopologyAssignmentState stores the derived state for a single run of the
@@ -1004,6 +1017,20 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		return nil, fmt.Sprintf("unable to calculate domain capacities for PodSet %s, error: %s", info.Name, err.Error())
 	}
 
+	// phase 2a (exact): when the request carries a sizes list, match the entries
+	// to distinct domains at the exact level and skip the ordinary search. The
+	// domains chosen here become the assignment, and their order is recorded so
+	// that construction can lay out rank blocks in sizes order.
+	if exactSizes := exactDistributionSizes(workersTasPodSetRequests.PodSet.TopologyRequest); len(exactSizes) > 0 {
+		fitDomains, reason := s.findExactDistributionDomains(exactSizes, state)
+		if len(reason) > 0 {
+			return nil, reason
+		}
+		assignments := make(map[kueue.PodSetReference]*utiltas.TopologyAssignment, 1)
+		assignments[workersTasPodSetRequests.PodSet.Name] = s.buildAssignment(fitDomains, &state.topologyAssignmentParameters)
+		return assignments, ""
+	}
+
 	// phase 2a: determine the level at which the assignment is done along with
 	// the domains which can accommodate all pods/slices
 	var currFitDomain []*domain
@@ -1097,11 +1124,11 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 			}
 		}
 
-		assignments[leaderTasPodSetRequests.PodSet.Name] = s.buildAssignment(leaderFitDomains)
+		assignments[leaderTasPodSetRequests.PodSet.Name] = s.buildAssignment(leaderFitDomains, &state.topologyAssignmentParameters)
 		currFitDomain = workerFitDomains
 	}
 
-	assignments[workersTasPodSetRequests.PodSet.Name] = s.buildAssignment(currFitDomain)
+	assignments[workersTasPodSetRequests.PodSet.Name] = s.buildAssignment(currFitDomain, &state.topologyAssignmentParameters)
 
 	return assignments, ""
 }
@@ -1259,6 +1286,11 @@ func slicesRequested(tr *kueue.PodSetTopologyRequest) bool {
 func getSliceSizeWithSinglePodAsDefault(tr *kueue.PodSetTopologyRequest) (int32, string) {
 	constraints := utiltas.PodSetSliceRequiredTopologyConstraints(tr)
 	if len(constraints) == 0 {
+		return 1, ""
+	}
+	if len(constraints[0].Sizes) > 0 {
+		// An exact distribution does not slice: each entry is placed whole in
+		// its own domain, and below that level pods are assigned individually.
 		return 1, ""
 	}
 	size := constraints[0].Size
@@ -1698,15 +1730,44 @@ func (s *TASFlavorSnapshot) buildTopologyAssignmentForLevels(domains []*domain, 
 	return assignment
 }
 
-func (s *TASFlavorSnapshot) buildAssignment(domains []*domain) *utiltas.TopologyAssignment {
-	// lex sort domains by their levelValues instead of IDs, as leaves' IDs can only contain the hostname
-	slices.SortFunc(domains, s.compareDomainLevelValues)
+func (s *TASFlavorSnapshot) buildAssignment(domains []*domain, params *topologyAssignmentParameters) *utiltas.TopologyAssignment {
+	if len(params.exactGroupOrder) > 0 {
+		// An exact distribution needs its groups emitted in sizes order, so the
+		// plain lexicographic sort would scramble the rank blocks. Order by
+		// group first and fall back to the usual comparison within a group,
+		// where all pods share a domain and the order carries no meaning.
+		slices.SortStableFunc(domains, func(a, b *domain) int {
+			ga, gb := s.exactGroupOf(a, params), s.exactGroupOf(b, params)
+			if ga != gb {
+				return cmp.Compare(ga, gb)
+			}
+			return s.compareDomainLevelValues(a, b)
+		})
+	} else {
+		// lex sort domains by their levelValues instead of IDs, as leaves' IDs can only contain the hostname
+		slices.SortFunc(domains, s.compareDomainLevelValues)
+	}
 	levelIdx := 0
 	// assign only hostname values if topology defines it
 	if s.isLowestLevelNode {
 		levelIdx = len(s.levelKeys) - 1
 	}
 	return s.buildTopologyAssignmentForLevels(domains, levelIdx)
+}
+
+// exactGroupOf reports the index of the sizes entry that owns the given domain,
+// found by truncating its level values at the exact level to identify its
+// ancestor. Domains outside any group sort last so a partial assignment cannot
+// silently interleave with the groups.
+func (s *TASFlavorSnapshot) exactGroupOf(d *domain, params *topologyAssignmentParameters) int {
+	if params.exactLevelIdx >= len(d.levelValues) {
+		return len(params.exactGroupOrder)
+	}
+	ancestor := utiltas.DomainID(d.levelValues[:params.exactLevelIdx+1])
+	if group, ok := params.exactGroupOrder[ancestor]; ok {
+		return group
+	}
+	return len(params.exactGroupOrder)
 }
 
 func (s *TASFlavorSnapshot) lowerLevelDomains(domains []*domain) []*domain {

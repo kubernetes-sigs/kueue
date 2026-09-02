@@ -60,7 +60,10 @@ import (
 var (
 	errPendingUngateOps      = errors.New("pending ungate operations")
 	errParseOffsetAnnotation = errors.New("failed to parse offset annotation")
-	errInvalidSubGroupCount  = errors.New("invalid subgroup count for podset with subgroup index label")
+
+	errRanksUnavailableForExactDistribution = errors.New(
+		"pod ranks could not be derived, so the requested exact topology distribution cannot be honoured")
+	errInvalidSubGroupCount = errors.New("invalid subgroup count for podset with subgroup index label")
 )
 
 type topologyUngaterOptions struct {
@@ -404,7 +407,32 @@ func assignGatedPodsToDomains(
 	if rankToPod, ok := readRanksIfAvailable(log, psa, pods, psReq, offset, maxRank, rankToDomainID); ok {
 		return assignGatedPodsToDomainsByRanks(rankToPod, rankToDomainID)
 	}
+	if usesExactDistribution(psReq) {
+		// An exact distribution promises that entry i of the sizes list owns a
+		// specific block of pod ranks. Greedy assignment still fills every
+		// domain to its assigned count, so the workload would run and look
+		// correct while the wrong ranks sat together -- a silent violation with
+		// no error to trace. Keep the pods gated instead so the failure is
+		// visible.
+		log.Error(errRanksUnavailableForExactDistribution, "keeping pods gated for podset",
+			"podset", psa.Name, "gatedPods", len(pods))
+		return nil
+	}
 	return assignGatedPodsToDomainsGreedy(log, psa, pods)
+}
+
+// usesExactDistribution reports whether the PodSet requested an exact
+// distribution, which rules out the greedy fallback above.
+func usesExactDistribution(psReq *kueue.PodSetTopologyRequest) bool {
+	if !features.Enabled(features.TASExactTopologyDistribution) {
+		return false
+	}
+	for _, c := range utiltas.PodSetSliceRequiredTopologyConstraints(psReq) {
+		if len(c.Sizes) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func assignGatedPodsToDomainsByRanks(

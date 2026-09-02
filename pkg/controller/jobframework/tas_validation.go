@@ -31,6 +31,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 )
 
+// maxExactDistributionEntries mirrors the MaxItems marker on
+// PodsetSliceRequiredTopologyConstraint.Sizes. The CRD enforces it for direct
+// Workload writes; the annotation path needs its own check.
+const maxExactDistributionEntries = 128
+
 func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
 	var allErrs field.ErrorList
 	requiredValue, requiredFound := replicaMetadata.Annotations[kueue.PodSetRequiredTopologyAnnotation]
@@ -205,6 +210,22 @@ func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetad
 					fmt.Sprintf("must not be greater than pod set count %d", podSet.Count),
 				))
 			}
+			// An exact distribution is the complete distribution: every pod in
+			// the PodSet belongs to exactly one entry, so the entries must sum
+			// to the count. Summed as int64 so a long list cannot overflow.
+			if len(constraints[0].Sizes) > 0 {
+				var sum int64
+				for _, sz := range constraints[0].Sizes {
+					sum += int64(sz)
+				}
+				if sum != int64(podSet.Count) {
+					allErrs = append(allErrs, field.Invalid(
+						annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation),
+						constraints[0].Sizes,
+						fmt.Sprintf("sizes must sum to the pod set count %d, got %d", podSet.Count, sum),
+					))
+				}
+			}
 		}
 	}
 
@@ -357,12 +378,44 @@ func validateSliceRequiredTopologyConstraintsAnnotation(
 		return allErrs
 	}
 
-	// Validate each entry.
+	// Validate each entry. Exactly one of size and sizes must be set; the CRD
+	// enforces this for direct Workload writes, but the annotation is parsed
+	// JSON and reaches this path without going through the schema.
+	exactEntries := 0
 	for i, c := range constraints {
 		entryPath := fldPath.Index(i)
 		allErrs = append(allErrs, metavalidation.ValidateLabelName(c.Topology, entryPath.Child("topology"))...)
-		if c.Size < 1 {
+
+		usesSizes := len(c.Sizes) > 0
+		if usesSizes {
+			exactEntries++
+		}
+		switch {
+		case usesSizes && c.Size > 0:
+			allErrs = append(allErrs, field.Invalid(entryPath, c, "exactly one of size and sizes must be specified"))
+		case !usesSizes && c.Size < 1:
 			allErrs = append(allErrs, field.Invalid(entryPath.Child("size"), c.Size, "must be greater than or equal to 1"))
+		}
+		for j, sz := range c.Sizes {
+			if sz < 1 {
+				allErrs = append(allErrs, field.Invalid(entryPath.Child("sizes").Index(j), sz, "must be greater than or equal to 1"))
+			}
+		}
+		if len(c.Sizes) > maxExactDistributionEntries {
+			allErrs = append(allErrs, field.TooMany(entryPath.Child("sizes"), len(c.Sizes), maxExactDistributionEntries))
+		}
+	}
+
+	if exactEntries > 0 {
+		if !features.Enabled(features.TASExactTopologyDistribution) {
+			allErrs = append(allErrs, field.Forbidden(fldPath,
+				fmt.Sprintf("the %s feature gate must be enabled to use 'sizes'", features.TASExactTopologyDistribution)))
+		}
+		// At alpha an exact distribution is the whole request: it cannot be
+		// combined with outer scalar layers, and only one entry may use sizes.
+		if len(constraints) > 1 {
+			allErrs = append(allErrs, field.Invalid(fldPath, constraintsJSON,
+				"an entry using 'sizes' must be the only entry in the constraints list"))
 		}
 	}
 
@@ -377,9 +430,10 @@ func validateSliceRequiredTopologyConstraintsAnnotation(
 		}
 	}
 
-	// Validate divisibility: each layer's size must evenly divide the layer above it.
+	// Validate divisibility: each layer's size must evenly divide the layer above
+	// it. Only scalar layers participate; an entry using sizes is always alone.
 	for i := range len(constraints) - 1 {
-		if constraints[i+1].Size > 0 && constraints[i].Size%constraints[i+1].Size != 0 {
+		if constraints[i].Size > 0 && constraints[i+1].Size > 0 && constraints[i].Size%constraints[i+1].Size != 0 {
 			allErrs = append(allErrs, field.Invalid(fldPath.Index(i+1).Child("size"),
 				constraints[i+1].Size,
 				fmt.Sprintf("must evenly divide the parent layer size %d", constraints[i].Size)))

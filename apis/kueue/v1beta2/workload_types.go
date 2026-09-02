@@ -251,6 +251,9 @@ type PodSetTopologyRequest struct {
 }
 
 // PodsetSliceRequiredTopologyConstraint defines a single slice topology constraint layer.
+//
+// Exactly one of size and sizes must be specified.
+// +kubebuilder:validation:XValidation:rule="has(self.size) != has(self.sizes)",message="exactly one of size and sizes must be specified"
 type PodsetSliceRequiredTopologyConstraint struct {
 	// topology indicates the topology level required for this slice layer.
 	//
@@ -259,11 +262,25 @@ type PodsetSliceRequiredTopologyConstraint struct {
 	// +kubebuilder:validation:MaxLength=63
 	Topology string `json:"topology,omitempty"`
 
-	// size indicates the number of pods in each group at this slice layer.
+	// size indicates the number of pods in each equal group at this slice layer.
 	//
-	// +required
+	// +optional
 	// +kubebuilder:validation:Minimum=1
 	Size int32 `json:"size,omitempty"`
+
+	// sizes indicates the exact pod counts to assign to distinct domains at this
+	// topology level. Each entry is placed in its own domain, and list order
+	// defines contiguous pod-rank blocks: entry i owns the next sizes[i] ranks.
+	// The sum must equal the PodSet count.
+	//
+	// This field is alpha-level for the TASExactTopologyDistribution feature gate.
+	//
+	// +optional
+	// +listType=atomic
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=128
+	// +kubebuilder:validation:items:Minimum=1
+	Sizes []int32 `json:"sizes,omitempty"`
 }
 
 type Admission struct {

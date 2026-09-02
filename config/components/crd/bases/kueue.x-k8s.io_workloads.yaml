@@ -18212,15 +18212,33 @@ spec:
 
                             This annotation is alpha-level for the TASMultiLayerTopology feature gate.
                           items:
-                            description: PodsetSliceRequiredTopologyConstraint defines
-                              a single slice topology constraint layer.
+                            description: |-
+                              PodsetSliceRequiredTopologyConstraint defines a single slice topology constraint layer.
+
+                              Exactly one of size and sizes must be specified.
                             properties:
                               size:
                                 description: size indicates the number of pods in
-                                  each group at this slice layer.
+                                  each equal group at this slice layer.
                                 format: int32
                                 minimum: 1
                                 type: integer
+                              sizes:
+                                description: |-
+                                  sizes indicates the exact pod counts to assign to distinct domains at this
+                                  topology level. Each entry is placed in its own domain, and list order
+                                  defines contiguous pod-rank blocks: entry i owns the next sizes[i] ranks.
+                                  The sum must equal the PodSet count.
+
+                                  This field is alpha-level for the TASExactTopologyDistribution feature gate.
+                                items:
+                                  format: int32
+                                  minimum: 1
+                                  type: integer
+                                maxItems: 128
+                                minItems: 1
+                                type: array
+                                x-kubernetes-list-type: atomic
                               topology:
                                 description: topology indicates the topology level
                                   required for this slice layer.
@@ -18228,9 +18246,11 @@ spec:
                                 minLength: 1
                                 type: string
                             required:
-                            - size
                             - topology
                             type: object
+                            x-kubernetes-validations:
+                            - message: exactly one of size and sizes must be specified
+                              rule: has(self.size) != has(self.sizes)
                           maxItems: 3
                           type: array
                           x-kubernetes-list-type: atomic

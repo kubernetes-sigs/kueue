@@ -276,6 +276,13 @@ const (
 	// placement across deep topology hierarchies.
 	TASMultiLayerTopology featuregate.Feature = "TASMultiLayerTopology"
 
+	// owner: @sumukha-radhakrishna
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/13416-exact-topology-distribution
+	//
+	// Enable requesting an exact, potentially uneven distribution of pods across
+	// distinct topology domains via the `sizes` field on a slice constraint.
+	TASExactTopologyDistribution featuregate.Feature = "TASExactTopologyDistribution"
+
 	// owner: @sohankunkerkar
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/9694
@@ -596,6 +603,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASBalancedPlacement:                        {TopologyAwareScheduling},
 	TASReplaceNodeOnNodeTaints:                  {TopologyAwareScheduling},
 	TASMultiLayerTopology:                       {TopologyAwareScheduling},
+	TASExactTopologyDistribution:                {TopologyAwareScheduling, TASMultiLayerTopology},
 	TASRespectNodeAffinityPreferred:             {TopologyAwareScheduling},
 	UnadmittedWorkloadsExplicitStatus:           {UnadmittedWorkloadsObservability},
 	TASHandleOverlappingFlavors:                 {TopologyAwareScheduling},
@@ -752,6 +760,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASMultiLayerTopology: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASExactTopologyDistribution: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	SchedulingEquivalenceHashing: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Beta},

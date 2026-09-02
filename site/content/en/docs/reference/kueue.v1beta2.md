@@ -2590,6 +2590,7 @@ result in failure during workload admission.</p>
 
 
 <p>PodsetSliceRequiredTopologyConstraint defines a single slice topology constraint layer.</p>
+<p>Exactly one of size and sizes must be specified.</p>
 
 
 <table class="table">
@@ -2604,11 +2605,22 @@ result in failure during workload admission.</p>
    <p>topology indicates the topology level required for this slice layer.</p>
 </td>
 </tr>
-<tr><td><code>size</code> <B>[Required]</B><br/>
+<tr><td><code>size</code><br/>
 <code>int32</code>
 </td>
 <td>
-   <p>size indicates the number of pods in each group at this slice layer.</p>
+   <p>size indicates the number of pods in each equal group at this slice layer.</p>
+</td>
+</tr>
+<tr><td><code>sizes</code><br/>
+<code>[]int32</code>
+</td>
+<td>
+   <p>sizes indicates the exact pod counts to assign to distinct domains at this
+topology level. Each entry is placed in its own domain, and list order
+defines contiguous pod-rank blocks: entry i owns the next sizes[i] ranks.
+The sum must equal the PodSet count.</p>
+<p>This field is alpha-level for the TASExactTopologyDistribution feature gate.</p>
 </td>
 </tr>
 </tbody>

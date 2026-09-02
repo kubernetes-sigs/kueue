@@ -22,11 +22,20 @@ package v1beta2
 // with apply.
 //
 // PodsetSliceRequiredTopologyConstraint defines a single slice topology constraint layer.
+//
+// Exactly one of size and sizes must be specified.
 type PodsetSliceRequiredTopologyConstraintApplyConfiguration struct {
 	// topology indicates the topology level required for this slice layer.
 	Topology *string `json:"topology,omitempty"`
-	// size indicates the number of pods in each group at this slice layer.
+	// size indicates the number of pods in each equal group at this slice layer.
 	Size *int32 `json:"size,omitempty"`
+	// sizes indicates the exact pod counts to assign to distinct domains at this
+	// topology level. Each entry is placed in its own domain, and list order
+	// defines contiguous pod-rank blocks: entry i owns the next sizes[i] ranks.
+	// The sum must equal the PodSet count.
+	//
+	// This field is alpha-level for the TASExactTopologyDistribution feature gate.
+	Sizes []int32 `json:"sizes,omitempty"`
 }
 
 // PodsetSliceRequiredTopologyConstraintApplyConfiguration constructs a declarative configuration of the PodsetSliceRequiredTopologyConstraint type for use with
@@ -48,5 +57,15 @@ func (b *PodsetSliceRequiredTopologyConstraintApplyConfiguration) WithTopology(v
 // If called multiple times, the Size field is set to the value of the last call.
 func (b *PodsetSliceRequiredTopologyConstraintApplyConfiguration) WithSize(value int32) *PodsetSliceRequiredTopologyConstraintApplyConfiguration {
 	b.Size = &value
+	return b
+}
+
+// WithSizes adds the given value to the Sizes field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the Sizes field.
+func (b *PodsetSliceRequiredTopologyConstraintApplyConfiguration) WithSizes(values ...int32) *PodsetSliceRequiredTopologyConstraintApplyConfiguration {
+	for i := range values {
+		b.Sizes = append(b.Sizes, values[i])
+	}
 	return b
 }

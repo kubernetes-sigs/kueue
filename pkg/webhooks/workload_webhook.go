@@ -525,9 +525,22 @@ func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) fie
 	}
 
 	for i := range tr.PodsetSliceRequiredTopologyConstraints {
-		if tr.PodsetSliceRequiredTopologyConstraints[i].Size <= 0 {
-			allErrs = append(allErrs,
-				field.Invalid(path.Child("podsetSliceRequiredTopologyConstraints").Index(i).Child("size"), tr.PodsetSliceRequiredTopologyConstraints[i].Size, "must be greater than 0"))
+		c := &tr.PodsetSliceRequiredTopologyConstraints[i]
+		cPath := path.Child("podsetSliceRequiredTopologyConstraints").Index(i)
+		// Exactly one of size and sizes is set. A constraint carrying an exact
+		// distribution leaves size at zero, so it must not be held to the
+		// scalar rule.
+		switch {
+		case len(c.Sizes) > 0 && c.Size > 0:
+			allErrs = append(allErrs, field.Invalid(cPath, c, "exactly one of size and sizes must be specified"))
+		case len(c.Sizes) > 0:
+			for j, sz := range c.Sizes {
+				if sz <= 0 {
+					allErrs = append(allErrs, field.Invalid(cPath.Child("sizes").Index(j), sz, "must be greater than 0"))
+				}
+			}
+		case c.Size <= 0:
+			allErrs = append(allErrs, field.Invalid(cPath.Child("size"), c.Size, "must be greater than 0"))
 		}
 	}
 	return allErrs
