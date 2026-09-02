@@ -1854,11 +1854,12 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
 				var targets []*Target
-				scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator *scheduler.ClusterSimulator) {
-					targets, err = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy, simulator)
+				var inErr error
+				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator *scheduler.ClusterSimulator) {
+					targets, inErr = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy, simulator)
 				})
-				if err != nil {
-					t.Errorf("Failed to get targets: %v", err)
+				if err != nil || inErr != nil {
+					t.Errorf("Failed to get targets: simulation=%v, preemptor=%v", err, inErr)
 				}
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {

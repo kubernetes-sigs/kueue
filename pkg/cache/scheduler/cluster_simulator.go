@@ -34,8 +34,9 @@ import (
 // which allows performing simulation-scoped mutations on the snapshotted cluster state.
 type Simulation func(*ClusterSimulator)
 
-// ClusterSimulator is a companion object allowing performing mutations on a snapshot.
-// Is is supplied to the Simulation by the Simulate function.
+// ClusterSimulator represents the snapshotted state of the cluster
+// and allows mutating it in the scope of the running simulation.
+// It is supplied to the Simulation by the Simulate function.
 // All operations performed on the snapshot by the ClusterSimulator are scoped to the Simulation
 // and will be reverted when the Simulate function finishes.
 type ClusterSimulator struct {

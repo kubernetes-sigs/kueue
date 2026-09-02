@@ -9856,7 +9856,10 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 	}
 	targets := []*preemption.Target{{WorkloadInfo: victimInfo}}
 
-	got := fits(ctx, snapshot, cq, &incomingUsage, preempted, targets)
+	got, err := fits(ctx, snapshot, cq, &incomingUsage, preempted, targets)
+	if err != nil {
+		t.Fatalf("fits() error = %v, want nil", err)
+	}
 	if got != schdcache.FitsCheckNoQuota {
 		t.Fatalf("fits() = %v, want %v (overlapping victim must be subtracted once)", got, schdcache.FitsCheckNoQuota)
 	}

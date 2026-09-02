@@ -763,7 +763,10 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	cq *schdcache.ClusterQueueSnapshot,
 	preemptedWorkloads preemption.PreemptedWorkloads) (*workload.Usage, bool, error) {
 	usage := e.assignmentUsage(log)
-	fitsCheck := fits(ctx, snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
+	fitsCheck, err := fits(ctx, snapshot, cq, &usage, preemptedWorkloads, e.preemptionTargets)
+	if err != nil {
+		return nil, false, err
+	}
 
 	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
 	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
@@ -796,7 +799,10 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		}
 	}
 	usage = e.assignmentUsage(log)
-	fitsCheck = fits(ctx, snapshot, cq, &usage, preemptedWorkloads, newTargets)
+	fitsCheck, err = fits(ctx, snapshot, cq, &usage, preemptedWorkloads, newTargets)
+	if err != nil {
+		return nil, false, err
+	}
 	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
 	// clear the assignment flavors as they are only used within a single scheduling cycle
 	e.NominationMapping = nil
@@ -818,15 +824,21 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	return &usage, schdcache.FitsCheckOk == fitsCheck, nil
 }
 
-func fits(ctx context.Context, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
-	newTargets []*preemption.Target) schdcache.FitsCheck {
+func fits(
+	ctx context.Context,
+	snapshot *schdcache.Snapshot,
+	cq *schdcache.ClusterQueueSnapshot,
+	usage *workload.Usage,
+	preemptedWorkloads preemption.PreemptedWorkloads,
+	newTargets []*preemption.Target,
+) (schdcache.FitsCheck, error) {
 	merged := preemptedWorkloads.MergeWithTargets(newTargets)
 	var result schdcache.FitsCheck
-	scheduler.Simulate(ctx, snapshot, func(simulator *scheduler.ClusterSimulator) {
+	err := scheduler.Simulate(ctx, snapshot, func(simulator *scheduler.ClusterSimulator) {
 		simulator.RemoveUsage(merged.Workloads())
 		result = cq.Fits(*usage)
 	})
-	return result
+	return result, err
 }
 
 // resourcesToReserve calculates how much of the available resources in cq/cohort assignment should be reserved.
@@ -899,7 +911,10 @@ func (s *Scheduler) getAssignments(
 		if assignment, targets, innerErr = s.getInitialAssignments(ctx, wl, snap, simulator); innerErr != nil {
 			return
 		}
-		updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets)
+		if err := updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets); err != nil {
+			innerErr = err
+			return
+		}
 	})
 	if simErr != nil {
 		return assignment, targets, simErr
@@ -1025,7 +1040,7 @@ func updateAssignmentForTAS(
 	wl *workload.Info,
 	assignment *flavorassigner.Assignment,
 	targets []*preemption.Target,
-) {
+) error {
 	log := log.FromContext(ctx)
 
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.RepresentativeMode() == flavorassigner.Preempt &&
@@ -1039,14 +1054,16 @@ func updateAssignmentForTAS(
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			scheduler.Simulate(ctx, snapshot, func(simulator *scheduler.ClusterSimulator) {
+			if err := scheduler.Simulate(ctx, snapshot, func(simulator *scheduler.ClusterSimulator) {
 				simulator.RemoveUsage(targetWorkloads)
 				tasResult = cq.FindTopologyAssignmentsForWorkload(
 					ctx,
 					tasRequests,
 					schdcache.WithWorkload(wl.Obj),
 				)
-			})
+			}); err != nil {
+				return err
+			}
 		} else {
 			// In this scenario we don't have any preemption candidates, yet we need
 			// to reserve the TAS resources to avoid the situation when a lower
@@ -1063,6 +1080,7 @@ func updateAssignmentForTAS(
 		}
 		assignment.UpdateForTASResult(log, cq, wl, tasResult)
 	}
+	return nil
 }
 
 // admit sets the admitting clusterQueue and flavors into the workload of
