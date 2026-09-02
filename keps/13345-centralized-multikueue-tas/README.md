@@ -70,7 +70,7 @@ pod inventory from worker clusters into its own scheduler TAS cache. When a
 workload is admitted, the manager will compute the full `TopologyAssignment`
 (treating the worker cluster as the top-level topology domain) and project a
 host-exact placement onto the remote workload. The worker cluster will then skip
-its own scheduling cycle and apply the manager's placement directly.
+the workload during its own scheduling cycle and apply the manager's placement directly.
 
 This solution works because all workloads are already mirrored in the manager
 via MultiKueue. The reason global features like fair-sharing and cross-cluster
@@ -224,8 +224,8 @@ Workers are configured with a single, massive quota per resource flavor
 (effectively acting as infinite compute pools from a quota perspective).
 
 When the worker receives the remote workload with the manager-stamped admission,
-it recognizes that the workload is already admitted. The worker skips its own
-scheduling cycle, and its TAS ungater translates the host-exact
+it recognizes that the workload is already admitted. The worker skips the workload during its own
+scheduling cycle, and the TAS ungater translates the workload's host-exact
 `TopologyAssignment` into standard `nodeSelectors` on the pods.
 
 ### Test Plan
