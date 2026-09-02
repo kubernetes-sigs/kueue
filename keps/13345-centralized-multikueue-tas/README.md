@@ -12,6 +12,7 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Drawbacks](#drawbacks)
 - [Design Details](#design-details)
+  - [Configuration](#configuration)
   - [Remote Inventory Sync](#remote-inventory-sync)
   - [Manager-Authoritative Placement](#manager-authoritative-placement)
   - [Worker Pass-Through](#worker-pass-through)
