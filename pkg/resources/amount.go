@@ -27,26 +27,30 @@ import (
 // Amount is an exact integer quota amount, in the unit the resource is
 // accounted in: milliCPU for cpu, whole units for everything else.
 //
-// Values inside the int64 range are held in small and cost no allocation.
-// A result that leaves that range is held in large instead, and one that
-// comes back inside it is held in small again, so two Amounts that are
-// numerically equal have the same representation and == would answer for
-// them. Use Equal or Cmp anyway: large is a pointer, and == on it compares
-// identity rather than value.
+// Values inside the int64 range are held in small and cost no allocation. A
+// result that leaves that range is held in large instead, and one that comes
+// back inside it is held in small again.
 //
 // A stored *big.Int is never mutated and never handed out. big.Int does not
 // support shallow copies, while resourceNode.Clone and
 // FlavorResourceQuantities.Clone copy their maps shallowly, so a snapshot and
 // the cache it came from share these pointers. Treating them as immutable is
-// what makes that sharing safe.
+// what makes that sharing safe, and nothing outside this package can reach one
+// to break it.
+//
+// The zero-sized func field makes Amount uncomparable, so == is a compile error
+// rather than an answer about the pointer in large. Use Equal or Cmp.
 type Amount struct {
+	_     [0]func()
 	small int64
 	large *big.Int
 }
 
 var (
-	one = big.NewInt(1)
-	ten = big.NewInt(10)
+	one         = big.NewInt(1)
+	ten         = big.NewInt(10)
+	thousand    = big.NewRat(1000, 1)
+	thousandInt = big.NewInt(1000)
 )
 
 // NewAmount returns the Amount for v.
@@ -62,10 +66,6 @@ func fromBig(v *big.Int) Amount {
 	}
 	return Amount{large: v}
 }
-
-// AsBig returns a as a *big.Int. The result aliases the stored value, which is
-// never mutated, so callers must not modify it either.
-func (a Amount) AsBig() *big.Int { return a.big() }
 
 // big returns a as a *big.Int the caller may not modify.
 func (a Amount) big() *big.Int {
@@ -95,7 +95,7 @@ func AmountFromQuantity(name corev1.ResourceName, q resource.Quantity) Amount {
 func scaledBig(name corev1.ResourceName, q resource.Quantity) *big.Int {
 	d := q.AsDec()
 	unscaled := new(big.Int).Set(d.UnscaledBig())
-	exp := int64(-d.Scale())
+	exp := -int64(d.Scale())
 	if name == corev1.ResourceCPU {
 		exp += 3
 	}
@@ -218,14 +218,56 @@ func (a Amount) AsSaturatedInt64() int64 {
 // converting milliCPU to CPU. A magnitude past float64 becomes an infinity,
 // which is what the metrics boundary reports for it.
 func (a Amount) AsApproximateFloat64(name corev1.ResourceName) float64 {
-	f := float64(a.small)
-	if a.large != nil {
-		f, _ = new(big.Float).SetInt(a.large).Float64()
+	if a.large == nil {
+		f := float64(a.small)
+		if name == corev1.ResourceCPU {
+			return f / 1000
+		}
+		return f
 	}
+	// Dividing after the float conversion would answer +Inf for a milliCPU
+	// magnitude past float64 whose value in cores is not.
+	r := new(big.Rat).SetInt(a.large)
 	if name == corev1.ResourceCPU {
-		return f / 1000
+		r.Quo(r, thousand)
+	}
+	f, _ := r.Float64()
+	return f
+}
+
+// PerThousandOf returns a over b in thousandths, as a float64. The division is
+// taken on the exact values and only the result is approximated, so operands
+// past the range float64 holds exactly do not move the answer. A ratio too
+// small for float64 comes back as the smallest positive value rather than as
+// zero, which a caller reads as no borrowing at all.
+func (a Amount) PerThousandOf(b Amount) float64 {
+	if b.Sign() == 0 {
+		return 0
+	}
+	r := new(big.Rat).SetFrac(a.big(), b.big())
+	r.Mul(r, thousand)
+	f, _ := r.Float64()
+	if f == 0 && r.Sign() > 0 {
+		return math.SmallestNonzeroFloat64
 	}
 	return f
+}
+
+// wholeCores returns a as a whole number of CPU cores, and false when it is not
+// a whole number of them or does not fit an int64. Only the CPU boundary uses
+// it, where the amount is held in milli.
+func (a Amount) wholeCores() (int64, bool) {
+	if a.large == nil {
+		if a.small%1000 != 0 {
+			return 0, false
+		}
+		return a.small / 1000, true
+	}
+	cores, rem := new(big.Int).QuoRem(a.large, thousandInt, new(big.Int))
+	if rem.Sign() != 0 || !cores.IsInt64() {
+		return 0, false
+	}
+	return cores.Int64(), true
 }
 
 // MinAmount returns the smaller of a and b.

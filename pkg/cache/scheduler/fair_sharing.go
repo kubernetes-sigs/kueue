@@ -19,7 +19,6 @@ package scheduler
 import (
 	"cmp"
 	"math"
-	"math/big"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
@@ -59,12 +58,12 @@ func NegativeDRS() DRS {
 	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: defaultWeight}
 }
 
-// IsZero returns whether the DRS unweighted ratio is 0.
-// In the current implementation, DRS unweighted ratio is zero
-// if and only if it is not borrowing any resources.
-// This may change in the future if the DRS implementation changes.
+// IsZero returns whether this DRS represents no share at all, which means not
+// borrowing. The ratio alone cannot answer that: a borrower whose share is
+// small enough rounds to zero in float64 while it is still borrowing, so the
+// flag decides and the ratio only breaks the remaining tie.
 func (d DRS) IsZero() bool {
-	return d.unweightedRatio == 0
+	return !d.borrowing && d.unweightedRatio == 0
 }
 
 // IsBorrowing returns whether the node's current usage exceeds
@@ -133,10 +132,16 @@ func CompareDRS(a, b DRS) int {
 // or Cohort is borrowing, we return math.MaxInt.
 func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 	var weightedShare int64
-	if d.ZeroWeightBorrows() {
+	share := d.PreciseWeightedShare()
+	switch {
+	case d.ZeroWeightBorrows(), math.IsInf(share, 1), share >= float64(math.MaxInt64):
+		// A conversion straight from a float past the range is not defined to
+		// give MaxInt64, and the doc above promises 0 to MaxInt.
 		weightedShare = math.MaxInt64
-	} else {
-		weightedShare = int64(math.Ceil(d.PreciseWeightedShare()))
+	case share <= 0:
+		weightedShare = 0
+	default:
+		weightedShare = int64(math.Ceil(share))
 	}
 	return weightedShare, d.dominantResource
 }
@@ -145,7 +150,7 @@ func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 // borrowing state for a ClusterQueue/Cohort with a zero weight.
 // This is equivalent to PreciseWeightedShare returning +Inf.
 func (d DRS) ZeroWeightBorrows() bool {
-	return d.isWeightZero() && !d.IsZero()
+	return d.isWeightZero() && d.borrowing
 }
 
 func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) DRS {
@@ -172,7 +177,7 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	lendable := calculateLendable(node.parentHRN())
 	for rName, b := range borrowing {
 		if lr := lendable[rName]; lr.CmpInt64(0) > 0 {
-			ratio := shareRatio(b, lr)
+			ratio := b.PerThousandOf(lr)
 			// Use alphabetical order to get a deterministic resource name.
 			if ratio > drs.unweightedRatio || (ratio == drs.unweightedRatio && rName < drs.dominantResource) {
 				drs.unweightedRatio = ratio
@@ -215,18 +220,4 @@ func parseFairWeight(fs *kueue.FairSharing) float64 {
 	// https://github.com/kubernetes/apimachinery/blob/da5b06e2fb6698d6db8866899150ec2c1b4518d9/pkg/api/resource/quantity.go#L538-L539
 	weightDeepCopy := fs.Weight.DeepCopy()
 	return weightDeepCopy.AsFloat64Slow()
-}
-
-// shareRatio returns borrowed over lendable in thousandths. Both operands are
-// exact, so the division is taken before anything is narrowed and only the
-// result becomes a float64.
-func shareRatio(borrowed, lendable resources.Amount) float64 {
-	if b, ok := borrowed.AsInt64(); ok {
-		if l, ok := lendable.AsInt64(); ok {
-			return float64(b) * 1000.0 / float64(l)
-		}
-	}
-	r := new(big.Rat).SetFrac(borrowed.AsBig(), lendable.AsBig())
-	f, _ := new(big.Rat).Mul(r, big.NewRat(1000, 1)).Float64()
-	return f
 }

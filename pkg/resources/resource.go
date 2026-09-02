@@ -45,6 +45,9 @@ func (frq FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
 	return json.Marshal(temp)
 }
 
+// FlattenFlavors converts into the int64-limited Requests domain. Use
+// ToResourceList for anything reported through the API, which needs the
+// resource scale applied before a total is narrowed.
 func (frq FlavorResourceQuantities) FlattenFlavors() Requests {
 	if len(frq) == 0 {
 		return NewRequests()
@@ -60,6 +63,25 @@ func (frq FlavorResourceQuantities) FlattenFlavors() Requests {
 		result[name] = a.AsSaturatedInt64()
 	}
 	return NewRequestsFromMap(result)
+}
+
+// ToResourceList sums the flavors of each resource as Amounts and converts each
+// total once, at the boundary. Going through FlattenFlavors instead would
+// narrow a CPU total to int64 milli before the scale is applied, which reports
+// a 10P aggregate as roughly 9.2P.
+func (frq FlavorResourceQuantities) ToResourceList(formatter *ResourceFormatter) corev1.ResourceList {
+	if len(frq) == 0 {
+		return nil
+	}
+	exact := make(map[corev1.ResourceName]Amount, len(frq))
+	for fr, amount := range frq {
+		exact[fr.Resource] = exact[fr.Resource].Add(amount)
+	}
+	out := make(corev1.ResourceList, len(exact))
+	for name, amount := range exact {
+		out[name], _ = formatter.AmountQuantity(name, amount)
+	}
+	return out
 }
 
 // Clone returns a shallow copy of the map.

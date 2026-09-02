@@ -91,23 +91,30 @@ func (f *ResourceFormatter) ResourceQuantityString(name corev1.ResourceName, v i
 }
 
 // AmountQuantity returns a in the format the API reports name in, applying the
-// resource's scale before any narrowing. CPU amounts are held in milliCPU, so
-// one past int64 there can still be an ordinary Quantity once the scale is
-// applied, and narrowing first would report a smaller number than the amount.
-// The bool is false when the value had to be capped to build a Quantity at all.
+// resource's scale before any narrowing, and reports whether the value fitted.
+//
+// CPU amounts are held in milliCPU, so one past int64 there can still be an
+// ordinary Quantity once the scale is applied: 10P of CPU is 10^19 milliCPU and
+// 10^16 cores. Beyond the scale the Quantity range is the limit. Its documented
+// magnitude is int64 in the unit it carries, and a value past that is capped
+// here rather than handed to a serializer that can drop the exponent. Whether
+// ParseQuantity accepts the digits establishes neither, so it decides nothing.
+//
+// Everything that fits an int64 goes through ResourceQuantity, so the BinarySI
+// resources keep the format they are reported in today.
 func (f *ResourceFormatter) AmountQuantity(name corev1.ResourceName, a Amount) (resource.Quantity, bool) {
 	if v, ok := a.AsInt64(); ok {
 		return f.ResourceQuantity(name, v), true
 	}
-	digits := a.String()
 	if name == corev1.ResourceCPU {
-		digits += "m"
+		// Past int64 in milli, exact only where the amount is a whole number of
+		// cores and that number fits an int64.
+		if cores, ok := a.wholeCores(); ok {
+			return *resource.NewQuantity(cores, resource.DecimalSI), true
+		}
+		return *resource.NewMilliQuantity(a.AsSaturatedInt64(), resource.DecimalSI), false
 	}
-	q, err := resource.ParseQuantity(digits)
-	if err != nil {
-		return f.ResourceQuantity(name, a.AsSaturatedInt64()), false
-	}
-	return q, true
+	return f.ResourceQuantity(name, a.AsSaturatedInt64()), false
 }
 
 func (f *ResourceFormatter) AmountQuantityString(name corev1.ResourceName, a Amount) string {

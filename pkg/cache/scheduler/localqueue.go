@@ -49,7 +49,7 @@ func (q *LocalQueue) customMetricLabelValues() []string {
 func (q *LocalQueue) GetAdmittedUsage() corev1.ResourceList {
 	q.RLock()
 	defer q.RUnlock()
-	return q.admittedUsage.FlattenFlavors().ToResourceList(q.resourceFormatter)
+	return q.admittedUsage.ToResourceList(q.resourceFormatter)
 }
 
 func (q *LocalQueue) GetLabels() map[string]string {
