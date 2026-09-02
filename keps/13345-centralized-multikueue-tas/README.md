@@ -179,7 +179,7 @@ type CentralizedTAS struct {
 The Configuration API changes are intended to allow this functionality to be
 disabled even if the feature gate is graduated to stable and removed.
 
-When the Configuration's `multikueue.centralizedTAS.enabled` is `true`, a
+When the Configuration's `multikueue.centralizedTAS.enable` is `true`, a
 ClusterQueue can be configured to use centralized TAS with the
 `kueue.x-k8s.io/multikueue-centralized-tas="true"` annotation in addition to a
 MultiKueue AdmissionCheck. ClusterQueues may be created with a MultiKueue
@@ -191,7 +191,7 @@ In short, to enable centralized TAS for a Workload:
 1. Enable the `MultiKueueCentralizedTAS` feature gate in the Kueue managers for
    the manager and worker clusters.
 1. Set the manager's Configuration object to include
-   `multikueue.centralizedTAS.enabled=true`.
+   `multikueue.centralizedTAS.enable=true`.
 1. Annotate the appropriate ClusterQueues with
    `kueue.x-k8s.io/multikueue-centralized-tas="true"`.
 
