@@ -410,8 +410,15 @@ func GetResourceRequestsForResourceClaimTemplates(
 		}
 	}
 
-	if errs := chargeFitsCanonicalUnits(wl.Spec.PodSets, perPodSet); len(errs) > 0 {
-		return nil, append(allErrs, errs...)
+	// Only under the gate. perPodSet carries the Exactly charges too, and an
+	// existing one that reaches the range would be refused here rather than
+	// saturating as it does today, which is a change this gate is not entitled
+	// to make while it is off. Narrowing further, to the keys an envelope
+	// actually reached, needs the provenance preprocessing does not carry yet.
+	if features.Enabled(features.KueueDRAIntegrationPrioritizedList) {
+		if errs := chargeFitsCanonicalUnits(wl.Spec.PodSets, perPodSet); len(errs) > 0 {
+			return nil, append(allErrs, errs...)
+		}
 	}
 
 	return perPodSet, nil
