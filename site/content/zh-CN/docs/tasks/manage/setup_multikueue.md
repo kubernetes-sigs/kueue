@@ -28,6 +28,29 @@ kubectl config use-context worker1-cluster
 当 MultiKueue 将工作负载从管理集群分发到工作集群时，它期望作业的命名空间和 LocalQueue 也存在于工作集群中。
 换句话说，您应该确保工作集群配置在命名空间和 LocalQueues 方面与管理集群的配置保持一致。
 
+还必须用同名管理集群 Namespace 的 UID 显式授权工作集群 Namespace。
+对于本教程中的 `default` Namespace，请运行：
+
+```bash
+manager_namespace_uid=$(kubectl --context manager-cluster get namespace default -o jsonpath='{.metadata.uid}')
+kubectl --context worker1-cluster annotate namespace default \
+  kueue.x-k8s.io/multikueue-allowed-manager-namespace-uids="[\"${manager_namespace_uid}\"]" \
+  --overwrite
+```
+
+每一对可能接收 MultiKueue 工作负载的管理/工作 Namespace 都需要此注解。
+如果管理 Namespace 被删除并重新创建，其 UID 会改变，因此必须重新授权。
+
+{{% alert title="安全提示" color="warning" %}}
+
+同名 Namespace 是安全边界，而不只是命名约定。MultiKueue 会复制工作负载规范，
+其中的 ServiceAccount、Secret、ConfigMap、镜像拉取 Secret 和 PVC 等引用会在工作集群
+Namespace 中解析。仅应配对两端用户具有等价权限的 Namespace；多租户环境应使用专用的
+工作 Namespace 和准入策略。移除此注解会停止远程状态同步和新对象创建，但 MultiKueue
+仍可清理以前分发的对象。
+
+{{% /alert %}}
+
 要在 `default` 命名空间中创建示例队列设置，您可以应用以下清单：
 
 {{< include "examples/admin/single-clusterqueue-setup.yaml" "yaml" >}}
@@ -35,6 +58,9 @@ kubectl config use-context worker1-cluster
 ### MultiKueue 专用 kubeconfig
 
 为了在工作集群中委托 Job，管理集群需要能够创建、删除和监视工作负载及其父 Job。
+
+示例脚本创建的是集群范围的权限，并额外授予读取 Namespace 的权限以校验 UID 绑定。
+它不会按 Namespace 提供租户隔离，也不应获得修改 Namespace 的权限。
 
 当 `kubectl` 设置为使用工作集群时，下载：
 {{< include "examples/multikueue/create-multikueue-kubeconfig.sh" "bash" >}}
@@ -47,6 +73,12 @@ chmod +x create-multikueue-kubeconfig.sh
 ```
 
 这将创建一个 kubeconfig，可以在管理集群中使用它来委托当前工作集群中的 Job。
+
+升级现有安装时，应先为每个工作集群凭据添加 core `namespaces` 的 `get` 权限并完成上述
+Namespace 注解，然后再滚动升级所有管理器副本。旧副本不会执行此校验，因此混合版本
+部署在升级完成前不具备新的安全保证。如果无法预先迁移，可以暂时启用
+`MultiKueueAllowUnboundWorkerNamespaces=true`，完成 RBAC 和注解迁移后，再在所有管理器
+副本上禁用此特性门控。
 
 ### Kubeflow 安装
 

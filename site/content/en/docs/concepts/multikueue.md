@@ -193,6 +193,56 @@ Kueue handles delegation to the appropriate worker cluster without requiring any
 
 ## Security Considerations
 
+### Namespace trust boundary
+
+MultiKueue preserves the Job or Pod specification when it creates the remote
+object, and uses the same namespace name on the manager and worker clusters.
+Kubernetes resolves namespaced references in that specification against the
+worker namespace. This includes ServiceAccounts (including the implicit
+`default` ServiceAccount), Secrets, ConfigMaps, image pull secrets, persistent
+volume claims, and Secret references used by volume drivers.
+
+As a result, matching namespace names are an authorization boundary, not only
+a naming convention. A user who can submit a MultiKueue Job in a manager
+namespace can cause the remote workload to use same-named objects in the
+worker namespace. Kubernetes does not authorize each of these references when
+the remote Job or Pod is created.
+
+Before creating a remote Workload or executable object, MultiKueue requires the
+worker Namespace annotation
+`kueue.x-k8s.io/multikueue-allowed-manager-namespace-uids` to contain the UID
+of the same-named manager Namespace. The annotation value is a JSON array of
+UID strings. The worker administrator controls this binding; namespace-name
+equality alone is not authorization. Removing the binding stops MultiKueue
+from consuming remote status or creating objects in that namespace. Cleanup
+of previously dispatched objects remains allowed so revocation does not strand
+worker resources.
+
+For multi-tenant deployments:
+
+- Treat each manager/worker namespace pair as one trust domain. Only dispatch
+  workloads from users who are also trusted to use the referenced resources in
+  the matching worker namespace.
+- Use dedicated worker namespaces for different tenants. Do not map an
+  untrusted manager namespace to a worker namespace containing more-privileged
+  ServiceAccounts, Secrets, ConfigMaps, or persistent data.
+- Give dispatched workloads a dedicated, least-privileged ServiceAccount and
+  disable service account token automounting when API access is not required.
+- Enforce the allowed ServiceAccounts and volume, environment, and image-pull
+  references with worker-cluster admission policy. Resource existence checks
+  at dispatch time are not sufficient because a same-named object can be
+  created or replaced later.
+
+The example kubeconfig script grants the MultiKueue manager cluster-wide
+create, watch, and delete access for supported workload types. It is intended
+for a worker cluster whose eligible namespaces are all in the same trust
+domain; it does not provide tenant isolation by namespace.
+
+The alpha `MultiKueueAllowUnboundWorkerNamespaces` feature gate restores the
+legacy name-only behavior. It is disabled by default and should only be enabled
+for compatibility in environments where every same-named namespace is already
+one trust domain.
+
 ### KubeConfig Location Types
 
 MultiKueueCluster supports three sources for cluster credentials:

@@ -126,7 +126,13 @@ done
 
 # Create worker kubeconfigs
 echo "[4/5] Creating worker kubeconfigs..."
+MANAGER_NAMESPACE_UID=$(kubectl --context kind-manager get namespace default -o jsonpath='{.metadata.uid}')
 for cluster in ${WORKER_CLUSTERS}; do
+    # Authorize this manager Namespace to dispatch into the same-named worker Namespace.
+    kubectl --context "kind-${cluster}" annotate namespace default \
+      kueue.x-k8s.io/multikueue-allowed-manager-namespace-uids="[\"${MANAGER_NAMESPACE_UID}\"]" \
+      --overwrite
+
     # Create ServiceAccount
     kubectl --context "kind-${cluster}" create sa ${SERVICE_ACCOUNT} -n kueue-system 2>/dev/null || true
 
@@ -144,6 +150,10 @@ for cluster in ${WORKER_CLUSTERS}; do
       --verb=get,list,watch \
       --resource=clusterqueues.kueue.x-k8s.io,localqueues.kueue.x-k8s.io 2>/dev/null || true
 
+    kubectl --context "kind-${cluster}" create clusterrole multikueue-role-namespaces \
+      --verb=get \
+      --resource=namespaces 2>/dev/null || true
+
     # Create ClusterRoleBindings
 
     kubectl --context "kind-${cluster}" create clusterrolebinding multikueue-crb \
@@ -156,6 +166,10 @@ for cluster in ${WORKER_CLUSTERS}; do
 
     kubectl --context "kind-${cluster}" create clusterrolebinding multikueue-crb-queues \
       --clusterrole=multikueue-role-queues \
+      --serviceaccount=kueue-system:${SERVICE_ACCOUNT} 2>/dev/null || true
+
+    kubectl --context "kind-${cluster}" create clusterrolebinding multikueue-crb-namespaces \
+      --clusterrole=multikueue-role-namespaces \
       --serviceaccount=kueue-system:${SERVICE_ACCOUNT} 2>/dev/null || true
     
     # Create a secret bound to the new service account

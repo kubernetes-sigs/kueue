@@ -64,8 +64,8 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 
 	ginkgo.BeforeEach(func() {
 		managerNs = util.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueuedra-")
-		worker1Ns = util.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
-		worker2Ns = util.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
+		worker1Ns = util.CreateWorkerNamespaceForMultiKueue(ctx, k8sWorker1Client, managerNs)
+		worker2Ns = util.CreateWorkerNamespaceForMultiKueue(ctx, k8sWorker2Client, managerNs)
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
 		util.MustCreate(ctx, k8sManagerClient, workerCluster1)

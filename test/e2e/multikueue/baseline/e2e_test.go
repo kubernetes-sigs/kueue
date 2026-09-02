@@ -98,8 +98,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 
 	ginkgo.BeforeEach(func() {
 		managerNs = util.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-")
-		worker1Ns = util.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
-		worker2Ns = util.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
+		worker1Ns = util.CreateWorkerNamespaceForMultiKueue(ctx, k8sWorker1Client, managerNs)
+		worker2Ns = util.CreateWorkerNamespaceForMultiKueue(ctx, k8sWorker2Client, managerNs)
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueClusterWithGeneratedName("worker1-").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
 		util.MustCreate(ctx, k8sManagerClient, workerCluster1)

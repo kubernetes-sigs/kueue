@@ -273,8 +273,8 @@ func setupMultiKueueFixture() *multiKueueFixture {
 	f := &multiKueueFixture{}
 
 	f.managerNs = util.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
-	f.worker1Ns = util.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, f.managerNs.Name)
-	f.worker2Ns = util.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, f.managerNs.Name)
+	f.worker1Ns = util.CreateWorkerNamespaceForMultiKueue(worker1TestCluster.ctx, worker1TestCluster.client, f.managerNs)
+	f.worker2Ns = util.CreateWorkerNamespaceForMultiKueue(worker2TestCluster.ctx, worker2TestCluster.client, f.managerNs)
 
 	w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

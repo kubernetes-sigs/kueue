@@ -175,7 +175,13 @@ Create ServiceAccounts and kubeconfigs for MultiKueue on both workers:
 
 ```bash
 SERVICE_ACCOUNT="multikueue-sa"
+MANAGER_NAMESPACE_UID=$(kubectl --context kind-manager get namespace default -o jsonpath='{.metadata.uid}')
 for cluster in worker1 worker2; do
+  # Authorize this manager Namespace to dispatch into the same-named worker Namespace.
+  kubectl --context kind-${cluster} annotate namespace default \
+    kueue.x-k8s.io/multikueue-allowed-manager-namespace-uids="[\"${MANAGER_NAMESPACE_UID}\"]" \
+    --overwrite
+
   # Create ServiceAccount
   kubectl --context kind-${cluster} create sa ${SERVICE_ACCOUNT} -n kueue-system
 
@@ -192,6 +198,11 @@ for cluster in worker1 worker2; do
     --verb=get,list,watch \
     --resource=clusterqueues.kueue.x-k8s.io,localqueues.kueue.x-k8s.io
 
+  # Namespace access is read-only and kept separate from object mutation.
+  kubectl --context kind-${cluster} create clusterrole multikueue-role-namespaces \
+    --verb=get \
+    --resource=namespaces
+
   # Create ClusterRoleBindings
   kubectl --context kind-${cluster} create clusterrolebinding multikueue-crb \
     --clusterrole=multikueue-role \
@@ -203,6 +214,10 @@ for cluster in worker1 worker2; do
 
   kubectl --context kind-${cluster} create clusterrolebinding multikueue-crb-queues \
     --clusterrole=multikueue-role-queues \
+    --serviceaccount=kueue-system:${SERVICE_ACCOUNT}
+
+  kubectl --context kind-${cluster} create clusterrolebinding multikueue-crb-namespaces \
+    --clusterrole=multikueue-role-namespaces \
     --serviceaccount=kueue-system:${SERVICE_ACCOUNT}
 
   # Create a secret bound to the new service account

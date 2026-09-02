@@ -79,8 +79,8 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 
 	ginkgo.BeforeEach(func() {
 		managerNs = util.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
-		worker1Ns = util.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
-		worker2Ns = util.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
+		worker1Ns = util.CreateWorkerNamespaceForMultiKueue(worker1TestCluster.ctx, worker1TestCluster.client, managerNs)
+		worker2Ns = util.CreateWorkerNamespaceForMultiKueue(worker2TestCluster.ctx, worker2TestCluster.client, managerNs)
 
 		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -258,8 +258,8 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 
 	ginkgo.BeforeEach(func() {
 		managerNs = util.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
-		worker1Ns = util.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
-		worker2Ns = util.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
+		worker1Ns = util.CreateWorkerNamespaceForMultiKueue(worker1TestCluster.ctx, worker1TestCluster.client, managerNs)
+		worker2Ns = util.CreateWorkerNamespaceForMultiKueue(worker2TestCluster.ctx, worker2TestCluster.client, managerNs)
 
 		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -579,8 +579,8 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Label("area:mult
 
 	ginkgo.BeforeEach(func() {
 		managerNs = util.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
-		worker1Ns = util.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
-		worker2Ns = util.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
+		worker1Ns = util.CreateWorkerNamespaceForMultiKueue(worker1TestCluster.ctx, worker1TestCluster.client, managerNs)
+		worker2Ns = util.CreateWorkerNamespaceForMultiKueue(worker2TestCluster.ctx, worker2TestCluster.client, managerNs)
 
 		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -793,8 +793,8 @@ var _ = ginkgo.Describe("MultiKueueConfig Re-evaluation", ginkgo.Label("area:mul
 
 	ginkgo.BeforeEach(func() {
 		managerNs = util.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-re-eval-")
-		worker1Ns = util.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
-		worker2Ns = util.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
+		worker1Ns = util.CreateWorkerNamespaceForMultiKueue(worker1TestCluster.ctx, worker1TestCluster.client, managerNs)
+		worker2Ns = util.CreateWorkerNamespaceForMultiKueue(worker2TestCluster.ctx, worker2TestCluster.client, managerNs)
 
 		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

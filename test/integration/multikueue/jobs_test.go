@@ -18,6 +18,7 @@ package multikueue
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -165,6 +166,39 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				condition.LastTransitionTime = completedJobCondition.LastTransitionTime
 				return condition
 			}, gomega.Equal(completedJobCondition))))
+		})
+	})
+
+	ginkgo.It("Should dispatch only to worker Namespaces that authorize the manager Namespace UID", func() {
+		delete(f.worker2Ns.Annotations, kueue.MultiKueueAllowedManagerNamespaceUIDsAnnotation)
+		gomega.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, f.worker2Ns)).To(gomega.Succeed())
+
+		job := testingjob.MakeJob("namespace-binding", f.managerNs.Name).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: f.managerNs.Name}
+
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+			Obj()
+		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+
+		ginkgo.By("creating a remote Workload only in the authorized worker", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("authorizing worker2 and creating its remote Workload on retry", func() {
+			f.worker2Ns.Annotations = map[string]string{
+				kueue.MultiKueueAllowedManagerNamespaceUIDsAnnotation: fmt.Sprintf("[%q]", f.managerNs.UID),
+			}
+			gomega.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, f.worker2Ns)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

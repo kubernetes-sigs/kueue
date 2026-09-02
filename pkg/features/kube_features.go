@@ -88,6 +88,12 @@ const (
 	// Enables clearing ttlSecondsAfterFinished when creating remote batch Jobs.
 	MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster featuregate.Feature = "MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster"
 
+	// MultiKueueAllowUnboundWorkerNamespaces restores legacy name-only worker
+	// Namespace selection. Enabling it permits a manager Namespace to dispatch
+	// into a same-named worker Namespace without the worker administrator
+	// explicitly authorizing the manager Namespace UID.
+	MultiKueueAllowUnboundWorkerNamespaces featuregate.Feature = "MultiKueueAllowUnboundWorkerNamespaces"
+
 	// owner: @mimowo
 	//
 	// Enable Topology Aware Scheduling allowing to optimize placement of Pods
@@ -686,6 +692,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	MultiKueueAllowUnboundWorkerNamespaces: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TopologyAwareScheduling: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},

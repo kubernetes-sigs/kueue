@@ -22,7 +22,10 @@ KUBECONFIG_OUT=${1:-kubeconfig}
 MULTIKUEUE_SA=multikueue-sa
 NAMESPACE=kueue-system
 
-# Creating a restricted MultiKueue role, service account and role binding"
+echo "WARNING: this example grants MultiKueue access to supported workloads in every namespace." >&2
+echo "Use it only when all eligible worker namespaces are in the same trust domain." >&2
+
+# Create the MultiKueue service account and cluster-wide workload permissions.
 kubectl apply -f - <<EOF
 apiVersion: v1
 kind: ServiceAccount
@@ -35,6 +38,12 @@ kind: ClusterRole
 metadata:
   name: ${MULTIKUEUE_SA}-role
 rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
 - apiGroups:
   - batch
   resources:
