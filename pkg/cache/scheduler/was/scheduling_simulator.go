@@ -168,7 +168,6 @@ func (s *wasSimulator) UntrackPod(_ context.Context, key client.ObjectKey) {
 	s.pods.untrack(key)
 }
 
-
 func (s *wasSimulatorSnapshot) FindFeasibleNodes(
 	ctx context.Context,
 	candidates iter.Seq[simulator.Candidate],
