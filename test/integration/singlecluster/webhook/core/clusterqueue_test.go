@@ -228,9 +228,6 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceCPU, "-1").Obj()).
 					Obj(),
 				utiltesting.BeForbiddenError()),
-			ginkgo.Entry("Should have at least one flavor",
-				utiltestingapi.MakeClusterQueue("cluster-queue").ResourceGroup().Obj(),
-				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should have at least one resource",
 				utiltestingapi.MakeClusterQueue("cluster-queue").
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("foo").Obj()).
@@ -396,6 +393,31 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 							Obj(),
 					).
 					Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow to create clusterQueue with a resource group with empty flavors",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						ResourceGroups: []kueue.ResourceGroup{
+							{
+								CoveredResources: []corev1.ResourceName{corev1.ResourceCPU},
+								Flavors:          []kueue.FlavorQuotas{},
+							},
+						},
+					},
+				},
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow to create clusterQueue with no resource groups",
+				&kueue.ClusterQueue{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-queue",
+					},
+					Spec: kueue.ClusterQueueSpec{
+						ResourceGroups: nil,
+					},
+				},
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with resources in a flavor in different order",
 				&kueue.ClusterQueue{

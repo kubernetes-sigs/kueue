@@ -1614,6 +1614,8 @@ func TestHierarchicalPreemptions(t *testing.T) {
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("q1").
 					Cohort("c12").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -1621,6 +1623,8 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Obj(),
 				utiltestingapi.MakeClusterQueue("q2").
 					Cohort("c23").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -1628,6 +1632,8 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Obj(),
 				utiltestingapi.MakeClusterQueue("q3").
 					Cohort("c22").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -1635,6 +1641,8 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Obj(),
 				utiltestingapi.MakeClusterQueue("q4").
 					Cohort("c32").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
@@ -1642,6 +1650,8 @@ func TestHierarchicalPreemptions(t *testing.T) {
 					Obj(),
 				utiltestingapi.MakeClusterQueue("q5").
 					Cohort("c31").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").Obj()).
 					Preemption(kueue.ClusterQueuePreemption{
 						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 						ReclaimWithinCohort: kueue.PreemptionPolicyAny,

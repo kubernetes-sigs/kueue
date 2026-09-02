@@ -3177,7 +3177,7 @@ The list cannot be empty and it can contain up to 64 resources. With a total
 of up to 256 covered resources across all resource groups in the ClusterQueue.</p>
 </td>
 </tr>
-<tr><td><code>flavors</code> <B>[Required]</B><br/>
+<tr><td><code>flavors</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-FlavorQuotas"><code>[]FlavorQuotas</code></a>
 </td>
 <td>
@@ -3187,8 +3187,10 @@ Typically, different flavors represent different hardware models
 cpus).
 Each flavor MUST list all the resources listed for this group in the same
 order as the .resources field.
-The list cannot be empty and it can contain up to 64 flavors, with a max of
-256 total flavors across all resource groups in the ClusterQueue.</p>
+The list can be empty. When empty, the ClusterQueue will have an Active
+condition set to False with the EmptyResourceGroup reason.
+It can contain up to 64 flavors, with a max of 256 total flavors across all
+resource groups in the ClusterQueue.</p>
 </td>
 </tr>
 </tbody>

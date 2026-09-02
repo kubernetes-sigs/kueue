@@ -178,6 +178,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 
 		var originalDeployment appsv1.Deployment
 		var originalService corev1.Service
+		var rf *kueue.ResourceFlavor
 		var cq *kueue.ClusterQueue
 
 		ginkgo.BeforeEach(func() {
@@ -188,9 +189,12 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 			ginkgo.By("Creating a ClusterQueue")
-			cq = &kueue.ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{Name: cqName},
-			}
+			rf = utiltestingapi.MakeResourceFlavor("test-kubeconfig-rf").Obj()
+			util.MustCreate(ctx, k8sClient, rf)
+			cq = utiltestingapi.MakeClusterQueue(cqName).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
+					Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj()
 			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 		})
 
@@ -215,6 +219,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(util.Shard0)
 
 			ginkgo.By("Cleaning up cluster queue")
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 		})
 
 		ginkgo.It("Should use the RBAC identity from the provided kubeconfig", func() {

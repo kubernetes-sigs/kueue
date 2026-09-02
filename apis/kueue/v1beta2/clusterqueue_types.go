@@ -43,6 +43,8 @@ const (
 	ClusterQueueActiveReasonMultiKueueAdmissionCheckAppliedPerFlavor = "MultiKueueAdmissionCheckAppliedPerFlavor"
 	ClusterQueueActiveReasonMultiKueueWithProvisioningRequest        = "MultiKueueWithProvisioningRequest"
 	ClusterQueueActiveReasonTopologyNotFound                         = "TopologyNotFound"
+	ClusterQueueActiveReasonNoResourceGroups                         = "NoResourceGroups"
+	ClusterQueueActiveReasonEmptyResourceGroup                       = "EmptyResourceGroup"
 	ClusterQueueActiveReasonUnknown                                  = "Unknown"
 	ClusterQueueActiveReasonReady                                    = "Ready"
 )
@@ -63,7 +65,7 @@ type ClusterQueueReference string
 type CohortReference string
 
 // ClusterQueueSpec defines the desired state of ClusterQueue
-// +kubebuilder:validation:XValidation:rule="!has(self.cohortName) && has(self.resourceGroups) ? self.resourceGroups.all(rg, rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true", message="borrowingLimit must be nil when cohort is empty"
+// +kubebuilder:validation:XValidation:rule="!has(self.cohortName) && has(self.resourceGroups) ? self.resourceGroups.all(rg, !has(rg.flavors) || rg.flavors.all(f, f.resources.all(r, !has(r.borrowingLimit)))) : true", message="borrowingLimit must be nil when cohort is empty"
 type ClusterQueueSpec struct {
 	// resourceGroups describes groups of resources.
 	// Each resource group defines the list of resources and a list of flavors
@@ -251,7 +253,7 @@ const (
 	ConcurrentAdmissionRetainFirstAdmission ConcurrentAdmissionMigrationMode = "RetainFirstAdmission"
 )
 
-// +kubebuilder:validation:XValidation:rule="self.flavors.all(x, size(x.resources) == size(self.coveredResources))", message="flavors must have the same number of resources as the coveredResources"
+// +kubebuilder:validation:XValidation:rule="!has(self.flavors) || self.flavors.all(x, size(x.resources) == size(self.coveredResources))", message="flavors must have the same number of resources as the coveredResources"
 type ResourceGroup struct {
 	// coveredResources is the list of resources covered by the flavors in this
 	// group.
@@ -270,13 +272,15 @@ type ResourceGroup struct {
 	// cpus).
 	// Each flavor MUST list all the resources listed for this group in the same
 	// order as the .resources field.
-	// The list cannot be empty and it can contain up to 64 flavors, with a max of
-	// 256 total flavors across all resource groups in the ClusterQueue.
+	// The list can be empty. When empty, the ClusterQueue will have an Active
+	// condition set to False with the EmptyResourceGroup reason.
+	// It can contain up to 64 flavors, with a max of 256 total flavors across all
+	// resource groups in the ClusterQueue.
 	// +listType=map
-	// +required
 	// +listMapKey=name
-	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MinItems=0
 	// +kubebuilder:validation:MaxItems=64
+	// +optional
 	Flavors []FlavorQuotas `json:"flavors,omitempty"`
 }
 
