@@ -208,7 +208,6 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
 		})
-
 	})
 
 	ginkgo.When("the workload is admitted", func() {
