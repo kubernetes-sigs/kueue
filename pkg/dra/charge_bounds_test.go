@@ -39,6 +39,12 @@ func podSet(name string, count int32) kueue.PodSet {
 	return kueue.PodSet{Name: kueue.PodSetReference(name), Count: count}
 }
 
+func minCountPodSet(name string, count, minCount int32) kueue.PodSet {
+	ps := podSet(name, count)
+	ps.MinCount = &minCount
+	return ps
+}
+
 // sumOf accumulates the way the preprocessing does, which is where a charge can
 // leave int64 behind without any single term doing so.
 func sumOf(counts ...int64) resource.Quantity {
@@ -79,6 +85,15 @@ func TestChargeFitsCanonicalUnits(t *testing.T) {
 			podSets:    []kueue.PodSet{podSet("a", 1)},
 			perPodSet:  map[kueue.PodSetReference]corev1.ResourceList{"a": charge(maxCPUCores+1, corev1.ResourceCPU)},
 			wantFields: []string{"spec.podSets[0]"},
+		},
+		"a minCount that would fit does not rescue the count asked for": {
+			// The check reads spec.podSets[].count, so a request is refused on
+			// what it asks for. Admitting it and scaling down later cannot work:
+			// PodSetResources divides the aggregate it holds, and a saturated
+			// one does not divide back to the value it came from.
+			podSets:    []kueue.PodSet{minCountPodSet("a", 1000, 1)},
+			perPodSet:  map[kueue.PodSetReference]corev1.ResourceList{"a": charge(math.MaxInt64/100, "gpu")},
+			wantFields: []string{"spec.podSets[0].count"},
 		},
 		"a charge that fits alone does not survive the podSet count": {
 			podSets:    []kueue.PodSet{podSet("a", 1000)},

@@ -250,6 +250,12 @@ func canonicalUnits(name corev1.ResourceName, qty resource.Quantity) (int64, boo
 // reads as unlimited, so a count that reaches either is refused here while the
 // number that was asked for is still known.
 //
+// The count is the one the PodSet asks for rather than the one left after a
+// reclaim, so a request is refused on what it asks for. Admitting it and
+// scaling down later is not open to it: PodSetResources scales by dividing the
+// aggregate it holds, and one that saturated on the way in does not divide back
+// to the value it came from.
+//
 // The bound covers the charges this function is given. A Pod requesting the
 // same logical resource by name, and the counter and capacity charges merged in
 // after this returns, are added later and are not bounded here.
