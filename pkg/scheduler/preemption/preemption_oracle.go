@@ -22,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -78,7 +77,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 		workloadsToPreempt[i] = c.WorkloadInfo
 	}
 	var borrowAfterPreemptions int
-	if err := scheduler.Simulate(ctx, p.snapshot, func(simulator scheduler.ClusterSimulator) {
+	if err := schdcache.Simulate(ctx, p.snapshot, func(simulator schdcache.ClusterSimulator) {
 		simulator.RemoveUsage(workloadsToPreempt)
 		borrowAfterPreemptions, _ = classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
 	}); err != nil {
