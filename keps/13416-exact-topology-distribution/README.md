@@ -40,6 +40,7 @@
   - [Multiple JobSet ReplicatedJobs](#multiple-jobset-replicatedjobs)
   - [A Separate Annotation](#a-separate-annotation)
   - [Binding Counts to Named Domains](#binding-counts-to-named-domains)
+  - [Pod Topology Spread Constraints](#pod-topology-spread-constraints)
 <!-- /toc -->
 
 ## Summary
@@ -88,7 +89,6 @@ outcomes. No scalar slice size can require `[1, 3, 4]`.
   satisfied.
 - Preserve existing scalar `size` behavior unchanged, and keep exact distribution
   opt-in.
-
 
 ### Non-Goals
 
@@ -163,25 +163,24 @@ the block level.
 
 ### Semantics
 
-1. `sizes` is ordered. Entry `i` defines the next `sizes[i]` contiguous pod ranks.
-   For `[1, 3, 4]`, the groups are rank 0, ranks 1-3, and ranks 4-7.
+1. `sizes` is ordered. Entry `i` defines the next `sizes[i]` contiguous pod
+   ranks: for `[1, 3, 4]` the groups are rank 0, ranks 1-3, and ranks 4-7, so
+   `[4, 3, 1]` asks for the same domain counts but a different rank layout.
 2. Each entry specifies the exact pod count for one distinct domain at the named
    topology level, so the list length is the number of domains used at that
    level. Kueue selects the physical domains; a list position does not name a
    domain or correspond to any ordering of the topology itself.
-3. Thus, `[1, 3, 4]` and `[4, 3, 1]` require the same three domain sizes but group
-   ranks differently.
-4. Duplicate values are allowed. `[2, 2, 4]` requests three distinct domains.
-5. The sum of the list must equal the fixed PodSet count.
-6. An exact distribution is a required constraint. Kueue does not fall back to
+3. Duplicate values are allowed. `[2, 2, 4]` requests three distinct domains.
+4. The sum of the list must equal the fixed PodSet count.
+5. An exact distribution is a required constraint. Kueue does not fall back to
    scalar slicing or ordinary greedy placement when it cannot be satisfied.
-7. At alpha, an entry using `sizes` must be the only entry in the constraints
+6. At alpha, an entry using `sizes` must be the only entry in the constraints
    list. Containment is expressed using `podset-required-topology`, which must be
    strictly coarser than the exact level when `sizes` has more than one entry. A
    request naming the same level in both is contradictory: the identical-string
    case is rejected at creation time, and the general ordering check happens at
    scheduling time, once the topology hierarchy is known.
-8. Below the exact level, Kueue uses its existing capacity-based placement to
+7. Below the exact level, Kueue uses its existing capacity-based placement to
    assign pods to finer domains and hosts.
 
 Ordered rank-block semantics require every pod to have a stable, unique rank in
@@ -208,6 +207,14 @@ effectively ensure one pod per node.
 The distribution is attached to one PodSet. A workload with multiple PodSets
 validates and schedules each independently, subject to existing restrictions on
 PodSet groups and multi-layer constraints.
+
+The list is always the complete distribution; Kueue does not repeat a shorter
+pattern to fill a larger PodSet. A 16-pod PodSet cannot write `[1, 3, 4]` and
+have it applied twice — write `[1, 3, 4, 1, 3, 4]`, which asks for six distinct
+domains. Note that is a different request from `[2, 6, 8]`, which asks for three
+domains holding twice as much. Nesting is out of scope for the same reason: a
+flat list cannot say which rack split belongs to which block, so block counts of
+`[8, 16]` with a per-block rack distribution would need a tree-shaped API.
 
 A single-entry list such as `sizes: [8]` is permitted and puts the whole PodSet
 in one domain, the same shape `podset-required-topology` gives. The two are not
@@ -314,7 +321,11 @@ Creation-time validation enforces:
 - The `TASExactTopologyDistribution` feature gate is enabled.
 
 The Workload webhook repeats the structural, numeric, partial-admission, and
-elastic-workload checks, so that a Workload written directly is checked too.
+elastic-workload checks, so that a Workload written directly is checked too. Its
+existing per-constraint check rejects any entry whose `size` is not positive,
+which an exact constraint never sets, so that check has to become union-aware.
+Until it does, the webhook refuses every `sizes` request and the job integration
+cannot create a Workload at all.
 
 Update-time validation preserves the fixed-count invariant. Existing Workload
 validation already makes the whole PodSet immutable once quota is reserved, so
@@ -343,6 +354,12 @@ The scheduler continues to use the existing phase that calculates how many pods
 fit in each leaf and ancestor domain; the resulting `podCount` is the scalar
 capacity used by exact matching. The exact path is selected when the topology
 request contains `sizes`. The scalar path is unchanged.
+
+One existing step runs before that choice is made and assumes a scalar size.
+Slice-size resolution rejects a constraint whose size is not positive, and must
+instead report a size of one for an exact constraint: an exact distribution does
+not slice, since each entry is placed whole in its own domain and pods below that
+level are assigned individually.
 
 #### Scope Selection
 
@@ -714,6 +731,9 @@ scalar TAS end-to-end tests run unchanged.
 ## Implementation History
 
 - 2026-09-01: Initial draft.
+- 2026-09-02: Prototyped on a four-rack kind cluster. Reordering `[1, 3, 4]` to
+  `[4, 3, 1]` kept the same domains and counts but swapped the rank blocks, and
+  infeasible requests stayed pending.
 
 ## Drawbacks
 
@@ -766,3 +786,14 @@ The API could map label values directly to counts (`rack-a: 1`, `rack-b: 3`,
 `rack-c: 4`). This supports physical-domain reproduction but couples workloads to
 a specific cluster and bypasses TAS domain selection. It is left for a separate
 feature if users require explicit domain identity.
+
+### Pod Topology Spread Constraints
+
+The Kubernetes scheduler can already spread pods with topology spread
+constraints, or pin them to named domains with node affinity. Neither does what
+this KEP needs. Spread constraints bound the *skew* between domains, so they can
+push towards an even split but cannot require an arbitrary shape such as
+`[1, 3, 4]`. Node affinity can name domains but not have the scheduler choose
+them. Both also decide pod by pod, whereas an exact distribution has to be
+reserved for the whole PodSet at once — which is what Kueue's group-level
+admission already does.
