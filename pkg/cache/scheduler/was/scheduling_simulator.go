@@ -1,22 +1,33 @@
 //go:build !exclude_scheduler_library
 
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
 package was
 
 import (
 	"context"
 	"fmt"
 	"iter"
-	"maps"
-	"slices"
-	"sync"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
-	"k8s.io/klog/v2"
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
@@ -37,16 +48,6 @@ import (
 )
 
 type snapshotFactory func(ctx context.Context, pods []*corev1.Pod, nodes []*corev1.Node) (*schedLibSnapshot.ClusterSnapshot, error)
-type podsByKey map[client.ObjectKey]*corev1.Pod
-type podsByWorkload map[client.ObjectKey]podsByKey
-
-// podTracker maintains pod state for scheduler plugins that need
-// existing pod information.
-type podTracker struct {
-	sync.RWMutex
-	pods         podsByKey
-	workloadPods podsByWorkload
-}
 
 type wasSimulator struct {
 	newSnapshot snapshotFactory
@@ -99,7 +100,7 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 	}
 }
 
-func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulator.SchedulingSimulator, error) {
+func newWASSimulator(ctx context.Context, client kubernetes.Interface) (*wasSimulator, error) {
 	cfg := newWASSchedulerConfig()
 	informerFactory := informers.NewSharedInformerFactory(client, 0)
 
@@ -129,26 +130,13 @@ func newWASSimulator(ctx context.Context, client kubernetes.Interface) (simulato
 	}, nil
 }
 
-// NewWASSimulatorForTest creates a WAS simulator backed by a fake client,
-// suitable for unit tests that need the full production plugin pipeline.
-// It wraps ctx with a discard logger to prevent background informer goroutines
-// from racing with test teardown when t.Context() carries a test logger.
-func NewWASSimulatorForTest(ctx context.Context) (*wasSimulator, error) {
-	iSim, err := newWASSimulator(klog.NewContext(ctx, logr.Discard()), fake.NewSimpleClientset())
-	if err != nil {
-		return nil, err
-	}
-	if sim, ok := iSim.(*wasSimulator); ok {
-		return sim, nil
-	}
-	return nil, fmt.Errorf("internal error: expected WAS simulator, got %T", iSim)
-}
-
-func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (simulator.SchedulingSimulator, error) {
-	// TODO(#13534): when DRA plugins are added, use a real client here
-	// instead of the fake so the informer factory is populated.
-	if _, err := schedLibSimulator.NewReadonlyClient(restConfig); err != nil {
-		return nil, err
+func NewWASSimulator(ctx context.Context, restConfig *rest.Config) (*wasSimulator, error) {
+	if restConfig != nil {
+		// TODO(#13534): when DRA plugins are added, use a real client here
+		// instead of the fake so the informer factory is populated.
+		if _, err := schedLibSimulator.NewReadonlyClient(restConfig); err != nil {
+			return nil, err
+		}
 	}
 	return newWASSimulator(ctx, fake.NewSimpleClientset())
 }
@@ -178,92 +166,6 @@ func (s *wasSimulator) TrackPod(ctx context.Context, pod *corev1.Pod) {
 
 func (s *wasSimulator) UntrackPod(_ context.Context, key client.ObjectKey) {
 	s.pods.untrack(key)
-}
-
-func (m podsByWorkload) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
-	if len(m) == 0 {
-		return nil
-	}
-	if podSet, ok := m[wlKey]; ok {
-		return slices.Collect(maps.Values(podSet))
-	}
-	return nil
-}
-
-func (m podsByWorkload) recordPod(wlKey client.ObjectKey, podKey client.ObjectKey, pod *corev1.Pod) {
-	if m == nil {
-		return
-	}
-	if _, ok := m[wlKey]; !ok {
-		m[wlKey] = make(podsByKey)
-	}
-	m[wlKey][podKey] = pod
-}
-
-func (m podsByWorkload) forgetPod(wlKey client.ObjectKey, podKey client.ObjectKey) {
-	if len(m) == 0 {
-		return
-	}
-	delete(m[wlKey], podKey)
-	if len(m[wlKey]) == 0 {
-		delete(m, wlKey)
-	}
-}
-
-func (t *podTracker) snapshot() (allPods []*corev1.Pod, workloadPods podsByWorkload) {
-	t.RLock()
-	defer t.RUnlock()
-
-	allPods = slices.Collect(maps.Values(t.pods))
-	workloadPods = podsByWorkload{}
-	for k, v := range t.workloadPods {
-		workloadPods[k] = maps.Clone(v)
-	}
-	return
-}
-
-func (t *podTracker) track(pod *corev1.Pod) {
-	t.Lock()
-	defer t.Unlock()
-
-	if pod == nil {
-		return
-	}
-	pod = pod.DeepCopy()
-	key := client.ObjectKeyFromObject(pod)
-	if oldPod, found := t.pods[key]; found {
-		t.clearPod(key, oldPod)
-	}
-	t.savePod(key, pod)
-}
-
-func (t *podTracker) untrack(key client.ObjectKey) {
-	t.Lock()
-	defer t.Unlock()
-
-	if pod, ok := t.pods[key]; ok {
-		t.clearPod(key, pod)
-	}
-}
-
-func (t *podTracker) clearPod(podKey client.ObjectKey, pod *corev1.Pod) {
-	delete(t.pods, podKey)
-
-	wl := pod.Annotations[kueue.WorkloadAnnotation]
-	if wl != "" {
-		wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
-		t.workloadPods.forgetPod(wlKey, podKey)
-	}
-}
-
-func (t *podTracker) savePod(podKey client.ObjectKey, pod *corev1.Pod) {
-	t.pods[podKey] = pod
-
-	wl := pod.Annotations[kueue.WorkloadAnnotation]
-	if wl != "" {
-		wlKey := client.ObjectKey{Namespace: pod.Namespace, Name: wl}
-		t.workloadPods.recordPod(wlKey, podKey, pod)
-	}
 }
 
 func (s *wasSimulatorSnapshot) FindFeasibleNodes(
