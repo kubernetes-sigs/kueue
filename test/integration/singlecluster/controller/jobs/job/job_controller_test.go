@@ -3917,7 +3917,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 		})
 	})
 
-	ginkgo.It("should finish a prebuilt workload whose topology request differs from the job as OutOfSync", func() {
+	ginkgo.It("should adopt a prebuilt workload omitting podIndexLabel when TASWithStrictPrebuiltWorkloadEquivalence is disabled", func() {
 		container := corev1.Container{
 			Name:  "c",
 			Image: "pause",
@@ -3927,9 +3927,56 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 		}
 
-		job := testingjob.MakeJob("job", ns.Name).
+		job := testingjob.MakeJob("job-compat", ns.Name).
 			Queue(kueue.LocalQueueName(localQueue.Name)).
-			PrebuiltWorkloadLabel("prebuilt-wl").
+			PrebuiltWorkloadLabel("prebuilt-wl-compat").
+			PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, tasBlockLabel).
+			Containers(*container.DeepCopy()).
+			Obj()
+
+		wl := utiltestingapi.MakeWorkload("prebuilt-wl-compat", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Containers(*container.DeepCopy()).
+				RequiredTopologyRequest(tasBlockLabel).
+				Obj()).
+			Obj()
+		ginkgo.By("creating a matching prebuilt workload which omits podIndexLabel", func() {
+			util.MustCreate(ctx, k8sClient, wl)
+		})
+
+		ginkgo.By("creating a job which requires block and references the prebuilt workload", func() {
+			util.MustCreate(ctx, k8sClient, job)
+		})
+
+		ginkgo.By("verify the prebuilt workload is admitted", func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		})
+
+		ginkgo.By("verify the job is unsuspended", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob := batchv1.Job{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(createdJob.Spec.Suspend, true)).To(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should finish a prebuilt workload whose topology request differs from the job as OutOfSync when TASWithStrictPrebuiltWorkloadEquivalence is enabled", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASWithStrictPrebuiltWorkloadEquivalence, true)
+
+		container := corev1.Container{
+			Name:  "c",
+			Image: "pause",
+		}
+		testingjob.SetContainerDefaults(&container)
+		container.Resources = corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+		}
+
+		job := testingjob.MakeJob("job-strict", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			PrebuiltWorkloadLabel("prebuilt-wl-strict").
 			PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, tasBlockLabel).
 			Containers(*container.DeepCopy()).
 			Obj()
@@ -3937,13 +3984,13 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 			util.MustCreate(ctx, k8sClient, job)
 		})
 
-		wl := utiltestingapi.MakeWorkload("prebuilt-wl", ns.Name).
+		wl := utiltestingapi.MakeWorkload("prebuilt-wl-strict", ns.Name).
 			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 				Containers(*container.DeepCopy()).
 				PreferredTopologyRequest(tasBlockLabel).
 				Obj()).
 			Obj()
-		ginkgo.By("creating a matching prebuilt workload which only prefers block", func() {
+		ginkgo.By("creating a mismatched prebuilt workload which only prefers block", func() {
 			util.MustCreate(ctx, k8sClient, wl)
 		})
 

@@ -1498,7 +1498,7 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	if workload.IsAdmitted(wl) {
 		opts = append(opts, equality.WithIgnoreTolerations())
 	}
-	if !features.Enabled(features.TopologyAwareScheduling) {
+	if !features.Enabled(features.TASWithStrictPrebuiltWorkloadEquivalence) {
 		opts = append(opts, equality.WithIgnoreTopologyRequest())
 	}
 
