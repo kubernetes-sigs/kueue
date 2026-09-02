@@ -321,11 +321,16 @@ Creation-time validation enforces:
 - The `TASExactTopologyDistribution` feature gate is enabled.
 
 The Workload webhook repeats the structural, numeric, partial-admission, and
-elastic-workload checks, so that a Workload written directly is checked too. Its
-existing per-constraint check rejects any entry whose `size` is not positive,
-which an exact constraint never sets, so that check has to become union-aware.
-Until it does, the webhook refuses every `sizes` request and the job integration
-cannot create a Workload at all.
+elastic-workload checks, **including the feature gate check**, so that a Workload
+written directly is checked too. A Workload can be created without going through
+job integration validation, so the gate has to be enforced on both paths or a
+`sizes` request would be accepted while `TASExactTopologyDistribution` is
+disabled, contradicting the guarantee in [Feature Gate](#feature-gate).
+
+The webhook's existing per-constraint check also rejects any entry whose `size`
+is not positive, which an exact constraint never sets, so that check has to
+become union-aware. Until it does, the webhook refuses every `sizes` request and
+the job integration cannot create a Workload at all.
 
 Update-time validation preserves the fixed-count invariant. Existing Workload
 validation already makes the whole PodSet immutable once quota is reserved, so
@@ -660,6 +665,9 @@ elsewhere in this KEP rather than routine coverage:
   of re-sorting them by label value, while scalar assignments still re-sort.
 - A pod with a missing, duplicate, or out-of-range rank leaves the whole PodSet
   gated, rather than falling back to greedy assignment.
+- A Workload created directly, without going through job integration validation,
+  is rejected when it carries `sizes` and the feature gate is disabled, and is
+  subject to the same structural and sum checks when the gate is enabled.
 - A `LeastFreeCapacity` placement that exactly fills its domains fails
   replacement, while the same placement under `BestFit` has room to absorb it.
 - The elastic shrink exception is refused for a `sizes` PodSet and still allowed
