@@ -4601,7 +4601,8 @@ func TestReconciler(t *testing.T) {
 		},
 		"prebuilt workload with a different topology request is out of sync": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: true,
+				features.TopologyAwareScheduling:                  true,
+				features.TASWithStrictPrebuiltWorkloadEquivalence: true,
 			},
 			job: baseJobWrapper.
 				Clone().
@@ -4663,6 +4664,65 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
+		},
+		"prebuilt workload with a different topology request matches when TASWithStrictPrebuiltWorkloadEquivalence is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                  true,
+				features.TASWithStrictPrebuiltWorkloadEquivalence: false,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelTopologyZone).
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						PriorityClass("test-pc").
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: corev1.LabelTopologyZone}).
+						RequiredTopologyRequest(corev1.LabelTopologyZone).
+						Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						PriorityClass("test-pc").
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: corev1.LabelTopologyZone}).
+						RequiredTopologyRequest(corev1.LabelTopologyZone).
+						Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Not admitted by cluster queue",
+				},
+			},
 		},
 		"when the prebuilt workload is owned by another object": {
 			featureGates: map[featuregate.Feature]bool{
@@ -4915,6 +4975,62 @@ func TestReconciler(t *testing.T) {
 							}).
 							NodeSelector(map[string]string{"node-label": "value"}).
 							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "",
+					}).
+					Priority(0).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "UpdatedWorkload",
+					Message:   "Updated not matching Workload for suspended job: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()),
+				},
+			},
+		},
+		"ordinary job whose topology request changes updates the workload even when TASWithStrictPrebuiltWorkloadEquivalence is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                  true,
+				features.TASWithStrictPrebuiltWorkloadEquivalence: false,
+			},
+			job: baseJobWrapper.Clone().
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(localQueueName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+							Request(corev1.ResourceCPU, "1").
+							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: corev1.LabelTopologyZone}).
+							RequiredTopologyRequest(corev1.LabelTopologyZone).
+							PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+							Obj(),
+					).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "",
+					}).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadNameForJob(baseJobWrapper.Name, baseJobWrapper.GetUID()), "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(localQueueName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+							Request(corev1.ResourceCPU, "1").
+							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: corev1.LabelHostname}).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 							Obj(),
 					).
 					Labels(map[string]string{

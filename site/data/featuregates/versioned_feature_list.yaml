@@ -759,6 +759,12 @@
     lockToDefault: true
     preRelease: GA
     version: "0.21"
+- name: TASWithStrictPrebuiltWorkloadEquivalence
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: TLSOptions
   versionedSpecs:
   - default: true
