@@ -191,6 +191,9 @@ func (m podsByWorkload) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod
 }
 
 func (m podsByWorkload) recordPod(wlKey client.ObjectKey, podKey client.ObjectKey, pod *corev1.Pod) {
+	if len(m) == 0 {
+		return
+	}
 	if _, ok := m[wlKey]; !ok {
 		m[wlKey] = make(podsByKey)
 	}
@@ -198,6 +201,9 @@ func (m podsByWorkload) recordPod(wlKey client.ObjectKey, podKey client.ObjectKe
 }
 
 func (m podsByWorkload) forgetPod(wlKey client.ObjectKey, podKey client.ObjectKey) {
+	if len(m) == 0 {
+		return
+	}
 	delete(m[wlKey], podKey)
 	if len(m[wlKey]) == 0 {
 		delete(m, wlKey)
