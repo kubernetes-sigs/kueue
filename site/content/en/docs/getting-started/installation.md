@@ -26,6 +26,7 @@ aliases:
   - [Uninstall](#uninstall-2)
 - [Install via Helm](#install-via-helm)
 - [Change the feature gates configuration](#change-the-feature-gates-configuration)
+  - [Check which feature gates are enabled](#check-which-feature-gates-are-enabled)
   - [Feature gates for alpha and beta features](#feature-gates-for-alpha-and-beta-features)
   - [Feature gates for graduated or deprecated features](#feature-gates-for-graduated-or-deprecated-features)
 - [What's next](#whats-next)
@@ -294,6 +295,31 @@ spec:
         - --zap-log-level=2
 +       - --feature-gates=PartialAdmission=true
 ```
+
+### Check which feature gates are enabled
+
+The `kueue-controller-manager` reports the state of every Kueue feature gate through the
+`kueue_feature_enabled` metric, so you do not need to reconstruct it from the `ConfigMap`
+and the `--feature-gates` argument. The metric is `1` when the gate is enabled and `0`
+when it is disabled, and the `stage` label reports the maturity of the gate in the
+running version (`ALPHA`, `BETA`, `DEPRECATED`, or empty once the gate is generally
+available). See [Prometheus Metrics](/docs/reference/metrics) for the full reference.
+
+To list the gates that are enabled:
+
+```promql
+kueue_feature_enabled == 1
+```
+
+To check a single gate across all replicas:
+
+```promql
+kueue_feature_enabled{name="PartialAdmission"}
+```
+
+Because the metric is reported per replica, it also surfaces a rolling upgrade or a
+misconfigured replica where the gates do not match. Feature gates are read once at
+startup, so the values only change after the `kueue-controller-manager` pods restart.
 
 ### Feature gates for alpha and beta features
 
