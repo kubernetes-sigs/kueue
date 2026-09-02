@@ -370,21 +370,6 @@ type MultiKueue struct {
 	// Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.
 	// +optional
 	IncrementalDispatcherConfig *IncrementalDispatcherConfig `json:"incrementalDispatcherConfig,omitempty"`
-
-	// CentralizedTAS configures MultiKueue's "centralized" scheduling scheme.
-	// This field is ignored when the MultiKueueCentralizedTAS feature gate is
-	// disabled.
-	// +optional
-	CentralizedTAS *CentralizedTAS `json:"centralizedTAS,omitempty"`
-}
-
-// CentralizedTAS configures MultiKueue's "centralized" scheduling scheme.
-type CentralizedTAS struct {
-	// Enable controls whether a MultiKueue manager watches the required
-	// resources in each worker cluster. It must be true to allow a ClusterQueue
-	// to be configured to use centralized TAS.
-	// +optional
-	Enable *bool `json:"enable,omitempty"`
 }
 
 // IncrementalDispatcherConfig holds configuration for the MultiKueue Incremental Dispatcher.
