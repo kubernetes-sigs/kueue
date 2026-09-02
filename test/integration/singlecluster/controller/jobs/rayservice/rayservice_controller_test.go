@@ -36,7 +36,6 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workload"
-	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -140,13 +139,9 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(2))
-			activeSlice = nil
-			for i := range workloads.Items {
-				if !workloadfinish.IsFinished(&workloads.Items[i]) {
-					activeSlice = &workloads.Items[i]
-				}
-			}
-			g.Expect(activeSlice).ShouldNot(gomega.BeNil())
+			activeWorkloads := util.FindNonFinishedWorkloads(workloads.Items)
+			g.Expect(activeWorkloads).Should(gomega.HaveLen(1))
+			activeSlice = &activeWorkloads[0]
 			g.Expect(activeSlice.Name).ShouldNot(gomega.Equal(originSliceName))
 			g.Expect(workload.IsAdmitted(activeSlice)).Should(gomega.BeTrue())
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
