@@ -22,15 +22,22 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestReconcileDRA(t *testing.T) {
@@ -360,6 +367,55 @@ func TestReconcileDRA(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"reconcile DRA extended resource specified only via container limits": {
+			// Regression test for deciding dra.NeedsDRAReconcile on a copy that has
+			// already been through workload.AdjustResources: this workload's only
+			// mention of the DRA-backed extended resource is a container limit, no
+			// request, so NeedsDRAReconcile can only see it after the limits-to-requests
+			// copy runs. Without that ordering, Reconcile would skip handleDRA entirely
+			// and none of the conditions below would be set.
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                 true,
+				features.KueueDRAIntegrationExtendedResource: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl-limits-only-extended-resource", "ns").
+				Queue("lq").
+				Limit("example.com/gpu", "1500m"). // 1.5 GPUs is invalid because extended resources must be integer quantities
+				Obj(),
+			additionalObjects: []client.Object{
+				utiltesting.MakeDeviceClass("gpu-class").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("example.com/gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl-limits-only-extended-resource", "ns").
+				Queue("lq").
+				Limit("example.com/gpu", "1500m").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
+				}).
+				Obj(),
+		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              true,
@@ -433,4 +489,192 @@ func TestReconcileDRA(t *testing.T) {
 		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
+}
+
+// TestCreateSkipsQueueForDRAWorkloadOnlyInLimits verifies that the Create event
+// handler routes a workload whose only mention of a DRA-backed extended resource
+// is a container limit (no request) to DRA reconciliation, instead of queueing it
+// directly as an ordinary extended-resource request. Create builds its own adjusted
+// copy before calling dra.NeedsDRAReconcile, so this only passes if that copy (not
+// e.Object) is what gets checked.
+func TestCreateSkipsQueueForDRAWorkloadOnlyInLimits(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Limit("example.com/gpu", "1").
+		Obj()
+
+	erCache := dra.NewExtendedResourceCache()
+	erCache.Add("example.com/gpu", "gpu-class")
+
+	cl := utiltesting.NewClientBuilder().Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithDRABackedResources(erCache))
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
+	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+	if got := reconciler.Create(event.TypedCreateEvent[*kueue.Workload]{Object: wl}); !got {
+		t.Fatalf("Create() = %v, want true", got)
+	}
+
+	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 0 {
+		t.Fatalf("workload with a limits-only DRA-backed extended resource should not be queued directly; got %d pending", len(pending))
+	}
+}
+
+// TestUpdateSkipsQueueForDRAWorkloadOnlyInLimits is the Update-event counterpart of
+// TestCreateSkipsQueueForDRAWorkloadOnlyInLimits: it verifies the pending-to-pending
+// branch of Update also decides dra.NeedsDRAReconcile on the adjusted copy, not on
+// e.ObjectNew directly.
+func TestUpdateSkipsQueueForDRAWorkloadOnlyInLimits(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+
+	oldWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Obj()
+	newWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Limit("example.com/gpu", "1").
+		Obj()
+
+	erCache := dra.NewExtendedResourceCache()
+	erCache.Add("example.com/gpu", "gpu-class")
+
+	cl := utiltesting.NewClientBuilder().Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithDRABackedResources(erCache))
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
+	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: oldWl,
+		ObjectNew: newWl,
+	}); !got {
+		t.Fatalf("Update() = %v, want true", got)
+	}
+
+	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 0 {
+		t.Fatalf("workload with a limits-only DRA-backed extended resource should not be queued directly; got %d pending", len(pending))
+	}
+}
+
+// TestUpdateRemovesFromQueueWhenNewlyNeedsDRAReconcile covers a workload that was
+// already queued as an ordinary extended resource before its resource name became
+// DRA-backed: the pending-to-pending branch of Update must remove it from the queue
+// instead of leaving the stale entry there, so the scheduler can't pop it before
+// Reconcile runs DRA processing on it.
+func TestUpdateRemovesFromQueueWhenNewlyNeedsDRAReconcile(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		Request("example.com/gpu", "1").
+		Obj()
+
+	erCache := dra.NewExtendedResourceCache()
+
+	cl := utiltesting.NewClientBuilder().Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithDRABackedResources(erCache))
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
+	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+	// example.com/gpu isn't DRA-backed yet, so Create queues it normally.
+	if got := reconciler.Create(event.TypedCreateEvent[*kueue.Workload]{Object: wl}); !got {
+		t.Fatalf("Create() = %v, want true", got)
+	}
+	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 1 {
+		t.Fatalf("expected workload to be queued before its resource became DRA-backed; got %d pending", len(pending))
+	}
+
+	// A DeviceClass now backs example.com/gpu.
+	erCache.Add("example.com/gpu", "gpu-class")
+
+	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: wl,
+		ObjectNew: wl,
+	}); !got {
+		t.Fatalf("Update() = %v, want true", got)
+	}
+
+	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 0 {
+		t.Fatalf("workload should be removed from the queue once its resource newly needs DRA reconcile; got %d pending", len(pending))
+	}
+}
+
+// TestUpdateKeepsAlreadyPreprocessedDRAWorkloadQueued covers a DRA workload
+// (dra.NeedsDRAReconcile is always true for it, since it uses a ResourceClaimTemplate)
+// that is already queued with DRA-preprocessed requests, as handleDRA leaves it. An
+// unrelated update with no spec change used to unconditionally delete it from the
+// queue on every such event, since NeedsDRAReconcile can't tell preprocessed from
+// unprocessed. It should instead stay queued with its preprocessed requests intact.
+func TestUpdateKeepsAlreadyPreprocessedDRAWorkloadQueued(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Active(true).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			ResourceClaimTemplate("gpu", "gpu-template").
+			Obj()).
+		Obj()
+
+	cl := utiltesting.NewClientBuilder().Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithDRABackedResources(dra.NewExtendedResourceCache()))
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("gpu", "2").Obj()).Obj(), false)
+	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+
+	// Simulate handleDRA having already preprocessed and queued this workload.
+	draResources := map[kueue.PodSetReference]corev1.ResourceList{
+		kueue.DefaultPodSetName: {"gpu": resource.MustParse("1")},
+	}
+	if err := qManager.AddOrUpdateWorkload(log, wl.DeepCopy(), workload.WithPreprocessedDRAResources(draResources, nil)); err != nil {
+		t.Fatalf("failed to seed queue with preprocessed workload: %v", err)
+	}
+	pending := qManager.PendingWorkloadsInfo("cq")
+	if len(pending) != 1 || !pending[0].DRAPreprocessed || pending[0].TotalRequests[0].Requests.ResourceValue("gpu") == 0 {
+		t.Fatalf("test setup didn't seed a DRA-preprocessed queued workload: %+v", pending)
+	}
+
+	// An unrelated update (no spec change, so Generation is unchanged) fires while the
+	// workload is still pending.
+	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: wl,
+		ObjectNew: wl,
+	}); !got {
+		t.Fatalf("Update() = %v, want true", got)
+	}
+
+	pending = qManager.PendingWorkloadsInfo("cq")
+	if len(pending) != 1 {
+		t.Fatalf("already DRA-preprocessed workload should stay queued across an unrelated update; got %d pending", len(pending))
+	}
+	if got := pending[0].TotalRequests[0].Requests.ResourceValue("gpu"); got == 0 {
+		t.Fatalf("update should have preserved the DRA-preprocessed requests; got %v", pending[0].TotalRequests[0].Requests)
+	}
 }

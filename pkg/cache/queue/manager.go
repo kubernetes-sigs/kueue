@@ -524,6 +524,12 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 		}
 
 		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
+		// AdjustResources lists LimitRanges for every admissible workload here, under
+		// m.Lock, so that NeedsDRAReconcile below sees the same requests it would see
+		// after admission (see dra.NeedsDRAReconcile). Unlike the other call sites,
+		// this one has no cheaper option: the workload has to be classified before it
+		// can be added to either the local queue or draWorkloads.
+		workload.AdjustResources(ctx, m.client, &w)
 		if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
 			// Collect DRA workloads to send outside the lock; DeepCopy keeps a
 			// stable pointer since the range variable is reused each iteration.
@@ -531,7 +537,6 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 			continue
 		}
 
-		workload.AdjustResources(ctx, m.client, &w)
 		wInfo := workload.NewInfo(&w, m.workloadInfoOptions...)
 		wInfo.UpdateSchedulingHash(log)
 		qImpl.AddOrUpdate(wInfo)
@@ -748,6 +753,37 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 	m.Broadcast()
 	log.V(5).Info("Added/updated workload in queues; Broadcast successful.")
 	return nil
+}
+
+// UpdateDRAPreprocessedWorkload updates the queued Info for w in place,
+// preserving its DRA-preprocessed TotalRequests instead of rebuilding them
+// from the raw spec, as AddOrUpdateWorkload would. Returns false, with no
+// change made, if w isn't queued with DRA-preprocessed Info, in which case
+// the caller should fall back to DeleteWorkload.
+func (m *Manager) UpdateDRAPreprocessedWorkload(log logr.Logger, w *kueue.Workload) bool {
+	m.Lock()
+	defer m.Unlock()
+
+	wlKey := workload.Key(w)
+	q := m.localQueues[m.workloadAssignedQueues[wlKey]]
+	if q == nil {
+		return false
+	}
+	info, ok := q.items[wlKey]
+	if !ok || !info.DRAPreprocessed {
+		return false
+	}
+
+	info.Update(log, w, workload.WithPreserveTotalRequests())
+	cq := m.hm.ClusterQueue(q.ClusterQueue)
+	if cq == nil {
+		return false
+	}
+	cq.PushOrUpdate(info)
+	reportLQPendingWorkloads(m, q)
+	reportCQPendingWorkloads(m, cq)
+	m.Broadcast()
+	return true
 }
 
 // RequeueWorkload requeues the workload ensuring that the queue and the

@@ -128,10 +128,12 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 	return dra.MergeDRAResources(draResources, capacityResources), false, ctrl.Result{}, nil
 }
 
+// handleDRA processes DRA resources for wl. Callers must have already run
+// workload.AdjustResources on wl, since the decision to call handleDRA is
+// itself based on the adjusted requests (see dra.NeedsDRAReconcile).
 func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	workload.AdjustResources(ctx, r.client, wl)
 	if workload.HasResourceClaim(wl) {
 		log.V(3).Info("Workload is inadmissible because it uses resource claims which is not supported")
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
@@ -521,9 +523,22 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		}
 		return ctrl.Result{}, nil
 	}
-	if workload.Status(&wl) == workload.StatusPending && dra.NeedsDRAReconcile(&wl, r.draBackedResources) {
-		if done, result, err := r.handleDRA(ctx, &wl); done {
-			return result, err
+	// A plain workload can't become a DRA one via AdjustResources, so skip the
+	// DeepCopy/AdjustResources/LimitRange-List cost below when it can't apply.
+	if workload.Status(&wl) == workload.StatusPending && (!r.draBackedResources.Empty() || workload.HasDRA(&wl)) {
+		// NeedsDRAReconcile must see the requests as AdjustResources leaves them:
+		// a LimitRange defaultRequest or a limits-to-requests copy can be the only
+		// place a DRA-backed extended resource appears on the Workload. Decide on a
+		// throwaway copy, like every other caller of AdjustResources in this file,
+		// so the adjusted requests aren't accidentally persisted through a later
+		// full-object wl.Spec Update for workloads that don't need DRA reconcile.
+		wlCopy := wl.DeepCopy()
+		workload.AdjustResources(ctx, r.client, wlCopy)
+		if dra.NeedsDRAReconcile(wlCopy, r.draBackedResources) {
+			if done, result, err := r.handleDRA(ctx, wlCopy); done {
+				return result, err
+			}
+			wl = *wlCopy
 		}
 	}
 
@@ -1274,7 +1289,7 @@ func (r *WorkloadReconciler) Create(e event.TypedCreateEvent[*kueue.Workload]) b
 	wlCopy := e.Object.DeepCopy()
 	workload.AdjustResources(ctx, r.client, wlCopy)
 
-	if dra.NeedsDRAReconcile(e.Object, r.draBackedResources) {
+	if dra.NeedsDRAReconcile(wlCopy, r.draBackedResources) {
 		log.V(2).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
 		return true
 	}
@@ -1393,8 +1408,14 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 		case onHold:
 			log.V(2).Info("Removing workload from queue because it is on-hold")
 			r.queues.DeleteWorkload(log, wlKey)
-		case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
-			log.V(2).Info("Skipping queue update for DRA workload - handled in Reconcile")
+		case dra.NeedsDRAReconcile(wlCopy, r.draBackedResources):
+			// Only a spec change can invalidate DRA preprocessing; otherwise
+			// update the queued Info in place instead of evicting it, since
+			// NeedsDRAReconcile stays true for the life of a DRA workload.
+			if e.ObjectNew.Generation != e.ObjectOld.Generation || !r.queues.UpdateDRAPreprocessedWorkload(log, wlCopy) {
+				log.V(2).Info("Removing workload from queue while DRA reconcile is pending - handled in Reconcile")
+				r.queues.DeleteWorkload(log, wlKey)
+			}
 		default:
 			if err := r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
@@ -1432,7 +1453,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 				switch {
 				case onHold:
 					log.V(2).Info("Skipping immediate requeue for on-hold workload")
-				case dra.NeedsDRAReconcile(e.ObjectNew, r.draBackedResources):
+				case dra.NeedsDRAReconcile(wlCopy, r.draBackedResources):
 					log.V(2).Info("Skipping immediate requeue for DRA workload - handled in Reconcile")
 				default:
 					if err := r.queues.AddOrUpdateWorkloadWithoutLock(log, wlCopy); err != nil {
@@ -1911,6 +1932,22 @@ func extendedResourceName(dc *resourcev1.DeviceClass) string {
 	return ""
 }
 
+// requeueInQueueAfterDeviceClassChange re-adds an admissible workload to the queue
+// with its resources adjusted, unless it now needs DRA reconciliation instead.
+func (h *deviceClassHandler) requeueInQueueAfterDeviceClassChange(ctx context.Context, log logr.Logger, w *kueue.Workload) {
+	if !workload.IsAdmissible(w) {
+		return
+	}
+	wlCopy := w.DeepCopy()
+	workload.AdjustResources(ctx, h.r.client, wlCopy)
+	if dra.NeedsDRAReconcile(wlCopy, h.r.draBackedResources) {
+		return
+	}
+	if err := h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
+		log.Error(err, "Failed to re-add workload to queue after DeviceClass change")
+	}
+}
+
 func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], resourceNames ...string) {
 	log := h.r.logger()
 
@@ -1933,13 +1970,7 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 		for i := range lst.Items {
 			w := &lst.Items[i]
 			log.V(3).Info("Requeuing workload due to DeviceClass change", "workload", klog.KObj(w), "resource", name)
-			if !dra.NeedsDRAReconcile(w, h.r.draBackedResources) && workload.IsAdmissible(w) {
-				wlCopy := w.DeepCopy()
-				workload.AdjustResources(ctx, h.r.client, wlCopy)
-				if err := h.r.queues.AddOrUpdateWorkload(log, wlCopy); err != nil {
-					log.Error(err, "Failed to re-add workload to queue after DeviceClass change")
-				}
-			}
+			h.requeueInQueueAfterDeviceClassChange(ctx, log, w)
 			q.AddAfter(reconcile.Request{
 				NamespacedName: types.NamespacedName{
 					Name:      w.Name,
