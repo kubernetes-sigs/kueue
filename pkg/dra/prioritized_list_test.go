@@ -24,6 +24,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -240,16 +241,25 @@ func TestChargeForPrioritizedList(t *testing.T) {
 			wantField: base + "[0].deviceClassName",
 			wantType:  field.ErrorTypeRequired,
 		},
-		"a capacity requirement is refused": {
+		"a capacity requirement is charged the count beside it": {
 			req: faReq("r", func() resourcev1.DeviceSubRequest {
-				s := alt("fast", "fast.example.com", 1)
-				s.Capacity = &resourcev1.CapacityRequirements{}
+				s := alt("fast", "fast.example.com", 3)
+				s.Capacity = &resourcev1.CapacityRequirements{
+					Requests: map[resourcev1.QualifiedName]resource.Quantity{
+						"memory": resource.MustParse("10Gi"),
+					},
+				}
 				return s
 			}()),
-			mapper:    twoClassesOneResource,
-			wantErr:   true,
-			wantField: base + "[0].capacity",
-			wantType:  field.ErrorTypeInvalid,
+			mapper:       twoClassesOneResource,
+			wantResource: "example.com/gpu",
+			wantCount:    3,
+		},
+		"which is what the same alternative without one is charged": {
+			req:          faReq("r", alt("fast", "fast.example.com", 3)),
+			mapper:       twoClassesOneResource,
+			wantResource: "example.com/gpu",
+			wantCount:    3,
 		},
 		"a selector that does not compile is refused": {
 			req: faReq("r", func() resourcev1.DeviceSubRequest {

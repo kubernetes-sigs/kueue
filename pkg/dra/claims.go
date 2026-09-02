@@ -196,12 +196,6 @@ func chargeForPrioritizedList(req *resourcev1.DeviceRequest, mapper *ResourceMap
 		if sub.DeviceClassName == "" {
 			return "", 0, field.ErrorList{field.Required(subPath.Child("deviceClassName"), "")}
 		}
-		// What a capacity requirement consumes is not the device count this charges,
-		// which is the same reason a capacity-backed mapping is refused below.
-		if sub.Capacity != nil {
-			return "", 0, field.ErrorList{field.Invalid(subPath.Child("capacity"), sub.Capacity.Requests,
-				"capacity requirements are not supported for firstAvailable")}
-		}
 		if err := validateCELSelectors(sub.Selectors, subPath.Child("selectors")); err != nil {
 			return "", 0, field.ErrorList{field.Invalid(subPath.Child("selectors"), nil, err.Error())}
 		}
