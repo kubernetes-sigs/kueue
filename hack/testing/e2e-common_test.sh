@@ -376,7 +376,7 @@ unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
 : >"${DOCKER_FAKE_LOG}"
 printf '0' >"${DOCKER_FAKE_MANIFEST_STATE}"
 export DOCKER_FAKE_MANIFEST_OK_AFTER=99
-export DOCKER_FAKE_MANIFEST_ERROR="manifest for registry.example.com/kueue:missing not found"
+export DOCKER_FAKE_MANIFEST_ERROR="no such manifest: registry.example.com/kueue:missing"
 
 if e2e_docker_manifest_available "registry.example.com/kueue:missing"; then
   echo "expected e2e_docker_manifest_available to fail for a genuinely missing manifest" >&2
