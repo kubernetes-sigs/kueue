@@ -63,24 +63,11 @@ func newPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool
 	return psr
 }
 
-// NewPodSetReducer shrinks all PodSets proportionally to each other, each one
-// giving up the same share of its own available room to shrink.
-func NewPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool)) *PodSetReducer[R] {
-	return newPodSetReducer(podSets, fits, distributeProportional)
-}
-
 // NewOrderedPodSetReducer shrinks PodSets sequentially, starting from the
 // last one in podSets and moving towards the first only once the current one
 // has been shrunk down to its minimum count.
 func NewOrderedPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool)) *PodSetReducer[R] {
 	return newPodSetReducer(podSets, fits, distributeOrderBased)
-}
-
-func distributeProportional(out, fullCounts, deltas []int32, amount int32, totalDelta int32) {
-	for i, v := range deltas {
-		tmp := int32(int64(v) * int64(amount) / int64(totalDelta))
-		out[i] = fullCounts[i] - tmp
-	}
 }
 
 func distributeOrderBased(out, fullCounts, deltas []int32, amount int32, _ int32) {
