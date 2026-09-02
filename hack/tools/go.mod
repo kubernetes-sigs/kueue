@@ -536,6 +536,3 @@ require (
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2 // indirect
 	software.sslmate.com/src/go-pkcs12 v0.7.2 // indirect
 )
-
-// helm v4.2.0 depends on code-generator v0.36.0; pin v0.35.5 until defaulter-gen is updated.
-replace k8s.io/code-generator => k8s.io/code-generator v0.35.5
