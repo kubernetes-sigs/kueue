@@ -422,7 +422,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 			ginkgo.Entry("Should allow valid effectiveQuotas with empty resourceGroups",
 				&kueue.EffectiveQuotaStatus{
 					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
-						APIGroup: "quota.kueue.x-k8s.io",
+						APIGroup: "kueue.x-k8s.io",
 						Kind:     "DynamicQuotaOrchestrator",
 						Name:     "dqo",
 					},
@@ -432,22 +432,38 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 			ginkgo.Entry("Should allow valid effectiveQuotas with resourceGroups",
 				&kueue.EffectiveQuotaStatus{
 					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
-						APIGroup: "quota.kueue.x-k8s.io",
+						APIGroup: "kueue.x-k8s.io",
 						Kind:     "DynamicQuotaOrchestrator",
 						Name:     "dqo",
 					},
-					ResourceGroups: makeResourceGroups(1),
+					ResourceGroups: []kueue.ResourceGroup{
+						utiltestingapi.ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("f0").
+								Resource(corev1.ResourceCPU, "1").
+								Obj(),
+						),
+					},
 				},
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow effectiveQuotas with maximum number of resourceGroups",
-				&kueue.EffectiveQuotaStatus{
-					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
-						APIGroup: "quota.kueue.x-k8s.io",
-						Kind:     "DynamicQuotaOrchestrator",
-						Name:     "dqo",
-					},
-					ResourceGroups: makeResourceGroups(resourceGroupsMaxItems),
-				},
+				func() *kueue.EffectiveQuotaStatus {
+					rgs := make([]kueue.ResourceGroup, resourceGroupsMaxItems)
+					for i := range rgs {
+						rgs[i] = utiltestingapi.ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas(fmt.Sprintf("f%d", i)).
+								Resource(corev1.ResourceCPU, "1").
+								Obj(),
+						)
+					}
+					return &kueue.EffectiveQuotaStatus{
+						OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+							APIGroup: "kueue.x-k8s.io",
+							Kind:     "DynamicQuotaOrchestrator",
+							Name:     "dqo",
+						},
+						ResourceGroups: rgs,
+					}
+				}(),
 				gomega.Succeed()),
 			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef apiGroup pattern",
 				&kueue.EffectiveQuotaStatus{
@@ -462,7 +478,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef kind pattern",
 				&kueue.EffectiveQuotaStatus{
 					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
-						APIGroup: "quota.kueue.x-k8s.io",
+						APIGroup: "kueue.x-k8s.io",
 						Kind:     "123Invalid",
 						Name:     "dqo",
 					},
@@ -472,7 +488,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef name pattern",
 				&kueue.EffectiveQuotaStatus{
 					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
-						APIGroup: "quota.kueue.x-k8s.io",
+						APIGroup: "kueue.x-k8s.io",
 						Kind:     "DynamicQuotaOrchestrator",
 						Name:     "@invalid",
 					},
@@ -480,19 +496,29 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 				},
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should reject effectiveQuotas with more than 16 resourceGroups",
-				&kueue.EffectiveQuotaStatus{
-					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
-						APIGroup: "quota.kueue.x-k8s.io",
-						Kind:     "DynamicQuotaOrchestrator",
-						Name:     "dqo",
-					},
-					ResourceGroups: makeResourceGroups(resourceGroupsMaxItems + 1),
-				},
+				func() *kueue.EffectiveQuotaStatus {
+					rgs := make([]kueue.ResourceGroup, resourceGroupsMaxItems+1)
+					for i := range rgs {
+						rgs[i] = utiltestingapi.ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas(fmt.Sprintf("f%d", i)).
+								Resource(corev1.ResourceCPU, "1").
+								Obj(),
+						)
+					}
+					return &kueue.EffectiveQuotaStatus{
+						OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+							APIGroup: "kueue.x-k8s.io",
+							Kind:     "DynamicQuotaOrchestrator",
+							Name:     "dqo",
+						},
+						ResourceGroups: rgs,
+					}
+				}(),
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should reject flavor resource count mismatch with coveredResources",
 				&kueue.EffectiveQuotaStatus{
 					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
-						APIGroup: "quota.kueue.x-k8s.io",
+						APIGroup: "kueue.x-k8s.io",
 						Kind:     "DynamicQuotaOrchestrator",
 						Name:     "dqo",
 					},
