@@ -91,3 +91,68 @@ func TestEffectiveResourceGroups(t *testing.T) {
 		})
 	}
 }
+
+func TestEffectiveCohortResourceGroups(t *testing.T) {
+	specFlavor := utiltestingapi.MakeFlavorQuotas("spec-flavor").Resource(corev1.ResourceCPU, "10").FlavorQuotas
+	effectiveFlavor := utiltestingapi.MakeFlavorQuotas("effective-flavor").Resource(corev1.ResourceCPU, "20").FlavorQuotas
+
+	cases := map[string]struct {
+		dynamicQuota bool
+		cohort       *kueue.Cohort
+		wantRGs      []kueue.ResourceGroup
+	}{
+		"DynamicQuotaOrchestration disabled returns spec": {
+			dynamicQuota: false,
+			cohort: utiltestingapi.MakeCohort("test-cohort").
+				ResourceGroup(specFlavor).
+				EffectiveQuotas(effectiveFlavor).
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(specFlavor),
+			},
+		},
+		"DynamicQuotaOrchestration enabled returns status effectiveQuotas when set": {
+			dynamicQuota: true,
+			cohort: utiltestingapi.MakeCohort("test-cohort").
+				ResourceGroup(specFlavor).
+				EffectiveQuotas(effectiveFlavor).
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(effectiveFlavor),
+			},
+		},
+		"DynamicQuotaOrchestration enabled returns spec when effectiveQuotas is nil": {
+			dynamicQuota: true,
+			cohort: utiltestingapi.MakeCohort("test-cohort").
+				ResourceGroup(specFlavor).
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(specFlavor),
+			},
+		},
+		"DynamicQuotaOrchestration enabled returns empty status effectiveQuotas when set to empty": {
+			dynamicQuota: true,
+			cohort: func() *kueue.Cohort {
+				c := utiltestingapi.MakeCohort("test-cohort").ResourceGroup(specFlavor).Obj()
+				c.Status.EffectiveQuotas = &kueue.EffectiveQuotaStatus{ResourceGroups: []kueue.ResourceGroup{}}
+				return c
+			}(),
+			wantRGs: []kueue.ResourceGroup{},
+		},
+		"nil cohort returns nil": {
+			dynamicQuota: true,
+			cohort:       nil,
+			wantRGs:      nil,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, tc.dynamicQuota)
+
+			if diff := cmp.Diff(tc.wantRGs, EffectiveCohortResourceGroups(tc.cohort)); diff != "" {
+				t.Errorf("Unexpected EffectiveCohortResourceGroups (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

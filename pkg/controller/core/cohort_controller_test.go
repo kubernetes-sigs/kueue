@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -32,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -405,9 +407,10 @@ func TestCohortReconcilerFilters(t *testing.T) {
 	})
 
 	cases := map[string]struct {
-		old  *kueue.Cohort
-		new  *kueue.Cohort
-		want bool
+		featureGates map[featuregate.Feature]bool
+		old          *kueue.Cohort
+		new          *kueue.Cohort
+		want         bool
 	}{
 		"unchanged returns false": {
 			old: utiltestingapi.MakeCohort("cohort").ResourceGroup(
@@ -457,9 +460,48 @@ func TestCohortReconcilerFilters(t *testing.T) {
 			new:  utiltestingapi.MakeCohort("cohort").FairWeight(resource.MustParse("2")).Obj(),
 			want: true,
 		},
+		"updating status.effectiveQuotas with DynamicQuotaOrchestration enabled returns true": {
+			featureGates: map[featuregate.Feature]bool{features.DynamicQuotaOrchestration: true},
+			old: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			).Obj(),
+			new: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			).EffectiveQuotas(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+			).Obj(),
+			want: true,
+		},
+		"updating status.effectiveQuotas with DynamicQuotaOrchestration disabled returns false": {
+			featureGates: map[featuregate.Feature]bool{features.DynamicQuotaOrchestration: false},
+			old: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			).Obj(),
+			new: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			).EffectiveQuotas(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
+			).Obj(),
+			want: false,
+		},
+		"updating unrelated status returns false": {
+			featureGates: map[featuregate.Feature]bool{features.DynamicQuotaOrchestration: true},
+			old: utiltestingapi.MakeCohort("cohort").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+			).Obj(),
+			new: func() *kueue.Cohort {
+				c := utiltestingapi.MakeCohort("cohort").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
+				).Obj()
+				c.Status.FairSharing = &kueue.FairSharingStatus{WeightedShare: 10}
+				return c
+			}(),
+			want: false,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			e := event.TypedUpdateEvent[*kueue.Cohort]{
 				ObjectOld: tc.old,
 				ObjectNew: tc.new,
