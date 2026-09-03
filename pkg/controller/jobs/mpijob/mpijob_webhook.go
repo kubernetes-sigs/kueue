@@ -23,7 +23,6 @@ import (
 	"slices"
 
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
-	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -156,19 +155,10 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 	if features.Enabled(features.TopologyAwareScheduling) {
 		got := workerPodIndexOffset(newMpiJob)
 		if expected, managed := expectedWorkerPodIndexOffset(newMpiJob); managed {
-			// Compare against the mutator's current answer, not the old value, so a
-			// legacy bad value can self-heal instead of being permanently stuck.
 			if got != expected {
 				allErrs = append(allErrs, field.Invalid(workerOffsetAnnotationPath, got,
 					fmt.Sprintf("must be %q, the value the defaulting webhook would set", expected)))
 			}
-		} else {
-			// The mutator doesn't manage this annotation here, so just keep it immutable.
-			allErrs = append(allErrs, apivalidation.ValidateImmutableField(
-				got,
-				workerPodIndexOffset(oldMpiJob),
-				workerOffsetAnnotationPath,
-			)...)
 		}
 	}
 	slices.SortFunc(allErrs, func(a, b *field.Error) int {
@@ -182,8 +172,6 @@ func (w *MpiJobWebhook) ValidateDelete(context.Context, *v2beta1.MPIJob) (admiss
 	return nil, nil
 }
 
-// workerPodIndexOffset returns the value of the pod-index-offset annotation on the
-// Worker replica template, or the empty string when the replica or annotation is absent.
 func workerPodIndexOffset(mpiJob *MPIJob) string {
 	worker := mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker]
 	if worker == nil {
@@ -192,9 +180,6 @@ func workerPodIndexOffset(mpiJob *MPIJob) string {
 	return worker.Template.Annotations[kueue.PodIndexOffsetAnnotation]
 }
 
-// expectedWorkerPodIndexOffset returns the pod-index-offset value Default() would write
-// on the Worker template right now, and whether it manages the annotation at all (it
-// doesn't when RunLauncherAsWorker is unset or a replica spec is missing).
 func expectedWorkerPodIndexOffset(mpiJob *MPIJob) (expected string, managed bool) {
 	if !ptr.Deref(mpiJob.Spec.RunLauncherAsWorker, false) {
 		return "", false

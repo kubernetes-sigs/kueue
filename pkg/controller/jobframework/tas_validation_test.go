@@ -144,30 +144,6 @@ func TestValidateSliceRequiredTopologyConstraintsAnnotation(t *testing.T) {
 			},
 			wantErrNum: 1,
 		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-
-			meta := &metav1.ObjectMeta{
-				Annotations: tc.annotations,
-			}
-			errs := ValidateTASPodSetRequest(replicaPath, meta)
-			if got := len(errs); got != tc.wantErrNum {
-				t.Errorf("ValidateTASPodSetRequest() returned %d errors, want %d:\n%v", got, tc.wantErrNum, errs)
-			}
-		})
-	}
-}
-
-func TestValidatePodIndexOffsetAnnotation(t *testing.T) {
-	replicaPath := field.NewPath("spec", "template", "metadata")
-
-	testCases := map[string]struct {
-		annotations map[string]string
-		wantErrNum  int
-	}{
 		"valid: offset absent": {
 			annotations: map[string]string{},
 			wantErrNum:  0,
@@ -210,6 +186,8 @@ func TestValidatePodIndexOffsetAnnotation(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
 			meta := &metav1.ObjectMeta{
 				Annotations: tc.annotations,
 			}

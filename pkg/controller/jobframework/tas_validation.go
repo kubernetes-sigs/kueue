@@ -158,14 +158,6 @@ func validateSliceSizeAnnotation(annotationsPath *field.Path, replicaMetadata *m
 	return nil
 }
 
-// validatePodIndexOffsetAnnotation enforces the contract of the pod-index-offset
-// annotation. The annotation is written by the integration webhooks and read by the
-// TAS topology ungater to map Pod indexes to topology assignments. Its contract:
-//   - It must be absent when podset-group-name is specified, because offset management
-//     is delegated to the PodSet group mechanism in that case. Applying both would
-//     double-count the offset in the ungater.
-//   - When present, it must be a non-negative integer, because the ungater parses it
-//     with strconv.Atoi and hard-fails on an unparseable value, leaving Pods gated.
 func validatePodIndexOffsetAnnotation(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta, podSetGroupNameFound bool) field.ErrorList {
 	offsetValue, offsetFound := replicaMetadata.Annotations[kueue.PodIndexOffsetAnnotation]
 	if !offsetFound {
