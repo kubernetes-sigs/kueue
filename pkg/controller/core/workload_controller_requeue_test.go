@@ -24,7 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -771,7 +770,7 @@ func TestRequeueAfterBackoffUsesAdjustedResources(t *testing.T) {
 		Queue("lq").
 		Active(true).
 		Limit(corev1.ResourceCPU, "3").
-		RequeueState(ptr.To(int32(1)), ptr.To(metav1.NewTime(now.Add(-time.Minute)))).
+		RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(-time.Minute)))).
 		Obj()
 
 	cl := utiltesting.NewClientBuilder().
