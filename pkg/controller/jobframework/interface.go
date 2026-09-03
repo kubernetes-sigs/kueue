@@ -110,6 +110,13 @@ type JobWithSkip interface {
 	Skip(ctx context.Context) bool
 }
 
+// JobWithPodLifecycle is an optional interface for generic jobs composed of individual pods (e.g. pod groups), reporting whether any member pod still requires lifecycle management via a Workload.
+// It is consulted before creating a new Workload: a job whose pods are all terminating and already finalized has no work left for one, so none is created.
+type JobWithPodLifecycle interface {
+	// HasPodsNeedingWorkload returns whether any pod still requires lifecycle management via a Workload.
+	HasPodsNeedingWorkload() bool
+}
+
 // JobWithOnHold is an optional interface that should be implemented by generic jobs
 // when the job can request its Workload to be put on hold.
 type JobWithOnHold interface {
