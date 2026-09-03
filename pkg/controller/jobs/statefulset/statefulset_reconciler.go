@@ -143,6 +143,7 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 		var updated bool
 		log = log.WithValues("pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
 		if r.syncQueueLabel(sts, pod) {
+			log.V(3).Info("Syncing queue label")
 			updated = true
 		}
 		if r.setDefault(sts, wlName, pod) {
