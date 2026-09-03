@@ -1309,7 +1309,6 @@ during admission.</p>
 
 
 
-
 ## `RemoteObjectRetentionPolicy`     {#config-kueue-x-k8s-io-v1beta2-RemoteObjectRetentionPolicy}
     
 
