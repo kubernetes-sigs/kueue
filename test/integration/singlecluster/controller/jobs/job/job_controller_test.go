@@ -3917,6 +3917,54 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 		})
 	})
 
+	ginkgo.It("should finish a prebuilt workload whose topology request differs from the job as OutOfSync", func() {
+		container := corev1.Container{
+			Name:  "c",
+			Image: "pause",
+		}
+		testingjob.SetContainerDefaults(&container)
+		container.Resources = corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+		}
+
+		job := testingjob.MakeJob("job", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			PrebuiltWorkloadLabel("prebuilt-wl").
+			PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, tasBlockLabel).
+			Containers(*container.DeepCopy()).
+			Obj()
+		ginkgo.By("creating a job which requires block and references a prebuilt workload", func() {
+			util.MustCreate(ctx, k8sClient, job)
+		})
+
+		wl := utiltestingapi.MakeWorkload("prebuilt-wl", ns.Name).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Containers(*container.DeepCopy()).
+				PreferredTopologyRequest(tasBlockLabel).
+				Obj()).
+			Obj()
+		ginkgo.By("creating a matching prebuilt workload which only prefers block", func() {
+			util.MustCreate(ctx, k8sClient, wl)
+		})
+
+		ginkgo.By("verify the workload is finished as OutOfSync", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdWl := kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+				g.Expect(createdWl.Status.Conditions).To(
+					utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify the job stays suspended", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				createdJob := batchv1.Job{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("should admit workload with topology unconstrained annotation which fits", func() {
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(localQueue.Name)).

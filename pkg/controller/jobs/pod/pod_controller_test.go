@@ -444,6 +444,77 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"single pod with admitted prebuilt workload and implicit TAS remains in sync": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:       true,
+				features.WorkloadIdentifierAnnotations: false,
+			},
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				KueueFinalizer().
+				TopologySchedulingGate().
+				Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Label(constants.LocalQueueLabel, localUserQueueName).
+				Label(constants.ClusterQueueLabel, clusterQueueName).
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Annotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				Obj()},
+			wantPods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				KueueFinalizer().
+				TopologySchedulingGate().
+				Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				Label(constants.LocalQueueLabel, localUserQueueName).
+				Label(constants.ClusterQueueLabel, clusterQueueName).
+				Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Annotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				Obj()},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(localUserQueueName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+						Obj()).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(localUserQueueName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "1").
+						SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+						Obj()).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 		"non-matching admitted workload is deleted and pod is finalized": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{*basePodWrapper.

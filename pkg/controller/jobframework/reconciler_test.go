@@ -1430,3 +1430,144 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 		})
 	}
 }
+
+func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	gvk := batchv1.SchemeGroupVersion.WithKind("Job")
+	now := time.Now()
+
+	job := testingjob.MakeJob("job-multi", "ns").
+		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial).
+		Queue("cq").
+		UID("job-uid-multi").
+		Obj()
+
+	prevWl := utiltestingapi.MakeWorkload("job-multi-prev", "ns").
+		PodSets(
+			kueue.PodSet{Name: kueue.PodSetReference("head"), Count: 1},
+			kueue.PodSet{Name: kueue.PodSetReference("workers-reservation"), Count: 2},
+			kueue.PodSet{Name: kueue.PodSetReference("workers-spot"), Count: 10},
+		).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment(kueue.PodSetReference("head")).
+				Assignment(corev1.ResourceCPU, "default", "1").
+				Count(1).
+				Obj(),
+			utiltestingapi.MakePodSetAssignment(kueue.PodSetReference("workers-reservation")).
+				Assignment(corev1.ResourceCPU, "default", "1").
+				Count(1).
+				Obj(),
+			utiltestingapi.MakePodSetAssignment(kueue.PodSetReference("workers-spot")).
+				Assignment(corev1.ResourceCPU, "default", "1").
+				Count(4).
+				Obj(),
+		).Obj(), now).
+		ControllerReference(gvk, "job-multi", "job-uid-multi").
+		Obj()
+
+	cases := map[string]struct {
+		job              client.Object
+		podSets          []kueue.PodSet
+		existingObjects  []client.Object
+		wantCounts       map[kueue.PodSetReference]int32
+		wantMinCounts    map[kueue.PodSetReference]*int32
+		wantDiffNameFrom *kueue.Workload
+	}{
+		"initial creation without previous admitted workload": {
+			job: job,
+			podSets: []kueue.PodSet{
+				{Name: kueue.PodSetReference("head"), Count: 1},
+				{Name: kueue.PodSetReference("workers-reservation"), Count: 4, MinCount: new(int32(4))},
+				{Name: kueue.PodSetReference("workers-spot"), Count: 20, MinCount: new(int32(20))},
+			},
+			wantCounts: map[kueue.PodSetReference]int32{
+				kueue.PodSetReference("head"):                1,
+				kueue.PodSetReference("workers-reservation"): 4,
+				kueue.PodSetReference("workers-spot"):        20,
+			},
+			wantMinCounts: map[kueue.PodSetReference]*int32{
+				kueue.PodSetReference("head"):                nil,
+				kueue.PodSetReference("workers-reservation"): new(int32(4)),
+				kueue.PodSetReference("workers-spot"):        new(int32(20)),
+			},
+		},
+		"scale-up with previous admitted workload sets minCount and probe extra": {
+			job: job,
+			podSets: []kueue.PodSet{
+				{Name: kueue.PodSetReference("head"), Count: 1},
+				{Name: kueue.PodSetReference("workers-reservation"), Count: 4},
+				{Name: kueue.PodSetReference("workers-spot"), Count: 20},
+			},
+			existingObjects: []client.Object{job, prevWl},
+			wantCounts: map[kueue.PodSetReference]int32{
+				kueue.PodSetReference("head"):                1,
+				kueue.PodSetReference("workers-reservation"): 4,
+				kueue.PodSetReference("workers-spot"):        20,
+			},
+			wantMinCounts: map[kueue.PodSetReference]*int32{
+				kueue.PodSetReference("head"):                nil,
+				kueue.PodSetReference("workers-reservation"): new(int32(2)),
+				kueue.PodSetReference("workers-spot"):        new(int32(5)),
+			},
+			wantDiffNameFrom: prevWl,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			mockctrl := gomock.NewController(t)
+			mgj := mocks.NewMockGenericJob(mockctrl)
+			mgj.EXPECT().Object().Return(tc.job).AnyTimes()
+			mgj.EXPECT().GVK().Return(gvk).AnyTimes()
+			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
+
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
+			objects := append([]client.Object{ns}, tc.existingObjects...)
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(objects...).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(gvk), indexer.WorkloadOwnerIndexFunc(gvk)).
+				Build()
+
+			wl, err := ConstructWorkload(ctx, cl, mgj, nil, nil)
+			if err != nil {
+				t.Fatalf("ConstructWorkload failed: %v", err)
+			}
+			if wl == nil {
+				t.Fatal("expected non-nil workload")
+			}
+			if len(wl.Spec.PodSets) != len(tc.wantCounts) {
+				t.Fatalf("expected %d podsets, got %d", len(tc.wantCounts), len(wl.Spec.PodSets))
+			}
+			for _, ps := range wl.Spec.PodSets {
+				wantCount, expected := tc.wantCounts[ps.Name]
+				if !expected {
+					t.Errorf("unexpected podset %q in constructed workload", ps.Name)
+					continue
+				}
+				if ps.Count != wantCount {
+					t.Errorf("expected count=%d for podset %q, got %d", wantCount, ps.Name, ps.Count)
+				}
+
+				wantMin := tc.wantMinCounts[ps.Name]
+				if wantMin == nil {
+					if ps.MinCount != nil {
+						t.Errorf("expected minCount=nil for podset %q, got %d", ps.Name, *ps.MinCount)
+					}
+				} else {
+					if ps.MinCount == nil {
+						t.Errorf("expected minCount=%d for podset %q, got nil", *wantMin, ps.Name)
+					} else if *ps.MinCount != *wantMin {
+						t.Errorf("expected minCount=%d for podset %q, got %d", *wantMin, ps.Name, *ps.MinCount)
+					}
+				}
+			}
+			if tc.wantDiffNameFrom != nil && wl.Name == tc.wantDiffNameFrom.Name {
+				t.Errorf("expected workload name to differ from existing workload %q, got %q", tc.wantDiffNameFrom.Name, wl.Name)
+			}
+		})
+	}
+}

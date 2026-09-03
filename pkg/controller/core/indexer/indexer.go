@@ -175,6 +175,23 @@ func IndexOwnerUID(obj client.Object) []string {
 	return slices.Map(obj.GetOwnerReferences(), func(o *metav1.OwnerReference) string { return string(o.UID) })
 }
 
+// IndexWorkloadSliceName indexes the workload slices of an elastic job. Every
+// slice in a chain carries the name of the chain's first slice in the
+// WorkloadSliceNameAnnotation, so indexing on it lists all Workloads of a job by
+// that name, including after the first slice itself has been deleted.
+func IndexWorkloadSliceName(obj client.Object) []string {
+	wl, ok := obj.(*kueue.Workload)
+	if !ok {
+		return nil
+	}
+	if value, found := wl.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
+		return []string{value}
+	}
+	// The chain's first slice names itself, and is indexed before the annotation
+	// is applied.
+	return []string{wl.Name}
+}
+
 // IndexPodWorkloadSliceName indexes pods by their workload slice name annotation.
 // Uses WorkloadSliceNameAnnotation if present, otherwise falls back to WorkloadAnnotation
 // for non-elastic workloads.
@@ -292,6 +309,11 @@ func Setup(ctx context.Context, indexer client.FieldIndexer) error {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.TopologyAwareScheduling) {
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadSliceNameKey, IndexPodWorkloadSliceName); err != nil {
 			return fmt.Errorf("setting index on workloadSliceName for Pod: %w", err)
+		}
+	}
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadSliceNameKey, IndexWorkloadSliceName); err != nil {
+			return fmt.Errorf("setting index on workloadSliceName for Workload: %w", err)
 		}
 	}
 	// Index DeviceClasses by extendedResourceName for fast lookup during extended resource translation.

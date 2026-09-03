@@ -362,19 +362,13 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 
 	// 6. Requeue the heads that were not scheduled.
 	result := metrics.AdmissionResultInadmissible
-	for _, e := range entries {
-		logAdmissionAttemptIfVerbose(log, &e)
-		// When the workload is evicted by scheduler we skip requeueAndUpdate.
-		// The eviction process will be finalized by the workload controller.
-		if e.status != assumed && e.status != evicted {
-			s.requeueAndUpdate(ctx, e)
-		} else {
+	for i := range entries {
+		if s.finishEntry(ctx, log, &entries[i]) {
 			result = metrics.AdmissionResultSuccess
 		}
 	}
-	for _, e := range inadmissibleEntries {
-		logAdmissionAttemptIfVerbose(log, &e)
-		s.requeueAndUpdate(ctx, e)
+	for i := range inadmissibleEntries {
+		s.finishEntry(ctx, log, &inadmissibleEntries[i])
 	}
 
 	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
@@ -402,6 +396,19 @@ func (s *Scheduler) requeueHeadsAfterSnapshotError(ctx context.Context, heads []
 				"workload", klog.KObj(wl.Obj), "clusterQueue", klog.KRef("", string(wl.ClusterQueue)))
 		}
 	}
+}
+
+// finishEntry concludes an entry's scheduling cycle and reports whether the
+// entry counts as a successful admission attempt. Assumed and evicted entries
+// need no requeue: assumed workloads are admitted, and evicted ones are
+// finalized by the workload controller. All other entries are requeued.
+func (s *Scheduler) finishEntry(ctx context.Context, log logr.Logger, e *entry) bool {
+	logAdmissionAttemptIfVerbose(log, e)
+	if e.status == assumed || e.status == evicted {
+		return true
+	}
+	s.requeueAndUpdate(ctx, *e)
+	return false
 }
 
 // processEntry runs the admission pipeline for a single entry: TAS replacement,
@@ -687,40 +694,52 @@ func (s *Scheduler) nominate(ctx context.Context, heads []qcache.Head, snap *sch
 	var inadmissibleEntries []entry
 	for _, h := range heads {
 		log := log.WithValues("workload", klog.KObj(h.Obj), "clusterQueue", klog.KRef("", string(h.ClusterQueue)))
-		e := entry{Head: h}
-		e.clusterQueueSnapshot = snap.ClusterQueue(h.ClusterQueue)
 		if !workload.NeedsSecondPass(h.Obj) && s.cache.IsAdded(h.Info) {
 			log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(h.Obj))
 			continue
-		} else if workload.HasRetryChecks(h.Obj) || workload.HasRejectedChecks(h.Obj) {
-			e.inadmissibleMsg = "The workload has failed admission checks"
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
-		} else if snap.InactiveClusterQueueSets.Has(h.ClusterQueue) {
-			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", h.ClusterQueue)
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonSuspended
-		} else if e.clusterQueueSnapshot == nil {
-			e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", h.ClusterQueue)
-			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-		} else if err := workload.ValidateAdmissibility(ctx, s.client, &h.Info, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
-			e.inadmissibleMsg = err.Error()
-			if errors.Is(err, workload.ErrInternal) {
-				log.Error(err, "Failed to validate workload admissibility")
-				e.skipStatusUpdate = true
-			} else {
-				e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
-				if errors.Is(err, workload.ErrNamespaceMismatch) {
-					e.requeueReason = qcache.RequeueReasonNamespaceMismatch
-				}
-			}
-		} else {
-			assignment, targets := s.getAssignments(ctx, &e.Info, snap)
-			e.recordAssignment(assignment, targets)
-			entries = append(entries, e)
-			continue
 		}
-		inadmissibleEntries = append(inadmissibleEntries, e)
+		if e, nominated := s.nominateWorkload(ctx, log, h, snap); nominated {
+			entries = append(entries, e)
+		} else {
+			inadmissibleEntries = append(inadmissibleEntries, e)
+		}
 	}
 	return entries, inadmissibleEntries
+}
+
+// nominateWorkload computes the requirements (resource flavors, borrowing,
+// preemption targets) for admitting a single workload against the snapshot, and
+// reports whether it was nominated. A workload that was not carries the reason
+// in the entry's inadmissibleMsg and is requeued by the cycle.
+func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qcache.Head, snap *schdcache.Snapshot) (entry, bool) {
+	e := entry{Head: h}
+	e.clusterQueueSnapshot = snap.ClusterQueue(h.ClusterQueue)
+	if workload.HasRetryChecks(h.Obj) || workload.HasRejectedChecks(h.Obj) {
+		e.inadmissibleMsg = "The workload has failed admission checks"
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
+	} else if snap.InactiveClusterQueueSets.Has(h.ClusterQueue) {
+		e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s is inactive", h.ClusterQueue)
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonSuspended
+	} else if e.clusterQueueSnapshot == nil {
+		e.inadmissibleMsg = fmt.Sprintf("ClusterQueue %s not found", h.ClusterQueue)
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+	} else if err := workload.ValidateAdmissibility(ctx, s.client, &h.Info, e.clusterQueueSnapshot.NamespaceSelector); err != nil {
+		e.inadmissibleMsg = err.Error()
+		if errors.Is(err, workload.ErrInternal) {
+			log.Error(err, "Failed to validate workload admissibility")
+			e.skipStatusUpdate = true
+		} else {
+			e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+			if errors.Is(err, workload.ErrNamespaceMismatch) {
+				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
+			}
+		}
+	} else {
+		assignment, targets := s.getAssignments(ctx, &e.Info, snap)
+		e.recordAssignment(assignment, targets)
+		return e, true
+	}
+	return e, false
 }
 
 func (s *Scheduler) updateAssignmentIfNeeded(
@@ -919,7 +938,8 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 		}
 	}
 
-	if features.Enabled(features.PartialAdmission) && wl.CanBePartiallyAdmitted() {
+	if (features.Enabled(features.PartialAdmission) || (features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) && workload.IsElasticWorkload(wl.Obj))) &&
+		wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
 			assignment := flvAssigner.Assign(ctx, nextCounts)
 			mode := assignment.RepresentativeMode()

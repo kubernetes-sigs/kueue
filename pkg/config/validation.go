@@ -63,6 +63,7 @@ var (
 	integrationsFrameworksPath            = integrationsPath.Child("frameworks")
 	integrationsExternalFrameworkPath     = integrationsPath.Child("externalFrameworks")
 	managedJobsNamespaceSelectorPath      = field.NewPath("managedJobsNamespaceSelector")
+	quotaReleaseStrategyPath              = field.NewPath("quotaReleaseStrategy")
 	waitForPodsReadyPath                  = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath                 = waitForPodsReadyPath.Child("requeuingStrategy")
 	multiKueuePath                        = field.NewPath("multiKueue")
@@ -108,6 +109,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationMan
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
+	allErrs = append(allErrs, validateQuotaReleaseStrategy(c)...)
 	return allErrs
 }
 
@@ -132,6 +134,24 @@ func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
 				[]configapi.QuotaCheckStrategy{
 					configapi.QuotaCheckIgnoreUndeclared,
 					configapi.QuotaCheckBlockUndeclared,
+				},
+			))
+		}
+	}
+	return allErrs
+}
+
+func validateQuotaReleaseStrategy(c *configapi.Configuration) field.ErrorList {
+	var allErrs field.ErrorList
+	if c.QuotaReleaseStrategy != nil {
+		strategy := *c.QuotaReleaseStrategy
+		if strategy != configapi.QuotaReleaseOnTerminating && strategy != configapi.QuotaReleaseOnTerminal {
+			allErrs = append(allErrs, field.NotSupported(
+				quotaReleaseStrategyPath,
+				strategy,
+				[]configapi.QuotaReleaseStrategy{
+					configapi.QuotaReleaseOnTerminating,
+					configapi.QuotaReleaseOnTerminal,
 				},
 			))
 		}
@@ -885,6 +905,10 @@ func validateDeviceClassSource(driver string, selector *resourcev1.DeviceSelecto
 func validateQualifiedName(name resourcev1.QualifiedName, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 	parts := strings.Split(string(name), "/")
+	// Note: unlike validateLabelKey above, this cannot simply delegate to an
+	// upstream apimachinery helper — QualifiedName has different validation
+	// rules than a label key, and upstream's own equivalent helper has this
+	// same multi-slash gap (see TODO below).
 	switch len(parts) {
 	case 1:
 		allErrs = append(allErrs, validateCIdentifier(parts[0], fldPath)...)
@@ -899,17 +923,12 @@ func validateQualifiedName(name resourcev1.QualifiedName, fldPath *field.Path) f
 		} else {
 			allErrs = append(allErrs, validateCIdentifier(parts[1], fldPath)...)
 		}
-		// TODO: This validation is incomplete. It should reject qualified names
-		// that contain more than one slash. Currently, names like "a/b/c" are not
-		// handled and are implicitly accepted.
-		//
-		// This needs to be fixed in two places:
-		// 1. Here in this function.
-		// 2. In the corresponding declarative validation utility `resourcesQualifiedName`
-		//    in `staging/src/k8s.io/apimachinery/pkg/api/validate/strfmt.go`.
-		//
-		// The fix should be introduced carefully, possibly using ratcheting to avoid
-		// breaking existing, non-compliant objects.
+		// TODO: The corresponding declarative validation utility
+		// `resourcesQualifiedName` in
+		// `staging/src/k8s.io/apimachinery/pkg/api/validate/strfmt.go` has the
+		// same gap and should be fixed upstream; not addressed here.
+	default:
+		allErrs = append(allErrs, field.Invalid(fldPath, string(name), "a qualified name must consist of at most one '/'"))
 	}
 
 	return allErrs

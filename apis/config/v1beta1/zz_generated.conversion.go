@@ -397,6 +397,7 @@ func autoConvert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Conf
 	} else {
 		out.WaitForPodsReady = nil
 	}
+	// WARNING: in.QuotaReleaseStrategy requires manual conversion: does not exist in peer-type
 	out.ClientConnection = (*ClientConnection)(unsafe.Pointer(in.ClientConnection))
 	if in.Integrations != nil {
 		in, out := &in.Integrations, &out.Integrations

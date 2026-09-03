@@ -112,6 +112,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | certManager.issuerRef | object | `{}` | Override the default self-signed cert-manager issuer reference. When set, the chart skips creating its own Issuer and uses this reference for webhook, metrics, and visibility certificates. The referenced issuer must provide the CA data required by Kueue's cert-manager integration. |
+| controllerManager.affinity | object | `{}` | ControllerManager's affinity |
 | controllerManager.dnsPolicy | string | `""` | ControllerManager pod's dnsPolicy. Set to ClusterFirstWithHostNet when hostNetwork is enabled. |
 | controllerManager.featureGates | list | `[]` | ControllerManager's feature gates |
 | controllerManager.hostNetwork | bool | `false` | Run the ControllerManager pod on the host network. Needed where the API server reaches the webhook/visibility endpoints via node IPs rather than pod IPs. |
@@ -132,7 +133,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.manager.resources | object | `{"limits":{"cpu":"2","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | ControllerManager's pod resources |
 | controllerManager.nodeSelector | object | `{}` | ControllerManager's nodeSelector |
 | controllerManager.podDisruptionBudget.enabled | bool | `false` | Enable PodDisruptionBudget |
-| controllerManager.podDisruptionBudget.minAvailable | int | `1` | PodDisruptionBudget's topologySpreadConstraints |
+| controllerManager.podDisruptionBudget.minAvailable | int | `1` | PodDisruptionBudget's minAvailable |
 | controllerManager.readinessProbe.failureThreshold | int | `3` | ControllerManager's readinessProbe failureThreshold |
 | controllerManager.readinessProbe.initialDelaySeconds | int | `5` | ControllerManager's readinessProbe initialDelaySeconds |
 | controllerManager.readinessProbe.periodSeconds | int | `10` | ControllerManager's readinessProbe periodSeconds |

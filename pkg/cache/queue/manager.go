@@ -407,7 +407,7 @@ func (m *Manager) IsConcurrentAdmissionParentWithoutLock(wl *kueue.Workload) boo
 	return m.ConcurrentAdmissionEnabledWithoutLock(cqName) && !concurrentadmission.IsVariant(wl)
 }
 
-func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue, specUpdated bool) error {
+func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissibleWorkloads bool) error {
 	m.Lock()
 	defer m.Unlock()
 	cqName := kueue.ClusterQueueReference(cq.Name)
@@ -418,15 +418,12 @@ func (m *Manager) UpdateClusterQueue(ctx context.Context, cq *kueue.ClusterQueue
 	}
 
 	oldActive := cqImpl.Active()
-	// TODO(#8): recreate heap based on a change of queueing policy.
 	if err := cqImpl.Update(cq); err != nil {
 		return err
 	}
 	m.hm.UpdateClusterQueueEdge(cqName, cq.Spec.CohortName)
 
-	// TODO(#8): Selectively move workloads based on the exact event.
-	// If any workload becomes admissible or the queue becomes active.
-	if specUpdated {
+	if requeueInadmissibleWorkloads {
 		// Broadcast occurs after inadmissible workloads are requeued.
 		// Immediate broadcast is no-op, as there are no workloads
 		// to process.
@@ -532,8 +529,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 		}
 
 		workload.AdjustResources(ctx, m.client, &w)
-		wInfo := workload.NewInfo(&w, m.workloadInfoOptions...)
-		wInfo.UpdateSchedulingHash(log)
+		wInfo := workload.NewInfoWithLogger(log, &w, m.workloadInfoOptions...)
 		qImpl.AddOrUpdate(wInfo)
 	}
 
@@ -721,8 +717,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
 	allOptions := append(m.workloadInfoOptions, opts...)
-	wInfo := workload.NewInfo(w, allOptions...)
-	wInfo.UpdateSchedulingHash(log)
+	wInfo := workload.NewInfoWithLogger(log, w, allOptions...)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	// Rebuilding the Info would drop the flavor scan progress an earlier cycle recorded, so
@@ -1043,8 +1038,7 @@ func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iterat
 	defer m.Unlock()
 
 	log := ctrl.LoggerFrom(ctx)
-	wInfo := workload.NewInfo(w, m.workloadInfoOptions...)
-	wInfo.UpdateSchedulingHash(log)
+	wInfo := workload.NewInfoWithLogger(log, w, m.workloadInfoOptions...)
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queue(wInfo) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
