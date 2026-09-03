@@ -2835,6 +2835,90 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"workload is not created when every pod of the group is terminating and already finalized": {
+			// Regression test for a kubelet-stuck pod teardown: the pod keeps a non-Kueue finalizer (so it lingers Terminating in the API) but Kueue's own finalizer and its Workload are gone.
+			// The foreign finalizer stands in for the kubelet-held teardown: client and API server cannot keep an object with a deletionTimestamp and no finalizers at all. No new Workload must be
+			// created for it - the pod can never be scheduled again and the
+			// recreated Workload would only hang a reservation.
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			// notably: no workloads and no CreatedWorkload event
+		},
+		"workload is created when every pod of the group is terminating but still holds the kueue finalizer": {
+			// Pods pending deletion whose Kueue finalizer has not been removed yet
+			// may still be pending finalization against a matching Workload, so
+			// creating one stays allowed.
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).Request(corev1.ResourceCPU, "1").
+						NodeName("test-node").
+						PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+						Obj(),
+					).
+					Queue(localTestQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
 		"workload is not deleted if all of the pods in the group are deleted": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			pods: []corev1.Pod{
