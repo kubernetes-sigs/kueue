@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/routine"
 	"sigs.k8s.io/kueue/pkg/util/slices"
@@ -3877,6 +3878,8 @@ type tasScheduleTestCase struct {
 	workloads       []kueue.Workload
 	wantWorkloads   []kueue.Workload
 
+	wantAssignmentRecomputations map[assignmentRecomputationLabels]float64
+
 	// wantNewAssignments is a summary of all new admissions in the cache after this cycle.
 	wantNewAssignments map[workload.Reference]kueue.Admission
 	// wantLeft is the workload keys that are left in the queues after this cycle.
@@ -3963,6 +3966,8 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
 					features.SetFeatureGatesDuringTest(t, tc.featureGates)
+					metrics.SchedulingAssignmentRecomputationsTotal.Reset()
+					t.Cleanup(metrics.SchedulingAssignmentRecomputationsTotal.Reset)
 
 					var wantWorkloads []kueue.Workload
 					if tc.wantWorkloads != nil {
@@ -4108,6 +4113,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 							utiltesting.AdjustEventsForDisabledObservabilityInScheduler(wantEvents)
 						}
 					}
+					checkAssignmentRecomputations(t, tc.wantAssignmentRecomputations)
 					// Recorded event order is not guaranteed, so sort both sides to keep the
 					// assertion deterministic.
 					eventCmpOpts := append(tc.eventCmpOpts, cmpopts.SortSlices(utiltesting.SortEvents))
@@ -5679,6 +5685,9 @@ func TestScheduleForTASPreemption(t *testing.T) {
 			},
 		},
 		"preempting workload recomputes both overlapping preemption targets and TAS topology assignment; both features enabled": {
+			wantAssignmentRecomputations: map[assignmentRecomputationLabels]float64{
+				{clusterQueue: "tas-cq-b", beforeMode: "Preempt", afterMode: "Preempt", reason: metrics.AssignmentRecomputationReasonOverlappingPreemptionTargets}: 1,
+			},
 			featureGates: map[featuregate.Feature]bool{
 				features.RecomputeAssignmentUponPreemptionTargetsOverlap: true,
 				features.TASRecomputeAssignmentWithinSchedulingCycle:     true,
@@ -6456,6 +6465,9 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
 		"two workloads in cohort nominated to the same node; enough capacity to admit both; TASRecomputeAssignmentWithinSchedulingCycle enabled": {
+			wantAssignmentRecomputations: map[assignmentRecomputationLabels]float64{
+				{clusterQueue: "tas-cq-b", beforeMode: "Fit", afterMode: "Fit", reason: metrics.AssignmentRecomputationReasonNoTAS}: 1,
+			},
 			// Both workloads nominate the same node. With recomputation enabled, the second workload (b1)
 			// recomputes and successfully lands on node-2, allowing both to be admitted.
 			featureGates: map[featuregate.Feature]bool{
@@ -7778,6 +7790,7 @@ func TestScheduleForTASCohorts(t *testing.T) {
 			eventCmpOpts: cmp.Options{eventIgnoreMessage},
 		},
 		"two workloads in cohort nominated to the same node; enough capacity to admit both; TASRecomputeAssignmentWithinSchedulingCycle disabled": {
+			wantAssignmentRecomputations: map[assignmentRecomputationLabels]float64{},
 			// Both workloads nominate the same node. With recomputation disabled, the second workload (b1)
 			// cannot recompute when the node is taken, and remains pending.
 			featureGates: map[featuregate.Feature]bool{
