@@ -42,7 +42,6 @@ import (
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
-	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -1143,9 +1142,9 @@ func TestReconciler(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder()
 			indexer := utiltesting.AsIndexer(clientBuilder)
-			err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodControllerCacheKey, podcontroller.IndexPodController)
+			err := SetupIndexes(ctx, indexer)
 			if err != nil {
-				t.Fatalf("Could not add index for %s field name", podcontroller.PodControllerCacheKey)
+				t.Fatalf("Could not setup indexes: %v", err)
 			}
 
 			objs := make([]client.Object, 0, len(tc.pods)+len(tc.workloads)+len(tc.priorityClasses)+1)
@@ -1320,9 +1319,9 @@ func TestReconciler_ClearOnHoldSetsReason(t *testing.T) {
 				WithObjects(sts, wl).
 				WithStatusSubresource(sts, wl)
 			indexer := utiltesting.AsIndexer(clientBuilder)
-			err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodControllerCacheKey, podcontroller.IndexPodController)
+			err := SetupIndexes(ctx, indexer)
 			if err != nil {
-				t.Fatalf("Could not add index for %s field name", podcontroller.PodControllerCacheKey)
+				t.Fatalf("Could not setup indexes: %v", err)
 			}
 			cl := clientBuilder.Build()
 
@@ -1414,8 +1413,8 @@ func TestReconcileDoesNotCancelTheWorkloadBranch(t *testing.T) {
 		},
 	})
 	indexer := utiltesting.AsIndexer(clientBuilder)
-	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodControllerCacheKey, podcontroller.IndexPodController); err != nil {
-		t.Fatalf("Indexing the pod controller: %v", err)
+	if err := SetupIndexes(ctx, indexer); err != nil {
+		t.Fatalf("Setting up indexes: %v", err)
 	}
 	kClient := clientBuilder.WithObjects(sts, pod, wpc).Build()
 

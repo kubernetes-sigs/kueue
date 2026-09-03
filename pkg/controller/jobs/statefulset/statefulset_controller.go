@@ -20,6 +20,8 @@ import (
 	"context"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -36,6 +38,7 @@ var (
 
 const (
 	FrameworkName = "statefulset"
+	PodOwnerKey   = ".metadata.controller"
 )
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
@@ -65,8 +68,20 @@ func (d *StatefulSet) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func SetupIndexes(context.Context, client.FieldIndexer) error {
+func IndexPodOwner(o client.Object) []string {
+	pod, ok := o.(*corev1.Pod)
+	if !ok {
+		return nil
+	}
+
+	if controllerRef := metav1.GetControllerOf(pod); controllerRef != nil && controllerRef.Kind == gvk.Kind {
+		return []string{controllerRef.Name}
+	}
 	return nil
+}
+
+func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
+	return indexer.IndexField(ctx, &corev1.Pod{}, PodOwnerKey, IndexPodOwner)
 }
 
 func GetOwnerUID(sts *appsv1.StatefulSet) types.UID {

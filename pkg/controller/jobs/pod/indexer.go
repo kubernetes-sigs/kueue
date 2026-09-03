@@ -18,15 +18,13 @@ package pod
 
 import (
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
 const (
-	PodGroupNameCacheKey  = "PodGroupNameCacheKey"
-	PodControllerCacheKey = "PodControllerCacheKey"
+	PodGroupNameCacheKey = "PodGroupNameCacheKey"
 )
 
 func IndexPodGroupName(o client.Object) []string {
@@ -37,18 +35,6 @@ func IndexPodGroupName(o client.Object) []string {
 
 	if groupName := utilpod.GetPodGroupName(pod); groupName != "" {
 		return []string{groupName}
-	}
-	return nil
-}
-
-func IndexPodController(o client.Object) []string {
-	pod, ok := o.(*corev1.Pod)
-	if !ok {
-		return nil
-	}
-
-	if controllerRef := metav1.GetControllerOf(pod); controllerRef != nil {
-		return []string{controllerRef.Kind + "/" + controllerRef.Name}
 	}
 	return nil
 }

@@ -14,41 +14,46 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package pod
+package statefulset
 
 import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
-func TestIndexPodGroupName(t *testing.T) {
+func TestIndexPodOwner(t *testing.T) {
 	cases := map[string]struct {
 		object   client.Object
 		wantKeys []string
 	}{
 		"non-pod object": {
-			object: testingnode.MakeNode("node").Label(podconstants.GroupNameLabel, "group-1").Obj(),
+			object: testingnode.MakeNode("node").OwnerReference("node", gvk).Obj(),
 		},
-		"pod without group name": {
+		"pod without owner": {
 			object: testingpod.MakePod("pod", "ns").Obj(),
 		},
-		"pod with group name": {
+		"pod with non-statefulset owner": {
 			object: testingpod.MakePod("pod", "ns").
-				GroupNameLabel("group-1").
+				OwnerReferenceWithUID("job", schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}, "job-uid").
 				Obj(),
-			wantKeys: []string{"group-1"},
+		},
+		"pod with statefulset owner": {
+			object: testingpod.MakePod("pod", "ns").
+				OwnerReferenceWithUID("sts", gvk, "sts-uid").
+				Obj(),
+			wantKeys: []string{"sts"},
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := IndexPodGroupName(tc.object)
+			got := IndexPodOwner(tc.object)
 			if diff := cmp.Diff(tc.wantKeys, got); diff != "" {
 				t.Errorf("Unexpected keys (-want,+got):\n%s", diff)
 			}

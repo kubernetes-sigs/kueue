@@ -96,7 +96,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 
 	podList := &corev1.PodList{}
 	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingFields{
-		podcontroller.PodControllerCacheKey: gvk.Kind + "/" + req.Name,
+		PodOwnerKey: req.Name,
 	}); err != nil {
 		return ctrl.Result{}, err
 	}
