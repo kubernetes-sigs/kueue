@@ -52,6 +52,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -3607,6 +3608,119 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							},
 						}),
 					))
+				})
+			})
+			ginkgo.It("should defer the fail-fast eviction of a Workload while an in-flight eviction can free a replacement node", framework.SlowSpec, func() {
+				makeRackWorkload := func(name string, count int) *kueue.Workload {
+					return utiltestingapi.MakeWorkload(name, ns.Name).
+						Queue(kueue.LocalQueueName(localQueue.Name)).
+						PodSets(*utiltestingapi.MakePodSet("worker", count).
+							RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+							Request(corev1.ResourceCPU, "1").
+							Obj()).
+						Obj()
+				}
+				admittedNode := func(g gomega.Gomega, wl *kueue.Workload) string {
+					ginkgo.GinkgoHelper()
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+					g.Expect(wl.Status.Admission).NotTo(gomega.BeNil())
+					g.Expect(wl.Status.Admission.PodSetAssignments).NotTo(gomega.BeEmpty())
+					for domain := range utiltas.InternalSeqFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment) {
+						return domain.Values[len(domain.Values)-1]
+					}
+					return ""
+				}
+
+				var foo, victim *kueue.Workload
+				ginkgo.By("admitting a workload on a node of the first rack", func() {
+					foo = makeRackWorkload("foo", 1)
+					util.MustCreate(ctx, k8sClient, foo)
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, foo)
+				})
+
+				ginkgo.By("admitting a workload that will be evicted on the remaining node of the same rack", func() {
+					victim = makeRackWorkload("victim", 1)
+					util.MustCreate(ctx, k8sClient, victim)
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, victim)
+				})
+
+				ginkgo.By("occupying the second rack so the only replacement capacity is the victim node", func() {
+					guard := makeRackWorkload("guard", 2)
+					util.MustCreate(ctx, k8sClient, guard)
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, guard)
+				})
+
+				fooNode := admittedNode(gomega.Default, foo)
+				victimNode := admittedNode(gomega.Default, victim)
+				gomega.Expect(fooNode).NotTo(gomega.Equal(victimNode))
+
+				ginkgo.By("marking the victim as evicted by preemption while it keeps its reservation, as when a preemption is in flight", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(victim), victim)).To(gomega.Succeed())
+						g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, victim, util.RealClock, func(wl *kueue.Workload) (bool, error) {
+							return workloadevict.SetEvictedCondition(wl, util.RealClock.Now(), kueue.WorkloadEvictedByPreemption, "Preempted to accommodate a workload"), nil
+						})).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("making the node running foo NotReady to trigger a failed replacement", func() {
+					nodeToUpdate := &corev1.Node{}
+					gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: fooNode}, nodeToUpdate)).Should(gomega.Succeed())
+					util.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
+						Type:               corev1.NodeReady,
+						Status:             corev1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+					})
+				})
+
+				ginkgo.By("verifying foo keeps its reservation and is not evicted while the eviction is in flight", func() {
+					// Wait until foo has been re-processed: it records the unhealthy
+					// node, keeps its quota reservation and is not marked evicted.
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updated kueue.Workload
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(foo), &updated)).To(gomega.Succeed())
+						g.Expect(updated.Status.UnhealthyNodes).To(gomega.ContainElement(kueue.UnhealthyNode{Name: fooNode}))
+						g.Expect(workload.HasQuotaReservation(&updated)).To(gomega.BeTrue())
+						g.Expect(apimeta.FindStatusCondition(updated.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeNil())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+					// The deferral must be stable: the workload is re-evaluated each
+					// scheduling cycle until the evicted workload is removed, and no
+					// cycle may fail-fast evict it in the meantime. The evicted
+					// workload must keep holding its reservation (and therefore its
+					// usage) for the whole window, which is what keeps the replacement
+					// from fitting yet.
+					gomega.Consistently(func(g gomega.Gomega) {
+						var updatedFoo, updatedVictim kueue.Workload
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(foo), &updatedFoo)).To(gomega.Succeed())
+						g.Expect(workload.HasQuotaReservation(&updatedFoo)).To(gomega.BeTrue())
+						g.Expect(apimeta.FindStatusCondition(updatedFoo.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeNil())
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(victim), &updatedVictim)).To(gomega.Succeed())
+						g.Expect(workload.HasQuotaReservation(&updatedVictim)).To(gomega.BeTrue())
+					}, 3*time.Second, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("removing the evicted workload so it frees the node foo needs", func() {
+					// An evicted workload keeps its usage until it is removed from the
+					// cache. Finishing the eviction would requeue the victim, and with
+					// no higher-priority workload waiting it would simply be re-admitted
+					// onto the same node. Deleting the victim is what frees the capacity
+					// without re-queueing it.
+					gomega.Expect(k8sClient.Delete(ctx, victim)).To(gomega.Succeed())
+				})
+
+				ginkgo.By("verifying foo completes the replacement on the freed node", func() {
+					// foo keeps its quota reservation (and therefore its old admission)
+					// while deferred, so wait for the admission to move to the node
+					// freed by the victim.
+					// Second-pass requeues use exponential backoff (capped at 30s), so
+					// allow enough time for the next retry after the removal.
+					gomega.Eventually(func(g gomega.Gomega) {
+						var updated kueue.Workload
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(foo), &updated)).To(gomega.Succeed())
+						g.Expect(updated.Status.UnhealthyNodes).NotTo(gomega.ContainElement(kueue.UnhealthyNode{Name: fooNode}))
+						g.Expect(admittedNode(g, foo)).To(gomega.Equal(victimNode))
+					}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 				})
 			})
 			ginkgo.It("should update workload UnhealthyNodes immediately when node has NoExecute taint and TASReplaceNodeOnPodTermination is disabled", framework.SlowSpec, func() {
