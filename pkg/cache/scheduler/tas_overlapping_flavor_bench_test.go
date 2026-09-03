@@ -25,8 +25,8 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 // countingSink is a logr.LogSink that counts only the "skip accounting for TAS
