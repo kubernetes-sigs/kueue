@@ -161,7 +161,7 @@ func (c *clusterQueue) updateClusterQueue(
 	}
 	c.NamespaceSelector = nsSelector
 
-	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
+	if c.updateQuotasAndResourceGroups(resourcegroups.EffectiveResourceGroups(in)) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			updateCohortTreeResourcesIfNoCycle(oldParent)
 		}
