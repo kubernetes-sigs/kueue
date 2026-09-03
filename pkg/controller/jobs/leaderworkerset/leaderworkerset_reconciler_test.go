@@ -1479,6 +1479,7 @@ func TestReconciler(t *testing.T) {
 					PrebuiltWorkloadLabel(GetWorkloadName(testLWS, testLWS, "0")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName(testLWS, testLWS, "0")).
 					KueueSchedulingGate().
 					KueueFinalizer().
 					Obj(),
@@ -1558,6 +1559,7 @@ func TestReconciler(t *testing.T) {
 					PrebuiltWorkloadLabel(GetWorkloadName(testLWS, testLWS, "0")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName(testLWS, testLWS, "0")).
 					KueueFinalizer().
 					Obj(),
 			},
@@ -1631,6 +1633,7 @@ func TestReconciler(t *testing.T) {
 					GroupTotalCount("1").
 					PrebuiltWorkloadAnnotation(GetWorkloadName(testLWS, testLWS, "0")).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName(testLWS, testLWS, "0")).
 					KueueSchedulingGate().
 					Obj(),
 			},
@@ -2118,6 +2121,7 @@ func TestReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName(testLWS, testLWS, "0")).
 					Obj(),
 			},
 		},
@@ -2269,6 +2273,7 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName(testLWS, testLWS, "0")).
 					Obj(),
 			},
 		},
@@ -2339,6 +2344,7 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName(testLWS, testLWS, "0")).
 					Obj(),
 			},
 		},
@@ -2411,6 +2417,7 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName(testLWS, testLWS, "0")).
 					Obj(),
 			},
 		},
@@ -2515,6 +2522,7 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(podconstants.RoleHashAnnotation, leaderPodSetName).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName(testLWS, testLWS, "0")).
 					Obj(),
 			},
 		},
@@ -2621,6 +2629,7 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(leaderworkersetv1.LeaderPodNameAnnotationKey, "lws-0").
 					Annotation(podconstants.RoleHashAnnotation, workerPodSetName).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName(testLWS, testLWS, "0")).
 					Obj(),
 			},
 		},
@@ -2696,6 +2705,7 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName("origin-uid", testLWS, "0")).
 					Obj(),
 			},
 		},
