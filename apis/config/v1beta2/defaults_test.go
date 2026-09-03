@@ -685,8 +685,9 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				},
 			},
 			want: &Configuration{
-				Namespace:         new(DefaultNamespace),
-				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
+				Namespace:            new(DefaultNamespace),
+				ControllerManager:    defaultCtrlManagerConfigurationSpec,
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
