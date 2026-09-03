@@ -935,6 +935,15 @@ func (c *CohortWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *CohortWrap
 	return c
 }
 
+// EffectiveQuotas adds a ResourceGroup with flavors to status.effectiveQuotas.
+func (c *CohortWrapper) EffectiveQuotas(flavors ...kueue.FlavorQuotas) *CohortWrapper {
+	if c.Status.EffectiveQuotas == nil {
+		c.Status.EffectiveQuotas = &kueue.EffectiveQuotaStatus{}
+	}
+	c.Status.EffectiveQuotas.ResourceGroups = append(c.Status.EffectiveQuotas.ResourceGroups, ResourceGroup(flavors...))
+	return c
+}
+
 func (c *CohortWrapper) FairWeight(w resource.Quantity) *CohortWrapper {
 	if c.Spec.FairSharing == nil {
 		c.Spec.FairSharing = &kueue.FairSharing{}
@@ -1084,6 +1093,15 @@ func ResourceGroup(flavors ...kueue.FlavorQuotas) kueue.ResourceGroup {
 // ResourceGroup adds a ResourceGroup with flavors.
 func (c *ClusterQueueWrapper) ResourceGroup(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
 	c.Spec.ResourceGroups = append(c.Spec.ResourceGroups, ResourceGroup(flavors...))
+	return c
+}
+
+// EffectiveQuotas adds a ResourceGroup with flavors to status.effectiveQuotas.
+func (c *ClusterQueueWrapper) EffectiveQuotas(flavors ...kueue.FlavorQuotas) *ClusterQueueWrapper {
+	if c.Status.EffectiveQuotas == nil {
+		c.Status.EffectiveQuotas = &kueue.EffectiveQuotaStatus{}
+	}
+	c.Status.EffectiveQuotas.ResourceGroups = append(c.Status.EffectiveQuotas.ResourceGroups, ResourceGroup(flavors...))
 	return c
 }
 

@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -276,7 +277,7 @@ func (p *PendingWorkloads) UpdateConfiguredResources(apiCQ *kueue.ClusterQueue) 
 	defer p.Unlock()
 
 	newConfigured := sets.New[corev1.ResourceName]()
-	for _, rg := range apiCQ.Spec.ResourceGroups {
+	for _, rg := range resourcegroups.EffectiveResourceGroups(apiCQ) {
 		for _, fq := range rg.Flavors {
 			for _, r := range fq.Resources {
 				newConfigured.Insert(r.Name)
