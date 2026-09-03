@@ -171,11 +171,11 @@ func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) (targets []*Target,
 }
 
 func (pCtx *preemptionCtx) restoreSnapshot(targets []*Target) error {
-	wls := sets.New[types.NamespacedName]()
+	wls := make([]types.NamespacedName, 0, len(targets))
 	for _, t := range targets {
-		wls.Insert(client.ObjectKeyFromObject(t.WorkloadInfo.Obj))
+		wls = append(wls, client.ObjectKeyFromObject(t.WorkloadInfo.Obj))
 	}
-	return pCtx.simulation.RestoreSnapshot(wls)
+	return pCtx.simulation.RestoreWorkloads(wls...)
 }
 
 func (pCtx *preemptionCtx) preemptWorkload(candidate *workload.Info, reason string) (*Target, error) {
@@ -379,7 +379,7 @@ func (pCtx *preemptionCtx) fillBackWorkloads(targets []*Target, allowBorrowing b
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		target := targets[i]
-		if err := pCtx.simulation.RestoreWorkload(target.WorkloadInfo); err != nil {
+		if err := pCtx.simulation.RestoreWorkloads(client.ObjectKeyFromObject(target.GetObject())); err != nil {
 			return nil, fmt.Errorf("snapshot corrupted, failed to restore workload: %w", err)
 		}
 		if workloadFits(pCtx, allowBorrowing) {

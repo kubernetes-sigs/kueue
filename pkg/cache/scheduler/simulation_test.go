@@ -27,7 +27,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -789,12 +788,13 @@ func TestRestoreWorkload(t *testing.T) {
 			}
 			var restoreErr error
 			for _, wlName := range tc.restore {
-				if err := sim.RestoreWorkload(wlInfos[wlName]); err != nil {
+				wlKey := client.ObjectKeyFromObject(wlInfos[wlName].Obj)
+				if err := sim.RestoreWorkloads(wlKey); err != nil {
 					restoreErr = err
 				}
 			}
 			if (restoreErr != nil) != tc.wantErr {
-				t.Errorf("RestoreWorkload() error = %v, wantErr %v", restoreErr, tc.wantErr)
+				t.Errorf("RestoreWorkloads() error = %v, wantErr %v", restoreErr, tc.wantErr)
 			}
 			opts := append(snapCmpOpts,
 				cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
@@ -860,12 +860,15 @@ func TestRestoreSnapshot(t *testing.T) {
 			preempt:        []string{"wl1", "wl2"},
 			restoreTargets: []string{},
 			want: Snapshot{
-				Manager: newSimulationTestManager(cqCache, make(map[workload.Reference]*workload.Info), 0),
+				Manager: newSimulationTestManager(cqCache,
+					map[workload.Reference]*workload.Info{
+						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
+						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
+					},
+					5_000,
+				),
 			},
-			wantSimState: map[workloadKey]preemption{
-				client.ObjectKeyFromObject(wlInfos["wl1"].Obj): {target: wlInfos["wl1"]},
-				client.ObjectKeyFromObject(wlInfos["wl2"].Obj): {target: wlInfos["wl2"]},
-			},
+			wantSimState: make(map[workloadKey]preemption),
 		},
 		"restore with revert error returns error": {
 			preempt: []string{"wl1"},
@@ -907,11 +910,11 @@ func TestRestoreSnapshot(t *testing.T) {
 					sim.simulatedPreemptions[key] = p
 				}
 			}
-			targets := sets.New[types.NamespacedName]()
+			targets := make([]types.NamespacedName, 0, len(tc.restoreTargets))
 			for _, wlName := range tc.restoreTargets {
-				targets.Insert(client.ObjectKeyFromObject(wlInfos[wlName].Obj))
+				targets = append(targets, client.ObjectKeyFromObject(wlInfos[wlName].Obj))
 			}
-			err = sim.RestoreSnapshot(targets)
+			err = sim.RestoreWorkloads(targets...)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("RestoreSnapshot() error = %v, wantErr %v", err, tc.wantErr)
 			}
@@ -972,7 +975,8 @@ func TestSimulation(t *testing.T) {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl2"]); err != nil {
 					return fmt.Errorf("unexpected error preempting wl2: %v", err)
 				}
-				if err := sim.RestoreWorkload(wlInfos["wl1"]); err != nil {
+				wlKey := client.ObjectKeyFromObject(wlInfos["wl1"].Obj)
+				if err := sim.RestoreWorkloads(wlKey); err != nil {
 					return fmt.Errorf("unexpected error restoring wl1: %v", err)
 				}
 				return nil
@@ -986,8 +990,7 @@ func TestSimulation(t *testing.T) {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl2"]); err != nil {
 					return fmt.Errorf("unexpected error preempting wl2: %v", err)
 				}
-				targets := sets.New(client.ObjectKeyFromObject(wlInfos["wl1"].Obj))
-				if err := sim.RestoreSnapshot(targets); err != nil {
+				if err := sim.RestoreWorkloads(client.ObjectKeyFromObject(wlInfos["wl1"].Obj)); err != nil {
 					return fmt.Errorf("unexpected error restoring snapshot: %v", err)
 				}
 				return nil

@@ -5008,7 +5008,8 @@ func TestClassicalPreemptionsErrorPaths(t *testing.T) {
 				Priority(20).
 				Request(corev1.ResourceCPU, "10").
 				Obj(),
-			wantErr: errPreemptFailed,
+			preemptErr: errPreemptFailed,
+			wantErr:    errPreemptFailed,
 		},
 		"error in restoreSnapshot when workload fits after preemption": {
 			cqQuota: "10",
