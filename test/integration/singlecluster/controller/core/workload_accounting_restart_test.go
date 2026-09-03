@@ -25,6 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -72,6 +73,7 @@ var _ = ginkgo.Describe("Workload accounting across a manager restart", func() {
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		gomega.Expect(util.DeleteObject(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
+		metrics.InitMetricVectors(nil)
 	})
 
 	expectReservedCPU := func(total string) {

@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -79,6 +80,7 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, largeFlavor, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, smallFlavor, true)
 		fwk.StopManager(ctx)
+		metrics.InitMetricVectors(nil)
 	})
 
 	expectAdmittedOnFlavor := func(wl *kueue.Workload, flavorName string) {
@@ -189,6 +191,7 @@ var _ = ginkgo.Describe("Pending scheduling hashes under differing LimitRange de
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		fwk.StopManager(ctx)
+		metrics.InitMetricVectors(nil)
 	})
 
 	ginkgo.It("reports two distinct hashes for raw-identical workloads under different defaults", func() {
