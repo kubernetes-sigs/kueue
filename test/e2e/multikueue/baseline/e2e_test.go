@@ -678,7 +678,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
 			})
 		})
-
 	})
 
 	ginkgo.When("Preemption with a multikueue admission check", func() {
