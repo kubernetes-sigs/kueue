@@ -134,32 +134,40 @@ func TestRemoteRetentionRemaining(t *testing.T) {
 }
 
 func TestReconcileGroupRemoteRetention(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.MultiKueueRemoteObjectRetention, true)
 	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, true)
 
 	now := time.Now().Truncate(time.Second)
 	tests := map[string]struct {
+		gate              bool
 		withQuota         bool
 		selectedOutOfSync bool
 		wantRetained      bool
 		wantRequeueAfter  time.Duration
 	}{
 		"retains only the finishing worker": {
+			gate:             true,
 			withQuota:        true,
 			wantRetained:     true,
 			wantRequeueAfter: 9 * time.Minute,
 		},
 		"quota loss remains immediate": {
+			gate:         true,
 			wantRetained: false,
 		},
 		"out-of-sync recovery remains immediate": {
+			gate:              true,
 			withQuota:         true,
 			selectedOutOfSync: true,
+		},
+		"disabled gate keeps immediate cleanup": {
+			withQuota:    true,
+			wantRetained: false,
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.MultiKueueRemoteObjectRetention, tc.gate)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			localBuilder := utiltestingapi.MakeWorkload("wl", TestNamespace).ClusterName("worker1")
 			if tc.withQuota {
@@ -269,6 +277,15 @@ func TestSameNameReplacementChecksOwnershipAndCurrentManager(t *testing.T) {
 			emptyOrigin:         true,
 			wantRemoteObject:    true,
 			wantErr:             jobframework.ErrMultiKueueOriginEmpty,
+		},
+		"missing manager UID skips deletion and still creates the remote Workload": {
+			remoteObjectOrigin:  defaultOrigin,
+			remoteObjectPresent: true,
+			wantRemoteObject:    true,
+			wantRemoteWorkload:  true,
+		},
+		"missing manager UID still creates the remote Workload": {
+			wantRemoteWorkload: true,
 		},
 	}
 

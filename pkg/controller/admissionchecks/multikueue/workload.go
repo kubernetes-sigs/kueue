@@ -179,7 +179,10 @@ func (g *wlGroup) deleteRemoteObjectOfOtherWorkload(ctx context.Context, cluster
 
 	managerUID := g.managerObjectUID()
 	if managerUID == "" {
-		return false, false, nil
+		// Without a manager UID we cannot tell whether a same-name remote object
+		// belongs to this run. Skip deletion so we do not remove another job,
+		// but still proceed to Create.
+		return false, true, nil
 	}
 	managerObject := &metav1.PartialObjectMetadata{}
 	managerObject.SetGroupVersionKind(g.jobAdapter.GVK())
@@ -940,28 +943,38 @@ func admittedClusterQueue(wl *kueue.Workload) kueue.ClusterQueueReference {
 	return wl.Status.Admission.ClusterQueue
 }
 
+func (w *wlReconciler) createRemoteWorkload(ctx context.Context, log klog.Logger, group *wlGroup, cluster string, preemptionGated bool) (stop bool, result reconcile.Result, err error) {
+	deleted, proceed, err := group.deleteRemoteObjectOfOtherWorkload(ctx, cluster)
+	if err != nil {
+		return true, reconcile.Result{}, err
+	}
+	if !proceed {
+		return true, reconcile.Result{}, nil
+	}
+	if deleted {
+		return true, reconcile.Result{RequeueAfter: remoteObjectReplacementRequeueAfter}, nil
+	}
+	clone := cloneForCreate(group.local, group.remoteClients[cluster].origin, preemptionGated)
+	if err := group.remoteClients[cluster].getClient().Create(ctx, clone); err != nil {
+		log.V(2).Error(err, "creating remote workload", "cluster", cluster)
+		return false, reconcile.Result{}, err
+	}
+	metrics.ReportMultiKueueWorkloadDispatched(admittedClusterQueue(group.local), cluster, w.roleTracker)
+	return false, reconcile.Result{}, nil
+}
+
 func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger, group *wlGroup, targetCluster string) (reconcile.Result, error) {
 	var errs []error
 
 	for clusterName, remoteWl := range group.remotes {
 		if clusterName == targetCluster {
 			if remoteWl == nil {
-				deleted, proceed, err := group.deleteRemoteObjectOfOtherWorkload(ctx, clusterName)
+				stop, res, err := w.createRemoteWorkload(ctx, log, group, clusterName, false)
+				if stop {
+					return res, err
+				}
 				if err != nil {
-					return reconcile.Result{}, err
-				}
-				if !proceed {
-					return reconcile.Result{}, nil
-				}
-				if deleted {
-					return reconcile.Result{RequeueAfter: remoteObjectReplacementRequeueAfter}, nil
-				}
-				clone := cloneForCreate(group.local, group.remoteClients[clusterName].origin, false)
-				if err := group.remoteClients[clusterName].getClient().Create(ctx, clone); err != nil {
-					log.V(2).Error(err, "creating remote workload", "cluster", clusterName)
 					errs = append(errs, err)
-				} else {
-					metrics.ReportMultiKueueWorkloadDispatched(admittedClusterQueue(group.local), clusterName, w.roleTracker)
 				}
 			}
 			continue
@@ -1078,22 +1091,12 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	for rem, remoteWl := range group.remotes {
 		if slices.Contains(nominatedWorkers, rem) {
 			if remoteWl == nil {
-				deleted, proceed, err := group.deleteRemoteObjectOfOtherWorkload(ctx, rem)
+				stop, res, err := w.createRemoteWorkload(ctx, log, group, rem, true)
+				if stop {
+					return res, err
+				}
 				if err != nil {
-					return reconcile.Result{}, err
-				}
-				if !proceed {
-					return reconcile.Result{}, nil
-				}
-				if deleted {
-					return reconcile.Result{RequeueAfter: remoteObjectReplacementRequeueAfter}, nil
-				}
-				clone := cloneForCreate(group.local, group.remoteClients[rem].origin, true)
-				if err := group.remoteClients[rem].getClient().Create(ctx, clone); err != nil {
-					log.V(2).Error(err, "creating remote object", "remote", rem)
 					errs = append(errs, err)
-				} else {
-					metrics.ReportMultiKueueWorkloadDispatched(admittedClusterQueue(group.local), rem, w.roleTracker)
 				}
 			}
 		} else if remoteWl != nil {
