@@ -206,8 +206,12 @@ func MaximumExecutionTimeSecondsForObject(object client.Object) *int32 {
 
 // PodsReadyTimeoutForObject extracts and parses the pods-ready timeout from the
 // kueue.x-k8s.io/pods-ready-timeout annotation on any Kueue-managed resource object.
-// Returns nil if the annotation is absent or the value is not a valid duration.
+// Returns nil if the WorkloadLevelWaitForPodsReady feature is disabled, the annotation
+// is absent, or the value is not a valid duration.
 func PodsReadyTimeoutForObject(object client.Object) *metav1.Duration {
+	if !features.Enabled(features.WorkloadLevelWaitForPodsReady) || features.Enabled(features.DisableWaitForPodsReady) {
+		return nil
+	}
 	strVal, found := object.GetAnnotations()[controllerconstants.PodsReadyTimeoutAnnotation]
 	if !found {
 		return nil

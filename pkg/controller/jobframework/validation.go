@@ -262,6 +262,9 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 }
 
 func validateCreateForPodsReadyTimeout(job GenericJob) field.ErrorList {
+	if !features.Enabled(features.WorkloadLevelWaitForPodsReady) {
+		return nil
+	}
 	strVal, found := job.Object().GetAnnotations()[constants.PodsReadyTimeoutAnnotation]
 	if !found {
 		return nil
@@ -277,6 +280,9 @@ func validateCreateForPodsReadyTimeout(job GenericJob) field.ErrorList {
 }
 
 func validateUpdateForPodsReadyTimeout(oldJob, newJob GenericJob) field.ErrorList {
+	if !features.Enabled(features.WorkloadLevelWaitForPodsReady) {
+		return nil
+	}
 	if !newJob.IsSuspended() || !oldJob.IsSuspended() {
 		return apivalidation.ValidateImmutableField(
 			newJob.Object().GetAnnotations()[constants.PodsReadyTimeoutAnnotation],

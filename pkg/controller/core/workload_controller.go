@@ -1638,7 +1638,8 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 // workload is already admitted and ready, it returns an empty underlyingCause
 // and zero duration.
 func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue.EvictionUnderlyingCause, time.Duration) {
-	// Resolve the effective WaitForStart timeout: per-workload takes precedence.
+	// Resolve the effective WaitForStart timeout: per-workload takes precedence
+	// when the WorkloadLevelWaitForPodsReady feature is enabled.
 	var timeout time.Duration
 	switch {
 	case wl.Spec.WaitForPodsReady != nil && wl.Spec.WaitForPodsReady.PodsReadyTimeout != nil:
