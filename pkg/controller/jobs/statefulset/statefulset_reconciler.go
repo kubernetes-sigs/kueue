@@ -138,7 +138,7 @@ func (r *Reconciler) ungatePods(ctx context.Context, sts *appsv1.StatefulSet, wl
 }
 
 func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlName string, pod *corev1.Pod) error {
-	log := ctrl.LoggerFrom(ctx)
+	log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
 	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 		var updated bool
 		log = log.WithValues("pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
@@ -147,19 +147,11 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 			updated = true
 		}
 		if r.setDefault(sts, wlName, pod) {
-			log.V(3).Info(
-				"Updating pod in group",
-				"pod", klog.KObj(pod),
-				"group", utilpod.GetPodGroupName(pod),
-			)
+			log.V(3).Info("Updating pod in group")
 			updated = true
 		}
 		if utilstatefulset.UngatePod(sts, pod, false) {
-			log.V(3).Info(
-				"Ungating pod in group",
-				"pod", klog.KObj(pod),
-				"group", utilpod.GetPodGroupName(pod),
-			)
+			log.V(3).Info("Ungating pod in group")
 			updated = true
 		}
 		return updated, nil
@@ -183,10 +175,6 @@ func (r *Reconciler) syncQueueLabel(sts *appsv1.StatefulSet, pod *corev1.Pod) bo
 
 func (r *Reconciler) setDefault(sts *appsv1.StatefulSet, wlName string, pod *corev1.Pod) bool {
 	if sts == nil {
-		return false
-	}
-
-	if pod.Annotations[podconstants.SuspendedByParentAnnotation] != FrameworkName {
 		return false
 	}
 
