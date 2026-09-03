@@ -382,7 +382,7 @@ func fillBackWorkloads(simCtx *scheduler.SimulationContext, pCtx *preemptionCtx,
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		target := targets[i]
-		if err := simCtx.RestoreWorkloads(client.ObjectKeyFromObject(target.GetObject())); err != nil {
+		if err := simCtx.RestoreWorkload(client.ObjectKeyFromObject(target.GetObject())); err != nil {
 			return nil, fmt.Errorf("snapshot corrupted, failed to restore workload: %w", err)
 		}
 		if workloadFits(pCtx, allowBorrowing) {

@@ -789,7 +789,7 @@ func TestRestoreWorkload(t *testing.T) {
 			var restoreErr error
 			for _, wlName := range tc.restore {
 				wlKey := client.ObjectKeyFromObject(wlInfos[wlName].Obj)
-				if err := sim.RestoreWorkloads(wlKey); err != nil {
+				if err := sim.RestoreWorkload(wlKey); err != nil {
 					restoreErr = err
 				}
 			}
@@ -914,7 +914,7 @@ func TestRestoreSnapshot(t *testing.T) {
 			for _, wlName := range tc.restoreTargets {
 				targets = append(targets, client.ObjectKeyFromObject(wlInfos[wlName].Obj))
 			}
-			err = sim.RestoreWorkloads(targets...)
+			err = sim.restoreWorkloads(targets...)
 			if (err != nil) != tc.wantErr {
 				t.Errorf("RestoreSnapshot() error = %v, wantErr %v", err, tc.wantErr)
 			}
@@ -976,7 +976,7 @@ func TestSimulation(t *testing.T) {
 					return fmt.Errorf("unexpected error preempting wl2: %v", err)
 				}
 				wlKey := client.ObjectKeyFromObject(wlInfos["wl1"].Obj)
-				if err := sim.RestoreWorkloads(wlKey); err != nil {
+				if err := sim.RestoreWorkload(wlKey); err != nil {
 					return fmt.Errorf("unexpected error restoring wl1: %v", err)
 				}
 				return nil
@@ -990,7 +990,7 @@ func TestSimulation(t *testing.T) {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl2"]); err != nil {
 					return fmt.Errorf("unexpected error preempting wl2: %v", err)
 				}
-				if err := sim.RestoreWorkloads(client.ObjectKeyFromObject(wlInfos["wl1"].Obj)); err != nil {
+				if err := sim.RestoreWorkload(client.ObjectKeyFromObject(wlInfos["wl1"].Obj)); err != nil {
 					return fmt.Errorf("unexpected error restoring snapshot: %v", err)
 				}
 				return nil
