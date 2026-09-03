@@ -20,11 +20,14 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -103,6 +106,33 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	}
 
+	expectClusterQueueStopped := func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			updatedCq := kueue.ClusterQueue{}
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
+			activeCondition := apimeta.FindStatusCondition(updatedCq.Status.Conditions, kueue.ClusterQueueActive)
+			g.Expect(activeCondition).NotTo(gomega.BeNil())
+			g.Expect(activeCondition.Status).To(gomega.Equal(metav1.ConditionFalse))
+			g.Expect(activeCondition.Reason).To(gomega.Equal(kueue.ClusterQueueActiveReasonStopped))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}
+
+	expectPendingWorkloadCPURequest := func(wl *kueue.Workload, cpu string) {
+		wantCPU := resources.ResourceValue(corev1.ResourceCPU, resource.MustParse(cpu))
+		gomega.Eventually(func(g gomega.Gomega) {
+			found := false
+			for _, info := range qManager.PendingWorkloadsInfo(kueue.ClusterQueueReference(clusterQueue.Name)) {
+				if workload.Key(info.Obj) == workload.Key(wl) {
+					found = true
+					g.Expect(info.TotalRequests).To(gomega.HaveLen(1))
+					g.Expect(info.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)).To(gomega.Equal(wantCPU))
+					break
+				}
+			}
+			g.Expect(found).To(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}
+
 	ginkgo.It("places a raw-identical workload by its new effective resources after a defaultRequest change", func() {
 		wl1 := utiltestingapi.MakeWorkload("one", ns.Name).
 			Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -116,11 +146,12 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 			Queue(kueue.LocalQueueName(localQueue.Name)).
 			Obj()
 		ginkgo.By("creating a raw-identical second workload while the ClusterQueue is held", func() {
-			// Holding the ClusterQueue makes the ordering between the
-			// LimitRange update and the second workload's admission
-			// deterministic: the workload is only evaluated after release.
+			// Wait for the Hold to take effect before creating wl2, ensuring it
+			// cannot be admitted until its effective requests are refreshed.
 			setStopPolicy(kueue.Hold)
+			expectClusterQueueStopped()
 			util.MustCreate(ctx, k8sClient, wl2)
+			expectPendingWorkloadCPURequest(wl2, "1")
 		})
 
 		ginkgo.By("raising the LimitRange defaultRequest to 3 CPU", func() {
@@ -128,6 +159,7 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(limitRange), &updatedLr)).To(gomega.Succeed())
 			updatedLr.Spec.Limits[0].DefaultRequest[corev1.ResourceCPU] = resource.MustParse("3")
 			gomega.Expect(k8sClient.Update(ctx, &updatedLr)).To(gomega.Succeed())
+			expectPendingWorkloadCPURequest(wl2, "3")
 		})
 
 		ginkgo.By("releasing the ClusterQueue and admitting the second workload on the large flavor (effective 3 CPU)", func() {
