@@ -81,7 +81,7 @@ func TestCohortEffectiveQuotasUpdateAndFallback(t *testing.T) {
 	}
 
 	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
-	if q := c.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(10000) {
+	if q := c.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(10000)) {
 		t.Errorf("expected nominal quota 10000 from spec, got %v", q.Nominal)
 	}
 
@@ -97,7 +97,7 @@ func TestCohortEffectiveQuotasUpdateAndFallback(t *testing.T) {
 		t.Fatalf("unexpected error updating cohort: %v", err)
 	}
 
-	if q := c.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(500000) {
+	if q := c.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(500000)) {
 		t.Errorf("expected nominal quota 500000 from EffectiveQuotas, got %v", q.Nominal)
 	}
 
@@ -110,7 +110,7 @@ func TestCohortEffectiveQuotasUpdateAndFallback(t *testing.T) {
 		t.Fatalf("unexpected error updating cohort: %v", err)
 	}
 
-	if q := c.resourceNode.Quotas[fr]; q.Nominal != resources.NewAmount(10000) {
+	if q := c.resourceNode.Quotas[fr]; !q.Nominal.Equal(resources.NewAmount(10000)) {
 		t.Errorf("expected nominal quota 10000 after clearing EffectiveQuotas, got %v", q.Nominal)
 	}
 }
