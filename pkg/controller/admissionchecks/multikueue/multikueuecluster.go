@@ -47,6 +47,7 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/events"
+	flowcontrol "k8s.io/client-go/util/flowcontrol"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -64,6 +65,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -107,15 +109,37 @@ func retryAfter(failedAttempts uint) time.Duration {
 type clientWithWatchBuilder func(ctx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error)
 
 type clientConfig struct {
-	Kubeconfig []byte
-	RestConfig *rest.Config
+	Kubeconfig       []byte
+	RestConfig       *rest.Config
+	ClientConnection *configapi.ClientConnection
 }
 
 func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
+	var (
+		restConfig *rest.Config
+		err        error
+	)
 	if c.RestConfig != nil {
-		return c.RestConfig, nil
+		restConfig = c.RestConfig
+	} else {
+		restConfig, err = clientcmd.RESTConfigFromKubeConfig(c.Kubeconfig)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return clientcmd.RESTConfigFromKubeConfig(c.Kubeconfig)
+	if c.ClientConnection != nil && c.ClientConnection.QPS != nil {
+		if *c.ClientConnection.QPS >= 0.0 {
+			burst := 0
+			if c.ClientConnection.Burst != nil {
+				burst = int(*c.ClientConnection.Burst)
+			}
+			restConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*c.ClientConnection.QPS, burst)
+		} else {
+			restConfig.RateLimiter = nil
+			restConfig.QPS = *c.ClientConnection.QPS
+		}
+	}
+	return restConfig, nil
 }
 
 type remoteClient struct {
@@ -778,6 +802,8 @@ type clustersReconciler struct {
 
 	logName     string
 	roleTracker *roletracker.RoleTracker
+
+	clientConnection *configapi.ClientConnection
 }
 
 type clusterProfileAccessProvider interface {
@@ -941,7 +967,7 @@ func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueu
 		if err := validateRestConfig(restConfig, opts); err != nil {
 			return nil, "BadRestConfig", err
 		}
-		return &clientConfig{RestConfig: restConfig}, "", nil
+		return &clientConfig{RestConfig: restConfig, ClientConnection: c.clientConnection}, "", nil
 	}
 
 	kubeConfig, err := c.getKubeConfig(ctx, cluster.Spec.ClusterSource.KubeConfig)
@@ -952,7 +978,7 @@ func (c *clustersReconciler) loadClientConfig(ctx context.Context, cluster *kueu
 	if err := validateKubeconfig(kubeConfig); err != nil {
 		return nil, "InsecureKubeConfig", err
 	}
-	return &clientConfig{Kubeconfig: kubeConfig}, "", nil
+	return &clientConfig{Kubeconfig: kubeConfig, ClientConnection: c.clientConnection}, "", nil
 }
 
 // validateKubeconfig checks that the provided kubeconfig content is safe to use
@@ -1219,6 +1245,7 @@ func newClustersReconciler(
 	cpAccessProvider clusterProfileAccessProvider,
 	roleTracker *roletracker.RoleTracker,
 	recorder events.EventRecorder,
+	clientConnection *configapi.ClientConnection,
 ) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:                  c,
@@ -1236,6 +1263,7 @@ func newClustersReconciler(
 		clusterProfileAccessProvider: cpAccessProvider,
 		logName:                      "multikueuecluster-reconciler",
 		roleTracker:                  roleTracker,
+		clientConnection:             clientConnection,
 	}
 }
 
