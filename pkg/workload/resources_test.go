@@ -116,6 +116,67 @@ func TestAdjustResources(t *testing.T) {
 				).
 				Obj(),
 		},
+		// An overhead Kueue will not charge leaves the PodSet with nothing, so
+		// the RuntimeClass it names is read instead of being passed over.
+		"Handle runtimeClass whose podOverHead is all uncharged entries": {
+			runtimeClasses: []nodev1.RuntimeClass{
+				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").
+					PodOverhead(corev1.ResourceList{
+						corev1.ResourceCPU:    defaultResourceQuantity(corev1.ResourceCPU, 1),
+						corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 1024),
+					}).
+					RuntimeClass,
+			},
+			wl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("reserved-name", 1).
+						RuntimeClass("runtime-a").
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourcePods: defaultResourceQuantity(corev1.ResourcePods, 1),
+						}).
+						Obj(),
+					*utiltestingapi.MakePodSet("negative", 1).
+						RuntimeClass("runtime-a").
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourceCPU: defaultResourceQuantity(corev1.ResourceCPU, -1),
+						}).
+						Obj(),
+					// One charged entry alongside is still an overhead, so the
+					// RuntimeClass stays out of it.
+					*utiltestingapi.MakePodSet("partly-charged", 1).
+						RuntimeClass("runtime-a").
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourcePods:   defaultResourceQuantity(corev1.ResourcePods, 1),
+							corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 2048),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantWl: utiltestingapi.MakeWorkload("foo", "").
+				PodSets(
+					*utiltestingapi.MakePodSet("reserved-name", 1).
+						RuntimeClass("runtime-a").
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourceCPU:    defaultResourceQuantity(corev1.ResourceCPU, 1),
+							corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 1024),
+						}).
+						Obj(),
+					*utiltestingapi.MakePodSet("negative", 1).
+						RuntimeClass("runtime-a").
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourceCPU:    defaultResourceQuantity(corev1.ResourceCPU, 1),
+							corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 1024),
+						}).
+						Obj(),
+					*utiltestingapi.MakePodSet("partly-charged", 1).
+						RuntimeClass("runtime-a").
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourceMemory: defaultResourceQuantity(corev1.ResourceMemory, 2048),
+						}).
+						Obj(),
+				).
+				Obj(),
+		},
 		"Handle runtimeClass without podOverHead": {
 			runtimeClasses: []nodev1.RuntimeClass{
 				utiltesting.MakeRuntimeClass("runtime-a", "handler-a").

@@ -111,10 +111,20 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	var allErrs field.ErrorList
 	specPath := field.NewPath("spec")
 
+	// On an update, what a PodSet already carried is not this workload's to
+	// refuse again; only what it is asking for now.
+	var previousOverhead map[kueue.PodSetReference]corev1.ResourceList
+	if oldObj != nil {
+		previousOverhead = make(map[kueue.PodSetReference]corev1.ResourceList, len(oldObj.Spec.PodSets))
+		for i := range oldObj.Spec.PodSets {
+			previousOverhead[oldObj.Spec.PodSets[i].Name] = oldObj.Spec.PodSets[i].Template.Spec.Overhead
+		}
+	}
+
 	variableCountPodSets := 0
 	for i := range obj.Spec.PodSets {
 		ps := &obj.Spec.PodSets[i]
-		allErrs = append(allErrs, validatePodSet(ps, specPath.Child("podSets").Index(i))...)
+		allErrs = append(allErrs, validatePodSet(ps, previousOverhead[ps.Name], specPath.Child("podSets").Index(i))...)
 		if ps.MinCount != nil {
 			variableCountPodSets++
 		}
@@ -157,7 +167,7 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 	return allErrs
 }
 
-func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
+func validatePodSet(ps *kueue.PodSet, oldOverhead corev1.ResourceList, path *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
 	// validate metadata labels and annotations
@@ -175,6 +185,14 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 	cPath := path.Child("template", "spec", "containers")
 	for ci := range ps.Template.Spec.Containers {
 		allErrs = append(allErrs, validateContainer(&ps.Template.Spec.Containers[ci], cPath.Index(ci))...)
+	}
+	// Pod overhead is added to the request PodRequests computes, so it is charged
+	// like the rest and has to be validated with them. Entries a workload was
+	// already carrying are left alone, since an update is how it writes a
+	// condition, deactivates, releases quota and drops its finalizer, and its
+	// PodSets are immutable once it has reserved.
+	if ps.Template.Spec.Overhead != nil {
+		allErrs = append(allErrs, validateResourceList(newOverhead(ps.Template.Spec.Overhead, oldOverhead), path.Child("template", "spec", "overhead"))...)
 	}
 	// validate pod-level resources
 	if ps.Template.Spec.Resources != nil {
@@ -218,6 +236,22 @@ func validateAdmissionChecks(obj *kueue.Workload, basePath *field.Path) field.Er
 		allErrs = append(allErrs, validatePodSetUpdates(&obj.Status.AdmissionChecks[i], obj, basePath.Index(i).Child("podSetUpdates"))...)
 	}
 	return allErrs
+}
+
+// newOverhead drops the entries that are already on the workload unchanged, so
+// what is left is what this request introduces.
+func newOverhead(overhead, old corev1.ResourceList) corev1.ResourceList {
+	if len(old) == 0 {
+		return overhead
+	}
+	introduced := make(corev1.ResourceList, len(overhead))
+	for name, quantity := range overhead {
+		if before, carried := old[name]; carried && before.Cmp(quantity) == 0 {
+			continue
+		}
+		introduced[name] = quantity
+	}
+	return introduced
 }
 
 func validatePodSetUpdates(acs *kueue.AdmissionCheckState, obj *kueue.Workload, basePath *field.Path) field.ErrorList {

@@ -18,6 +18,7 @@ package concurrentadmission
 
 import (
 	"fmt"
+	"maps"
 	"testing"
 	"time"
 
@@ -2501,5 +2502,45 @@ func TestCreateVariantsAlreadyExists(t *testing.T) {
 
 	if err := cl.Get(t.Context(), client.ObjectKeyFromObject(existing), &kueue.Workload{}); err != nil {
 		t.Fatalf("pre-existing variant should still exist: %v", err)
+	}
+}
+
+// A variant is a create, so the webhook has nothing earlier to weigh an
+// overhead entry against and refuses one the parent is only allowed to keep.
+func TestGenerateVariantNormalizesOverheadWithoutTouchingTheParent(t *testing.T) {
+	parent := utiltestingapi.MakeWorkload("parent-wl", "default").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "1").
+		Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+		Obj()
+	parent.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
+		corev1.ResourcePods: resource.MustParse("1"),
+		corev1.ResourceCPU:  resource.MustParse("-1"),
+		"example.com/keep":  resource.MustParse("2"),
+	}
+	parentLabels := maps.Clone(parent.Labels)
+	parentOverhead := parent.Spec.PodSets[0].Template.Spec.Overhead.DeepCopy()
+
+	variant := generateVariant(parent, "spot")
+
+	got := variant.Spec.PodSets[0].Template.Spec.Overhead
+	if _, found := got[corev1.ResourcePods]; found {
+		t.Errorf("variant kept the pods overhead: %v", got)
+	}
+	if _, found := got[corev1.ResourceCPU]; found {
+		t.Errorf("variant kept the negative overhead: %v", got)
+	}
+	if q := got["example.com/keep"]; q.Value() != 2 {
+		t.Errorf("variant lost the valid overhead: %v", got)
+	}
+
+	if diff := cmp.Diff(parentOverhead, parent.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+		t.Errorf("generating the variant changed the parent's overhead (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(parentLabels, parent.Labels); diff != "" {
+		t.Errorf("generating the variant changed the parent's labels (-want +got):\n%s", diff)
+	}
+	if _, found := parent.Annotations[constants.WorkloadAllowedResourceFlavorAnnotation]; found {
+		t.Error("generating the variant wrote its flavor annotation onto the parent")
 	}
 }

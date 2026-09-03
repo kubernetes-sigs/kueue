@@ -385,6 +385,61 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		// Quota keeps the usage the admission recorded, so upgrading the
+		// controller does not move a reservation that is already held. The
+		// topology domains are rebuilt from the PodSpec, so the same workload
+		// stops under-reporting what it takes from a node.
+		"admitted with TAS and a legacy overhead": {
+			workload: *utiltestingapi.MakeWorkload("tas-legacy", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "1").
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourceCPU:  resource.MustParse("-750m"),
+							corev1.ResourcePods: resource.MustParse("8"),
+						}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("tas-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							// What the overhead used to reduce it to: 250m a pod.
+							Assignment(corev1.ResourceCPU, "tas", "500m").
+							Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(utiltestingapi.MakeDefaultOneLevelTopology("default"))).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 2).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now,
+				).
+				Obj(),
+			wantInfo: Info{
+				ClusterQueue: "tas-cq",
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "tas",
+						},
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 500,
+						}),
+						Count: 2,
+						TopologyRequest: &TopologyRequest{
+							Levels: []string{corev1.LabelHostname},
+							DomainRequests: []TopologyDomainRequests{{
+								Values: []string{"node-a"},
+								SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+									corev1.ResourceCPU: 1000,
+								}),
+								Count: 2,
+							}},
+						},
+					},
+				},
+			},
+		},
 		"admitted with reclaim; reclaimablePods on": {
 			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
@@ -990,6 +1045,62 @@ func TestNewInfo(t *testing.T) {
 					Name: "a",
 					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 						corev1.ResourceName("example.com/gpu"): math.MaxInt64,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The webhook refuses these on the way in, and only on the way in. A
+		// workload that predates it, or was admitted while the gate was off,
+		// still reaches the accounting, where a negative overhead cancels a
+		// request the PodSet did make and the floor afterwards cannot tell that
+		// from nothing having been asked for.
+		"negativeOverheadDoesNotCancelTheRequest": {
+			workload: *utiltestingapi.MakeWorkload("legacy", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 1,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"podsOverheadDoesNotReachTheCount": {
+			workload: *utiltestingapi.MakeWorkload("legacy", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					PodOverHead(corev1.ResourceList{corev1.ResourcePods: resource.MustParse("8")}).
+					Obj()).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 1,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"positiveOverheadIsStillCharged": {
+			workload: *utiltestingapi.MakeWorkload("ok", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "1").
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("2")}).
+					Obj()).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 3,
 					}),
 					Count: 1,
 				}},

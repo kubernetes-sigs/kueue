@@ -29,6 +29,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -44,6 +45,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -3220,5 +3222,210 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 	if gotResult.RequeueAfter != syncDeferredRequeueAfter {
 		t.Fatalf("reconcileGroup result has RequeueAfter=%v; want %v (sync was deferred)",
 			gotResult.RequeueAfter, syncDeferredRequeueAfter)
+	}
+}
+
+// The remote copy is created without the overhead entries Kueue will not
+// charge, so the comparison that decides whether to replace it has to read both
+// sides the same way. Otherwise the remote it just created is out of sync with
+// the local one on the next pass, for as long as the entry is there.
+func TestRemoteCloneNormalizesOverheadWithoutChurn(t *testing.T) {
+	withOverhead := func(o corev1.ResourceList) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("wl", TestNamespace).
+			PodSets(*utiltestingapi.MakePodSet("main", 1).
+				Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		wl.Spec.PodSets[0].Template.Spec.Overhead = o
+		return wl
+	}
+
+	cases := map[string]struct {
+		local            corev1.ResourceList
+		wantRemote       corev1.ResourceList
+		remoteAfterClone corev1.ResourceList
+		wantOutOfSync    bool
+	}{
+		"an entry that is not charged is dropped on the way and does not read as a difference": {
+			local:      corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+			wantRemote: corev1.ResourceList{},
+		},
+		"a negative one goes the same way": {
+			local:      corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")},
+			wantRemote: corev1.ResourceList{},
+		},
+		"an overhead that is charged reaches the remote unchanged": {
+			local:      corev1.ResourceList{"example.com/gpu": resource.MustParse("2")},
+			wantRemote: corev1.ResourceList{"example.com/gpu": resource.MustParse("2")},
+		},
+		"a remote carrying a different charged overhead is still out of sync": {
+			local:            corev1.ResourceList{"example.com/gpu": resource.MustParse("2")},
+			wantRemote:       corev1.ResourceList{"example.com/gpu": resource.MustParse("2")},
+			remoteAfterClone: corev1.ResourceList{"example.com/gpu": resource.MustParse("3")},
+			wantOutOfSync:    true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			local := withOverhead(tc.local)
+			before := local.Spec.PodSets[0].Template.Spec.Overhead.DeepCopy()
+
+			remote := cloneForCreate(local, "origin1", false)
+			if diff := cmp.Diff(tc.wantRemote, remote.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+				t.Errorf("remote overhead (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(before, local.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+				t.Errorf("the local workload was modified (-before +after):\n%s", diff)
+			}
+
+			if tc.remoteAfterClone != nil {
+				remote.Spec.PodSets[0].Template.Spec.Overhead = tc.remoteAfterClone
+			}
+			if got := isRemoteSpecOutOfSync(local.Spec, remote.Spec); got != tc.wantOutOfSync {
+				t.Errorf("out of sync = %v, want %v", got, tc.wantOutOfSync)
+			}
+			if diff := cmp.Diff(before, local.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+				t.Errorf("comparing modified the local workload (-before +after):\n%s", diff)
+			}
+		})
+	}
+}
+
+// The remote never held these entries, so it weighs them as newly introduced
+// and refuses them, whatever the manager is allowed to keep carrying.
+func TestSpecWithChargeableOverheadLeavesTheSourceAlone(t *testing.T) {
+	src := kueue.WorkloadSpec{PodSets: []kueue.PodSet{{
+		Name:  "main",
+		Count: 2,
+		Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Overhead: corev1.ResourceList{
+				corev1.ResourcePods: resource.MustParse("1"),
+				corev1.ResourceCPU:  resource.MustParse("-1"),
+				"example.com/keep":  resource.MustParse("2"),
+			},
+		}},
+	}}}
+	want := src.DeepCopy()
+
+	got := specWithChargeableOverhead(&src)
+
+	oh := got.PodSets[0].Template.Spec.Overhead
+	if _, found := oh[corev1.ResourcePods]; found {
+		t.Errorf("the copy kept the pods overhead: %v", oh)
+	}
+	if _, found := oh[corev1.ResourceCPU]; found {
+		t.Errorf("the copy kept the negative overhead: %v", oh)
+	}
+	if q := oh["example.com/keep"]; q.Value() != 2 {
+		t.Errorf("the copy lost the valid overhead: %v", oh)
+	}
+	if diff := cmp.Diff(want.PodSets, src.PodSets); diff != "" {
+		t.Errorf("the source was modified (-want +got):\n%s", diff)
+	}
+}
+
+// A scale-down writes the local spec over the remote one. The remote was
+// created without the overhead entries Kueue will not charge, so the worker
+// reads an entry arriving now as one being introduced, with nothing behind it
+// to grandfather it, and refuses the update for as long as the local carries it.
+func TestReconcileGroupScaleDownKeepsRemoteOverheadNormalized(t *testing.T) {
+	// Both kinds of entry the remote was created without: one Kueue never
+	// charges, and one it only tolerates on an object that predates the gate.
+	cases := map[string]struct {
+		key      corev1.ResourceName
+		quantity string
+		nonNeg   bool
+	}{
+		"a reserved name":                  {key: corev1.ResourcePods, quantity: "1"},
+		"a negative one, with the gate on": {key: corev1.ResourceCPU, quantity: "-1", nonNeg: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			runScaleDownOverheadCase(t, tc.key, tc.quantity, tc.nonNeg)
+		})
+	}
+}
+
+func runScaleDownOverheadCase(t *testing.T, key corev1.ResourceName, quantity string, nonNeg bool) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.WorkloadValidateResourcesAreNonNegative, nonNeg)
+	now := time.Now()
+
+	const (
+		acName     = kueue.AdmissionCheckReference("ac1")
+		workerName = "worker1"
+	)
+
+	elastic := func(wl *kueue.Workload) *kueue.Workload {
+		if wl.Annotations == nil {
+			wl.Annotations = map[string]string{}
+		}
+		wl.Annotations[kueueconstants.ElasticJobAnnotation] = "true"
+		return wl
+	}
+
+	// The manager still carries what it was admitted with, one replica fewer
+	// than the remote now that it has scaled down.
+	local := elastic(utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
+		AdmittedAt(true, now).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:               acName,
+			State:              kueue.CheckStateReady,
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		ClusterName(workerName).
+		Obj())
+	local.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{key: resource.MustParse(quantity)}
+
+	remote := elastic(utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		PodSets(*utiltestingapi.MakePodSet("main", 2).Request(corev1.ResourceCPU, "1").Obj()).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadAdmitted,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Admitted",
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Obj())
+
+	managerClient := getClientBuilder(ctx).WithObjects(local).WithStatusSubresource(local).Build()
+	workerClient := NewNeverCachingClient(getClientBuilder(ctx).WithObjects(remote).WithStatusSubresource(remote).Build())
+
+	group := &wlGroup{
+		local:       local,
+		localClient: managerClient,
+		remotes:     map[string]*kueue.Workload{workerName: remote},
+		remoteClients: map[string]*remoteClient{
+			workerName: {client: workerClient, origin: defaultOrigin},
+		},
+		acName:        acName,
+		jobAdapter:    &deferredSyncStubAdapter{},
+		controllerKey: types.NamespacedName{Name: "job1", Namespace: TestNamespace},
+	}
+	reconciler := &wlReconciler{
+		client:            managerClient,
+		clock:             testingclock.NewFakeClock(now),
+		origin:            defaultOrigin,
+		workerLostTimeout: defaultWorkerLostTimeout,
+		recorder:          &utiltesting.EventRecorder{},
+		dispatcherName:    config.MultiKueueDispatcherModeAllAtOnce,
+	}
+
+	if _, err := reconciler.reconcileGroup(ctx, group); err != nil {
+		t.Fatalf("reconcileGroup: %v", err)
+	}
+
+	got := &kueue.Workload{}
+	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remote), got); err != nil {
+		t.Fatalf("reading the remote back: %v", err)
+	}
+	if len(got.Spec.PodSets[0].Template.Spec.Overhead) != 0 {
+		t.Errorf("remote overhead = %v, want none: the scale-down put back what the create left out",
+			got.Spec.PodSets[0].Template.Spec.Overhead)
+	}
+	if _, ok := local.Spec.PodSets[0].Template.Spec.Overhead[key]; !ok {
+		t.Error("the local workload lost its overhead, so the normalization reached the caller's slice")
 	}
 }
