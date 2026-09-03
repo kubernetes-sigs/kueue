@@ -20,7 +20,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/go-logr/logr"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestNewRoleTracker(t *testing.T) {
@@ -67,9 +67,10 @@ func TestRoleTracker_StartLeaderElection(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 
+			_, log := utiltesting.ContextWithLog(t)
 			done := make(chan struct{})
 			go func() {
-				rt.Start(ctx, logr.Discard())
+				rt.Start(ctx, log)
 				close(done)
 			}()
 
@@ -142,7 +143,8 @@ func TestOnElected(t *testing.T) {
 				cancel()
 			}
 
-			rt.Start(ctx, logr.Discard())
+			_, log := utiltesting.ContextWithLog(t)
+			rt.Start(ctx, log)
 
 			if called != tc.expectCalled {
 				t.Errorf("callback called = %v, want %v", called, tc.expectCalled)

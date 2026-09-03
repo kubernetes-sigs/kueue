@@ -25,6 +25,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -74,7 +75,8 @@ func BenchmarkTASFlavorSnapshotOverlappingUsage(b *testing.B) {
 				)
 
 				// Held domains come from the flavor's own leaves; the rest are foreign.
-				held, err := flavorCache.snapshot(b.Context(), logr.Discard(), nil, nil)
+				_, setupLog := utiltesting.ContextWithLog(b)
+				held, err := flavorCache.snapshot(b.Context(), setupLog, nil, nil)
 				if err != nil {
 					b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 				}

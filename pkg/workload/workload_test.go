@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -1135,6 +1134,7 @@ func TestUpdateWithRebuild(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			info := NewInfo(tc.initial, tc.initialOptions...)
 			if len(tc.updateOptions) == 0 {
 				if diff := cmp.Diff(tc.wantRequests, info.TotalRequests,
@@ -1143,7 +1143,7 @@ func TestUpdateWithRebuild(t *testing.T) {
 					t.Fatal("precondition failed: initial TotalRequests should differ from expected post-rebuild state")
 				}
 			}
-			info.Update(logr.Discard(), tc.updated, tc.updateOptions...)
+			info.Update(log, tc.updated, tc.updateOptions...)
 			if diff := cmp.Diff(tc.wantRequests, info.TotalRequests,
 				cmpopts.IgnoreFields(PodSetResources{}, "Flavors"),
 				cmp.Comparer(resources.Equal)); diff != "" {
@@ -3186,11 +3186,12 @@ func TestSchedulingHash(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			info1 := NewInfo(tc.wl1)
-			info1.updateSchedulingHash(logr.Discard())
+			info1.updateSchedulingHash(log)
 			info2 := NewInfo(tc.wl2)
-			info2.updateSchedulingHash(logr.Discard())
+			info2.updateSchedulingHash(log)
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
 			}
@@ -3204,13 +3205,14 @@ func TestSchedulingHash(t *testing.T) {
 	}
 
 	t.Run("DRA translation producing different TotalRequests produces different hash", func(t *testing.T) {
+		_, log := utiltesting.ContextWithLog(t)
 		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 			features.SchedulingEquivalenceHashing: true,
 		})
 		wl := utiltestingapi.MakeWorkload("wl", "ns").
 			Request("example.com/gpu", "1").Obj()
 		before := NewInfo(wl)
-		before.updateSchedulingHash(logr.Discard())
+		before.updateSchedulingHash(log)
 
 		after := NewInfo(wl, WithPreprocessedDRAResources(
 			map[kueue.PodSetReference]corev1.ResourceList{
@@ -3222,7 +3224,7 @@ func TestSchedulingHash(t *testing.T) {
 				kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		))
-		after.updateSchedulingHash(logr.Discard())
+		after.updateSchedulingHash(log)
 
 		if diff := cmp.Diff(before.TotalRequests, after.TotalRequests, cmp.Comparer(resources.Equal)); diff == "" {
 			t.Fatal("precondition failed: TotalRequests should differ after DRA translation")
@@ -3313,19 +3315,20 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			before := tc.info.SchedulingHash
 			if before == SchedulingHashUnknown {
 				t.Fatalf("precondition failed: hash is %q", before)
 			}
 
-			tc.info.Update(logr.Discard(), tc.reread, tc.opts...)
+			tc.info.Update(log, tc.reread, tc.opts...)
 
 			if got := tc.info.SchedulingHash == before; got != tc.wantReuse {
 				t.Errorf("hash reused = %v, want %v (hash %q -> %q)", got, tc.wantReuse, before, tc.info.SchedulingHash)
 			}
 			// A recomputed hash must describe the inputs the Info now holds.
 			if !tc.wantReuse {
-				want := computeSchedulingHash(logr.Discard(), tc.info.Obj, tc.info.TotalRequests)
+				want := computeSchedulingHash(log, tc.info.Obj, tc.info.TotalRequests)
 				if tc.info.SchedulingHash != want {
 					t.Errorf("SchedulingHash = %q, does not describe the Info's own inputs (%q)", tc.info.SchedulingHash, want)
 				}
@@ -3334,11 +3337,12 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 	}
 
 	t.Run("the hash stays unknown while the feature gate is off", func(t *testing.T) {
+		_, log := utiltesting.ContextWithLog(t)
 		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 			features.SchedulingEquivalenceHashing: false,
 		})
 		info := NewInfo(workload("uid", "1", 1))
-		info.Update(logr.Discard(), workload("uid", "1", 2))
+		info.Update(log, workload("uid", "1", 2))
 		if info.SchedulingHash != SchedulingHashUnknown {
 			t.Errorf("SchedulingHash = %q, want %q", info.SchedulingHash, SchedulingHashUnknown)
 		}

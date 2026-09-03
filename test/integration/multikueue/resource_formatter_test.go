@@ -56,7 +56,7 @@ func workerResourceUsageStrings(c cluster, resources ...corev1.ResourceName) map
 		flavorName       = "formatter-isolation"
 	)
 
-	log := logr.Discard()
+	log := logr.FromContextOrDiscard(c.ctx)
 	resourceFlavor := utiltestingapi.MakeResourceFlavor(flavorName).Obj()
 	c.schedulerCache.AddOrUpdateResourceFlavor(log, resourceFlavor)
 	ginkgo.DeferCleanup(func() {
