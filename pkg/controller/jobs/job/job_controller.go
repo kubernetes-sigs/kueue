@@ -144,6 +144,7 @@ var _ jobframework.GenericJob = (*Job)(nil)
 var _ jobframework.JobWithReclaimablePods = (*Job)(nil)
 var _ jobframework.JobWithCustomStop = (*Job)(nil)
 var _ jobframework.JobWithManagedBy = (*Job)(nil)
+var _ jobframework.JobWithDefaultedFieldCheck = (*Job)(nil)
 
 func (j *Job) Object() client.Object {
 	return (*batchv1.Job)(j)

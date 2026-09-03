@@ -26,6 +26,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -33,6 +34,10 @@ var (
 	k8sClient client.WithWatch
 	cfg       *rest.Config
 	ctx       context.Context
+
+	// gangDefaultingEnabled gates the specs that assert a scheduling policy
+	// Kueue writes itself rather than one the Job carries.
+	gangDefaultingEnabled bool
 )
 
 func TestAPIs(t *testing.T) {
@@ -53,4 +58,7 @@ var _ = ginkgo.BeforeSuite(func() {
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
+
+	gangDefaultingEnabled = util.GetKueueConfiguration(ctx, k8sClient).
+		FeatureGates[string(features.BatchJobGangSchedulingByDefault)]
 })

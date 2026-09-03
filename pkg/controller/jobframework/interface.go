@@ -230,6 +230,12 @@ type TopLevelJob interface {
 	IsTopLevel() bool
 }
 
+// JobWithDefaultedFieldCheck is implemented by jobs whose webhook defaults
+// fields the API server may discard. It runs before the Workload is created.
+type JobWithDefaultedFieldCheck interface {
+	CheckDefaultedFields(ctx context.Context, c client.Client, recorder events.EventRecorder) error
+}
+
 // JobWithCustomQueueNameChange is an optional interface that allows jobs
 // to provide custom queue-name change logic.
 type JobWithCustomQueueNameChange interface {

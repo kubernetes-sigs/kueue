@@ -1209,6 +1209,46 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"a Job the API server stripped spec.scheduling from still gets its Workload": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+
+				features.AssignQueueLabelsForPods: true,
+			},
+			job: baseJobWrapper.Clone().
+				SetAnnotation(GangDefaultedAnnotation, "true").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.Clone().
+				SetAnnotation(GangDefaultedAnnotation, "true").
+				UID("test-uid").
+				Suspend(true).
+				Obj(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(0).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    ReasonGangSchedulingDefaultDropped,
+					Message: "Kueue set spec.scheduling at admission but the API server did not store it; " +
+						"the Job runs without gang scheduling. Check the WorkloadWithJob feature gate on the API server.",
+				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/" + GetWorkloadNameForJob(baseJobWrapper.Name, "test-uid"),
+				},
+			},
+		},
 		"when workload is created, it has its owner ProvReq annotations": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
