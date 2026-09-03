@@ -185,13 +185,13 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 func (c *TASFlavorCache) snapshot(
 	ctx context.Context,
 	log logr.Logger,
-	simulatorSnapshot simulator.SimulatorSnapshot,
+	nodeSnapshot nodesSnapshot,
 	aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
 ) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
 
-	tree, treeReused := c.cachedOrBuiltTree()
+	tree, treeReused := c.cachedOrBuiltTreeForNodes(nodeSnapshot)
 
 	infoKV := []any{
 		"nodeLabels", c.flavor.NodeLabels,
@@ -204,7 +204,7 @@ func (c *TASFlavorCache) snapshot(
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, tree, c.flavor.Tolerations, simulatorSnapshot, withResourceFormatter(c.resourceFormatter))
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, tree, c.flavor.Tolerations, nil, withResourceFormatter(c.resourceFormatter))
 	tasDomainUsages := c.usage
 	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
 		tasDomainUsages = aggregatedDomainUsages
@@ -218,31 +218,35 @@ func (c *TASFlavorCache) snapshot(
 	return snapshot, nil
 }
 
-// cachedOrBuiltTree returns the cached topology tree when its nodesCache
-// generation is current. Otherwise, it builds a candidate and returns the
-// newest tree retained in the cache, which may have been stored by a concurrent
+// cachedOrBuiltTreeForNodes returns the cached topology tree when its nodesCache
+// generation matches nodeSnapshot. Otherwise, it builds a candidate and returns
+// the newest tree retained in the cache, which may have been stored by a concurrent
 // caller. The returned tree must not be mutated.
 //
 // With TASCacheTopologyTree disabled the cache is neither read nor written, so
 // every snapshot gets a tree of its own and no tree is ever shared. Note that
 // storeTree must be skipped too: it returns the newest retained tree, which a
 // concurrent caller may have stored, and that would share a tree after all.
-func (c *TASFlavorCache) cachedOrBuiltTree() (*topologyTree, bool) {
+func (c *TASFlavorCache) cachedOrBuiltTreeForNodes(nodeSnapshot nodesSnapshot) (*topologyTree, bool) {
 	cacheTree := features.Enabled(features.TASCacheTopologyTree)
 	if cacheTree {
-		if tree := c.cachedTree(); tree != nil && tree.generation == c.nodesCache.currentGeneration() {
+		if tree := c.cachedTree(); tree != nil && tree.generation == nodeSnapshot.generation {
 			return tree, true
 		}
 	}
 	// snapshot already holds c.RLock. Do not use c.NodeLabels here: a recursive
 	// RLock can deadlock if a writer is waiting between the two acquisitions.
-	nodes, generation := c.nodesCache.find(c.flavor.NodeLabels, c.topology.Levels)
-	tree := newTopologyTree(c.topology.Levels, nodes, generation)
+	tree := newTopologyTree(
+		c.topology.Levels,
+		nodeSnapshot.find(c.flavor.NodeLabels, c.topology.Levels),
+		nodeSnapshot.generation,
+	)
 	if !cacheTree {
 		return tree, false
 	}
 	return c.storeTree(tree), false
 }
+
 
 func (c *TASFlavorCache) cachedTree() *topologyTree {
 	c.treeLock.Lock()
