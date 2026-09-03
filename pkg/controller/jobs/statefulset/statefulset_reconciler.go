@@ -141,6 +141,7 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 	log := ctrl.LoggerFrom(ctx)
 	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 		var updated bool
+		log = log.WithValues("pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
 		if r.syncQueueLabel(sts, pod) {
 			updated = true
 		}
