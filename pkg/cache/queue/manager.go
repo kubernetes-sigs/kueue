@@ -316,49 +316,32 @@ func (m *Manager) AddOrUpdateCohort(ctx context.Context, apiCohort *kueue.Cohort
 	// If the cohort moved parents, update counts and re-emit metrics.
 	// Collect both ancestor paths first so shared ancestors are only touched once.
 	if oldParent != newParent && !hierarchy.HasCycle(c) {
-		oldAncestors := make(map[*cohort]struct{})
+		oldAncestors := sets.New[*cohort]()
 		if oldParent != nil && !hierarchy.HasCycle(oldParent) {
 			for ancestor := range oldParent.PathSelfToRoot() {
-				oldAncestors[ancestor] = struct{}{}
+				oldAncestors.Insert(ancestor)
 			}
 		}
-		newAncestors := make(map[*cohort]struct{})
+		newAncestors := sets.New[*cohort]()
 		if newParent != nil {
 			for ancestor := range newParent.PathSelfToRoot() {
-				newAncestors[ancestor] = struct{}{}
+				newAncestors.Insert(ancestor)
 			}
 		}
 
 		// Subtract from ancestors exclusive to the old path.
-		for ancestor := range oldAncestors {
-			if _, shared := newAncestors[ancestor]; !shared {
-				ancestor.pendingActiveCount -= c.pendingActiveCount
-				ancestor.pendingInadmissibleCount -= c.pendingInadmissibleCount
-			}
+		for ancestor := range oldAncestors.Difference(newAncestors) {
+			ancestor.pendingActiveCount -= c.pendingActiveCount
+			ancestor.pendingInadmissibleCount -= c.pendingInadmissibleCount
 		}
 		// Add to ancestors exclusive to the new path.
-		for ancestor := range newAncestors {
-			if _, shared := oldAncestors[ancestor]; !shared {
-				ancestor.pendingActiveCount += c.pendingActiveCount
-				ancestor.pendingInadmissibleCount += c.pendingInadmissibleCount
-			}
+		for ancestor := range newAncestors.Difference(oldAncestors) {
+			ancestor.pendingActiveCount += c.pendingActiveCount
+			ancestor.pendingInadmissibleCount += c.pendingInadmissibleCount
 		}
 
 		// Re-emit metrics for the union of both paths (each ancestor once).
-		emitted := sets.New[*cohort]()
-		for ancestor := range oldAncestors {
-			if emitted.Has(ancestor) {
-				continue
-			}
-			emitted.Insert(ancestor)
-			metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusActive, ancestor.pendingActiveCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
-			metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusInadmissible, ancestor.pendingInadmissibleCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
-		}
-		for ancestor := range newAncestors {
-			if emitted.Has(ancestor) {
-				continue
-			}
-			emitted.Insert(ancestor)
+		for ancestor := range oldAncestors.Union(newAncestors) {
 			metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusActive, ancestor.pendingActiveCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
 			metrics.ReportCohortSubtreePendingWorkloads(ancestor.Name, metrics.PendingStatusInadmissible, ancestor.pendingInadmissibleCount, m.customLabels.CohortGet(ancestor.Name), m.roleTracker)
 		}
