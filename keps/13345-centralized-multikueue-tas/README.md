@@ -120,7 +120,8 @@ minimal even at large scale.
 mechanism. If a worker disconnects, the manager waits for a grace period. If the
 worker does not reconnect, the manager evicts the workload and retries
 scheduling it on a healthy cluster. When a worker reconnects, the manager
-performs a fresh `List` to rebuild the TAS cache for that cluster.
+performs a fresh `List` to rebuild the TAS cache for that cluster and re-evicts
+workloads on the workload which were evicted while it was disconnected.
 
 ## Drawbacks
 
