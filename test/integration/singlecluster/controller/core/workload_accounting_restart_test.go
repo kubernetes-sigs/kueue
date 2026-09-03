@@ -35,7 +35,7 @@ import (
 // requests, RuntimeClass overhead) survives a manager restart, when every
 // workload's in-memory state is rebuilt from the raw objects. Guards the
 // AdjustResources migration tracked in kueue#14964.
-var _ = ginkgo.Describe("Workload accounting across a manager restart", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Workload accounting across a manager restart", func() {
 	var (
 		ns             *corev1.Namespace
 		onDemandFlavor *kueue.ResourceFlavor
