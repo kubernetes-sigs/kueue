@@ -395,18 +395,21 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 3. Finish the local workload when the remote workload is finished.
 	if remoteFinishedCond, remote := group.bestMatchByCondition(kueue.WorkloadFinished); remoteFinishedCond != nil {
-		// A remote OutOfSync finish is a sync failure, not a job completion: reset to Retry to
-		// re-dispatch rather than finishing (which would strand the manager Job). Always return so
-		// it never falls through to Finish; patch only while still Ready so a re-reconcile can't
-		// see Retry and wrongly finish. Elastic workloads use OutOfSync for slice replacement.
-		if remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOutOfSync && !group.IsElasticWorkload() {
+		// A remote OutOfSync or OwnerNotFound finish is a sync failure, not a job completion:
+		// reset to Retry to re-dispatch rather than finishing (which would strand the manager
+		// Job/Pod). Always return so it never falls through to Finish; patch only while still
+		// Ready so a re-reconcile can't see Retry and wrongly finish. Elastic workloads use
+		// OutOfSync for slice replacement, so they are excluded from that reason's reset.
+		isSyncFailure := (remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOutOfSync && !group.IsElasticWorkload()) ||
+			remoteFinishedCond.Reason == kueue.WorkloadFinishedReasonOwnerNotFound
+		if isSyncFailure {
 			if acs == nil || acs.State != kueue.CheckStateReady {
-				log.V(3).Info("Skipping remote OutOfSync reset, admission check is not Ready", "workerCluster", remote)
+				log.V(3).Info("Skipping remote sync-failure reset, admission check is not Ready", "workerCluster", remote, "reason", remoteFinishedCond.Reason)
 				return reconcile.Result{}, nil
 			}
 			msg := fmt.Sprintf("Remote workload on worker cluster %q is out of sync with its user job, resetting for re-dispatch", remote)
 			if err := w.updateACS(ctx, group.local, acs, kueue.CheckStateRetry, msg); err != nil {
-				log.Error(err, "Resetting admission check after remote OutOfSync", "workerCluster", remote)
+				log.Error(err, "Resetting admission check after remote sync failure", "workerCluster", remote, "reason", remoteFinishedCond.Reason)
 				return reconcile.Result{}, err
 			}
 			w.recorder.Eventf(group.local, nil, corev1.EventTypeWarning, "MultiKueue", "MultiKueue", api.TruncateEventMessage(acs.Message))
