@@ -1835,16 +1835,16 @@ func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
 
 func TestClientConfigToRESTConfig(t *testing.T) {
 	cases := map[string]struct {
-		config          *clientConfig
-		wantRateLimiter bool
-		wantQPS         float32
-		wantNegativeQPS bool
+		config    *clientConfig
+		wantQPS   float32
+		wantBurst int
 	}{
 		"no client connection specified": {
 			config: &clientConfig{
 				Kubeconfig: []byte(testKubeconfig("worker1")),
 			},
-			wantRateLimiter: false,
+			wantQPS:   0,
+			wantBurst: 0,
 		},
 		"client connection with custom QPS and Burst": {
 			config: &clientConfig{
@@ -1854,10 +1854,10 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 					Burst: ptr.To[int32](200),
 				},
 			},
-			wantRateLimiter: true,
-			wantQPS:         100,
+			wantQPS:   100,
+			wantBurst: 200,
 		},
-		"client connection with negative QPS disables rate limiter": {
+		"client connection with negative QPS": {
 			config: &clientConfig{
 				Kubeconfig: []byte(testKubeconfig("worker1")),
 				ClientConnection: &configapi.ClientConnection{
@@ -1865,8 +1865,8 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 					Burst: ptr.To[int32](200),
 				},
 			},
-			wantRateLimiter: false,
-			wantNegativeQPS: true,
+			wantQPS:   -1,
+			wantBurst: 200,
 		},
 		"restConfig pre-populated with custom QPS and Burst": {
 			config: &clientConfig{
@@ -1876,8 +1876,8 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 					Burst: ptr.To[int32](100),
 				},
 			},
-			wantRateLimiter: true,
-			wantQPS:         50,
+			wantQPS:   50,
+			wantBurst: 100,
 		},
 	}
 
@@ -1887,20 +1887,11 @@ func TestClientConfigToRESTConfig(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if tc.wantRateLimiter {
-				if restConfig.RateLimiter == nil {
-					t.Fatalf("expected RateLimiter to be set, but got nil")
-				}
-				if gotQPS := restConfig.RateLimiter.QPS(); gotQPS != tc.wantQPS {
-					t.Errorf("unexpected RateLimiter QPS, want: %v, got: %v", tc.wantQPS, gotQPS)
-				}
-			} else {
-				if restConfig.RateLimiter != nil {
-					t.Fatalf("expected RateLimiter to be nil, but got: %v", restConfig.RateLimiter)
-				}
-				if tc.wantNegativeQPS && restConfig.QPS != -1 {
-					t.Errorf("expected QPS: -1, got: %v", restConfig.QPS)
-				}
+			if restConfig.QPS != tc.wantQPS {
+				t.Errorf("unexpected QPS, want: %v, got: %v", tc.wantQPS, restConfig.QPS)
+			}
+			if restConfig.Burst != tc.wantBurst {
+				t.Errorf("unexpected Burst, want: %v, got: %v", tc.wantBurst, restConfig.Burst)
 			}
 		})
 	}

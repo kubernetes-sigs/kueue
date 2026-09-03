@@ -558,9 +558,11 @@ type ClientConnection struct {
 	// connection.
 	//
 	// Setting this to a negative value will disable client-side ratelimiting.
+	// +optional
 	QPS *float32 `json:"qps,omitempty"`
 
 	// Burst allows extra queries to accumulate when a client is exceeding its rate.
+	// +optional
 	Burst *int32 `json:"burst,omitempty"`
 }
 

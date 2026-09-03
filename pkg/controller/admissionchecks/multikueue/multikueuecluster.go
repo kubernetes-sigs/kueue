@@ -47,7 +47,6 @@ import (
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/events"
-	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -127,16 +126,12 @@ func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
 			return nil, err
 		}
 	}
-	if c.ClientConnection != nil && c.ClientConnection.QPS != nil {
-		if *c.ClientConnection.QPS >= 0.0 {
-			burst := 0
-			if c.ClientConnection.Burst != nil {
-				burst = int(*c.ClientConnection.Burst)
-			}
-			restConfig.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(*c.ClientConnection.QPS, burst)
-		} else {
-			restConfig.RateLimiter = nil
+	if c.ClientConnection != nil {
+		if c.ClientConnection.QPS != nil {
 			restConfig.QPS = *c.ClientConnection.QPS
+		}
+		if c.ClientConnection.Burst != nil {
+			restConfig.Burst = int(*c.ClientConnection.Burst)
 		}
 	}
 	return restConfig, nil

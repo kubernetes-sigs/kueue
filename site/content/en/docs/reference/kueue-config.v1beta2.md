@@ -230,7 +230,7 @@ Defaults to 1.</p>
 <tbody>
     
   
-<tr><td><code>qps</code> <B>[Required]</B><br/>
+<tr><td><code>qps</code><br/>
 <code>float32</code>
 </td>
 <td>
@@ -239,7 +239,7 @@ connection.</p>
 <p>Setting this to a negative value will disable client-side ratelimiting.</p>
 </td>
 </tr>
-<tr><td><code>burst</code> <B>[Required]</B><br/>
+<tr><td><code>burst</code><br/>
 <code>int32</code>
 </td>
 <td>
