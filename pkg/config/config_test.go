@@ -451,6 +451,7 @@ objectRetentionPolicies:
 		Origin:            new(configapi.DefaultMultiKueueOrigin),
 		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 		DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
+		ClientConnection:  defaultClientConnection,
 	}
 
 	defaultVisibility := &configapi.VisibilityServerConfiguration{
@@ -794,6 +795,7 @@ objectRetentionPolicies:
 					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 					DispatcherName:    new(configapi.MultiKueueDispatcherModeIncremental),
+					ClientConnection:  defaultClientConnection,
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -838,6 +840,7 @@ objectRetentionPolicies:
 					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
 					DispatcherName:    new(configapi.MultiKueueDispatcherModeIncremental),
+					ClientConnection:  defaultClientConnection,
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -1050,6 +1053,10 @@ webhook:
 					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
+					ClientConnection: &configapi.ClientConnection{
+						QPS:   new(configapi.DefaultClientConnectionQPS),
+						Burst: new(configapi.DefaultClientConnectionBurst),
+					},
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1100,6 +1107,10 @@ webhook:
 					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
+					ClientConnection: &configapi.ClientConnection{
+						QPS:   new(configapi.DefaultClientConnectionQPS),
+						Burst: new(configapi.DefaultClientConnectionBurst),
+					},
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1253,6 +1264,10 @@ func TestEncode(t *testing.T) {
 					"origin":            "multikueue",
 					"workerLostTimeout": "15m0s",
 					"dispatcherName":    configapi.MultiKueueDispatcherModeAllAtOnce,
+					"clientConnection": map[string]any{
+						"qps":   int64(300),
+						"burst": int64(500),
+					},
 				},
 				"visibilityServer": map[string]any{
 					"bindPort": int64(8082),
