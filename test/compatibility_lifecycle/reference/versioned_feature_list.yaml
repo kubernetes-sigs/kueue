@@ -235,9 +235,9 @@
     version: "0.15"
 - name: MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster
   versionedSpecs:
-  - default: true
+  - default: false
     lockToDefault: false
-    preRelease: Beta
+    preRelease: Alpha
     version: "0.20"
 - name: MultiKueueClusterProfile
   versionedSpecs:
