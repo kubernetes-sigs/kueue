@@ -362,7 +362,7 @@ func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
 }
 
 func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
@@ -424,7 +424,7 @@ func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
 	updatedLq := lq.DeepCopy()
 	updatedLq.Labels["team"] = "beta"
 	customLabels.LQStore(queue.Key(updatedLq), updatedLq.GetLabels(), updatedLq.GetAnnotations())
-	if err := manager.UpdateLocalQueue(logr.Discard(), updatedLq); err != nil {
+	if err := manager.UpdateLocalQueue(log, updatedLq); err != nil {
 		t.Fatalf("Failed to update local queue: %v", err)
 	}
 	clearLQMetrics(queue.Key(updatedLq))
@@ -3067,5 +3067,155 @@ func TestUpdateLocalQueueWeightZeroReheapifies(t *testing.T) {
 	want := []workload.Reference{"default/wl-b", "default/wl-a"}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("zero weight did not disadvantage the LocalQueue (-want,+got):\n%s", diff)
+	}
+}
+
+func TestLQPendingWorkloads_WorkloadCustomLabels(t *testing.T) {
+	// Verify that local_queue_pending_workloads breaks down by workload custom
+	// labels when SourceKindWorkload is configured alongside LocalQueueMetrics.
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	defer metrics.InitMetricVectors(nil)
+
+	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		{Name: "tier", SourceKind: new(configapi.SourceKindWorkload)},
+	})
+	fakeClient := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+	manager, _ := NewManagerForUnitTestsWithRequeuer(fakeClient, nil,
+		WithPreemptionExpectations(preemptexpectations.New()),
+		WithCustomLabels(customLabels),
+		WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{Enabled: true, QueueSelector: labels.Everything()}),
+	)
+
+	cq := utiltestingapi.MakeClusterQueue("cq1").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq1", defaultNamespace).ClusterQueue("cq1").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding cq1: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding lq1: %v", err)
+	}
+
+	wlGold := utiltestingapi.MakeWorkload("wl-gold", defaultNamespace).Label("tier", "gold").Queue("lq1").Creation(time.Now()).Obj()
+	wlSilver := utiltestingapi.MakeWorkload("wl-silver", defaultNamespace).Label("tier", "silver").Queue("lq1").Creation(time.Now()).Obj()
+	if err := manager.AddOrUpdateWorkload(log, wlGold); err != nil {
+		t.Fatalf("Failed adding wl-gold: %v", err)
+	}
+	if err := manager.AddOrUpdateWorkload(log, wlSilver); err != nil {
+		t.Fatalf("Failed adding wl-silver: %v", err)
+	}
+
+	pendingVal := func(tier, status string) float64 {
+		t.Helper()
+		got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+			"name":        "lq1",
+			"namespace":   defaultNamespace,
+			"status":      status,
+			"custom_tier": tier,
+		})
+		if len(got) == 0 {
+			return 0
+		}
+		return got[0].Value
+	}
+
+	// Each workload has its own tier label, so each gets its own metric series.
+	if got := pendingVal("gold", metrics.PendingStatusActive); got != 1 {
+		t.Errorf("gold/active = %v, want 1", got)
+	}
+	if got := pendingVal("silver", metrics.PendingStatusActive); got != 1 {
+		t.Errorf("silver/active = %v, want 1", got)
+	}
+
+	// Updating a workload's label must move its count to the new label series.
+	wlGoldUpdated := wlGold.DeepCopy()
+	wlGoldUpdated.Labels["tier"] = "platinum"
+	if err := manager.AddOrUpdateWorkload(log, wlGoldUpdated); err != nil {
+		t.Fatalf("Failed updating wl-gold: %v", err)
+	}
+	if got := pendingVal("gold", metrics.PendingStatusActive); got != 0 {
+		t.Errorf("after label change: gold/active = %v, want 0", got)
+	}
+	if got := pendingVal("platinum", metrics.PendingStatusActive); got != 1 {
+		t.Errorf("after label change: platinum/active = %v, want 1", got)
+	}
+	if got := pendingVal("silver", metrics.PendingStatusActive); got != 1 {
+		t.Errorf("after label change: silver/active still = %v, want 1", got)
+	}
+}
+
+// TestLQPendingWorkloads_InadmissibleAndDelete verifies that inadmissible workloads
+// are counted per workload-label value, and that deleting a workload removes its series.
+func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+	defer metrics.InitMetricVectors(nil)
+
+	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		{Name: "tier", SourceKind: new(configapi.SourceKindWorkload)},
+	})
+	fakeClient := utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace))
+	manager, _ := NewManagerForUnitTestsWithRequeuer(fakeClient, nil,
+		WithPreemptionExpectations(preemptexpectations.New()),
+		WithCustomLabels(customLabels),
+		WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{Enabled: true, QueueSelector: labels.Everything()}),
+	)
+
+	cq := utiltestingapi.MakeClusterQueue("cq2").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq2", defaultNamespace).ClusterQueue("cq2").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("AddClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("AddLocalQueue: %v", err)
+	}
+
+	// Bump popCycle so that RequeueWorkload sends workloads to inadmissible
+	// rather than back into the active heap (same technique as TestUpdateClusterQueue).
+	manager.getClusterQueue("cq2").popCycle++
+
+	wlGold := utiltestingapi.MakeWorkload("wl2-gold", defaultNamespace).Label("tier", "gold").Queue("lq2").Creation(time.Now()).Obj()
+	wlSilver := utiltestingapi.MakeWorkload("wl2-silver", defaultNamespace).Label("tier", "silver").Queue("lq2").Creation(time.Now()).Obj()
+	for _, wl := range []*kueue.Workload{wlGold, wlSilver} {
+		if err := fakeClient.Create(ctx, wl); err != nil {
+			t.Fatalf("Create %s: %v", wl.Name, err)
+		}
+		manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric, "")
+	}
+
+	pendingVal := func(tier, status string) float64 {
+		t.Helper()
+		got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
+			"name":        "lq2",
+			"namespace":   defaultNamespace,
+			"status":      status,
+			"custom_tier": tier,
+		})
+		if len(got) == 0 {
+			return 0
+		}
+		return got[0].Value
+	}
+
+	// Both workloads land in inadmissible, each with their own tier series.
+	if got := pendingVal("gold", metrics.PendingStatusActive); got != 0 {
+		t.Errorf("initial gold/active = %v, want 0", got)
+	}
+	if got := pendingVal("gold", metrics.PendingStatusInadmissible); got != 1 {
+		t.Errorf("initial gold/inadmissible = %v, want 1", got)
+	}
+	if got := pendingVal("silver", metrics.PendingStatusInadmissible); got != 1 {
+		t.Errorf("initial silver/inadmissible = %v, want 1", got)
+	}
+
+	// Deleting silver must zero out its series immediately.
+	manager.DeleteWorkload(log, workload.Key(wlSilver))
+	if got := pendingVal("silver", metrics.PendingStatusInadmissible); got != 0 {
+		t.Errorf("after delete silver: inadmissible = %v, want 0", got)
+	}
+	if got := pendingVal("gold", metrics.PendingStatusInadmissible); got != 1 {
+		t.Errorf("after delete silver: gold/inadmissible = %v, want 1", got)
 	}
 }
