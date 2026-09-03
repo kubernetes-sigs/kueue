@@ -3347,7 +3347,7 @@ func TestCohortSubtreePendingWorkloads_CQMovesCohort(t *testing.T) {
 
 	// Move cq1 from cohort-a to cohort-b.
 	cq1Updated := utiltestingapi.MakeClusterQueue("cq1").Cohort("cohort-b").Obj()
-	if err := manager.UpdateClusterQueue(ctx, cq1Updated, true); err != nil {
+	if err := manager.UpdateClusterQueue(cq1Updated, true); err != nil {
 		t.Fatalf("Failed updating cq1: %v", err)
 	}
 
