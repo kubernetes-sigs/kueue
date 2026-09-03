@@ -141,13 +141,13 @@ func FindLatestAdmittedWorkloadForSlice(ctx context.Context, clnt client.Client,
 
 	for i := range slices.Backward(list.Items) {
 		wl := &list.Items[i]
-		if workloadfinish.IsFinished(wl) {
+		if workload.IsFinished(wl) {
 			continue
 		}
 		// Eviction is two writes: the condition is set before the reservation is
 		// released, so an evicted slice can still report itself admitted while its
 		// capacity is on the way out.
-		if workload.IsAdmitted(wl) && !workloadevict.IsEvicted(wl) {
+		if workload.IsAdmitted(wl) && !workload.IsEvicted(wl) {
 			return wl, nil
 		}
 	}
