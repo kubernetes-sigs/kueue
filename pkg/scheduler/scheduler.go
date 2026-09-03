@@ -505,6 +505,9 @@ func (s *Scheduler) processEntry(
 	}
 
 	if shouldFailFastTASReplacement(e.Obj, mode) {
+		if s.tryDeferFailedTASReplacement(ctx, log, e, snapshot, cq) {
+			return
+		}
 		s.handleFailedTASReplacement(ctx, log, e)
 		return
 	}
@@ -609,6 +612,65 @@ func shouldFailFastTASReplacement(wl *kueue.Workload, mode flavorassigner.Flavor
 	return features.Enabled(features.TASFailedNodeReplacementFailFast) &&
 		workload.HasTopologyAssignmentWithUnhealthyNode(wl) &&
 		mode != flavorassigner.Fit
+}
+
+// tryDeferFailedTASReplacement reports whether a failed TAS replacement should
+// be deferred instead of fail-fast evicted. If in-flight evictions (workloads
+// already marked Evicted, but still holding usage in the snapshot) may free a
+// suitable placement shortly, we simulate their removal, recompute the
+// assignment, and defer with PendingPreemption semantics when the replacement
+// then fits. Otherwise fail-fast eviction is preserved.
+func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) bool {
+	victims := inFlightEvictionVictims(snapshot)
+	if len(victims) == 0 {
+		return false
+	}
+	log.V(3).Info("Checking whether in-flight evictions free a suitable placement for the failed TAS replacement", "victims", len(victims))
+	// To get the projected cluster state after the in-flight evictions complete,
+	// simulate the removal of their workloads. The simulation is reverted below
+	// as the snapshot is shared across the scheduling cycle.
+	revertRemoval := snapshot.SimulateWorkloadRemoval(victims)
+	// Clear the flavor scan state so that the recomputation starts from the
+	// first flavor again, mirroring updateAssignmentIfNeeded.
+	e.FlavorScanState = nil
+	e.NominationMapping = e.readResourceToFlavorMapping()
+	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
+	e.NominationMapping = nil
+	revertRemoval()
+	if newAssignment.RepresentativeMode() != flavorassigner.Fit {
+		return false
+	}
+	e.recordAssignment(newAssignment, newTargets)
+	e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
+	e.inadmissibleMsg = "Workload has an unhealthy node, but will fit after in-flight evictions complete"
+	e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+	e.requeueReason = qcache.RequeueReasonPendingPreemption
+	// Clear the flavor scan state to force a full re-evaluation of all flavors
+	// in the next cycle, mirroring the DeferredFit branch.
+	e.FlavorScanState = nil
+	// Reserve the net usage of the recomputed assignment, mirroring the
+	// DeferredFit branch, so that the placement the replacement will claim
+	// once the evictions complete is not admitted to another workload later
+	// in the same cycle.
+	snapshot.AddUsage(cq, e.assignmentUsage(log))
+	log.V(2).Info("Deferring failed TAS replacement; waiting for in-flight evictions to free capacity")
+	return true
+}
+
+// inFlightEvictionVictims returns the workloads that are marked Evicted but
+// still hold usage in the snapshot, i.e. the victims of in-flight evictions
+// that are expected to free capacity once they complete.
+func inFlightEvictionVictims(snapshot *schdcache.Snapshot) []*workload.Info {
+	var victims []*workload.Info
+	for _, cq := range snapshot.ClusterQueues() {
+		for _, w := range cq.Workloads {
+			usage := w.Usage()
+			if workloadevict.IsEvicted(w.Obj) && (len(usage.Quota.Assigned) > 0 || len(usage.TAS) > 0) {
+				victims = append(victims, w)
+			}
+		}
+	}
+	return victims
 }
 
 func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry) {
