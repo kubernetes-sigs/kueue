@@ -143,6 +143,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | controllerManager.strategy | object | `{}` | ControllerManager Deployment's update strategy. When hostNetwork is enabled the manager's ports bind to the node, so the default RollingUpdate surge cannot schedule a second pod onto an already-occupied node; set maxSurge: 0 to roll in place. |
 | controllerManager.tolerations | list | `[]` | ControllerManager's tolerations |
 | controllerManager.topologySpreadConstraints | list | `[]` | ControllerManager's topologySpreadConstraints |
+| enableAlphaAPIs | bool | `false` | Enable Alpha APIs (e.g. DynamicQuotaOrchestrator, CapacityProvider) |
 | enableCertManager | bool | `false` | Enable x509 automated certificate management using cert-manager (cert-manager.io) |
 | enableKueueViz | bool | `false` | Enable KueueViz dashboard |
 | enableMutatingAdmissionPolicy | bool | `false` | Enable MutatingAdmissionPolicy for clearing nominatedClusterNames on admission or eviction (requires K8s 1.36+) |
