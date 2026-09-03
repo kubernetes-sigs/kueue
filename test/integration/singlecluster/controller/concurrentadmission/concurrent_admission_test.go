@@ -868,7 +868,28 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("Creating a variant owned by the parent", func() {
+				// Request more than the ClusterQueue's total capacity (5 CPU) so
+				// the variant is genuinely inadmissible for lack of quota, not
+				// merely gated -- PreemptionGates alone don't block admission
+				// once ConcurrentAdmission's own flavor-competition machinery
+				// isn't running (it never runs for a policy-less ClusterQueue).
+				variantWl = utiltestingapi.MakeWorkload("wl-variant", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					AllowedFlavors(kueue.ResourceFlavorReference(flavor.Name)).
+					Request(corev1.ResourceCPU, "10").
+					PreemptionGates(kueue.PreemptionGate{Name: controllerconstants.ConcurrentAdmissionPreemptionGate}).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), parentWl.Name, string(parentWl.UID)).
+					Obj()
+				util.MustCreate(ctx, k8sClient, variantWl)
+			})
+
 			ginkgo.By("Labeling the admitted workload as a ConcurrentAdmission parent", func() {
+				// Create the variant before labeling the parent: labeling triggers
+				// an immediate reconcile, and if the variant doesn't exist yet at
+				// that point, the reconciler sees zero variants and evicts the
+				// parent outright instead of ever getting a chance to promote the
+				// variant once it's admitted.
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
 					if parentWl.Labels == nil {
@@ -877,16 +898,6 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 					parentWl.Labels[controllerconstants.ConcurrentAdmissionParentLabelKey] = "true"
 					g.Expect(k8sClient.Update(ctx, parentWl)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Creating a variant owned by the parent", func() {
-				variantWl = utiltestingapi.MakeWorkload("wl-variant", ns.Name).
-					Queue(kueue.LocalQueueName(lq.Name)).
-					AllowedFlavors(kueue.ResourceFlavorReference(flavor.Name)).
-					PreemptionGates(kueue.PreemptionGate{Name: controllerconstants.ConcurrentAdmissionPreemptionGate}).
-					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), parentWl.Name, string(parentWl.UID)).
-					Obj()
-				util.MustCreate(ctx, k8sClient, variantWl)
 			})
 
 			ginkgo.By("Verifying the parent is evicted and the variant is deactivated", func() {
