@@ -25,8 +25,16 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
+// The magnitudes a CPU Quantity is decided against, in the milli CPU is
+// accounted in. MaxInt64 cores is the largest one a Quantity carries.
+const (
+	cpuCeiling      = "9223372036854775807000"
+	cpuPastCeiling  = "9223372036854775807001"
+	cpuBelowCeiling = "9223372036854775806999"
+)
+
 // What the API reports has to be the amount, and what it cannot report has to
-// say so rather than serializing to something else.
+// say so and land on the documented ceiling.
 func TestAmountQuantity(t *testing.T) {
 	f := NewResourceFormatter()
 
@@ -36,13 +44,30 @@ func TestAmountQuantity(t *testing.T) {
 		want      string
 		wantExact bool
 	}{
-		"whole cores in milli":     {name: corev1.ResourceCPU, amount: NewAmount(2000), want: "2", wantExact: true},
-		"a fraction of a core":     {name: corev1.ResourceCPU, amount: NewAmount(1500), want: "1500m", wantExact: true},
-		"the largest int64 milli":  {name: corev1.ResourceCPU, amount: NewAmount(math.MaxInt64), want: "9223372036854775807m", wantExact: true},
-		"10P of cpu past int64":    {name: corev1.ResourceCPU, amount: cpuAmount(t, "10P"), want: "10P", wantExact: true},
-		"1E of cpu past int64":     {name: corev1.ResourceCPU, amount: cpuAmount(t, "1E"), want: "1E", wantExact: true},
-		"whole devices":            {name: "example.com/gpu", amount: NewAmount(8), want: "8", wantExact: true},
-		"the largest int64 device": {name: "example.com/gpu", amount: NewAmount(math.MaxInt64), want: "9223372036854775807", wantExact: true},
+		"whole cores in milli":            {name: corev1.ResourceCPU, amount: NewAmount(2000), want: "2", wantExact: true},
+		"a fraction of a core":            {name: corev1.ResourceCPU, amount: NewAmount(1500), want: "1500m", wantExact: true},
+		"the largest int64 milli":         {name: corev1.ResourceCPU, amount: NewAmount(math.MaxInt64), want: "9223372036854775807m", wantExact: true},
+		"one milli past the largest":      {name: corev1.ResourceCPU, amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775808m", wantExact: true},
+		"10P of cpu past int64":           {name: corev1.ResourceCPU, amount: cpuAmount(t, "10P"), want: "10P", wantExact: true},
+		"a milli past 10P":                {name: corev1.ResourceCPU, amount: bigAmount(t, "10000000000000000001"), want: "10000000000000000001m", wantExact: true},
+		"1E of cpu past int64":            {name: corev1.ResourceCPU, amount: cpuAmount(t, "1E"), want: "1E", wantExact: true},
+		"sixteen of the largest int64":    {name: corev1.ResourceCPU, amount: bigAmount(t, "147573952589676412912"), want: "147573952589676412912m", wantExact: true},
+		"a milli below the cpu ceiling":   {name: corev1.ResourceCPU, amount: bigAmount(t, cpuBelowCeiling), want: "9223372036854775806999m", wantExact: true},
+		"the cpu ceiling":                 {name: corev1.ResourceCPU, amount: bigAmount(t, cpuCeiling), want: "9223372036854775807", wantExact: true},
+		"a milli past the cpu ceiling":    {name: corev1.ResourceCPU, amount: bigAmount(t, cpuPastCeiling), want: "9223372036854775807", wantExact: false},
+		"far past the cpu ceiling":        {name: corev1.ResourceCPU, amount: bigAmount(t, "9223372036854775807000000"), want: "9223372036854775807", wantExact: false},
+		"the negative cpu ceiling":        {name: corev1.ResourceCPU, amount: bigAmount(t, "-"+cpuCeiling), want: "-9223372036854775807", wantExact: true},
+		"a milli past it negative":        {name: corev1.ResourceCPU, amount: bigAmount(t, "-"+cpuPastCeiling), want: "-9223372036854775807", wantExact: false},
+		"sixteen of the largest negative": {name: corev1.ResourceCPU, amount: bigAmount(t, "-147573952589676412912"), want: "-147573952589676412912m", wantExact: true},
+
+		"whole devices":               {name: "example.com/gpu", amount: NewAmount(8), want: "8", wantExact: true},
+		"the largest int64 device":    {name: "example.com/gpu", amount: NewAmount(math.MaxInt64), want: "9223372036854775807", wantExact: true},
+		"one past the largest device": {name: "example.com/gpu", amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775807", wantExact: false},
+		"the largest negative device": {name: "example.com/gpu", amount: NewAmount(-math.MaxInt64), want: "-9223372036854775807", wantExact: true},
+		// MinInt64 fits an int64 and is one past the magnitude a Quantity carries.
+		"the smallest int64 device": {name: "example.com/gpu", amount: NewAmount(math.MinInt64), want: "-9223372036854775807", wantExact: false},
+		"far past in the negative":  {name: "example.com/gpu", amount: bigAmount(t, "-18446744073709551614"), want: "-9223372036854775807", wantExact: false},
+		"memory past int64":         {name: corev1.ResourceMemory, amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775807", wantExact: false},
 	}
 
 	for name, tc := range cases {
@@ -54,45 +79,70 @@ func TestAmountQuantity(t *testing.T) {
 			if got := q.String(); got != tc.want {
 				t.Errorf("String() = %s, want %s", got, tc.want)
 			}
+			// The Quantity has to be the number, not only a string that reads
+			// back as itself: an output of zero round trips too.
+			want := tc.amount
+			if !tc.wantExact {
+				want = quantityCeiling(t, tc.name, tc.amount.Sign())
+			}
+			if back := AmountFromQuantity(tc.name, q); !back.Equal(want) {
+				t.Errorf("came back as %s, want %s", back, want)
+			}
 			// What is written has to read back as the same number.
 			b, err := json.Marshal(q)
 			if err != nil {
 				t.Fatalf("Marshal() = %v", err)
 			}
-			var back resource.Quantity
-			if err := json.Unmarshal(b, &back); err != nil {
+			var read resource.Quantity
+			if err := json.Unmarshal(b, &read); err != nil {
 				t.Fatalf("Unmarshal(%s) = %v", b, err)
 			}
-			if back.Cmp(q) != 0 {
-				t.Errorf("round trip of %s came back as %s", q.String(), back.String())
+			if read.Cmp(q) != 0 {
+				t.Errorf("round trip of %s came back as %s", q.String(), read.String())
 			}
 		})
 	}
 }
 
-// A value the Quantity range cannot carry is capped and says so, rather than
-// being handed to a serializer that can drop its exponent.
-func TestAmountQuantityCapsWhatItCannotReport(t *testing.T) {
-	f := NewResourceFormatter()
-	past := NewAmount(math.MaxInt64)
-	for range 4 {
-		past = past.Add(past)
+// quantityCeiling returns the amount a capped value has to land on: the largest
+// magnitude a Quantity carries, in the unit the resource is accounted in.
+func quantityCeiling(t *testing.T, name corev1.ResourceName, sign int) Amount {
+	t.Helper()
+	digits := "9223372036854775807"
+	if name == corev1.ResourceCPU {
+		digits = cpuCeiling
 	}
+	if sign < 0 {
+		digits = "-" + digits
+	}
+	return bigAmount(t, digits)
+}
 
-	for _, name := range []corev1.ResourceName{corev1.ResourceCPU, "example.com/gpu", corev1.ResourceMemory} {
-		t.Run(string(name), func(t *testing.T) {
-			q, exact := f.AmountQuantity(name, past)
-			if exact {
-				t.Error("exact = true for a value past the reported range")
-			}
-			back, err := resource.ParseQuantity(q.String())
-			if err != nil {
-				t.Fatalf("ParseQuantity(%s) = %v", q.String(), err)
-			}
-			if back.Cmp(q) != 0 {
-				t.Errorf("the capped value does not read back: %s -> %s", q.String(), back.String())
-			}
-		})
+// A CPU amount stays ordered as it grows. Reporting a milli past a whole number
+// of cores by capping would make an increase read as a decrease.
+func TestAmountQuantityIsMonotonic(t *testing.T) {
+	f := NewResourceFormatter()
+
+	steps := []Amount{
+		NewAmount(math.MaxInt64),
+		bigAmount(t, "9223372036854775808"),
+		cpuAmount(t, "10P"),
+		bigAmount(t, "10000000000000000001"),
+		cpuAmount(t, "1E"),
+		bigAmount(t, cpuBelowCeiling),
+		bigAmount(t, cpuCeiling),
+		bigAmount(t, cpuPastCeiling),
+	}
+	for i := 1; i < len(steps); i++ {
+		if steps[i].Cmp(steps[i-1]) <= 0 {
+			t.Fatalf("the fixture is not increasing at %d: %s then %s", i, steps[i-1], steps[i])
+		}
+		prev, _ := f.AmountQuantity(corev1.ResourceCPU, steps[i-1])
+		next, _ := f.AmountQuantity(corev1.ResourceCPU, steps[i])
+		if next.Cmp(prev) < 0 {
+			t.Errorf("%s reports %s, less than %s reports for %s",
+				steps[i], next.String(), prev.String(), steps[i-1])
+		}
 	}
 }
 

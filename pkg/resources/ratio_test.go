@@ -18,7 +18,6 @@ package resources
 
 import (
 	"math"
-	"math/big"
 	"testing"
 )
 
@@ -68,17 +67,25 @@ func TestPerThousandOfHugeRatio(t *testing.T) {
 	}
 }
 
-// The stored value cannot be reached to be changed.
-func TestAmountExposesNoMutablePointer(t *testing.T) {
-	a := bigAmount(t, "9223372036854775808")
-	before := a.String()
-	// The only way out is a copy; big() is unexported and its result is not
-	// handed to a caller.
-	if p := a.big(); p == a.large {
-		p2 := new(big.Int).Set(p)
-		p2.SetInt64(0)
+var benchRatio float64
+
+// The ratio the fair-sharing tournament takes per candidate, per ancestor.
+// Small operands take the int64 division, large ones the exact one.
+func BenchmarkPerThousandOfSmall(b *testing.B) {
+	borrowed, lendable := NewAmount(1_000), NewAmount(1_000_000)
+	var got float64
+	for b.Loop() {
+		got = borrowed.PerThousandOf(lendable)
 	}
-	if after := a.String(); after != before {
-		t.Errorf("the amount changed: %s -> %s", before, after)
+	benchRatio = got
+}
+
+func BenchmarkPerThousandOfLarge(b *testing.B) {
+	borrowed := NewAmount(1_000)
+	lendable := NewAmount(math.MaxInt64).AddInt64(1)
+	var got float64
+	for b.Loop() {
+		got = borrowed.PerThousandOf(lendable)
 	}
+	benchRatio = got
 }

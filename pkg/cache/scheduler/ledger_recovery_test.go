@@ -98,12 +98,18 @@ func TestLedgerRecoversAcrossTheCache(t *testing.T) {
 			cache.AddOrUpdateWorkload(log, seven)
 			assertLedgers(t, cache, "after the 7-unit workload joined", mustAmount(t, "9223372036854775814"))
 
-			// A snapshot taken now must not follow the cache afterwards.
+			// A snapshot taken now must not follow the cache afterwards. The
+			// observation is a string: a mutation written through the shared
+			// big.Int would move a captured Amount with the snapshot, and it
+			// would still compare equal to itself.
 			snap, err := cache.Snapshot(ctx)
 			if err != nil {
 				t.Fatalf("Snapshot() = %v", err)
 			}
-			snapped := snap.ClusterQueue("cq").ResourceNode.Usage[ledgerFR]
+			const wantSnapshot = "9223372036854775814"
+			if got := snap.ClusterQueue("cq").ResourceNode.Usage[ledgerFR].String(); got != wantSnapshot {
+				t.Fatalf("the snapshot did not take the total: %s, want %s", got, wantSnapshot)
+			}
 
 			if err := cache.DeleteWorkload(log, workload.Key(saturating)); err != nil {
 				t.Fatalf("DeleteWorkload() = %v", err)
@@ -115,8 +121,8 @@ func TestLedgerRecoversAcrossTheCache(t *testing.T) {
 			}
 			assertLedgers(t, cache, "after both left", resources.NewAmount(0))
 
-			if got := snap.ClusterQueue("cq").ResourceNode.Usage[ledgerFR]; !got.Equal(snapped) {
-				t.Errorf("the snapshot followed the cache: %s, want %s", got, snapped)
+			if got := snap.ClusterQueue("cq").ResourceNode.Usage[ledgerFR].String(); got != wantSnapshot {
+				t.Errorf("the snapshot followed the cache: %s, want %s", got, wantSnapshot)
 			}
 		})
 	}

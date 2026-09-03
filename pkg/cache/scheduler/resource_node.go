@@ -124,8 +124,8 @@ func available(node hierarchicalResourceNode, fr resources.FlavorResource) resou
 // potentialAvailable returns the maximum capacity available to this node,
 // assuming no usage, while respecting BorrowingLimits.
 //
-// Uses saturating arithmetic so sums of large (potentially MaxAmount) quotas
-// from this node and its ancestors never wrap around int64.
+// The sum over this node and its ancestors is exact, so quotas past int64 add
+// up to the number they are rather than to a ceiling.
 func potentialAvailable(node hierarchicalResourceNode, fr resources.FlavorResource) resources.Amount {
 	r := node.getResourceNode()
 	if !node.HasParent() {

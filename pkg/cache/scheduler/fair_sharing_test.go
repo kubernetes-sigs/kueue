@@ -735,7 +735,7 @@ func TestDominantResourceShare(t *testing.T) {
 		// When the lending CQ holds an "exabyte-scale" quota (1E CPU), AmountFromQuantity
 		// is exact past int64. calculateLendable then aggregates potentialAvailable
 		// and lendable["cpu"] carries the whole of it.
-		// The ratio float64(b.Int64())*1000/float64(lr.Int64()) evaluates to a tiny
+		// b.PerThousandOf(lr) divides the exact operands and evaluates to a tiny
 		// positive finite number; math.Ceil rounds it up to 1. This test pins that
 		// behaviour and guards against NaN/Inf regressions.
 		"borrowing against unlimited lendable capacity (exabyte-scale quota)": {
@@ -763,7 +763,8 @@ func TestDominantResourceShare(t *testing.T) {
 				{
 					Name:     "cq",
 					NodeType: nodeTypeCq,
-					// ratio = float64(1000)*1000/float64(MaxInt64) ≈ 1.09e-13; math.Ceil → 1.
+					// ratio = 1000*1000/10^21 = 1e-15, the whole 1E quota being lendable;
+					// math.Ceil → 1.
 					DrValue:   1,
 					DrName:    corev1.ResourceCPU,
 					Borrowing: true,
@@ -1052,4 +1053,73 @@ func TestPreciseWeightedShareSerialized(t *testing.T) {
 func quantityForTest(name corev1.ResourceName, a resources.Amount) resource.Quantity {
 	q, _ := resources.NewResourceFormatter().AmountQuantity(name, a)
 	return q
+}
+
+// The ratio survives the exact division, then the weight is applied to it. A
+// borrower that comes out of the second step at zero reports what a node below
+// its nominal quota reports.
+func TestWeightedShareDoesNotUnderflowBorrowerToZero(t *testing.T) {
+	cases := map[string]DRS{
+		"a share too small to survive the weight": {
+			borrowing: true, unweightedRatio: math.SmallestNonzeroFloat64, fairWeight: 2,
+		},
+		"a weight past float64": {
+			borrowing: true, unweightedRatio: 1, fairWeight: math.Inf(1),
+		},
+		"nothing lendable on the borrowed resource": {
+			borrowing: true, unweightedRatio: 0, fairWeight: defaultWeight,
+		},
+	}
+
+	for name, drs := range cases {
+		t.Run(name, func(t *testing.T) {
+			if raw := drs.unweightedRatio / drs.fairWeight; raw != 0 {
+				t.Fatalf("the fixture no longer divides to zero: %v", raw)
+			}
+			if got := drs.PreciseWeightedShare(); got <= 0 {
+				t.Errorf("PreciseWeightedShare() = %v for a borrower, want more than zero", got)
+			}
+		})
+	}
+}
+
+// Zero from roundedWeightedShare is documented as usage below the nominal
+// quota, so a borrower has to reach at least one.
+func TestRoundedWeightedShareKeepsBorrowerPositive(t *testing.T) {
+	borrower := DRS{borrowing: true, unweightedRatio: math.SmallestNonzeroFloat64, fairWeight: 2}
+	if got, _ := borrower.roundedWeightedShare(); got < 1 {
+		t.Errorf("roundedWeightedShare() = %d for a borrower, want at least 1", got)
+	}
+	idle := DRS{fairWeight: defaultWeight}
+	if got, _ := idle.roundedWeightedShare(); got != 0 {
+		t.Errorf("roundedWeightedShare() = %d for a node that is not borrowing, want 0", got)
+	}
+}
+
+// A borrower outranks a node that is not borrowing however small its share is,
+// rather than tying with it and falling through to the next tie-break.
+func TestCompareDRSRanksTinyBorrowerAboveNonBorrower(t *testing.T) {
+	borrower := DRS{borrowing: true, unweightedRatio: math.SmallestNonzeroFloat64, fairWeight: 2}
+	idle := DRS{fairWeight: defaultWeight}
+	if got := CompareDRS(borrower, idle); got <= 0 {
+		t.Errorf("CompareDRS(borrower, idle) = %d, want a positive value", got)
+	}
+	if got := CompareDRS(idle, borrower); got >= 0 {
+		t.Errorf("CompareDRS(idle, borrower) = %d, want a negative value", got)
+	}
+}
+
+// Two infinities divide to NaN, which compares false against every bound and
+// would otherwise reach a conversion that promises a value in range.
+func TestWeightedShareNaNIsConservative(t *testing.T) {
+	drs := DRS{borrowing: true, unweightedRatio: math.Inf(1), fairWeight: math.Inf(1)}
+	if raw := drs.unweightedRatio / drs.fairWeight; !math.IsNaN(raw) {
+		t.Fatalf("the fixture no longer produces NaN: %v", raw)
+	}
+	if got := drs.PreciseWeightedShare(); !math.IsInf(got, 1) {
+		t.Errorf("PreciseWeightedShare() = %v, want +Inf", got)
+	}
+	if got, _ := drs.roundedWeightedShare(); got != math.MaxInt64 {
+		t.Errorf("roundedWeightedShare() = %d, want %d", got, int64(math.MaxInt64))
+	}
 }

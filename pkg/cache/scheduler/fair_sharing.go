@@ -87,6 +87,12 @@ func (d DRS) isWeightZero() bool {
 	return d.fairWeight == 0
 }
 
+// PreciseWeightedShare returns the share of the node once its weight is
+// applied. A borrower never reports zero, which is what a node below its
+// nominal quota reports: the weight division can round a share that survived
+// the ratio down to zero, and a resource with nothing lendable leaves the ratio
+// at zero to begin with. A NaN, which two infinities reach, orders with the
+// zero-weight borrowers rather than below every finite share.
 func (d DRS) PreciseWeightedShare() float64 {
 	if d.IsZero() {
 		return 0.0
@@ -94,7 +100,15 @@ func (d DRS) PreciseWeightedShare() float64 {
 	if d.isWeightZero() {
 		return math.Inf(1)
 	}
-	return d.unweightedRatio / d.fairWeight
+	share := d.unweightedRatio / d.fairWeight
+	switch {
+	case math.IsNaN(share):
+		return math.Inf(1)
+	case d.borrowing && share == 0:
+		return math.SmallestNonzeroFloat64
+	default:
+		return share
+	}
 }
 
 // PreciseWeightedShareSerialized returns the DRS value
