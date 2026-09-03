@@ -1198,6 +1198,52 @@ func (c *ClusterQueueWrapper) AdmittedWorkloads(n int32) *ClusterQueueWrapper {
 	return c
 }
 
+// EffectiveQuotaStatusWrapper wraps an EffectiveQuotaStatus.
+type EffectiveQuotaStatusWrapper struct{ kueue.EffectiveQuotaStatus }
+
+// MakeEffectiveQuotaStatus creates a wrapper for an EffectiveQuotaStatus with default orchestratorRef.
+func MakeEffectiveQuotaStatus() *EffectiveQuotaStatusWrapper {
+	return &EffectiveQuotaStatusWrapper{
+		EffectiveQuotaStatus: kueue.EffectiveQuotaStatus{
+			OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+				APIGroup: "kueue.x-k8s.io",
+				Kind:     "DynamicQuotaOrchestrator",
+				Name:     "dqo",
+			},
+			ResourceGroups: make([]kueue.ResourceGroup, 0),
+		},
+	}
+}
+
+// Obj returns the inner EffectiveQuotaStatus.
+func (e *EffectiveQuotaStatusWrapper) Obj() *kueue.EffectiveQuotaStatus {
+	return &e.EffectiveQuotaStatus
+}
+
+// APIGroup sets the APIGroup of orchestratorRef.
+func (e *EffectiveQuotaStatusWrapper) APIGroup(apiGroup string) *EffectiveQuotaStatusWrapper {
+	e.OrchestratorRef.APIGroup = apiGroup
+	return e
+}
+
+// Kind sets the Kind of orchestratorRef.
+func (e *EffectiveQuotaStatusWrapper) Kind(kind string) *EffectiveQuotaStatusWrapper {
+	e.OrchestratorRef.Kind = kind
+	return e
+}
+
+// Name sets the Name of orchestratorRef.
+func (e *EffectiveQuotaStatusWrapper) Name(name string) *EffectiveQuotaStatusWrapper {
+	e.OrchestratorRef.Name = name
+	return e
+}
+
+// ResourceGroups sets the resourceGroups.
+func (e *EffectiveQuotaStatusWrapper) ResourceGroups(rgs ...kueue.ResourceGroup) *EffectiveQuotaStatusWrapper {
+	e.EffectiveQuotaStatus.ResourceGroups = rgs
+	return e
+}
+
 // FlavorQuotasWrapper wraps a FlavorQuotas object.
 type FlavorQuotasWrapper struct{ kueue.FlavorQuotas }
 
