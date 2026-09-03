@@ -180,6 +180,7 @@ endef
 
 define _kustomize_build_verify_recipe
 $(KUSTOMIZE) build config/alpha-enabled > /dev/null
+$(KUSTOMIZE) build config/components/crd/alpha > /dev/null
 endef
 
 # Validates skills against https://agentskills.io/specification

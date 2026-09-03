@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -48,9 +49,9 @@ func (s *defaultSimulator) Snapshot(_ context.Context, _ []*corev1.Node) (simula
 	return &defaultSimulatorSnapshot{}, nil
 }
 
-func (s *defaultSimulator) TrackPod(_ *corev1.Pod) {}
+func (s *defaultSimulator) TrackPod(_ context.Context, _ *corev1.Pod) {}
 
-func (s *defaultSimulator) UntrackPod(_ client.ObjectKey) {}
+func (s *defaultSimulator) UntrackPod(_ context.Context, _ client.ObjectKey) {}
 
 func (s *defaultSimulatorSnapshot) FindFeasibleNodes(
 	ctx context.Context,
@@ -116,4 +117,15 @@ func (s *defaultSimulatorSnapshot) FindFeasibleNodes(
 		feasibleCandidates = append(feasibleCandidates, matchedCandidate)
 	}
 	return feasibleCandidates, nil
+}
+
+func (s *defaultSimulatorSnapshot) PreemptWorkload(context.Context, types.NamespacedName) (func() error, error) {
+	return func() error { return nil }, nil
+}
+
+func (s *defaultSimulatorSnapshot) Simulate(_ context.Context, fn func()) error {
+	// Since default simulator does not hold any state,
+	// we can safely run the function immediately.
+	fn()
+	return nil
 }

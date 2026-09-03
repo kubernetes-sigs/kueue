@@ -389,4 +389,123 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 			gomega.Expect(k8sClient.Create(ctx, cohort)).ShouldNot(gomega.Succeed())
 		})
 	})
+
+	ginkgo.When("Updating a Cohort status", func() {
+		var (
+			cohort *kueue.Cohort
+		)
+
+		ginkgo.BeforeEach(func() {
+			cohort = utiltestingapi.MakeCohort("cohort").Obj()
+			util.MustCreate(ctx, k8sClient, cohort)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+		})
+
+		ginkgo.DescribeTable("Validate status.effectiveQuotas on update",
+			func(eq *kueue.EffectiveQuotaStatus, matcher types.GomegaMatcher) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updateCohort kueue.Cohort
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &updateCohort)).Should(gomega.Succeed())
+					updateCohort.Status.EffectiveQuotas = eq
+					err := k8sClient.Status().Update(ctx, &updateCohort)
+					g.Expect(err).Should(matcher)
+					if err == nil {
+						var gotCohort kueue.Cohort
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &gotCohort)).Should(gomega.Succeed())
+						g.Expect(gotCohort.Status.EffectiveQuotas).Should(gomega.BeComparableTo(eq))
+					}
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			},
+			ginkgo.Entry("Should allow valid effectiveQuotas with empty resourceGroups",
+				&kueue.EffectiveQuotaStatus{
+					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+						APIGroup: "quota.kueue.x-k8s.io",
+						Kind:     "DynamicQuotaOrchestrator",
+						Name:     "dqo",
+					},
+					ResourceGroups: []kueue.ResourceGroup{},
+				},
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow valid effectiveQuotas with resourceGroups",
+				&kueue.EffectiveQuotaStatus{
+					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+						APIGroup: "quota.kueue.x-k8s.io",
+						Kind:     "DynamicQuotaOrchestrator",
+						Name:     "dqo",
+					},
+					ResourceGroups: makeResourceGroups(1),
+				},
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow effectiveQuotas with maximum number of resourceGroups",
+				&kueue.EffectiveQuotaStatus{
+					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+						APIGroup: "quota.kueue.x-k8s.io",
+						Kind:     "DynamicQuotaOrchestrator",
+						Name:     "dqo",
+					},
+					ResourceGroups: makeResourceGroups(resourceGroupsMaxItems),
+				},
+				gomega.Succeed()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef apiGroup pattern",
+				&kueue.EffectiveQuotaStatus{
+					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+						APIGroup: "Invalid_APIGroup",
+						Kind:     "DynamicQuotaOrchestrator",
+						Name:     "dqo",
+					},
+					ResourceGroups: []kueue.ResourceGroup{},
+				},
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef kind pattern",
+				&kueue.EffectiveQuotaStatus{
+					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+						APIGroup: "quota.kueue.x-k8s.io",
+						Kind:     "123Invalid",
+						Name:     "dqo",
+					},
+					ResourceGroups: []kueue.ResourceGroup{},
+				},
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef name pattern",
+				&kueue.EffectiveQuotaStatus{
+					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+						APIGroup: "quota.kueue.x-k8s.io",
+						Kind:     "DynamicQuotaOrchestrator",
+						Name:     "@invalid",
+					},
+					ResourceGroups: []kueue.ResourceGroup{},
+				},
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with more than 16 resourceGroups",
+				&kueue.EffectiveQuotaStatus{
+					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+						APIGroup: "quota.kueue.x-k8s.io",
+						Kind:     "DynamicQuotaOrchestrator",
+						Name:     "dqo",
+					},
+					ResourceGroups: makeResourceGroups(resourceGroupsMaxItems + 1),
+				},
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject flavor resource count mismatch with coveredResources",
+				&kueue.EffectiveQuotaStatus{
+					OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+						APIGroup: "quota.kueue.x-k8s.io",
+						Kind:     "DynamicQuotaOrchestrator",
+						Name:     "dqo",
+					},
+					ResourceGroups: []kueue.ResourceGroup{
+						{
+							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
+							Flavors: []kueue.FlavorQuotas{
+								*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU).Obj(),
+							},
+						},
+					},
+				},
+				utiltesting.BeInvalidError()),
+		)
+	})
 })

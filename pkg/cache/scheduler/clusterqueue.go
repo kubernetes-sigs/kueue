@@ -161,7 +161,7 @@ func (c *clusterQueue) updateClusterQueue(
 	}
 	c.NamespaceSelector = nsSelector
 
-	if c.updateQuotasAndResourceGroups(in.Spec.ResourceGroups) || oldParent != c.Parent() {
+	if c.updateQuotasAndResourceGroups(resourcegroups.EffectiveResourceGroups(in)) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			updateCohortTreeResourcesIfNoCycle(oldParent)
 		}
@@ -487,8 +487,7 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, w *kueue.Workload) {
 	if _, exist := c.Workloads[k]; exist {
 		c.deleteWorkload(log, k)
 	}
-	wi := workload.NewInfo(w, c.workloadInfoOptions...)
-	wi.UpdateSchedulingHash(log)
+	wi := workload.NewInfoWithLogger(log, w, c.workloadInfoOptions...)
 	c.Workloads[k] = wi
 	if features.Enabled(features.CustomMetricLabels) {
 		c.customLabels.Store(cfg.SourceKindWorkload, string(k), w.Labels, w.Annotations)

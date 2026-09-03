@@ -26,6 +26,14 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
+// withResourceClaims sets PodSpec.ResourceClaims directly, bypassing the
+// PodSetWrapper.ResourceClaim helper which also links a matching container
+// claim reference.
+func withResourceClaims(ps *kueue.PodSet, claims ...corev1.PodResourceClaim) kueue.PodSet {
+	ps.Template.Spec.ResourceClaims = claims
+	return *ps
+}
+
 func TestComparePodSetSlices(t *testing.T) {
 	cases := map[string]struct {
 		a                     []kueue.PodSet
@@ -142,6 +150,43 @@ func TestComparePodSetSlices(t *testing.T) {
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).Obj()},
 			wantEquivalent: false,
+		},
+		"different pod-level resources": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).PodLevelRequest("res", "1").Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).PodLevelRequest("res", "2").Obj()},
+			wantEquivalent: false,
+		},
+		"pod-level resources present vs omitted": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).PodLevelRequest("res", "1").Obj()},
+			wantEquivalent: false,
+		},
+		"resource claims present vs omitted": {
+			// Set PodSpec.ResourceClaims directly, without a matching container
+			// claim reference, so the case exercises only the PodSpec-level
+			// field and doesn't also trip the (already covered) Containers comparison.
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
+			b: []kueue.PodSet{withResourceClaims(
+				utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj(),
+				corev1.PodResourceClaim{Name: "claim", ResourceClaimName: new("rc")},
+			)},
+			wantEquivalent: false,
+		},
+		"resource claims in reversed order": {
+			// Order is not semantically significant for a +listType=map field, so
+			// two PodSets differing only in ResourceClaims order must still be
+			// treated as equivalent.
+			a: []kueue.PodSet{withResourceClaims(
+				utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj(),
+				corev1.PodResourceClaim{Name: "claim-a", ResourceClaimName: new("rc-a")},
+				corev1.PodResourceClaim{Name: "claim-b", ResourceClaimName: new("rc-b")},
+			)},
+			b: []kueue.PodSet{withResourceClaims(
+				utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj(),
+				corev1.PodResourceClaim{Name: "claim-b", ResourceClaimName: new("rc-b")},
+				corev1.PodResourceClaim{Name: "claim-a", ResourceClaimName: new("rc-a")},
+			)},
+			wantEquivalent: true,
 		},
 		"different count": {
 			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
