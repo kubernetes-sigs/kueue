@@ -262,7 +262,7 @@ func (p *PendingWorkloads) subtractPendingResources(wInfo *workload.Info) {
 
 // UpdateConfiguredResources seeds pendingResourcesTotal with 0 for newly configured
 // resources so they appear in metrics even when no workloads are pending, and prunes
-// zero entries for resources removed from the spec.
+// zero entries for resources removed from the effective resource groups.
 func (p *PendingWorkloads) UpdateConfiguredResources(apiCQ *kueue.ClusterQueue) {
 	p.Lock()
 	defer p.Unlock()

@@ -18,12 +18,17 @@ package resourcegroups
 
 import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
-// EffectiveResourceGroups returns Spec.ResourceGroups.
+// EffectiveResourceGroups returns Status.EffectiveQuotas.ResourceGroups when DynamicQuotaOrchestration
+// feature gate is enabled and effective quota is set; otherwise returns Spec.ResourceGroups.
 func EffectiveResourceGroups(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
 	if cq == nil {
 		return nil
+	}
+	if features.Enabled(features.DynamicQuotaOrchestration) && cq.Status.EffectiveQuotas != nil {
+		return cq.Status.EffectiveQuotas.ResourceGroups
 	}
 	return cq.Spec.ResourceGroups
 }
