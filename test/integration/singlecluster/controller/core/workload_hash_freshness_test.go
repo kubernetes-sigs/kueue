@@ -59,7 +59,11 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 		clusterQueue = utiltestingapi.MakeClusterQueue("cq-hash-freshness").
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas(smallFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj(),
-				*utiltestingapi.MakeFlavorQuotas(largeFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj(),
+				// Exactly one workload at the initial default: with large full,
+				// the stale (3 CPU) view of a second workload fits nowhere, so a
+				// racing admission before the LimitRange refresh is impossible —
+				// the spec converges regardless of event timing (kueue#15145).
+				*utiltestingapi.MakeFlavorQuotas(largeFlavor.Name).Resource(corev1.ResourceCPU, "3").Obj(),
 			).
 			Obj()
 		util.MustCreate(ctx, k8sClient, clusterQueue)
@@ -69,7 +73,7 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
 
 		limitRange = utiltesting.MakeLimitRange("limits", ns.Name).
-			WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()
+			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
 		util.MustCreate(ctx, k8sClient, limitRange)
 	})
 
@@ -94,52 +98,38 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	}
 
-	setStopPolicy := func(p kueue.StopPolicy) {
-		gomega.Eventually(func(g gomega.Gomega) {
-			updatedCq := kueue.ClusterQueue{}
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
-			updatedCq.Spec.StopPolicy = &p
-			g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	}
-
 	ginkgo.It("places a raw-identical workload by its new effective resources after a defaultRequest change", func() {
 		wl1 := utiltestingapi.MakeWorkload("one", ns.Name).
 			Queue(kueue.LocalQueueName(localQueue.Name)).
 			Obj()
-		ginkgo.By("admitting the first raw workload on the small flavor (effective 1 CPU)", func() {
+		ginkgo.By("admitting the first raw workload on the large flavor (effective 3 CPU)", func() {
 			util.MustCreate(ctx, k8sClient, wl1)
-			expectAdmittedOnFlavor(wl1, smallFlavor.Name)
+			expectAdmittedOnFlavor(wl1, largeFlavor.Name)
 		})
 
-		wl2 := utiltestingapi.MakeWorkload("two", ns.Name).
-			Queue(kueue.LocalQueueName(localQueue.Name)).
-			Obj()
-		ginkgo.By("creating a raw-identical second workload while the ClusterQueue is held", func() {
-			// Holding the ClusterQueue makes the ordering between the
-			// LimitRange update and the second workload's admission
-			// deterministic: the workload is only evaluated after release.
-			setStopPolicy(kueue.Hold)
-			util.MustCreate(ctx, k8sClient, wl2)
-		})
-
-		ginkgo.By("raising the LimitRange defaultRequest to 3 CPU", func() {
+		ginkgo.By("lowering the LimitRange defaultRequest to 1 CPU", func() {
 			updatedLr := corev1.LimitRange{}
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(limitRange), &updatedLr)).To(gomega.Succeed())
-			updatedLr.Spec.Limits[0].DefaultRequest[corev1.ResourceCPU] = resource.MustParse("3")
+			updatedLr.Spec.Limits[0].DefaultRequest[corev1.ResourceCPU] = resource.MustParse("1")
 			gomega.Expect(k8sClient.Update(ctx, &updatedLr)).To(gomega.Succeed())
 		})
 
-		ginkgo.By("releasing the ClusterQueue and admitting the second workload on the large flavor (effective 3 CPU)", func() {
-			// If the scheduling equivalence hash were not refreshed from the
-			// new effective resources, the second workload could reuse the
-			// first one's assignment and land on the small flavor.
-			setStopPolicy(kueue.None)
-			expectAdmittedOnFlavor(wl2, largeFlavor.Name)
+		ginkgo.By("admitting a raw-identical second workload on the small flavor (effective 1 CPU)", func() {
+			// The stale (3 CPU) view fits neither flavor — small is too small
+			// and large is full — so the only way to admission is through the
+			// refreshed effective resources. If the scheduling equivalence
+			// hash were not refreshed alongside them, the second workload
+			// would reuse the first one'"'"'s equivalence class against the full
+			// large flavor and stay pending.
+			wl2 := utiltestingapi.MakeWorkload("two", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
+			expectAdmittedOnFlavor(wl2, smallFlavor.Name)
 		})
 
 		ginkgo.By("verifying the first workload keeps its original assignment", func() {
-			expectAdmittedOnFlavor(wl1, smallFlavor.Name)
+			expectAdmittedOnFlavor(wl1, largeFlavor.Name)
 		})
 	})
 })
