@@ -1482,10 +1482,8 @@ func TestFairPreemptionErrorPaths(t *testing.T) {
 			}
 			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, fsConfig, true, clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
 
-			var err error
-			err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) error {
-				var inErr error
-				_, inErr = preemptor.GetTargets(ctx, *preemptorWlInfo, singlePodSetAssignment(
+			if err := scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) error {
+				_, inErr := preemptor.GetTargets(ctx, *preemptorWlInfo, singlePodSetAssignment(
 					flavorassigner.ResourceAssignment{
 						corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 							Name: "default", Mode: flavorassigner.Preempt,
@@ -1493,9 +1491,8 @@ func TestFairPreemptionErrorPaths(t *testing.T) {
 					},
 				), snapshot, simulator)
 				return inErr
-			})
-			if err != nil {
-				t.Errorf("Failed to get targets: %v", err)
+			}); !errors.Is(err, tc.wantErr) {
+				t.Errorf("GetTargets() error = %v, want %v", err, tc.wantErr)
 			}
 		})
 	}
