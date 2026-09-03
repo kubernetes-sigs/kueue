@@ -339,12 +339,8 @@ func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	return ret
 }
 
-func NewInfo(w *kueue.Workload, opts ...InfoOption) *Info {
-	return NewInfoWithLogger(klog.Background(), w, opts...)
-}
-
-// NewInfoWithLogger builds an Info, computing the scheduling hash with log.
-func NewInfoWithLogger(log logr.Logger, w *kueue.Workload, opts ...InfoOption) *Info {
+// NewInfo builds an Info, computing the scheduling hash with log.
+func NewInfo(log logr.Logger, w *kueue.Workload, opts ...InfoOption) *Info {
 	info := &Info{}
 	info.Update(log, w, opts...)
 	return info

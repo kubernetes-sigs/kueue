@@ -1176,10 +1176,11 @@ func TestNewInfo(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			for fg, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
-			info := NewInfo(&tc.workload, tc.infoOptions...)
+			info := NewInfo(log, &tc.workload, tc.infoOptions...)
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash"), cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
@@ -1274,7 +1275,7 @@ func TestUpdateWithRebuild(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
-			info := NewInfo(tc.initial, tc.initialOptions...)
+			info := NewInfo(log, tc.initial, tc.initialOptions...)
 			if len(tc.updateOptions) == 0 {
 				if diff := cmp.Diff(tc.wantRequests, info.TotalRequests,
 					cmpopts.IgnoreFields(PodSetResources{}, "Flavors"),
@@ -2727,7 +2728,8 @@ func TestWithPreprocessedDRAResources(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			info := NewInfo(&tc.workload, WithPreprocessedDRAResources(tc.draResources, nil))
+			_, log := utiltesting.ContextWithLog(t)
+			info := NewInfo(log, &tc.workload, WithPreprocessedDRAResources(tc.draResources, nil))
 
 			if diff := cmp.Diff(tc.wantInfo.TotalRequests, info.TotalRequests, cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("Unexpected TotalRequests (-want,+got):\n%s", diff)
@@ -2808,7 +2810,8 @@ func TestWithPreprocessedDRAResourcesReplacesExtendedResources(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			info := NewInfo(&tc.workload, WithPreprocessedDRAResources(tc.draResources, tc.replacedExtendedResources))
+			_, log := utiltesting.ContextWithLog(t)
+			info := NewInfo(log, &tc.workload, WithPreprocessedDRAResources(tc.draResources, tc.replacedExtendedResources))
 
 			if diff := cmp.Diff(tc.wantInfo.TotalRequests, info.TotalRequests, cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("Unexpected TotalRequests (-want,+got):\n%s", diff)
@@ -3565,9 +3568,9 @@ func TestSchedulingHash(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			info1 := NewInfo(tc.wl1)
+			info1 := NewInfo(log, tc.wl1)
 			info1.updateSchedulingHash(log)
-			info2 := NewInfo(tc.wl2)
+			info2 := NewInfo(log, tc.wl2)
 			info2.updateSchedulingHash(log)
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
@@ -3588,10 +3591,10 @@ func TestSchedulingHash(t *testing.T) {
 		})
 		wl := utiltestingapi.MakeWorkload("wl", "ns").
 			Request("example.com/gpu", "1").Obj()
-		before := NewInfo(wl)
+		before := NewInfo(log, wl)
 		before.updateSchedulingHash(log)
 
-		after := NewInfo(wl, WithPreprocessedDRAResources(
+		after := NewInfo(log, wl, WithPreprocessedDRAResources(
 			map[kueue.PodSetReference]corev1.ResourceList{
 				kueue.DefaultPodSetName: {
 					"gpu": resource.MustParse("1"),
@@ -3613,6 +3616,7 @@ func TestSchedulingHash(t *testing.T) {
 }
 
 func TestUpdateSchedulingHashReuse(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 		features.SchedulingEquivalenceHashing: true,
 	})
@@ -3647,27 +3651,27 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 		wantReuse bool
 	}{
 		"same UID and ResourceVersion keeps the hash": {
-			info:      NewInfo(workload("uid", "1", 1)),
+			info:      NewInfo(log, workload("uid", "1", 1)),
 			reread:    workload("uid", "1", 2),
 			wantReuse: true,
 		},
 		"changed ResourceVersion recomputes the hash": {
-			info:   NewInfo(workload("uid", "1", 1)),
+			info:   NewInfo(log, workload("uid", "1", 1)),
 			reread: workload("uid", "2", 2),
 		},
 		"changed UID recomputes the hash": {
-			info:   NewInfo(workload("uid", "1", 1)),
+			info:   NewInfo(log, workload("uid", "1", 1)),
 			reread: workload("other", "1", 2),
 		},
 		// Objects that never round-tripped through the API server share the
 		// empty ResourceVersion, which says nothing about their shape.
 		"absent ResourceVersion on both sides recomputes the hash": {
-			info:   NewInfo(workload("uid", "", 1)),
+			info:   NewInfo(log, workload("uid", "", 1)),
 			reread: workload("uid", "", 2),
 		},
 		"an Info holding no hash computes one": {
 			// Requests match, so only the missing hash can force the recompute.
-			info:   withoutHash(NewInfo(workload("uid", "1", 1))),
+			info:   withoutHash(NewInfo(log, workload("uid", "1", 1))),
 			reread: workload("uid", "1", 2),
 		},
 		"an Info holding no object computes one": {
@@ -3677,7 +3681,7 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 		// The requeue path carries DRA-preprocessed requests over deliberately,
 		// which leaves the version check to decide alone.
 		"preserved TotalRequests leave the decision to the version check": {
-			info: NewInfo(workload("uid", "1", 1)),
+			info: NewInfo(log, workload("uid", "1", 1)),
 			reread: utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("1").
 				Priority(2).Request(corev1.ResourceCPU, "2").Obj(),
 			opts:      []InfoOption{WithPreserveTotalRequests()},
@@ -3686,7 +3690,7 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 		// The requeue path drops the DRA options when NeedsDRAReconcile turns
 		// false, which it can do at an unchanged ResourceVersion.
 		"dropped DRA preprocessing recomputes the hash": {
-			info:   NewInfo(draWorkload, draOptions...),
+			info:   NewInfo(log, draWorkload, draOptions...),
 			reread: draWorkload,
 		},
 	}
@@ -3718,7 +3722,7 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 			features.SchedulingEquivalenceHashing: false,
 		})
-		info := NewInfo(workload("uid", "1", 1))
+		info := NewInfo(log, workload("uid", "1", 1))
 		info.Update(log, workload("uid", "1", 2))
 		if info.SchedulingHash != SchedulingHashUnknown {
 			t.Errorf("SchedulingHash = %q, want %q", info.SchedulingHash, SchedulingHashUnknown)
@@ -4041,6 +4045,7 @@ func TestIsExplicitlyRequestingTAS(t *testing.T) {
 }
 
 func TestSumTotalRequestsWithDRAFromAdmission(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	fakeClock := testingclock.NewFakeClock(time.Now())
 	now := fakeClock.Now()
 	wl := utiltestingapi.MakeWorkload("test-wl", "default").
@@ -4060,7 +4065,7 @@ func TestSumTotalRequestsWithDRAFromAdmission(t *testing.T) {
 				).Obj(), now,
 		).Obj()
 
-	info := NewInfo(wl)
+	info := NewInfo(log, wl)
 	sumReqs := info.SumTotalRequests(resources.NewResourceFormatter())
 
 	// Verify CPU is present
@@ -4201,6 +4206,7 @@ func TestCalcLocalQueueFSUsage(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
 			cl := utiltesting.NewClientBuilder().
 				WithInterceptorFuncs(interceptor.Funcs{
@@ -4210,7 +4216,7 @@ func TestCalcLocalQueueFSUsage(t *testing.T) {
 				}).
 				Build()
 
-			info := NewInfo(wl)
+			info := NewInfo(log, wl)
 
 			resWeights := map[corev1.ResourceName]float64{corev1.ResourceCPU: 5.0}
 

@@ -1080,9 +1080,10 @@ func TestShouldApplyEntryPenalty(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			s := &Scheduler{admissionFairSharing: tc.afsConfig}
 			e := &entry{
-				Head: qcache.Head{Info: *workload.NewInfo(tc.wl)},
+				Head: qcache.Head{Info: *workload.NewInfo(log, tc.wl)},
 				clusterQueueSnapshot: &schdcache.ClusterQueueSnapshot{
 					AdmissionScope: kueue.AdmissionScope{AdmissionMode: tc.admissionMode},
 				},
