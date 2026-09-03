@@ -44,14 +44,14 @@ func CandidatesOrdering(log logr.Logger, afsEnabled bool, a, b *workload.Info, c
 	return cmputil.LazyOr(
 		func() int {
 			return cmputil.CompareBool(
-				workloadevict.IsEvicted(a.Obj),
 				workloadevict.IsEvicted(b.Obj),
+				workloadevict.IsEvicted(a.Obj),
 			)
 		},
 		func() int {
 			return cmputil.CompareBool(
-				b.ClusterQueue == cq,
 				a.ClusterQueue == cq,
+				b.ClusterQueue == cq,
 			)
 		},
 		func() int {
