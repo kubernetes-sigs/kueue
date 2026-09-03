@@ -876,13 +876,18 @@ func podWithMaxRequests(pods []corev1.Pod) *corev1.Pod {
 }
 
 // podExceedsRequests reports whether the pod requests more of any resource than reserved
-// for its role. Unreserved resources count as zero.
+// for its role. Unreserved / missing reserved keys count as zero.
 func podExceedsRequests(pod *corev1.Pod, reserved resources.Requests) bool {
 	actual := resources.NewRequestsFromPodSpec(&pod.Spec)
 	if reserved == nil {
 		reserved = resources.NewRequests()
 	}
-	return len(actual.GreaterKeys(reserved)) > 0
+	for name, val := range actual.Iter() {
+		if val > reserved.ResourceValue(name) {
+			return true
+		}
+	}
+	return false
 }
 
 func errFastAdmissionRoleMismatch(podName, gotRole, expectedRole string) error {
