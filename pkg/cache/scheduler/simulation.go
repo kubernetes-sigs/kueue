@@ -115,23 +115,6 @@ func newSimulationContext(snapshot *Snapshot) *simulationContext {
 	}
 }
 
-func (s *simulationContext) Clear() {
-	s.RestoreUsage()
-	for _, preemption := range s.simulatedPreemptions {
-		s.addWorkload(preemption.target)
-	}
-	clear(s.simulatedPreemptions)
-}
-
-func (s *simulationContext) ChildContext() SimulationContext {
-	return &simulationContext{
-		cacheSnapshot:         s.cacheSnapshot,
-		simulatorSnapshot:     s.simulatorSnapshot,
-		simulatedPreemptions:  make(map[workloadKey]preemption),
-		restoreUsageCallbacks: make([]func(), 0),
-	}
-}
-
 func (s *simulationContext) PreemptWorkload(ctx context.Context, candidate *workload.Info) error {
 	wlKey := client.ObjectKeyFromObject(candidate.Obj)
 	revert, err := s.simulatorSnapshot.PreemptWorkload(ctx, wlKey)
@@ -144,6 +127,14 @@ func (s *simulationContext) PreemptWorkload(ctx context.Context, candidate *work
 		revert: revert,
 	}
 	return nil
+}
+
+// removeWorkload removes a workload from its corresponding ClusterQueue and
+// updates resource usage.
+func (s *simulationContext) removeWorkload(wl *workload.Info) {
+	cq := s.cacheSnapshot.ClusterQueue(wl.ClusterQueue)
+	delete(cq.Workloads, workload.Key(wl.Obj))
+	cq.RemoveUsage(wl.Usage())
 }
 
 func (s *simulationContext) RestoreWorkloads(targets ...types.NamespacedName) error {
@@ -162,6 +153,14 @@ func (s *simulationContext) RestoreWorkloads(targets ...types.NamespacedName) er
 		delete(s.simulatedPreemptions, target)
 	}
 	return nil
+}
+
+// addWorkload adds a workload to its corresponding ClusterQueue and
+// updates resource usage.
+func (s *simulationContext) addWorkload(wl *workload.Info) {
+	cq := s.cacheSnapshot.ClusterQueue(wl.ClusterQueue)
+	cq.Workloads[workload.Key(wl.Obj)] = wl
+	cq.AddUsage(wl.Usage())
 }
 
 func (s *simulationContext) RemoveUsage(workloads []*workload.Info) {
@@ -190,18 +189,19 @@ func (s *simulationContext) RestoreUsage() {
 	clear(s.restoreUsageCallbacks)
 }
 
-// removeWorkload removes a workload from its corresponding ClusterQueue and
-// updates resource usage.
-func (s *simulationContext) removeWorkload(wl *workload.Info) {
-	cq := s.cacheSnapshot.ClusterQueue(wl.ClusterQueue)
-	delete(cq.Workloads, workload.Key(wl.Obj))
-	cq.RemoveUsage(wl.Usage())
+func (s *simulationContext) Clear() {
+	s.RestoreUsage()
+	for _, preemption := range s.simulatedPreemptions {
+		s.addWorkload(preemption.target)
+	}
+	clear(s.simulatedPreemptions)
 }
 
-// addWorkload adds a workload to its corresponding ClusterQueue and
-// updates resource usage.
-func (s *simulationContext) addWorkload(wl *workload.Info) {
-	cq := s.cacheSnapshot.ClusterQueue(wl.ClusterQueue)
-	cq.Workloads[workload.Key(wl.Obj)] = wl
-	cq.AddUsage(wl.Usage())
+func (s *simulationContext) ChildContext() SimulationContext {
+	return &simulationContext{
+		cacheSnapshot:         s.cacheSnapshot,
+		simulatorSnapshot:     s.simulatorSnapshot,
+		simulatedPreemptions:  make(map[workloadKey]preemption),
+		restoreUsageCallbacks: make([]func(), 0),
+	}
 }
