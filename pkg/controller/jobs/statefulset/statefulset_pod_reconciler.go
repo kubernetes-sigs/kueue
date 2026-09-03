@@ -133,11 +133,18 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 	}
 
 	if groupName := utilpod.GetPodGroupName(pod); groupName == wlName {
+		changed := false
 		if queueName != "" && pod.Labels[ctrlconstants.QueueLabel] != string(queueName) {
 			pod.Labels[ctrlconstants.QueueLabel] = string(queueName)
-			return true, nil
+			changed = true
 		}
-		return false, nil
+		if features.Enabled(features.TopologyAwareScheduling) || features.Enabled(features.SchedulerLibraryIntegration) {
+			if pod.Annotations[kueue.WorkloadAnnotation] != wlName {
+				pod.Annotations[kueue.WorkloadAnnotation] = wlName
+				changed = true
+			}
+		}
+		return changed, nil
 	}
 
 	if queueName == "" && !r.manageJobsWithoutQueueName {
