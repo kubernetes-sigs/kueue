@@ -48,7 +48,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 	quantity resources.Amount,
 ) (possibility preemptioncommon.PreemptionPossibility, borrow int) {
 	log := log.FromContext(ctx)
-	if simErr := schdcache.Simulate(ctx, p.snapshot, func(simCtx schdcache.SimulationContext) error {
+	if simErr := schdcache.Simulate(ctx, p.snapshot, func(simCtx *schdcache.SimulationContext) error {
 		candidates, err := p.preemptor.getTargets(simCtx, &preemptionCtx{
 			ctx:               ctx,
 			clock:             p.preemptor.clock,

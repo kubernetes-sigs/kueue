@@ -329,7 +329,7 @@ func TestRunFirstFsStrategyLogging(t *testing.T) {
 			var fits bool
 			var targets []*Target
 			var retryCandidates []*workload.Info
-			err := schdcache.Simulate(fixture.preemptionCtx.ctx, fixture.preemptionCtx.snapshot, func(simCtx schdcache.SimulationContext) error {
+			err := schdcache.Simulate(fixture.preemptionCtx.ctx, fixture.preemptionCtx.snapshot, func(simCtx *schdcache.SimulationContext) error {
 				var err error
 				fits, targets, retryCandidates, err = runFirstFsStrategy(simCtx, fixture.preemptionCtx, fixture.candidates, strategy)
 				return err
@@ -462,7 +462,7 @@ func TestRunSecondFsStrategyLog(t *testing.T) {
 				{name: "b", candidates: 3, fairWeight: tc.fairWeight},
 			})
 
-			err := schdcache.Simulate(fixture.preemptionCtx.ctx, fixture.preemptionCtx.snapshot, func(simCtx schdcache.SimulationContext) error {
+			err := schdcache.Simulate(fixture.preemptionCtx.ctx, fixture.preemptionCtx.snapshot, func(simCtx *schdcache.SimulationContext) error {
 				_, _, err := runSecondFsStrategy(simCtx, fixture.preemptionCtx, fixture.candidates, nil)
 				return err
 			})

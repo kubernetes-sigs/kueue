@@ -834,7 +834,7 @@ func fits(
 ) (schdcache.FitsCheck, error) {
 	merged := preemptedWorkloads.MergeWithTargets(newTargets)
 	var result schdcache.FitsCheck
-	err := scheduler.Simulate(ctx, snapshot, func(simCtx scheduler.SimulationContext) error {
+	err := scheduler.Simulate(ctx, snapshot, func(simCtx *scheduler.SimulationContext) error {
 		simCtx.RemoveUsage(merged.Workloads())
 		result = cq.Fits(*usage)
 		return nil
@@ -890,7 +890,7 @@ func (s *Scheduler) getAssignments(
 	snap *schdcache.Snapshot,
 	preemptedWorkloads []*workload.Info,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, err error) {
-	err = scheduler.Simulate(ctx, snap, func(simCtx scheduler.SimulationContext) error {
+	err = scheduler.Simulate(ctx, snap, func(simCtx *scheduler.SimulationContext) error {
 		var inErr error
 		for _, w := range preemptedWorkloads {
 			if inErr = simCtx.PreemptWorkload(ctx, w); inErr != nil {
@@ -965,7 +965,7 @@ func (s *Scheduler) getInitialAssignments(
 	ctx context.Context,
 	wl *workload.Info,
 	snap *schdcache.Snapshot,
-	simCtx scheduler.SimulationContext,
+	simCtx *scheduler.SimulationContext,
 ) (_ flavorassigner.Assignment, _ []*preemption.Target, err error) {
 	cq := snap.ClusterQueue(wl.ClusterQueue)
 
@@ -1037,7 +1037,7 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 
 func updateAssignmentForTAS(
 	ctx context.Context,
-	simCtx scheduler.SimulationContext,
+	simCtx *scheduler.SimulationContext,
 	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl *workload.Info,
@@ -1057,7 +1057,7 @@ func updateAssignmentForTAS(
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			if err := scheduler.SimulateNested(simCtx, func(simCtx scheduler.SimulationContext) error {
+			if err := scheduler.SimulateNested(simCtx, func(simCtx *scheduler.SimulationContext) error {
 				simCtx.RemoveUsage(targetWorkloads)
 				tasResult = cq.FindTopologyAssignmentsForWorkload(
 					ctx,

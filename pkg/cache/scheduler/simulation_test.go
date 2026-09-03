@@ -946,10 +946,10 @@ func TestSimulation(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		simFunc func(sim SimulationContext) error
+		simFunc func(sim *SimulationContext) error
 	}{
 		"preempt single workload inside simulation": {
-			simFunc: func(sim SimulationContext) error {
+			simFunc: func(sim *SimulationContext) error {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
 					return fmt.Errorf("unexpected error preempting wl1: %v", err)
 				}
@@ -957,7 +957,7 @@ func TestSimulation(t *testing.T) {
 			},
 		},
 		"preempt multiple workloads inside simulation": {
-			simFunc: func(sim SimulationContext) error {
+			simFunc: func(sim *SimulationContext) error {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
 					return fmt.Errorf("unexpected error preempting wl1: %v", err)
 				}
@@ -968,7 +968,7 @@ func TestSimulation(t *testing.T) {
 			},
 		},
 		"preempt and partially restore workload inside simulation": {
-			simFunc: func(sim SimulationContext) error {
+			simFunc: func(sim *SimulationContext) error {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
 					return fmt.Errorf("unexpected error preempting wl1: %v", err)
 				}
@@ -983,7 +983,7 @@ func TestSimulation(t *testing.T) {
 			},
 		},
 		"preempt and restore snapshot subset inside simulation": {
-			simFunc: func(sim SimulationContext) error {
+			simFunc: func(sim *SimulationContext) error {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
 					return fmt.Errorf("unexpected error preempting wl1: %v", err)
 				}

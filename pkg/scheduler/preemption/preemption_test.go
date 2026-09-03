@@ -4147,7 +4147,7 @@ func TestPreemption(t *testing.T) {
 				wlInfo.ClusterQueue = tc.targetCQ
 				var targets []*Target
 				var inErr error
-				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) error {
+				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator *scheduler.SimulationContext) error {
 					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment, snapshotWorkingCopy)
 					return nil
 				})
@@ -4372,7 +4372,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
 				var targets []*Target
-				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) error {
+				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator *scheduler.SimulationContext) error {
 					var inErr error
 					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment, snapshotWorkingCopy)
 					return inErr
@@ -4598,7 +4598,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
 
 				var targets []*Target
-				err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) error {
+				err = scheduler.Simulate(ctx, snapshot, func(simulator *scheduler.SimulationContext) error {
 					var inErr error
 					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment, snapshot)
 					return inErr
@@ -5123,7 +5123,7 @@ func TestClassicalPreemptionsErrorPaths(t *testing.T) {
 			recorder := &utiltesting.EventRecorder{}
 			preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 
-			err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) error {
+			err = scheduler.Simulate(ctx, snapshot, func(simulator *scheduler.SimulationContext) error {
 				_, inErr := preemptor.GetTargets(ctx, simulator, *preemptorWlInfo, singlePodSetAssignment(
 					flavorassigner.ResourceAssignment{
 						corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
