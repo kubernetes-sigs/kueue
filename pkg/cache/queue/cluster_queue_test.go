@@ -690,8 +690,12 @@ func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
 	}
 
 	// Writer: continuously set the sticky workload via a preemption requeue.
+	// The writer must be joined, not just signalled: it logs through the
+	// t-bound logger, and testr panics if that happens after the test returns.
 	stop := make(chan struct{})
+	writerDone := make(chan struct{})
 	go func() {
+		defer close(writerDone)
 		for {
 			select {
 			case <-stop:
@@ -703,7 +707,10 @@ func TestSnapshotConcurrentWithRequeueNoDataRace(t *testing.T) {
 			}
 		}
 	}()
-	defer close(stop)
+	defer func() {
+		close(stop)
+		<-writerDone
+	}()
 
 	// Reader: Snapshot reads the sticky workload through the comparator.
 	for range 1000 {
