@@ -981,6 +981,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
 
 	var revertRemoval func()
+	var recomputationReason metrics.AssignmentRecomputationReason
 	switch {
 	case needsOverlapRecompute:
 		// The recompute can only turn a Fit into a DeferredFit, and refill
@@ -990,9 +991,11 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		if e.refilled && e.assignment.RepresentativeMode() != flavorassigner.Fit {
 			return schdcache.FitsCheckOk == fitsCheck, nil
 		}
+		recomputationReason = metrics.AssignmentRecomputationReasonOverlappingPreemptionTargets
 		log.V(3).Info("Re-computing the assignment as preemption targets overlap")
 		revertRemoval = simulateOtherPreemptions(ctx, log, snapshot, preemptedWorkloads)
 	case needsTASRecompute:
+		recomputationReason = metrics.AssignmentRecomputationReasonNoTAS
 		log.V(3).Info("Re-computing the assignment as it doesn't fit for TAS")
 	default:
 		// Short-circuit, nothing to recompute.
@@ -1006,6 +1009,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	nominationScanState := e.assignment.FlavorScanState
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
+	beforeMode := e.assignment.RepresentativeMode()
 	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
 	if revertRemoval != nil {
 		revertRemoval()
@@ -1038,6 +1042,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		}
 		metrics.ReportPreemptionTargetRecomputation(e.ClusterQueue, overlapRecomputeResult, s.customLabels.CQGet(e.ClusterQueue), s.roleTracker)
 	}
+	metrics.ReportAssignmentRecomputation(e.ClusterQueue, beforeMode.String(), e.assignment.RepresentativeMode().String(), recomputationReason, s.customLabels.CQGet(e.ClusterQueue), s.roleTracker)
 
 	return schdcache.FitsCheckOk == fitsCheck, nil
 }
