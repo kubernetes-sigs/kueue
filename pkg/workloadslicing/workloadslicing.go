@@ -228,8 +228,16 @@ func EnsureWorkloadSlices(
 			return nil, false, nil
 		}
 
-		// If counts match, return the existing workload slice.
+		// If counts match, return the existing workload slice or nil if the workload was partially admitted.
 		if jobPodSetsCounts.EqualTo(wlPodSetsCounts) {
+			if workload.IsAdmitted(wl) {
+				for _, psa := range wl.Status.Admission.PodSetAssignments {
+					if wlPodSetsCounts[psa.Name] > *psa.Count {
+						// The workload was partially admitted, create the full scale up probe
+						return nil, true, nil
+					}
+				}
+			}
 			return wl, true, nil
 		}
 

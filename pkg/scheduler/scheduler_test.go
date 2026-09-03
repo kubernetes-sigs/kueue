@@ -5796,6 +5796,388 @@ func TestSchedule(t *testing.T) {
 				utiltesting.MakeEventRecord("sales", "foo-1", kueue.WorkloadSliceReplaced, corev1.EventTypeNormal).Obj(),
 			},
 		},
+		"workload-slice with partial replica scale up partially fits in single clusterQueue": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialAdmission:                                      false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 30).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30000m").Count(30).Obj()).Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 60).
+						SetMinimumCount(40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"sales/foo-1": *utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30").Count(30).Obj()).Obj(),
+				"sales/foo-2": *utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "50").Count(50).Obj()).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					ResourceVersion("2").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 30).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Admission(
+						utiltestingapi.MakeAdmission("sales").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "30000m").
+								Count(30).
+								Obj()).
+							Obj(),
+					).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadSliceReplaced,
+						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("2").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 60).
+						SetMinimumCount(40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Admission(
+						utiltestingapi.MakeAdmission("sales").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "50000m").
+								Count(50).
+								Obj()).
+							Obj(),
+					).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("sales", "foo-2", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "foo-2", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "foo-1", kueue.WorkloadSliceReplaced, corev1.EventTypeNormal).Obj(),
+			},
+		},
+		"workload-slice with partial replica scale up does not partially scale up when feature is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialAdmission:                                      false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 30).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30000m").Count(30).Obj()).Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 60).
+						SetMinimumCount(40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"sales/foo-1": *utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30").Count(30).Obj()).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 30).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Admission(
+						utiltestingapi.MakeAdmission("sales").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "30000m").
+								Count(30).
+								Obj()).
+							Obj(),
+					).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 60).
+						SetMinimumCount(40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 10 more needed",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(
+						kueue.PodSetRequest{
+							Name: "one",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("60"),
+							},
+						},
+					).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"sales": {"sales/foo-2"},
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("sales", "foo-2", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		"workload-slice with partial replica scale up does not partially scale up when annotation is not present": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialAdmission:                                      false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 30).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30000m").Count(30).Obj()).Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 60).
+						SetMinimumCount(40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"sales/foo-1": *utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30").Count(30).Obj()).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 30).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Admission(
+						utiltestingapi.MakeAdmission("sales").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "30000m").
+								Count(30).
+								Obj()).
+							Obj(),
+					).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 60).
+						SetMinimumCount(40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 10 more needed",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(
+						kueue.PodSetRequest{
+							Name: "one",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("60"),
+							},
+						},
+					).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"sales": {"sales/foo-2"},
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("sales", "foo-2", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+			},
+		},
 		"pending admission check with nofit and fit flavors": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("pending-check", "eng-beta").
