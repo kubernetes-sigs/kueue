@@ -34,6 +34,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -168,6 +169,42 @@ var _ = ginkgo.Describe("MultiKueue remote object retention", ginkgo.Ordered, gi
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
 				createdJobSet := &jobset.JobSet{}
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, jobSetLookupKey, createdJobSet)).To(utiltesting.BeNotFoundError())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should replace a leftover same-name remote Job from an earlier run", func() {
+		const jobName = "retained-job"
+		jobLookupKey := types.NamespacedName{Name: jobName, Namespace: f.managerNs.Name}
+
+		var leftoverUID types.UID
+		ginkgo.By("creating a leftover MultiKueue Job on worker1 from an earlier run", func() {
+			leftover := testingjob.MakeJob(jobName, f.worker1Ns.Name).
+				Label(kueue.MultiKueueOriginLabel, config.DefaultMultiKueueOrigin).
+				PrebuiltWorkloadAnnotation("old-workload").
+				Obj()
+			util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, leftover)
+			leftoverUID = leftover.UID
+		})
+
+		job := testingjob.MakeJob(jobName, f.managerNs.Name).
+			Queue(kueue.LocalQueueName(f.managerLq.Name)).
+			Obj()
+		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: f.managerNs.Name}
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj())
+
+		setQuotaReservationInCluster(wlLookupKey, admission)
+		checkingTheWorkloadCreation(wlLookupKey, gomega.Succeed())
+
+		ginkgo.By("admitting the workload in worker1, the leftover Job is replaced", func() {
+			util.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission.Obj())
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdJob := batchv1.Job{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, jobLookupKey, &createdJob)).To(gomega.Succeed())
+				g.Expect(createdJob.UID).NotTo(gomega.Equal(leftoverUID))
+				g.Expect(createdJob.Annotations[controllerconstants.PrebuiltWorkloadAnnotation]).To(gomega.Equal(wlLookupKey.Name))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
