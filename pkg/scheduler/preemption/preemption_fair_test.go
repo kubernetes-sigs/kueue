@@ -1258,7 +1258,7 @@ func TestFairPreemptions(t *testing.T) {
 							Name: flavorName, Mode: flavorassigner.Preempt,
 						},
 					},
-				), snapshotWorkingCopy)
+				))
 				return inErr
 			})
 			if err != nil {
@@ -1393,7 +1393,7 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 							Name: "default", Mode: flavorassigner.Preempt,
 						},
 					},
-				), snapshot)
+				))
 				return inErr
 			})
 			if err != nil {
@@ -1593,7 +1593,7 @@ func TestFairPreemptionErrorPaths(t *testing.T) {
 							Name: "default", Mode: flavorassigner.Preempt,
 						},
 					},
-				), snapshot)
+				))
 				return inErr
 			}); !errors.Is(err, tc.wantErr) {
 				t.Errorf("GetTargets() error = %v, want %v", err, tc.wantErr)

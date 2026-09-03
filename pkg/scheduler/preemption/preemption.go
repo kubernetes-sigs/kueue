@@ -81,7 +81,6 @@ type preemptionCtx struct {
 	log               logr.Logger
 	preemptor         workload.Info
 	preemptorCQ       *schdcache.ClusterQueueSnapshot
-	snapshot          *schdcache.Snapshot
 	workloadUsage     workload.Usage
 	tasRequests       schdcache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
@@ -134,10 +133,9 @@ func (p *Preemptor) GetTargets(
 	simCtx *schdcache.SimulationContext,
 	wl workload.Info,
 	assignment flavorassigner.Assignment,
-	snapshot *schdcache.Snapshot,
 ) ([]*Target, error) {
 	log := log.FromContext(ctx)
-	cq := snapshot.ClusterQueue(wl.ClusterQueue)
+	cq := simCtx.ClusterQueue(wl.ClusterQueue)
 	var tasRequests schdcache.WorkloadTASRequests
 	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests = assignment.WorkloadsTopologyRequests(log, &wl, cq)
@@ -148,7 +146,6 @@ func (p *Preemptor) GetTargets(
 		log:               log,
 		preemptor:         wl,
 		preemptorCQ:       cq,
-		snapshot:          snapshot,
 		tasRequests:       tasRequests,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
@@ -179,7 +176,7 @@ func preemptWorkload(simCtx *scheduler.SimulationContext, pCtx *preemptionCtx, c
 	return &Target{
 		WorkloadInfo: candidate,
 		Reason:       reason,
-		WorkloadCq:   pCtx.snapshot.ClusterQueue(candidate.ClusterQueue),
+		WorkloadCq:   simCtx.ClusterQueue(candidate.ClusterQueue),
 	}, nil
 }
 
@@ -312,7 +309,7 @@ func (p *Preemptor) classicalPreemptions(simCtx *scheduler.SimulationContext, pr
 		Requests:          preemptionCtx.workloadUsage.Quota.Assigned,
 		WorkloadOrdering:  p.workloadOrdering,
 	}
-	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, p.enabledAfs, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, preemptioncommon.CandidatesOrdering)
+	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, p.enabledAfs, preemptionCtx.frsNeedPreemption, simCtx, p.clock, preemptioncommon.CandidatesOrdering)
 	var attemptPossibleOpts []preemptionAttemptOpts
 	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
 	// We have three types of candidates:

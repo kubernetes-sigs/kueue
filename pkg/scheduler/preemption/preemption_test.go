@@ -4148,7 +4148,7 @@ func TestPreemption(t *testing.T) {
 				var targets []*Target
 				var inErr error
 				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator *scheduler.SimulationContext) error {
-					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment, snapshotWorkingCopy)
+					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment)
 					return nil
 				})
 				if err != nil || inErr != nil {
@@ -4374,7 +4374,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				var targets []*Target
 				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator *scheduler.SimulationContext) error {
 					var inErr error
-					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment, snapshotWorkingCopy)
+					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment)
 					return inErr
 				})
 				if err != nil {
@@ -4600,7 +4600,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				var targets []*Target
 				err = scheduler.Simulate(ctx, snapshot, func(simulator *scheduler.SimulationContext) error {
 					var inErr error
-					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment, snapshot)
+					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment)
 					return inErr
 				})
 				if err != nil {
@@ -5130,7 +5130,7 @@ func TestClassicalPreemptionsErrorPaths(t *testing.T) {
 							Name: "default", Mode: flavorassigner.Preempt,
 						},
 					},
-				), snapshot)
+				))
 				return inErr
 			})
 			if !errors.Is(err, tc.wantErr) {

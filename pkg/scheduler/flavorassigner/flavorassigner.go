@@ -638,7 +638,7 @@ type preemptionOracle interface {
 		wl workload.Info,
 		fr resources.FlavorResource,
 		quantity resources.Amount,
-	) (preemptioncommon.PreemptionPossibility, int)
+	) (preemptioncommon.PreemptionPossibility, int, error)
 }
 
 type FlavorAssigner struct {
@@ -693,7 +693,7 @@ func New(
 // The result for each pod set is accompanied with reasons why the flavor can't
 // be assigned immediately. Each assigned flavor is accompanied with a
 // FlavorAssignmentMode.
-func (a *FlavorAssigner) Assign(ctx context.Context, counts []int32) Assignment {
+func (a *FlavorAssigner) Assign(ctx context.Context, counts []int32) (Assignment, error) {
 	log := log.FromContext(ctx)
 
 	return a.assignFlavors(ctx, log, counts)
@@ -705,7 +705,7 @@ type indexedPodSet struct {
 	podSetAssignment *PodSetAssignment
 }
 
-func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, counts []int32) Assignment {
+func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, counts []int32) (Assignment, error) {
 	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
 	if len(counts) == 0 {
 		for i, ps := range a.wl.TotalRequests {
@@ -822,7 +822,10 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 				continue
 			}
 
-			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, resName, assignment.Usage.Quota.Assigned)
+			flavors, status, considered, err := a.findFlavorForPodSets(ctx, log, psIDs, requests, resName, assignment.Usage.Quota.Assigned)
+			if err != nil {
+				return Assignment{}, err
+			}
 			mergeFlavorAttemptsForResource(consideredFlavors, considered, resName, a.cq)
 			if status.IsError() || (len(flavors) == 0 && requests.Len() > 0) {
 				groupFlavors = nil
@@ -851,14 +854,14 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 			if features.Enabled(features.UnadmittedWorkloadsObservability) {
 				assignment.resolveNoFitReason(a.cq)
 			}
-			return assignment
+			return assignment, nil
 		}
 	}
 	if assignment.RepresentativeMode() == NoFit {
 		if features.Enabled(features.UnadmittedWorkloadsObservability) {
 			assignment.resolveNoFitReason(a.cq)
 		}
-		return assignment
+		return assignment, nil
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
@@ -904,7 +907,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		assignment.resolveNoFitReason(a.cq)
 	}
-	return assignment
+	return assignment, nil
 }
 
 // resolvePodSetFlavors returns the flavors podSet should be assigned, given the flavors
@@ -1069,10 +1072,10 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	requests resources.Requests,
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
-) (ResourceAssignment, *Status, FlavorAssignmentAttempts) {
+) (ResourceAssignment, *Status, FlavorAssignmentAttempts, error) {
 	resourceGroup := a.cq.RGByResource(resName)
 	if resourceGroup == nil {
-		return nil, NewStatus(fmt.Sprintf("resource %s unavailable in ClusterQueue", resName)), nil
+		return nil, NewStatus(fmt.Sprintf("resource %s unavailable in ClusterQueue", resName)), nil, nil
 	}
 
 	status := NewStatus()
@@ -1108,7 +1111,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			consideredFlavors.AddNoFitFlavorAttempt(fName, flavorStatus)
 			if flavorStatus.err != nil {
 				status.err = flavorStatus.err
-				return nil, status, consideredFlavors
+				return nil, status, consideredFlavors, nil
 			}
 			continue
 		}
@@ -1148,7 +1151,10 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			// Check considering the flavor usage by previous pod sets.
 			fr := resources.FlavorResource{Flavor: fName, Resource: rName}
 
-			preemptionMode, borrow, s := a.fitsResourceQuota(ctx, log, fr, assignmentUsage[fr], val, resQuota)
+			preemptionMode, borrow, s, err := a.fitsResourceQuota(ctx, log, fr, assignmentUsage[fr], val, resQuota)
+			if err != nil {
+
+			}
 			if s != nil {
 				flavorQuotaReasons = append(flavorQuotaReasons, s.reasons...)
 				status.reasons = append(status.reasons, s.reasons...)
@@ -1188,7 +1194,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			bestAssignmentMode = representativeMode
 			if bestAssignmentMode.preemptionMode == fit {
 				// All the resources fit in the cohort, no need to check more flavors.
-				return bestAssignment, nil, consideredFlavors
+				return bestAssignment, nil, consideredFlavors, nil
 			}
 		}
 	}
@@ -1203,10 +1209,10 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			}
 		}
 		if bestAssignmentMode.preemptionMode == fit {
-			return bestAssignment, nil, consideredFlavors
+			return bestAssignment, nil, consideredFlavors, nil
 		}
 	}
-	return bestAssignment, status, consideredFlavors
+	return bestAssignment, status, consideredFlavors, nil
 }
 
 func (a *FlavorAssigner) checkFlavorForPodSets(
@@ -1338,7 +1344,7 @@ func (a *FlavorAssigner) fitsResourceQuota(
 	assumedUsage resources.Amount,
 	requestUsage int64,
 	rQuota schdcache.ResourceQuota,
-) (preemptionMode, int, *Status) {
+) (preemptionMode, int, *Status, error) {
 	status := Status{
 		noFitReason: kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 	}
@@ -1359,13 +1365,13 @@ func (a *FlavorAssigner) fitsResourceQuota(
 			a.resourceFormatter.AmountQuantityString(fr.Resource, maxCapacity),
 		)
 		status.noFitReason = kueue.WorkloadQuotaReservedReasonExceedsMaxQuota
-		return noFit, 0, &status
+		return noFit, 0, &status, nil
 	}
 
 	borrow, mayReclaimInHierarchy := classical.FindHeightOfLowestSubtreeThatFits(a.cq, fr, val)
 	// Fit
 	if val.Cmp(available) <= 0 {
-		return fit, borrow, nil
+		return fit, borrow, nil, nil
 	}
 
 	// Preempt
@@ -1373,14 +1379,17 @@ func (a *FlavorAssigner) fitsResourceQuota(
 		fr.Resource, fr.Flavor, a.resourceFormatter.AmountQuantityString(fr.Resource, val.Sub(available)))
 
 	if rQuota.Nominal.Cmp(val) >= 0 || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
-		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(ctx, a.cq, *a.wl, fr, val)
+		preemptionPossiblity, borrowAfterPreemptions, err := a.oracle.SimulatePreemption(ctx, a.cq, *a.wl, fr, val)
+		if err != nil {
+			return noFit, 0, &status, err
+		}
 		mode := fromPreemptionPossibility(preemptionPossiblity)
 		if mode != noFit {
 			status.noFitReason = ""
 		}
-		return mode, borrowAfterPreemptions, &status
+		return mode, borrowAfterPreemptions, &status, nil
 	}
-	return noFit, borrow, &status
+	return noFit, borrow, &status, nil
 }
 
 func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {

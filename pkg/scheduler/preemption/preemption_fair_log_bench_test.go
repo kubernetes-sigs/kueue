@@ -49,7 +49,7 @@ func BenchmarkRunFirstFsStrategy(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 				for range b.N {
-					if err := scheduler.Simulate(fixture.preemptionCtx.ctx, fixture.preemptionCtx.snapshot, func(simCtx *schdcache.SimulationContext) error {
+					if err := scheduler.Simulate(fixture.preemptionCtx.ctx, fixture.snapshot, func(simCtx *schdcache.SimulationContext) error {
 						_, _, _, inErr := runFirstFsStrategy(simCtx, fixture.preemptionCtx, fixture.candidates, alwaysFails)
 						return inErr
 					}); err != nil {

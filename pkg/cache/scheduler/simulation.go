@@ -80,7 +80,7 @@ func Simulate(ctx context.Context, snapshot *Snapshot, simulate Simulation) erro
 // Returns an error if the simulation function returns an error
 // or if it fails to restore the context to its original state.
 func SimulateNested(parentCtx *SimulationContext, simulate Simulation) error {
-	childCtx := parentCtx.ChildContext()
+	childCtx := parentCtx.childContext()
 	if simErr := simulate(childCtx); simErr != nil {
 		return simErr
 	}
@@ -135,8 +135,12 @@ func (s *SimulationContext) RemoveUsage(workloads []*workload.Info) {
 	})
 }
 
-// ChildContext returns a new context for running a nested simulation.
-func (s *SimulationContext) ChildContext() *SimulationContext {
+func (s *SimulationContext) ClusterQueue(ref kueue.ClusterQueueReference) *ClusterQueueSnapshot {
+	return s.cacheSnapshot.ClusterQueue(ref)
+}
+
+// childContext returns a new context for running a nested simulation.
+func (s *SimulationContext) childContext() *SimulationContext {
 	return &SimulationContext{
 		cacheSnapshot:         s.cacheSnapshot,
 		simulatorSnapshot:     s.simulatorSnapshot,

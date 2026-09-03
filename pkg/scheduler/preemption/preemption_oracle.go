@@ -29,13 +29,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func NewOracle(preemptor *Preemptor, snapshot *schdcache.Snapshot) *PreemptionOracle {
-	return &PreemptionOracle{preemptor, snapshot}
+func NewOracle(preemptor *Preemptor, simCtx *schdcache.SimulationContext) *PreemptionOracle {
+	return &PreemptionOracle{preemptor, simCtx}
 }
 
 type PreemptionOracle struct {
-	preemptor *Preemptor
-	snapshot  *schdcache.Snapshot
+	preemptor         *Preemptor
+	simulationContext *schdcache.SimulationContext
 }
 
 // SimulatePreemption runs the preemption algorithm for a given flavor resource to check if
@@ -46,16 +46,15 @@ func (p *PreemptionOracle) SimulatePreemption(
 	wl workload.Info,
 	fr resources.FlavorResource,
 	quantity resources.Amount,
-) (possibility preemptioncommon.PreemptionPossibility, borrow int) {
+) (possibility preemptioncommon.PreemptionPossibility, borrow int, simErr error) {
 	log := log.FromContext(ctx)
-	if simErr := schdcache.Simulate(ctx, p.snapshot, func(simCtx *schdcache.SimulationContext) error {
+	simErr = schdcache.SimulateNested(p.simulationContext, func(simCtx *schdcache.SimulationContext) error {
 		candidates, err := p.preemptor.getTargets(simCtx, &preemptionCtx{
 			ctx:               ctx,
 			clock:             p.preemptor.clock,
 			log:               log,
 			preemptor:         wl,
-			preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
-			snapshot:          p.snapshot,
+			preemptorCQ:       simCtx.ClusterQueue(wl.ClusterQueue),
 			frsNeedPreemption: sets.New(fr),
 			workloadUsage: workload.Usage{
 				Quota: workload.ResourceUsage{
@@ -83,8 +82,9 @@ func (p *PreemptionOracle) SimulatePreemption(
 		}
 		possibility, borrow = preemptioncommon.Reclaim, borrowAfterPreemptions
 		return nil
-	}); simErr != nil {
-		return preemptioncommon.NoCandidates, 0
+	})
+	if simErr != nil {
+		return preemptioncommon.NoCandidates, 0, simErr
 	}
 	return
 }

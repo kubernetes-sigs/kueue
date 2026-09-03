@@ -890,6 +890,7 @@ func (s *Scheduler) getAssignments(
 	snap *schdcache.Snapshot,
 	preemptedWorkloads []*workload.Info,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, err error) {
+	resourceFlavors := snap.ResourceFlavors
 	err = scheduler.Simulate(ctx, snap, func(simCtx *scheduler.SimulationContext) error {
 		var inErr error
 		for _, w := range preemptedWorkloads {
@@ -897,7 +898,7 @@ func (s *Scheduler) getAssignments(
 				return inErr
 			}
 		}
-		cq := snap.ClusterQueue(wl.ClusterQueue)
+		cq := simCtx.ClusterQueue(wl.ClusterQueue)
 		// The flavor scan resumes from the progress recorded in LastAssignment, so it has to be
 		// dropped once it no longer describes the current state. Deciding that here rather than
 		// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
@@ -908,10 +909,10 @@ func (s *Scheduler) getAssignments(
 				"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration)
 			wl.LastAssignment = nil
 		}
-		if assignment, targets, inErr = s.getInitialAssignments(ctx, wl, snap, simCtx); inErr != nil {
+		if assignment, targets, inErr = s.getInitialAssignments(ctx, simCtx, wl, resourceFlavors); inErr != nil {
 			return inErr
 		}
-		if inErr = updateAssignmentForTAS(ctx, simCtx, snap, cq, wl, &assignment, targets); inErr != nil {
+		if inErr = updateAssignmentForTAS(ctx, simCtx, cq, wl, &assignment, targets); inErr != nil {
 			return inErr
 		}
 		return nil
@@ -963,19 +964,21 @@ func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentC
 // If no valid assignment can be made, returns the original full assignment with no preemption targets.
 func (s *Scheduler) getInitialAssignments(
 	ctx context.Context,
-	wl *workload.Info,
-	snap *schdcache.Snapshot,
 	simCtx *scheduler.SimulationContext,
+	wl *workload.Info,
+	resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor,
 ) (_ flavorassigner.Assignment, _ []*preemption.Target, err error) {
-	cq := snap.ClusterQueue(wl.ClusterQueue)
-
-	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
+	cq := simCtx.ClusterQueue(wl.ClusterQueue)
+	preemptionTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, cq)
 	flvAssigner := flavorassigner.New(
-		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing),
-		preemption.NewOracle(s.preemptor, snap), replaceableWorkloadSlice,
+		wl, cq, resourceFlavors, fairsharing.Enabled(s.fairSharing),
+		preemption.NewOracle(s.preemptor, simCtx), replaceableWorkloadSlice,
 		s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
-	fullAssignment := flvAssigner.Assign(ctx, nil)
+	fullAssignment, err := flvAssigner.Assign(ctx, nil)
+	if err != nil {
+		return
+	}
 
 	arm := fullAssignment.RepresentativeMode()
 	if arm == flavorassigner.Fit {
@@ -984,7 +987,7 @@ func (s *Scheduler) getInitialAssignments(
 
 	if arm == flavorassigner.Preempt {
 		var faPreemptionTargets []*preemption.Target
-		faPreemptionTargets, err = s.preemptor.GetTargets(ctx, simCtx, *wl, fullAssignment, snap)
+		faPreemptionTargets, err = s.preemptor.GetTargets(ctx, simCtx, *wl, fullAssignment)
 		if err != nil {
 			return
 		}
@@ -995,7 +998,10 @@ func (s *Scheduler) getInitialAssignments(
 
 	if features.Enabled(features.PartialAdmission) && wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
-			assignment := flvAssigner.Assign(ctx, nextCounts)
+			assignment, err := flvAssigner.Assign(ctx, nextCounts)
+			if err != nil {
+				return nil, false
+			}
 			mode := assignment.RepresentativeMode()
 			if mode == flavorassigner.Fit {
 				return &partialAssignment{assignment: assignment}, true
@@ -1003,7 +1009,7 @@ func (s *Scheduler) getInitialAssignments(
 
 			if mode == flavorassigner.Preempt {
 				var preemptionTargets []*preemption.Target
-				preemptionTargets, err = s.preemptor.GetTargets(ctx, simCtx, *wl, assignment, snap)
+				preemptionTargets, err = s.preemptor.GetTargets(ctx, simCtx, *wl, assignment)
 				if err == nil && len(preemptionTargets) > 0 {
 					return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
 				}
@@ -1038,7 +1044,6 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 func updateAssignmentForTAS(
 	ctx context.Context,
 	simCtx *scheduler.SimulationContext,
-	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl *workload.Info,
 	assignment *flavorassigner.Assignment,

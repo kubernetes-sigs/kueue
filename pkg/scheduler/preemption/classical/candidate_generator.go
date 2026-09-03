@@ -41,7 +41,7 @@ type candidateIterator struct {
 	candidates                        []*candidateElem
 	runIndex                          int
 	frsNeedPreemption                 sets.Set[resources.FlavorResource]
-	snapshot                          *schdcache.Snapshot
+	simCtx                            *schdcache.SimulationContext
 	NoCandidateFromOtherQueues        bool
 	NoCandidateForHierarchicalReclaim bool
 	hierarchicalReclaimCtx            *HierarchicalPreemptionCtx
@@ -84,7 +84,7 @@ func NewCandidateIterator(
 	hierarchicalReclaimCtx *HierarchicalPreemptionCtx,
 	enabledAfs bool,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
-	snapshot *schdcache.Snapshot,
+	simCtx *schdcache.SimulationContext,
 	clock clock.Clock,
 	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
 ) *candidateIterator {
@@ -113,7 +113,7 @@ func NewCandidateIterator(
 	return &candidateIterator{
 		runIndex:                          0,
 		frsNeedPreemption:                 frsNeedPreemption,
-		snapshot:                          snapshot,
+		simCtx:                            simCtx,
 		candidates:                        allCandidates,
 		NoCandidateFromOtherQueues:        len(hierarchyCandidates) == 0 && len(priorityCandidates) == 0,
 		NoCandidateForHierarchicalReclaim: len(hierarchyCandidates) == 0,
@@ -145,7 +145,7 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 	if borrow && candidate.preemptionVariant == ReclaimWithoutBorrowing {
 		return false
 	}
-	cq := c.snapshot.ClusterQueue(candidate.wl.ClusterQueue)
+	cq := c.simCtx.ClusterQueue(candidate.wl.ClusterQueue)
 	if schdcache.IsWithinNominalInResources(cq, c.frsNeedPreemption) {
 		return false
 	}
