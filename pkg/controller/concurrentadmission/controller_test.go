@@ -372,7 +372,7 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
-		"ConcurrentAdmissionPolicy removed; admitted parent evicted, variant deactivated, parent label removed": {
+		"ConcurrentAdmissionPolicy removed; parent and variant both admitted, parent left alone, variant deactivated, parent label removed": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq-no-policy").
 				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
@@ -396,11 +396,60 @@ func TestReconcile(t *testing.T) {
 				Request(corev1.ResourceCPU, "1").
 				SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
 				AdmittedAt(true, metav1.Now().Time).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq-no-policy").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Active(false).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-variant-on-demand"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeactivatedVariant,
+					Message:   "Variant Workload deactivated due to ConcurrentAdmission is no longer enabled for this ClusterQueue",
+				},
+			},
+		},
+		"ConcurrentAdmissionPolicy removed; admitted variant promoted onto not-yet-admitted parent": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-no-policy").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq-no-policy").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-no-policy").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-no-policy", "on-demand", metav1.Now().Time).
 				Condition(metav1.Condition{
-					Type:    kueue.WorkloadEvicted,
+					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionTrue,
-					Reason:  "ConcurrentAdmissionDisabled",
-					Message: "ConcurrentAdmission is no longer enabled for this ClusterQueue",
+					Reason:  "QuotaReserved",
+					Message: "Quota reserved in ClusterQueue cq-no-policy",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "Admitted",
+					Message: "The variant wl-variant-on-demand is admitted",
 				}).
 				Obj(),
 			wantVariantWorkloads: []kueue.Workload{
