@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/expectations"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -6499,6 +6500,8 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					Obj(),
 			},
+			// This reconcile is the one that stops the pods, so it ends there. The workload keeps
+			// its quota until a later pass reads a group that the stop has reached.
 			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -6513,7 +6516,7 @@ func TestReconciler(t *testing.T) {
 						Type:    ConditionTypeTerminationTarget,
 						Status:  corev1.ConditionTrue,
 						Reason:  "NoMatchingWorkload",
-						Message: "missing workload",
+						Message: "The prebuilt workload is out of sync with its user job",
 					}).
 					Obj(),
 				*basePodWrapper.
@@ -6529,7 +6532,7 @@ func TestReconciler(t *testing.T) {
 						Type:    ConditionTypeTerminationTarget,
 						Status:  corev1.ConditionTrue,
 						Reason:  "NoMatchingWorkload",
-						Message: "missing workload",
+						Message: "The prebuilt workload is out of sync with its user job",
 					}).
 					Obj(),
 			},
@@ -6540,12 +6543,6 @@ func TestReconciler(t *testing.T) {
 					Queue(localTestQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "OutOfSync",
-						Message: "The prebuilt workload is out of sync with its user job",
-					}).
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -6553,17 +6550,16 @@ func TestReconciler(t *testing.T) {
 					Key:       types.NamespacedName{Name: "pod1", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "missing workload",
+					Message:   "The prebuilt workload is out of sync with its user job",
 				},
 				{
 					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
 					EventType: "Normal",
 					Reason:    "Stopped",
-					Message:   "missing workload",
+					Message:   "The prebuilt workload is out of sync with its user job",
 				},
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
-			wantErr:         jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when workload is deactivated by kueue; objectRetentionPolicies.workloads.afterDeactivatedByKueue=0; should delete the job": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -7200,6 +7196,60 @@ func TestReconciler_ErrorFinalizingPod(t *testing.T) {
 	}
 }
 
+func TestLoad(t *testing.T) {
+	const groupName = "grp"
+
+	cases := map[string]struct {
+		// emptiedOnReload deletes every member before the second load, which is what a group whose
+		// pods were finalized between two loads of the same wrapper looks like.
+		emptiedOnReload      bool
+		wantRemoveFinalizers bool
+	}{
+		"a group emptied between two loads of the same wrapper is reported gone": {
+			emptiedOnReload:      true,
+			wantRemoveFinalizers: true,
+		},
+		"a group that kept a member is still reported present": {},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			podA := testingpod.MakePod("pod-a", "ns").Label(podconstants.GroupNameLabel, groupName).Obj()
+			podB := testingpod.MakePod("pod-b", "ns").Label(podconstants.GroupNameLabel, groupName).Obj()
+
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(podA, podB).
+				WithIndex(&corev1.Pod{}, PodGroupNameCacheKey, IndexPodGroupName).
+				Build()
+
+			p := &Pod{excessPodExpectations: expectations.NewStore("test")}
+			key := types.NamespacedName{Name: groupName, Namespace: "group/ns"}
+			if _, err := p.Load(ctx, cl, &key); err != nil {
+				t.Fatalf("first Load: %v", err)
+			}
+
+			if err := cl.Delete(ctx, podA); err != nil {
+				t.Fatalf("deleting pod-a: %v", err)
+			}
+			if tc.emptiedOnReload {
+				if err := cl.Delete(ctx, podB); err != nil {
+					t.Fatalf("deleting pod-b: %v", err)
+				}
+			}
+
+			reloadKey := types.NamespacedName{Name: groupName, Namespace: "group/ns"}
+			gotRemoveFinalizers, err := p.Load(ctx, cl, &reloadKey)
+			if err != nil {
+				t.Fatalf("second Load: %v", err)
+			}
+			if gotRemoveFinalizers != tc.wantRemoveFinalizers {
+				t.Errorf("the reload reported removeFinalizers = %v, want %v", gotRemoveFinalizers, tc.wantRemoveFinalizers)
+			}
+		})
+	}
+}
+
 func TestIsPodOwnerManagedByQueue(t *testing.T) {
 	integrationManager := newTestIntegrationManager(t)
 	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job", "ray.io/raycluster"))
@@ -7407,19 +7457,66 @@ func TestPod_IsActive(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
 	type fields struct {
-		pod  corev1.Pod
-		list corev1.PodList
+		pod     corev1.Pod
+		list    corev1.PodList
+		isGroup bool
 	}
 	tests := map[string]struct {
 		fields                 fields
 		enableFastQuotaRelease bool
 		want                   bool
 	}{
-		"RegularPod": {
+		"SinglePod_NotFound_Inactive": {
+			want: false,
+		},
+		"SinglePod_Running_Active": {
+			fields: fields{
+				pod: corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{Name: "single"},
+					Status:     corev1.PodStatus{Phase: corev1.PodRunning},
+				},
+			},
+			want: true,
+		},
+		"SinglePod_Succeeded_Inactive": {
+			fields: fields{
+				pod: corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{Name: "single"},
+					Status:     corev1.PodStatus{Phase: corev1.PodSucceeded},
+				},
+			},
+			want: false,
+		},
+		"SinglePod_TerminatingWithinGrace_Active": {
+			fields: fields{
+				pod: corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:                       "single-terminating",
+						DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+						DeletionGracePeriodSeconds: new(int64(90)),
+					},
+					Status: corev1.PodStatus{Phase: corev1.PodRunning},
+				},
+			},
+			want: true,
+		},
+		"SinglePod_FastQuotaRelease_Terminating_Inactive": {
+			enableFastQuotaRelease: true,
+			fields: fields{
+				pod: corev1.Pod{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:                       "single-terminating",
+						DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+						DeletionGracePeriodSeconds: new(int64(90)),
+					},
+					Status: corev1.PodStatus{Phase: corev1.PodRunning},
+				},
+			},
 			want: false,
 		},
 		"PodGroup_NotActive": {
 			fields: fields{
+				isGroup: true,
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
@@ -7444,6 +7541,7 @@ func TestPod_IsActive(t *testing.T) {
 		},
 		"PodGroup_Active": {
 			fields: fields{
+				isGroup: true,
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
@@ -7478,6 +7576,7 @@ func TestPod_IsActive(t *testing.T) {
 		"FastQuotaRelease_PodWithDeletionTimestamp_Inactive": {
 			enableFastQuotaRelease: true,
 			fields: fields{
+				isGroup: true,
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
@@ -7496,6 +7595,7 @@ func TestPod_IsActive(t *testing.T) {
 		"FastQuotaRelease_Disabled_PodWithDeletionTimestampWithinGrace_Active": {
 			enableFastQuotaRelease: false,
 			fields: fields{
+				isGroup: true,
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
@@ -7514,6 +7614,7 @@ func TestPod_IsActive(t *testing.T) {
 		"FastQuotaRelease_MixedGroup_SomeTerminating_SomeRunning": {
 			enableFastQuotaRelease: true,
 			fields: fields{
+				isGroup: true,
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
@@ -7536,6 +7637,7 @@ func TestPod_IsActive(t *testing.T) {
 		"FastQuotaRelease_AllTerminating": {
 			enableFastQuotaRelease: true,
 			fields: fields{
+				isGroup: true,
 				list: corev1.PodList{
 					Items: []corev1.Pod{
 						{
@@ -7564,9 +7666,10 @@ func TestPod_IsActive(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tt.enableFastQuotaRelease)
 			p := &Pod{
-				pod:   tt.fields.pod,
-				list:  tt.fields.list,
-				clock: testingclock.NewFakeClock(now),
+				pod:     tt.fields.pod,
+				list:    tt.fields.list,
+				isGroup: tt.fields.isGroup,
+				clock:   testingclock.NewFakeClock(now),
 			}
 			if got := p.IsActive(); got != tt.want {
 				t.Errorf("IsActive() = %v, want %v", got, tt.want)

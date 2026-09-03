@@ -411,6 +411,47 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	}
 }
 
+func TestStopAcknowledged(t *testing.T) {
+	testCases := map[string]struct {
+		conditions []metav1.Condition
+		want       bool
+	}{
+		"no conditions: nothing reported, so nothing to wait on": {
+			want: true,
+		},
+		"another condition only: still nothing reported about the suspend": {
+			conditions: []metav1.Condition{{
+				Type:   string(jobset.JobSetCompleted),
+				Status: metav1.ConditionTrue,
+			}},
+			want: true,
+		},
+		"suspended false: the controller reports it running, so the stop is not carried out": {
+			conditions: []metav1.Condition{{
+				Type:   string(jobset.JobSetSuspended),
+				Status: metav1.ConditionFalse,
+			}},
+			want: false,
+		},
+		"suspended true: the controller carried out the stop": {
+			conditions: []metav1.Condition{{
+				Type:   string(jobset.JobSetSuspended),
+				Status: metav1.ConditionTrue,
+			}},
+			want: true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			j := (*JobSet)(&jobset.JobSet{Status: jobset.JobSetStatus{Conditions: tc.conditions}})
+			if got := j.StopAcknowledged(); got != tc.want {
+				t.Errorf("StopAcknowledged() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReconciler(t *testing.T) {
 	baseWPCWrapper := utiltestingapi.MakeWorkloadPriorityClass("test-wpc").
 		PriorityValue(100)

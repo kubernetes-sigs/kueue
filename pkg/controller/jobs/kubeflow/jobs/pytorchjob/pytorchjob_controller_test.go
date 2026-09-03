@@ -178,6 +178,44 @@ func TestPriorityClass(t *testing.T) {
 	}
 }
 
+func TestStopAcknowledged(t *testing.T) {
+	testcases := map[string]struct {
+		conditions []kftraining.JobCondition
+		want       bool
+	}{
+		"no conditions: nothing reported, so nothing to wait on": {
+			want: true,
+		},
+		"another condition only: still nothing reported about the suspend": {
+			conditions: []kftraining.JobCondition{{Type: kftraining.JobRunning, Status: corev1.ConditionTrue}},
+			want:       true,
+		},
+		"suspended false: the operator reports it running, so the stop is not carried out": {
+			conditions: []kftraining.JobCondition{{
+				Type:   kftraining.JobSuspended,
+				Status: corev1.ConditionFalse,
+			}},
+			want: false,
+		},
+		"suspended true: the operator carried out the stop": {
+			conditions: []kftraining.JobCondition{{
+				Type:   kftraining.JobSuspended,
+				Status: corev1.ConditionTrue,
+			}},
+			want: true,
+		},
+	}
+
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			job := fromObject(&kftraining.PyTorchJob{Status: kftraining.JobStatus{Conditions: tc.conditions}})
+			if got := job.StopAcknowledged(); got != tc.want {
+				t.Errorf("StopAcknowledged() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestOrderedReplicaTypes(t *testing.T) {
 	testcases := map[string]struct {
 		job              kftraining.PyTorchJob

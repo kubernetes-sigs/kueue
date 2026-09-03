@@ -99,6 +99,7 @@ var _ jobframework.GenericJob = (*TrainJob)(nil)
 var _ jobframework.JobWithCustomStop = (*TrainJob)(nil)
 var _ jobframework.JobWithReclaimablePods = (*TrainJob)(nil)
 var _ jobframework.JobWithManagedBy = (*TrainJob)(nil)
+var _ jobframework.JobWithStopAcknowledgement = (*TrainJob)(nil)
 
 func NewJob() jobframework.GenericJob {
 	return &TrainJob{}
@@ -124,6 +125,14 @@ func (t *TrainJob) IsActive() bool {
 		}
 	}
 	return false
+}
+
+// StopAcknowledged reports whether the trainer controller has run since the suspend: it applies the
+// child JobSet and only then sets this condition from the parent spec. The JobSet and the Jobs under
+// it still have to act, which is what IsActive is read for.
+func (t *TrainJob) StopAcknowledged() bool {
+	cond := apimeta.FindStatusCondition(t.Status.Conditions, kftrainer.TrainJobSuspended)
+	return cond == nil || cond.Status == metav1.ConditionTrue
 }
 
 func (t *TrainJob) Suspend() {
@@ -292,6 +301,7 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 }
 
 func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, _ jobframework.StopReason, _ string) (bool, error) {
+	suspended := false
 	if !t.IsSuspended() {
 		if err := clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
 			t.Suspend()
@@ -299,26 +309,33 @@ func (t *TrainJob) Stop(ctx context.Context, c client.Client, podSetsInfo []pods
 		}); err != nil {
 			return false, fmt.Errorf("error suspending trainjob: %w", err)
 		}
+		suspended = true
 	}
 
 	if t.IsActive() {
 		return false, errors.New("jobs are still active")
 	}
 
+	// An already stopped job comes back here on every reconcile that waits for it.
+	restored := false
 	if err := clientutil.Patch(ctx, c, t.Object(), func() (bool, error) {
-		if !t.RestorePodSetsInfo(ctx, podSetsInfo) {
-			return false, errors.New("error restoring info to the trainjob")
-		}
-		return true, nil
+		restored = t.RestorePodSetsInfo(ctx, podSetsInfo)
+		return restored, nil
 	}); err != nil {
 		return false, err
 	}
-	return true, nil
+	return suspended || restored, nil
 }
 
 func (t *TrainJob) RestorePodSetsInfo(_ context.Context, _ []podset.PodSetInfo) bool {
 	kueueRuntimePatch := getKueueRuntimePatch(t)
-	if kueueRuntimePatch == nil {
+	// The manager is a plain string the user can also set, so the patch this finds is not
+	// necessarily one this controller built.
+	if kueueRuntimePatch == nil ||
+		kueueRuntimePatch.TrainingRuntimeSpec == nil ||
+		kueueRuntimePatch.TrainingRuntimeSpec.Template == nil ||
+		kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec == nil ||
+		len(kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs) == 0 {
 		return false
 	}
 	kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs = nil

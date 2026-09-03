@@ -98,6 +98,15 @@ type JobWithCustomStop interface {
 	Stop(ctx context.Context, c client.Client, podSetsInfo []podset.PodSetInfo, stopReason StopReason, eventMsg string) (bool, error)
 }
 
+// JobWithStopAcknowledgement is implemented by integrations whose stop is another controller's
+// work, so the framework can wait for it. What the report proves varies by integration: it cannot
+// tell this stop from an earlier one, and how far it reaches into the job's own children is up to
+// the integration. IsActive is read with it, and leaving it out falls back to IsActive alone.
+type JobWithStopAcknowledgement interface {
+	// StopAcknowledged reports whether that controller has said it acted on a stop.
+	StopAcknowledged() bool
+}
+
 // JobWithFinalize is an optional interface that should be implemented by generic jobs
 // when custom finalization logic is needed for a job after it has finished.
 type JobWithFinalize interface {

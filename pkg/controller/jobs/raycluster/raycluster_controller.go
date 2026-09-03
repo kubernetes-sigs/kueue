@@ -22,6 +22,8 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -77,6 +79,7 @@ type RayCluster rayv1.RayCluster
 
 var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
+var _ jobframework.JobWithStopAcknowledgement = (*RayCluster)(nil)
 
 func (j *RayCluster) Object() client.Object {
 	return (*rayv1.RayCluster)(j)
@@ -88,6 +91,15 @@ func (j *RayCluster) IsSuspended() bool {
 
 func (j *RayCluster) IsActive() bool {
 	return j.Status.State == rayv1.Ready
+}
+
+// StopAcknowledged reports whether KubeRay deleted every pod: it sets RayClusterSuspended only
+// then, for the generation it read. Older KubeRay reports no such condition; read the state.
+func (j *RayCluster) StopAcknowledged() bool {
+	if cond := meta.FindStatusCondition(j.Status.Conditions, string(rayv1.RayClusterSuspended)); cond != nil {
+		return j.Status.ObservedGeneration == j.Generation && cond.Status == metav1.ConditionTrue
+	}
+	return j.Status.State == rayv1.Suspended
 }
 
 func (j *RayCluster) Suspend() {

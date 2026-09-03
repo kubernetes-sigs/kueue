@@ -144,6 +144,7 @@ var _ jobframework.GenericJob = (*Job)(nil)
 var _ jobframework.JobWithReclaimablePods = (*Job)(nil)
 var _ jobframework.JobWithCustomStop = (*Job)(nil)
 var _ jobframework.JobWithManagedBy = (*Job)(nil)
+var _ jobframework.JobWithStopAcknowledgement = (*Job)(nil)
 
 func (j *Job) Object() client.Object {
 	return (*batchv1.Job)(j)
@@ -159,6 +160,23 @@ func (j *Job) IsSuspended() bool {
 
 func (j *Job) IsActive() bool {
 	return j.Status.Active != 0
+}
+
+// StopAcknowledged reports whether the Job controller processed the suspend (set JobSuspended).
+// A zero status.Active can be a stale snapshot while the controller still creates pods.
+func (j *Job) StopAcknowledged() bool {
+	return jobControllerSuspended(j)
+}
+
+// jobControllerSuspended reports the JobSuspended status condition, set by the controller —
+// unlike IsSuspended, which reads the spec Kueue itself writes.
+func jobControllerSuspended(j *Job) bool {
+	for _, c := range j.Status.Conditions {
+		if c.Type == batchv1.JobSuspended {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 func (j *Job) Suspend() {
@@ -194,10 +212,15 @@ func (j *Job) Stop(ctx context.Context, c client.Client, podSetsInfo []podset.Po
 		}
 	}
 
+	// An already stopped job comes back here on every reconcile that waits for it, so report
+	// whether there is anything left to write rather than patching an unchanged object.
 	if err := clientutil.Patch(ctx, c, object, func() (bool, error) {
-		j.RestorePodSetsInfo(ctx, podSetsInfo)
-		delete(j.Annotations, StoppingAnnotation)
-		return true, nil
+		changed := j.RestorePodSetsInfo(ctx, podSetsInfo)
+		if _, stopping := j.Annotations[StoppingAnnotation]; stopping {
+			delete(j.Annotations, StoppingAnnotation)
+			changed = true
+		}
+		return changed, nil
 	}); err != nil {
 		return false, fmt.Errorf("restore info: %w", err)
 	}

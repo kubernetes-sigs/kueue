@@ -54,6 +54,15 @@ func Finish(ctx context.Context, c client.Client, wl *kueue.Workload, reason, ms
 	return nil
 }
 
+// Rewrite replaces the reason and message on a workload that is already finished. Finish leaves a
+// condition that is set alone, and a reason written from a view of the job that has since moved on
+// has to be correctable before anything reads it.
+func Rewrite(ctx context.Context, c client.Client, wl *kueue.Workload, reason, msg string, clock clock.Clock) error {
+	return patching.PatchAdmissionStatus(ctx, c, wl, clock, func(wl *kueue.Workload) (bool, error) {
+		return setFinishedCondition(wl, clock.Now(), reason, msg), nil
+	})
+}
+
 // IsFinished returns true if the workload is finished.
 func IsFinished(w *kueue.Workload) bool {
 	return apimeta.IsStatusConditionTrue(w.Status.Conditions, kueue.WorkloadFinished)
