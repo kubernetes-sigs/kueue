@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -104,6 +106,52 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 					*utiltestingapi.MakePodSet("group2", 3).
 						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
+		"with history server collector": {
+			rayService: (*RayService)(testingrayservice.MakeService("rayservice", "ns").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+					},
+				}).
+				WithWorkerGroups(rayv1.WorkerGroupSpec{
+					GroupName: "group1",
+					Replicas:  new(int32(2)),
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+					},
+				}).
+				WithHistoryServerOptions(&rayv1.HistoryServerOptions{
+					CollectorOptions: &rayv1.CollectorOptions{
+						Image: new("quay.io/kuberay/collector:v1.7.0"),
+					},
+				}).
+				Obj()),
+			wantPodSets: func(_ *RayService) []kueue.PodSet {
+				collector := corev1.Container{
+					Name:  rayutils.CollectorContainerName,
+					Image: "quay.io/kuberay/collector:v1.7.0",
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("50m"),
+							corev1.ResourceMemory: resource.MustParse("64Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("200m"),
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+						},
+					},
+				}
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}, collector}}).
+						Obj(),
+					*utiltestingapi.MakePodSet("group1", 2).
+						PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}, collector}}).
 						Obj(),
 				}
 			},
