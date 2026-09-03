@@ -69,6 +69,11 @@ func NewAmount(v int64) Amount {
 
 // fromBig returns the Amount for v, holding it in an int64 when it fits so
 // that equal values are represented the same way.
+//
+// It takes ownership of v. A caller must not retain or mutate v afterwards,
+// because a value that does not fit an int64 is kept by pointer and the whole
+// immutability argument for sharing Amounts between a snapshot and the cache
+// rests on nothing else holding a writable reference to it.
 func fromBig(v *big.Int) Amount {
 	if v.IsInt64() {
 		return Amount{small: v.Int64()}

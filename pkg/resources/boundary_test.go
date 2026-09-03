@@ -19,6 +19,7 @@ package resources
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -171,6 +172,39 @@ func TestToResourceListScalesBeforeNarrowing(t *testing.T) {
 	got := frq.ToResourceList(NewResourceFormatter())
 	if q := got[corev1.ResourceCPU]; q.String() != "10P" {
 		t.Errorf("cpu = %s, want 10P", q.String())
+	}
+}
+
+// The JSON shape is an int64 projection kept for diagnostics, not a round trip.
+// Two amounts that differ only past int64 come out as the same number, which is
+// worth pinning so nobody reads the output as recoverable.
+func TestFlavorResourceQuantitiesMarshalJSONIsALossyProjection(t *testing.T) {
+	fr := FlavorResource{Flavor: "a", Resource: "example.com/gpu"}
+	one := FlavorResourceQuantities{fr: bigAmount(t, "9223372036854775808")}
+	far := FlavorResourceQuantities{fr: bigAmount(t, "92233720368547758080000")}
+
+	a, err := json.Marshal(one)
+	if err != nil {
+		t.Fatalf("Marshal() = %v", err)
+	}
+	b, err := json.Marshal(far)
+	if err != nil {
+		t.Fatalf("Marshal() = %v", err)
+	}
+	if string(a) != string(b) {
+		t.Errorf("two amounts past int64 marshalled differently: %s and %s", a, b)
+	}
+	if !strings.Contains(string(a), "9223372036854775807") {
+		t.Errorf("expected the int64 ceiling in %s", a)
+	}
+
+	neg := FlavorResourceQuantities{fr: bigAmount(t, "-92233720368547758080000")}
+	c, err := json.Marshal(neg)
+	if err != nil {
+		t.Fatalf("Marshal() = %v", err)
+	}
+	if !strings.Contains(string(c), "-9223372036854775808") {
+		t.Errorf("expected the int64 floor in %s", c)
 	}
 }
 

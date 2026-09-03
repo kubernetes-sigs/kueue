@@ -37,6 +37,10 @@ func (fr FlavorResource) String() string {
 
 type FlavorResourceQuantities map[FlavorResource]Amount
 
+// MarshalJSON writes the int64 projection of each amount, clamped at the ends.
+// It is a diagnostic shape rather than a round trip: two amounts that differ
+// only past int64 marshal to the same number, and unmarshalling does not
+// recover either. Nothing reads it back to reconstruct accounting.
 func (frq FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
 	temp := make(map[string]int64, len(frq))
 	for flavorResource, num := range frq {

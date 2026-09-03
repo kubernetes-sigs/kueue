@@ -660,10 +660,15 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 
 func updateFlavorUsage(newUsage resources.FlavorResourceQuantities, oldUsage resources.FlavorResourceQuantities, op usageOp) {
 	for fr, q := range newUsage {
-		if op == add {
+		switch op {
+		case add:
 			oldUsage[fr] = oldUsage[fr].Add(q)
-		} else {
+		case subtract:
 			oldUsage[fr] = oldUsage[fr].Sub(q)
+		default:
+			// An operation this does not recognise must not fall through to a
+			// subtraction, which is what an else branch would make it do.
+			panic(fmt.Sprintf("unknown usage operation %v", op))
 		}
 	}
 }

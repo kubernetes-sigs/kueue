@@ -131,6 +131,11 @@ func quantityCap(sign int) int64 {
 	return math.MaxInt64
 }
 
+// AmountQuantityString renders a in the form the API reports it, which means a
+// magnitude past what a Quantity carries is shown capped rather than exact.
+// Diagnostics that quote it are quoting the API-compatible projection, not the
+// amount the cache holds; Amount.String is the exact one, and is unbounded in
+// length, so it belongs in a debug log rather than in a message.
 func (f *ResourceFormatter) AmountQuantityString(name corev1.ResourceName, a Amount) string {
 	q, _ := f.AmountQuantity(name, a)
 	return q.String()

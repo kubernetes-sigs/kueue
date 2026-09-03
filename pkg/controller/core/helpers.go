@@ -17,12 +17,13 @@ limitations under the License.
 package core
 
 import (
-	"math"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
+// WeightedShare converts a share into the int64 the API field carries. The
+// field is documented as ranging from 0 to MaxInt64, and a share is a float64
+// that can be NaN, infinite, or finite and past that range, so the conversion
+// saturates rather than handing an out-of-range float to int64().
 func WeightedShare(f float64) int64 {
-	if f == math.Inf(1) {
-		return math.MaxInt64
-	}
-	return int64(math.Ceil(f))
+	return utilmath.SaturatingCeilToNonNegativeInt64(f)
 }
