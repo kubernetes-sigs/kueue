@@ -834,9 +834,10 @@ func fits(
 ) (schdcache.FitsCheck, error) {
 	merged := preemptedWorkloads.MergeWithTargets(newTargets)
 	var result schdcache.FitsCheck
-	err := scheduler.Simulate(ctx, snapshot, func(simCtx scheduler.SimulationContext) {
+	err := scheduler.Simulate(ctx, snapshot, func(simCtx scheduler.SimulationContext) error {
 		simCtx.RemoveUsage(merged.Workloads())
 		result = cq.Fits(*usage)
+		return nil
 	})
 	return result, err
 }
@@ -889,12 +890,11 @@ func (s *Scheduler) getAssignments(
 	snap *schdcache.Snapshot,
 	preemptedWorkloads []*workload.Info,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, err error) {
-	var innerErr error
-	simErr := scheduler.Simulate(ctx, snap, func(simCtx scheduler.SimulationContext) {
+	err = scheduler.Simulate(ctx, snap, func(simCtx scheduler.SimulationContext) error {
+		var inErr error
 		for _, w := range preemptedWorkloads {
-			if err := simCtx.PreemptWorkload(ctx, w); err != nil {
-				innerErr = err
-				return
+			if inErr = simCtx.PreemptWorkload(ctx, w); inErr != nil {
+				return inErr
 			}
 		}
 		cq := snap.ClusterQueue(wl.ClusterQueue)
@@ -908,18 +908,15 @@ func (s *Scheduler) getAssignments(
 				"wl.LastAssignment.ClusterQueueGeneration", wl.LastAssignment.ClusterQueueGeneration)
 			wl.LastAssignment = nil
 		}
-		if assignment, targets, innerErr = s.getInitialAssignments(ctx, wl, snap, simCtx); innerErr != nil {
-			return
+		if assignment, targets, inErr = s.getInitialAssignments(ctx, wl, snap, simCtx); inErr != nil {
+			return inErr
 		}
-		if err := updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets); err != nil {
-			innerErr = err
-			return
+		if inErr = updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets); inErr != nil {
+			return inErr
 		}
+		return nil
 	})
-	if simErr != nil {
-		return assignment, targets, simErr
-	}
-	return assignment, targets, innerErr
+	return
 }
 
 // lastAssignmentOutdated reports whether the recorded flavor assignment no longer describes
@@ -1059,13 +1056,14 @@ func updateAssignmentForTAS(
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			if err := scheduler.Simulate(ctx, snapshot, func(simCtx scheduler.SimulationContext) {
+			if err := scheduler.Simulate(ctx, snapshot, func(simCtx scheduler.SimulationContext) error {
 				simCtx.RemoveUsage(targetWorkloads)
 				tasResult = cq.FindTopologyAssignmentsForWorkload(
 					ctx,
 					tasRequests,
 					schdcache.WithWorkload(wl.Obj),
 				)
+				return nil
 			}); err != nil {
 				return err
 			}

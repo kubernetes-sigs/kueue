@@ -231,9 +231,8 @@ func (s *wasSimulatorSnapshot) PreemptWorkload(ctx context.Context, wlKey client
 	}, nil
 }
 
-func (s *wasSimulatorSnapshot) Simulate(ctx context.Context, fn func()) error {
+func (s *wasSimulatorSnapshot) Simulate(ctx context.Context, fn func() error) error {
 	return s.wasSnapshot.Transaction(ctx, func() (schedLibSnapshot.TransactionResult, error) {
-		fn()
-		return schedLibSnapshot.Revert, nil
+		return schedLibSnapshot.Revert, fn()
 	})
 }

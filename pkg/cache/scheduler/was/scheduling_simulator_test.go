@@ -20,6 +20,7 @@ package was
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -419,18 +420,17 @@ func TestSimulate(t *testing.T) {
 		t.Errorf("Expected node1 to be unfeasible before simulation")
 	}
 
-	simErr := snapshot.Simulate(ctx, func() {
+	if err = snapshot.Simulate(ctx, func() error {
 		_, err := snapshot.PreemptWorkload(ctx, types.NamespacedName{Namespace: "default", Name: "wl1"})
 		if err != nil {
-			t.Fatalf("PreemptWorkload inside Simulate failed: %v", err)
+			return err
 		}
-
 		if !checkFeasible(snapshot) {
-			t.Errorf("Expected node1 to be feasible inside simulation after preemption")
+			return errors.New("Expected node1 to be feasible inside simulation after preemption")
 		}
-	})
-	if simErr != nil {
-		t.Fatalf("Simulation failed: %v", simErr)
+		return nil
+	}); err != nil {
+		t.Fatalf("Simulation failed: %v", err)
 	}
 
 	if checkFeasible(snapshot) {

@@ -46,49 +46,46 @@ func (p *PreemptionOracle) SimulatePreemption(
 	wl workload.Info,
 	fr resources.FlavorResource,
 	quantity resources.Amount,
-) (preemptioncommon.PreemptionPossibility, int) {
+) (possibility preemptioncommon.PreemptionPossibility, borrow int) {
 	log := log.FromContext(ctx)
-	candidates, err := p.preemptor.getTargets(&preemptionCtx{
-		ctx:               ctx,
-		clock:             p.preemptor.clock,
-		log:               log,
-		preemptor:         wl,
-		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
-		snapshot:          p.snapshot,
-		frsNeedPreemption: sets.New(fr),
-		workloadUsage: workload.Usage{
-			Quota: workload.ResourceUsage{
-				Assigned: resources.FlavorResourceQuantities{fr: quantity},
+	if simErr := schdcache.Simulate(ctx, p.snapshot, func(simCtx schdcache.SimulationContext) error {
+		candidates, err := p.preemptor.getTargets(&preemptionCtx{
+			ctx:               ctx,
+			clock:             p.preemptor.clock,
+			log:               log,
+			preemptor:         wl,
+			preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
+			snapshot:          p.snapshot,
+			simulation:        simCtx,
+			frsNeedPreemption: sets.New(fr),
+			workloadUsage: workload.Usage{
+				Quota: workload.ResourceUsage{
+					Assigned: resources.FlavorResourceQuantities{fr: quantity},
+				},
 			},
-		},
-	})
-	if err != nil {
-		log.Error(err, "Failed to simulate preemption")
-		return preemptioncommon.NoCandidates, 0
-	}
+		})
 
-	if len(candidates) == 0 {
-		borrow, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
-		return preemptioncommon.NoCandidates, borrow
-	}
-
-	workloadsToPreempt := make([]*workload.Info, len(candidates))
-	for i, c := range candidates {
-		workloadsToPreempt[i] = c.WorkloadInfo
-	}
-	var borrowAfterPreemptions int
-	if err := schdcache.Simulate(ctx, p.snapshot, func(simCtx schdcache.SimulationContext) {
-		simCtx.RemoveUsage(workloadsToPreempt)
-		borrowAfterPreemptions, _ = classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
-	}); err != nil {
-		log.Error(err, "Failed to simulate usage removal")
-		return preemptioncommon.NoCandidates, 0
-	}
-
-	for _, candidate := range candidates {
-		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
-			return preemptioncommon.Preempt, borrowAfterPreemptions
+		if err != nil {
+			return err
 		}
+
+		if len(candidates) == 0 {
+			possibility = preemptioncommon.NoCandidates
+			borrow, _ = classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
+			return nil
+		}
+
+		borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
+		for _, candidate := range candidates {
+			if candidate.WorkloadInfo.ClusterQueue == cq.Name {
+				possibility, borrow = preemptioncommon.Preempt, borrowAfterPreemptions
+				return nil
+			}
+		}
+		possibility, borrow = preemptioncommon.Reclaim, borrowAfterPreemptions
+		return nil
+	}); simErr != nil {
+		return preemptioncommon.NoCandidates, 0
 	}
-	return preemptioncommon.Reclaim, borrowAfterPreemptions
+	return
 }

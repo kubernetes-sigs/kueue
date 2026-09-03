@@ -32,7 +32,7 @@ import (
 // Simulation is a function encapsulating simulation logic.
 // The body of the function is provided with a ClusterSimulator object,
 // which allows performing simulation-scoped mutations on the snapshotted cluster state.
-type Simulation func(SimulationContext)
+type Simulation func(SimulationContext) error
 
 // SimulationContext represents the snapshotted state of the cluster
 // and allows mutating it in the scope of the running simulation.
@@ -63,10 +63,10 @@ func newSimulationContext(snapshot *Snapshot) SimulationContext {
 }
 
 func Simulate(ctx context.Context, snapshot *Snapshot, simulate Simulation) error {
-	return snapshot.SimulatorSnapshot.Simulate(ctx, func() {
+	return snapshot.SimulatorSnapshot.Simulate(ctx, func() error {
 		simCtx := newSimulationContext(snapshot)
-		simulate(simCtx)
-		simCtx.finalize()
+		defer simCtx.finalize()
+		return simulate(simCtx)
 	})
 }
 

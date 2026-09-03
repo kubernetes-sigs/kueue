@@ -326,7 +326,15 @@ func TestRunFirstFsStrategyLogging(t *testing.T) {
 				evaluated++
 				return tc.passOnEvaluation != 0 && evaluated == tc.passOnEvaluation
 			}
-			fits, targets, retryCandidates, err := fixture.preemptionCtx.runFirstFsStrategy(fixture.candidates, strategy)
+			var fits bool
+			var targets []*Target
+			var retryCandidates []*workload.Info
+			err := schdcache.Simulate(fixture.preemptionCtx.ctx, fixture.preemptionCtx.snapshot, func(simCtx schdcache.SimulationContext) error {
+				fixture.preemptionCtx.simulation = simCtx
+				var err error
+				fits, targets, retryCandidates, err = fixture.preemptionCtx.runFirstFsStrategy(fixture.candidates, strategy)
+				return err
+			})
 			if err != nil {
 				t.Error("unexpected error", err)
 			}
@@ -455,7 +463,11 @@ func TestRunSecondFsStrategyLog(t *testing.T) {
 				{name: "b", candidates: 3, fairWeight: tc.fairWeight},
 			})
 
-			_, _, err := fixture.preemptionCtx.runSecondFsStrategy(fixture.candidates, nil)
+			err := schdcache.Simulate(fixture.preemptionCtx.ctx, fixture.preemptionCtx.snapshot, func(simCtx schdcache.SimulationContext) error {
+				fixture.preemptionCtx.simulation = simCtx
+				_, _, err := fixture.preemptionCtx.runSecondFsStrategy(fixture.candidates, nil)
+				return err
+			})
 			if err != nil {
 				t.Error("unexpected error", err)
 			}

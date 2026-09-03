@@ -19,6 +19,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -942,50 +943,54 @@ func TestSimulation(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		simFunc func(sim SimulationContext)
+		simFunc func(sim SimulationContext) error
 	}{
 		"preempt single workload inside simulation": {
-			simFunc: func(sim SimulationContext) {
+			simFunc: func(sim SimulationContext) error {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
-					t.Fatalf("unexpected error preempting wl1: %v", err)
+					return fmt.Errorf("unexpected error preempting wl1: %v", err)
 				}
+				return nil
 			},
 		},
 		"preempt multiple workloads inside simulation": {
-			simFunc: func(sim SimulationContext) {
+			simFunc: func(sim SimulationContext) error {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
-					t.Fatalf("unexpected error preempting wl1: %v", err)
+					return fmt.Errorf("unexpected error preempting wl1: %v", err)
 				}
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl2"]); err != nil {
-					t.Fatalf("unexpected error preempting wl2: %v", err)
+					return fmt.Errorf("unexpected error preempting wl2: %v", err)
 				}
+				return nil
 			},
 		},
 		"preempt and partially restore workload inside simulation": {
-			simFunc: func(sim SimulationContext) {
+			simFunc: func(sim SimulationContext) error {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
-					t.Fatalf("unexpected error preempting wl1: %v", err)
+					return fmt.Errorf("unexpected error preempting wl1: %v", err)
 				}
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl2"]); err != nil {
-					t.Fatalf("unexpected error preempting wl2: %v", err)
+					return fmt.Errorf("unexpected error preempting wl2: %v", err)
 				}
 				if err := sim.RestoreWorkload(wlInfos["wl1"]); err != nil {
-					t.Fatalf("unexpected error restoring wl1: %v", err)
+					return fmt.Errorf("unexpected error restoring wl1: %v", err)
 				}
+				return nil
 			},
 		},
 		"preempt and restore snapshot subset inside simulation": {
-			simFunc: func(sim SimulationContext) {
+			simFunc: func(sim SimulationContext) error {
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl1"]); err != nil {
-					t.Fatalf("unexpected error preempting wl1: %v", err)
+					return fmt.Errorf("unexpected error preempting wl1: %v", err)
 				}
 				if err := sim.PreemptWorkload(ctx, wlInfos["wl2"]); err != nil {
-					t.Fatalf("unexpected error preempting wl2: %v", err)
+					return fmt.Errorf("unexpected error preempting wl2: %v", err)
 				}
 				targets := sets.New(client.ObjectKeyFromObject(wlInfos["wl1"].Obj))
 				if err := sim.RestoreSnapshot(targets); err != nil {
-					t.Fatalf("unexpected error restoring snapshot: %v", err)
+					return fmt.Errorf("unexpected error restoring snapshot: %v", err)
 				}
+				return nil
 			},
 		},
 	}

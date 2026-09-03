@@ -4147,8 +4147,9 @@ func TestPreemption(t *testing.T) {
 				wlInfo.ClusterQueue = tc.targetCQ
 				var targets []*Target
 				var inErr error
-				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) {
+				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) error {
 					targets, inErr = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy, simulator)
+					return nil
 				})
 				if err != nil || inErr != nil {
 					t.Errorf("Failed to get targets: simulation=%v, preemptor=%v", err, inErr)
@@ -4371,12 +4372,13 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
 				var targets []*Target
-				var inErr error
-				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) {
+				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) error {
+					var inErr error
 					targets, inErr = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy, simulator)
+					return inErr
 				})
-				if err != nil || inErr != nil {
-					t.Errorf("Failed to get targets: simulation=%v, preemptor=%v", err, inErr)
+				if err != nil {
+					t.Errorf("Failed to get targets: %v", err)
 				}
 				_, _, err = preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
@@ -4596,12 +4598,13 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
 
 				var targets []*Target
-				var inErr error
-				err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) {
+				err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) error {
+					var inErr error
 					targets, inErr = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshot, simulator)
+					return inErr
 				})
-				if err != nil || inErr != nil {
-					t.Errorf("Failed to get targets: simulation=%v, preemptor=%v", err, inErr)
+				if err != nil {
+					t.Errorf("Failed to get targets: %v", err)
 				}
 				if len(targets) == 0 {
 					t.Fatal("Expected preemption targets")
@@ -5034,19 +5037,19 @@ func TestClassicalPreemptionsErrorPaths(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
 			preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
 
-			var err, inErr error
-			err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) {
-				_, inErr = preemptor.GetTargets(ctx, *preemptorWlInfo, singlePodSetAssignment(
+			var err error
+			err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) error {
+				_, inErr := preemptor.GetTargets(ctx, *preemptorWlInfo, singlePodSetAssignment(
 					flavorassigner.ResourceAssignment{
 						corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 							Name: "default", Mode: flavorassigner.Preempt,
 						},
 					},
 				), snapshot, simulator)
+				return inErr
 			})
-			gotErr := errors.Join(err, inErr)
-			if gotErr == nil || !errors.Is(gotErr, tc.wantErr) {
-				t.Errorf("GetTargets() error = %v, want %v", gotErr, tc.wantErr)
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("GetTargets() error = %v, want %v", err, tc.wantErr)
 			}
 		})
 	}
