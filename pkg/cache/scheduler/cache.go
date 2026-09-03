@@ -66,9 +66,6 @@ const (
 // Option configures the reconciler.
 type Option func(*Cache)
 
-// WithPodsReadyTracking indicates the cache controller tracks the PodsReady
-// condition for admitted workloads, and allows to block admission of new
-// workloads until all admitted workloads are in the PodsReady condition.
 // quantityOf reports an Amount the way the API field expects it, applying the
 // resource's scale before any narrowing. A value that cannot be represented is
 // capped rather than dropped, which is the same thing the field did before.
@@ -77,6 +74,9 @@ func quantityOf(f *resources.ResourceFormatter, name corev1.ResourceName, a reso
 	return q
 }
 
+// WithPodsReadyTracking indicates the cache controller tracks the PodsReady
+// condition for admitted workloads, and allows to block admission of new
+// workloads until all admitted workloads are in the PodsReady condition.
 func WithPodsReadyTracking(f bool) Option {
 	return func(c *Cache) {
 		c.podsReadyTracking = f

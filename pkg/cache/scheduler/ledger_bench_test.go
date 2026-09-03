@@ -20,8 +20,11 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 // The two paths an exact Amount costs something on: the fold of a workload's
@@ -58,4 +61,67 @@ func BenchmarkResourceNodeClone(b *testing.B) {
 		out = n.Clone()
 	}
 	benchNode = out
+}
+
+// The fair-sharing tournament computes a share for the candidate's
+// ClusterQueue and for every ancestor up to the root, for every candidate. The
+// operands are inside int64 in the small case and past it in the large one.
+
+var benchDRS DRS
+
+func benchFairSharing(b *testing.B, lenderQuota string) (dominantResourceShareNode, dominantResourceShareNode, resources.FlavorResourceQuantities) {
+	b.Helper()
+	ctx, log := utiltesting.ContextWithLog(b)
+	cache := New(utiltesting.NewFakeClient())
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+	if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort").Obj()); err != nil {
+		b.Fatalf("AddOrUpdateCohort() = %v", err)
+	}
+	for name, quota := range map[string]string{"lender": lenderQuota, "borrower": "0"} {
+		cq := utiltestingapi.MakeClusterQueue(name).
+			Cohort("cohort").
+			NamespaceSelector(nil).
+			FairWeight(resource.MustParse("1")).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				ResourceQuotaWrapper("cpu").NominalQuota(quota).Append().Obj()).
+			Obj()
+		if err := cache.AddClusterQueue(ctx, cq); err != nil {
+			b.Fatalf("AddClusterQueue(%s) = %v", name, err)
+		}
+	}
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		b.Fatalf("Snapshot() = %v", err)
+	}
+	var cohort dominantResourceShareNode
+	for _, c := range snapshot.Cohorts() {
+		cohort = c
+	}
+	req := resources.FlavorResourceQuantities{
+		{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+	}
+	return snapshot.ClusterQueue("borrower"), cohort, req
+}
+
+func BenchmarkDominantResourceShareSmall(b *testing.B) {
+	cq, _, req := benchFairSharing(b, "1000")
+	for b.Loop() {
+		benchDRS = dominantResourceShare(cq, req)
+	}
+}
+
+func BenchmarkDominantResourceShareLarge(b *testing.B) {
+	cq, _, req := benchFairSharing(b, "1E")
+	for b.Loop() {
+		benchDRS = dominantResourceShare(cq, req)
+	}
+}
+
+// The whole walk the tournament takes for one candidate.
+func BenchmarkFairSharingComputeDRS(b *testing.B) {
+	cq, cohort, req := benchFairSharing(b, "1000")
+	for b.Loop() {
+		benchDRS = dominantResourceShare(cq, req)
+		benchDRS = dominantResourceShare(cohort, req)
+	}
 }

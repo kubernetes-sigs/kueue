@@ -23,6 +23,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var cpuFR = resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
@@ -104,5 +107,93 @@ func TestAbsentLimitsStayUnbounded(t *testing.T) {
 	}
 	if withLimit.Equal(cpuQuota(t, "1E", new("11P"), nil)) {
 		t.Error("two different lending limits compared equal")
+	}
+}
+
+// A borrowing limit past int64 used to become the same unlimited value as the
+// capacity its Cohort had spare, so the ClusterQueue could take all of it. With
+// exact amounts the limit is the number the administrator wrote, and it binds
+// while the Cohort has more to give.
+//
+// The lender holds 1E of CPU, which is 10^21 milli, and the borrower may take
+// 10P of it, which is 10^19 milli. Both are past int64 in milli.
+func TestOversizedBorrowingLimitBounds(t *testing.T) {
+	const (
+		lendable   = "1000000000000000000000" // 1E cpu in milli, 10^21
+		borrowable = "10000000000000000000"   // 10P cpu in milli, 10^19
+		oneCPU     = 1_000
+	)
+
+	cases := map[string]struct {
+		borrowingLimit  *string
+		wantPotential   string
+		wantAvailable   string
+		wantAfterOneCPU string
+	}{
+		"a borrowing limit past int64 bounds what the Cohort offers": {
+			borrowingLimit:  new("10P"),
+			wantPotential:   borrowable,
+			wantAvailable:   borrowable,
+			wantAfterOneCPU: "9999999999999999000",
+		},
+		"no borrowing limit leaves the whole Cohort reachable": {
+			borrowingLimit:  nil,
+			wantPotential:   lendable,
+			wantAvailable:   lendable,
+			wantAfterOneCPU: "999999999999999999000",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cache := New(utiltesting.NewFakeClient())
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort").Obj()); err != nil {
+				t.Fatalf("AddOrUpdateCohort() = %v", err)
+			}
+
+			lender := utiltestingapi.MakeClusterQueue("lender").
+				Cohort("cohort").
+				NamespaceSelector(nil).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					ResourceQuotaWrapper("cpu").NominalQuota("1E").Append().Obj()).
+				Obj()
+			if err := cache.AddClusterQueue(ctx, lender); err != nil {
+				t.Fatalf("AddClusterQueue(lender) = %v", err)
+			}
+
+			quota := utiltestingapi.MakeFlavorQuotas("default").ResourceQuotaWrapper("cpu").NominalQuota("0")
+			if tc.borrowingLimit != nil {
+				quota = quota.BorrowingLimit(*tc.borrowingLimit)
+			}
+			borrower := utiltestingapi.MakeClusterQueue("borrower").
+				Cohort("cohort").
+				NamespaceSelector(nil).
+				ResourceGroup(*quota.Append().Obj()).
+				Obj()
+			if err := cache.AddClusterQueue(ctx, borrower); err != nil {
+				t.Fatalf("AddClusterQueue(borrower) = %v", err)
+			}
+
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Snapshot() = %v", err)
+			}
+			cq := snapshot.ClusterQueue("borrower")
+			if got := cq.PotentialAvailable(cpuFR).String(); got != tc.wantPotential {
+				t.Errorf("PotentialAvailable() = %s, want %s", got, tc.wantPotential)
+			}
+			if got := cq.Available(cpuFR).String(); got != tc.wantAvailable {
+				t.Errorf("Available() = %s, want %s", got, tc.wantAvailable)
+			}
+
+			cq.AddUsage(workload.Usage{Quota: workload.ResourceUsage{
+				Assigned: resources.FlavorResourceQuantities{cpuFR: resources.NewAmount(oneCPU)},
+			}})
+			if got := cq.Available(cpuFR).String(); got != tc.wantAfterOneCPU {
+				t.Errorf("Available() after one CPU = %s, want %s", got, tc.wantAfterOneCPU)
+			}
+		})
 	}
 }

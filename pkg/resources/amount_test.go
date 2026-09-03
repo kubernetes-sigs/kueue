@@ -219,14 +219,14 @@ func TestScaledBigMatchesTheAccessors(t *testing.T) {
 }
 
 // Where the accessor gives up, the conversion still has to answer. MilliValue
-// of the smallest int64 milliCPU returns zero, which is the overflow its own
-// doc warns about, and a quota of that size would read as no quota at all.
+// documents that it may overflow, and at this boundary it returns zero, which
+// would read a quota of that size as no quota at all.
 func TestAmountFromQuantityPastTheAccessor(t *testing.T) {
 	q := resource.MustParse("-9223372036854775808m")
-	if got := q.MilliValue(); got != 0 {
-		t.Skipf("MilliValue no longer overflows here, it returns %d", got)
-	}
 	if got := AmountFromQuantity(corev1.ResourceCPU, q); got.String() != "-9223372036854775808" {
 		t.Errorf("AmountFromQuantity = %s, want -9223372036854775808", got)
+	}
+	if got := q.MilliValue(); got != 0 {
+		t.Logf("MilliValue no longer overflows here, it returns %d", got)
 	}
 }

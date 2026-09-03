@@ -19,12 +19,14 @@ package resources
 import (
 	"math"
 	"math/big"
+	"strconv"
 
+	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
 
-// Amount is an exact integer quota amount, in the unit the resource is
+// Amount is an exact integer resource amount, in the unit the resource is
 // accounted in: milliCPU for cpu, whole units for everything else.
 //
 // Values inside the int64 range are held in small and cost no allocation. A
@@ -51,7 +53,14 @@ var (
 	ten         = big.NewInt(10)
 	thousand    = big.NewRat(1000, 1)
 	thousandInt = big.NewInt(1000)
+
+	// A Quantity holds at most MaxInt64 in magnitude in the unit it reports,
+	// and it reports CPU in cores, so this is that ceiling in milli.
+	maxCPUAmount = new(big.Int).Mul(big.NewInt(math.MaxInt64), thousandInt)
 )
+
+// maxExactFloat64Int is the largest integer magnitude a float64 holds exactly.
+const maxExactFloat64Int = 1 << 53
 
 // NewAmount returns the Amount for v.
 func NewAmount(v int64) Amount {
@@ -80,8 +89,8 @@ func (a Amount) big() *big.Int {
 // Quantity is arbitrary precision, so a quota past int64 arrives here intact
 // and is charged as the number it is rather than becoming a sentinel. The
 // conversion goes through the decimal the Quantity already holds rather than
-// through Value or MilliValue, which return zero for a magnitude they cannot
-// hold: MilliValue of the smallest int64 milliCPU is one of those.
+// through Value or MilliValue, which document that they may overflow: at the
+// smallest int64 milliCPU, MilliValue returns zero.
 //
 // This is the safe constructor that all quota-side conversion (Nominal,
 // BorrowingLimit, LendingLimit) must use. ResourceValue is the equivalent for
@@ -171,7 +180,16 @@ func (a Amount) Cmp(b Amount) int {
 			return 0
 		}
 	}
-	return a.big().Cmp(b.big())
+	// Only a value outside the int64 range is held in large, so against one
+	// held in small its sign is already the answer.
+	switch {
+	case b.large == nil:
+		return a.large.Sign()
+	case a.large == nil:
+		return -b.large.Sign()
+	default:
+		return a.large.Cmp(b.large)
+	}
 }
 
 // CmpInt64 returns -1 / 0 / +1 for a against v.
@@ -244,6 +262,13 @@ func (a Amount) PerThousandOf(b Amount) float64 {
 	if b.Sign() == 0 {
 		return 0
 	}
+	// Both operands are exact in float64 and the scale is applied without
+	// leaving that range, so the IEEE division is already the correctly
+	// rounded result that the exact ratio converts to.
+	if a.large == nil && b.large == nil &&
+		absAtMost(a.small, maxExactFloat64Int/1000) && absAtMost(b.small, maxExactFloat64Int) {
+		return float64(a.small*1000) / float64(b.small)
+	}
 	r := new(big.Rat).SetFrac(a.big(), b.big())
 	r.Mul(r, thousand)
 	f, _ := r.Float64()
@@ -253,21 +278,22 @@ func (a Amount) PerThousandOf(b Amount) float64 {
 	return f
 }
 
-// wholeCores returns a as a whole number of CPU cores, and false when it is not
-// a whole number of them or does not fit an int64. Only the CPU boundary uses
-// it, where the amount is held in milli.
-func (a Amount) wholeCores() (int64, bool) {
-	if a.large == nil {
-		if a.small%1000 != 0 {
-			return 0, false
-		}
-		return a.small / 1000, true
+// absAtMost reports whether the magnitude of v is at most limit. MinInt64
+// cannot be negated, so both ends are compared rather than an absolute taken.
+func absAtMost(v, limit int64) bool {
+	return v <= limit && v >= -limit
+}
+
+// milliDec returns a as a decimal at milli scale, and false when its magnitude
+// is past what a Quantity carries. Only the CPU boundary uses it, where the
+// amount is held in milli. inf copies the value it is handed, so passing the
+// stored pointer does not expose it.
+func (a Amount) milliDec() (*inf.Dec, bool) {
+	v := a.big()
+	if v.CmpAbs(maxCPUAmount) > 0 {
+		return nil, false
 	}
-	cores, rem := new(big.Int).QuoRem(a.large, thousandInt, new(big.Int))
-	if rem.Sign() != 0 || !cores.IsInt64() {
-		return 0, false
-	}
-	return cores.Int64(), true
+	return inf.NewDecBig(v, 3), true
 }
 
 // MinAmount returns the smaller of a and b.
@@ -288,7 +314,10 @@ func MaxAmount(a, b Amount) Amount {
 
 // String formats the Amount in the unit it is accounted in.
 func (a Amount) String() string {
-	return a.big().String()
+	if a.large == nil {
+		return strconv.FormatInt(a.small, 10)
+	}
+	return a.large.String()
 }
 
 // Equal reports whether a and b are the same number. go-cmp reaches this

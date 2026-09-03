@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"math"
 	"strings"
 	"sync"
 
@@ -91,30 +92,43 @@ func (f *ResourceFormatter) ResourceQuantityString(name corev1.ResourceName, v i
 }
 
 // AmountQuantity returns a in the format the API reports name in, applying the
-// resource's scale before any narrowing, and reports whether the value fitted.
+// resource's scale before any narrowing, and reports whether the Quantity is
+// the amount exactly.
 //
-// CPU amounts are held in milliCPU, so one past int64 there can still be an
-// ordinary Quantity once the scale is applied: 10P of CPU is 10^19 milliCPU and
-// 10^16 cores. Beyond the scale the Quantity range is the limit. Its documented
-// magnitude is int64 in the unit it carries, and a value past that is capped
-// here rather than handed to a serializer that can drop the exponent. Whether
-// ParseQuantity accepts the digits establishes neither, so it decides nothing.
-//
-// Everything that fits an int64 goes through ResourceQuantity, so the BinarySI
-// resources keep the format they are reported in today.
+// A Quantity carries at most MaxInt64 in magnitude in the unit it reports, at
+// milli precision. CPU is reported in cores and accounted in milli, so the
+// scale decides the limit rather than the int64 the amount is held in: every
+// milli up to MaxInt64 cores is inside one, whether or not it divides into
+// whole cores. Past that magnitude the value is capped rather than handed to a
+// serializer that drops the exponent, which is what String does with 1000E.
 func (f *ResourceFormatter) AmountQuantity(name corev1.ResourceName, a Amount) (resource.Quantity, bool) {
-	if v, ok := a.AsInt64(); ok {
+	if name == corev1.ResourceCPU {
+		// Everything held in an int64 of milli keeps the path it is on today.
+		if v, ok := a.AsInt64(); ok {
+			return f.ResourceQuantity(name, v), true
+		}
+		if dec, ok := a.milliDec(); ok {
+			return *resource.NewDecimalQuantity(*dec, resource.DecimalSI), true
+		}
+		// ResourceQuantity reads its argument as milli, so the cap is built
+		// here in the cores a CPU Quantity reports.
+		return *resource.NewQuantity(quantityCap(a.Sign()), resource.DecimalSI), false
+	}
+	// Reported in the whole units it is held in, so the two limits coincide.
+	// MinInt64 fits an int64 and is one past the magnitude a Quantity carries.
+	if v, ok := a.AsInt64(); ok && v != math.MinInt64 {
 		return f.ResourceQuantity(name, v), true
 	}
-	if name == corev1.ResourceCPU {
-		// Past int64 in milli, exact only where the amount is a whole number of
-		// cores and that number fits an int64.
-		if cores, ok := a.wholeCores(); ok {
-			return *resource.NewQuantity(cores, resource.DecimalSI), true
-		}
-		return *resource.NewMilliQuantity(a.AsSaturatedInt64(), resource.DecimalSI), false
+	return f.ResourceQuantity(name, quantityCap(a.Sign())), false
+}
+
+// quantityCap returns the largest magnitude a Quantity carries, with sign, in
+// the unit the Quantity reports.
+func quantityCap(sign int) int64 {
+	if sign < 0 {
+		return -math.MaxInt64
 	}
-	return f.ResourceQuantity(name, a.AsSaturatedInt64()), false
+	return math.MaxInt64
 }
 
 func (f *ResourceFormatter) AmountQuantityString(name corev1.ResourceName, a Amount) string {
