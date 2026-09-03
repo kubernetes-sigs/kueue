@@ -119,7 +119,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	var eg errgroup.Group
 
 	eg.Go(func() error {
-		return r.reconcilePods(ctx, sts, wlName, podList.Items)
+		return r.ungatePods(ctx, sts, wlName, podList.Items)
 	})
 
 	if sts != nil {
@@ -131,13 +131,13 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return ctrl.Result{}, eg.Wait()
 }
 
-func (r *Reconciler) reconcilePods(ctx context.Context, sts *appsv1.StatefulSet, wlName string, pods []corev1.Pod) error {
+func (r *Reconciler) ungatePods(ctx context.Context, sts *appsv1.StatefulSet, wlName string, pods []corev1.Pod) error {
 	return parallelize.Until(ctx, len(pods), func(i int) error {
-		return r.reconcilePod(ctx, sts, wlName, &pods[i])
+		return r.ungatePod(ctx, sts, wlName, &pods[i])
 	})
 }
 
-func (r *Reconciler) reconcilePod(ctx context.Context, sts *appsv1.StatefulSet, wlName string, pod *corev1.Pod) error {
+func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlName string, pod *corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx)
 	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 		var updated bool
