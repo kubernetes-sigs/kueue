@@ -39,6 +39,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -147,7 +148,10 @@ func (r *CohortReconciler) Update(e event.TypedUpdateEvent[*kueue.Cohort]) bool 
 		e.ObjectNew.GetAnnotations(),
 	)
 
-	if equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) && !clUpdateRequired {
+	specOrQuotaUpdated := !equality.Semantic.DeepEqual(e.ObjectOld.Spec, e.ObjectNew.Spec) ||
+		!equality.Semantic.DeepEqual(resourcegroups.EffectiveCohortResourceGroups(e.ObjectOld), resourcegroups.EffectiveCohortResourceGroups(e.ObjectNew))
+
+	if !specOrQuotaUpdated && !clUpdateRequired {
 		log.V(2).Info("Skip Cohort update event as Cohort unchanged")
 		return false
 	}
@@ -196,7 +200,10 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		)
 	}
 
-	log.V(2).Info("Cohort is being created or updated", "resources", cohort.Spec.ResourceGroups)
+	log.V(2).Info("Cohort is being created or updated",
+		"resources", resourcegroups.EffectiveCohortResourceGroups(&cohort),
+		"usesEffectiveQuotas", features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil,
+	)
 	if err := r.cache.AddOrUpdateCohort(&cohort); err != nil {
 		log.V(2).Error(err, "Error adding or updating cohort in the cache")
 		// Fail fast to avoid queue/status updates from a stale cache state.

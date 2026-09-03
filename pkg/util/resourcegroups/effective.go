@@ -33,10 +33,14 @@ func EffectiveResourceGroups(cq *kueue.ClusterQueue) []kueue.ResourceGroup {
 	return cq.Spec.ResourceGroups
 }
 
-// EffectiveCohortResourceGroups returns Spec.ResourceGroups.
+// EffectiveCohortResourceGroups returns Status.EffectiveQuotas.ResourceGroups when DynamicQuotaOrchestration
+// feature gate is enabled and effective quota is set; otherwise returns Spec.ResourceGroups.
 func EffectiveCohortResourceGroups(cohort *kueue.Cohort) []kueue.ResourceGroup {
 	if cohort == nil {
 		return nil
+	}
+	if features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil {
+		return cohort.Status.EffectiveQuotas.ResourceGroups
 	}
 	return cohort.Spec.ResourceGroups
 }
