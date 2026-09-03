@@ -911,7 +911,7 @@ func (s *Scheduler) getAssignments(
 		if assignment, targets, inErr = s.getInitialAssignments(ctx, wl, snap, simCtx); inErr != nil {
 			return inErr
 		}
-		if inErr = updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets); inErr != nil {
+		if inErr = updateAssignmentForTAS(ctx, simCtx, snap, cq, wl, &assignment, targets); inErr != nil {
 			return inErr
 		}
 		return nil
@@ -1037,6 +1037,7 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 
 func updateAssignmentForTAS(
 	ctx context.Context,
+	simCtx scheduler.SimulationContext,
 	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl *workload.Info,
@@ -1056,7 +1057,7 @@ func updateAssignmentForTAS(
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			if err := scheduler.Simulate(ctx, snapshot, func(simCtx scheduler.SimulationContext) error {
+			if err := scheduler.SimulateNested(simCtx, func(simCtx scheduler.SimulationContext) error {
 				simCtx.RemoveUsage(targetWorkloads)
 				tasResult = cq.FindTopologyAssignmentsForWorkload(
 					ctx,
