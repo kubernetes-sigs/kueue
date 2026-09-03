@@ -172,6 +172,22 @@ rules:
       - patch
       - update
   - apiGroups:
+      - disaggregatedset.x-k8s.io
+    resources:
+      - disaggregatedsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - disaggregatedset.x-k8s.io
+    resources:
+      - disaggregatedsets/status
+    verbs:
+      - get
+      - patch
+      - update
+  - apiGroups:
       - events.k8s.io
     resources:
       - events

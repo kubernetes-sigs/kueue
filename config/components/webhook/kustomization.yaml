@@ -36,6 +36,7 @@ replacements:
         - webhooks.[name=mjaxjob.kb.io].namespaceSelector
         - webhooks.[name=mjob.kb.io].namespaceSelector
         - webhooks.[name=mjobset.kb.io].namespaceSelector
+        - webhooks.[name=mdisaggregatedset.kb.io].namespaceSelector
         - webhooks.[name=mleaderworkerset.kb.io].namespaceSelector
         - webhooks.[name=mmpijob.kb.io].namespaceSelector
         - webhooks.[name=mpaddlejob.kb.io].namespaceSelector
@@ -60,6 +61,7 @@ replacements:
         - webhooks.[name=vjaxjob.kb.io].namespaceSelector
         - webhooks.[name=vjob.kb.io].namespaceSelector
         - webhooks.[name=vjobset.kb.io].namespaceSelector
+        - webhooks.[name=vdisaggregatedset.kb.io].namespaceSelector
         - webhooks.[name=vleaderworkerset.kb.io].namespaceSelector
         - webhooks.[name=vmpijob.kb.io].namespaceSelector
         - webhooks.[name=vpaddlejob.kb.io].namespaceSelector

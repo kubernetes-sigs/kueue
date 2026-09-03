@@ -56,6 +56,7 @@ var _ = ginkgo.BeforeSuite(func() {
 			util.MpiOperatorCrds,
 			util.JobsetCrds,
 			util.LeaderWorkerSetCrds,
+			util.DisaggregatedSetCrds,
 			util.RayOperatorCrds,
 			util.TrainingOperatorCrds,
 			util.AppWrapperCrds,

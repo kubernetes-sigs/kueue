@@ -73,10 +73,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
+	disaggregatedsetv1 "sigs.k8s.io/lws/api/disaggregatedset/v1"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/disaggregatedset"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
@@ -309,6 +311,10 @@ func DeleteAllTrainingRuntimesInNamespace(ctx context.Context, c client.Client, 
 
 func DeleteAllLeaderWorkerSetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	return deleteAllObjectsInNamespace(ctx, c, ns, &leaderworkersetv1.LeaderWorkerSet{})
+}
+
+func DeleteAllDisaggregatedSetsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	return deleteAllObjectsInNamespace(ctx, c, ns, &disaggregatedsetv1.DisaggregatedSet{})
 }
 
 func DeleteAllMPIJobsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
@@ -1562,6 +1568,13 @@ func WorkloadKeyForLeaderWorkerSet(lws *leaderworkersetv1.LeaderWorkerSet, group
 	return types.NamespacedName{
 		Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, group),
 		Namespace: lws.Namespace,
+	}
+}
+
+func WorkloadKeyForDisaggregatedSet(ds *disaggregatedsetv1.DisaggregatedSet) client.ObjectKey {
+	return types.NamespacedName{
+		Name:      disaggregatedset.GetWorkloadName(ds.UID, ds.Name),
+		Namespace: ds.Namespace,
 	}
 }
 
