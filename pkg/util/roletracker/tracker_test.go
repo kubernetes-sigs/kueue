@@ -64,10 +64,10 @@ func TestRoleTracker_StartLeaderElection(t *testing.T) {
 				t.Errorf("Initial role = %q, want %q", got, RoleFollower)
 			}
 
-			ctx, cancel := context.WithCancel(t.Context())
+			ctx, log := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
-			_, log := utiltesting.ContextWithLog(t)
 			done := make(chan struct{})
 			go func() {
 				rt.Start(ctx, log)
@@ -133,7 +133,8 @@ func TestOnElected(t *testing.T) {
 				})
 			}
 
-			ctx, cancel := context.WithCancel(t.Context())
+			ctx, log := utiltesting.ContextWithLog(t)
+			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
 			if tc.closeChannel {
@@ -143,7 +144,6 @@ func TestOnElected(t *testing.T) {
 				cancel()
 			}
 
-			_, log := utiltesting.ContextWithLog(t)
 			rt.Start(ctx, log)
 
 			if called != tc.expectCalled {
