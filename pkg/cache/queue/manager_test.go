@@ -359,7 +359,7 @@ func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
 }
 
 func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
@@ -421,7 +421,7 @@ func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
 	updatedLq := lq.DeepCopy()
 	updatedLq.Labels["team"] = "beta"
 	customLabels.LQStore(queue.Key(updatedLq), updatedLq.GetLabels(), updatedLq.GetAnnotations())
-	if err := manager.UpdateLocalQueue(logr.Discard(), updatedLq); err != nil {
+	if err := manager.UpdateLocalQueue(log, updatedLq); err != nil {
 		t.Fatalf("Failed to update local queue: %v", err)
 	}
 	clearLQMetrics(queue.Key(updatedLq))
@@ -2979,8 +2979,7 @@ func TestLQPendingWorkloads_WorkloadCustomLabels(t *testing.T) {
 	// labels when SourceKindWorkload is configured alongside LocalQueueMetrics.
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
-	ctx, _ := utiltesting.ContextWithLog(t)
-	log := logr.Discard()
+	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
@@ -3055,8 +3054,7 @@ func TestLQPendingWorkloads_WorkloadCustomLabels(t *testing.T) {
 func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
-	ctx, _ := utiltesting.ContextWithLog(t)
-	log := logr.Discard()
+	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
