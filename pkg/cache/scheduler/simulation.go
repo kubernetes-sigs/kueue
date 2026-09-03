@@ -57,16 +57,38 @@ type SimulationContext interface {
 	// RestoreUsage restores the snapshot's usage to its original state.
 	RestoreUsage()
 
+	// ChildContext returns a new context for running a nested simulation.
+	ChildContext() SimulationContext
+
 	// Clear clears the context, reverting all changes made within its scope.
 	Clear()
 }
 
+// Simulate allows running a simulation on the snapshotted state.
+// The state of the snapshot is always reverted after the simulation finishes.
+// Returns an error if the simulation fails or the simulation function returns an error.
+// Only one simulation can be ran at the time.
 func Simulate(ctx context.Context, snapshot *Snapshot, simulate Simulation) error {
 	return snapshot.SimulatorSnapshot.Simulate(ctx, func() error {
 		simCtx := newSimulationContext(snapshot)
 		defer simCtx.Clear()
 		return simulate(simCtx)
 	})
+}
+
+// SimulateNested allows running a nested simulation inisde of a closure passed to Simulate.
+// Returns an error if the simulation function returns an error
+// or if it fails to restore the context to its original state.
+func SimulateNested(parentCtx SimulationContext, simulate Simulation) error {
+	childCtx := parentCtx.ChildContext()
+	if simErr := simulate(childCtx); simErr != nil {
+		return simErr
+	}
+	if restoreErr := childCtx.RestoreWorkloads(); restoreErr != nil {
+		return restoreErr
+	}
+	childCtx.Clear()
+	return nil
 }
 
 type simulationContext struct {
@@ -86,9 +108,10 @@ type preemption struct {
 
 func newSimulationContext(snapshot *Snapshot) *simulationContext {
 	return &simulationContext{
-		cacheSnapshot:        &snapshot.Manager,
-		simulatorSnapshot:    snapshot.SimulatorSnapshot,
-		simulatedPreemptions: make(map[workloadKey]preemption),
+		cacheSnapshot:         &snapshot.Manager,
+		simulatorSnapshot:     snapshot.SimulatorSnapshot,
+		simulatedPreemptions:  make(map[workloadKey]preemption),
+		restoreUsageCallbacks: make([]func(), 0),
 	}
 }
 
@@ -98,6 +121,15 @@ func (s *simulationContext) Clear() {
 		s.addWorkload(preemption.target)
 	}
 	clear(s.simulatedPreemptions)
+}
+
+func (s *simulationContext) ChildContext() SimulationContext {
+	return &simulationContext{
+		cacheSnapshot:         s.cacheSnapshot,
+		simulatorSnapshot:     s.simulatorSnapshot,
+		simulatedPreemptions:  make(map[workloadKey]preemption),
+		restoreUsageCallbacks: make([]func(), 0),
+	}
 }
 
 func (s *simulationContext) PreemptWorkload(ctx context.Context, candidate *workload.Info) error {
@@ -155,7 +187,7 @@ func (s *simulationContext) RestoreUsage() {
 	for _, restoreFn := range s.restoreUsageCallbacks {
 		restoreFn()
 	}
-	s.restoreUsageCallbacks = nil
+	clear(s.restoreUsageCallbacks)
 }
 
 // removeWorkload removes a workload from its corresponding ClusterQueue and

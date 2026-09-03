@@ -984,7 +984,7 @@ func (s *Scheduler) getInitialAssignments(
 
 	if arm == flavorassigner.Preempt {
 		var faPreemptionTargets []*preemption.Target
-		faPreemptionTargets, err = s.preemptor.GetTargets(ctx, *wl, fullAssignment, snap, simCtx)
+		faPreemptionTargets, err = s.preemptor.GetTargets(ctx, simCtx, *wl, fullAssignment, snap)
 		if err != nil {
 			return
 		}
@@ -1003,7 +1003,7 @@ func (s *Scheduler) getInitialAssignments(
 
 			if mode == flavorassigner.Preempt {
 				var preemptionTargets []*preemption.Target
-				preemptionTargets, err = s.preemptor.GetTargets(ctx, *wl, assignment, snap, simCtx)
+				preemptionTargets, err = s.preemptor.GetTargets(ctx, simCtx, *wl, assignment, snap)
 				if err == nil && len(preemptionTargets) > 0 {
 					return &partialAssignment{assignment: assignment, preemptionTargets: preemptionTargets}, true
 				}

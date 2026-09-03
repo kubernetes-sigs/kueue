@@ -49,14 +49,13 @@ func (p *PreemptionOracle) SimulatePreemption(
 ) (possibility preemptioncommon.PreemptionPossibility, borrow int) {
 	log := log.FromContext(ctx)
 	if simErr := schdcache.Simulate(ctx, p.snapshot, func(simCtx schdcache.SimulationContext) error {
-		candidates, err := p.preemptor.getTargets(&preemptionCtx{
+		candidates, err := p.preemptor.getTargets(simCtx, &preemptionCtx{
 			ctx:               ctx,
 			clock:             p.preemptor.clock,
 			log:               log,
 			preemptor:         wl,
 			preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
 			snapshot:          p.snapshot,
-			simulation:        simCtx,
 			frsNeedPreemption: sets.New(fr),
 			workloadUsage: workload.Usage{
 				Quota: workload.ResourceUsage{

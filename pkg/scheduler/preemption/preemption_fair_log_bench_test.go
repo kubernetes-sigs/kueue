@@ -23,6 +23,8 @@ import (
 	"github.com/go-logr/zapr"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 )
 
 // byteCounter is a zapcore.WriteSyncer that counts bytes and discards them.
@@ -47,8 +49,10 @@ func BenchmarkRunFirstFsStrategy(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 				for range b.N {
-					_, _, _, err := fixture.preemptionCtx.runFirstFsStrategy(fixture.candidates, alwaysFails)
-					if err != nil {
+					if err := scheduler.Simulate(fixture.preemptionCtx.ctx, fixture.preemptionCtx.snapshot, func(simCtx schdcache.SimulationContext) error {
+						_, _, _, inErr := runFirstFsStrategy(simCtx, fixture.preemptionCtx, fixture.candidates, alwaysFails)
+						return inErr
+					}); err != nil {
 						b.Errorf("Unexpected error: %v", err)
 					}
 				}

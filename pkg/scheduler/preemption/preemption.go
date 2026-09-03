@@ -38,6 +38,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -81,7 +82,6 @@ type preemptionCtx struct {
 	preemptor         workload.Info
 	preemptorCQ       *schdcache.ClusterQueueSnapshot
 	snapshot          *schdcache.Snapshot
-	simulation        schdcache.SimulationContext
 	workloadUsage     workload.Usage
 	tasRequests       schdcache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
@@ -131,10 +131,10 @@ func (t *Target) GetObject() client.Object {
 // order to make room for wl.
 func (p *Preemptor) GetTargets(
 	ctx context.Context,
+	simCtx schdcache.SimulationContext,
 	wl workload.Info,
 	assignment flavorassigner.Assignment,
 	snapshot *schdcache.Snapshot,
-	simulation schdcache.SimulationContext,
 ) ([]*Target, error) {
 	log := log.FromContext(ctx)
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)
@@ -142,14 +142,13 @@ func (p *Preemptor) GetTargets(
 	if features.Enabled(features.TopologyAwareScheduling) {
 		tasRequests = assignment.WorkloadsTopologyRequests(log, &wl, cq)
 	}
-	return p.getTargets(&preemptionCtx{
+	return p.getTargets(simCtx, &preemptionCtx{
 		ctx:               ctx,
 		clock:             p.clock,
 		log:               log,
 		preemptor:         wl,
 		preemptorCQ:       cq,
 		snapshot:          snapshot,
-		simulation:        simulation,
 		tasRequests:       tasRequests,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
@@ -161,25 +160,25 @@ func (p *Preemptor) GetTargets(
 	})
 }
 
-func (p *Preemptor) getTargets(preemptionCtx *preemptionCtx) (targets []*Target, err error) {
+func (p *Preemptor) getTargets(simCtx scheduler.SimulationContext, preemptionCtx *preemptionCtx) (targets []*Target, err error) {
 	if p.enableFairSharing {
-		targets, err = p.fairPreemptions(preemptionCtx, p.fsStrategies)
+		targets, err = p.fairPreemptions(simCtx, preemptionCtx, p.fsStrategies)
 	} else {
-		targets, err = p.classicalPreemptions(preemptionCtx)
+		targets, err = p.classicalPreemptions(simCtx, preemptionCtx)
 	}
 	return
 }
 
-func (pCtx *preemptionCtx) restoreSnapshot(targets []*Target) error {
+func restoreSnapshot(simCtx scheduler.SimulationContext, pCtx *preemptionCtx, targets []*Target) error {
 	wls := make([]types.NamespacedName, 0, len(targets))
 	for _, t := range targets {
 		wls = append(wls, client.ObjectKeyFromObject(t.WorkloadInfo.Obj))
 	}
-	return pCtx.simulation.RestoreWorkloads(wls...)
+	return simCtx.RestoreWorkloads(wls...)
 }
 
-func (pCtx *preemptionCtx) preemptWorkload(candidate *workload.Info, reason string) (*Target, error) {
-	if err := pCtx.simulation.PreemptWorkload(pCtx.ctx, candidate); err != nil {
+func preemptWorkload(simCtx scheduler.SimulationContext, pCtx *preemptionCtx, candidate *workload.Info, reason string) (*Target, error) {
+	if err := simCtx.PreemptWorkload(pCtx.ctx, candidate); err != nil {
 		return nil, err
 	}
 	return &Target{
@@ -309,7 +308,7 @@ type preemptionAttemptOpts struct {
 // Once the Workload fits, the heuristic tries to add Workloads back, in the
 // reverse order in which they were removed, while the incoming Workload still
 // fits
-func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) ([]*Target, error) {
+func (p *Preemptor) classicalPreemptions(simCtx scheduler.SimulationContext, preemptionCtx *preemptionCtx) ([]*Target, error) {
 	hierarchicalReclaimCtx := &classical.HierarchicalPreemptionCtx{
 		Log:               preemptionCtx.log,
 		Wl:                preemptionCtx.preemptor.Obj,
@@ -346,7 +345,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) ([]*Targe
 	}
 
 	for _, attemptOpts := range attemptPossibleOpts {
-		if targets, err := preemptionCtx.attemptClassicalPreemption(candidatesGenerator, attemptOpts); err != nil {
+		if targets, err := attemptClassicalPreemption(simCtx, preemptionCtx, candidatesGenerator, attemptOpts); err != nil {
 			return nil, err
 		} else if targets != nil {
 			return targets, nil
@@ -355,38 +354,49 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) ([]*Targe
 	return nil, nil
 }
 
-func (pCtx *preemptionCtx) attemptClassicalPreemption(candidatesGenerator classical.CandidateIterator, attemptOpts preemptionAttemptOpts) ([]*Target, error) {
-	var targets []*Target
-	candidatesGenerator.Reset()
-	for candidate, reason := candidatesGenerator.Next(attemptOpts.borrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(attemptOpts.borrowing) {
-		target, err := pCtx.preemptWorkload(candidate, reason)
-		if err != nil {
-			return nil, err
-		}
-		targets = append(targets, target)
-		if workloadFits(pCtx, attemptOpts.borrowing) {
-			if targets, err := pCtx.fillBackWorkloads(targets, attemptOpts.borrowing); err != nil {
-				return nil, err
+func attemptClassicalPreemption(
+	simCtx scheduler.SimulationContext,
+	pCtx *preemptionCtx,
+	candidatesGenerator classical.CandidateIterator,
+	attemptOpts preemptionAttemptOpts,
+) (foundTargets []*Target, simErr error) {
+	simErr = scheduler.SimulateNested(simCtx, func(subCtx scheduler.SimulationContext) error {
+		var targets []*Target
+		candidatesGenerator.Reset()
+		for candidate, reason := candidatesGenerator.Next(attemptOpts.borrowing); candidate != nil; candidate, reason = candidatesGenerator.Next(attemptOpts.borrowing) {
+			if target, err := preemptWorkload(subCtx, pCtx, candidate, reason); err != nil {
+				return err
 			} else {
-				return targets, pCtx.restoreSnapshot(targets)
+				targets = append(targets, target)
+			}
+			if workloadFits(pCtx, attemptOpts.borrowing) {
+				targets, err := fillBackWorkloads(subCtx, pCtx, targets, attemptOpts.borrowing)
+				if err == nil {
+					foundTargets = targets
+				}
+				return err
 			}
 		}
+		return nil
+	})
+	if simErr != nil {
+		foundTargets = nil
 	}
-	return nil, pCtx.restoreSnapshot(targets)
+	return
 }
 
-func (pCtx *preemptionCtx) fillBackWorkloads(targets []*Target, allowBorrowing bool) ([]*Target, error) {
+func fillBackWorkloads(simCtx scheduler.SimulationContext, pCtx *preemptionCtx, targets []*Target, allowBorrowing bool) ([]*Target, error) {
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		target := targets[i]
-		if err := pCtx.simulation.RestoreWorkloads(client.ObjectKeyFromObject(target.GetObject())); err != nil {
+		if err := simCtx.RestoreWorkloads(client.ObjectKeyFromObject(target.GetObject())); err != nil {
 			return nil, fmt.Errorf("snapshot corrupted, failed to restore workload: %w", err)
 		}
 		if workloadFits(pCtx, allowBorrowing) {
 			// O(1) deletion: copy the last element into index i and reduce size.
 			targets[i] = targets[len(targets)-1]
 			targets = targets[:len(targets)-1]
-		} else if _, err := pCtx.preemptWorkload(target.WorkloadInfo, target.Reason); err != nil {
+		} else if _, err := preemptWorkload(simCtx, pCtx, target.WorkloadInfo, target.Reason); err != nil {
 			return nil, fmt.Errorf("snapshot corrupted, failed to fill back workloads: %w", err)
 		}
 	}
@@ -415,7 +425,7 @@ func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
 // runFirstFsStrategy runs the first configured FairSharing strategy,
 // and returns (fits, targets, retryCandidates) retryCandidates may be
 // used if rule S2-b is configured.
-func (pCtx *preemptionCtx) runFirstFsStrategy(candidates []*workload.Info, strategy fairsharing.Strategy) (bool, []*Target, []*workload.Info, error) {
+func runFirstFsStrategy(simCtx scheduler.SimulationContext, pCtx *preemptionCtx, candidates []*workload.Info, strategy fairsharing.Strategy) (bool, []*Target, []*workload.Info, error) {
 	ordering := fairsharing.MakeClusterQueueOrdering(pCtx.preemptorCQ, candidates, pCtx.log, pCtx.clock)
 
 	var targets []*Target
@@ -432,7 +442,7 @@ func (pCtx *preemptionCtx) runFirstFsStrategy(candidates []*workload.Info, strat
 	for candCQ := range ordering.Iter() {
 		if candCQ.InClusterQueuePreemption() {
 			candWl := candCQ.PopWorkload()
-			target, err := pCtx.preemptWorkload(candWl, kueue.InClusterQueueReason)
+			target, err := preemptWorkload(simCtx, pCtx, candWl, kueue.InClusterQueueReason)
 			if err != nil {
 				return false, nil, nil, err
 			}
@@ -445,7 +455,7 @@ func (pCtx *preemptionCtx) runFirstFsStrategy(candidates []*workload.Info, strat
 
 		if preemptorWithinNominal {
 			candWl := candCQ.PopWorkload()
-			target, err := pCtx.preemptWorkload(candWl, kueue.InCohortReclamationReason)
+			target, err := preemptWorkload(simCtx, pCtx, candWl, kueue.InCohortReclamationReason)
 			if err != nil {
 				return false, nil, nil, err
 			}
@@ -480,7 +490,7 @@ func (pCtx *preemptionCtx) runFirstFsStrategy(candidates []*workload.Info, strat
 			passed := strategy(preemptorNewShare, targetOldShare, targetNewShare)
 			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
-				target, err := pCtx.preemptWorkload(candWl, kueue.InCohortFairSharingReason)
+				target, err := preemptWorkload(simCtx, pCtx, candWl, kueue.InCohortFairSharingReason)
 				if err != nil {
 					return false, nil, nil, err
 				}
@@ -529,7 +539,7 @@ func fsStrategyUnsatisfiable(preemptorNewShare fairsharing.PreemptorNewShare, ta
 
 // runSecondFsStrategy implements Fair Sharing Rule S2-b. It returns
 // (fits, targets).
-func (pCtx *preemptionCtx) runSecondFsStrategy(retryCandidates []*workload.Info, targets []*Target) (bool, []*Target, error) {
+func runSecondFsStrategy(simCtx scheduler.SimulationContext, pCtx *preemptionCtx, retryCandidates []*workload.Info, targets []*Target) (bool, []*Target, error) {
 	ordering := fairsharing.MakeClusterQueueOrdering(pCtx.preemptorCQ, retryCandidates, pCtx.log, pCtx.clock)
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
@@ -547,7 +557,7 @@ func (pCtx *preemptionCtx) runSecondFsStrategy(retryCandidates []*workload.Info,
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
 		if passed {
-			target, err := pCtx.preemptWorkload(candWl, kueue.InCohortFairSharingReason)
+			target, err := preemptWorkload(simCtx, pCtx, candWl, kueue.InCohortFairSharingReason)
 			if err != nil {
 				return false, nil, err
 			}
@@ -563,7 +573,7 @@ func (pCtx *preemptionCtx) runSecondFsStrategy(retryCandidates []*workload.Info,
 	return false, targets, nil
 }
 
-func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []fairsharing.Strategy) ([]*Target, error) {
+func (p *Preemptor) fairPreemptions(simCtx scheduler.SimulationContext, preemptionCtx *preemptionCtx, strategies []fairsharing.Strategy) ([]*Target, error) {
 	candidates := p.findCandidates(preemptionCtx.log, preemptionCtx.preemptor.Obj, preemptionCtx.preemptorCQ, preemptionCtx.frsNeedPreemption)
 	if len(candidates) == 0 {
 		return nil, nil
@@ -586,7 +596,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 	// DRS values must include incoming workload.
 	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 
-	fits, targets, retryCandidates, err := preemptionCtx.runFirstFsStrategy(candidates, strategies[0])
+	fits, targets, retryCandidates, err := runFirstFsStrategy(simCtx, preemptionCtx, candidates, strategies[0])
 
 	if err == nil && features.Enabled(features.FairSharingReevaluatePreemptionCandidates) {
 		if !fits && containsWorkloadFromPreemptorCQ(preemptionCtx, targets) {
@@ -597,7 +607,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 			// No need to run the strategy a third time as first run already iterated
 			// though whole tree and removed all the preemptor's workloads.
 			var additionalTargets []*Target
-			fits, additionalTargets, retryCandidates, err = preemptionCtx.runFirstFsStrategy(retryCandidates, strategies[0])
+			fits, additionalTargets, retryCandidates, err = runFirstFsStrategy(simCtx, preemptionCtx, retryCandidates, strategies[0])
 			targets = append(targets, additionalTargets...)
 		}
 	}
@@ -609,7 +619,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 				"targets", logging.GetObjectReferences(targets),
 				"retryCandidates", workload.References(retryCandidates))
 		}
-		fits, targets, err = preemptionCtx.runSecondFsStrategy(retryCandidates, targets)
+		fits, targets, err = runSecondFsStrategy(simCtx, preemptionCtx, retryCandidates, targets)
 	}
 	revertSimulation()
 	if err != nil {
@@ -623,15 +633,15 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 				"targets", logging.GetObjectReferences(targets),
 				"error", err)
 		}
-		return nil, preemptionCtx.restoreSnapshot(targets)
+		return nil, restoreSnapshot(simCtx, preemptionCtx, targets)
 	}
 
-	targets, err = preemptionCtx.fillBackWorkloads(targets, true)
+	targets, err = fillBackWorkloads(simCtx, preemptionCtx, targets, true)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := preemptionCtx.restoreSnapshot(targets); err != nil {
+	if err := restoreSnapshot(simCtx, preemptionCtx, targets); err != nil {
 		return nil, err
 	}
 

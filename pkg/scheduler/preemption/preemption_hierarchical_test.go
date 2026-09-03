@@ -1856,7 +1856,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				var targets []*Target
 				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) error {
 					var inErr error
-					targets, inErr = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy, simulator)
+					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment, snapshotWorkingCopy)
 					return inErr
 				})
 				if err != nil {

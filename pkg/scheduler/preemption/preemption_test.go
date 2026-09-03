@@ -4148,7 +4148,7 @@ func TestPreemption(t *testing.T) {
 				var targets []*Target
 				var inErr error
 				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) error {
-					targets, inErr = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy, simulator)
+					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment, snapshotWorkingCopy)
 					return nil
 				})
 				if err != nil || inErr != nil {
@@ -4374,7 +4374,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				var targets []*Target
 				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) error {
 					var inErr error
-					targets, inErr = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy, simulator)
+					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment, snapshotWorkingCopy)
 					return inErr
 				})
 				if err != nil {
@@ -4600,7 +4600,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				var targets []*Target
 				err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) error {
 					var inErr error
-					targets, inErr = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshot, simulator)
+					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment, snapshot)
 					return inErr
 				})
 				if err != nil {
@@ -5124,13 +5124,13 @@ func TestClassicalPreemptionsErrorPaths(t *testing.T) {
 			preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 
 			err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) error {
-				_, inErr := preemptor.GetTargets(ctx, *preemptorWlInfo, singlePodSetAssignment(
+				_, inErr := preemptor.GetTargets(ctx, simulator, *preemptorWlInfo, singlePodSetAssignment(
 					flavorassigner.ResourceAssignment{
 						corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 							Name: "default", Mode: flavorassigner.Preempt,
 						},
 					},
-				), snapshot, simulator)
+				), snapshot)
 				return inErr
 			})
 			if !errors.Is(err, tc.wantErr) {

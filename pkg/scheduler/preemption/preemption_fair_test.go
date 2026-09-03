@@ -1252,13 +1252,13 @@ func TestFairPreemptions(t *testing.T) {
 			var targets []*Target
 			err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) error {
 				var inErr error
-				targets, inErr = preemptor.GetTargets(ctx, *wlInfo, singlePodSetAssignment(
+				targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, singlePodSetAssignment(
 					flavorassigner.ResourceAssignment{
 						corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 							Name: flavorName, Mode: flavorassigner.Preempt,
 						},
 					},
-				), snapshotWorkingCopy, simulator)
+				), snapshotWorkingCopy)
 				return inErr
 			})
 			if err != nil {
@@ -1387,13 +1387,13 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 			var targets []*Target
 			err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) error {
 				var inErr error
-				targets, inErr = preemptor.GetTargets(ctx, *wlInfo, singlePodSetAssignment(
+				targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, singlePodSetAssignment(
 					flavorassigner.ResourceAssignment{
 						corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 							Name: "default", Mode: flavorassigner.Preempt,
 						},
 					},
-				), snapshot, simulator)
+				), snapshot)
 				return inErr
 			})
 			if err != nil {
@@ -1587,13 +1587,13 @@ func TestFairPreemptionErrorPaths(t *testing.T) {
 			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, fsConfig, true, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 
 			if err := scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) error {
-				_, inErr := preemptor.GetTargets(ctx, *preemptorWlInfo, singlePodSetAssignment(
+				_, inErr := preemptor.GetTargets(ctx, simulator, *preemptorWlInfo, singlePodSetAssignment(
 					flavorassigner.ResourceAssignment{
 						corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 							Name: "default", Mode: flavorassigner.Preempt,
 						},
 					},
-				), snapshot, simulator)
+				), snapshot)
 				return inErr
 			}); !errors.Is(err, tc.wantErr) {
 				t.Errorf("GetTargets() error = %v, want %v", err, tc.wantErr)
