@@ -542,6 +542,7 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 	queueName := jobframework.QueueNameForObject(lws)
 
 	if _, ok := pod.Labels[constants.ManagedByKueueLabelKey]; ok {
+		changed := false
 		// TODO(#13968): Candidate for removal once LeaderWorkerSets admitted before #4932
 		// are gone, no earlier than 0.21. The webhook stamps the queue name on the pod
 		// templates, so it is only missing here on those, which #4932 did not migrate.
@@ -549,9 +550,21 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 		if queueName != "" && utilpod.HasGate(pod, podconstants.SchedulingGateName) &&
 			pod.Labels[controllerconstants.QueueLabel] != string(queueName) {
 			pod.Labels[controllerconstants.QueueLabel] = string(queueName)
-			return true
+			changed = true
 		}
-		return false
+		if features.Enabled(features.TopologyAwareScheduling) || features.Enabled(features.SchedulerLibraryIntegration) {
+			if groupIndex, ok := pod.Labels[leaderworkersetv1.GroupIndexLabelKey]; ok {
+				wlName := GetWorkloadName(GetOwnerUID(lws), lws.Name, groupIndex)
+				if pod.Annotations[kueue.WorkloadAnnotation] != wlName {
+					if pod.Annotations == nil {
+						pod.Annotations = make(map[string]string)
+					}
+					pod.Annotations[kueue.WorkloadAnnotation] = wlName
+					changed = true
+				}
+			}
+		}
+		return changed
 	}
 
 	// We should wait for GroupIndexLabelKey.
@@ -585,6 +598,10 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 		} else {
 			pod.Annotations[podconstants.RoleHashAnnotation] = workerPodSetName
 		}
+	}
+
+	if features.Enabled(features.TopologyAwareScheduling) || features.Enabled(features.SchedulerLibraryIntegration) {
+		pod.Annotations[kueue.WorkloadAnnotation] = wlName
 	}
 
 	return true
