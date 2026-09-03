@@ -1397,6 +1397,61 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 	}
 }
 
+func TestBestEffortFIFOFailedPreemptionNotSticky(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil,
+		&kueue.ClusterQueue{
+			Spec: kueue.ClusterQueueSpec{
+				QueueingStrategy: kueue.BestEffortFIFO,
+			},
+		},
+		workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
+		nil, nil)
+	if err != nil {
+		t.Fatalf("Failed to create ClusterQueue: %v", err)
+	}
+
+	lowPriorityWl := utiltestingapi.MakeWorkload("low-wl", defaultNamespace).
+		Priority(0).
+		Obj()
+	highPriorityWl := utiltestingapi.MakeWorkload("high-wl", defaultNamespace).
+		Priority(10).
+		Obj()
+
+	// When lowPriorityWl is requeued with PendingPreemption, it becomes sticky at the head
+	// even if a higher priority workload is pushed.
+	cq.PushOrUpdate(workload.NewInfo(lowPriorityWl))
+	popped := cq.Pop()
+	if popped == nil || popped.Obj.Name != "low-wl" {
+		t.Fatalf("Expected low-wl to be popped first, got %v", popped)
+	}
+	cq.RequeueIfNotPresent(ctx, popped, RequeueReasonPendingPreemption, "")
+	cq.PushOrUpdate(workload.NewInfo(highPriorityWl))
+
+	// Because low-wl is sticky, it pops before high-wl despite lower priority.
+	poppedLow := cq.Pop()
+	if poppedLow == nil || poppedLow.Obj.Name != "low-wl" {
+		t.Errorf("Expected sticky low-wl to pop before high-wl, got %v", poppedLow)
+	}
+	poppedHigh := cq.Pop()
+	if poppedHigh == nil || poppedHigh.Obj.Name != "high-wl" {
+		t.Errorf("Expected high-wl to pop second, got %v", poppedHigh)
+	}
+
+	// When lowPriorityWl is requeued with PreemptionFailed, it does NOT become sticky,
+	// and any previous sticky state is cleared.
+	// Therefore, highPriorityWl pops before lowPriorityWl according to priority order.
+	cq.RequeueIfNotPresent(ctx, poppedLow, RequeueReasonPreemptionFailed, "")
+	cq.RequeueIfNotPresent(ctx, poppedHigh, RequeueReasonFailedAfterNomination, "")
+
+	if got := cq.Pop(); got == nil || got.Obj.Name != "high-wl" {
+		t.Errorf("Expected non-sticky high-wl to pop before low-wl with failed preemption, got %v", got)
+	}
+	if got := cq.Pop(); got == nil || got.Obj.Name != "low-wl" {
+		t.Errorf("Expected low-wl to pop second, got %v", got)
+	}
+}
+
 func TestFIFOClusterQueue(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	q, err := newClusterQueue(ctx, nil,
