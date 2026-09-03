@@ -808,7 +808,7 @@ func TestDominantResourceShare(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
-			sim := newClusterSimulator(snapshot)
+			sim := newSimulationContext(snapshot)
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
@@ -958,7 +958,7 @@ func TestIsBorrowingOn(t *testing.T) {
 			if err != nil {
 				t.Fatalf("snapshot: %v", err)
 			}
-			sim := newClusterSimulator(snapshot)
+			sim := newSimulationContext(snapshot)
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")

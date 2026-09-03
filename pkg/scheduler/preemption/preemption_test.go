@@ -4147,7 +4147,7 @@ func TestPreemption(t *testing.T) {
 				wlInfo.ClusterQueue = tc.targetCQ
 				var targets []*Target
 				var inErr error
-				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.ClusterSimulator) {
+				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) {
 					targets, inErr = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy, simulator)
 				})
 				if err != nil || inErr != nil {
@@ -4372,7 +4372,7 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
 				var targets []*Target
 				var inErr error
-				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.ClusterSimulator) {
+				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) {
 					targets, inErr = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy, simulator)
 				})
 				if err != nil || inErr != nil {
@@ -4597,7 +4597,7 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 
 				var targets []*Target
 				var inErr error
-				err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.ClusterSimulator) {
+				err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) {
 					targets, inErr = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshot, simulator)
 				})
 				if err != nil || inErr != nil {
@@ -5035,7 +5035,7 @@ func TestClassicalPreemptionsErrorPaths(t *testing.T) {
 			preemptor := New(cl, workload.Ordering{}, recorder, nil, false, clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil)
 
 			var err, inErr error
-			err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.ClusterSimulator) {
+			err = scheduler.Simulate(ctx, snapshot, func(simulator scheduler.SimulationContext) {
 				_, inErr = preemptor.GetTargets(ctx, *preemptorWlInfo, singlePodSetAssignment(
 					flavorassigner.ResourceAssignment{
 						corev1.ResourceCPU: &flavorassigner.FlavorAssignment{

@@ -1855,7 +1855,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				wlInfo.ClusterQueue = tc.targetCQ
 				var targets []*Target
 				var inErr error
-				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.ClusterSimulator) {
+				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator scheduler.SimulationContext) {
 					targets, inErr = preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy, simulator)
 				})
 				if err != nil || inErr != nil {

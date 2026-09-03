@@ -81,7 +81,7 @@ type preemptionCtx struct {
 	preemptor         workload.Info
 	preemptorCQ       *schdcache.ClusterQueueSnapshot
 	snapshot          *schdcache.Snapshot
-	simulator         schdcache.ClusterSimulator
+	simulation        schdcache.SimulationContext
 	workloadUsage     workload.Usage
 	tasRequests       schdcache.WorkloadTASRequests
 	frsNeedPreemption sets.Set[resources.FlavorResource]
@@ -134,7 +134,7 @@ func (p *Preemptor) GetTargets(
 	wl workload.Info,
 	assignment flavorassigner.Assignment,
 	snapshot *schdcache.Snapshot,
-	simulator schdcache.ClusterSimulator,
+	simulation schdcache.SimulationContext,
 ) ([]*Target, error) {
 	log := log.FromContext(ctx)
 	cq := snapshot.ClusterQueue(wl.ClusterQueue)
@@ -149,7 +149,7 @@ func (p *Preemptor) GetTargets(
 		preemptor:         wl,
 		preemptorCQ:       cq,
 		snapshot:          snapshot,
-		simulator:         simulator,
+		simulation:        simulation,
 		tasRequests:       tasRequests,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
@@ -175,11 +175,11 @@ func (pCtx *preemptionCtx) restoreSnapshot(targets []*Target) error {
 	for _, t := range targets {
 		wls.Insert(client.ObjectKeyFromObject(t.WorkloadInfo.Obj))
 	}
-	return pCtx.simulator.RestoreSnapshot(wls)
+	return pCtx.simulation.RestoreSnapshot(wls)
 }
 
 func (pCtx *preemptionCtx) preemptWorkload(candidate *workload.Info, reason string) (*Target, error) {
-	if err := pCtx.simulator.PreemptWorkload(pCtx.ctx, candidate); err != nil {
+	if err := pCtx.simulation.PreemptWorkload(pCtx.ctx, candidate); err != nil {
 		return nil, err
 	}
 	return &Target{
@@ -379,7 +379,7 @@ func (pCtx *preemptionCtx) fillBackWorkloads(targets []*Target, allowBorrowing b
 	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		target := targets[i]
-		if err := pCtx.simulator.RestoreWorkload(target.WorkloadInfo); err != nil {
+		if err := pCtx.simulation.RestoreWorkload(target.WorkloadInfo); err != nil {
 			return nil, fmt.Errorf("snapshot corrupted, failed to restore workload: %w", err)
 		}
 		if workloadFits(pCtx, allowBorrowing) {

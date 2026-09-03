@@ -77,8 +77,8 @@ func (p *PreemptionOracle) SimulatePreemption(
 		workloadsToPreempt[i] = c.WorkloadInfo
 	}
 	var borrowAfterPreemptions int
-	if err := schdcache.Simulate(ctx, p.snapshot, func(simulator schdcache.ClusterSimulator) {
-		simulator.RemoveUsage(workloadsToPreempt)
+	if err := schdcache.Simulate(ctx, p.snapshot, func(simCtx schdcache.SimulationContext) {
+		simCtx.RemoveUsage(workloadsToPreempt)
 		borrowAfterPreemptions, _ = classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
 	}); err != nil {
 		log.Error(err, "Failed to simulate usage removal")
