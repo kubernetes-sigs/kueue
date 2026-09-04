@@ -1166,11 +1166,11 @@ This field is only valid when DispatcherName is set to the incremental dispatche
 Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.</p>
 </td>
 </tr>
-<tr><td><code>clientConnection</code><br/>
+<tr><td><code>workerClientConnection</code><br/>
 <a href="#config-kueue-x-k8s-io-v1beta2-ClientConnection"><code>ClientConnection</code></a>
 </td>
 <td>
-   <p>ClientConnection configuration for the connection to the worker clusters.
+   <p>WorkerClientConnection configuration for the connection to the worker clusters.
 If not specified, the default client connection will be used.</p>
 </td>
 </tr>

@@ -397,10 +397,10 @@ type MultiKueue struct {
 	// +optional
 	IncrementalDispatcherConfig *IncrementalDispatcherConfig `json:"incrementalDispatcherConfig,omitempty"`
 
-	// ClientConnection configuration for the connection to the worker clusters.
+	// WorkerClientConnection configuration for the connection to the worker clusters.
 	// If not specified, the default client connection will be used.
 	// +optional
-	ClientConnection *ClientConnection `json:"clientConnection,omitempty"`
+	WorkerClientConnection *ClientConnection `json:"workerClientConnection,omitempty"`
 }
 
 // IncrementalDispatcherConfig holds configuration for the MultiKueue Incremental Dispatcher.

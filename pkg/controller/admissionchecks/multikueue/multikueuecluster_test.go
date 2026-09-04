@@ -1834,6 +1834,7 @@ func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
 }
 
 func TestClientConfigToRESTConfig(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MultiKueueClientConnection, true)
 	cases := map[string]struct {
 		config    *clientConfig
 		wantQPS   float32

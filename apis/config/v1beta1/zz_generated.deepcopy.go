@@ -472,8 +472,8 @@ func (in *MultiKueue) DeepCopyInto(out *MultiKueue) {
 		*out = make([]MultiKueueExternalFramework, len(*in))
 		copy(*out, *in)
 	}
-	if in.ClientConnection != nil {
-		in, out := &in.ClientConnection, &out.ClientConnection
+	if in.WorkerClientConnection != nil {
+		in, out := &in.WorkerClientConnection, &out.WorkerClientConnection
 		*out = new(ClientConnection)
 		(*in).DeepCopyInto(*out)
 	}

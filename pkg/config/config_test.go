@@ -448,11 +448,11 @@ objectRetentionPolicies:
 	}
 
 	defaultMultiKueue := &configapi.MultiKueue{
-		GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-		Origin:            new(configapi.DefaultMultiKueueOrigin),
-		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-		DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
-		ClientConnection:  defaultClientConnection,
+		GCInterval:             &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+		Origin:                 new(configapi.DefaultMultiKueueOrigin),
+		WorkerLostTimeout:      &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+		DispatcherName:         new(configapi.MultiKueueDispatcherModeAllAtOnce),
+		WorkerClientConnection: defaultClientConnection,
 	}
 
 	defaultVisibility := &configapi.VisibilityServerConfiguration{
@@ -803,11 +803,11 @@ objectRetentionPolicies:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
-					Origin:            new("multikueue-manager1"),
-					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
-					DispatcherName:    new(configapi.MultiKueueDispatcherModeIncremental),
-					ClientConnection:  defaultClientConnection,
+					GCInterval:             &metav1.Duration{Duration: 90 * time.Second},
+					Origin:                 new("multikueue-manager1"),
+					WorkerLostTimeout:      &metav1.Duration{Duration: 10 * time.Minute},
+					DispatcherName:         new(configapi.MultiKueueDispatcherModeIncremental),
+					WorkerClientConnection: defaultClientConnection,
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -849,11 +849,11 @@ objectRetentionPolicies:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
-					Origin:            new("multikueue-manager1"),
-					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
-					DispatcherName:    new(configapi.MultiKueueDispatcherModeIncremental),
-					ClientConnection:  defaultClientConnection,
+					GCInterval:             &metav1.Duration{Duration: 90 * time.Second},
+					Origin:                 new("multikueue-manager1"),
+					WorkerLostTimeout:      &metav1.Duration{Duration: 10 * time.Minute},
+					DispatcherName:         new(configapi.MultiKueueDispatcherModeIncremental),
+					WorkerClientConnection: defaultClientConnection,
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -1070,7 +1070,7 @@ webhook:
 					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
-					ClientConnection: &configapi.ClientConnection{
+					WorkerClientConnection: &configapi.ClientConnection{
 						QPS:   new(configapi.DefaultClientConnectionQPS),
 						Burst: new(configapi.DefaultClientConnectionBurst),
 					},
@@ -1125,7 +1125,7 @@ webhook:
 					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
-					ClientConnection: &configapi.ClientConnection{
+					WorkerClientConnection: &configapi.ClientConnection{
 						QPS:   new(configapi.DefaultClientConnectionQPS),
 						Burst: new(configapi.DefaultClientConnectionBurst),
 					},
