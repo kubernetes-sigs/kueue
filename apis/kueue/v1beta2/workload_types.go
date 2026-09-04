@@ -100,7 +100,8 @@ type WaitForPodsReady struct {
 	// If both this field and the cluster-wide WaitForPodsReady.Timeout are set,
 	// this field takes precedence.
 	// +optional
-	PodsReadyTimeout *metav1.Duration `json:"podsReadyTimeout,omitempty"`
+	// +kubebuilder:validation:Minimum=1
+	TimeoutSeconds *int64 `json:"timeoutSeconds,omitempty"`
 }
 
 // PriorityClassGroup indicates the API group of the PriorityClass object.

@@ -1642,8 +1642,8 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 	// when the WorkloadLevelWaitForPodsReady feature is enabled.
 	var timeout time.Duration
 	switch {
-	case wl.Spec.WaitForPodsReady != nil && wl.Spec.WaitForPodsReady.PodsReadyTimeout != nil:
-		timeout = wl.Spec.WaitForPodsReady.PodsReadyTimeout.Duration
+	case wl.Spec.WaitForPodsReady != nil && wl.Spec.WaitForPodsReady.TimeoutSeconds != nil:
+		timeout = time.Duration(*wl.Spec.WaitForPodsReady.TimeoutSeconds) * time.Second
 	case r.waitForPodsReady != nil:
 		timeout = r.waitForPodsReady.timeout
 	default:

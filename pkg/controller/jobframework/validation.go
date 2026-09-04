@@ -22,7 +22,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
@@ -47,17 +46,17 @@ import (
 )
 
 var (
-	metaPath                       = field.NewPath("metadata")
-	labelsPath                     = metaPath.Child("labels")
-	annotationsPath                = metaPath.Child("annotations")
-	queueNameLabelPath             = labelsPath.Key(constants.QueueLabel)
-	maxExecTimeLabelPath           = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
-	workloadPriorityClassNamePath  = labelsPath.Key(constants.WorkloadPriorityClassLabel)
-	prebuiltWorkloadLabelPath      = labelsPath.Key(constants.PrebuiltWorkloadLabel)
-	prebuiltWorkloadAnnotationPath = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
-	podsReadyTimeoutAnnotationPath = annotationsPath.Key(constants.PodsReadyTimeoutAnnotation)
-	elasticJobAnnotationPath       = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
-	supportedElasticJobGVKs        = sets.New(
+	metaPath                                     = field.NewPath("metadata")
+	labelsPath                                   = metaPath.Child("labels")
+	annotationsPath                              = metaPath.Child("annotations")
+	queueNameLabelPath                           = labelsPath.Key(constants.QueueLabel)
+	maxExecTimeLabelPath                         = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
+	workloadPriorityClassNamePath                = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	prebuiltWorkloadLabelPath                    = labelsPath.Key(constants.PrebuiltWorkloadLabel)
+	prebuiltWorkloadAnnotationPath               = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
+	waitForPodsReadyTimeoutSecondsAnnotationPath = annotationsPath.Key(constants.WaitForPodsReadyTimeoutSecondsAnnotation)
+	elasticJobAnnotationPath                     = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
+	supportedElasticJobGVKs                      = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
 		rayv1.GroupVersion.WithKind("RayCluster").String(),
 		rayv1.GroupVersion.WithKind("RayJob").String(),
@@ -265,16 +264,16 @@ func validateCreateForPodsReadyTimeout(job GenericJob) field.ErrorList {
 	if !features.Enabled(features.WorkloadLevelWaitForPodsReady) {
 		return nil
 	}
-	strVal, found := job.Object().GetAnnotations()[constants.PodsReadyTimeoutAnnotation]
+	strVal, found := job.Object().GetAnnotations()[constants.WaitForPodsReadyTimeoutSecondsAnnotation]
 	if !found {
 		return nil
 	}
-	d, err := time.ParseDuration(strVal)
+	d, err := strconv.ParseInt(strVal, 10, 64)
 	if err != nil {
-		return field.ErrorList{field.Invalid(podsReadyTimeoutAnnotationPath, strVal, "must be a valid Go duration string (e.g. \"10m\", \"1h30m\")")}
+		return field.ErrorList{field.Invalid(waitForPodsReadyTimeoutSecondsAnnotationPath, strVal, "must be a valid integer number of seconds")}
 	}
 	if d <= 0 {
-		return field.ErrorList{field.Invalid(podsReadyTimeoutAnnotationPath, strVal, "must be greater than 0")}
+		return field.ErrorList{field.Invalid(waitForPodsReadyTimeoutSecondsAnnotationPath, strVal, "must be greater than 0")}
 	}
 	return nil
 }
@@ -285,9 +284,9 @@ func validateUpdateForPodsReadyTimeout(oldJob, newJob GenericJob) field.ErrorLis
 	}
 	if !newJob.IsSuspended() || !oldJob.IsSuspended() {
 		return apivalidation.ValidateImmutableField(
-			newJob.Object().GetAnnotations()[constants.PodsReadyTimeoutAnnotation],
-			oldJob.Object().GetAnnotations()[constants.PodsReadyTimeoutAnnotation],
-			podsReadyTimeoutAnnotationPath,
+			newJob.Object().GetAnnotations()[constants.WaitForPodsReadyTimeoutSecondsAnnotation],
+			oldJob.Object().GetAnnotations()[constants.WaitForPodsReadyTimeoutSecondsAnnotation],
+			waitForPodsReadyTimeoutSecondsAnnotationPath,
 		)
 	}
 	return validateCreateForPodsReadyTimeout(newJob)

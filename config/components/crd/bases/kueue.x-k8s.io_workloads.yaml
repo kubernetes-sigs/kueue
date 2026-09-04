@@ -18373,14 +18373,16 @@ spec:
                   If unspecified, the cluster-wide WaitForPodsReady is used.
                 minProperties: 1
                 properties:
-                  podsReadyTimeout:
+                  timeoutSeconds:
                     description: |-
                       podsReadyTimeout defines the maximum duration the workload may remain
                       admitted before all pods are in a Ready or Succeeded state.
                       When elapsed, the workload is evicted with reason PodsReadyTimeout.
                       If both this field and the cluster-wide WaitForPodsReady.Timeout are set,
                       this field takes precedence.
-                    type: string
+                    format: int64
+                    minimum: 1
+                    type: integer
                 type: object
             type: object
             x-kubernetes-validations:

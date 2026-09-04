@@ -1492,11 +1492,11 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	// Compare per-workload pods-ready timeout: use a sentinel zero value so that
 	// nil on either side compares equal to a missing annotation on the other.
 	var wlPodsReadyTimeout, jobPodsReadyTimeout time.Duration
-	if wl.Spec.WaitForPodsReady != nil && wl.Spec.WaitForPodsReady.PodsReadyTimeout != nil {
-		wlPodsReadyTimeout = wl.Spec.WaitForPodsReady.PodsReadyTimeout.Duration
+	if wl.Spec.WaitForPodsReady != nil && wl.Spec.WaitForPodsReady.TimeoutSeconds != nil {
+		wlPodsReadyTimeout = time.Duration(*wl.Spec.WaitForPodsReady.TimeoutSeconds) * time.Second
 	}
-	if d := PodsReadyTimeoutForObject(job.Object()); d != nil {
-		jobPodsReadyTimeout = d.Duration
+	if d := WaitForPodsReadyTimeoutSecondsForObject(job.Object()); d != nil {
+		jobPodsReadyTimeout = time.Duration(*d) * time.Second
 	}
 	if wlPodsReadyTimeout != jobPodsReadyTimeout {
 		return false, nil
@@ -1837,10 +1837,10 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	if WorkloadSliceEnabled(job) {
 		return prepareWorkloadSlice(ctx, r.client, job, wl)
 	}
-	timeout := PodsReadyTimeoutForObject(job.Object())
+	timeout := WaitForPodsReadyTimeoutSecondsForObject(job.Object())
 	if timeout != nil {
 		wl.Spec.WaitForPodsReady = &kueue.WaitForPodsReady{
-			PodsReadyTimeout: timeout,
+			TimeoutSeconds: timeout,
 		}
 	}
 	wl.Spec.Active = active

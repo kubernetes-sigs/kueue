@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -204,25 +203,25 @@ func MaximumExecutionTimeSecondsForObject(object client.Object) *int32 {
 	return new(int32(v))
 }
 
-// PodsReadyTimeoutForObject extracts and parses the pods-ready timeout from the
-// kueue.x-k8s.io/pods-ready-timeout annotation on any Kueue-managed resource object.
+// WaitForPodsReadyTimeoutSecondsForObject extracts and parses the wait for pods ready timeout from the
+// kueue.x-k8s.io/wait-for-pods-ready-timeout-seconds annotation on any Kueue-managed resource object.
 // Returns nil if the WorkloadLevelWaitForPodsReady feature is disabled, the annotation
-// is absent, or the value is not a valid duration.
-func PodsReadyTimeoutForObject(object client.Object) *metav1.Duration {
+// is absent, or the value is not a valid integer number of seconds.
+func WaitForPodsReadyTimeoutSecondsForObject(object client.Object) *int64 {
 	if !features.Enabled(features.WorkloadLevelWaitForPodsReady) || features.Enabled(features.DisableWaitForPodsReady) {
 		return nil
 	}
-	strVal, found := object.GetAnnotations()[controllerconstants.PodsReadyTimeoutAnnotation]
+	strVal, found := object.GetAnnotations()[controllerconstants.WaitForPodsReadyTimeoutSecondsAnnotation]
 	if !found {
 		return nil
 	}
 
-	d, err := time.ParseDuration(strVal)
-	if err != nil || d <= 0 {
+	v, err := strconv.ParseInt(strVal, 10, 64)
+	if err != nil || v <= 0 {
 		return nil
 	}
 
-	return &metav1.Duration{Duration: d}
+	return new(int64(v))
 }
 
 // WorkloadPriorityClassName retrieves the value of the "kueue.x-k8s.io/priority-class" label
@@ -283,11 +282,11 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 // newWaitForPodsReady returns a WaitForPodsReady spec populated from the
 // object's annotation, or nil if the annotation is absent or invalid.
 func newWaitForPodsReady(obj client.Object) *kueue.WaitForPodsReady {
-	timeout := PodsReadyTimeoutForObject(obj)
+	timeout := WaitForPodsReadyTimeoutSecondsForObject(obj)
 	if timeout == nil {
 		return nil
 	}
-	return &kueue.WaitForPodsReady{PodsReadyTimeout: timeout}
+	return &kueue.WaitForPodsReady{TimeoutSeconds: timeout}
 }
 
 // NewWorkload creates a new Workload object with the specified name,
