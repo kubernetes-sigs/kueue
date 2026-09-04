@@ -42,9 +42,9 @@ func (q ResourceQuota) Equal(other ResourceQuota) bool {
 	return amountPtrEqual(q.LendingLimit, other.LendingLimit)
 }
 
-// amountPtrEqual compares the amounts rather than the pointers. ptr.Equal
-// dereferences and uses ==, which for an Amount holding a *big.Int answers for
-// the pointer, so two limits of the same size would read as different.
+// amountPtrEqual keeps the nil semantics of ptr.Equal and compares the
+// pointed-to amounts numerically. ptr.Equal itself is not available here: it
+// constrains its argument to comparable, and Amount is deliberately not.
 func amountPtrEqual(a, b *resources.Amount) bool {
 	if a == nil || b == nil {
 		return a == b
