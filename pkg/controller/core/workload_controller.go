@@ -1507,10 +1507,10 @@ func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
 
 // reachedAfsAnchor reports whether the Workload crossed the configured AFS
 // accounting boundary (#12539): admission by default, or actively holding a
-// quota reservation under AdmissionFairSharingReservedAnchor. Reactivation
-// with an existing reservation crosses the reserved anchor.
+// quota reservation under AdmissionFairSharingAnchorAtQuotaReservation. Reactivation
+// with an existing reservation crosses the quota-reservation anchor.
 func reachedAfsAnchor(e event.TypedUpdateEvent[*kueue.Workload], status, prevStatus string) bool {
-	if features.Enabled(features.AdmissionFairSharingReservedAnchor) {
+	if features.Enabled(features.AdmissionFairSharingAnchorAtQuotaReservation) {
 		return workload.HasActiveQuotaReservation(e.ObjectNew) && !workload.HasActiveQuotaReservation(e.ObjectOld)
 	}
 	return workload.IsActive(e.ObjectNew) &&
@@ -1522,7 +1522,7 @@ func reachedAfsAnchor(e event.TypedUpdateEvent[*kueue.Workload], status, prevSta
 // that admit on usage. Sampling behind the anchor would let a Workload's cost
 // decay away while it still holds quota.
 func afsAccountedUsage(cache *schdcache.Cache, cqName kueue.ClusterQueueReference, lq *schdcache.LocalQueue) corev1.ResourceList {
-	if features.Enabled(features.AdmissionFairSharingReservedAnchor) &&
+	if features.Enabled(features.AdmissionFairSharingAnchorAtQuotaReservation) &&
 		cache.ClusterQueueUsesAdmissionFairSharing(cqName) {
 		return lq.GetReservedUsage()
 	}

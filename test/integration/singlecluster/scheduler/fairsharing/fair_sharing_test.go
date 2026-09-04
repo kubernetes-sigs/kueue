@@ -1365,7 +1365,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 
 		ginkgo.It("should settle the entry penalty at quota reservation when the accounting anchor moves there", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharingReservedAnchor, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharingAnchorAtQuotaReservation, true)
 			lqKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lq.Name))
 
 			ginkgo.By("Creating a workload which reserves quota and waits for the admission check")
