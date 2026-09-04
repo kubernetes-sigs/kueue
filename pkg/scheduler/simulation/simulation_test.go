@@ -495,11 +495,19 @@ func TestPreemptWorkload(t *testing.T) {
 		"preempt single workload": {
 			preempt: []string{"wl1"},
 			wantSnapshotState: schdcache.Snapshot{
-				Manager: newSimulationTestManager(cqCache,
-					map[workload.Reference]*workload.Info{
-						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
+				Manager: hierarchy.NewManagerForTest(
+					nil,
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
 					},
-					3_000,
 				),
 			},
 			wantSimulationState: map[workloadKey]preemption{
@@ -509,7 +517,20 @@ func TestPreemptWorkload(t *testing.T) {
 		"preempt multiple workloads": {
 			preempt: []string{"wl1", "wl2"},
 			wantSnapshotState: schdcache.Snapshot{
-				Manager: newSimulationTestManager(cqCache, make(map[workload.Reference]*workload.Info), 0),
+				Manager: hierarchy.NewManagerForTest(
+					nil,
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
+					},
+				),
 			},
 			wantSimulationState: map[workloadKey]preemption{
 				client.ObjectKeyFromObject(wlInfos["wl1"].Obj): {target: wlInfos["wl1"]},
@@ -521,12 +542,19 @@ func TestPreemptWorkload(t *testing.T) {
 			injectSimErr: errSimulatorFailed,
 			wantErr:      true,
 			wantSnapshotState: schdcache.Snapshot{
-				Manager: newSimulationTestManager(cqCache,
-					map[workload.Reference]*workload.Info{
-						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
-						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
+				Manager: hierarchy.NewManagerForTest(
+					nil,
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(5_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
 					},
-					5_000,
 				),
 			},
 			wantSimulationState: make(map[workloadKey]preemption),
@@ -591,11 +619,19 @@ func TestRestoreWorkload(t *testing.T) {
 			preempt: []string{"wl1", "wl2"},
 			restore: []string{"wl1"},
 			want: schdcache.Snapshot{
-				Manager: newSimulationTestManager(cqCache,
-					map[workload.Reference]*workload.Info{
-						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
+				Manager: hierarchy.NewManagerForTest(
+					nil,
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
 					},
-					2_000,
 				),
 			},
 			wantSimState: map[workloadKey]preemption{
@@ -606,12 +642,19 @@ func TestRestoreWorkload(t *testing.T) {
 			preempt: []string{"wl1", "wl2"},
 			restore: []string{"wl1", "wl2"},
 			want: schdcache.Snapshot{
-				Manager: newSimulationTestManager(cqCache,
-					map[workload.Reference]*workload.Info{
-						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
-						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
+				Manager: hierarchy.NewManagerForTest(
+					nil,
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(5_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
 					},
-					5_000,
 				),
 			},
 			wantSimState: make(map[workloadKey]preemption),
@@ -620,11 +663,19 @@ func TestRestoreWorkload(t *testing.T) {
 			preempt: []string{"wl1"},
 			restore: []string{"wl2"},
 			want: schdcache.Snapshot{
-				Manager: newSimulationTestManager(cqCache,
-					map[workload.Reference]*workload.Info{
-						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
+				Manager: hierarchy.NewManagerForTest(
+					nil,
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
 					},
-					3_000,
 				),
 			},
 			wantSimState: map[workloadKey]preemption{
@@ -639,11 +690,19 @@ func TestRestoreWorkload(t *testing.T) {
 			restore: []string{"wl1"},
 			wantErr: true,
 			want: schdcache.Snapshot{
-				Manager: newSimulationTestManager(cqCache,
-					map[workload.Reference]*workload.Info{
-						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
+				Manager: hierarchy.NewManagerForTest(
+					nil,
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
 					},
-					3_000,
 				),
 			},
 			wantSimState: map[workloadKey]preemption{
@@ -711,11 +770,19 @@ func TestRestoreSnapshot(t *testing.T) {
 			preempt:        []string{"wl1", "wl2"},
 			restoreTargets: []string{"wl1"},
 			want: schdcache.Snapshot{
-				Manager: newSimulationTestManager(cqCache,
-					map[workload.Reference]*workload.Info{
-						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
+				Manager: hierarchy.NewManagerForTest(
+					nil,
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
 					},
-					2_000,
 				),
 			},
 			wantSimState: map[workloadKey]preemption{
@@ -726,12 +793,19 @@ func TestRestoreSnapshot(t *testing.T) {
 			preempt:        []string{"wl1", "wl2"},
 			restoreTargets: []string{"wl1", "wl2"},
 			want: schdcache.Snapshot{
-				Manager: newSimulationTestManager(cqCache,
-					map[workload.Reference]*workload.Info{
-						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
-						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
+				Manager: hierarchy.NewManagerForTest(
+					nil,
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(5_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
 					},
-					5_000,
 				),
 			},
 			wantSimState: make(map[workloadKey]preemption),
@@ -740,12 +814,19 @@ func TestRestoreSnapshot(t *testing.T) {
 			preempt:        []string{"wl1", "wl2"},
 			restoreTargets: []string{},
 			want: schdcache.Snapshot{
-				Manager: newSimulationTestManager(cqCache,
-					map[workload.Reference]*workload.Info{
-						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
-						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
+				Manager: hierarchy.NewManagerForTest(
+					nil,
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(5_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
 					},
-					5_000,
 				),
 			},
 			wantSimState: make(map[workloadKey]preemption),
@@ -758,11 +839,19 @@ func TestRestoreSnapshot(t *testing.T) {
 			restoreTargets: []string{"wl1"},
 			wantErr:        true,
 			want: schdcache.Snapshot{
-				Manager: newSimulationTestManager(cqCache,
-					map[workload.Reference]*workload.Info{
-						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
+				Manager: hierarchy.NewManagerForTest(
+					nil,
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
 					},
-					3_000,
 				),
 			},
 			wantSimState: map[workloadKey]preemption{
@@ -1141,21 +1230,4 @@ func makeCQSnapshot(name kueue.ClusterQueueReference, allocatableResourceGenerat
 		AllocatableResourceGeneration: allocatableResourceGeneration,
 		ResourceNode:                  resourceNode,
 	}
-}
-
-func newSimulationTestManager(cqCache *schdcache.Cache, wls map[workload.Reference]*workload.Info, usage int64) hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot] {
-	return hierarchy.NewManagerForTest(
-		map[kueue.CohortReference]*schdcache.CohortSnapshot{},
-		map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-			"c1": makeCQSnapshot("c1",
-				0,
-				resources.FlavorResourceQuantities{
-					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(usage),
-				},
-				resources.FlavorResourceQuantities{
-					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-				},
-			),
-		},
-	)
 }
