@@ -715,6 +715,7 @@ func LoadAndValidateFeatureGates(featureGateCLI string, featureGateMap map[strin
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASMultiLayerTopology, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASRespectNodeAffinityPreferred, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.TASRecomputeAssignmentWithinSchedulingCycle, features.TopologyAwareScheduling)...)
+	allErrs = append(allErrs, validateFeatureGateDependency(features.TASGroupedPodSetSlicing, features.TopologyAwareScheduling)...)
 	allErrs = append(allErrs, validateFeatureGateDependency(features.UnadmittedWorkloadsExplicitStatus, features.UnadmittedWorkloadsObservability)...)
 
 	// Excluding the PodSet name only means something once the hash itself is computed.

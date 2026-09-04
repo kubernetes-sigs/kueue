@@ -648,6 +648,80 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		"grouped with leader and sliced workers; multi-layer slicing constraints on workers": {
+			// Topology: block (b1) -> rack (r1, r2) -> hostname (x1, x2, x3, x4)
+			// Nodes: x1, x2 on r1; x3, x4 on r2. Each node has 5 CPU.
+			// Leader requests: 1 CPU (1 pod).
+			// Workers request: 2 CPU per pod, 8 pods total.
+			// Multi-layer constraints on workers:
+			//   - rack level: size 4
+			//   - hostname level: size 2
+			// Both leader and workers share PodSetGroupName "sameGroup", requiring block b1.
+			// Result:
+			//   - Leader: 1 pod on x1
+			//   - Workers: 2 pods on x1, 2 on x2 (satisfying rack r1 constraint of 4)
+			//              2 pods on x3, 2 on x4 (satisfying rack r2 constraint of 4)
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r1-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x3").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+				*testingnode.MakeNode("b1-r2-x4").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x4").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("5"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			},
+			levels: defaultThreeLevels,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required:        new(tasBlockLabel),
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					podSetGroupName: new("sameGroup"),
+					count:           1,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Required: new(tasBlockLabel),
+						PodsetSliceRequiredTopologyConstraints: []kueue.PodsetSliceRequiredTopologyConstraint{
+							{Topology: tasRackLabel, Size: 4},
+							{Topology: corev1.LabelHostname, Size: 2},
+						},
+						PodSetGroupName: new("sameGroup"),
+					},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 2000},
+					podSetGroupName: new("sameGroup"),
+					count:           8,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"x1"}},
+							{Count: 2, Values: []string{"x2"}},
+							{Count: 2, Values: []string{"x3"}},
+							{Count: 2, Values: []string{"x4"}},
+						},
+					},
+				},
+			},
+		},
 		"grouped with leader and sliced workers; replace unhealthy node with sliced workers": {
 			//         b1
 			//     /        \

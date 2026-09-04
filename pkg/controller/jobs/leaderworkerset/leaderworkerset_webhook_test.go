@@ -412,6 +412,9 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 		},
 		"valid slice topology request - grouping requested together with slicing": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASGroupedPodSetSlicing: true,
+			},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{
@@ -438,6 +441,9 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 		},
 		"valid slice topology request - grouping with unsliced leader and sliced workers": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASGroupedPodSetSlicing: true,
+			},
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{

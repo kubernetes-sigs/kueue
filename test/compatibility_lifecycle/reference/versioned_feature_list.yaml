@@ -529,6 +529,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.14"
+- name: TASGroupedPodSetSlicing
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: TASHandleOverlappingFlavors
   versionedSpecs:
   - default: true
