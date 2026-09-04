@@ -346,6 +346,18 @@ func ExpectCQResourceReservations(cq *kueue.ClusterQueue, flavor, resource strin
 	expectGaugeMetric(metrics.ClusterQueueResourceReservations, lvs, gomega.Equal(value))
 }
 
+func ExpectCQResourceLendable(cq *kueue.ClusterQueue, flavor, resource string, value float64) {
+	ginkgo.GinkgoHelper()
+	lvs := []string{string(cq.Spec.CohortName), cq.Name, flavor, resource, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.ClusterQueueLendableResources, lvs, gomega.Equal(value))
+}
+
+func ExpectCohortLendableResource(cohortName, flavor, resource string, value float64, customLabels ...string) {
+	ginkgo.GinkgoHelper()
+	lvs := append([]string{cohortName, flavor, resource, roletracker.RoleStandalone}, customLabels...)
+	expectGaugeMetric(metrics.CohortLendableResources, lvs, gomega.Equal(value))
+}
+
 func ExpectCQResourcePendingMetric(cq *kueue.ClusterQueue, resource string, matcher gomegatypes.GomegaMatcher) {
 	ginkgo.GinkgoHelper()
 	lvs := []string{cq.Name, resource, roletracker.RoleStandalone}

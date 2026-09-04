@@ -498,11 +498,14 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		if !workload.HasActiveQuotaReservation(&w) {
 			continue
 		}
-		if _, err := c.addOrUpdateWorkloadWithoutLock(log, &workloads.Items[i]); err != nil {
+		if _, _, err := c.addOrUpdateWorkloadWithoutLock(log, &workloads.Items[i]); err != nil {
 			log.Error(err, "Workload found to be matching the ClusterQueue but failed to be added to it")
 			return err
 		}
 	}
+	// Report metrics once after restoring all workloads, instead of once per workload,
+	// since they all belong to the same, newly added ClusterQueue.
+	c.reportWorkloadRelatedMetricsWithoutLock(log, cqImpl)
 
 	parentCohort, rootCohort := cqImpl.parentAndRootCohort()
 	c.recordCQInfo(cqImpl, parentCohort, rootCohort)
@@ -796,16 +799,32 @@ func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
 	if c.concurrentAdmissionEnabledForWithoutLock(w) && !concurrentadmission.IsVariant(w) {
 		return false
 	}
-	updated, err := c.addOrUpdateWorkloadWithoutLock(log, w)
+	updated, err := c.addOrUpdateWorkloadAndReportMetricsWithoutLock(log, w)
 	if err != nil {
 		log.Error(err, "Updating workload in cache")
 	}
 	return updated
 }
 
-func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
+// addOrUpdateWorkloadAndReportMetricsWithoutLock adds or updates the workload in the cache and
+// immediately reports the related workload/cohort metrics. The caller must hold c.Lock().
+//
+// Bulk callers restoring many workloads for the same ClusterQueue (e.g. AddClusterQueue) should
+// call addOrUpdateWorkloadWithoutLock directly instead and report metrics once after the loop,
+// rather than once per workload.
+func (c *Cache) addOrUpdateWorkloadAndReportMetricsWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
+	updated, cq, err := c.addOrUpdateWorkloadWithoutLock(log, wl)
+	if cq != nil {
+		c.reportWorkloadRelatedMetricsWithoutLock(log, cq)
+	}
+	return updated, err
+}
+
+// addOrUpdateWorkloadWithoutLock applies the workload to the cache without reporting metrics.
+// The caller must hold c.Lock().
+func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, *clusterQueue, error) {
 	if c.concurrentAdmissionEnabledForWithoutLock(wl) && !concurrentadmission.IsVariant(wl) {
-		return false, nil
+		return false, nil, nil
 	}
 	wlKey := workload.Key(wl)
 	assignedCqName, assigned := c.workloadAssignedQueues[wlKey]
@@ -816,12 +835,12 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Worklo
 			c.deleteFromQueueIfPresent(log, wlKey, assignedCqName)
 			delete(c.workloadAssignedQueues, wlKey)
 		}
-		return false, nil
+		return false, nil, nil
 	}
 
 	cq := c.hm.ClusterQueue(wl.Status.Admission.ClusterQueue)
 	if cq == nil {
-		return false, ErrCqNotFound
+		return false, nil, ErrCqNotFound
 	}
 
 	if assigned && assignedCqName != cq.Name {
@@ -835,12 +854,28 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Worklo
 	c.workloadAssignedQueues[wlKey] = cq.Name
 	cq.addOrUpdateWorkload(log, wl)
 
-	return true, nil
+	return true, cq, nil
 }
 
 func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Reference, cqName kueue.ClusterQueueReference) {
 	if cq := c.hm.ClusterQueue(cqName); cq != nil {
 		cq.deleteWorkload(log, wlKey)
+		c.reportWorkloadRelatedMetricsWithoutLock(log, cq)
+	}
+}
+
+func (c *Cache) reportWorkloadRelatedMetricsWithoutLock(log logr.Logger, cq *clusterQueue) {
+	if cq == nil {
+		return
+	}
+	if c.resourceMetricsEnabled {
+		cq.reportResourceMetrics(c.fairSharingEnabled)
+	}
+	if features.Enabled(features.MetricsForCohorts) && cq.HasParent() {
+		cohortName := cq.Parent().GetName()
+		if cohortName != "" {
+			c.reportCohortMetricsForTriggerWithoutLock(log, cohortName, cohortMetricsTriggerWorkloadEvent)
+		}
 	}
 }
 
@@ -859,6 +894,7 @@ func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error 
 	}
 
 	cq.forgetWorkload(log, wlKey)
+	c.reportWorkloadRelatedMetricsWithoutLock(log, cq)
 	delete(c.workloadAssignedQueues, wlKey)
 
 	if c.podsReadyTracking {

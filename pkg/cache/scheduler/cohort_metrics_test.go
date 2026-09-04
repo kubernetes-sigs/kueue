@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -862,4 +863,55 @@ func TestResyncGaugeMetrics_SkipsCohortInfoForCycle(t *testing.T) {
 
 	expectGaugeCount(t, kueuemetrics.CohortInfo, 0, map[string]string{"cohort": "cohort-a"})
 	expectGaugeCount(t, kueuemetrics.CohortInfo, 0, map[string]string{"cohort": "cohort-b"})
+}
+
+func TestRecordCohortMetrics_LendableResources(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.MetricsForCohorts, true)
+	fixture := newCohortMetricsFixture(t)
+	cache := fixture.cache
+	ctx, log := fixture.ctx, fixture.log
+	frDefaultCPU := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	setupRecordMetricsHierarchy(ctx, t, log, cache,
+		[]*kueue.ResourceFlavor{utiltestingapi.MakeResourceFlavor("default").Obj()},
+		[]*kueue.Cohort{utiltestingapi.MakeCohort("ch").Obj()},
+		[]*kueue.ClusterQueue{
+			utiltestingapi.MakeClusterQueue("cqa").
+				Cohort("ch").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj(),
+			utiltestingapi.MakeClusterQueue("cqb").
+				Cohort("ch").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj()).
+				Obj(),
+		},
+	)
+
+	clearCohortMetricsForTest(t, "ch")
+
+	addTestUsage(cache, []usageChange{
+		{cqName: "cqa", fr: frDefaultCPU, val: 4_000},
+		{cqName: "cqb", fr: frDefaultCPU, val: 3_000},
+	})
+	cache.RecordCohortMetrics(log, "ch")
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("ch", frDefaultCPU), 11)
+
+	stopped := utiltestingapi.MakeClusterQueue("cqb").
+		Cohort("ch").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "8").Obj()).
+		Obj()
+	stopPolicy := kueue.Hold
+	stopped.Spec.StopPolicy = &stopPolicy
+	if err := cache.UpdateClusterQueue(log, stopped); err != nil {
+		t.Fatalf("updating cqb to stopped: %v", err)
+	}
+	cache.RecordCohortMetrics(log, "ch")
+	expectGaugeValue(t, kueuemetrics.CohortLendableResources, cohortQuotaMetricLabels("ch", frDefaultCPU), 6)
+
+	addTestUsage(cache, []usageChange{
+		{cqName: "cqa", fr: frDefaultCPU, val: 10_000},
+		{cqName: "cqb", fr: frDefaultCPU, val: 8_000},
+	})
+	cache.RecordCohortMetrics(log, "ch")
+	expectGaugeCount(t, kueuemetrics.CohortLendableResources, 0, cohortQuotaMetricLabels("ch", frDefaultCPU))
 }
