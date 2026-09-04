@@ -19,6 +19,8 @@ If the matter is security related, please disclose it privately via https://kube
 
 **Anything else we need to know?**:
 
+**Do you plan to contribute a fix?**:
+
 **Environment**:
 - Kubernetes version (use `kubectl version`):
 - Kueue version (use `git describe --tags --dirty --always`):
