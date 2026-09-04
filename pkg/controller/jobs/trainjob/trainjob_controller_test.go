@@ -17,6 +17,8 @@ limitations under the License.
 package trainjob
 
 import (
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -418,6 +420,47 @@ func TestRunWithPodSetsInfoMatchesReplicatedJobsByName(t *testing.T) {
 	}
 	if diff := cmp.Diff(wantTolerations, gotJobSetTolerations); diff != "" {
 		t.Errorf("rendered JobSet tolerations mismatch (-want,+got):\n%s", diff)
+	}
+}
+
+// TestRunWithPodSetsInfoRejectsDuplicatePodSetNames verifies that an admission
+// assignment cannot target the same replicated job more than once.
+func TestRunWithPodSetsInfoRejectsDuplicatePodSetNames(t *testing.T) {
+	testJobSet := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+		testingjobset.ReplicatedJobRequirements{Name: "chief"},
+		testingjobset.ReplicatedJobRequirements{Name: "worker"},
+	).Obj()
+	testRuntime := testingtrainjob.MakeClusterTrainingRuntime("test", testJobSet.Spec)
+	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
+		APIGroup: new(kftrainerapi.GroupVersion.Group),
+		Name:     testRuntime.Name,
+		Kind:     new(kftrainerapi.ClusterTrainingRuntimeKind),
+	}).RuntimePatches([]kftrainerapi.RuntimePatch{
+		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).EmptyMetadata().Obj(),
+	}).Obj()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme).WithObjects()
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(testTrainJob, testRuntime).Build()
+	recorder := &utiltesting.EventRecorder{}
+	if _, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithManageJobsWithoutQueueName(true)); err != nil {
+		t.Fatalf("Error creating the reconciler: %v", err)
+	}
+
+	trainJob := (*TrainJob)(testTrainJob)
+	err := trainJob.RunWithPodSetsInfo(ctx, kClient, []podset.PodSetInfo{
+		{Name: "chief"},
+		{Name: "chief"},
+	})
+	if !errors.Is(err, podset.ErrInvalidPodsetInfo) {
+		t.Fatalf("RunWithPodSetsInfo() error = %v, want an invalid podset info error", err)
+	}
+	if !strings.Contains(err.Error(), "appears more than once") {
+		t.Errorf("RunWithPodSetsInfo() error = %v, want a duplicate podset error", err)
+	}
+	if patch := getKueueRuntimePatch(trainJob); patch == nil || len(patch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs) != 0 {
+		t.Errorf("RunWithPodSetsInfo() modified the Kueue RuntimePatch: %#v", patch)
 	}
 }
 
