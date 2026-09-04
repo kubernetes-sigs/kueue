@@ -540,7 +540,13 @@ type ClusterQueueVisibility struct {
 }
 
 type Resources struct {
-	// ExcludedResourcePrefixes defines which resources should be ignored by Kueue
+	// ExcludeResourcePrefixes defines the resource-name prefixes left out of the
+	// Pod request view that Kueue charges quota against.
+	//
+	// An entry matching one of these prefixes is dropped from that view, so it is
+	// not charged, and a transformation naming it as its input does not run. The
+	// resource can still be read by ResourceTransformation.MultiplyBy, which reads
+	// the request view from before this field is applied.
 	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
 
 	// Transformations defines how to transform PodSpec resources into Workload resource requests.
@@ -582,6 +588,8 @@ type ResourceTransformation struct {
 	// Disabling the ReservedResourceNameValidation feature gate lets such a
 	// configuration load for an upgrade; flavor assignment still overwrites the
 	// key with the PodSet count.
+	// The quantity is read from the request view before "excludeResourcePrefixes"
+	// is applied, so a resource kept out of quota can still be named here.
 	// +optional
 	MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 

@@ -64,7 +64,7 @@ will enable Kueue to support simpler and more powerful definitions of resource q
 ### Non-Goals
 
 * Supporting complex numerical transformations of resource quantities
-* Supporting transformations that take multiple input resources
+* Supporting transformations that take multiple input resources beyond the single `input` and the optional `multiplyBy` operand
 * Performing any mutation of the resource requests/limits of Jobs
 * Ensuring that a Workload's resource requests is updated if the set of
 configured transformations functions changes after its resource requests are computed.
@@ -319,7 +319,9 @@ future extensions.
 The definitions below would be added to Kueue's `Configuration` types
 ```go
 type Resources struct {
-	// ExcludedResourcePrefixes defines which resources should be ignored by Kueue
+	// ExcludeResourcePrefixes lists the resource-name prefixes kept out of the Pod
+	// request view Kueue charges quota against. An excluded resource is still
+	// readable as a transformation multiplyBy source.
 	ExcludeResourcePrefixes []string `json:"excludeResourcePrefixes,omitempty"`
 
 	// Transformations defines how to transform PodSpec resources into Workload resource requests.
@@ -340,11 +342,12 @@ type ResourceTransformation struct {
 
   // Whether the input resource should be replaced or retained
   // +kubebuilder:default="Retain"
-  Strategy ResourceTransformationStrategy `json:"strategy"`
+  Strategy *ResourceTransformationStrategy `json:"strategy,omitempty"`
 
   // MultiplyBy defines a resource name, which performs a multiplication
-  // calculation on the resource name of the input.
-  MultiplyBy corev1.ResourceName `json:"multiplyBy"`
+  // calculation on the resource name of the input. The named resource is read
+  // from the request view before excludeResourcePrefixes is applied.
+  MultiplyBy corev1.ResourceName `json:"multiplyBy,omitempty"`
 
   // Output resources and quantities per unit of input resource
   Outputs corev1.ResourceList `json:"outputs,omitempty"`
@@ -616,7 +619,9 @@ We should implement additional verification to flag overlaps between `resources.
 and `resources.transformations`.  The implementation applies the exclusions before
 the transformations, so if a resource both matches an exclusion prefix and is an input resource
 to a transformation the transformation will never apply.  This could be detected when validating
-the configuration and reported as a configuration error.
+the configuration and reported as a configuration error.  The overlap that is worth flagging is
+the one on `input`.  A `multiplyBy` naming an excluded resource is a supported combination: the
+resource is kept out of quota and is still read as a multiplier, so validation must not reject it.
 
 #### GA
 

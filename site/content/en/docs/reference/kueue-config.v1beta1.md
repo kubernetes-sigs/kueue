@@ -1175,7 +1175,9 @@ It must not be <code>pods</code>; that exact name is reserved for Kueue's intern
 Pod-count accounting. A qualified name such as <code>example.com/pods</code> is allowed.
 Disabling the ReservedResourceNameValidation feature gate lets such a
 configuration load for an upgrade; flavor assignment still overwrites the
-key with the PodSet count.</p>
+key with the PodSet count.
+The quantity is read from the request view before &quot;excludeResourcePrefixes&quot;
+is applied, so a resource kept out of quota can still be named here.</p>
 </td>
 </tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
@@ -1225,7 +1227,12 @@ An empty Outputs combined with a <code>Replace</code> Strategy causes the Input 
 <code>[]string</code>
 </td>
 <td>
-   <p>ExcludedResourcePrefixes defines which resources should be ignored by Kueue</p>
+   <p>ExcludeResourcePrefixes defines the resource-name prefixes left out of the
+Pod request view that Kueue charges quota against.</p>
+<p>An entry matching one of these prefixes is dropped from that view, so it is
+not charged, and a transformation naming it as its input does not run. The
+resource can still be read by ResourceTransformation.MultiplyBy, which reads
+the request view from before this field is applied.</p>
 </td>
 </tr>
 <tr><td><code>transformations</code> <B>[Required]</B><br/>

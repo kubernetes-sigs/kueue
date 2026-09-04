@@ -994,6 +994,125 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// An excluded resource is not charged, but can still be a multiplier.
+		"transformMultiplierSurvivesAnExcludedPrefix": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/mem", "1024").
+					Request("vendor.example/gpu", "4").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{
+				WithExcludedResourcePrefixes([]string{"vendor.example/"}),
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:      "example.com/mem",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "vendor.example/gpu",
+					Outputs:    corev1.ResourceList{"quota.example.com/total-mem": resource.MustParse("1")},
+				}}),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/total-mem"): 4096,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// A multiplier the lookup finds at zero and one it does not find at all are
+		// different answers, and which of the two an excluded resource becomes is
+		// decided upstream of here.
+		"transformExcludedMultiplierAtZeroIsNotAMissingMultiplier": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/mem", "1024").
+					Request("vendor.example/gpu", "0").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{
+				WithExcludedResourcePrefixes([]string{"vendor.example/"}),
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:      "example.com/mem",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "vendor.example/gpu",
+					Outputs:    corev1.ResourceList{"quota.example.com/total-mem": resource.MustParse("1")},
+				}}),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/total-mem"): 0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// A negative multiplier would turn this output into a credit against the one
+		// the other transformation generates under the same name, and the floor runs
+		// on the sum, so 8 would be charged as 2. Clamped rather than dropped: 8, not 11.
+		"transformNegativeMultiplierDoesNotCreditAnotherOutput": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/a", "8").
+					Request("example.com/b", "3").
+					PodOverHead(corev1.ResourceList{"vendor.example/gpu": resource.MustParse("-2")}).
+					Obj()).
+				Obj(),
+			infoOptions: []InfoOption{
+				WithExcludedResourcePrefixes([]string{"vendor.example/"}),
+				WithResourceTransformations([]config.ResourceTransformation{
+					{
+						Input:    "example.com/a",
+						Strategy: new(config.Replace),
+						Outputs:  corev1.ResourceList{"quota.example.com/total": resource.MustParse("1")},
+					},
+					{
+						Input:      "example.com/b",
+						Strategy:   new(config.Replace),
+						MultiplyBy: "vendor.example/gpu",
+						Outputs:    corev1.ResourceList{"quota.example.com/total": resource.MustParse("1")},
+					},
+				}),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/total"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// What a multiplier absent from the source does today, kept beside the
+		// excluded one so the two cases stay told apart. Nothing defines it: the
+		// field says which resource is read, not what happens when it is missing,
+		// so this records the current behavior and is not a contract to preserve.
+		"transformMultiplierMissingFromTheSourceIsNotScaledBy": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/mem", "1024").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{
+				WithExcludedResourcePrefixes([]string{"vendor.example/"}),
+				WithResourceTransformations([]config.ResourceTransformation{{
+					Input:      "example.com/mem",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "vendor.example/gpu",
+					Outputs:    corev1.ResourceList{"quota.example.com/total-mem": resource.MustParse("1")},
+				}}),
+			},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("quota.example.com/total-mem"): 1024,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		"transformMilliValues": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(
