@@ -1123,9 +1123,7 @@ func TestLocalQueueReconcileSamplesAnchoredUsage(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
-			if tc.atQuotaReservation {
-				features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, true)
-			}
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, tc.atQuotaReservation)
 			clock := testingclock.NewFakeClock(now)
 			afsConfig := &config.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
