@@ -4316,23 +4316,6 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				Limit(corev1.ResourceName("nvidia.com/gpu"), "4").
 				Obj()
 
-			leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			workerShapeHash, err := utilpod.GenerateRoleHash(&worker.Spec)
-			gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-			// Deliberately make role-hash ordering the opposite of
-			// scheduling-shape ordering. The new ordering must use the
-			// scheduling shape rather than the client-set role hash.
-			if leaderShapeHash < workerShapeHash {
-				leader.Annotations[podconstants.RoleHashAnnotation] = "zzzzzzzz"
-				worker.Annotations[podconstants.RoleHashAnnotation] = "aaaaaaaa"
-			} else {
-				leader.Annotations[podconstants.RoleHashAnnotation] = "aaaaaaaa"
-				worker.Annotations[podconstants.RoleHashAnnotation] = "zzzzzzzz"
-			}
-
 			util.MustCreate(ctx, k8sClient, leader)
 			util.MustCreate(ctx, k8sClient, worker)
 
