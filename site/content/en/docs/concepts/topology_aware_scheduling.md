@@ -445,6 +445,22 @@ outer slice size.
 This annotation is mutually exclusive with `kueue.x-k8s.io/podset-slice-required-topology`
 and `kueue.x-k8s.io/podset-slice-size`.
 
+### Strict prebuilt Workload equivalence
+{{< feature-state state="alpha" for_version="v0.20" >}}
+{{% alert title="Note" color="primary" %}}
+`TASWithStrictPrebuiltWorkloadEquivalence` is currently an alpha feature and is disabled by default.
+
+You can enable it by editing the `TASWithStrictPrebuiltWorkloadEquivalence` feature gate. Refer to the
+[Installation guide](/docs/installation/#change-the-feature-gates-configuration)
+for instructions on configuring feature gates.
+{{% /alert %}}
+
+When using prebuilt Workloads with Topology-Aware Scheduling, Jobs and Pods automatically derive indexing metadata (such as `batch.kubernetes.io/job-completion-index` for Jobs or `kueue.x-k8s.io/pod-group-pod-index` for Pods) into their `PodSet.TopologyRequest`.
+
+When `TASWithStrictPrebuiltWorkloadEquivalence` is disabled (default), Kueue maintains backward compatibility by ignoring `TopologyRequest` differences during prebuilt Workload equivalence checks, allowing hand-written prebuilt Workloads that omit the derived index label to match.
+
+When `TASWithStrictPrebuiltWorkloadEquivalence` is enabled, Kueue strictly verifies that the prebuilt Workload's complete `TopologyRequest` matches the Job or Pod's request. Any mismatched prebuilt Workload will be marked as `OutOfSync`. To migrate hand-written prebuilt Workloads when enabling this gate, ensure that the prebuilt Workload's `PodSet.TopologyRequest` specifies the exact topology level and indexing field (e.g. `podIndexLabel: "batch.kubernetes.io/job-completion-index"` for Jobs).
+
 ## Drawbacks
 
 When enabling the feature Kueue starts to keep track of all Pods and all nodes
