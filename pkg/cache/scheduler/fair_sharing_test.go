@@ -1085,8 +1085,8 @@ func TestWeightedShareDoesNotUnderflowBorrowerToZero(t *testing.T) {
 // A borrower none of whose resources had a positive lendable amount never
 // reached a division, so its zero is an absent ratio rather than one that
 // underflowed. What such a node's share should be is a fair-sharing policy
-// question tracked in #14412, and this change deliberately leaves it where it
-// is rather than deciding it through the underflow correction.
+// question, and this change deliberately leaves it where it is rather than
+// deciding it through the underflow correction.
 func TestWeightedShareLeavesAbsentRatioAlone(t *testing.T) {
 	drs := DRS{borrowing: true, unweightedRatio: 0, fairWeight: defaultWeight}
 	if drs.ratioDefined {

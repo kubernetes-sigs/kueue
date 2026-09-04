@@ -280,11 +280,13 @@ func (a Amount) AsApproximateFloat64(name corev1.ResourceName) float64 {
 	return f
 }
 
-// PerThousandOf returns a over b in thousandths, as a float64. The division is
-// taken on the exact values and only the result is approximated, so operands
-// past the range float64 holds exactly do not move the answer. A ratio too
-// small for float64 comes back as the smallest positive value rather than as
-// zero, which a caller reads as no borrowing at all.
+// PerThousandOf returns a over b in thousandths, as a float64, for a
+// non-negative a over a positive b. The division is taken on the exact values
+// and only the result is approximated, so operands past the range float64 holds
+// exactly do not move the answer. A ratio too small for float64 comes back as
+// the smallest positive value rather than as zero, which a caller reads as no
+// borrowing at all. The correction is one-sided, so a negative a underflows to
+// negative zero rather than to the smallest negative value.
 func (a Amount) PerThousandOf(b Amount) float64 {
 	if b.Sign() == 0 {
 		return 0
