@@ -1493,7 +1493,7 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	if err != nil {
 		return false, err
 	}
-	jobPodSets := clearMinCountsIfFeatureDisabled(getPodSets)
+	jobPodSets := clearUnusableMinCounts(getPodSets, wl)
 
 	opts := make([]equality.ComparePodSetsOption, 0, 2)
 	if workload.IsAdmitted(wl) {
@@ -1819,7 +1819,7 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 		return err
 	}
 
-	wl.Spec.PodSets = clearMinCountsIfFeatureDisabled(wl.Spec.PodSets)
+	wl.Spec.PodSets = clearUnusableMinCounts(wl.Spec.PodSets, wl)
 
 	if WorkloadSliceEnabled(job) {
 		return prepareWorkloadSlice(ctx, r.client, job, wl)
@@ -2082,9 +2082,12 @@ func (r *genericReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return b.Complete(r)
 }
 
-// clearMinCountsIfFeatureDisabled sets the minCount for all podSets to nil if the PartialAdmission feature is not enabled
-func clearMinCountsIfFeatureDisabled(in []kueue.PodSet) []kueue.PodSet {
-	if features.Enabled(features.PartialAdmission) || len(in) == 0 {
+// clearUnusableMinCounts sets the minCount for all podSets to nil when no feature honors MinCount
+// for wl, so that a disabled feature's leftover minCount cannot be acted upon. The podSets are
+// passed separately from wl because callers compare job-derived podSets against wl, which supplies
+// only the feature/annotation state for the decision.
+func clearUnusableMinCounts(in []kueue.PodSet, wl *kueue.Workload) []kueue.PodSet {
+	if len(in) == 0 || workload.MinCountsUsable(wl) {
 		return in
 	}
 	for i := range in {
