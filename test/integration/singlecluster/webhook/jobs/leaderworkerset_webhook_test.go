@@ -135,6 +135,64 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 			util.MustCreate(ctx, k8sClient, lws)
 		})
 
+		ginkgo.It("should allow LeaderWorkerSet with grouping and multi-layer slicing constraints", func() {
+			lws := testingleaderworkerset.MakeLeaderWorkerSet("lws-multi-layer", ns.Name).
+				Queue("user-queue").
+				Size(5).
+				LeaderTemplate(corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  "c",
+								Image: "pause",
+							},
+						},
+					},
+				}).
+				LeaderTemplateSpecAnnotation(kueue.PodSetGroupName, "test-group").
+				LeaderTemplateSpecAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				WorkerTemplateSpecAnnotation(kueue.PodSetGroupName, "test-group").
+				WorkerTemplateSpecAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				WorkerTemplateSpecAnnotation(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation, `[{"topology":"cloud.com/rack","size":2}]`).
+				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+				Obj()
+			util.MustCreate(ctx, k8sClient, lws)
+		})
+
+		ginkgo.When("the TASGroupedPodSetSlicing feature gate is disabled", func() {
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASGroupedPodSetSlicing, false)
+			})
+
+			ginkgo.It("should reject LeaderWorkerSet with grouping and slicing", func() {
+				lws := testingleaderworkerset.MakeLeaderWorkerSet("lws-disabled", ns.Name).
+					Queue("user-queue").
+					Size(5).
+					LeaderTemplate(corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:  "c",
+									Image: "pause",
+								},
+							},
+						},
+					}).
+					LeaderTemplateSpecAnnotation(kueue.PodSetGroupName, "test-group").
+					LeaderTemplateSpecAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+					WorkerTemplateSpecAnnotation(kueue.PodSetGroupName, "test-group").
+					WorkerTemplateSpecAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+					WorkerTemplateSpecAnnotation(kueue.PodSetSliceRequiredTopologyAnnotation, "cloud.com/rack").
+					WorkerTemplateSpecAnnotation(kueue.PodSetSliceSizeAnnotation, "2").
+					RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+					Obj()
+				gomega.Expect(k8sClient.Create(ctx, lws)).Should(gomega.SatisfyAll(
+					utiltesting.BeForbiddenError(),
+					gomega.MatchError(gomega.ContainSubstring(kueue.PodSetGroupName)),
+				))
+			})
+		})
+
 		ginkgo.When("the LWSImmutableGroupSize feature gate is disabled", func() {
 			ginkgo.BeforeEach(func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LWSImmutableGroupSize, false)
