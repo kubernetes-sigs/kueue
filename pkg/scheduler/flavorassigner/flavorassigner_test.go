@@ -4866,6 +4866,51 @@ func TestAssignment_ComputeTASNetUsage(t *testing.T) {
 		prevAdmission *kueue.Admission
 		want          workload.TASUsage
 	}{
+		// The net usage reads the PodSpec again, so a negative sidecar must not
+		// leave a domain accounted for less than the quota the assignment took.
+		"a negative sidecar does not shrink the per-domain usage": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name:     kueue.DefaultPodSetName,
+					Flavors:  ResourceAssignment{corev1.ResourceCPU: {Name: "tas"}},
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+					Count:    1,
+					TopologyAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{{
+							Values: []string{"node-a"},
+							Count:  1,
+						}},
+					},
+				}},
+			},
+			wl: workload.NewInfo(&kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "8").
+							InitContainers(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().
+								WithResourceReq(corev1.ResourceCPU, "-3").Obj()).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
+			cq: &schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{
+					"tas": {},
+				},
+			},
+			want: workload.TASUsage{
+				"tas": []workload.TopologyDomainRequests{{
+					Values: []string{"node-a"},
+					SinglePodRequests: resources.NewRequestsFromResourceList(corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("8"),
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		"records actual pod requests when assignment requests differ": {
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{{

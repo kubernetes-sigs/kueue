@@ -18,7 +18,6 @@ package resources
 
 import (
 	corev1 "k8s.io/api/core/v1"
-	resourcehelpers "k8s.io/component-helpers/resource"
 
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -72,8 +71,7 @@ func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	if podSpec == nil {
 		return NewRequests()
 	}
-	rl := resourcehelpers.PodRequests(&corev1.Pod{Spec: *podSpec}, resourcehelpers.PodResourcesOptions{})
-	return NewRequestsFromResourceList(rl)
+	return NewRequestsFromResourceList(PodRequests(podSpec))
 }
 
 // ToMap converts any Requests instance into a MapRequests map.

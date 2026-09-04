@@ -135,6 +135,12 @@ func TestIsOnHold(t *testing.T) {
 	}
 }
 
+// The PodSet builders do not reach pod-level resources.
+func withPodLevelRequests(wl *kueue.Workload, rl corev1.ResourceList) kueue.Workload {
+	wl.Spec.PodSets[0].Template.Spec.Resources = &corev1.ResourceRequirements{Requests: rl}
+	return *wl
+}
+
 func TestNewInfo(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
@@ -320,6 +326,54 @@ func TestNewInfo(t *testing.T) {
 							"ex.com/gpu":          3,
 						}),
 						Count: 3,
+					},
+				},
+			},
+		},
+		// The quota reader normalizes the sidecar away, and TAS rebuilds
+		// SinglePodRequests from the same spec, so the two have to agree.
+		"admitted with TAS and a negative sidecar": {
+			workload: *utiltestingapi.MakeWorkload("tas-negative", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "8").
+						InitContainers(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().
+							WithResourceReq(corev1.ResourceCPU, "-3").Obj()).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("tas-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "tas", "8").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(utiltestingapi.MakeDefaultOneLevelTopology("default"))).
+								Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now,
+				).
+				Obj(),
+			wantInfo: Info{
+				ClusterQueue: "tas-cq",
+				TotalRequests: []PodSetResources{
+					{
+						Name:    kueue.DefaultPodSetName,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "tas"},
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 8000,
+						}),
+						Count: 1,
+						TopologyRequest: &TopologyRequest{
+							Levels: []string{corev1.LabelHostname},
+							DomainRequests: []TopologyDomainRequests{{
+								Values: []string{"node-a"},
+								SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+									corev1.ResourceCPU: 8000,
+								}),
+								Count: 1,
+							}},
+						},
 					},
 				},
 			},
@@ -994,6 +1048,467 @@ func TestNewInfo(t *testing.T) {
 				}},
 			},
 		},
+		// A negative predating the webhook guard still reaches the accounting.
+		"transformNegativeRequestDoesNotSpendAGeneratedOutput": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "-3").
+					Request("example.com/credit", "8").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The reproducer Kueue#14015 was filed with. Both contributions are
+		// generated, and outputs cancelling each other is deliberate, so nothing
+		// downstream separates these two: the source is the only place to act.
+		"transformNegativeInputDoesNotSpendWhatAnotherInputGenerated": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/real-gpu", "8").
+					Request("example.com/credit", "-3").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{Input: "example.com/real-gpu", Strategy: new(config.Replace),
+					Outputs: corev1.ResourceList{"example.com/gpu-quota": resource.MustParse("1")}},
+				{Input: "example.com/credit", Strategy: new(config.Replace),
+					Outputs: corev1.ResourceList{"example.com/gpu-quota": resource.MustParse("1")}},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu-quota"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// A negative reaching multiplyBy flips the sign of every output its input
+		// generates, which then comes off what another input generated.
+		"transformNegativeMultiplierDoesNotSpendAGeneratedOutput": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/credit", "8").
+					Request("example.com/slot", "3").
+					Request("example.com/node", "-2").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:    "example.com/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				},
+				{
+					Input:      "example.com/slot",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "example.com/node",
+					Outputs:    corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"):  8,
+						corev1.ResourceName("example.com/node"): 0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The Pod aggregation adds the containers together, so a negative left
+		// until after it is spent before anything can see it.
+		"negativeRequestInAnotherContainerDoesNotSpendTheFirst": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).Containers(
+					*utiltesting.MakeContainer().Name("asks").WithResourceReq("example.com/credit", "8").Obj(),
+					*utiltesting.MakeContainer().Name("gives-back").WithResourceReq("example.com/credit", "-3").Obj(),
+				).Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// A sidecar runs beside the regular containers rather than before them, so
+		// its request joins their sum instead of being compared with it. That sum
+		// is where a negative one would be spent.
+		"negativeRestartableInitRequestDoesNotSpendTheRegularOne": {
+			workload: *utiltestingapi.MakeWorkload("sidecar", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(
+						*utiltesting.MakeContainer().Name("asks").WithResourceReq("example.com/credit", "8").Obj(),
+					).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("beside").AsSidecar().WithResourceReq("example.com/credit", "-3").Obj(),
+					).Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// An ordinary init container is measured with the sidecars declared before
+		// it already running, and that sum is compared with the regular one rather
+		// than added to it. It is a different branch from the case above, and a
+		// negative sidecar reaches the ordinary init container through it.
+		"negativeSidecarDoesNotSpendAnOrdinaryInitThatFollowsIt": {
+			workload: *utiltestingapi.MakeWorkload("sidecar-then-init", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Containers(
+						*utiltesting.MakeContainer().Name("asks").WithResourceReq("example.com/credit", "1").Obj(),
+					).
+					InitContainers(
+						*utiltesting.MakeContainer().Name("beside").AsSidecar().WithResourceReq("example.com/credit", "-3").Obj(),
+						*utiltesting.MakeContainer().Name("before").WithResourceReq("example.com/credit", "8").Obj(),
+					).Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// cpu, memory and hugepages are the names a pod-level entry is read for,
+		// and it replaces the container total rather than adding to it, so an
+		// invalid entry has to go rather than become a zero.
+		"negativePodLevelCPUFallsBackToTheContainerAggregate": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelcpu", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request(corev1.ResourceCPU, "8").Obj()).
+					Obj(),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-3")}),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 8000,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"negativePodLevelMemoryFallsBackToTheContainerAggregate": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelmem", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request(corev1.ResourceMemory, "8").Obj()).
+					Obj(),
+				corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("-3")}),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceMemory: 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"negativePodLevelHugepagesFallsBackToTheContainerAggregate": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelhuge", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request("hugepages-2Mi", "8Mi").Obj()).
+					Obj(),
+				corev1.ResourceList{"hugepages-2Mi": resource.MustParse("-4Mi")}),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						"hugepages-2Mi": 8 * 1024 * 1024,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// component-helpers only reads cpu, memory and hugepages at the pod level.
+		// The normalization has no business naming any other one: it was never in
+		// the total, and flavor assignment matches on the name rather than on the
+		// quantity, so a zero under a name the ClusterQueue covers would pick that
+		// resource's flavor and put its node labels and tolerations on the Job.
+		"unsupportedPodLevelNameStaysOutOfTheCharge": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelunsup", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/credit", "8").
+						Request("example.com/slot", "3").Obj()).
+					Obj(),
+				corev1.ResourceList{"example.com/node": resource.MustParse("-2")}),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{Input: "example.com/credit", Strategy: new(config.Replace),
+					Outputs: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")}},
+				{Input: "example.com/slot", Strategy: new(config.Replace), MultiplyBy: "example.com/node",
+					Outputs: corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 5,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// Dropping an invalid entry must not take a valid one with it. The
+		// normalization only runs when the spec holds a negative somewhere, so
+		// the negative here is what brings it in; the pod-level request is one
+		// the apiserver would have accepted and has to survive.
+		"normalizationKeepsAPodLevelRequestTheApiserverWouldAccept": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelkeep", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request(corev1.ResourceCPU, "8").
+						Request(corev1.ResourceMemory, "-1").Obj()).
+					Obj(),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("12")}),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:    12000,
+						corev1.ResourceMemory: 0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The case below never reaches the normalization, since nothing in it is
+		// negative. A zero has to survive the filter that removes the invalid
+		// entries, so bring that filter in with an unrelated negative.
+		"explicitPodLevelZeroSurvivesTheNormalization": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelzeroslow", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/trigger", "-1").Obj()).
+					Obj(),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")}),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceCPU:                         0,
+						corev1.ResourceName("example.com/trigger"): 0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// A negative pod-level override read by a multiplyBy has no container to
+		// fall back to, so it stays named at zero rather than vanish and read as one.
+		"negativePodLevelMultiplierWithoutContainerFallbackStaysZero": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelmultiplier", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/credit", "8").
+						Request("example.com/slot", "3").Obj()).
+					Obj(),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-2")}),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:    "example.com/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				},
+				{
+					Input:      "example.com/slot",
+					Strategy:   new(config.Replace),
+					MultiplyBy: corev1.ResourceCPU,
+					Outputs:    corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+						corev1.ResourceCPU:                     0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The same with a negative output factor is the quota-safety case: the slot
+		// contribution must be zero, not spent against the credit output.
+		"negativePodLevelMultiplierDoesNotUnderchargeWithNegativeFactor": {
+			workload: withPodLevelRequests(
+				utiltestingapi.MakeWorkload("podlevelmultiplierneg", "").
+					PodSets(*utiltestingapi.MakePodSet("a", 1).
+						Request("example.com/credit", "8").
+						Request("example.com/slot", "3").Obj()).
+					Obj(),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-2")}),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:    "example.com/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				},
+				{
+					Input:      "example.com/slot",
+					Strategy:   new(config.Replace),
+					MultiplyBy: corev1.ResourceCPU,
+					Outputs:    corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+						corev1.ResourceCPU:                     0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"negativeOverheadDoesNotSpendTheRequest": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/credit", "8").
+					PodOverHead(corev1.ResourceList{"example.com/credit": resource.MustParse("-3")}).Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// A multiplier reads the aggregate by name, so the name a zeroed overhead
+		// leaves behind multiplies by zero. Dropping the entry instead would leave
+		// it missing, which is a multiplier of one, and the negative output would
+		// land: gpu would come out at 5.
+		"negativeOverheadReadAsAMultiplierIsZeroRatherThanAbsent": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/credit", "8").
+					Request("example.com/slot", "3").
+					PodOverHead(corev1.ResourceList{"example.com/node": resource.MustParse("-2")}).Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{
+				{
+					Input:    "example.com/credit",
+					Strategy: new(config.Replace),
+					Outputs:  corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				},
+				{
+					Input:      "example.com/slot",
+					Strategy:   new(config.Replace),
+					MultiplyBy: "example.com/node",
+					Outputs:    corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")},
+				},
+			})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"):  8,
+						corev1.ResourceName("example.com/node"): 0,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		// The charge here is one preprocessing already produced, not one this
+		// resolves: the PodSet carries no claim. What is pinned is the merge.
+		"negativeOrdinaryRequestDoesNotSpendPreprocessedDRACharge": {
+			workload: *utiltestingapi.MakeWorkload("dra", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "-3").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{
+				WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{
+						"a": {"example.com/gpu": resource.MustParse("8")},
+					},
+					nil,
+				),
+			},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"): 8,
+					}),
+					Count: 1,
+				}},
+			},
+		},
+		"transformNegativeRequestOnItsOwnIsZero": {
+			workload: *utiltestingapi.MakeWorkload("transform", "").
+				PodSets(*utiltestingapi.MakePodSet("a", 1).
+					Request("example.com/gpu", "-3").
+					Request("example.com/credit", "1").Obj()).
+				Obj(),
+			infoOptions: []InfoOption{WithResourceTransformations([]config.ResourceTransformation{{
+				Input:    "example.com/credit",
+				Strategy: new(config.Replace),
+				Outputs:  corev1.ResourceList{"example.com/other": resource.MustParse("1")},
+			}})},
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{{
+					Name: "a",
+					Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+						corev1.ResourceName("example.com/gpu"):   0,
+						corev1.ResourceName("example.com/other"): 1,
+					}),
+					Count: 1,
+				}},
+			},
+		},
 		"transformMilliValues": {
 			workload: *utiltestingapi.MakeWorkload("transform", "").
 				PodSets(
@@ -1040,7 +1555,13 @@ func TestNewInfo(t *testing.T) {
 			for fg, enabled := range tc.featureGates {
 				features.SetFeatureGateDuringTest(t, fg, enabled)
 			}
+			// The caller is lending this Workload, not handing it over: it is the
+			// one the informer holds, and the charge is built from a copy.
+			borrowed := tc.workload.DeepCopy()
 			info := NewInfo(&tc.workload, tc.infoOptions...)
+			if diff := cmp.Diff(borrowed, &tc.workload); diff != "" {
+				t.Errorf("NewInfo(_) changed the Workload it was given (-before,+after):\n%s", diff)
+			}
 			if diff := cmp.Diff(info, &tc.wantInfo, cmpopts.IgnoreFields(Info{}, "Obj", "SchedulingHash"), cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("NewInfo(_) = (-want,+got):\n%s", diff)
 			}
@@ -3925,5 +4446,22 @@ func TestTotalExecutionTime(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// NewInfo is handed Workloads straight out of the informer cache, so it borrows
+// the PodSpec rather than owning it.
+func TestNewInfoLeavesTheWorkloadAlone(t *testing.T) {
+	wl := utiltestingapi.MakeWorkload("negative", "ns").
+		PodSets(*utiltestingapi.MakePodSet("a", 1).
+			Request("example.com/credit", "-3").
+			PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).Obj()).
+		Obj()
+	want := wl.DeepCopy()
+
+	NewInfo(wl)
+
+	if diff := cmp.Diff(want.Spec, wl.Spec); diff != "" {
+		t.Errorf("NewInfo() rewrote the Workload it was given (-want +got):\n%s", diff)
 	}
 }

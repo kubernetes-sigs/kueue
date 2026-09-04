@@ -217,6 +217,25 @@ func TestValidatePodSpec(t *testing.T) {
 				field.Invalid(podSpecPath, []corev1.ResourceName{corev1.ResourceCPU}, RequestsMustNotBeAboveLimitRangeMaxMessage),
 			},
 		},
+		// The Pod-level range reads the same total quota does, so a negative
+		// sidecar cannot bring a container's request under the maximum.
+		"a negative sidecar does not bring the pod under the maximum": {
+			summary: Summarize(*testingutil.MakeLimitRange("", "").
+				WithType(corev1.LimitTypePod).
+				WithValue("Max", corev1.ResourceCPU, "5").
+				Obj()),
+			podSpec: &corev1.PodSpec{
+				Containers: []corev1.Container{
+					*testingutil.MakeContainer().WithResourceReq(corev1.ResourceCPU, "8").Obj(),
+				},
+				InitContainers: []corev1.Container{
+					*testingutil.MakeContainer().AsSidecar().WithResourceReq(corev1.ResourceCPU, "-3").Obj(),
+				},
+			},
+			want: field.ErrorList{
+				field.Invalid(podSpecPath, []corev1.ResourceName{corev1.ResourceCPU}, RequestsMustNotBeAboveLimitRangeMaxMessage),
+			},
+		},
 		"pod under": {
 			summary: Summarize(*testingutil.MakeLimitRange("", "").
 				WithType(corev1.LimitTypePod).
