@@ -4207,7 +4207,6 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels disabled", ginkg
 })
 
 var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
-
 	ginkgo.Label("job:pod", "area:jobs"),
 	ginkgo.Ordered,
 	ginkgo.ContinueOnFailure,
@@ -4303,6 +4302,7 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 			leader := testingpod.MakePod("leader", ns.Name).
 				GroupNameLabel("gpu-group").
 				GroupTotalCount("2").
+				Annotation(podconstants.RoleHashAnnotation, "leader").
 				Queue(localQueue.Name).
 				Request(corev1.ResourceName("nvidia.com/gpu"), "1").
 				Limit(corev1.ResourceName("nvidia.com/gpu"), "1").
@@ -4311,6 +4311,7 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 			worker := testingpod.MakePod("worker", ns.Name).
 				GroupNameLabel("gpu-group").
 				GroupTotalCount("2").
+				Annotation(podconstants.RoleHashAnnotation, "worker").
 				Queue(localQueue.Name).
 				Request(corev1.ResourceName("nvidia.com/gpu"), "4").
 				Limit(corev1.ResourceName("nvidia.com/gpu"), "4").

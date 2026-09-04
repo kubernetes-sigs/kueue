@@ -111,6 +111,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				Obj(),
 		},
 		"pod with queue nil ns selector": {
@@ -124,6 +125,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -140,6 +142,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -155,6 +158,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -175,6 +179,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				OwnerReference("parent-job", batchv1.SchemeGroupVersion.WithKind("Job")).
 				Obj(),
@@ -368,6 +373,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				GroupNameLabel("test-group").
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
@@ -386,6 +392,7 @@ func TestDefault(t *testing.T) {
 				Queue("test-queue").
 				GroupNameLabel("test-group").
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				KueueFinalizer().
@@ -406,6 +413,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueFinalizer().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueSchedulingGate().
 				TopologySchedulingGate().
 				Obj(),
@@ -429,6 +437,7 @@ func TestDefault(t *testing.T) {
 				Label(kueue.PodGroupPodIndexLabel, "test-value").
 				ManagedByKueueLabel().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				KueueSchedulingGate().
 				TopologySchedulingGate().
@@ -447,6 +456,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -475,6 +485,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -490,6 +501,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -517,6 +529,7 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -547,6 +560,7 @@ func TestDefault(t *testing.T) {
 				Queue("queue").
 				ManagedByKueueLabel().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueSchedulingGate().
 				KueueFinalizer().
 				Obj(),
@@ -584,6 +598,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -606,6 +621,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -630,6 +646,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
@@ -649,6 +666,7 @@ func TestDefault(t *testing.T) {
 				ManagedByKueueLabel().
 				KueueSchedulingGate().
 				RoleHash("a9f06f3a").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "a9f06f3a").
 				KueueFinalizer().
 				Obj(),
 		},
