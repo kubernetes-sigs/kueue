@@ -21,6 +21,7 @@ import (
 	"math/big"
 	"testing"
 
+	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 )
@@ -222,6 +223,26 @@ func TestScaledBigMatchesTheAccessors(t *testing.T) {
 					t.Errorf("scaledBig(%s, %s) = %s, accessor says %d", name, qty, got, want)
 				}
 			})
+		}
+	}
+}
+
+// A Quantity is not only built by the parser, and one built directly carries a
+// scale the parser never reaches: ParseQuantity does not return for a scale
+// this size. The conversion answers from the sign rather than building the
+// divisor, which would be a power of ten with two billion digits. Without that
+// short circuit this test does not fail, it hangs.
+func TestAmountFromQuantityBelowOneAtAScaleTooLargeToBuild(t *testing.T) {
+	for _, tc := range []struct {
+		unscaled int64
+		want     string
+	}{
+		{1, "1"},
+		{-1, "-1"},
+	} {
+		q := resource.NewDecimalQuantity(*inf.NewDec(tc.unscaled, 2147483647), resource.DecimalSI)
+		if got := AmountFromQuantity("example.com/gpu", *q); got.String() != tc.want {
+			t.Errorf("AmountFromQuantity(%d at scale 2147483647) = %s, want %s", tc.unscaled, got, tc.want)
 		}
 	}
 }
