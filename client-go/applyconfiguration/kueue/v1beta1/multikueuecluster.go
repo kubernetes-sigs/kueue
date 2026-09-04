@@ -29,7 +29,7 @@ import (
 //
 // MultiKueueCluster is the Schema for the multikueue API
 type MultiKueueClusterApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata is the metadata of the MultiKueueCluster.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// spec is the specification of the MultiKueueCluster.

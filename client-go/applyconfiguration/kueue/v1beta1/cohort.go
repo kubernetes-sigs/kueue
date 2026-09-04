@@ -29,7 +29,7 @@ import (
 //
 // Cohort defines the Cohorts API.
 type CohortApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata is the metadata of the Cohort.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// spec is the specification of the Cohort.

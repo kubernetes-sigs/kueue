@@ -34,11 +34,39 @@ import (
 )
 
 // AdmissionCheckInformer provides access to a shared informer and lister for
-// AdmissionChecks.
+// AdmissionChecks. Prefer using the type-safe variant (see [TypedAdmissionCheckInformer]).
 type AdmissionCheckInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() kueuev1beta1.AdmissionCheckLister
 }
+
+// TypedAdmissionCheckInformer provides access to a shared informer and lister for
+// AdmissionChecks, including the type-safe TypedInformer variant.
+// It is a superset of AdmissionCheckInformer.
+type TypedAdmissionCheckInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() AdmissionCheckIndexInformer
+	Lister() kueuev1beta1.AdmissionCheckLister
+}
+
+// AdmissionCheckIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type AdmissionCheckIndexInformer cache.TypedSharedIndexInformer[*apiskueuev1beta1.AdmissionCheck]
+
+// AdmissionCheckHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for AdmissionCheck.
+type AdmissionCheckHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apiskueuev1beta1.AdmissionCheck]
+
+// AdmissionCheckDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for AdmissionCheck.
+type AdmissionCheckDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apiskueuev1beta1.AdmissionCheck]
+
+// AdmissionCheckFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for AdmissionCheck.
+type AdmissionCheckFilteringHandler = cache.TypedFilteringResourceEventHandler[*apiskueuev1beta1.AdmissionCheck]
+
+// AdmissionCheckIndexers is a specialization of [cache.TypedIndexers] for AdmissionCheck.
+type AdmissionCheckIndexers = cache.TypedIndexers[*apiskueuev1beta1.AdmissionCheck]
+
+// DeletedAdmissionCheck is a specialization of [cache.DeletedObject] for AdmissionCheck.
+type DeletedAdmissionCheck = cache.DeletedObject[*apiskueuev1beta1.AdmissionCheck]
 
 type admissionCheckInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -48,25 +76,49 @@ type admissionCheckInformer struct {
 // NewAdmissionCheckInformer constructs a new informer for AdmissionCheck type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedAdmissionCheckInformer]).
 func NewAdmissionCheckInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
 	return NewAdmissionCheckInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedAdmissionCheckInformer constructs a new informer for AdmissionCheck type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedAdmissionCheckInformer(client versioned.Interface, resyncPeriod time.Duration, indexers AdmissionCheckIndexers) AdmissionCheckIndexInformer {
+	return NewTypedAdmissionCheckInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredAdmissionCheckInformer constructs a new informer for AdmissionCheck type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredAdmissionCheckInformer]).
 func NewFilteredAdmissionCheckInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return NewAdmissionCheckInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+	return NewTypedAdmissionCheckInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredAdmissionCheckInformer constructs a new informer for AdmissionCheck type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredAdmissionCheckInformer(client versioned.Interface, resyncPeriod time.Duration, indexers AdmissionCheckIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) AdmissionCheckIndexInformer {
+	return NewTypedAdmissionCheckInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
 }
 
 // NewAdmissionCheckInformerWithOptions constructs a new informer for AdmissionCheck type with additional options.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedAdmissionCheckInformerWithOptions]).
 func NewAdmissionCheckInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedAdmissionCheckInformerWithOptions(client, options)
+}
+
+// NewTypedAdmissionCheckInformerWithOptions constructs a new informer for AdmissionCheck type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedAdmissionCheckInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) AdmissionCheckIndexInformer {
 	gvr := schema.GroupVersionResource{Group: "kueue.x-k8s.io", Version: "v1beta1", Resource: "admissionchecks"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.AdmissionCheck](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -99,17 +151,57 @@ func NewAdmissionCheckInformerWithOptions(client versioned.Interface, options in
 			Indexers:     options.Indexers,
 			Identifier:   identifier,
 		},
-	)
+	))
 }
 
 func (f *admissionCheckInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewAdmissionCheckInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
+	return NewTypedAdmissionCheckInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *admissionCheckInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apiskueuev1beta1.AdmissionCheck{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *admissionCheckInformer) TypedInformer() AdmissionCheckIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.AdmissionCheck](f.factory.InformerFor(&apiskueuev1beta1.AdmissionCheck{}, f.defaultInformer))
 }
 
 func (f *admissionCheckInformer) Lister() kueuev1beta1.AdmissionCheckLister {
 	return kueuev1beta1.NewAdmissionCheckLister(f.Informer().GetIndexer())
+}
+
+// ToTypedAdmissionCheckInformer converts an untyped informer into a TypedAdmissionCheckInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *AdmissionCheck. If that is not the case, calling type-safe methods of the returned
+// TypedAdmissionCheckInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedAdmissionCheckInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedAdmissionCheckInformer(informer AdmissionCheckInformer) TypedAdmissionCheckInformer {
+	if informer, ok := informer.(TypedAdmissionCheckInformer); ok {
+		return informer
+	}
+	return &admissionCheckTypedInformerAdapter{informer}
+}
+
+type admissionCheckTypedInformerAdapter struct {
+	AdmissionCheckInformer
+}
+
+func (a *admissionCheckTypedInformerAdapter) TypedInformer() AdmissionCheckIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.AdmissionCheck](a.Informer())
+}
+
+// ToAdmissionCheckIndexInformer converts an untyped informer into a AdmissionCheckIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *AdmissionCheck. If that is not the case, calling type-safe methods of the returned
+// AdmissionCheckIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a AdmissionCheckIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToAdmissionCheckIndexInformer(informer cache.SharedIndexInformer) AdmissionCheckIndexInformer {
+	if informer, ok := informer.(AdmissionCheckIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.AdmissionCheck](informer)
 }

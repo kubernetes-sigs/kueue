@@ -29,7 +29,7 @@ import (
 //
 // ClusterQueue is the Schema for the clusterQueue API.
 type ClusterQueueApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata is the metadata of the ClusterQueue.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// spec is the specification of the ClusterQueue.

@@ -25,7 +25,7 @@ metadata:
     {{- if .Values.enableCertManager }}
     cert-manager.io/inject-ca-from: '{{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert'
     {{- end }}
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: workloads.kueue.x-k8s.io
 spec:
   conversion:
@@ -17497,7 +17497,7 @@ spec:
                                       type: object
                                       x-kubernetes-validations:
                                         - message: exactly one of the fields in [universal individual] must be set
-                                          rule: '[has(self.universal),has(self.individual)].filter(x,x==true).size() == 1'
+                                          rule: (has(self.universal)?1:0)+(has(self.individual)?1:0) == 1
                                     valuesPerLevel:
                                       description: |-
                                         valuesPerLevel has one entry for each of the Levels specified in the TopologyAssignment.

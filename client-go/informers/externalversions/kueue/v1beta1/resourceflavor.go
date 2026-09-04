@@ -34,11 +34,39 @@ import (
 )
 
 // ResourceFlavorInformer provides access to a shared informer and lister for
-// ResourceFlavors.
+// ResourceFlavors. Prefer using the type-safe variant (see [TypedResourceFlavorInformer]).
 type ResourceFlavorInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() kueuev1beta1.ResourceFlavorLister
 }
+
+// TypedResourceFlavorInformer provides access to a shared informer and lister for
+// ResourceFlavors, including the type-safe TypedInformer variant.
+// It is a superset of ResourceFlavorInformer.
+type TypedResourceFlavorInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() ResourceFlavorIndexInformer
+	Lister() kueuev1beta1.ResourceFlavorLister
+}
+
+// ResourceFlavorIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type ResourceFlavorIndexInformer cache.TypedSharedIndexInformer[*apiskueuev1beta1.ResourceFlavor]
+
+// ResourceFlavorHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for ResourceFlavor.
+type ResourceFlavorHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apiskueuev1beta1.ResourceFlavor]
+
+// ResourceFlavorDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for ResourceFlavor.
+type ResourceFlavorDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apiskueuev1beta1.ResourceFlavor]
+
+// ResourceFlavorFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for ResourceFlavor.
+type ResourceFlavorFilteringHandler = cache.TypedFilteringResourceEventHandler[*apiskueuev1beta1.ResourceFlavor]
+
+// ResourceFlavorIndexers is a specialization of [cache.TypedIndexers] for ResourceFlavor.
+type ResourceFlavorIndexers = cache.TypedIndexers[*apiskueuev1beta1.ResourceFlavor]
+
+// DeletedResourceFlavor is a specialization of [cache.DeletedObject] for ResourceFlavor.
+type DeletedResourceFlavor = cache.DeletedObject[*apiskueuev1beta1.ResourceFlavor]
 
 type resourceFlavorInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -48,25 +76,49 @@ type resourceFlavorInformer struct {
 // NewResourceFlavorInformer constructs a new informer for ResourceFlavor type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedResourceFlavorInformer]).
 func NewResourceFlavorInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
 	return NewResourceFlavorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedResourceFlavorInformer constructs a new informer for ResourceFlavor type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedResourceFlavorInformer(client versioned.Interface, resyncPeriod time.Duration, indexers ResourceFlavorIndexers) ResourceFlavorIndexInformer {
+	return NewTypedResourceFlavorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredResourceFlavorInformer constructs a new informer for ResourceFlavor type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredResourceFlavorInformer]).
 func NewFilteredResourceFlavorInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return NewResourceFlavorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+	return NewTypedResourceFlavorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredResourceFlavorInformer constructs a new informer for ResourceFlavor type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredResourceFlavorInformer(client versioned.Interface, resyncPeriod time.Duration, indexers ResourceFlavorIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) ResourceFlavorIndexInformer {
+	return NewTypedResourceFlavorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
 }
 
 // NewResourceFlavorInformerWithOptions constructs a new informer for ResourceFlavor type with additional options.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedResourceFlavorInformerWithOptions]).
 func NewResourceFlavorInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedResourceFlavorInformerWithOptions(client, options)
+}
+
+// NewTypedResourceFlavorInformerWithOptions constructs a new informer for ResourceFlavor type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedResourceFlavorInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) ResourceFlavorIndexInformer {
 	gvr := schema.GroupVersionResource{Group: "kueue.x-k8s.io", Version: "v1beta1", Resource: "resourceflavors"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.ResourceFlavor](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -99,17 +151,57 @@ func NewResourceFlavorInformerWithOptions(client versioned.Interface, options in
 			Indexers:     options.Indexers,
 			Identifier:   identifier,
 		},
-	)
+	))
 }
 
 func (f *resourceFlavorInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewResourceFlavorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
+	return NewTypedResourceFlavorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *resourceFlavorInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apiskueuev1beta1.ResourceFlavor{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *resourceFlavorInformer) TypedInformer() ResourceFlavorIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.ResourceFlavor](f.factory.InformerFor(&apiskueuev1beta1.ResourceFlavor{}, f.defaultInformer))
 }
 
 func (f *resourceFlavorInformer) Lister() kueuev1beta1.ResourceFlavorLister {
 	return kueuev1beta1.NewResourceFlavorLister(f.Informer().GetIndexer())
+}
+
+// ToTypedResourceFlavorInformer converts an untyped informer into a TypedResourceFlavorInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *ResourceFlavor. If that is not the case, calling type-safe methods of the returned
+// TypedResourceFlavorInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedResourceFlavorInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedResourceFlavorInformer(informer ResourceFlavorInformer) TypedResourceFlavorInformer {
+	if informer, ok := informer.(TypedResourceFlavorInformer); ok {
+		return informer
+	}
+	return &resourceFlavorTypedInformerAdapter{informer}
+}
+
+type resourceFlavorTypedInformerAdapter struct {
+	ResourceFlavorInformer
+}
+
+func (a *resourceFlavorTypedInformerAdapter) TypedInformer() ResourceFlavorIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.ResourceFlavor](a.Informer())
+}
+
+// ToResourceFlavorIndexInformer converts an untyped informer into a ResourceFlavorIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *ResourceFlavor. If that is not the case, calling type-safe methods of the returned
+// ResourceFlavorIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a ResourceFlavorIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToResourceFlavorIndexInformer(informer cache.SharedIndexInformer) ResourceFlavorIndexInformer {
+	if informer, ok := informer.(ResourceFlavorIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.ResourceFlavor](informer)
 }

@@ -34,11 +34,39 @@ import (
 )
 
 // DynamicQuotaOrchestratorInformer provides access to a shared informer and lister for
-// DynamicQuotaOrchestrators.
+// DynamicQuotaOrchestrators. Prefer using the type-safe variant (see [TypedDynamicQuotaOrchestratorInformer]).
 type DynamicQuotaOrchestratorInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() kueuev1alpha1.DynamicQuotaOrchestratorLister
 }
+
+// TypedDynamicQuotaOrchestratorInformer provides access to a shared informer and lister for
+// DynamicQuotaOrchestrators, including the type-safe TypedInformer variant.
+// It is a superset of DynamicQuotaOrchestratorInformer.
+type TypedDynamicQuotaOrchestratorInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() DynamicQuotaOrchestratorIndexInformer
+	Lister() kueuev1alpha1.DynamicQuotaOrchestratorLister
+}
+
+// DynamicQuotaOrchestratorIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type DynamicQuotaOrchestratorIndexInformer cache.TypedSharedIndexInformer[*apiskueuev1alpha1.DynamicQuotaOrchestrator]
+
+// DynamicQuotaOrchestratorHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for DynamicQuotaOrchestrator.
+type DynamicQuotaOrchestratorHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apiskueuev1alpha1.DynamicQuotaOrchestrator]
+
+// DynamicQuotaOrchestratorDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for DynamicQuotaOrchestrator.
+type DynamicQuotaOrchestratorDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apiskueuev1alpha1.DynamicQuotaOrchestrator]
+
+// DynamicQuotaOrchestratorFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for DynamicQuotaOrchestrator.
+type DynamicQuotaOrchestratorFilteringHandler = cache.TypedFilteringResourceEventHandler[*apiskueuev1alpha1.DynamicQuotaOrchestrator]
+
+// DynamicQuotaOrchestratorIndexers is a specialization of [cache.TypedIndexers] for DynamicQuotaOrchestrator.
+type DynamicQuotaOrchestratorIndexers = cache.TypedIndexers[*apiskueuev1alpha1.DynamicQuotaOrchestrator]
+
+// DeletedDynamicQuotaOrchestrator is a specialization of [cache.DeletedObject] for DynamicQuotaOrchestrator.
+type DeletedDynamicQuotaOrchestrator = cache.DeletedObject[*apiskueuev1alpha1.DynamicQuotaOrchestrator]
 
 type dynamicQuotaOrchestratorInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -48,25 +76,49 @@ type dynamicQuotaOrchestratorInformer struct {
 // NewDynamicQuotaOrchestratorInformer constructs a new informer for DynamicQuotaOrchestrator type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedDynamicQuotaOrchestratorInformer]).
 func NewDynamicQuotaOrchestratorInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
 	return NewDynamicQuotaOrchestratorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedDynamicQuotaOrchestratorInformer constructs a new informer for DynamicQuotaOrchestrator type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedDynamicQuotaOrchestratorInformer(client versioned.Interface, resyncPeriod time.Duration, indexers DynamicQuotaOrchestratorIndexers) DynamicQuotaOrchestratorIndexInformer {
+	return NewTypedDynamicQuotaOrchestratorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredDynamicQuotaOrchestratorInformer constructs a new informer for DynamicQuotaOrchestrator type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredDynamicQuotaOrchestratorInformer]).
 func NewFilteredDynamicQuotaOrchestratorInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return NewDynamicQuotaOrchestratorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+	return NewTypedDynamicQuotaOrchestratorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredDynamicQuotaOrchestratorInformer constructs a new informer for DynamicQuotaOrchestrator type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredDynamicQuotaOrchestratorInformer(client versioned.Interface, resyncPeriod time.Duration, indexers DynamicQuotaOrchestratorIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) DynamicQuotaOrchestratorIndexInformer {
+	return NewTypedDynamicQuotaOrchestratorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
 }
 
 // NewDynamicQuotaOrchestratorInformerWithOptions constructs a new informer for DynamicQuotaOrchestrator type with additional options.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedDynamicQuotaOrchestratorInformerWithOptions]).
 func NewDynamicQuotaOrchestratorInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedDynamicQuotaOrchestratorInformerWithOptions(client, options)
+}
+
+// NewTypedDynamicQuotaOrchestratorInformerWithOptions constructs a new informer for DynamicQuotaOrchestrator type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedDynamicQuotaOrchestratorInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) DynamicQuotaOrchestratorIndexInformer {
 	gvr := schema.GroupVersionResource{Group: "kueue.x-k8s.io", Version: "v1alpha1", Resource: "dynamicquotaorchestrators"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1alpha1.DynamicQuotaOrchestrator](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -99,17 +151,57 @@ func NewDynamicQuotaOrchestratorInformerWithOptions(client versioned.Interface, 
 			Indexers:     options.Indexers,
 			Identifier:   identifier,
 		},
-	)
+	))
 }
 
 func (f *dynamicQuotaOrchestratorInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewDynamicQuotaOrchestratorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
+	return NewTypedDynamicQuotaOrchestratorInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *dynamicQuotaOrchestratorInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apiskueuev1alpha1.DynamicQuotaOrchestrator{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *dynamicQuotaOrchestratorInformer) TypedInformer() DynamicQuotaOrchestratorIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1alpha1.DynamicQuotaOrchestrator](f.factory.InformerFor(&apiskueuev1alpha1.DynamicQuotaOrchestrator{}, f.defaultInformer))
 }
 
 func (f *dynamicQuotaOrchestratorInformer) Lister() kueuev1alpha1.DynamicQuotaOrchestratorLister {
 	return kueuev1alpha1.NewDynamicQuotaOrchestratorLister(f.Informer().GetIndexer())
+}
+
+// ToTypedDynamicQuotaOrchestratorInformer converts an untyped informer into a TypedDynamicQuotaOrchestratorInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *DynamicQuotaOrchestrator. If that is not the case, calling type-safe methods of the returned
+// TypedDynamicQuotaOrchestratorInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedDynamicQuotaOrchestratorInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedDynamicQuotaOrchestratorInformer(informer DynamicQuotaOrchestratorInformer) TypedDynamicQuotaOrchestratorInformer {
+	if informer, ok := informer.(TypedDynamicQuotaOrchestratorInformer); ok {
+		return informer
+	}
+	return &dynamicQuotaOrchestratorTypedInformerAdapter{informer}
+}
+
+type dynamicQuotaOrchestratorTypedInformerAdapter struct {
+	DynamicQuotaOrchestratorInformer
+}
+
+func (a *dynamicQuotaOrchestratorTypedInformerAdapter) TypedInformer() DynamicQuotaOrchestratorIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1alpha1.DynamicQuotaOrchestrator](a.Informer())
+}
+
+// ToDynamicQuotaOrchestratorIndexInformer converts an untyped informer into a DynamicQuotaOrchestratorIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *DynamicQuotaOrchestrator. If that is not the case, calling type-safe methods of the returned
+// DynamicQuotaOrchestratorIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a DynamicQuotaOrchestratorIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToDynamicQuotaOrchestratorIndexInformer(informer cache.SharedIndexInformer) DynamicQuotaOrchestratorIndexInformer {
+	if informer, ok := informer.(DynamicQuotaOrchestratorIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1alpha1.DynamicQuotaOrchestrator](informer)
 }

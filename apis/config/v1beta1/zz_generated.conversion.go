@@ -22,11 +22,10 @@ limitations under the License.
 package v1beta1
 
 import (
-	time "time"
 	unsafe "unsafe"
 
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	conversion "k8s.io/apimachinery/pkg/conversion"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	v1alpha1 "k8s.io/component-base/config/v1alpha1"
@@ -274,9 +273,7 @@ func RegisterConversions(s *runtime.Scheme) error {
 }
 
 func autoConvert_v1beta1_AdmissionFairSharing_To_v1beta2_AdmissionFairSharing(in *AdmissionFairSharing, out *v1beta2.AdmissionFairSharing, s conversion.Scope) error {
-	out.UsageHalfLifeTime = in.UsageHalfLifeTime
-	out.UsageSamplingInterval = in.UsageSamplingInterval
-	out.ResourceWeights = *(*map[v1.ResourceName]float64)(unsafe.Pointer(&in.ResourceWeights))
+	*out = *(*v1beta2.AdmissionFairSharing)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -286,9 +283,7 @@ func Convert_v1beta1_AdmissionFairSharing_To_v1beta2_AdmissionFairSharing(in *Ad
 }
 
 func autoConvert_v1beta2_AdmissionFairSharing_To_v1beta1_AdmissionFairSharing(in *v1beta2.AdmissionFairSharing, out *AdmissionFairSharing, s conversion.Scope) error {
-	out.UsageHalfLifeTime = in.UsageHalfLifeTime
-	out.UsageSamplingInterval = in.UsageSamplingInterval
-	out.ResourceWeights = *(*map[v1.ResourceName]float64)(unsafe.Pointer(&in.ResourceWeights))
+	*out = *(*AdmissionFairSharing)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -298,8 +293,7 @@ func Convert_v1beta2_AdmissionFairSharing_To_v1beta1_AdmissionFairSharing(in *v1
 }
 
 func autoConvert_v1beta1_ClientConnection_To_v1beta2_ClientConnection(in *ClientConnection, out *v1beta2.ClientConnection, s conversion.Scope) error {
-	out.QPS = (*float32)(unsafe.Pointer(in.QPS))
-	out.Burst = (*int32)(unsafe.Pointer(in.Burst))
+	*out = *(*v1beta2.ClientConnection)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -309,8 +303,7 @@ func Convert_v1beta1_ClientConnection_To_v1beta2_ClientConnection(in *ClientConn
 }
 
 func autoConvert_v1beta2_ClientConnection_To_v1beta1_ClientConnection(in *v1beta2.ClientConnection, out *ClientConnection, s conversion.Scope) error {
-	out.QPS = (*float32)(unsafe.Pointer(in.QPS))
-	out.Burst = (*int32)(unsafe.Pointer(in.Burst))
+	*out = *(*ClientConnection)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -325,7 +318,7 @@ func autoConvert_v1beta1_Configuration_To_v1beta2_Configuration(in *Configuratio
 		return err
 	}
 	out.ManageJobsWithoutQueueName = in.ManageJobsWithoutQueueName
-	out.ManagedJobsNamespaceSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.ManagedJobsNamespaceSelector))
+	out.ManagedJobsNamespaceSelector = (*v1.LabelSelector)(unsafe.Pointer(in.ManagedJobsNamespaceSelector))
 	out.InternalCertManagement = (*v1beta2.InternalCertManagement)(unsafe.Pointer(in.InternalCertManagement))
 	if in.WaitForPodsReady != nil {
 		in, out := &in.WaitForPodsReady, &out.WaitForPodsReady
@@ -386,7 +379,7 @@ func autoConvert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Conf
 		return err
 	}
 	out.ManageJobsWithoutQueueName = in.ManageJobsWithoutQueueName
-	out.ManagedJobsNamespaceSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.ManagedJobsNamespaceSelector))
+	out.ManagedJobsNamespaceSelector = (*v1.LabelSelector)(unsafe.Pointer(in.ManagedJobsNamespaceSelector))
 	out.InternalCertManagement = (*InternalCertManagement)(unsafe.Pointer(in.InternalCertManagement))
 	if in.WaitForPodsReady != nil {
 		in, out := &in.WaitForPodsReady, &out.WaitForPodsReady
@@ -443,8 +436,7 @@ func autoConvert_v1beta2_Configuration_To_v1beta1_Configuration(in *v1beta2.Conf
 }
 
 func autoConvert_v1beta1_ControllerConfigurationSpec_To_v1beta2_ControllerConfigurationSpec(in *ControllerConfigurationSpec, out *v1beta2.ControllerConfigurationSpec, s conversion.Scope) error {
-	out.GroupKindConcurrency = *(*map[string]int)(unsafe.Pointer(&in.GroupKindConcurrency))
-	out.CacheSyncTimeout = (*time.Duration)(unsafe.Pointer(in.CacheSyncTimeout))
+	*out = *(*v1beta2.ControllerConfigurationSpec)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -454,8 +446,7 @@ func Convert_v1beta1_ControllerConfigurationSpec_To_v1beta2_ControllerConfigurat
 }
 
 func autoConvert_v1beta2_ControllerConfigurationSpec_To_v1beta1_ControllerConfigurationSpec(in *v1beta2.ControllerConfigurationSpec, out *ControllerConfigurationSpec, s conversion.Scope) error {
-	out.GroupKindConcurrency = *(*map[string]int)(unsafe.Pointer(&in.GroupKindConcurrency))
-	out.CacheSyncTimeout = (*time.Duration)(unsafe.Pointer(in.CacheSyncTimeout))
+	*out = *(*ControllerConfigurationSpec)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -465,9 +456,7 @@ func Convert_v1beta2_ControllerConfigurationSpec_To_v1beta1_ControllerConfigurat
 }
 
 func autoConvert_v1beta1_ControllerHealth_To_v1beta2_ControllerHealth(in *ControllerHealth, out *v1beta2.ControllerHealth, s conversion.Scope) error {
-	out.HealthProbeBindAddress = in.HealthProbeBindAddress
-	out.ReadinessEndpointName = in.ReadinessEndpointName
-	out.LivenessEndpointName = in.LivenessEndpointName
+	*out = *(*v1beta2.ControllerHealth)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -477,9 +466,7 @@ func Convert_v1beta1_ControllerHealth_To_v1beta2_ControllerHealth(in *Controller
 }
 
 func autoConvert_v1beta2_ControllerHealth_To_v1beta1_ControllerHealth(in *v1beta2.ControllerHealth, out *ControllerHealth, s conversion.Scope) error {
-	out.HealthProbeBindAddress = in.HealthProbeBindAddress
-	out.ReadinessEndpointName = in.ReadinessEndpointName
-	out.LivenessEndpointName = in.LivenessEndpointName
+	*out = *(*ControllerHealth)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -600,9 +587,7 @@ func autoConvert_v1beta2_ControllerMetricsCustomLabel_To_v1beta1_ControllerMetri
 }
 
 func autoConvert_v1beta1_ControllerWebhook_To_v1beta2_ControllerWebhook(in *ControllerWebhook, out *v1beta2.ControllerWebhook, s conversion.Scope) error {
-	out.Port = (*int)(unsafe.Pointer(in.Port))
-	out.Host = in.Host
-	out.CertDir = in.CertDir
+	*out = *(*v1beta2.ControllerWebhook)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -612,9 +597,7 @@ func Convert_v1beta1_ControllerWebhook_To_v1beta2_ControllerWebhook(in *Controll
 }
 
 func autoConvert_v1beta2_ControllerWebhook_To_v1beta1_ControllerWebhook(in *v1beta2.ControllerWebhook, out *ControllerWebhook, s conversion.Scope) error {
-	out.Port = (*int)(unsafe.Pointer(in.Port))
-	out.Host = in.Host
-	out.CertDir = in.CertDir
+	*out = *(*ControllerWebhook)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -624,8 +607,8 @@ func Convert_v1beta2_ControllerWebhook_To_v1beta1_ControllerWebhook(in *v1beta2.
 }
 
 func autoConvert_v1beta1_DeviceClassMapping_To_v1beta2_DeviceClassMapping(in *DeviceClassMapping, out *v1beta2.DeviceClassMapping, s conversion.Scope) error {
-	out.Name = v1.ResourceName(in.Name)
-	out.DeviceClassNames = *(*[]v1.ResourceName)(unsafe.Pointer(&in.DeviceClassNames))
+	out.Name = corev1.ResourceName(in.Name)
+	out.DeviceClassNames = *(*[]corev1.ResourceName)(unsafe.Pointer(&in.DeviceClassNames))
 	return nil
 }
 
@@ -635,8 +618,8 @@ func Convert_v1beta1_DeviceClassMapping_To_v1beta2_DeviceClassMapping(in *Device
 }
 
 func autoConvert_v1beta2_DeviceClassMapping_To_v1beta1_DeviceClassMapping(in *v1beta2.DeviceClassMapping, out *DeviceClassMapping, s conversion.Scope) error {
-	out.Name = v1.ResourceName(in.Name)
-	out.DeviceClassNames = *(*[]v1.ResourceName)(unsafe.Pointer(&in.DeviceClassNames))
+	out.Name = corev1.ResourceName(in.Name)
+	out.DeviceClassNames = *(*[]corev1.ResourceName)(unsafe.Pointer(&in.DeviceClassNames))
 	// WARNING: in.Sources requires manual conversion: does not exist in peer-type
 	return nil
 }
@@ -673,9 +656,7 @@ func Convert_v1beta2_Integrations_To_v1beta1_Integrations(in *v1beta2.Integratio
 }
 
 func autoConvert_v1beta1_InternalCertManagement_To_v1beta2_InternalCertManagement(in *InternalCertManagement, out *v1beta2.InternalCertManagement, s conversion.Scope) error {
-	out.Enable = (*bool)(unsafe.Pointer(in.Enable))
-	out.WebhookServiceName = (*string)(unsafe.Pointer(in.WebhookServiceName))
-	out.WebhookSecretName = (*string)(unsafe.Pointer(in.WebhookSecretName))
+	*out = *(*v1beta2.InternalCertManagement)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -685,9 +666,7 @@ func Convert_v1beta1_InternalCertManagement_To_v1beta2_InternalCertManagement(in
 }
 
 func autoConvert_v1beta2_InternalCertManagement_To_v1beta1_InternalCertManagement(in *v1beta2.InternalCertManagement, out *InternalCertManagement, s conversion.Scope) error {
-	out.Enable = (*bool)(unsafe.Pointer(in.Enable))
-	out.WebhookServiceName = (*string)(unsafe.Pointer(in.WebhookServiceName))
-	out.WebhookSecretName = (*string)(unsafe.Pointer(in.WebhookSecretName))
+	*out = *(*InternalCertManagement)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -697,8 +676,7 @@ func Convert_v1beta2_InternalCertManagement_To_v1beta1_InternalCertManagement(in
 }
 
 func autoConvert_v1beta1_LocalQueueMetrics_To_v1beta2_LocalQueueMetrics(in *LocalQueueMetrics, out *v1beta2.LocalQueueMetrics, s conversion.Scope) error {
-	out.Enable = in.Enable
-	out.LocalQueueSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.LocalQueueSelector))
+	*out = *(*v1beta2.LocalQueueMetrics)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -708,8 +686,7 @@ func Convert_v1beta1_LocalQueueMetrics_To_v1beta2_LocalQueueMetrics(in *LocalQue
 }
 
 func autoConvert_v1beta2_LocalQueueMetrics_To_v1beta1_LocalQueueMetrics(in *v1beta2.LocalQueueMetrics, out *LocalQueueMetrics, s conversion.Scope) error {
-	out.Enable = in.Enable
-	out.LocalQueueSelector = (*metav1.LabelSelector)(unsafe.Pointer(in.LocalQueueSelector))
+	*out = *(*LocalQueueMetrics)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -719,9 +696,9 @@ func Convert_v1beta2_LocalQueueMetrics_To_v1beta1_LocalQueueMetrics(in *v1beta2.
 }
 
 func autoConvert_v1beta1_MultiKueue_To_v1beta2_MultiKueue(in *MultiKueue, out *v1beta2.MultiKueue, s conversion.Scope) error {
-	out.GCInterval = (*metav1.Duration)(unsafe.Pointer(in.GCInterval))
+	out.GCInterval = (*v1.Duration)(unsafe.Pointer(in.GCInterval))
 	out.Origin = (*string)(unsafe.Pointer(in.Origin))
-	out.WorkerLostTimeout = (*metav1.Duration)(unsafe.Pointer(in.WorkerLostTimeout))
+	out.WorkerLostTimeout = (*v1.Duration)(unsafe.Pointer(in.WorkerLostTimeout))
 	out.DispatcherName = (*string)(unsafe.Pointer(in.DispatcherName))
 	out.ExternalFrameworks = *(*[]v1beta2.MultiKueueExternalFramework)(unsafe.Pointer(&in.ExternalFrameworks))
 	return nil
@@ -733,9 +710,9 @@ func Convert_v1beta1_MultiKueue_To_v1beta2_MultiKueue(in *MultiKueue, out *v1bet
 }
 
 func autoConvert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in *v1beta2.MultiKueue, out *MultiKueue, s conversion.Scope) error {
-	out.GCInterval = (*metav1.Duration)(unsafe.Pointer(in.GCInterval))
+	out.GCInterval = (*v1.Duration)(unsafe.Pointer(in.GCInterval))
 	out.Origin = (*string)(unsafe.Pointer(in.Origin))
-	out.WorkerLostTimeout = (*metav1.Duration)(unsafe.Pointer(in.WorkerLostTimeout))
+	out.WorkerLostTimeout = (*v1.Duration)(unsafe.Pointer(in.WorkerLostTimeout))
 	out.DispatcherName = (*string)(unsafe.Pointer(in.DispatcherName))
 	out.ExternalFrameworks = *(*[]MultiKueueExternalFramework)(unsafe.Pointer(&in.ExternalFrameworks))
 	// WARNING: in.ClusterProfile requires manual conversion: does not exist in peer-type
@@ -744,7 +721,7 @@ func autoConvert_v1beta2_MultiKueue_To_v1beta1_MultiKueue(in *v1beta2.MultiKueue
 }
 
 func autoConvert_v1beta1_MultiKueueExternalFramework_To_v1beta2_MultiKueueExternalFramework(in *MultiKueueExternalFramework, out *v1beta2.MultiKueueExternalFramework, s conversion.Scope) error {
-	out.Name = in.Name
+	*out = *(*v1beta2.MultiKueueExternalFramework)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -754,7 +731,7 @@ func Convert_v1beta1_MultiKueueExternalFramework_To_v1beta2_MultiKueueExternalFr
 }
 
 func autoConvert_v1beta2_MultiKueueExternalFramework_To_v1beta1_MultiKueueExternalFramework(in *v1beta2.MultiKueueExternalFramework, out *MultiKueueExternalFramework, s conversion.Scope) error {
-	out.Name = in.Name
+	*out = *(*MultiKueueExternalFramework)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -764,7 +741,7 @@ func Convert_v1beta2_MultiKueueExternalFramework_To_v1beta1_MultiKueueExternalFr
 }
 
 func autoConvert_v1beta1_ObjectRetentionPolicies_To_v1beta2_ObjectRetentionPolicies(in *ObjectRetentionPolicies, out *v1beta2.ObjectRetentionPolicies, s conversion.Scope) error {
-	out.Workloads = (*v1beta2.WorkloadRetentionPolicy)(unsafe.Pointer(in.Workloads))
+	*out = *(*v1beta2.ObjectRetentionPolicies)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -774,7 +751,7 @@ func Convert_v1beta1_ObjectRetentionPolicies_To_v1beta2_ObjectRetentionPolicies(
 }
 
 func autoConvert_v1beta2_ObjectRetentionPolicies_To_v1beta1_ObjectRetentionPolicies(in *v1beta2.ObjectRetentionPolicies, out *ObjectRetentionPolicies, s conversion.Scope) error {
-	out.Workloads = (*WorkloadRetentionPolicy)(unsafe.Pointer(in.Workloads))
+	*out = *(*ObjectRetentionPolicies)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -784,10 +761,7 @@ func Convert_v1beta2_ObjectRetentionPolicies_To_v1beta1_ObjectRetentionPolicies(
 }
 
 func autoConvert_v1beta1_RequeuingStrategy_To_v1beta2_RequeuingStrategy(in *RequeuingStrategy, out *v1beta2.RequeuingStrategy, s conversion.Scope) error {
-	out.Timestamp = (*v1beta2.RequeuingTimestamp)(unsafe.Pointer(in.Timestamp))
-	out.BackoffLimitCount = (*int32)(unsafe.Pointer(in.BackoffLimitCount))
-	out.BackoffBaseSeconds = (*int32)(unsafe.Pointer(in.BackoffBaseSeconds))
-	out.BackoffMaxSeconds = (*int32)(unsafe.Pointer(in.BackoffMaxSeconds))
+	*out = *(*v1beta2.RequeuingStrategy)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -797,10 +771,7 @@ func Convert_v1beta1_RequeuingStrategy_To_v1beta2_RequeuingStrategy(in *Requeuin
 }
 
 func autoConvert_v1beta2_RequeuingStrategy_To_v1beta1_RequeuingStrategy(in *v1beta2.RequeuingStrategy, out *RequeuingStrategy, s conversion.Scope) error {
-	out.Timestamp = (*RequeuingTimestamp)(unsafe.Pointer(in.Timestamp))
-	out.BackoffLimitCount = (*int32)(unsafe.Pointer(in.BackoffLimitCount))
-	out.BackoffBaseSeconds = (*int32)(unsafe.Pointer(in.BackoffBaseSeconds))
-	out.BackoffMaxSeconds = (*int32)(unsafe.Pointer(in.BackoffMaxSeconds))
+	*out = *(*RequeuingStrategy)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -810,10 +781,7 @@ func Convert_v1beta2_RequeuingStrategy_To_v1beta1_RequeuingStrategy(in *v1beta2.
 }
 
 func autoConvert_v1beta1_ResourceTransformation_To_v1beta2_ResourceTransformation(in *ResourceTransformation, out *v1beta2.ResourceTransformation, s conversion.Scope) error {
-	out.Input = v1.ResourceName(in.Input)
-	out.Strategy = (*v1beta2.ResourceTransformationStrategy)(unsafe.Pointer(in.Strategy))
-	out.MultiplyBy = v1.ResourceName(in.MultiplyBy)
-	out.Outputs = *(*v1.ResourceList)(unsafe.Pointer(&in.Outputs))
+	*out = *(*v1beta2.ResourceTransformation)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -823,10 +791,7 @@ func Convert_v1beta1_ResourceTransformation_To_v1beta2_ResourceTransformation(in
 }
 
 func autoConvert_v1beta2_ResourceTransformation_To_v1beta1_ResourceTransformation(in *v1beta2.ResourceTransformation, out *ResourceTransformation, s conversion.Scope) error {
-	out.Input = v1.ResourceName(in.Input)
-	out.Strategy = (*ResourceTransformationStrategy)(unsafe.Pointer(in.Strategy))
-	out.MultiplyBy = v1.ResourceName(in.MultiplyBy)
-	out.Outputs = *(*v1.ResourceList)(unsafe.Pointer(&in.Outputs))
+	*out = *(*ResourceTransformation)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -876,9 +841,7 @@ func autoConvert_v1beta2_Resources_To_v1beta1_Resources(in *v1beta2.Resources, o
 }
 
 func autoConvert_v1beta1_TLSOptions_To_v1beta2_TLSOptions(in *TLSOptions, out *v1beta2.TLSOptions, s conversion.Scope) error {
-	out.MinVersion = in.MinVersion
-	out.CipherSuites = *(*[]string)(unsafe.Pointer(&in.CipherSuites))
-	out.CurvePreferences = *(*[]int32)(unsafe.Pointer(&in.CurvePreferences))
+	*out = *(*v1beta2.TLSOptions)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -888,9 +851,7 @@ func Convert_v1beta1_TLSOptions_To_v1beta2_TLSOptions(in *TLSOptions, out *v1bet
 }
 
 func autoConvert_v1beta2_TLSOptions_To_v1beta1_TLSOptions(in *v1beta2.TLSOptions, out *TLSOptions, s conversion.Scope) error {
-	out.MinVersion = in.MinVersion
-	out.CipherSuites = *(*[]string)(unsafe.Pointer(&in.CipherSuites))
-	out.CurvePreferences = *(*[]int32)(unsafe.Pointer(&in.CurvePreferences))
+	*out = *(*TLSOptions)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -901,28 +862,27 @@ func Convert_v1beta2_TLSOptions_To_v1beta1_TLSOptions(in *v1beta2.TLSOptions, ou
 
 func autoConvert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in *WaitForPodsReady, out *v1beta2.WaitForPodsReady, s conversion.Scope) error {
 	// WARNING: in.Enable requires manual conversion: does not exist in peer-type
-	if err := metav1.Convert_Pointer_v1_Duration_To_v1_Duration(&in.Timeout, &out.Timeout, s); err != nil {
+	if err := v1.Convert_Pointer_v1_Duration_To_v1_Duration(&in.Timeout, &out.Timeout, s); err != nil {
 		return err
 	}
 	out.BlockAdmission = (*bool)(unsafe.Pointer(in.BlockAdmission))
 	out.RequeuingStrategy = (*v1beta2.RequeuingStrategy)(unsafe.Pointer(in.RequeuingStrategy))
-	out.RecoveryTimeout = (*metav1.Duration)(unsafe.Pointer(in.RecoveryTimeout))
+	out.RecoveryTimeout = (*v1.Duration)(unsafe.Pointer(in.RecoveryTimeout))
 	return nil
 }
 
 func autoConvert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in *v1beta2.WaitForPodsReady, out *WaitForPodsReady, s conversion.Scope) error {
-	if err := metav1.Convert_v1_Duration_To_Pointer_v1_Duration(&in.Timeout, &out.Timeout, s); err != nil {
+	if err := v1.Convert_v1_Duration_To_Pointer_v1_Duration(&in.Timeout, &out.Timeout, s); err != nil {
 		return err
 	}
 	out.BlockAdmission = (*bool)(unsafe.Pointer(in.BlockAdmission))
 	out.RequeuingStrategy = (*RequeuingStrategy)(unsafe.Pointer(in.RequeuingStrategy))
-	out.RecoveryTimeout = (*metav1.Duration)(unsafe.Pointer(in.RecoveryTimeout))
+	out.RecoveryTimeout = (*v1.Duration)(unsafe.Pointer(in.RecoveryTimeout))
 	return nil
 }
 
 func autoConvert_v1beta1_WorkloadRetentionPolicy_To_v1beta2_WorkloadRetentionPolicy(in *WorkloadRetentionPolicy, out *v1beta2.WorkloadRetentionPolicy, s conversion.Scope) error {
-	out.AfterFinished = (*metav1.Duration)(unsafe.Pointer(in.AfterFinished))
-	out.AfterDeactivatedByKueue = (*metav1.Duration)(unsafe.Pointer(in.AfterDeactivatedByKueue))
+	*out = *(*v1beta2.WorkloadRetentionPolicy)(unsafe.Pointer(in))
 	return nil
 }
 
@@ -932,8 +892,7 @@ func Convert_v1beta1_WorkloadRetentionPolicy_To_v1beta2_WorkloadRetentionPolicy(
 }
 
 func autoConvert_v1beta2_WorkloadRetentionPolicy_To_v1beta1_WorkloadRetentionPolicy(in *v1beta2.WorkloadRetentionPolicy, out *WorkloadRetentionPolicy, s conversion.Scope) error {
-	out.AfterFinished = (*metav1.Duration)(unsafe.Pointer(in.AfterFinished))
-	out.AfterDeactivatedByKueue = (*metav1.Duration)(unsafe.Pointer(in.AfterDeactivatedByKueue))
+	*out = *(*WorkloadRetentionPolicy)(unsafe.Pointer(in))
 	return nil
 }
 

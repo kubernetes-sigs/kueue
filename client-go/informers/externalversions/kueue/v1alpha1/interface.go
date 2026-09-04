@@ -25,9 +25,9 @@ import (
 // Interface provides access to all the informers in this group version.
 type Interface interface {
 	// CapacityProviders returns a CapacityProviderInformer.
-	CapacityProviders() CapacityProviderInformer
+	CapacityProviders() TypedCapacityProviderInformer
 	// DynamicQuotaOrchestrators returns a DynamicQuotaOrchestratorInformer.
-	DynamicQuotaOrchestrators() DynamicQuotaOrchestratorInformer
+	DynamicQuotaOrchestrators() TypedDynamicQuotaOrchestratorInformer
 }
 
 type version struct {
@@ -41,12 +41,12 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
-// CapacityProviders returns a CapacityProviderInformer.
-func (v *version) CapacityProviders() CapacityProviderInformer {
+// CapacityProviders returns a TypedCapacityProviderInformer.
+func (v *version) CapacityProviders() TypedCapacityProviderInformer {
 	return &capacityProviderInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
-// DynamicQuotaOrchestrators returns a DynamicQuotaOrchestratorInformer.
-func (v *version) DynamicQuotaOrchestrators() DynamicQuotaOrchestratorInformer {
+// DynamicQuotaOrchestrators returns a TypedDynamicQuotaOrchestratorInformer.
+func (v *version) DynamicQuotaOrchestrators() TypedDynamicQuotaOrchestratorInformer {
 	return &dynamicQuotaOrchestratorInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }

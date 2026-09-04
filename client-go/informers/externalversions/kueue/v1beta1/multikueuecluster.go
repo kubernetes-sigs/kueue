@@ -34,11 +34,39 @@ import (
 )
 
 // MultiKueueClusterInformer provides access to a shared informer and lister for
-// MultiKueueClusters.
+// MultiKueueClusters. Prefer using the type-safe variant (see [TypedMultiKueueClusterInformer]).
 type MultiKueueClusterInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() kueuev1beta1.MultiKueueClusterLister
 }
+
+// TypedMultiKueueClusterInformer provides access to a shared informer and lister for
+// MultiKueueClusters, including the type-safe TypedInformer variant.
+// It is a superset of MultiKueueClusterInformer.
+type TypedMultiKueueClusterInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() MultiKueueClusterIndexInformer
+	Lister() kueuev1beta1.MultiKueueClusterLister
+}
+
+// MultiKueueClusterIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type MultiKueueClusterIndexInformer cache.TypedSharedIndexInformer[*apiskueuev1beta1.MultiKueueCluster]
+
+// MultiKueueClusterHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for MultiKueueCluster.
+type MultiKueueClusterHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apiskueuev1beta1.MultiKueueCluster]
+
+// MultiKueueClusterDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for MultiKueueCluster.
+type MultiKueueClusterDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apiskueuev1beta1.MultiKueueCluster]
+
+// MultiKueueClusterFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for MultiKueueCluster.
+type MultiKueueClusterFilteringHandler = cache.TypedFilteringResourceEventHandler[*apiskueuev1beta1.MultiKueueCluster]
+
+// MultiKueueClusterIndexers is a specialization of [cache.TypedIndexers] for MultiKueueCluster.
+type MultiKueueClusterIndexers = cache.TypedIndexers[*apiskueuev1beta1.MultiKueueCluster]
+
+// DeletedMultiKueueCluster is a specialization of [cache.DeletedObject] for MultiKueueCluster.
+type DeletedMultiKueueCluster = cache.DeletedObject[*apiskueuev1beta1.MultiKueueCluster]
 
 type multiKueueClusterInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -48,25 +76,49 @@ type multiKueueClusterInformer struct {
 // NewMultiKueueClusterInformer constructs a new informer for MultiKueueCluster type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedMultiKueueClusterInformer]).
 func NewMultiKueueClusterInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
 	return NewMultiKueueClusterInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedMultiKueueClusterInformer constructs a new informer for MultiKueueCluster type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedMultiKueueClusterInformer(client versioned.Interface, resyncPeriod time.Duration, indexers MultiKueueClusterIndexers) MultiKueueClusterIndexInformer {
+	return NewTypedMultiKueueClusterInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredMultiKueueClusterInformer constructs a new informer for MultiKueueCluster type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredMultiKueueClusterInformer]).
 func NewFilteredMultiKueueClusterInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return NewMultiKueueClusterInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+	return NewTypedMultiKueueClusterInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredMultiKueueClusterInformer constructs a new informer for MultiKueueCluster type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredMultiKueueClusterInformer(client versioned.Interface, resyncPeriod time.Duration, indexers MultiKueueClusterIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) MultiKueueClusterIndexInformer {
+	return NewTypedMultiKueueClusterInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
 }
 
 // NewMultiKueueClusterInformerWithOptions constructs a new informer for MultiKueueCluster type with additional options.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedMultiKueueClusterInformerWithOptions]).
 func NewMultiKueueClusterInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedMultiKueueClusterInformerWithOptions(client, options)
+}
+
+// NewTypedMultiKueueClusterInformerWithOptions constructs a new informer for MultiKueueCluster type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedMultiKueueClusterInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) MultiKueueClusterIndexInformer {
 	gvr := schema.GroupVersionResource{Group: "kueue.x-k8s.io", Version: "v1beta1", Resource: "multikueueclusters"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.MultiKueueCluster](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -99,17 +151,57 @@ func NewMultiKueueClusterInformerWithOptions(client versioned.Interface, options
 			Indexers:     options.Indexers,
 			Identifier:   identifier,
 		},
-	)
+	))
 }
 
 func (f *multiKueueClusterInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewMultiKueueClusterInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
+	return NewTypedMultiKueueClusterInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *multiKueueClusterInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apiskueuev1beta1.MultiKueueCluster{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *multiKueueClusterInformer) TypedInformer() MultiKueueClusterIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.MultiKueueCluster](f.factory.InformerFor(&apiskueuev1beta1.MultiKueueCluster{}, f.defaultInformer))
 }
 
 func (f *multiKueueClusterInformer) Lister() kueuev1beta1.MultiKueueClusterLister {
 	return kueuev1beta1.NewMultiKueueClusterLister(f.Informer().GetIndexer())
+}
+
+// ToTypedMultiKueueClusterInformer converts an untyped informer into a TypedMultiKueueClusterInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *MultiKueueCluster. If that is not the case, calling type-safe methods of the returned
+// TypedMultiKueueClusterInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedMultiKueueClusterInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedMultiKueueClusterInformer(informer MultiKueueClusterInformer) TypedMultiKueueClusterInformer {
+	if informer, ok := informer.(TypedMultiKueueClusterInformer); ok {
+		return informer
+	}
+	return &multiKueueClusterTypedInformerAdapter{informer}
+}
+
+type multiKueueClusterTypedInformerAdapter struct {
+	MultiKueueClusterInformer
+}
+
+func (a *multiKueueClusterTypedInformerAdapter) TypedInformer() MultiKueueClusterIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.MultiKueueCluster](a.Informer())
+}
+
+// ToMultiKueueClusterIndexInformer converts an untyped informer into a MultiKueueClusterIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *MultiKueueCluster. If that is not the case, calling type-safe methods of the returned
+// MultiKueueClusterIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a MultiKueueClusterIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToMultiKueueClusterIndexInformer(informer cache.SharedIndexInformer) MultiKueueClusterIndexInformer {
+	if informer, ok := informer.(MultiKueueClusterIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.MultiKueueCluster](informer)
 }

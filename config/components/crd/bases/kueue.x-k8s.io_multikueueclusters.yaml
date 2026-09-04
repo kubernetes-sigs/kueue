@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.22.0
   name: multikueueclusters.kueue.x-k8s.io
 spec:
   group: kueue.x-k8s.io
@@ -238,8 +238,8 @@ spec:
                 x-kubernetes-validations:
                 - message: exactly one of the fields in [kubeConfig clusterProfileRef]
                     must be set
-                  rule: '[has(self.kubeConfig),has(self.clusterProfileRef)].filter(x,x==true).size()
-                    == 1'
+                  rule: (has(self.kubeConfig)?1:0)+(has(self.clusterProfileRef)?1:0)
+                    == 1
             required:
             - clusterSource
             type: object

@@ -34,11 +34,39 @@ import (
 )
 
 // LocalQueueInformer provides access to a shared informer and lister for
-// LocalQueues.
+// LocalQueues. Prefer using the type-safe variant (see [TypedLocalQueueInformer]).
 type LocalQueueInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() kueuev1beta2.LocalQueueLister
 }
+
+// TypedLocalQueueInformer provides access to a shared informer and lister for
+// LocalQueues, including the type-safe TypedInformer variant.
+// It is a superset of LocalQueueInformer.
+type TypedLocalQueueInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() LocalQueueIndexInformer
+	Lister() kueuev1beta2.LocalQueueLister
+}
+
+// LocalQueueIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type LocalQueueIndexInformer cache.TypedSharedIndexInformer[*apiskueuev1beta2.LocalQueue]
+
+// LocalQueueHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for LocalQueue.
+type LocalQueueHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apiskueuev1beta2.LocalQueue]
+
+// LocalQueueDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for LocalQueue.
+type LocalQueueDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apiskueuev1beta2.LocalQueue]
+
+// LocalQueueFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for LocalQueue.
+type LocalQueueFilteringHandler = cache.TypedFilteringResourceEventHandler[*apiskueuev1beta2.LocalQueue]
+
+// LocalQueueIndexers is a specialization of [cache.TypedIndexers] for LocalQueue.
+type LocalQueueIndexers = cache.TypedIndexers[*apiskueuev1beta2.LocalQueue]
+
+// DeletedLocalQueue is a specialization of [cache.DeletedObject] for LocalQueue.
+type DeletedLocalQueue = cache.DeletedObject[*apiskueuev1beta2.LocalQueue]
 
 type localQueueInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -49,25 +77,49 @@ type localQueueInformer struct {
 // NewLocalQueueInformer constructs a new informer for LocalQueue type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedLocalQueueInformer]).
 func NewLocalQueueInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
 	return NewLocalQueueInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedLocalQueueInformer constructs a new informer for LocalQueue type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedLocalQueueInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers LocalQueueIndexers) LocalQueueIndexInformer {
+	return NewTypedLocalQueueInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredLocalQueueInformer constructs a new informer for LocalQueue type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredLocalQueueInformer]).
 func NewFilteredLocalQueueInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return NewLocalQueueInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+	return NewTypedLocalQueueInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredLocalQueueInformer constructs a new informer for LocalQueue type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredLocalQueueInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers LocalQueueIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) LocalQueueIndexInformer {
+	return NewTypedLocalQueueInformerWithOptions(client, namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
 }
 
 // NewLocalQueueInformerWithOptions constructs a new informer for LocalQueue type with additional options.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedLocalQueueInformerWithOptions]).
 func NewLocalQueueInformerWithOptions(client versioned.Interface, namespace string, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedLocalQueueInformerWithOptions(client, namespace, options)
+}
+
+// NewTypedLocalQueueInformerWithOptions constructs a new informer for LocalQueue type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedLocalQueueInformerWithOptions(client versioned.Interface, namespace string, options internalinterfaces.InformerOptions) LocalQueueIndexInformer {
 	gvr := schema.GroupVersionResource{Group: "kueue.x-k8s.io", Version: "v1beta2", Resource: "localqueues"}
 	identifier := options.InformerName.WithResource(gvr)
 	tweakListOptions := options.TweakListOptions
-	return cache.NewSharedIndexInformerWithOptions(
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta2.LocalQueue](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
@@ -100,17 +152,57 @@ func NewLocalQueueInformerWithOptions(client versioned.Interface, namespace stri
 			Indexers:     options.Indexers,
 			Identifier:   identifier,
 		},
-	)
+	))
 }
 
 func (f *localQueueInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewLocalQueueInformerWithOptions(client, f.namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
+	return NewTypedLocalQueueInformerWithOptions(client, f.namespace, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *localQueueInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apiskueuev1beta2.LocalQueue{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *localQueueInformer) TypedInformer() LocalQueueIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta2.LocalQueue](f.factory.InformerFor(&apiskueuev1beta2.LocalQueue{}, f.defaultInformer))
 }
 
 func (f *localQueueInformer) Lister() kueuev1beta2.LocalQueueLister {
 	return kueuev1beta2.NewLocalQueueLister(f.Informer().GetIndexer())
+}
+
+// ToTypedLocalQueueInformer converts an untyped informer into a TypedLocalQueueInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *LocalQueue. If that is not the case, calling type-safe methods of the returned
+// TypedLocalQueueInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedLocalQueueInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedLocalQueueInformer(informer LocalQueueInformer) TypedLocalQueueInformer {
+	if informer, ok := informer.(TypedLocalQueueInformer); ok {
+		return informer
+	}
+	return &localQueueTypedInformerAdapter{informer}
+}
+
+type localQueueTypedInformerAdapter struct {
+	LocalQueueInformer
+}
+
+func (a *localQueueTypedInformerAdapter) TypedInformer() LocalQueueIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta2.LocalQueue](a.Informer())
+}
+
+// ToLocalQueueIndexInformer converts an untyped informer into a LocalQueueIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *LocalQueue. If that is not the case, calling type-safe methods of the returned
+// LocalQueueIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a LocalQueueIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToLocalQueueIndexInformer(informer cache.SharedIndexInformer) LocalQueueIndexInformer {
+	if informer, ok := informer.(LocalQueueIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta2.LocalQueue](informer)
 }
