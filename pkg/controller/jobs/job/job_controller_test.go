@@ -3089,6 +3089,36 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		// A suspended Job creates no Pod, so the API server never gets to refuse
+		// the name and Kueue is the only thing that resolves it.
+		"a warning names the PriorityClass that does not exist": {
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				PriorityClass("missing-pc").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				PriorityClass("missing-pc").
+				UID("test-uid").
+				Obj(),
+			// missing-pc is deliberately absent here.
+			priorityClasses: []client.Object{
+				basePCWrapper.Obj(),
+			},
+			// The error identity is pinned in jobframework, where it is classified.
+			wantErr: cmpopts.AnyError,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    jobframework.ReasonPriorityClassNotFound,
+					Message:   `PriorityClass "missing-pc" not found`,
+				},
+			},
+		},
 		// The boundary the concept page draws. A Workload whose priority came from
 		// a Pod PriorityClass is not re-resolved, so the label is taken and does
 		// nothing, and nothing is reported. Tracked separately; pinned here so the
