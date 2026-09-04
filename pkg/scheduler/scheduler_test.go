@@ -2865,12 +2865,12 @@ func TestSchedule(t *testing.T) {
 									Count(20).
 									Obj(),
 								utiltestingapi.MakePodSetAssignment("two").
-									Assignment(corev1.ResourceCPU, "default", "20").
-									Count(20).
+									Assignment(corev1.ResourceCPU, "default", "25").
+									Count(25).
 									Obj(),
 								utiltestingapi.MakePodSetAssignment("three").
-									Assignment(corev1.ResourceCPU, "default", "10").
-									Count(10).
+									Assignment(corev1.ResourceCPU, "default", "5").
+									Count(5).
 									Obj(),
 							).
 							Obj(),
@@ -2886,12 +2886,12 @@ func TestSchedule(t *testing.T) {
 							Count(20).
 							Obj(),
 						utiltestingapi.MakePodSetAssignment("two").
-							Assignment(corev1.ResourceCPU, "default", "20000m").
-							Count(20).
+							Assignment(corev1.ResourceCPU, "default", "25000m").
+							Count(25).
 							Obj(),
 						utiltestingapi.MakePodSetAssignment("three").
-							Assignment(corev1.ResourceCPU, "default", "10000m").
-							Count(10).
+							Assignment(corev1.ResourceCPU, "default", "5000m").
+							Count(5).
 							Obj(),
 					},
 				},
