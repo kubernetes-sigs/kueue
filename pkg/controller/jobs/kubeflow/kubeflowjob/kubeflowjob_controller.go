@@ -131,7 +131,7 @@ func (j *KubeflowJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.Pod
 	return podSets, nil
 }
 
-func (j *KubeflowJob) IsActive() bool {
+func (j *KubeflowJob) IsActive(_ context.Context) bool {
 	for _, replicaStatus := range j.KFJobControl.JobStatus().ReplicaStatuses {
 		if replicaStatus.Active != 0 {
 			return true

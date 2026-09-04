@@ -109,6 +109,7 @@ type JobReconciler struct {
 	workloadRetentionPolicy      WorkloadRetentionPolicy
 	roleTracker                  *roletracker.RoleTracker
 	customLabels                 *metrics.CustomLabels
+	quotaReleaseStrategy         configapi.QuotaReleaseStrategy
 }
 
 // RoleTracker returns the role tracker for HA logging.
@@ -135,6 +136,7 @@ type Options struct {
 	CustomLabels                 *metrics.CustomLabels
 	IntegrationManager           *IntegrationManager
 	NoopWebhook                  bool
+	QuotaReleaseStrategy         configapi.QuotaReleaseStrategy
 }
 
 // Option configures the reconciler.
@@ -146,6 +148,14 @@ func ProcessOptions(opts ...Option) Options {
 		opt(&options)
 	}
 	return options
+}
+
+func WithQuotaReleaseStrategy(s *configapi.QuotaReleaseStrategy) Option {
+	return func(o *Options) {
+		if s != nil {
+			o.QuotaReleaseStrategy = *s
+		}
+	}
 }
 
 // WithManageJobsWithoutQueueName indicates if the controller should reconcile
@@ -305,10 +315,12 @@ func NewReconciler(
 		workloadRetentionPolicy:      options.WorkloadRetentionPolicy,
 		roleTracker:                  options.RoleTracker,
 		customLabels:                 options.CustomLabels,
+		quotaReleaseStrategy:         options.QuotaReleaseStrategy,
 	}
 }
 
 func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Request, job GenericJob) (result ctrl.Result, err error) {
+	ctx = ContextWithQuotaReleaseStrategy(ctx, r.quotaReleaseStrategy)
 	object := job.Object()
 	log := ctrl.LoggerFrom(ctx).WithValues("job", req.String(), "gvk", job.GVK())
 	ctx = ctrl.LoggerInto(ctx, log)
@@ -617,7 +629,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 		if workload.HasQuotaReservation(wl) {
-			if !job.IsActive() {
+			ctx = ContextWithQuotaReleaseStrategy(ctx, r.quotaReleaseStrategy)
+			if !job.IsActive(ctx) {
 				log.V(6).Info("The job is no longer active, clear the workloads admission")
 				err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 					// The requeued condition status set to true only on EvictedByPreemption
@@ -1936,7 +1949,8 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 	// Wait until there are no active pods, unless this is a workload-slice job.
 	// For workload-slice enabled jobs, we allow the job to remain "Active" to accommodate
 	// the scale-up case, where the new workload slice replaces the old workload slice.
-	if job.IsActive() && !WorkloadSliceEnabled(job) {
+	ctx = ContextWithQuotaReleaseStrategy(ctx, r.quotaReleaseStrategy)
+	if job.IsActive(ctx) && !WorkloadSliceEnabled(job) {
 		log.V(2).Info("Job is suspended but still has active pods, waiting")
 		return nil
 	}

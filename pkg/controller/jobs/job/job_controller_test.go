@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -5275,11 +5276,76 @@ func TestTerminalIndexesCount(t *testing.T) {
 		"malformed interval skipped":          {completedIndexes: "abc,0-2", completions: 10, want: 3},
 		"malformed range end skipped":         {completedIndexes: "0-x,4", completions: 10, want: 1},
 	}
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			if got := terminalIndexesCount(log, tc.completedIndexes, tc.failedIndexes, tc.completions); got != tc.want {
 				t.Errorf("terminalIndexesCount(%q, %q, %d) = %d, want %d", tc.completedIndexes, tc.failedIndexes, tc.completions, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestJob_IsActive(t *testing.T) {
+	tests := map[string]struct {
+		active      int32
+		terminating *int32
+		strategy    configapi.QuotaReleaseStrategy
+		want        bool
+	}{
+		"Active == 0, Terminating == nil, OnTerminating": {
+			active:      0,
+			terminating: nil,
+			strategy:    configapi.QuotaReleaseOnTerminating,
+			want:        false,
+		},
+		"Active == 0, Terminating == 0, OnTerminating": {
+			active:      0,
+			terminating: ptr.To[int32](0),
+			strategy:    configapi.QuotaReleaseOnTerminating,
+			want:        false,
+		},
+		"Active > 0, Terminating == 0, OnTerminating": {
+			active:      2,
+			terminating: ptr.To[int32](0),
+			strategy:    configapi.QuotaReleaseOnTerminating,
+			want:        true,
+		},
+		"Active > 0, Terminating == nil, OnTerminal": {
+			active:      1,
+			terminating: nil,
+			strategy:    configapi.QuotaReleaseOnTerminal,
+			want:        true,
+		},
+		"Active == 0, Terminating > 0, OnTerminating": {
+			active:      0,
+			terminating: ptr.To[int32](2),
+			strategy:    configapi.QuotaReleaseOnTerminating,
+			want:        false,
+		},
+		"Active == 0, Terminating > 0, OnTerminal": {
+			active:      0,
+			terminating: ptr.To[int32](2),
+			strategy:    configapi.QuotaReleaseOnTerminal,
+			want:        true,
+		},
+		"Active > 0, Terminating > 0, OnTerminal": {
+			active:      1,
+			terminating: ptr.To[int32](1),
+			strategy:    configapi.QuotaReleaseOnTerminal,
+			want:        true,
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			j := utiltestingjob.MakeJob("job", "ns").Parallelism(8).Obj()
+			j.Status.Active = tt.active
+			j.Status.Terminating = tt.terminating
+			ctx := jobframework.ContextWithQuotaReleaseStrategy(t.Context(), tt.strategy)
+			if got := (*Job)(j).IsActive(ctx); got != tt.want {
+				t.Errorf("IsActive(%v) = %v, want %v", tt.strategy, got, tt.want)
 			}
 		})
 	}

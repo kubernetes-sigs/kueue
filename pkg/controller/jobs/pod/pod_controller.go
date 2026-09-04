@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -447,7 +448,7 @@ func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 // with a DeletionTimestamp is treated as inactive immediately, regardless of
 // its grace period status. This allows quota to be released as soon as
 // preempted pods begin terminating.
-func (p *Pod) IsActive() bool {
+func (p *Pod) IsActive(ctx context.Context) bool {
 	for i := range p.list.Items {
 		pod := p.list.Items[i]
 
@@ -456,10 +457,12 @@ func (p *Pod) IsActive() bool {
 			continue
 		}
 
-		if features.Enabled(features.FastQuotaReleaseInPodIntegration) && pod.DeletionTimestamp != nil {
-			continue
+		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {
+			strategy := jobframework.GetQuotaReleaseStrategy(ctx)
+			if strategy == configapi.QuotaReleaseOnTerminating {
+				continue
+			}
 		}
-
 		// If a pod is stuck terminating (e.g., due to a lost node), we should avoid
 		// counting as Active, as doing so could block the workload to release acquired quota.
 		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {

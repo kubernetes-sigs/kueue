@@ -62,7 +62,7 @@ type GenericJob interface {
 	PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error)
 
 	// IsActive returns true if there are any running pods.
-	IsActive() bool
+	IsActive(ctx context.Context) bool
 
 	// PodsReady indicates whether all job-derived pods are ready.
 	PodsReady(ctx context.Context, c client.Client) bool
