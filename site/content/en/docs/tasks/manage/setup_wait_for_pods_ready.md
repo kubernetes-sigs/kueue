@@ -64,10 +64,10 @@ kubectl delete pods --all -n kueue-system
 The `timeout` (`waitForPodsReady.timeout`) is an optional parameter, defaulting to
 30 minutes.
 
-When the `timeout` expires for an admitted Workload, and the workload's
-pods are not all scheduled yet (i.e., the Workload condition remains
-`PodsReady=False`), then the Workload's admission is
-cancelled, the corresponding job is suspended and the Workload is re-queued.
+When the `timeout` expires for an admitted Workload and its Pods are not
+all ready yet (that is, the Workload condition remains `PodsReady=False`),
+the Workload's admission is cancelled, the corresponding Job is suspended,
+and the Workload is requeued.
 
 `recoveryTimeout` is an optional parameter used for
 workloads that are already running but have one or more Pods in a not-ready state
@@ -81,6 +81,42 @@ recovery timeout checking.
 The `blockAdmission` (`waitForPodsReady.blockAdmission`) is an optional parameter.
 When enabled, then the workloads are admitted sequentially to prevent deadlock
 situations as demonstrated in the example below.
+
+### Unscheduled timeout
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+
+Use `unscheduledTimeout` to requeue a Workload sooner when its Pods cannot be
+scheduled, without shortening the time allowed for image pulls and other startup
+tasks. Enable the `WaitForPodsReadyUnscheduledTimeout`
+[feature gate](/docs/installation/#change-the-feature-gates-configuration), which is
+disabled by default:
+
+```yaml
+featureGates:
+  WaitForPodsReadyUnscheduledTimeout: true
+waitForPodsReady:
+  timeout: 30m
+  unscheduledTimeout: 5m
+```
+
+The optional `unscheduledTimeout` starts at Workload admission. If a current-admission
+observation shows required Pods remain unscheduled after it expires, Kueue suspends
+the Job and requeues its Workload using the configured `requeuingStrategy`.
+The regular `timeout`, measured from admission, remains the
+overall limit for the Pods to become ready. Once the Workload has been ready,
+`recoveryTimeout` applies instead. Late Pod creation or observation does not extend
+either initial deadline.
+
+The value must be non-negative and no greater than `timeout`. If omitted or set
+to `0s`, this feature does nothing: no scheduling observation, propagation, extra
+annotations/index, scheduling timeout or scheduling-history reset. Existing scheduling
+conditions are retained but ignored, and ordinary readiness behavior is unchanged.
+With the feature gate enabled and a positive timeout, Workloads waiting for
+scheduling report `PodsReady=False` with reason `WaitForScheduling`.
+
+Remove `unscheduledTimeout` from the configuration before disabling the feature
+gate. This feature cannot be used together with `DisableWaitForPodsReady`.
 
 ### Requeuing Strategy
 
