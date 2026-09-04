@@ -155,6 +155,25 @@ func ExpectMultiKueueWorkloadsAdmittedTotalMetric(cq *kueue.ClusterQueue, cluste
 		cq.Name, cluster, roletracker.RoleStandalone)
 }
 
+// ExpectMultiKueueClusterStatusMetric asserts that the worker cluster reports the
+// given Active condition status under the referencing ClusterQueue, and 0 for every
+// other status.
+func ExpectMultiKueueClusterStatusMetric(cqName, cluster string, status metav1.ConditionStatus) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		for _, s := range metrics.ConditionStatusValues {
+			var wantV float64
+			if s == status {
+				wantV = 1
+			}
+			metric := metrics.MultiKueueClusterByStatus.WithLabelValues(cqName, cluster, string(s), roletracker.RoleStandalone)
+			v, err := testutil.GetGaugeMetricValue(metric)
+			g.Expect(err).ToNot(gomega.HaveOccurred())
+			g.Expect(v).Should(gomega.Equal(wantV), "multikueue_cluster_status with active=%s", s)
+		}
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectAdmissionWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
 	ginkgo.GinkgoHelper()
 	expectHistogramMetric(metrics.AdmissionWaitTime, gomega.Equal(count), cq.Name, priorityClass, roletracker.RoleStandalone)
