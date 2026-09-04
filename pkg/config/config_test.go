@@ -1282,7 +1282,7 @@ func TestEncode(t *testing.T) {
 					"origin":            "multikueue",
 					"workerLostTimeout": "15m0s",
 					"dispatcherName":    configapi.MultiKueueDispatcherModeAllAtOnce,
-					"clientConnection": map[string]any{
+					"workerClientConnection": map[string]any{
 						"qps":   int64(300),
 						"burst": int64(500),
 					},
