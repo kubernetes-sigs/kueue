@@ -67,7 +67,6 @@ spec:
 Kueue 控制 RayService 的 `spec.rayClusterConfig.suspend` 字段。当 RayService 被 Kueue 接纳时，Kueue 会通过将 `spec.rayClusterConfig.suspend` 设置为 `false` 来取消暂停，无论其之前的值是什么。
 
 ### d. 限制事项 {#c-limitations}
-- 有限的 Worker Group：由于 Kueue 工作负载最多可以有 18 个 PodSet，所以 `spec.rayClusterConfig.workerGroupSpecs` 的最大数量为 17。
 - 内建自动扩缩约束：自动扩缩仅支持[弹性](/zh-cn/docs/concepts/elastic_workload) RayService 对象。要启用内建自动扩缩：
 
   1. 启用 `ElasticJobsViaWorkloadSlices` 特性门控。
