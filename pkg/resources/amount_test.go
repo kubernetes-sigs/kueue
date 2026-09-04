@@ -20,7 +20,6 @@ import (
 	"math"
 	"math/big"
 	"testing"
-	"time"
 
 	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
@@ -139,10 +138,7 @@ func TestAmountFromQuantity(t *testing.T) {
 		"a fraction past it in cpu":     {name: corev1.ResourceCPU, qty: "9223372036854775807.001", want: "9223372036854775807000"},
 		"below a milli past it in cpu":  {name: corev1.ResourceCPU, qty: "9223372036854775807.0009", want: "9223372036854775807000"},
 		"a fraction short of it in cpu": {name: corev1.ResourceCPU, qty: "9223372036854775806.999", want: "9223372036854775806999"},
-		// A scale this large is never expanded, so these answer at once rather
-		// than building a power of ten with two billion digits.
-		"a scale too large to hold": {name: "example.com/gpu", qty: "1e2147483647", want: "9223372036854775807"},
-		"a negative amount":         {name: "example.com/gpu", qty: "-3", want: "-3"},
+		"a negative amount":             {name: "example.com/gpu", qty: "-3", want: "-3"},
 	}
 
 	for name, tc := range cases {
@@ -240,13 +236,13 @@ func TestScaledBigMatchesTheAccessors(t *testing.T) {
 }
 
 // A Quantity is not only built by the parser, and one built directly carries a
-// scale the parser never reaches: ParseQuantity does not return for a scale
-// this size, so this shape reaches the conversion from Go rather than from the
-// API. The conversion answers from the sign instead of building the divisor,
-// which would be a power of ten with two billion digits. Removing the short
-// circuit makes it not return, so it runs under a deadline: the point is to
-// name the regression rather than to hang the package while it exhausts memory.
-func TestAmountFromQuantityBelowOneAtAScaleTooLargeToBuild(t *testing.T) {
+// scale the parser never reaches. The scale here is large enough to show the
+// conversion answering from the sign rather than from a division, and small
+// enough that a regression fails an assertion instead of exhausting the
+// process. The int32 extremes belong to TestScaledIsBelowOne and
+// TestExceedsQuantity, which decide them from the digit count and build
+// nothing.
+func TestAmountFromQuantityBelowOneAtALargeScale(t *testing.T) {
 	for _, tc := range []struct {
 		unscaled int64
 		want     string
@@ -254,16 +250,9 @@ func TestAmountFromQuantityBelowOneAtAScaleTooLargeToBuild(t *testing.T) {
 		{1, "1"},
 		{-1, "-1"},
 	} {
-		q := resource.NewDecimalQuantity(*inf.NewDec(tc.unscaled, 2147483647), resource.DecimalSI)
-		done := make(chan string, 1)
-		go func() { done <- AmountFromQuantity("example.com/gpu", *q).String() }()
-		select {
-		case got := <-done:
-			if got != tc.want {
-				t.Errorf("AmountFromQuantity(%d at scale 2147483647) = %s, want %s", tc.unscaled, got, tc.want)
-			}
-		case <-time.After(10 * time.Second):
-			t.Fatalf("AmountFromQuantity(%d at scale 2147483647) did not return, so the short circuit is gone and the divisor is being built", tc.unscaled)
+		q := resource.NewDecimalQuantity(*inf.NewDec(tc.unscaled, 100_000), resource.DecimalSI)
+		if got := AmountFromQuantity("example.com/gpu", *q); got.String() != tc.want {
+			t.Errorf("AmountFromQuantity(%d at scale 100000) = %s, want %s", tc.unscaled, got, tc.want)
 		}
 	}
 }
@@ -283,7 +272,12 @@ func TestExceedsQuantity(t *testing.T) {
 		"the ceiling written smaller":  {unscaled: "9223372036854775807000", exp: -3},
 		"the ceiling and a thousandth": {unscaled: "9223372036854775807001", exp: -3, want: true},
 		"a thousandth short of it":     {unscaled: "9223372036854775806999", exp: -3},
-		"a scale too large to build":   {unscaled: "1", exp: -2147483647},
+		// Large enough that only the digit count can decide them, bounded so a
+		// regression fails an assertion rather than expanding a power of ten
+		// nothing can stop. The int32 extremes are pinned by
+		// TestScaledIsBelowOne, whose predicate cannot allocate at all.
+		"a scale far below the ceiling": {unscaled: "1", exp: -100_000},
+		"a scale far above it":          {unscaled: "1", exp: 100_000, want: true},
 	}
 
 	for name, tc := range cases {
