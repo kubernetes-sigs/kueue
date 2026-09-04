@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -6191,6 +6192,14 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		}
 
 		labelKeysToCopy, annotationsToCopy := metrics.WorkloadCustomLabelSources(configuration.Metrics.CustomLabels)
+		// Options can ask for a key a Kueue controller writes: built before it was
+		// reserved, or a copy source added after. The sink answers either way.
+		labelKeysToCopy.Insert(kueue.MultiKueueOriginLabel, constants.ConcurrentAdmissionParentLabelKey,
+			constants.JobUIDLabel)
+		annotationsToCopy.Insert(constants.ComponentWorkloadIndexAnnotation, constants.JobOwnerGVKAnnotation,
+			constants.JobOwnerNameAnnotation, constants.PriorityBoostAnnotationKey,
+			constants.WorkloadAllowedResourceFlavorAnnotation, kueue.WorkloadSliceNameAnnotation,
+			workloadslicing.WorkloadSliceReplacementFor, podconstants.IsGroupWorkloadAnnotationKey)
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, false, configuration,
 			jobframework.WithLabelKeysToCopy(labelKeysToCopy),
 			jobframework.WithAnnotationsToCopy(annotationsToCopy),
@@ -6227,5 +6236,54 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKey("dont-copy-label"))
 		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("job-annotation", "annotation-value"))
 		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("dont-copy-annotation"))
+	})
+
+	// The configuration refuses a reserved label, so this covers the half that
+	// cannot be reached that way: options built before the key was reserved, or
+	// a copy source added later, still do not put one on a Workload.
+	ginkgo.It("should not copy metadata a Kueue controller writes, whatever the options ask for", func() {
+		// The job UID is left out: the reconciler writes the real one straight
+		// after building the Workload, so it is checked below rather than here.
+		nonInheritableLabels := map[string]string{
+			kueue.MultiKueueOriginLabel:                 "multikueue",
+			constants.ConcurrentAdmissionParentLabelKey: "true",
+		}
+		nonInheritableAnnotations := map[string]string{
+			constants.ComponentWorkloadIndexAnnotation:        "0",
+			constants.JobOwnerGVKAnnotation:                   "batch/v1, Kind=Job",
+			constants.JobOwnerNameAnnotation:                  "someone-elses-job",
+			constants.PriorityBoostAnnotationKey:              "2147483647",
+			constants.WorkloadAllowedResourceFlavorAnnotation: "expensive",
+			kueue.WorkloadSliceNameAnnotation:                 "someone-elses-workload",
+			workloadslicing.WorkloadSliceReplacementFor:       "ns/someone-elses-workload",
+			podconstants.IsGroupWorkloadAnnotationKey:         "true",
+		}
+		job := testingjob.MakeJob("test-job-reserved", ns.Name).Queue("foo").
+			Label("job-label", "label-value").
+			Label(constants.JobUIDLabel, "someone-elses-uid").
+			SetAnnotation("job-annotation", "annotation-value").
+			Obj()
+		maps.Copy(job.Labels, nonInheritableLabels)
+		maps.Copy(job.Annotations, nonInheritableAnnotations)
+		util.MustCreate(ctx, k8sClient, job)
+
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		// The ordinary pair still arrives, so nothing passes by copying nothing.
+		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue("job-label", "label-value"))
+		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("job-annotation", "annotation-value"))
+		// The key itself has to be gone. A value that merely differs from the one
+		// the job asked for would still be a value the job put there.
+		for key := range nonInheritableLabels {
+			gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKey(key))
+		}
+		for key := range nonInheritableAnnotations {
+			gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey(key))
+		}
+		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue(constants.JobUIDLabel, string(job.UID)))
 	})
 })
