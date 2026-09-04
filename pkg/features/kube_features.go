@@ -132,7 +132,7 @@ const (
 	// reservation. Entry-penalty settlement and sampled LocalQueue usage move
 	// together, so Workloads waiting on their AdmissionChecks already count
 	// towards AFS usage.
-	AdmissionFairSharingReservedAnchor featuregate.Feature = "AdmissionFairSharingReservedAnchor"
+	AdmissionFairSharingAnchorAtQuotaReservation featuregate.Feature = "AdmissionFairSharingAnchorAtQuotaReservation"
 
 	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
@@ -723,7 +723,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulingEquivalenceHashingIgnorePodSetName:    {SchedulingEquivalenceHashing},
 	MultiKueueReuseClientConnectionConfigForWorkers: {MultiKueue},
 	TASTopologySpreading:                            {TopologyAwareScheduling},
-	AdmissionFairSharingReservedAnchor:              {AdmissionFairSharing},
+	AdmissionFairSharingAnchorAtQuotaReservation:    {AdmissionFairSharing},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -788,7 +788,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.12"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
 	},
-	AdmissionFairSharingReservedAnchor: {
+	AdmissionFairSharingAnchorAtQuotaReservation: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASFailedNodeReplacement: {
