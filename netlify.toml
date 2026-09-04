@@ -1,7 +1,7 @@
 [build]
   base = "site"
   publish = "public"
-  command = "npm install && hugo --gc --minify && npx -y pagefind --site public"
+  command = "npm install && hugo --gc --minify && ./scripts/build-search.sh"
 
 [build.environment]
   HUGO_VERSION = "0.164.0"
@@ -12,12 +12,12 @@
   HUGO_BASEURL = "https://kueue.sigs.k8s.io/"
 
 [context.deploy-preview]
-  command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public && cp custom-headers/deploy-preview public/_headers"
+  command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && ./scripts/build-search.sh && cp custom-headers/deploy-preview public/_headers"
   # Runs from "site"; "." includes docs, and "../netlify.toml" includes config changes.
   ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF . ../netlify.toml"
 
 [context.branch-deploy]
-  command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && npx -y pagefind --site public"
+  command = "hugo --enableGitInfo --buildFuture -b $DEPLOY_PRIME_URL && ./scripts/build-search.sh"
 
 [[redirects]]
   from = "/api/medium-feed"
