@@ -914,6 +914,14 @@ by the generic MultiKueue adapter. Each entry defines how to handle a specific
 GroupVersionKind (GVK) for MultiKueue operations.</p>
 </td>
 </tr>
+<tr><td><code>preemptionMode</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta1-MultiKueuePreemptionMode"><code>MultiKueuePreemptionMode</code></a>
+</td>
+<td>
+   <p>PreemptionMode defines how preemptions are orchestrated across worker clusters.
+The default value is &quot;kueue.x-k8s.io/multikueue-preemption-concurrent&quot;.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -944,6 +952,18 @@ the expected format is <code>kind.version.group</code>.</p>
 </tr>
 </tbody>
 </table>
+
+## `MultiKueuePreemptionMode`     {#config-kueue-x-k8s-io-v1beta1-MultiKueuePreemptionMode}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [MultiKueue](#config-kueue-x-k8s-io-v1beta1-MultiKueue)
+
+
+
+
 
 ## `ObjectRetentionPolicies`     {#config-kueue-x-k8s-io-v1beta1-ObjectRetentionPolicies}
     

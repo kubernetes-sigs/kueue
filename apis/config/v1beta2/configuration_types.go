@@ -396,7 +396,19 @@ type MultiKueue struct {
 	// Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.
 	// +optional
 	IncrementalDispatcherConfig *IncrementalDispatcherConfig `json:"incrementalDispatcherConfig,omitempty"`
+
+	// PreemptionMode defines how preemptions are orchestrated across worker clusters.
+	// The default value is "kueue.x-k8s.io/multikueue-preemption-concurrent".
+	// +optional
+	PreemptionMode *MultiKueuePreemptionMode `json:"preemptionMode,omitempty"`
 }
+
+type MultiKueuePreemptionMode string
+
+const (
+	MultiKueuePreemptionModeConcurrent MultiKueuePreemptionMode = "kueue.x-k8s.io/multikueue-preemption-concurrent"
+	MultiKueuePreemptionModeAtMostOne  MultiKueuePreemptionMode = "kueue.x-k8s.io/multikueue-preemption-at-most-one"
+)
 
 // IncrementalDispatcherConfig holds configuration for the MultiKueue Incremental Dispatcher.
 type IncrementalDispatcherConfig struct {

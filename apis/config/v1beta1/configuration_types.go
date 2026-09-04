@@ -339,7 +339,19 @@ type MultiKueue struct {
 	// GroupVersionKind (GVK) for MultiKueue operations.
 	// +optional
 	ExternalFrameworks []MultiKueueExternalFramework `json:"externalFrameworks,omitempty"`
+
+	// PreemptionMode defines how preemptions are orchestrated across worker clusters.
+	// The default value is "kueue.x-k8s.io/multikueue-preemption-concurrent".
+	// +optional
+	PreemptionMode *MultiKueuePreemptionMode `json:"preemptionMode,omitempty"`
 }
+
+type MultiKueuePreemptionMode string
+
+const (
+	MultiKueuePreemptionModeConcurrent MultiKueuePreemptionMode = "kueue.x-k8s.io/multikueue-preemption-concurrent"
+	MultiKueuePreemptionModeAtMostOne  MultiKueuePreemptionMode = "kueue.x-k8s.io/multikueue-preemption-at-most-one"
+)
 
 // MultiKueueExternalFramework defines a framework that is not built-in.
 type MultiKueueExternalFramework struct {

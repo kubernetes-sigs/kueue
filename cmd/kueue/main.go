@@ -558,6 +558,7 @@ func setupControllers(
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 			multikueue.WithClusterProfiles(cfg.MultiKueue.ClusterProfile),
 			multikueue.WithRoleTracker(opts.RoleTracker),
+			multikueue.WithPreemptionMode(ptr.Deref(cfg.MultiKueue.PreemptionMode, configapi.MultiKueuePreemptionModeConcurrent)),
 		); err != nil {
 			return fmt.Errorf("could not setup MultiKueue controller: %w", err)
 		}
