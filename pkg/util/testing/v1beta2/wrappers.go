@@ -1731,8 +1731,8 @@ func (mkc *MultiKueueClusterWrapper) ClusterProfile(name string) *MultiKueueClus
 	return mkc
 }
 
-func (mkc *MultiKueueClusterWrapper) ExpectedFrameworks(frameworks ...string) *MultiKueueClusterWrapper {
-	mkc.Spec.ExpectedFrameworks = append(mkc.Spec.ExpectedFrameworks, frameworks...)
+func (mkc *MultiKueueClusterWrapper) SupportedFrameworks(frameworks ...string) *MultiKueueClusterWrapper {
+	mkc.Spec.SupportedFrameworks = append(mkc.Spec.SupportedFrameworks, frameworks...)
 	return mkc
 }
 

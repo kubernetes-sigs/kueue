@@ -23,13 +23,13 @@ package v1beta2
 type MultiKueueClusterSpecApplyConfiguration struct {
 	// clusterSource is the source to connect to the cluster.
 	ClusterSource *ClusterSourceApplyConfiguration `json:"clusterSource,omitempty"`
-	// expectedFrameworks is the list of job frameworks expected to be installed in this worker cluster.
+	// supportedFrameworks is the list of job frameworks supported by this worker cluster.
 	// MultiKueue only watches and dispatches jobs for these frameworks on this cluster.
 	// Built-in framework names must use the same values accepted by integrations.frameworks;
 	// external frameworks must use the name configured in multiKueue.externalFrameworks.
-	// An empty list means that every framework enabled in the manager is expected, preserving the
+	// An empty list means that every framework enabled in the manager is supported, preserving the
 	// behavior from before this field was introduced.
-	ExpectedFrameworks []string `json:"expectedFrameworks,omitempty"`
+	SupportedFrameworks []string `json:"supportedFrameworks,omitempty"`
 }
 
 // MultiKueueClusterSpecApplyConfiguration constructs a declarative configuration of the MultiKueueClusterSpec type for use with
@@ -46,12 +46,12 @@ func (b *MultiKueueClusterSpecApplyConfiguration) WithClusterSource(value *Clust
 	return b
 }
 
-// WithExpectedFrameworks adds the given values to the ExpectedFrameworks field in the declarative configuration
+// WithSupportedFrameworks adds the given value to the SupportedFrameworks field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the ExpectedFrameworks field.
-func (b *MultiKueueClusterSpecApplyConfiguration) WithExpectedFrameworks(values ...string) *MultiKueueClusterSpecApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the SupportedFrameworks field.
+func (b *MultiKueueClusterSpecApplyConfiguration) WithSupportedFrameworks(values ...string) *MultiKueueClusterSpecApplyConfiguration {
 	for i := range values {
-		b.ExpectedFrameworks = append(b.ExpectedFrameworks, values[i])
+		b.SupportedFrameworks = append(b.SupportedFrameworks, values[i])
 	}
 	return b
 }

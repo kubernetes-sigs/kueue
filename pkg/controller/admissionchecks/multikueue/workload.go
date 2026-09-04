@@ -1043,7 +1043,7 @@ func (h *clusterHandler) Create(context.Context, event.CreateEvent, workqueue.Ty
 func (h *clusterHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	oldCluster, oldOK := e.ObjectOld.(*kueue.MultiKueueCluster)
 	newCluster, newOK := e.ObjectNew.(*kueue.MultiKueueCluster)
-	if !oldOK || !newOK || equality.Semantic.DeepEqual(oldCluster.Spec.ExpectedFrameworks, newCluster.Spec.ExpectedFrameworks) {
+	if !oldOK || !newOK || equality.Semantic.DeepEqual(oldCluster.Spec.SupportedFrameworks, newCluster.Spec.SupportedFrameworks) {
 		return
 	}
 

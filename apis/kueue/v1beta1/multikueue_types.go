@@ -69,10 +69,10 @@ type MultiKueueClusterSpec struct {
 	// +optional
 	ClusterProfileRef *ClusterProfileReference `json:"clusterProfileRef,omitempty"`
 
-	// expectedFrameworks is only used to prevent data loss when converting between v1beta2 and v1beta1.
+	// supportedFrameworks is only used to prevent data loss when converting between v1beta2 and v1beta1.
 	// It has no effect in v1beta1.
 	// +optional
-	ExpectedFrameworks []string `json:"expectedFrameworks,omitempty"`
+	SupportedFrameworks []string `json:"supportedFrameworks,omitempty"`
 }
 
 type ClusterProfileReference struct {

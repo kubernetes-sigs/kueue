@@ -1844,16 +1844,16 @@ func TestRemoteClientSupportsAdapter(t *testing.T) {
 		rayAdapterKey: "ray.io/rayjob",
 	}
 
-	if changed := rc.setExpectedFrameworks(nil, frameworkNames); !changed {
+	if changed := rc.setSupportedFrameworks(nil, frameworkNames); !changed {
 		t.Fatal("initial framework mapping should be observed as a change")
 	}
 	if !rc.supportsAdapter(jobAdapterKey) || !rc.supportsAdapter(rayAdapterKey) {
-		t.Fatal("empty expectedFrameworks should support every adapter")
+		t.Fatal("empty supportedFrameworks should support every adapter")
 	}
 
-	rc.setExpectedFrameworks([]string{jobFramework}, frameworkNames)
+	rc.setSupportedFrameworks([]string{jobFramework}, frameworkNames)
 	if !rc.supportsAdapter(jobAdapterKey) {
-		t.Errorf("expected framework %q to support adapter %q", jobFramework, jobAdapterKey)
+		t.Errorf("supported framework %q should enable adapter %q", jobFramework, jobAdapterKey)
 	}
 	if rc.supportsAdapter(rayAdapterKey) {
 		t.Errorf("did not expect framework %q to support adapter %q", jobFramework, rayAdapterKey)
@@ -1861,13 +1861,13 @@ func TestRemoteClientSupportsAdapter(t *testing.T) {
 
 	// Canonical adapter keys are accepted for generic external adapters, for
 	// which there may be no built-in framework name.
-	rc.setExpectedFrameworks([]string{rayAdapterKey}, nil)
+	rc.setSupportedFrameworks([]string{rayAdapterKey}, nil)
 	if !rc.supportsAdapter(rayAdapterKey) {
 		t.Errorf("expected canonical adapter key %q to be supported", rayAdapterKey)
 	}
 }
 
-func TestRemoteClientWatchesOnlyExpectedFrameworks(t *testing.T) {
+func TestRemoteClientWatchesOnlySupportedFrameworks(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	adapters, frameworkNames, err := jobs.NewIntegrationManager().GetMultiKueueAdaptersWithFrameworkNames(sets.New("batch/job"))
 	if err != nil {
@@ -1877,7 +1877,7 @@ func TestRemoteClientWatchesOnlyExpectedFrameworks(t *testing.T) {
 	var watchedTypes []string
 	var watchedTypesMu sync.Mutex
 	rc := newRemoteClient(getClientBuilder(ctx).Build(), nil, nil, nil, defaultOrigin, "worker", adapters)
-	rc.setExpectedFrameworks([]string{"ray.io/rayjob"}, frameworkNames)
+	rc.setSupportedFrameworks([]string{"ray.io/rayjob"}, frameworkNames)
 	rc.builderOverride = func(_ context.Context, _ *clientConfig, _ client.Options) (SelectivelyCachingClient, error) {
 		remote := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
 			Watch: func(watchCtx context.Context, _ client.WithWatch, list client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {

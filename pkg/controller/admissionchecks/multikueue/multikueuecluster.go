@@ -130,8 +130,8 @@ type remoteClient struct {
 	config       *clientConfig
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
-	// expectedFrameworks is empty when all manager-enabled frameworks are supported.
-	expectedFrameworks    sets.Set[string]
+	// supportedFrameworks is empty when all manager-enabled frameworks are supported.
+	supportedFrameworks   sets.Set[string]
 	adapterFrameworkNames map[string]string
 
 	watchEstablishing atomic.Bool
@@ -156,13 +156,13 @@ type remoteClient struct {
 	mu sync.RWMutex
 }
 
-func (rc *remoteClient) setExpectedFrameworks(frameworks []string, adapterFrameworkNames map[string]string) bool {
+func (rc *remoteClient) setSupportedFrameworks(frameworks []string, adapterFrameworkNames map[string]string) bool {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
-	expected := sets.New(frameworks...)
-	changed := !rc.expectedFrameworks.Equal(expected) || !maps.Equal(rc.adapterFrameworkNames, adapterFrameworkNames)
-	rc.expectedFrameworks = expected
+	supported := sets.New(frameworks...)
+	changed := !rc.supportedFrameworks.Equal(supported) || !maps.Equal(rc.adapterFrameworkNames, adapterFrameworkNames)
+	rc.supportedFrameworks = supported
 	rc.adapterFrameworkNames = maps.Clone(adapterFrameworkNames)
 	return changed
 }
@@ -171,11 +171,11 @@ func (rc *remoteClient) supportsAdapter(adapterKey string) bool {
 	rc.mu.RLock()
 	defer rc.mu.RUnlock()
 
-	if len(rc.expectedFrameworks) == 0 {
+	if len(rc.supportedFrameworks) == 0 {
 		return true
 	}
 	frameworkName := rc.adapterFrameworkNames[adapterKey]
-	return rc.expectedFrameworks.Has(adapterKey) || (frameworkName != "" && rc.expectedFrameworks.Has(frameworkName))
+	return rc.supportedFrameworks.Has(adapterKey) || (frameworkName != "" && rc.supportedFrameworks.Has(frameworkName))
 }
 
 // connectionState holds a remote client's connection status. Its own mutex guards the fields
@@ -870,12 +870,12 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 	return client
 }
 
-func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string, expectedFrameworks []string) (*time.Duration, error) {
+func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string, supportedFrameworks []string) (*time.Duration, error) {
 	client := c.findOrCreateRemoteClient(clusterName, origin)
 
 	client.updateConfigLock.Lock()
 	defer client.updateConfigLock.Unlock()
-	if client.setExpectedFrameworks(expectedFrameworks, c.adapterFrameworkNames) {
+	if client.setSupportedFrameworks(supportedFrameworks, c.adapterFrameworkNames) {
 		client.StopWatchers()
 		client.connState.markDisconnected(client.clock.Now())
 	}
@@ -943,7 +943,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, fmt.Errorf("failed to load client config, reason: %s, error: %w", reason, err)
 	}
 
-	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin, cluster.Spec.ExpectedFrameworks); err != nil {
+	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin, cluster.Spec.SupportedFrameworks); err != nil {
 		log.Error(err, "setting client config", "retryAfter", retryAfter)
 		c.disconnectCluster(req.Name)
 		if err := c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {

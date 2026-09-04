@@ -1089,8 +1089,8 @@ func (in *MultiKueueClusterList) DeepCopyObject() runtime.Object {
 func (in *MultiKueueClusterSpec) DeepCopyInto(out *MultiKueueClusterSpec) {
 	*out = *in
 	in.ClusterSource.DeepCopyInto(&out.ClusterSource)
-	if in.ExpectedFrameworks != nil {
-		in, out := &in.ExpectedFrameworks, &out.ExpectedFrameworks
+	if in.SupportedFrameworks != nil {
+		in, out := &in.SupportedFrameworks, &out.SupportedFrameworks
 		*out = make([]string, len(*in))
 		copy(*out, *in)
 	}

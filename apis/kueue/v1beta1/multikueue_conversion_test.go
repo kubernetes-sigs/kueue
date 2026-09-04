@@ -38,7 +38,7 @@ func TestMultiKueueClusterConvertTo(t *testing.T) {
 			input: &MultiKueueCluster{
 				ObjectMeta: defaultObjectMeta,
 				Spec: MultiKueueClusterSpec{
-					ExpectedFrameworks: []string{"batch/job"},
+					SupportedFrameworks: []string{"batch/job"},
 					KubeConfig: KubeConfig{
 						Location:     "test-location",
 						LocationType: SecretLocationType,
@@ -48,7 +48,7 @@ func TestMultiKueueClusterConvertTo(t *testing.T) {
 			expected: &v1beta2.MultiKueueCluster{
 				ObjectMeta: defaultObjectMeta,
 				Spec: v1beta2.MultiKueueClusterSpec{
-					ExpectedFrameworks: []string{"batch/job"},
+					SupportedFrameworks: []string{"batch/job"},
 					ClusterSource: v1beta2.ClusterSource{
 						KubeConfig: &v1beta2.KubeConfig{
 							Location:     "test-location",
