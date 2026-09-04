@@ -36,6 +36,8 @@ type WorkloadStatusApplyConfiguration struct {
 	// - Finished: the associated workload finished running (failed or succeeded).
 	// - PodsReady: at least `.spec.podSets[*].count` Pods are ready or have
 	// succeeded.
+	// - PodsScheduled: all the Pods required by the admission have been
+	// scheduled or have succeeded.
 	//
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
 	// admission holds the parameters of the admission of the workload by a

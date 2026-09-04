@@ -250,6 +250,7 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 type waitForPodsReadyConfig struct {
 	timeout                     time.Duration
 	recoveryTimeout             *time.Duration
+	unscheduledTimeout          *time.Duration
 	requeuingBackoffLimitCount  *int32
 	requeuingBackoffBaseSeconds int32
 	requeuingBackoffMaxDuration time.Duration
@@ -268,6 +269,11 @@ func WithWaitForPodsReady(value *waitForPodsReadyConfig) Option {
 	return func(r *WorkloadReconciler) {
 		r.waitForPodsReady = value
 	}
+}
+
+func (r *WorkloadReconciler) podsScheduledTrackingEnabled() bool {
+	return features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) &&
+		r.waitForPodsReady != nil && r.waitForPodsReady.unscheduledTimeout != nil && *r.waitForPodsReady.unscheduledTimeout > 0
 }
 
 // WithWorkloadUpdateWatchers allows to specify the workload update watchers
@@ -1655,16 +1661,39 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 		return "", 0
 	}
 
-	if podsReadyCond == nil || podsReadyCond.Reason == kueue.WorkloadWaitForStart || podsReadyCond.Reason == "PodsReady" {
-		admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-		elapsedTime := r.clock.Since(admittedCond.LastTransitionTime.Time)
-		return kueue.WorkloadWaitForStart, max(r.waitForPodsReady.timeout-elapsedTime, 0)
-	} else if podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil {
+	admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
+	switch {
+	case podsReadyCond == nil, podsReadyCond.Reason == kueue.WorkloadWaitForStart, podsReadyCond.Reason == kueue.WorkloadPodsReady,
+		podsReadyCond.Reason == kueue.WorkloadWaitForScheduling && !r.podsScheduledTrackingEnabled():
+		return kueue.WorkloadWaitForStart, r.remainingUntil(admittedAt.Add(r.waitForPodsReady.timeout))
+	case podsReadyCond.Reason == kueue.WorkloadWaitForScheduling:
+		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt))
+	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil:
 		// A pod has failed and the workload is waiting for recovery
 		elapsedTime := r.clock.Since(podsReadyCond.LastTransitionTime.Time)
 		return kueue.WorkloadWaitForRecovery, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
 	}
 	return "", 0
+}
+
+func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt time.Time) time.Time {
+	deadline := metav1.NewTime(admittedAt.Add(r.waitForPodsReady.timeout))
+	if r.waitForPodsReady.unscheduledTimeout == nil {
+		return deadline.Time
+	}
+	cur := workload.CurrentPodsScheduledCondition(wl, admittedAt)
+	if cur == nil || cur.Status != metav1.ConditionFalse {
+		return deadline.Time
+	}
+	schedulingDeadline := metav1.NewTime(admittedAt.Add(*r.waitForPodsReady.unscheduledTimeout))
+	if schedulingDeadline.Before(&deadline) {
+		return schedulingDeadline.Time
+	}
+	return deadline.Time
+}
+
+func (r *WorkloadReconciler) remainingUntil(deadline time.Time) time.Duration {
+	return max(deadline.Sub(r.clock.Now()), 0)
 }
 
 type resourceUpdatesHandler struct {
