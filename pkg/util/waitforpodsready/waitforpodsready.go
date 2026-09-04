@@ -27,3 +27,8 @@ func Enabled(cfg *configapi.WaitForPodsReady) bool {
 	}
 	return cfg != nil
 }
+
+func PodsScheduledTrackingEnabled(cfg *configapi.WaitForPodsReady) bool {
+	return cfg != nil && features.Enabled(features.WaitForPodsReadyUnscheduledTimeout) &&
+		cfg.UnscheduledTimeout != nil && cfg.UnscheduledTimeout.Duration > 0
+}
