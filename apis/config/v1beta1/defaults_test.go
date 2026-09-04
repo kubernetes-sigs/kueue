@@ -580,14 +580,14 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				WaitForPodsReady:             &WaitForPodsReady{},
 			},
 		},
-		"multiKueue clientConnection customized": {
+		"multiKueue workerClientConnection customized": {
 			original: &Configuration{
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
 				},
 				MultiKueue: &MultiKueue{
 					WorkerClientConnection: &ClientConnection{
-						QPS:   new(float32(500)),
+						QPS:   new(float32(1000)),
 						Burst: new(int32(1000)),
 					},
 				},
@@ -606,7 +606,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					WorkerLostTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
 					DispatcherName:    defaultMultiKueue.DispatcherName,
 					WorkerClientConnection: &ClientConnection{
-						QPS:   new(float32(500)),
+						QPS:   new(float32(1000)),
 						Burst: new(int32(1000)),
 					},
 				},
