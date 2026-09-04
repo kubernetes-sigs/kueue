@@ -586,7 +586,7 @@ func (i *Info) TASUsage() TASUsage {
 	}
 	result := make(TASUsage, 0)
 	for _, ps := range i.TotalRequests {
-		if ps.TopologyRequest != nil {
+		if ps.TopologyRequest != nil && ps.Count > 0 {
 			psFlavors := sets.New[kueue.ResourceFlavorReference]()
 			for _, psFlavor := range ps.Flavors {
 				psFlavors.Insert(psFlavor)
@@ -798,10 +798,6 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 				setRes.Requests.Mul(int64(countAfterReclaim))
 			}
 			setRes.Count = countAfterReclaim
-		}
-		if setRes.Count == 0 {
-			setRes.TopologyRequest = nil
-			setRes.DelayedTopologyRequest = nil
 		}
 		// Otherwise if countAfterReclaim is higher it means that the podSet was partially admitted
 		// and the count should be preserved.
