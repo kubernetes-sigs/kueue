@@ -43,7 +43,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -52,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -834,7 +834,7 @@ func fits(
 ) (schdcache.FitsCheck, error) {
 	merged := preemptedWorkloads.MergeWithTargets(newTargets)
 	var result schdcache.FitsCheck
-	err := scheduler.Simulate(ctx, snapshot, func(simCtx *scheduler.SimulationContext) error {
+	err := simulation.Simulate(ctx, snapshot, func(simCtx *simulation.SimulationContext) error {
 		simCtx.RemoveUsage(merged.Workloads())
 		result = cq.Fits(*usage)
 		return nil
@@ -891,7 +891,7 @@ func (s *Scheduler) getAssignments(
 	preemptedWorkloads []*workload.Info,
 ) (assignment flavorassigner.Assignment, targets []*preemption.Target, err error) {
 	resourceFlavors := snap.ResourceFlavors
-	err = scheduler.Simulate(ctx, snap, func(simCtx *scheduler.SimulationContext) error {
+	err = simulation.Simulate(ctx, snap, func(simCtx *simulation.SimulationContext) error {
 		var inErr error
 		for _, w := range preemptedWorkloads {
 			if inErr = simCtx.PreemptWorkload(ctx, w); inErr != nil {
@@ -964,7 +964,7 @@ func lastAssignmentOutdated(last *workload.AssignmentClusterQueueState, currentC
 // If no valid assignment can be made, returns the original full assignment with no preemption targets.
 func (s *Scheduler) getInitialAssignments(
 	ctx context.Context,
-	simCtx *scheduler.SimulationContext,
+	simCtx *simulation.SimulationContext,
 	wl *workload.Info,
 	resourceFlavors map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor,
 ) (_ flavorassigner.Assignment, _ []*preemption.Target, err error) {
@@ -1044,7 +1044,7 @@ func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, 
 
 func updateAssignmentForTAS(
 	ctx context.Context,
-	simCtx *scheduler.SimulationContext,
+	simCtx *simulation.SimulationContext,
 	cq *schdcache.ClusterQueueSnapshot,
 	wl *workload.Info,
 	assignment *flavorassigner.Assignment,
@@ -1063,7 +1063,7 @@ func updateAssignmentForTAS(
 			for _, target := range targets {
 				targetWorkloads = append(targetWorkloads, target.WorkloadInfo)
 			}
-			if err := scheduler.SimulateNested(simCtx, func(simCtx *scheduler.SimulationContext) error {
+			if err := simulation.SimulateNested(simCtx, func(simCtx *simulation.SimulationContext) error {
 				simCtx.RemoveUsage(targetWorkloads)
 				tasResult = cq.FindTopologyAssignmentsForWorkload(
 					ctx,

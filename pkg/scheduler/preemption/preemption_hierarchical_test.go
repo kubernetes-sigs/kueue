@@ -29,12 +29,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -1854,7 +1854,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
 				var targets []*Target
-				err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator *scheduler.SimulationContext) error {
+				err = simulation.Simulate(ctx, snapshotWorkingCopy, func(simulator *simulation.SimulationContext) error {
 					var inErr error
 					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment)
 					return inErr

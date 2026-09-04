@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
@@ -41,7 +42,7 @@ type candidateIterator struct {
 	candidates                        []*candidateElem
 	runIndex                          int
 	frsNeedPreemption                 sets.Set[resources.FlavorResource]
-	simCtx                            *schdcache.SimulationContext
+	simCtx                            *simulation.SimulationContext
 	NoCandidateFromOtherQueues        bool
 	NoCandidateForHierarchicalReclaim bool
 	hierarchicalReclaimCtx            *HierarchicalPreemptionCtx
@@ -84,7 +85,7 @@ func NewCandidateIterator(
 	hierarchicalReclaimCtx *HierarchicalPreemptionCtx,
 	enabledAfs bool,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
-	simCtx *schdcache.SimulationContext,
+	simCtx *simulation.SimulationContext,
 	clock clock.Clock,
 	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
 ) *candidateIterator {

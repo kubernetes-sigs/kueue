@@ -37,6 +37,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -329,7 +330,7 @@ func TestRunFirstFsStrategyLogging(t *testing.T) {
 			var fits bool
 			var targets []*Target
 			var retryCandidates []*workload.Info
-			err := schdcache.Simulate(fixture.preemptionCtx.ctx, fixture.snapshot, func(simCtx *schdcache.SimulationContext) error {
+			err := simulation.Simulate(fixture.preemptionCtx.ctx, fixture.snapshot, func(simCtx *simulation.SimulationContext) error {
 				var err error
 				fits, targets, retryCandidates, err = runFirstFsStrategy(simCtx, fixture.preemptionCtx, fixture.candidates, strategy)
 				return err
@@ -462,7 +463,7 @@ func TestRunSecondFsStrategyLog(t *testing.T) {
 				{name: "b", candidates: 3, fairWeight: tc.fairWeight},
 			})
 
-			err := schdcache.Simulate(fixture.preemptionCtx.ctx, fixture.snapshot, func(simCtx *schdcache.SimulationContext) error {
+			err := simulation.Simulate(fixture.preemptionCtx.ctx, fixture.snapshot, func(simCtx *simulation.SimulationContext) error {
 				_, _, err := runSecondFsStrategy(simCtx, fixture.preemptionCtx, fixture.candidates, nil)
 				return err
 			})

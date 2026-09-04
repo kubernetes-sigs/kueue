@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package scheduler
+package simulation
 
 import (
 	"context"
@@ -26,7 +26,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -38,7 +40,26 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func setupSnapshotSimulationTest(t *testing.T) (context.Context, *Cache, map[string]*workload.Info) {
+const defaultWeight = 1.0
+
+var defaultFlavorFungibility = kueue.FlavorFungibility{
+	WhenCanBorrow:  kueue.MayStopSearch,
+	WhenCanPreempt: kueue.TryNextFlavor,
+}
+
+var snapCmpOpts = cmp.Options{
+	cmpopts.EquateEmpty(),
+	cmpopts.IgnoreUnexported(schdcache.ClusterQueueSnapshot{}),
+	cmpopts.IgnoreUnexported(schdcache.CohortSnapshot{}),
+	cmpopts.IgnoreUnexported(hierarchy.Cohort[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}),
+	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*schdcache.CohortSnapshot]{}),
+	cmpopts.IgnoreUnexported(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}),
+	cmpopts.IgnoreUnexported(resources.Amount{}),
+	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
+	cmpopts.IgnoreFields(schdcache.Snapshot{}, "SimulatorSnapshot"),
+}
+
+func setupSnapshotSimulationTest(t *testing.T) (context.Context, *schdcache.Cache, map[string]*workload.Info) {
 	t.Helper()
 	now := time.Now().Truncate(time.Second)
 	flavors := []*kueue.ResourceFlavor{
@@ -73,7 +94,7 @@ func setupSnapshotSimulationTest(t *testing.T) (context.Context, *Cache, map[str
 	ctx, log := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
 
-	cqCache := New(cl)
+	cqCache := schdcache.New(cl)
 	for _, flv := range flavors {
 		cqCache.AddOrUpdateResourceFlavor(log, flv)
 	}
@@ -82,8 +103,12 @@ func setupSnapshotSimulationTest(t *testing.T) (context.Context, *Cache, map[str
 			t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
 		}
 	}
+	snapshot, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
 	wlInfos := make(map[string]*workload.Info, len(workloads))
-	for _, cq := range cqCache.hm.ClusterQueues() {
+	for _, cq := range snapshot.ClusterQueues() {
 		for _, wl := range cq.Workloads {
 			wlInfos[wl.Obj.Name] = wl
 		}
@@ -156,7 +181,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
 
-	cqCache := New(cl)
+	cqCache := schdcache.New(cl)
 	for _, flv := range flavors {
 		cqCache.AddOrUpdateResourceFlavor(log, flv)
 	}
@@ -165,21 +190,21 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
 		}
 	}
-	wlInfos := make(map[workload.Reference]*workload.Info, len(workloads))
-	for _, cq := range cqCache.hm.ClusterQueues() {
-		for _, wl := range cq.Workloads {
-			wlInfos[workload.Key(wl.Obj)] = wl
-		}
-	}
 	initialSnapshot, err := cqCache.Snapshot(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	wlInfos := make(map[workload.Reference]*workload.Info, len(workloads))
+	for _, cq := range initialSnapshot.ClusterQueues() {
+		for _, wl := range cq.Workloads {
+			wlInfos[workload.Key(wl.Obj)] = wl
+		}
 	}
 	initialCohortResources := initialSnapshot.ClusterQueue("lend-a").Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
 		remove []workload.Reference
 		add    []workload.Reference
-		want   Snapshot
+		want   schdcache.Snapshot
 	}{
 		"remove all then add all": {
 			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
@@ -188,29 +213,29 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		},
 		"remove all": {
 			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			want: func() Snapshot {
-				cohort := &CohortSnapshot{
+			want: func() schdcache.Snapshot {
+				cohort := &schdcache.CohortSnapshot{
 					Name: "lend",
-					ResourceNode: resourceNode{
+					ResourceNode: schdcache.ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
 				}
-				return Snapshot{
+				return schdcache.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*CohortSnapshot{
+						map[kueue.CohortReference]*schdcache.CohortSnapshot{
 							"lend": cohort,
 						},
-						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 									},
@@ -222,10 +247,10 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:              "lend-b",
 								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 									},
@@ -241,29 +266,29 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		},
 		"remove workload, but still using quota over GuaranteedQuota": {
 			remove: []workload.Reference{"/lend-a-2"},
-			want: func() Snapshot {
-				cohort := &CohortSnapshot{
+			want: func() schdcache.Snapshot {
+				cohort := &schdcache.CohortSnapshot{
 					Name: "lend",
-					ResourceNode: resourceNode{
+					ResourceNode: schdcache.ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
 				}
-				return Snapshot{
+				return schdcache.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*CohortSnapshot{
+						map[kueue.CohortReference]*schdcache.CohortSnapshot{
 							"lend": cohort,
 						},
-						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(7_000),
 									},
@@ -275,11 +300,11 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:                          "lend-b",
 								Workloads:                     make(map[workload.Reference]*workload.Info),
-								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
+								ResourceGroups:                initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
 									},
@@ -295,29 +320,29 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		},
 		"remove wokload, using same quota as GuaranteedQuota": {
 			remove: []workload.Reference{"/lend-a-1", "/lend-a-2"},
-			want: func() Snapshot {
-				cohort := &CohortSnapshot{
+			want: func() schdcache.Snapshot {
+				cohort := &schdcache.CohortSnapshot{
 					Name: "lend",
-					ResourceNode: resourceNode{
+					ResourceNode: schdcache.ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
 				}
-				return Snapshot{
+				return schdcache.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*CohortSnapshot{
+						map[kueue.CohortReference]*schdcache.CohortSnapshot{
 							"lend": cohort,
 						},
-						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
 									},
@@ -329,11 +354,11 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:                          "lend-b",
 								Workloads:                     make(map[workload.Reference]*workload.Info),
-								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
+								ResourceGroups:                initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
 									},
@@ -349,29 +374,29 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		},
 		"remove workload, using less quota than GuaranteedQuota": {
 			remove: []workload.Reference{"/lend-a-2", "/lend-a-3"},
-			want: func() Snapshot {
-				cohort := &CohortSnapshot{
+			want: func() schdcache.Snapshot {
+				cohort := &schdcache.CohortSnapshot{
 					Name: "lend",
-					ResourceNode: resourceNode{
+					ResourceNode: schdcache.ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
 				}
-				return Snapshot{
+				return schdcache.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*CohortSnapshot{
+						map[kueue.CohortReference]*schdcache.CohortSnapshot{
 							"lend": cohort,
 						},
-						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 									},
@@ -383,11 +408,11 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:                          "lend-b",
 								Workloads:                     make(map[workload.Reference]*workload.Info),
-								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
+								ResourceGroups:                initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
 									},
@@ -404,29 +429,29 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		"remove all then add workload, using less quota than GuaranteedQuota": {
 			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			add:    []workload.Reference{"/lend-a-1"},
-			want: func() Snapshot {
-				cohort := &CohortSnapshot{
+			want: func() schdcache.Snapshot {
+				cohort := &schdcache.CohortSnapshot{
 					Name: "lend",
-					ResourceNode: resourceNode{
+					ResourceNode: schdcache.ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
 				}
-				return Snapshot{
+				return schdcache.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*CohortSnapshot{
+						map[kueue.CohortReference]*schdcache.CohortSnapshot{
 							"lend": cohort,
 						},
-						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 									},
@@ -438,11 +463,11 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:                          "lend-b",
 								Workloads:                     make(map[workload.Reference]*workload.Info),
-								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
+								ResourceGroups:                initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 									},
@@ -459,29 +484,29 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		"remove all then add workload, using same quota as GuaranteedQuota": {
 			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			add:    []workload.Reference{"/lend-a-3"},
-			want: func() Snapshot {
-				cohort := &CohortSnapshot{
+			want: func() schdcache.Snapshot {
+				cohort := &schdcache.CohortSnapshot{
 					Name: "lend",
-					ResourceNode: resourceNode{
+					ResourceNode: schdcache.ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
 				}
-				return Snapshot{
+				return schdcache.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*CohortSnapshot{
+						map[kueue.CohortReference]*schdcache.CohortSnapshot{
 							"lend": cohort,
 						},
-						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
 									},
@@ -493,10 +518,10 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:              "lend-b",
 								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 									},
@@ -513,29 +538,29 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		"remove all then add workload, using quota over GuaranteedQuota": {
 			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			add:    []workload.Reference{"/lend-a-2"},
-			want: func() Snapshot {
-				cohort := &CohortSnapshot{
+			want: func() schdcache.Snapshot {
+				cohort := &schdcache.CohortSnapshot{
 					Name: "lend",
-					ResourceNode: resourceNode{
+					ResourceNode: schdcache.ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 						},
 						SubtreeQuota: initialCohortResources,
 					},
 				}
-				return Snapshot{
+				return schdcache.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*CohortSnapshot{
+						map[kueue.CohortReference]*schdcache.CohortSnapshot{
 							"lend": cohort,
 						},
-						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
 								Name:              "lend-a",
 								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueue("lend-a").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
 									},
@@ -547,11 +572,11 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							"lend-b": {
 								Name:                          "lend-b",
 								Workloads:                     make(map[workload.Reference]*workload.Info),
-								ResourceGroups:                cqCache.hm.ClusterQueue("lend-b").ResourceGroups,
+								ResourceGroups:                initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 									},
@@ -567,9 +592,9 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		},
 	}
 	cmpOpts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
-		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+		cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
+		cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
+		cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -599,12 +624,12 @@ func TestPreemptWorkload(t *testing.T) {
 		preempt             []string
 		injectSimErr        error
 		wantErr             bool
-		wantSnapshotState   Snapshot
+		wantSnapshotState   schdcache.Snapshot
 		wantSimulationState map[workloadKey]preemption
 	}{
 		"preempt single workload": {
 			preempt: []string{"wl1"},
-			wantSnapshotState: Snapshot{
+			wantSnapshotState: schdcache.Snapshot{
 				Manager: newSimulationTestManager(cqCache,
 					map[workload.Reference]*workload.Info{
 						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
@@ -618,7 +643,7 @@ func TestPreemptWorkload(t *testing.T) {
 		},
 		"preempt multiple workloads": {
 			preempt: []string{"wl1", "wl2"},
-			wantSnapshotState: Snapshot{
+			wantSnapshotState: schdcache.Snapshot{
 				Manager: newSimulationTestManager(cqCache, make(map[workload.Reference]*workload.Info), 0),
 			},
 			wantSimulationState: map[workloadKey]preemption{
@@ -630,7 +655,7 @@ func TestPreemptWorkload(t *testing.T) {
 			preempt:      []string{"wl1"},
 			injectSimErr: errSimulatorFailed,
 			wantErr:      true,
-			wantSnapshotState: Snapshot{
+			wantSnapshotState: schdcache.Snapshot{
 				Manager: newSimulationTestManager(cqCache,
 					map[workload.Reference]*workload.Info{
 						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
@@ -663,9 +688,9 @@ func TestPreemptWorkload(t *testing.T) {
 				t.Errorf("PreemptWorkload() error = %v, wantErr %v", preemptErr, tc.wantErr)
 			}
 			opts := append(snapCmpOpts,
-				cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
-				cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-				cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+				cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
+				cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
+				cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
 				cmpopts.IgnoreTypes(&workload.Info{}))
 			if diff := cmp.Diff(tc.wantSnapshotState, *snap, opts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after preemptions (-want,+got):\n%s", diff)
@@ -699,13 +724,13 @@ func TestRestoreWorkload(t *testing.T) {
 		injectError  map[string]error
 		restore      []string
 		wantErr      bool
-		want         Snapshot
+		want         schdcache.Snapshot
 		wantSimState map[workloadKey]preemption
 	}{
 		"restore single preempted workload": {
 			preempt: []string{"wl1", "wl2"},
 			restore: []string{"wl1"},
-			want: Snapshot{
+			want: schdcache.Snapshot{
 				Manager: newSimulationTestManager(cqCache,
 					map[workload.Reference]*workload.Info{
 						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
@@ -720,7 +745,7 @@ func TestRestoreWorkload(t *testing.T) {
 		"restore all preempted workloads": {
 			preempt: []string{"wl1", "wl2"},
 			restore: []string{"wl1", "wl2"},
-			want: Snapshot{
+			want: schdcache.Snapshot{
 				Manager: newSimulationTestManager(cqCache,
 					map[workload.Reference]*workload.Info{
 						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
@@ -734,7 +759,7 @@ func TestRestoreWorkload(t *testing.T) {
 		"restore non-preempted workload (no-op)": {
 			preempt: []string{"wl1"},
 			restore: []string{"wl2"},
-			want: Snapshot{
+			want: schdcache.Snapshot{
 				Manager: newSimulationTestManager(cqCache,
 					map[workload.Reference]*workload.Info{
 						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
@@ -753,7 +778,7 @@ func TestRestoreWorkload(t *testing.T) {
 			},
 			restore: []string{"wl1"},
 			wantErr: true,
-			want: Snapshot{
+			want: schdcache.Snapshot{
 				Manager: newSimulationTestManager(cqCache,
 					map[workload.Reference]*workload.Info{
 						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
@@ -797,9 +822,9 @@ func TestRestoreWorkload(t *testing.T) {
 				t.Errorf("RestoreWorkloads() error = %v, wantErr %v", restoreErr, tc.wantErr)
 			}
 			opts := append(snapCmpOpts,
-				cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
-				cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-				cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+				cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
+				cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
+				cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
 				cmpopts.IgnoreTypes(&workload.Info{}))
 			if diff := cmp.Diff(tc.want, *snap, opts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after restores (-want,+got):\n%s", diff)
@@ -824,13 +849,13 @@ func TestRestoreSnapshot(t *testing.T) {
 		injectError    map[string]error
 		restoreTargets []string
 		wantErr        bool
-		want           Snapshot
+		want           schdcache.Snapshot
 		wantSimState   map[workloadKey]preemption
 	}{
 		"restore subset of targets": {
 			preempt:        []string{"wl1", "wl2"},
 			restoreTargets: []string{"wl1"},
-			want: Snapshot{
+			want: schdcache.Snapshot{
 				Manager: newSimulationTestManager(cqCache,
 					map[workload.Reference]*workload.Info{
 						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
@@ -845,7 +870,7 @@ func TestRestoreSnapshot(t *testing.T) {
 		"restore all targets": {
 			preempt:        []string{"wl1", "wl2"},
 			restoreTargets: []string{"wl1", "wl2"},
-			want: Snapshot{
+			want: schdcache.Snapshot{
 				Manager: newSimulationTestManager(cqCache,
 					map[workload.Reference]*workload.Info{
 						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
@@ -859,7 +884,7 @@ func TestRestoreSnapshot(t *testing.T) {
 		"restore empty targets set": {
 			preempt:        []string{"wl1", "wl2"},
 			restoreTargets: []string{},
-			want: Snapshot{
+			want: schdcache.Snapshot{
 				Manager: newSimulationTestManager(cqCache,
 					map[workload.Reference]*workload.Info{
 						workload.Key(wlInfos["wl1"].Obj): wlInfos["wl1"],
@@ -877,7 +902,7 @@ func TestRestoreSnapshot(t *testing.T) {
 			},
 			restoreTargets: []string{"wl1"},
 			wantErr:        true,
-			want: Snapshot{
+			want: schdcache.Snapshot{
 				Manager: newSimulationTestManager(cqCache,
 					map[workload.Reference]*workload.Info{
 						workload.Key(wlInfos["wl2"].Obj): wlInfos["wl2"],
@@ -919,9 +944,9 @@ func TestRestoreSnapshot(t *testing.T) {
 				t.Errorf("RestoreSnapshot() error = %v, wantErr %v", err, tc.wantErr)
 			}
 			opts := append(snapCmpOpts,
-				cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
-				cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-				cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+				cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
+				cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
+				cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
 				cmpopts.IgnoreTypes(&workload.Info{}))
 			if diff := cmp.Diff(tc.want, *snap, opts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after RestoreSnapshot (-want,+got):\n%s", diff)
@@ -999,9 +1024,9 @@ func TestSimulation(t *testing.T) {
 	}
 
 	opts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
-		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+		cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
+		cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
+		cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 
 	for name, tc := range cases {
@@ -1015,7 +1040,7 @@ func TestSimulation(t *testing.T) {
 				t.Errorf("Unexpected error during simulation: %v", err)
 			}
 			if diff := cmp.Diff(*initialSnap, *snap, opts...); diff != "" {
-				t.Errorf("Snapshot state was not restored after simulation (-want,+got):\n%s", diff)
+				t.Errorf("schdcache.Snapshot state was not restored after simulation (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -1092,7 +1117,7 @@ func TestAddRemoveWorkload(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
 
-	cqCache := New(cl)
+	cqCache := schdcache.New(cl)
 	for _, flv := range flavors {
 		cqCache.AddOrUpdateResourceFlavor(log, flv)
 	}
@@ -1101,21 +1126,21 @@ func TestAddRemoveWorkload(t *testing.T) {
 			t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
 		}
 	}
-	wlInfos := make(map[workload.Reference]*workload.Info, len(workloads))
-	for _, cq := range cqCache.hm.ClusterQueues() {
-		for _, wl := range cq.Workloads {
-			wlInfos[workload.Key(wl.Obj)] = wl
-		}
-	}
 	initialSnapshot, err := cqCache.Snapshot(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	wlInfos := make(map[workload.Reference]*workload.Info, len(workloads))
+	for _, cq := range initialSnapshot.ClusterQueues() {
+		for _, wl := range cq.Workloads {
+			wlInfos[workload.Key(wl.Obj)] = wl
+		}
 	}
 	initialCohortResources := initialSnapshot.ClusterQueue("c1").Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
 		remove []workload.Reference
 		add    []workload.Reference
-		want   Snapshot
+		want   schdcache.Snapshot
 	}{
 		"no-op remove add": {
 			remove: []workload.Reference{"/c1-cpu", "/c2-cpu-1"},
@@ -1124,10 +1149,10 @@ func TestAddRemoveWorkload(t *testing.T) {
 		},
 		"remove all": {
 			remove: []workload.Reference{"/c1-cpu", "/c1-memory-alpha", "/c1-memory-beta", "/c2-cpu-1", "/c2-cpu-2"},
-			want: func() Snapshot {
-				cohort := &CohortSnapshot{
+			want: func() schdcache.Snapshot {
+				cohort := &schdcache.CohortSnapshot{
 					Name: "cohort",
-					ResourceNode: resourceNode{
+					ResourceNode: schdcache.ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
 							{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
@@ -1136,19 +1161,19 @@ func TestAddRemoveWorkload(t *testing.T) {
 						SubtreeQuota: initialCohortResources,
 					},
 				}
-				return Snapshot{
+				return schdcache.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*CohortSnapshot{
+						map[kueue.CohortReference]*schdcache.CohortSnapshot{
 							"cohort": cohort,
 						},
-						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"c1": {
 								Name:              "c1",
 								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
 										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
@@ -1164,11 +1189,11 @@ func TestAddRemoveWorkload(t *testing.T) {
 							"c2": {
 								Name:                          "c2",
 								Workloads:                     make(map[workload.Reference]*workload.Info),
-								ResourceGroups:                cqCache.hm.ClusterQueue("c2").ResourceGroups,
+								ResourceGroups:                initialSnapshot.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 									},
@@ -1184,10 +1209,10 @@ func TestAddRemoveWorkload(t *testing.T) {
 		},
 		"remove c1-cpu": {
 			remove: []workload.Reference{"/c1-cpu"},
-			want: func() Snapshot {
-				cohort := &CohortSnapshot{
+			want: func() schdcache.Snapshot {
+				cohort := &schdcache.CohortSnapshot{
 					Name: "cohort",
-					ResourceNode: resourceNode{
+					ResourceNode: schdcache.ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(2_000),
 							{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi),
@@ -1196,22 +1221,22 @@ func TestAddRemoveWorkload(t *testing.T) {
 						SubtreeQuota: initialCohortResources,
 					},
 				}
-				return Snapshot{
+				return schdcache.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*CohortSnapshot{
+						map[kueue.CohortReference]*schdcache.CohortSnapshot{
 							"cohort": cohort,
 						},
-						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"c1": {
 								Name: "c1",
 								Workloads: map[workload.Reference]*workload.Info{
 									"/c1-memory-alpha": nil,
 									"/c1-memory-beta":  nil,
 								},
-								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
 										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi),
@@ -1230,11 +1255,11 @@ func TestAddRemoveWorkload(t *testing.T) {
 									"/c2-cpu-1": nil,
 									"/c2-cpu-2": nil,
 								},
-								ResourceGroups:                cqCache.hm.ClusterQueue("c2").ResourceGroups,
+								ResourceGroups:                initialSnapshot.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility:             defaultFlavorFungibility,
 								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 									},
@@ -1250,10 +1275,10 @@ func TestAddRemoveWorkload(t *testing.T) {
 		},
 		"remove c1-memory-alpha": {
 			remove: []workload.Reference{"/c1-memory-alpha"},
-			want: func() Snapshot {
-				cohort := &CohortSnapshot{
+			want: func() schdcache.Snapshot {
+				cohort := &schdcache.CohortSnapshot{
 					Name: "cohort",
-					ResourceNode: resourceNode{
+					ResourceNode: schdcache.ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(3_000),
 							{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
@@ -1262,22 +1287,22 @@ func TestAddRemoveWorkload(t *testing.T) {
 						SubtreeQuota: initialCohortResources,
 					},
 				}
-				return Snapshot{
+				return schdcache.Snapshot{
 					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*CohortSnapshot{
+						map[kueue.CohortReference]*schdcache.CohortSnapshot{
 							"cohort": cohort,
 						},
-						map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"c1": {
 								Name: "c1",
 								Workloads: map[workload.Reference]*workload.Info{
 									"/c1-memory-alpha": nil,
 									"/c1-memory-beta":  nil,
 								},
-								ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("c1").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(1_000),
 										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
@@ -1296,10 +1321,10 @@ func TestAddRemoveWorkload(t *testing.T) {
 									"/c2-cpu-1": nil,
 									"/c2-cpu-2": nil,
 								},
-								ResourceGroups:    cqCache.hm.ClusterQueue("c2").ResourceGroups,
+								ResourceGroups:    initialSnapshot.ClusterQueue("c2").ResourceGroups,
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
-								ResourceNode: resourceNode{
+								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 									},
@@ -1315,9 +1340,9 @@ func TestAddRemoveWorkload(t *testing.T) {
 		},
 	}
 	cmpOpts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
-		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+		cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
+		cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
+		cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1339,17 +1364,18 @@ func TestAddRemoveWorkload(t *testing.T) {
 	}
 }
 
-func newSimulationTestManager(cqCache *Cache, wls map[workload.Reference]*workload.Info, usage int64) hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot] {
+func newSimulationTestManager(cqCache *schdcache.Cache, wls map[workload.Reference]*workload.Info, usage int64) hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot] {
+	snap, _ := cqCache.Snapshot(context.Background())
 	return hierarchy.NewManagerForTest(
-		map[kueue.CohortReference]*CohortSnapshot{},
-		map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+		map[kueue.CohortReference]*schdcache.CohortSnapshot{},
+		map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 			"c1": {
 				Name:              "c1",
 				Workloads:         wls,
-				ResourceGroups:    cqCache.hm.ClusterQueue("c1").ResourceGroups,
+				ResourceGroups:    snap.ClusterQueue("c1").ResourceGroups,
 				FlavorFungibility: defaultFlavorFungibility,
 				FairWeight:        defaultWeight,
-				ResourceNode: resourceNode{
+				ResourceNode: schdcache.ResourceNode{
 					Usage: resources.FlavorResourceQuantities{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(usage),
 					},

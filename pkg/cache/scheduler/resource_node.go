@@ -25,9 +25,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 )
 
-// resourceNode is the shared representation of Quotas and Usage, used
+// ResourceNode is the shared representation of Quotas and Usage, used
 // by ClusterQueues and Cohorts.
-type resourceNode struct {
+type ResourceNode struct {
 	// Quotas are the ResourceQuotas specified for the current
 	// node.
 	Quotas map[resources.FlavorResource]ResourceQuota
@@ -43,8 +43,8 @@ type resourceNode struct {
 	Usage resources.FlavorResourceQuantities
 }
 
-func NewResourceNode() resourceNode {
-	return resourceNode{
+func NewResourceNode() ResourceNode {
+	return ResourceNode{
 		Quotas:       make(map[resources.FlavorResource]ResourceQuota),
 		SubtreeQuota: make(resources.FlavorResourceQuantities),
 		Usage:        make(resources.FlavorResourceQuantities),
@@ -53,8 +53,8 @@ func NewResourceNode() resourceNode {
 
 // Clone clones the mutable field Usage, while returning copies to
 // Quota and SubtreeQuota (these are replaced with new maps upon update).
-func (r resourceNode) Clone() resourceNode {
-	return resourceNode{
+func (r ResourceNode) Clone() ResourceNode {
+	return ResourceNode{
 		Quotas:       r.Quotas,
 		SubtreeQuota: r.SubtreeQuota,
 		Usage:        maps.Clone(r.Usage),
@@ -64,7 +64,7 @@ func (r resourceNode) Clone() resourceNode {
 // localQuota is the capacity which is only visible to the subtree
 // defined by this node due to lending limits. As a consequence,
 // this capacity will never be lent out to the parent Cohort.
-func (r resourceNode) localQuota(fr resources.FlavorResource) resources.Amount {
+func (r ResourceNode) localQuota(fr resources.FlavorResource) resources.Amount {
 	if lendingLimit := r.Quotas[fr].LendingLimit; lendingLimit != nil {
 		return resources.MaxAmount(resources.NewAmount(0), r.SubtreeQuota[fr].Sub(*lendingLimit))
 	}
@@ -83,7 +83,7 @@ type hierarchicalResourceNode interface {
 // flatResourceNode abstracts over ClusterQueues and Cohorts,
 // by providing access to the contained ResourceNode.
 type flatResourceNode interface {
-	getResourceNode() resourceNode
+	getResourceNode() ResourceNode
 }
 
 // LocalAvailable returns, for a given node and resource flavor,

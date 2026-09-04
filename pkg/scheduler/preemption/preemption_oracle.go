@@ -26,16 +26,17 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func NewOracle(preemptor *Preemptor, simCtx *schdcache.SimulationContext) *PreemptionOracle {
+func NewOracle(preemptor *Preemptor, simCtx *simulation.SimulationContext) *PreemptionOracle {
 	return &PreemptionOracle{preemptor, simCtx}
 }
 
 type PreemptionOracle struct {
 	preemptor         *Preemptor
-	simulationContext *schdcache.SimulationContext
+	simulationContext *simulation.SimulationContext
 }
 
 // SimulatePreemption runs the preemption algorithm for a given flavor resource to check if
@@ -48,7 +49,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 	quantity resources.Amount,
 ) (possibility preemptioncommon.PreemptionPossibility, borrow int, simErr error) {
 	log := log.FromContext(ctx)
-	simErr = schdcache.SimulateNested(p.simulationContext, func(simCtx *schdcache.SimulationContext) error {
+	simErr = simulation.SimulateNested(p.simulationContext, func(simCtx *simulation.SimulationContext) error {
 		candidates, err := p.preemptor.getTargets(simCtx, &preemptionCtx{
 			ctx:               ctx,
 			clock:             p.preemptor.clock,

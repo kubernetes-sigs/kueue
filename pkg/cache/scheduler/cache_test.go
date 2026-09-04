@@ -452,7 +452,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 					AllocatableResourceGeneration: 2,
 					NamespaceSelector:             labels.Nothing(),
 					FlavorFungibility:             defaultFlavorFungibility,
-					resourceNode: resourceNode{
+					resourceNode: ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(5000),
 						},
@@ -909,7 +909,7 @@ func TestCacheClusterQueueOperations(t *testing.T) {
 						{Flavor: "f1", Resource: corev1.ResourceCPU}: resources.NewAmount(1000),
 					},
 					FairWeight: defaultWeight,
-					resourceNode: resourceNode{
+					resourceNode: ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "f1", Resource: corev1.ResourceCPU}: resources.NewAmount(2000),
 						},
@@ -3538,7 +3538,7 @@ func TestCohortCycles(t *testing.T) {
 
 		// cohort's SubtreeQuota contains resources from cq.
 		gotResource := cache.hm.Cohort("cohort").getResourceNode()
-		wantResource := resourceNode{
+		wantResource := ResourceNode{
 			Quotas: map[resources.FlavorResource]ResourceQuota{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(10_000)},
 			},
@@ -3574,7 +3574,7 @@ func TestCohortCycles(t *testing.T) {
 
 		// cohort's SubtreeQuota contains resources from cq
 		gotResource := cache.hm.Cohort("cohort").getResourceNode()
-		wantResource := resourceNode{
+		wantResource := ResourceNode{
 			Quotas: map[resources.FlavorResource]ResourceQuota{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(10_000)},
 			},
@@ -3595,7 +3595,7 @@ func TestCohortCycles(t *testing.T) {
 
 		// Cohort's SubtreeQuota no longer contains resources from CQ.
 		gotResource = cache.hm.Cohort("cohort").getResourceNode()
-		wantResource = resourceNode{
+		wantResource = ResourceNode{
 			Quotas: map[resources.FlavorResource]ResourceQuota{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(10_000)},
 			},
@@ -3628,14 +3628,14 @@ func TestCohortCycles(t *testing.T) {
 
 		// before move
 		{
-			wantRoot1 := resourceNode{
+			wantRoot1 := ResourceNode{
 				Quotas: map[resources.FlavorResource]ResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{
 					{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 				},
 				Usage: resources.FlavorResourceQuantities{},
 			}
-			wantRoot2 := resourceNode{
+			wantRoot2 := ResourceNode{
 				Quotas:       map[resources.FlavorResource]ResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{},
 				Usage:        resources.FlavorResourceQuantities{},
@@ -3653,12 +3653,12 @@ func TestCohortCycles(t *testing.T) {
 		}
 		// after move
 		{
-			wantRoot1 := resourceNode{
+			wantRoot1 := ResourceNode{
 				Quotas:       map[resources.FlavorResource]ResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{},
 				Usage:        resources.FlavorResourceQuantities{},
 			}
-			wantRoot2 := resourceNode{
+			wantRoot2 := ResourceNode{
 				Quotas: map[resources.FlavorResource]ResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{
 					{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
@@ -3697,7 +3697,7 @@ func TestCohortCycles(t *testing.T) {
 		if err := cache.AddOrUpdateCohort(cohort); err != nil {
 			t.Fatal("Expected success")
 		}
-		wantRoot := resourceNode{
+		wantRoot := ResourceNode{
 			Quotas: map[resources.FlavorResource]ResourceQuota{},
 			SubtreeQuota: resources.FlavorResourceQuantities{
 				{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
@@ -3730,7 +3730,7 @@ func TestCohortCycles(t *testing.T) {
 
 		// before move
 		{
-			wantRoot := resourceNode{
+			wantRoot := ResourceNode{
 				Quotas: map[resources.FlavorResource]ResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{
 					{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
@@ -3749,7 +3749,7 @@ func TestCohortCycles(t *testing.T) {
 
 		// after move
 		{
-			wantRoot := resourceNode{
+			wantRoot := ResourceNode{
 				Quotas:       map[resources.FlavorResource]ResourceQuota{},
 				SubtreeQuota: resources.FlavorResourceQuantities{},
 				Usage:        resources.FlavorResourceQuantities{},

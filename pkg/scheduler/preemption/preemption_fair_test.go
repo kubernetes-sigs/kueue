@@ -35,11 +35,11 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -1250,7 +1250,7 @@ func TestFairPreemptions(t *testing.T) {
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			var targets []*Target
-			err = scheduler.Simulate(ctx, snapshotWorkingCopy, func(simulator *scheduler.SimulationContext) error {
+			err = simulation.Simulate(ctx, snapshotWorkingCopy, func(simulator *simulation.SimulationContext) error {
 				var inErr error
 				targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, singlePodSetAssignment(
 					flavorassigner.ResourceAssignment{
@@ -1385,7 +1385,7 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 			wlInfo := workload.NewInfo(unitWl.Clone().Name("a_incoming").Obj())
 			wlInfo.ClusterQueue = "a"
 			var targets []*Target
-			err = scheduler.Simulate(ctx, snapshot, func(simulator *scheduler.SimulationContext) error {
+			err = simulation.Simulate(ctx, snapshot, func(simulator *simulation.SimulationContext) error {
 				var inErr error
 				targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, singlePodSetAssignment(
 					flavorassigner.ResourceAssignment{
@@ -1586,7 +1586,7 @@ func TestFairPreemptionErrorPaths(t *testing.T) {
 			}
 			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, fsConfig, true, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 
-			if err := scheduler.Simulate(ctx, snapshot, func(simulator *scheduler.SimulationContext) error {
+			if err := simulation.Simulate(ctx, snapshot, func(simulator *simulation.SimulationContext) error {
 				_, inErr := preemptor.GetTargets(ctx, simulator, *preemptorWlInfo, singlePodSetAssignment(
 					flavorassigner.ResourceAssignment{
 						corev1.ResourceCPU: &flavorassigner.FlavorAssignment{

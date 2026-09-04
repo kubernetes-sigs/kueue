@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package scheduler
+package simulation
 
 import (
 	"context"
@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -41,7 +42,7 @@ type Simulation func(*SimulationContext) error
 // All operations performed on the snapshot by the SimulationContext are scoped to the Simulation
 // and will be reverted when the Simulate function finishes.
 type SimulationContext struct {
-	cacheSnapshot     *hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]
+	cacheSnapshot     *hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]
 	simulatorSnapshot simulator.SimulatorSnapshot
 
 	simulatedPreemptions  map[workloadKey]preemption
@@ -55,7 +56,7 @@ type preemption struct {
 	revert func() error
 }
 
-func newSimulationContext(snapshot *Snapshot) *SimulationContext {
+func newSimulationContext(snapshot *schdcache.Snapshot) *SimulationContext {
 	return &SimulationContext{
 		cacheSnapshot:         &snapshot.Manager,
 		simulatorSnapshot:     snapshot.SimulatorSnapshot,
@@ -68,7 +69,7 @@ func newSimulationContext(snapshot *Snapshot) *SimulationContext {
 // The state of the snapshot is always reverted after the simulation finishes.
 // Returns an error if the simulation fails or the simulation function returns an error.
 // Only one simulation can be ran at the time.
-func Simulate(ctx context.Context, snapshot *Snapshot, simulate Simulation) error {
+func Simulate(ctx context.Context, snapshot *schdcache.Snapshot, simulate Simulation) error {
 	return snapshot.SimulatorSnapshot.Simulate(ctx, func() error {
 		simCtx := newSimulationContext(snapshot)
 		defer simCtx.clear()
@@ -135,7 +136,7 @@ func (s *SimulationContext) RemoveUsage(workloads []*workload.Info) {
 	})
 }
 
-func (s *SimulationContext) ClusterQueue(ref kueue.ClusterQueueReference) *ClusterQueueSnapshot {
+func (s *SimulationContext) ClusterQueue(ref kueue.ClusterQueueReference) *schdcache.ClusterQueueSnapshot {
 	return s.cacheSnapshot.ClusterQueue(ref)
 }
 

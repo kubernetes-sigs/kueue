@@ -48,8 +48,6 @@ import (
 
 var snapCmpOpts = cmp.Options{
 	cmpopts.EquateEmpty(),
-	cmp.AllowUnexported(Snapshot{}, preemption{}),
-	cmpopts.IgnoreFields(preemption{}, "revert"),
 	cmpopts.IgnoreUnexported(hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
@@ -240,7 +238,7 @@ func TestSnapshot(t *testing.T) {
 			wantSnapshot: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "borrowing",
-					ResourceNode: resourceNode{
+					ResourceNode: ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "demand", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 							{Flavor: "spot", Resource: corev1.ResourceCPU}:   resources.NewAmount(10_000),
@@ -268,7 +266,7 @@ func TestSnapshot(t *testing.T) {
 										Flavors:          []kueue.ResourceFlavorReference{"demand", "spot"},
 									},
 								},
-								ResourceNode: resourceNode{
+								ResourceNode: ResourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
 										{Flavor: "demand", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(100_000)},
 										{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: resources.NewAmount(200_000)},
@@ -312,7 +310,7 @@ func TestSnapshot(t *testing.T) {
 										Flavors:          []kueue.ResourceFlavorReference{"default"},
 									},
 								},
-								ResourceNode: resourceNode{
+								ResourceNode: ResourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
 										{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: resources.NewAmount(100_000)},
 										{Flavor: "default", Resource: "example.com/gpu"}: {Nominal: resources.NewAmount(50)},
@@ -370,7 +368,7 @@ func TestSnapshot(t *testing.T) {
 										Flavors:          []kueue.ResourceFlavorReference{"default"},
 									},
 								},
-								ResourceNode: resourceNode{
+								ResourceNode: ResourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(100_000)},
 									},
@@ -503,7 +501,7 @@ func TestSnapshot(t *testing.T) {
 			wantSnapshot: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "lending",
-					ResourceNode: resourceNode{
+					ResourceNode: ResourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 						},
@@ -528,7 +526,7 @@ func TestSnapshot(t *testing.T) {
 										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
 									},
 								},
-								ResourceNode: resourceNode{
+								ResourceNode: ResourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
 										{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(10_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(5_000))},
 										{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(20_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(10_000))},
@@ -589,7 +587,7 @@ func TestSnapshot(t *testing.T) {
 										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
 									},
 								},
-								ResourceNode: resourceNode{
+								ResourceNode: ResourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
 										{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(10_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(5_000))},
 										{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(20_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(10_000))},
@@ -645,7 +643,7 @@ func TestSnapshot(t *testing.T) {
 					map[kueue.CohortReference]*CohortSnapshot{
 						"cohort": {
 							Name: "cohort",
-							ResourceNode: resourceNode{
+							ResourceNode: ResourceNode{
 								Quotas: map[resources.FlavorResource]ResourceQuota{
 									{Flavor: "arm", Resource: corev1.ResourceCPU}:  {Nominal: resources.NewAmount(10_000), BorrowingLimit: nil, LendingLimit: nil},
 									{Flavor: "x86", Resource: corev1.ResourceCPU}:  {Nominal: resources.NewAmount(20_000), BorrowingLimit: nil, LendingLimit: nil},
@@ -670,7 +668,7 @@ func TestSnapshot(t *testing.T) {
 									Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
 								},
 							},
-							ResourceNode: resourceNode{
+							ResourceNode: ResourceNode{
 								Quotas: map[resources.FlavorResource]ResourceQuota{
 									{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(7_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(3_000))},
 									{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(5_000), BorrowingLimit: nil, LendingLimit: nil},
@@ -732,7 +730,7 @@ func TestSnapshot(t *testing.T) {
 					map[kueue.CohortReference]*CohortSnapshot{
 						"nocycle": {
 							Name: "nocycle",
-							ResourceNode: resourceNode{
+							ResourceNode: ResourceNode{
 								SubtreeQuota: resources.FlavorResourceQuantities{
 									{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 								},
@@ -750,7 +748,7 @@ func TestSnapshot(t *testing.T) {
 									Flavors:          []kueue.ResourceFlavorReference{"arm"},
 								},
 							},
-							ResourceNode: resourceNode{
+							ResourceNode: ResourceNode{
 								Quotas: map[resources.FlavorResource]ResourceQuota{
 									{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(0)},
 								},
@@ -847,7 +845,7 @@ func TestSnapshot(t *testing.T) {
 									Flavors:          []kueue.ResourceFlavorReference{"tas-flavor"},
 								},
 							},
-							ResourceNode: resourceNode{
+							ResourceNode: ResourceNode{
 								Quotas: map[resources.FlavorResource]ResourceQuota{
 									{Flavor: "tas-flavor", Resource: corev1.ResourceCPU}: {
 										Nominal: resources.NewAmount(100_000),
