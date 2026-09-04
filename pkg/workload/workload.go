@@ -28,7 +28,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -618,13 +617,13 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 		outputInputVal := inputQuantity
 		if mapping.MultiplyBy != "" {
 			if q, ok := input[mapping.MultiplyBy]; ok {
-				outputInputVal = multiplyResourceQuantities(inputQuantity, q)
+				outputInputVal = resource.MultiplyQuantity(inputQuantity, q)
 			}
 		}
 
 		outputs := make(corev1.ResourceList, len(mapping.Outputs))
 		for outputName, baseFactor := range mapping.Outputs {
-			outputs[outputName] = multiplyResourceQuantities(outputInputVal, baseFactor)
+			outputs[outputName] = resource.MultiplyQuantity(outputInputVal, baseFactor)
 		}
 		// Summed rather than assigned, so which order the input map is walked
 		// in does not decide which contribution to a name survives.
@@ -639,14 +638,6 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 		}
 	}
 	return resource.MergeResourceListKeepSum(retained, generated)
-}
-
-func multiplyResourceQuantities(value, mul apiresource.Quantity) apiresource.Quantity {
-	value = value.DeepCopy()
-	mul = mul.DeepCopy()
-	product := inf.Dec{}
-	product.Mul(value.AsDec(), mul.AsDec())
-	return *apiresource.NewDecimalQuantity(product, value.Format)
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {

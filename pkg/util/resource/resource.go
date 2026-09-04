@@ -147,3 +147,12 @@ func isNativeResource(name corev1.ResourceName) bool {
 func isHugePageResourceName(name corev1.ResourceName) bool {
 	return strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix)
 }
+
+// MultiplyQuantity returns the product of two resource.Quantity values with arbitrary precision.
+func MultiplyQuantity(value, mul resource.Quantity) resource.Quantity {
+	value = value.DeepCopy()
+	mul = mul.DeepCopy()
+	product := inf.Dec{}
+	product.Mul(value.AsDec(), mul.AsDec())
+	return *resource.NewDecimalQuantity(product, value.Format)
+}
