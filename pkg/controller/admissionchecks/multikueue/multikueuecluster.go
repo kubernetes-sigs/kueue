@@ -86,6 +86,9 @@ const (
 	// not exercise that path today; the cap is a guard. See #11206.
 	initialEstablishTimeout = 1 * time.Minute
 	maxEstablishTimeout     = 10 * time.Minute
+
+	defaultClientQPS   float32 = 1000
+	defaultClientBurst int     = 1000
 )
 
 var (
@@ -112,10 +115,21 @@ type clientConfig struct {
 }
 
 func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
+	var (
+		restConfig *rest.Config
+		err        error
+	)
 	if c.RestConfig != nil {
-		return c.RestConfig, nil
+		restConfig = c.RestConfig
+	} else {
+		restConfig, err = clientcmd.RESTConfigFromKubeConfig(c.Kubeconfig)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return clientcmd.RESTConfigFromKubeConfig(c.Kubeconfig)
+	restConfig.QPS = defaultClientQPS
+	restConfig.Burst = defaultClientBurst
+	return restConfig, nil
 }
 
 type remoteClient struct {
