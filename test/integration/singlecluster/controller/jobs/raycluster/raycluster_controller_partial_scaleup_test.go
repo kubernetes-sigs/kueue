@@ -305,11 +305,13 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 				g.Expect(podsUsage(g)).Should(gomega.Equal(int64(7)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			// The scale-up wants 1 + 6 = 7 pods. Replacing its own slice frees 3, which is not
-			// enough to reach MinCount (2 admitted + 1 = 3 workers, i.e. 4 pods), so the scale-up
-			// only fits by preempting the victim.
-			ginkgo.By("scaling the worker group to 6 replicas")
-			scaleFirstWorkerGroup(testRayCluster, 6)
+			// The scale-up wants 1 + 10 = 11 pods, which does not fit in the 7-pod quota even after
+			// reclaiming everything below it, so it cannot be admitted in full and has to be cut
+			// down. The largest count that does fit requires the victim's 4 pods, so this exercises
+			// preemption and partial admission together: had the full request been satisfiable by
+			// preemption alone, the scheduler would have admitted it whole and never reduced it.
+			ginkgo.By("scaling the worker group to 10 replicas")
+			scaleFirstWorkerGroup(testRayCluster, 10)
 
 			ginkgo.By("the lower-priority workload is preempted")
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, victim)
@@ -329,9 +331,9 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 					}
 				}
 				g.Expect(partialSlice).ShouldNot(gomega.BeNil())
-				g.Expect(partialSlice.Spec.PodSets[1].Count).Should(gomega.Equal(int32(6)))
-				g.Expect(partialSlice.Spec.PodSets[1].MinCount).Should(gomega.Equal(ptr.To(int32(3))))
-				// The whole 7-pod quota is now the RayCluster's: 1 head + 6 workers.
+				g.Expect(partialSlice.Spec.PodSets[1].Count).Should(gomega.Equal(int32(10)))
+				// The whole 7-pod quota is now the RayCluster's: 1 head + 6 workers. MinCount is
+				// asserted in the spec above; this one is about the preemption interaction.
 				g.Expect(partialSlice.Status.Admission.PodSetAssignments[1].Count).Should(gomega.Equal(int32(6)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
