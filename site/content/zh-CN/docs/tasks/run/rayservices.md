@@ -17,7 +17,7 @@ Kueue 可以直接管理 RayService，类似其直接管理 RayJob。
 
 ## 开始之前 {#before-you-begin}
 
-1. 请确保你使用的是 KubeRay v1.3.0 或更高版本。
+1. 请确保你使用的是 Kueue v0.17.0 或更高版本，以及 KubeRay v1.3.0 或更高版本。
 
 2. 请参见 [管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
@@ -95,6 +95,6 @@ RayService 如下所示：
 {{< include "examples/jobs/ray-service-sample.yaml" "yaml" >}}
 
 {{% alert title="注意" color="primary" %}}
-上述示例来自[这里](https://raw.githubusercontent.com/ray-project/kuberay/v1.7.0/ray-operator/config/samples/ray-service.sample.yaml)，
+上述示例来自[KubeRay RayService 示例](https://raw.githubusercontent.com/ray-project/kuberay/v1.7.0/ray-operator/config/samples/ray-service.sample.yaml)，
 仅添加了 `queue-name` 标签。
 {{% /alert %}}
