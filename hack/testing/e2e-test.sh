@@ -68,6 +68,13 @@ prepare_docker_images
 wait "$STARTUP_PID"
 STARTUP_PID=""
 kind_load "$KIND_CLUSTER_NAME" ""
+# The Kueue install carries the NetworkPolicies (test/e2e/config/networkpolicy), so the
+# enforcing agent goes in first: that way the install and every suite run under them,
+# rather than only the policy-specific specs.
+if [[ -n ${NETWORK_POLICIES_VERSION:-} ]]; then
+    install_network_policies_enforcement ""
+fi
+
 kueue_deploy
 
 if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
