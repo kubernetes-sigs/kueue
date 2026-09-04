@@ -77,10 +77,7 @@ func TestAmountQuantity(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			q, exact := f.AmountQuantity(tc.name, tc.amount)
-			if exact != tc.wantExact {
-				t.Errorf("exact = %v, want %v", exact, tc.wantExact)
-			}
+			q := f.AmountQuantity(tc.name, tc.amount)
 			if got := q.String(); got != tc.want {
 				t.Errorf("String() = %s, want %s", got, tc.want)
 			}
@@ -142,8 +139,8 @@ func TestAmountQuantityIsMonotonic(t *testing.T) {
 		if steps[i].Cmp(steps[i-1]) <= 0 {
 			t.Fatalf("the fixture is not increasing at %d: %s then %s", i, steps[i-1], steps[i])
 		}
-		prev, _ := f.AmountQuantity(corev1.ResourceCPU, steps[i-1])
-		next, _ := f.AmountQuantity(corev1.ResourceCPU, steps[i])
+		prev := f.AmountQuantity(corev1.ResourceCPU, steps[i-1])
+		next := f.AmountQuantity(corev1.ResourceCPU, steps[i])
 		if next.Cmp(prev) < 0 {
 			t.Errorf("%s reports %s, less than %s reports for %s",
 				steps[i], next.String(), prev.String(), steps[i-1])
@@ -157,10 +154,7 @@ func TestAmountQuantityKeepsTheRegisteredFormat(t *testing.T) {
 	f := NewResourceFormatter()
 	f.RegisterBinaryFormattedResource("example.com/memory")
 
-	q, exact := f.AmountQuantity("example.com/memory", NewAmount(2*1024*1024*1024))
-	if !exact {
-		t.Error("exact = false for a value inside the range")
-	}
+	q := f.AmountQuantity("example.com/memory", NewAmount(2*1024*1024*1024))
 	if got := q.String(); got != "2Gi" {
 		t.Errorf("String() = %s, want 2Gi", got)
 	}

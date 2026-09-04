@@ -1051,7 +1051,7 @@ func TestPreciseWeightedShareSerialized(t *testing.T) {
 
 // quantityForTest is the API boundary conversion the cache uses.
 func quantityForTest(name corev1.ResourceName, a resources.Amount) resource.Quantity {
-	q, _ := resources.NewResourceFormatter().AmountQuantity(name, a)
+	q := resources.NewResourceFormatter().AmountQuantity(name, a)
 	return q
 }
 

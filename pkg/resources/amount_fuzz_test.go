@@ -84,11 +84,11 @@ func FuzzAmountAgainstBigInt(f *testing.F) {
 		}
 
 		// A value is held in an int64 exactly when it fits one.
-		v, ok := a.Add(b).AsInt64()
+		v, ok := a.Add(b).asInt64()
 		if want := sum.IsInt64(); ok != want {
-			t.Errorf("AsInt64() ok = %v for %s, want %v", ok, sum, want)
+			t.Errorf("asInt64() ok = %v for %s, want %v", ok, sum, want)
 		} else if ok && v != sum.Int64() {
-			t.Errorf("AsInt64() = %d, want %d", v, sum.Int64())
+			t.Errorf("asInt64() = %d, want %d", v, sum.Int64())
 		}
 	})
 }
