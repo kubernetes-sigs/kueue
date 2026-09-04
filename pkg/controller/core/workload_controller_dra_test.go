@@ -292,7 +292,7 @@ func TestReconcileDRA(t *testing.T) {
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
 						Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
-						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
+						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName.deviceClassName: Not found: \"unmapped.example.com\"",
 					}).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadAdmitted,
@@ -304,7 +304,7 @@ func TestReconcileDRA(t *testing.T) {
 						Type:    kueue.WorkloadRequeued,
 						Status:  metav1.ConditionFalse,
 						Reason:  kueue.WorkloadInadmissible,
-						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
+						Message: "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName.deviceClassName: Not found: \"unmapped.example.com\"",
 					}).
 					Obj()
 				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
