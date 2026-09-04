@@ -3149,6 +3149,9 @@ func (s *deferredSyncStubAdapter) IsJobManagedByKueue(_ context.Context, _ clien
 func (s *deferredSyncStubAdapter) GVK() schema.GroupVersionKind {
 	return batchv1.SchemeGroupVersion.WithKind("Job")
 }
+func (s *deferredSyncStubAdapter) FrameworkName() string {
+	return "batch/job"
+}
 
 // TestReconcileGroup_SyncDeferred_ShortRequeue is a regression test for
 // https://github.com/kubernetes-sigs/kueue/issues/11115.

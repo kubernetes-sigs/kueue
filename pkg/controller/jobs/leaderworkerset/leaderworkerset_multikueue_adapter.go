@@ -96,6 +96,10 @@ func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (b *multiKueueAdapter) FrameworkName() string {
+	return FrameworkName
+}
+
 func (*multiKueueAdapter) GetEmptyList() client.ObjectList {
 	return &leaderworkersetv1.LeaderWorkerSetList{}
 }

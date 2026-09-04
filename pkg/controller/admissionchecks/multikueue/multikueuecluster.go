@@ -131,8 +131,7 @@ type remoteClient struct {
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
 	// supportedFrameworks is empty when all manager-enabled frameworks are supported.
-	supportedFrameworks   sets.Set[string]
-	adapterFrameworkNames map[string]string
+	supportedFrameworks sets.Set[string]
 
 	watchEstablishing atomic.Bool
 
@@ -156,14 +155,13 @@ type remoteClient struct {
 	mu sync.RWMutex
 }
 
-func (rc *remoteClient) setSupportedFrameworks(frameworks []string, adapterFrameworkNames map[string]string) bool {
+func (rc *remoteClient) setSupportedFrameworks(frameworks []string) bool {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
 
 	supported := sets.New(frameworks...)
-	changed := !rc.supportedFrameworks.Equal(supported) || !maps.Equal(rc.adapterFrameworkNames, adapterFrameworkNames)
+	changed := !rc.supportedFrameworks.Equal(supported)
 	rc.supportedFrameworks = supported
-	rc.adapterFrameworkNames = maps.Clone(adapterFrameworkNames)
 	return changed
 }
 
@@ -174,8 +172,14 @@ func (rc *remoteClient) supportsAdapter(adapterKey string) bool {
 	if len(rc.supportedFrameworks) == 0 {
 		return true
 	}
-	frameworkName := rc.adapterFrameworkNames[adapterKey]
-	return rc.supportedFrameworks.Has(adapterKey) || (frameworkName != "" && rc.supportedFrameworks.Has(frameworkName))
+	if rc.supportedFrameworks.Has(adapterKey) {
+		return true
+	}
+	adapter, found := rc.adapters[adapterKey]
+	if !found {
+		return false
+	}
+	return rc.supportedFrameworks.Has(adapter.FrameworkName())
 }
 
 // connectionState holds a remote client's connection status. Its own mutex guards the fields
@@ -800,8 +804,7 @@ type clustersReconciler struct {
 
 	fsWatcher *KubeConfigFSWatcher
 
-	adapters              map[string]jobframework.MultiKueueAdapter
-	adapterFrameworkNames map[string]string
+	adapters map[string]jobframework.MultiKueueAdapter
 
 	clusterProfileAccessProvider clusterProfileAccessProvider
 
@@ -875,7 +878,7 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 
 	client.updateConfigLock.Lock()
 	defer client.updateConfigLock.Unlock()
-	if client.setSupportedFrameworks(supportedFrameworks, c.adapterFrameworkNames) {
+	if client.setSupportedFrameworks(supportedFrameworks) {
 		client.StopWatchers()
 		client.connState.markDisconnected(client.clock.Now())
 	}

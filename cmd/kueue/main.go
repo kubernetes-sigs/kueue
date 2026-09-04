@@ -530,7 +530,7 @@ func setupControllers(
 	}
 
 	if features.Enabled(features.MultiKueue) {
-		adapters, adapterFrameworkNames, err := integrationManager.GetMultiKueueAdaptersWithFrameworkNames(sets.New(cfg.Integrations.Frameworks...))
+		adapters, err := integrationManager.GetMultiKueueAdapters(sets.New(cfg.Integrations.Frameworks...))
 		if err != nil {
 			return fmt.Errorf("could not get the enabled multikueue adapters: %w", err)
 		}
@@ -547,7 +547,6 @@ func setupControllers(
 				gvk := adapter.GVK().String()
 				setupLog.Info("Creating external framework MultiKueue adapter", "gvk", gvk)
 				adapters[gvk] = adapter
-				adapterFrameworkNames[gvk] = adapter.FrameworkName()
 			}
 		}
 
@@ -556,7 +555,6 @@ func setupControllers(
 			multikueue.WithOrigin(ptr.Deref(cfg.MultiKueue.Origin, configapi.DefaultMultiKueueOrigin)),
 			multikueue.WithWorkerLostTimeout(cfg.MultiKueue.WorkerLostTimeout.Duration),
 			multikueue.WithAdapters(adapters),
-			multikueue.WithAdapterFrameworkNames(adapterFrameworkNames),
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 			multikueue.WithClusterProfiles(cfg.MultiKueue.ClusterProfile),
 			multikueue.WithRoleTracker(opts.RoleTracker),
