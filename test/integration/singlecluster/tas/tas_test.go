@@ -6575,6 +6575,152 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		})
 	})
 
+	ginkgo.When("Multi-podset workload releases topology when one podset finishes", func() {
+		var (
+			tasFlavor    *kueue.ResourceFlavor
+			topology     *kueue.Topology
+			localQueue   *kueue.LocalQueue
+			clusterQueue *kueue.ClusterQueue
+			nodes        []corev1.Node
+		)
+
+		ginkgo.BeforeEach(func() {
+			nodes = []corev1.Node{
+				*testingnode.MakeNode("node-a").
+					Label("node-group", "tas").
+					Label(corev1.LabelHostname, "node-a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("node-b").
+					Label("node-group", "tas").
+					Label(corev1.LabelHostname, "node-b").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			}
+			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+			topology = utiltestingapi.MakeDefaultOneLevelTopology("default")
+			util.MustCreate(ctx, k8sClient, topology)
+
+			tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+				NodeLabel("node-group", "tas").
+				TopologyName("default").
+				Obj()
+			util.MustCreate(ctx, k8sClient, tasFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+						Resource(corev1.ResourceCPU, "3").
+						Resource(corev1.ResourceMemory, "3Gi").
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			for _, node := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+			}
+		})
+
+		ginkgo.It("should admit the pending workload after one podset of the admitted workload finishes and releases its topology domain", func() {
+			var (
+				admittedWl *kueue.Workload
+				pendingWl  *kueue.Workload
+				freedNode  string
+			)
+
+			ginkgo.By("creating and admitting a workload with two podsets occupying all topology domains", func() {
+				admittedWl = utiltestingapi.MakeWorkload("admitted-wl", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(
+						*utiltestingapi.MakePodSet("driver", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							Obj(),
+						*utiltestingapi.MakePodSet("workers", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							Obj(),
+					).
+					Obj()
+				util.MustCreate(ctx, k8sClient, admittedWl)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admittedWl)
+			})
+
+			ginkgo.By("determining which topology domain was assigned to the workers podset", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admittedWl), admittedWl)).To(gomega.Succeed())
+				workersTA := topologyAssignmentByName(gomega.Default, admittedWl, "workers")
+				gomega.Expect(workersTA.Domains).To(gomega.HaveLen(1))
+				freedNode = workersTA.Domains[0].Values[0]
+			})
+
+			ginkgo.By("creating a second workload that has available quota but cannot fit in topology", func() {
+				pendingWl = utiltestingapi.MakeWorkload("pending-wl", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(
+						*utiltestingapi.MakePodSet("main", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Request(corev1.ResourceMemory, "1Gi").
+							Obj(),
+					).
+					Obj()
+				util.MustCreate(ctx, k8sClient, pendingWl)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, pendingWl)
+			})
+
+			ginkgo.By("verifying the second workload stays pending while the first workload holds all topology domains", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pendingWl), pendingWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(pendingWl)).To(gomega.BeFalse())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("reclaiming the workers podset of the admitted workload to release its topology domain", func() {
+				util.UpdateReclaimablePods(ctx, k8sClient, admittedWl, []kueue.ReclaimablePod{{Name: "workers", Count: 1}})
+			})
+
+			ginkgo.By("the admitted workload continues to be admitted", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admittedWl), admittedWl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(admittedWl)).To(gomega.BeTrue())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying the pending workload is now admitted on the released topology domain", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, pendingWl)
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pendingWl), pendingWl)).To(gomega.Succeed())
+				pendingTA := topologyAssignmentByName(gomega.Default, pendingWl, "main")
+				gomega.Expect(pendingTA.Domains).To(gomega.HaveLen(1))
+				gomega.Expect(pendingTA.Domains[0].Values[0]).To(gomega.Equal(freedNode))
+			})
+		})
+	})
+
 	// The purpose of this test is to demonstrate a TAS use case
 	// for just the host scope of fragmentation
 	ginkgo.When("Testing node resource fragmentation", func() {
