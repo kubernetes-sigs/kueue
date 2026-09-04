@@ -537,8 +537,9 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 		"newer admitted variant does not hide the replacement slice": {
 			excludeVariants: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-				features.ConcurrentAdmission:          true,
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ConcurrentAdmission:                true,
 			},
 			workload: origin.Obj(),
 			workloads: []*kueue.Workload{
@@ -550,21 +551,32 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 			},
 			wantName: "replacement",
 		},
-		"ungater lookup preserves variant selection": {
+		"scheduling feature gate disabled preserves variant selection": {
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-				features.ConcurrentAdmission:          true,
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+				features.ConcurrentAdmission:                true,
 			},
 			workload:  origin.Obj(),
 			workloads: []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
 			wantName:  "variant",
 		},
-
+		"ungater lookup preserves variant selection with the scheduling gate enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ConcurrentAdmission:                true,
+			},
+			workload:  origin.Obj(),
+			workloads: []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
+			wantName:  "variant",
+		},
 		"concurrent admission disabled preserves variant selection": {
 			excludeVariants: true,
 			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices: true,
-				features.ConcurrentAdmission:          false,
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.ConcurrentAdmission:                false,
 			},
 			workload:  origin.Obj(),
 			workloads: []*kueue.Workload{origin.Obj(), replacement.Obj(), variant.Obj()},
