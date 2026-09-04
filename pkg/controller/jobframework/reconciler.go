@@ -1476,7 +1476,10 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 // EquivalentToWorkload checks if the job corresponds to the workload
 func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload) (bool, error) {
 	owner := metav1.GetControllerOf(wl)
-	if owner.Name != job.Object().GetName() {
+	// A Workload without a controller owner reference cannot belong to this job.
+	// The owner index that selects candidates matches any owner reference, not only
+	// controller ones, so wl may reach here with no controller owner.
+	if owner == nil || owner.Name != job.Object().GetName() {
 		return false, nil
 	}
 
