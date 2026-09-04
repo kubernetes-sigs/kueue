@@ -253,6 +253,6 @@ func (f *EffectiveCapacityFlavorWrapper) Resource(name corev1.ResourceName, qty 
 }
 
 // Obj returns the inner EffectiveCapacityFlavor.
-func (f *EffectiveCapacityFlavorWrapper) Obj() kueuealpha.EffectiveCapacityFlavor {
-	return f.EffectiveCapacityFlavor
+func (f *EffectiveCapacityFlavorWrapper) Obj() *kueuealpha.EffectiveCapacityFlavor {
+	return &f.EffectiveCapacityFlavor
 }
