@@ -18,6 +18,7 @@ package statefulset
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -258,8 +259,22 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
 	}
 
+	var priorityErr error
+	if _, isMultiKueueRemote := sts.Labels[kueue.MultiKueueOriginLabel]; !isMultiKueueRemote {
+		priorityErr = jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, sts, nil, wl)
+	}
+
+	// Releasing the reservation on scale-down is independent of the priority
+	// result: the workload is going away from admission either way.
 	if shouldReleaseReservation {
-		return r.releaseScaleDownReservation(ctx, wl)
+		return errors.Join(priorityErr, r.releaseScaleDownReservation(ctx, wl))
+	}
+
+	// Scale-up must wait: clearing OnHold after a failed priority sync would
+	// send the workload back into admission carrying the old priority, and the
+	// retry cannot repair it because the hold is already gone.
+	if priorityErr != nil {
+		return priorityErr
 	}
 
 	if shouldClearOnHold {
