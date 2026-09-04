@@ -3737,8 +3737,8 @@ level.</p>
 <tbody>
     
   
-<tr><td><code>podsReadyTimeout</code><br/>
-<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+<tr><td><code>timeoutSeconds</code><br/>
+<code>int64</code>
 </td>
 <td>
    <p>podsReadyTimeout defines the maximum duration the workload may remain

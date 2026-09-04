@@ -31,6 +31,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
@@ -80,11 +81,11 @@ var (
 )
 
 // ValidateJobOnCreate encapsulates all GenericJob validations that must be performed on a Create operation
-func ValidateJobOnCreate(job GenericJob) field.ErrorList {
+func ValidateJobOnCreate(job GenericJob, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	allErrs := ValidateQueueName(job.Object())
 	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
-	allErrs = append(allErrs, validateCreateForPodsReadyTimeout(job)...)
+	allErrs = append(allErrs, validateCreateForPodsReadyTimeout(job, maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, ValidateElasticJobAnnotation(job.Object(), job.GVK())...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
@@ -106,11 +107,11 @@ func ShouldValidateRayOrSparkJobOnUpdate(oldJob, newJob GenericJob, manageJobsWi
 }
 
 // ValidateJobOnUpdate encapsulates all GenericJob validations that must be performed on a Update operation
-func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(string) bool) field.ErrorList {
+func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(string) bool, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	allErrs := validateUpdateForQueueName(oldJob, newJob, defaultQueueExist)
 	allErrs = append(allErrs, validateUpdateForPrebuiltWorkload(oldJob, newJob)...)
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
-	allErrs = append(allErrs, validateUpdateForPodsReadyTimeout(oldJob, newJob)...)
+	allErrs = append(allErrs, validateUpdateForPodsReadyTimeout(oldJob, newJob, maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	allErrs = append(allErrs, validatedUpdateForEnabledWorkloadSlice(oldJob, newJob)...)
 
@@ -260,7 +261,7 @@ func validateUpdateForMaxExecTime(oldJob, newJob GenericJob) field.ErrorList {
 	return nil
 }
 
-func validateCreateForPodsReadyTimeout(job GenericJob) field.ErrorList {
+func validateCreateForPodsReadyTimeout(job GenericJob, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	if !features.Enabled(features.WorkloadLevelWaitForPodsReady) {
 		return nil
 	}
@@ -275,10 +276,16 @@ func validateCreateForPodsReadyTimeout(job GenericJob) field.ErrorList {
 	if d <= 0 {
 		return field.ErrorList{field.Invalid(waitForPodsReadyTimeoutSecondsAnnotationPath, strVal, "must be greater than 0")}
 	}
+	if maxTimeoutOnWorkload != nil {
+		maxSeconds := int64(maxTimeoutOnWorkload.Duration.Seconds())
+		if d > maxSeconds {
+			return field.ErrorList{field.Invalid(waitForPodsReadyTimeoutSecondsAnnotationPath, strVal, fmt.Sprintf("must not be greater than the cluster-wide maximum of %d seconds", maxSeconds))}
+		}
+	}
 	return nil
 }
 
-func validateUpdateForPodsReadyTimeout(oldJob, newJob GenericJob) field.ErrorList {
+func validateUpdateForPodsReadyTimeout(oldJob, newJob GenericJob, maxTimeoutOnWorkload *metav1.Duration) field.ErrorList {
 	if !features.Enabled(features.WorkloadLevelWaitForPodsReady) {
 		return nil
 	}
@@ -289,7 +296,7 @@ func validateUpdateForPodsReadyTimeout(oldJob, newJob GenericJob) field.ErrorLis
 			waitForPodsReadyTimeoutSecondsAnnotationPath,
 		)
 	}
-	return validateCreateForPodsReadyTimeout(newJob)
+	return validateCreateForPodsReadyTimeout(newJob, maxTimeoutOnWorkload)
 }
 
 // ValidateImmutablePodGroupPodSpec function is used for serving workloads to ensure no changes are allowed

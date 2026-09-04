@@ -352,6 +352,15 @@ type WaitForPodsReady struct {
 	// Defaults to the value of timeout. Setting to "0s" disables recovery timeout checking.
 	// +optional
 	RecoveryTimeout *metav1.Duration `json:"recoveryTimeout,omitempty"`
+
+	// MaxTimeoutOnWorkload defines the upper bound allowed for a per-workload
+	// PodsReady timeout override (set via the `kueue.x-k8s.io/wait-for-pods-ready-timeout-seconds`
+	// annotation). If a workload requests a timeout greater than
+	// MaxTimeoutOnWorkload, the job is rejected by the admission webhook.
+	// When unset, the default maximum of 2 hours is enforced.
+	// It has no effect on workloads that don't set a per-workload override.
+	// +optional
+	MaxTimeoutOnWorkload *metav1.Duration `json:"maxTimeoutOnWorkload,omitempty"`
 }
 
 type MultiKueue struct {

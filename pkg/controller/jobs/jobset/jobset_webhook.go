@@ -19,6 +19,7 @@ package jobset
 import (
 	"context"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -45,6 +46,7 @@ type JobSetWebhook struct {
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 // SetupJobSetWebhook configures the webhook for kubeflow JobSet.
@@ -57,6 +59,7 @@ func SetupJobSetWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
 		cache:                        options.Cache,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &jobsetapi.JobSet{}
 	if options.NoopWebhook {
@@ -123,7 +126,7 @@ func (w *JobSetWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *jobs
 
 func (w *JobSetWebhook) validateUpdate(ctx context.Context, oldJob, newJob *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
+	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
 	validationErrs, err := w.validateCreate(ctx, newJob)
 	if err != nil {
 		return nil, err
@@ -134,7 +137,7 @@ func (w *JobSetWebhook) validateUpdate(ctx context.Context, oldJob, newJob *JobS
 
 func (w *JobSetWebhook) validateCreate(ctx context.Context, jobSet *JobSet) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(jobSet)...)
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(jobSet, w.maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, jobSet)
 		if err != nil {
