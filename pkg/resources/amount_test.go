@@ -69,8 +69,8 @@ func TestAmountDemotes(t *testing.T) {
 	if !roundTrip.Equal(direct) {
 		t.Errorf("%s != %s", roundTrip, direct)
 	}
-	if _, ok := roundTrip.AsInt64(); !ok {
-		t.Error("AsInt64() reports it does not fit an int64")
+	if _, ok := roundTrip.asInt64(); !ok {
+		t.Error("asInt64() reports it does not fit an int64")
 	}
 }
 
@@ -174,18 +174,18 @@ func TestAmountLedgerRecovers(t *testing.T) {
 }
 
 func TestAmountAsInt64(t *testing.T) {
-	if v, ok := NewAmount(math.MaxInt64).AsInt64(); !ok || v != math.MaxInt64 {
-		t.Errorf("AsInt64() = (%d, %v), want (%d, true)", v, ok, int64(math.MaxInt64))
+	if v, ok := NewAmount(math.MaxInt64).asInt64(); !ok || v != math.MaxInt64 {
+		t.Errorf("asInt64() = (%d, %v), want (%d, true)", v, ok, int64(math.MaxInt64))
 	}
 	past := NewAmount(math.MaxInt64).AddInt64(1)
-	if _, ok := past.AsInt64(); ok {
-		t.Error("AsInt64() reports a value past int64 fits one")
+	if _, ok := past.asInt64(); ok {
+		t.Error("asInt64() reports a value past int64 fits one")
 	}
-	if got := past.AsSaturatedInt64(); got != math.MaxInt64 {
-		t.Errorf("AsSaturatedInt64() = %d, want %d", got, int64(math.MaxInt64))
+	if got := past.asSaturatedInt64(); got != math.MaxInt64 {
+		t.Errorf("asSaturatedInt64() = %d, want %d", got, int64(math.MaxInt64))
 	}
-	if got := NewAmount(math.MinInt64).SubInt64(1).AsSaturatedInt64(); got != math.MinInt64 {
-		t.Errorf("AsSaturatedInt64() = %d, want %d", got, int64(math.MinInt64))
+	if got := NewAmount(math.MinInt64).SubInt64(1).asSaturatedInt64(); got != math.MinInt64 {
+		t.Errorf("asSaturatedInt64() = %d, want %d", got, int64(math.MinInt64))
 	}
 }
 
@@ -359,10 +359,7 @@ func TestAmountFromQuantityRoundTrips(t *testing.T) {
 	} {
 		t.Run(string(tc.name)+"/"+tc.qty, func(t *testing.T) {
 			in := AmountFromQuantity(tc.name, resource.MustParse(tc.qty))
-			out, exact := f.AmountQuantity(tc.name, in)
-			if !exact {
-				t.Errorf("AmountQuantity(%s) reported %s inexactly", in, out.String())
-			}
+			out := f.AmountQuantity(tc.name, in)
 			if back := AmountFromQuantity(tc.name, out); !back.Equal(in) {
 				t.Errorf("%s went in as %s and came back as %s", tc.qty, in, back)
 			}

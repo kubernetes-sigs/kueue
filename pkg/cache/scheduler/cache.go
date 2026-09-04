@@ -27,7 +27,6 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -65,14 +64,6 @@ const (
 
 // Option configures the reconciler.
 type Option func(*Cache)
-
-// quantityOf reports an Amount the way the API field expects it, applying the
-// resource's scale before any narrowing. A value that cannot be represented is
-// capped rather than dropped, which is the same thing the field did before.
-func quantityOf(f *resources.ResourceFormatter, name corev1.ResourceName, a resources.Amount) resource.Quantity {
-	q, _ := f.AmountQuantity(name, a)
-	return q
-}
 
 // WithPodsReadyTracking indicates the cache controller tracks the PodsReady
 // condition for admitted workloads, and allows to block admission of new
@@ -1019,14 +1010,14 @@ func (c *Cache) getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueu
 				used := frq[fr]
 				rUsage := kueue.ResourceUsage{
 					Name:  rName,
-					Total: quantityOf(c.resourceFormatter, rName, used),
+					Total: c.resourceFormatter.AmountQuantity(rName, used),
 				}
 				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
 				if cq.HasParent() {
 					// Compared as an Amount, so the sign is read off the exact
 					// difference rather than a narrowed one.
 					if borrowed := used.Sub(rQuota.Nominal); borrowed.Sign() > 0 {
-						rUsage.Borrowed = quantityOf(c.resourceFormatter, rName, borrowed)
+						rUsage.Borrowed = c.resourceFormatter.AmountQuantity(rName, borrowed)
 					}
 				}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
@@ -1085,7 +1076,7 @@ func (c *Cache) filterLocalQueueUsage(orig resources.FlavorResourceQuantities, r
 				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, kueue.LocalQueueResourceUsage{
 					Name:  rName,
-					Total: quantityOf(c.resourceFormatter, rName, orig[fr]),
+					Total: c.resourceFormatter.AmountQuantity(rName, orig[fr]),
 				})
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.

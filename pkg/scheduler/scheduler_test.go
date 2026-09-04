@@ -10346,6 +10346,6 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 
 // mustQuantity is the test-side spelling of the API boundary conversion.
 func mustQuantity(f *resources.ResourceFormatter, name corev1.ResourceName, a resources.Amount) resource.Quantity {
-	q, _ := f.AmountQuantity(name, a)
+	q := f.AmountQuantity(name, a)
 	return q
 }

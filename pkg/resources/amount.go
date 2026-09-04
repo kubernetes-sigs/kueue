@@ -239,17 +239,17 @@ func (a Amount) Sign() int {
 	}
 }
 
-// AsInt64 returns a as an int64, and false when it does not fit one.
-func (a Amount) AsInt64() (int64, bool) {
+// asInt64 returns a as an int64, and false when it does not fit one.
+func (a Amount) asInt64() (int64, bool) {
 	if a.large != nil {
 		return 0, false
 	}
 	return a.small, true
 }
 
-// AsSaturatedInt64 returns a clamped to the int64 range. Only the boundaries
+// asSaturatedInt64 returns a clamped to the int64 range. Only the boundaries
 // that have no way to report a refusal should use it.
-func (a Amount) AsSaturatedInt64() int64 {
+func (a Amount) asSaturatedInt64() int64 {
 	if a.large == nil {
 		return a.small
 	}

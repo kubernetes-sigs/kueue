@@ -44,7 +44,7 @@ type FlavorResourceQuantities map[FlavorResource]Amount
 func (frq FlavorResourceQuantities) MarshalJSON() ([]byte, error) {
 	temp := make(map[string]int64, len(frq))
 	for flavorResource, num := range frq {
-		temp[flavorResource.String()] = num.AsSaturatedInt64()
+		temp[flavorResource.String()] = num.asSaturatedInt64()
 	}
 	return json.Marshal(temp)
 }
@@ -64,7 +64,7 @@ func (frq FlavorResourceQuantities) FlattenFlavors() Requests {
 	}
 	result := make(map[corev1.ResourceName]int64, len(exact))
 	for name, a := range exact {
-		result[name] = a.AsSaturatedInt64()
+		result[name] = a.asSaturatedInt64()
 	}
 	return NewRequestsFromMap(result)
 }
@@ -83,7 +83,7 @@ func (frq FlavorResourceQuantities) ToResourceList(formatter *ResourceFormatter)
 	}
 	out := make(corev1.ResourceList, len(exact))
 	for name, amount := range exact {
-		out[name], _ = formatter.AmountQuantity(name, amount)
+		out[name] = formatter.AmountQuantity(name, amount)
 	}
 	return out
 }

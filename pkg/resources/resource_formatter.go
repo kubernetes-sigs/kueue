@@ -92,8 +92,8 @@ func (f *ResourceFormatter) ResourceQuantityString(name corev1.ResourceName, v i
 }
 
 // AmountQuantity returns a in the format the API reports name in, applying the
-// resource's scale before any narrowing, and reports whether the Quantity is
-// the amount exactly.
+// resource's scale before any narrowing. A magnitude the format cannot carry is
+// capped with its sign kept, which is the only output policy there is.
 //
 // A Quantity carries at most MaxInt64 in magnitude in the unit it reports, at
 // milli precision. CPU is reported in cores and accounted in milli, so the
@@ -101,25 +101,25 @@ func (f *ResourceFormatter) ResourceQuantityString(name corev1.ResourceName, v i
 // milli up to MaxInt64 cores is inside one, whether or not it divides into
 // whole cores. Past that magnitude the value is capped rather than handed to a
 // serializer that drops the exponent, which is what String does with 1000E.
-func (f *ResourceFormatter) AmountQuantity(name corev1.ResourceName, a Amount) (resource.Quantity, bool) {
+func (f *ResourceFormatter) AmountQuantity(name corev1.ResourceName, a Amount) resource.Quantity {
 	if name == corev1.ResourceCPU {
 		// Everything held in an int64 of milli keeps the path it is on today.
-		if v, ok := a.AsInt64(); ok {
-			return f.ResourceQuantity(name, v), true
+		if v, ok := a.asInt64(); ok {
+			return f.ResourceQuantity(name, v)
 		}
 		if dec, ok := a.milliDec(); ok {
-			return *resource.NewDecimalQuantity(*dec, resource.DecimalSI), true
+			return *resource.NewDecimalQuantity(*dec, resource.DecimalSI)
 		}
 		// ResourceQuantity reads its argument as milli, so the cap is built
 		// here in the cores a CPU Quantity reports.
-		return *resource.NewQuantity(quantityCap(a.Sign()), resource.DecimalSI), false
+		return *resource.NewQuantity(quantityCap(a.Sign()), resource.DecimalSI)
 	}
 	// Reported in the whole units it is held in, so the two limits coincide.
 	// MinInt64 fits an int64 and is one past the magnitude a Quantity carries.
-	if v, ok := a.AsInt64(); ok && v != math.MinInt64 {
-		return f.ResourceQuantity(name, v), true
+	if v, ok := a.asInt64(); ok && v != math.MinInt64 {
+		return f.ResourceQuantity(name, v)
 	}
-	return f.ResourceQuantity(name, quantityCap(a.Sign())), false
+	return f.ResourceQuantity(name, quantityCap(a.Sign()))
 }
 
 // quantityCap returns the largest magnitude a Quantity carries, with sign, in
@@ -137,6 +137,6 @@ func quantityCap(sign int) int64 {
 // amount the cache holds; Amount.String is the exact one, and is unbounded in
 // length, so it belongs in a debug log rather than in a message.
 func (f *ResourceFormatter) AmountQuantityString(name corev1.ResourceName, a Amount) string {
-	q, _ := f.AmountQuantity(name, a)
+	q := f.AmountQuantity(name, a)
 	return q.String()
 }
