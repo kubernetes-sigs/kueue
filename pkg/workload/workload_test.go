@@ -384,7 +384,7 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
-		"admitted with TAS and completed podSet clears topology request": {
+		"admitted with TAS and completed podSet scales count and requests to zero": {
 			workload: *utiltestingapi.MakeWorkload("tas", "").
 				PodSets(
 					*utiltestingapi.MakePodSet("driver", 1).
@@ -454,8 +454,17 @@ func TestNewInfo(t *testing.T) {
 						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 0,
 						}),
-						Count:           0,
-						TopologyRequest: nil,
+						Count: 0,
+						TopologyRequest: &TopologyRequest{
+							Levels: []string{corev1.LabelHostname},
+							DomainRequests: []TopologyDomainRequests{{
+								Values: []string{"node-b"},
+								SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+									corev1.ResourceCPU: 1000,
+								}),
+								Count: 2,
+							}},
+						},
 					},
 				},
 			},
@@ -1888,10 +1897,19 @@ func TestTASUsage(t *testing.T) {
 						},
 					},
 					{
-						Name:            "workers",
-						Count:           0,
-						Flavors:         map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "tas-flavor"},
-						TopologyRequest: nil,
+						Name:    "workers",
+						Count:   0,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "tas-flavor"},
+						TopologyRequest: &TopologyRequest{
+							Levels: []string{corev1.LabelHostname},
+							DomainRequests: []TopologyDomainRequests{{
+								Values: []string{"node-b"},
+								SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+									corev1.ResourceCPU: 1000,
+								}),
+								Count: 2,
+							}},
+						},
 					},
 				},
 			},
@@ -1907,24 +1925,42 @@ func TestTASUsage(t *testing.T) {
 				},
 			},
 		},
-		"all podsets completed (cleared TopologyRequest), returns nil": {
+		"all podsets completed (count == 0), returns empty usage": {
 			info: &Info{
 				TotalRequests: []PodSetResources{
 					{
-						Name:            "driver",
-						Count:           0,
-						Flavors:         map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "tas-flavor"},
-						TopologyRequest: nil,
+						Name:    "driver",
+						Count:   0,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "tas-flavor"},
+						TopologyRequest: &TopologyRequest{
+							Levels: []string{corev1.LabelHostname},
+							DomainRequests: []TopologyDomainRequests{{
+								Values: []string{"node-a"},
+								SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+									corev1.ResourceCPU: 1000,
+								}),
+								Count: 1,
+							}},
+						},
 					},
 					{
-						Name:            "workers",
-						Count:           0,
-						Flavors:         map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "tas-flavor"},
-						TopologyRequest: nil,
+						Name:    "workers",
+						Count:   0,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "tas-flavor"},
+						TopologyRequest: &TopologyRequest{
+							Levels: []string{corev1.LabelHostname},
+							DomainRequests: []TopologyDomainRequests{{
+								Values: []string{"node-b"},
+								SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+									corev1.ResourceCPU: 1000,
+								}),
+								Count: 2,
+							}},
+						},
 					},
 				},
 			},
-			want: nil,
+			want: TASUsage{},
 		},
 	}
 	for name, tc := range cases {
