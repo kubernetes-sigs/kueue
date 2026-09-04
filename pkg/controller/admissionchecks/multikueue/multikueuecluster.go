@@ -126,7 +126,7 @@ func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
 			return nil, err
 		}
 	}
-	if features.Enabled(features.MultiKueueClientConnection) && c.ClientConnection != nil {
+	if c.ClientConnection != nil {
 		if c.ClientConnection.QPS != nil {
 			restConfig.QPS = *c.ClientConnection.QPS
 		}

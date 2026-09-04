@@ -1261,7 +1261,6 @@ var _ = ginkgo.Describe("MultiKueue ClientConnection setup", ginkgo.Label("area:
 	})
 
 	ginkgo.It("Should connect to worker cluster when ClientConnection is configured", func() {
-		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueClientConnection, true)
 		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 			managerSetup(ctx, mgr)
 			adapters, _ := jobcontrollers.NewIntegrationManager().GetMultiKueueAdapters(defaultEnabledIntegrations)
