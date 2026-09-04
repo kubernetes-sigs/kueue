@@ -18,7 +18,6 @@ package flavorassigner
 
 import (
 	"slices"
-	"sort"
 
 	"k8s.io/utils/ptr"
 
@@ -30,7 +29,7 @@ import (
 // how much each PodSet can individually give up. Every out[i] must be
 // monotonically non-increasing as amount grows, or the binary search in
 // Search breaks.
-type distributeFunc func(out, fullCounts, deltas []int32, amount, totalDelta int32)
+type distributeFunc func(out, fullCounts, deltas []int32, amount, totalDelta int64)
 
 // PodSetReducer helper structure used to gradually walk down
 // from PodSets[*].Count to *PodSets[*].MinimumCount.
@@ -38,7 +37,7 @@ type PodSetReducer[R any] struct {
 	podSets    []kueue.PodSet
 	fullCounts []int32
 	deltas     []int32
-	totalDelta int32
+	totalDelta int64
 	fits       func([]int32) (R, bool)
 	distribute distributeFunc
 }
@@ -58,7 +57,7 @@ func newPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool
 
 		d := ps.Count - ptr.Deref(ps.MinCount, ps.Count)
 		psr.deltas[i] = d
-		psr.totalDelta += d
+		psr.totalDelta += int64(d)
 	}
 	return psr
 }
@@ -70,11 +69,11 @@ func NewOrderedPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (
 	return newPodSetReducer(podSets, fits, distributeOrderBased)
 }
 
-func distributeOrderBased(out, fullCounts, deltas []int32, amount int32, _ int32) {
+func distributeOrderBased(out, fullCounts, deltas []int32, amount, _ int64) {
 	remaining := amount
 	for i, d := range slices.Backward(deltas) {
-		cut := min(d, remaining)
-		out[i] = fullCounts[i] - cut
+		cut := min(int64(d), remaining)
+		out[i] = fullCounts[i] - int32(cut)
 		remaining -= cut
 	}
 }
@@ -83,7 +82,7 @@ func distributeOrderBased(out, fullCounts, deltas []int32, amount int32, _ int32
 // binary Search so the last call to fits() might not be a successful one
 // Returns nil if no solution was found
 func (psr *PodSetReducer[R]) Search() (R, bool) {
-	var lastGoodIdx int
+	var lastGoodIdx int64
 	var lastR R
 
 	if psr.totalDelta == 0 {
@@ -91,8 +90,8 @@ func (psr *PodSetReducer[R]) Search() (R, bool) {
 	}
 
 	current := make([]int32, len(psr.podSets))
-	idx := sort.Search(int(psr.totalDelta)+1, func(i int) bool {
-		psr.distribute(current, psr.fullCounts, psr.deltas, int32(i), psr.totalDelta)
+	idx := searchInt64(psr.totalDelta+1, func(i int64) bool {
+		psr.distribute(current, psr.fullCounts, psr.deltas, i, psr.totalDelta)
 		r, f := psr.fits(current)
 		if f {
 			lastGoodIdx = i
@@ -101,4 +100,19 @@ func (psr *PodSetReducer[R]) Search() (R, bool) {
 		return f
 	})
 	return lastR, idx == lastGoodIdx
+}
+
+func searchInt64(n int64, f func(int64) bool) int64 {
+	var i int64
+	j := n
+
+	for i < j {
+		h := i + (j-i)/2
+		if !f(h) {
+			i = h + 1
+		} else {
+			j = h
+		}
+	}
+	return i
 }

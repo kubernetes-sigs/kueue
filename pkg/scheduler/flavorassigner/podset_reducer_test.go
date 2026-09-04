@@ -29,7 +29,7 @@ func TestDistributeOrderBased(t *testing.T) {
 	cases := map[string]struct {
 		fullCounts []int32
 		deltas     []int32
-		amount     int32
+		amount     int64
 		wantOut    []int32
 	}{
 		"zero amount leaves everything at full count": {
@@ -66,9 +66,9 @@ func TestDistributeOrderBased(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			out := make([]int32, len(tc.fullCounts))
-			totalDelta := int32(0)
+			totalDelta := int64(0)
 			for _, d := range tc.deltas {
-				totalDelta += d
+				totalDelta += int64(d)
 			}
 			distributeOrderBased(out, tc.fullCounts, tc.deltas, tc.amount, totalDelta)
 			if diff := cmp.Diff(tc.wantOut, out); diff != "" {
@@ -151,5 +151,39 @@ func TestOrderedSearch(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSearchTotalDeltaOverflow(t *testing.T) {
+	podSets := []kueue.PodSet{
+		*utiltestingapi.MakePodSet("ps1", 1_500_000_000).SetMinimumCount(1).Obj(),
+		*utiltestingapi.MakePodSet("ps2", 1_500_000_000).SetMinimumCount(1).Obj(),
+	}
+
+	fits := func(counts []int32) ([]int32, bool) {
+		total := int64(counts[0]) + int64(counts[1])
+		if total > 1_000_000_000 {
+			return nil, false
+		}
+
+		out := make([]int32, len(counts))
+		copy(out, counts)
+		return out, true
+	}
+
+	red := NewOrderedPodSetReducer(podSets, fits)
+
+	if want, got := int64(2_999_999_998), red.totalDelta; got != want {
+		t.Errorf("Unexpected totalDelta: %d, want %d", got, want)
+	}
+
+	count, found := red.Search()
+	if !found {
+		t.Fatal("Expected a solution")
+	}
+
+	wantCount := []int32{999_999_999, 1}
+	if diff := cmp.Diff(wantCount, count); diff != "" {
+		t.Errorf("Unexpected counts (-want,+got):\n%s", diff)
 	}
 }
