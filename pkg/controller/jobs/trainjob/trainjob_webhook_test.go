@@ -193,6 +193,14 @@ func TestDefault(t *testing.T) {
 	testExpectedTrainJob := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
 		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).Obj(),
 	})
+	userRuntimePatch := testingtrainjob.MakeRuntimePatch("example.com/user-manager").Obj()
+	testTrainJobWithUserRuntimePatch := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{userRuntimePatch})
+	testTrainJobWithRuntimePatch := testTrainJob.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+		userRuntimePatch,
+		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+			Annotation("example.com/key", "value").
+			Obj(),
+	})
 	testCases := map[string]struct {
 		trainJob                     *kftrainerapi.TrainJob
 		defaultQueue                 *kueue.LocalQueue
@@ -212,6 +220,17 @@ func TestDefault(t *testing.T) {
 		"should not suspend a TrainJob without a queue label if manageJobsWithoutQueueName is not enabled": {
 			trainJob:     testTrainJob.DeepCopy(),
 			wantTrainJob: testExpectedTrainJob.DeepCopy(),
+		},
+		"should add a Kueue runtime patch when only a user runtime patch exists": {
+			trainJob: testTrainJobWithUserRuntimePatch.DeepCopy(),
+			wantTrainJob: testTrainJobWithUserRuntimePatch.Clone().RuntimePatches([]kftrainerapi.RuntimePatch{
+				userRuntimePatch,
+				testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).Obj(),
+			}).Obj(),
+		},
+		"should preserve an existing Kueue runtime patch without adding a duplicate": {
+			trainJob:     testTrainJobWithRuntimePatch.DeepCopy(),
+			wantTrainJob: testTrainJobWithRuntimePatch.DeepCopy(),
 		},
 		"should suspend a TrainJob without a queue label if manageJobsWithoutQueueName is enabled": {
 			trainJob: testTrainJob.DeepCopy(),
