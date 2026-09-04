@@ -1124,7 +1124,7 @@ func TestLocalQueueReconcileSamplesAnchoredUsage(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 			if tc.atQuotaReservation {
-				features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingReservedAnchor, true)
+				features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, true)
 			}
 			clock := testingclock.NewFakeClock(now)
 			afsConfig := &config.AdmissionFairSharing{
@@ -1167,7 +1167,7 @@ func TestLocalQueueReconcileSamplesAnchoredUsage(t *testing.T) {
 			}
 
 			// A Workload holding quota while it waits for its AdmissionChecks:
-			// counted by the reserved anchor, invisible to the admitted one.
+			// counted by the quota-reservation anchor, invisible to the admitted one.
 			reserved := utiltestingapi.MakeWorkload("wl", "default").
 				Queue("lq-anchor").
 				Request(corev1.ResourceCPU, "4").

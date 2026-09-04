@@ -11,7 +11,7 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
-- name: AdmissionFairSharingReservedAnchor
+- name: AdmissionFairSharingAnchorAtQuotaReservation
   versionedSpecs:
   - default: false
     lockToDefault: false
