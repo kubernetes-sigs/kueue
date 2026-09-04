@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -30,6 +31,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -239,8 +242,10 @@ func TestValidateOnCreate(t *testing.T) {
 		customValidationFailure field.ErrorList
 		customValidationError   error
 
-		wantError   error
-		wantWarning admission.Warnings // Note: ValidateCreate always returns nil for admission.Warning.
+		objects           []client.Object
+		clientInterceptor interceptor.Funcs
+		wantError         error
+		wantWarning       admission.Warnings // Note: ValidateCreate always returns nil for admission.Warning.
 	}{
 		{
 			name: "valid request",
@@ -269,6 +274,51 @@ func TestValidateOnCreate(t *testing.T) {
 			// different error types. This simplifies the assertion logic.
 			wantError: field.InternalError(nil, errors.New("test-custom-validation-error")),
 		},
+		{
+			name: "invalid workloadpriorityclass",
+			job: utiljob.MakeJob("job", metav1.NamespaceDefault).
+				Label(constants.QueueLabel, "queue").
+				Label(constants.WorkloadPriorityClassLabel, "nonexist").Obj(),
+			wantError: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata.labels[kueue.x-k8s.io/priority-class]"),
+					"nonexist",
+					`no WorkloadPriorityClass with name "nonexist" was found`,
+				),
+			}.ToAggregate(),
+		},
+		{
+			name: "valid workloadpriorityclass",
+			job: utiljob.MakeJob("job", metav1.NamespaceDefault).
+				Label(constants.QueueLabel, "queue").
+				Label(constants.WorkloadPriorityClassLabel, "test-wpc").Obj(),
+			objects: []client.Object{
+				utiltestingapi.MakeWorkloadPriorityClass("test-wpc").PriorityValue(100).Obj(),
+			},
+		},
+		{
+			// Transient apiserver errors (timeouts, connection resets) must
+			// surface as InternalError so admission returns 500 and the
+			// client retries, rather than a permanent Invalid rejection.
+			name: "workloadpriorityclass get returns internal error",
+			job: utiljob.MakeJob("job", metav1.NamespaceDefault).
+				Label(constants.QueueLabel, "queue").
+				Label(constants.WorkloadPriorityClassLabel, "test-wpc").Obj(),
+			clientInterceptor: interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*kueue.WorkloadPriorityClass); ok {
+						return errors.New("boom")
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
+			wantError: field.ErrorList{
+				field.InternalError(
+					field.NewPath("metadata.labels[kueue.x-k8s.io/priority-class]"),
+					errors.New("boom"),
+				),
+			}.ToAggregate(),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -291,6 +341,10 @@ func TestValidateOnCreate(t *testing.T) {
 			job.MockJobWithCustomValidation.EXPECT().ValidateOnCreate(gomock.Any()).Return(tc.customValidationFailure, tc.customValidationError).AnyTimes()
 
 			w := &jobframework.BaseWebhook[*mockJob]{
+				Client: interceptor.NewClient(
+					utiltesting.NewClientBuilder().WithObjects(tc.objects...).Build(),
+					tc.clientInterceptor,
+				),
 				FromObject: func(object *mockJob) jobframework.GenericJob {
 					return object
 				},

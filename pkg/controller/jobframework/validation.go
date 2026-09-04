@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -30,14 +31,17 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -294,6 +298,23 @@ func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fie
 	}
 
 	return allErrs
+}
+
+func validateCreateForWorkloadPriorityClassName(ctx context.Context, c client.Client, job GenericJob) field.ErrorList {
+	name := WorkloadPriorityClassName(job.Object())
+	if name == "" {
+		return nil
+	}
+
+	wpc := &kueue.WorkloadPriorityClass{}
+	if err := c.Get(ctx, types.NamespacedName{Name: name}, wpc); err != nil {
+		if apierrors.IsNotFound(err) {
+			msg := fmt.Sprintf("no WorkloadPriorityClass with name %q was found", name)
+			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, name, msg)}
+		}
+		return field.ErrorList{field.InternalError(workloadPriorityClassNamePath, err)}
+	}
+	return nil
 }
 
 func IsWorkloadPriorityClassNameEmpty(obj client.Object) bool {

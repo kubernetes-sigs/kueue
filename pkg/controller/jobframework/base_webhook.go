@@ -91,6 +91,7 @@ func (w *BaseWebhook[T]) ValidateCreate(ctx context.Context, obj T) (admission.W
 	log := ctrl.LoggerFrom(ctx)
 	log.V(5).Info("Validating create")
 	allErrs := ValidateJobOnCreate(job)
+	allErrs = append(allErrs, validateCreateForWorkloadPriorityClassName(ctx, w.Client, job)...)
 	if jobWithValidation, ok := job.(JobWithCustomValidation); ok {
 		validationErrs, err := jobWithValidation.ValidateOnCreate(ctx)
 		if err != nil {
