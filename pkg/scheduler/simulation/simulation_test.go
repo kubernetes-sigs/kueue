@@ -62,7 +62,36 @@ var extendedCmpOpts = append(cmpOpts,
 	cmpopts.IgnoreTypes(&workload.Info{}),
 )
 
-func setupSnapshotSimulationTest(t *testing.T) (context.Context, *schdcache.Cache, map[string]*workload.Info) {
+func setupSnapshotSimulationTest(t *testing.T, flavors []*kueue.ResourceFlavor, clusterQueues []*kueue.ClusterQueue, workloads []kueue.Workload) (context.Context, *schdcache.Cache, map[string]*workload.Info) {
+	t.Helper()
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
+
+	cqCache := schdcache.New(cl)
+	for _, flv := range flavors {
+		cqCache.AddOrUpdateResourceFlavor(log, flv)
+	}
+	for _, cq := range clusterQueues {
+		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+		}
+	}
+	snapshot, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	wlInfos := make(map[string]*workload.Info, 2*len(workloads))
+	for _, cq := range snapshot.ClusterQueues() {
+		for _, wl := range cq.Workloads {
+			wlInfos[wl.Obj.Name] = wl
+			wlInfos[string(workload.Key(wl.Obj))] = wl
+		}
+	}
+	return ctx, cqCache, wlInfos
+}
+
+func defaultSetup(t *testing.T) (context.Context, *schdcache.Cache, map[string]*workload.Info) {
 	t.Helper()
 	now := time.Now().Truncate(time.Second)
 	flavors := []*kueue.ResourceFlavor{
@@ -93,30 +122,7 @@ func setupSnapshotSimulationTest(t *testing.T) (context.Context, *schdcache.Cach
 				Obj(), now).
 			Obj(),
 	}
-
-	ctx, log := utiltesting.ContextWithLog(t)
-	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
-
-	cqCache := schdcache.New(cl)
-	for _, flv := range flavors {
-		cqCache.AddOrUpdateResourceFlavor(log, flv)
-	}
-	for _, cq := range clusterQueues {
-		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
-			t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
-		}
-	}
-	snapshot, err := cqCache.Snapshot(ctx)
-	if err != nil {
-		t.Fatalf("unexpected error while building snapshot: %v", err)
-	}
-	wlInfos := make(map[string]*workload.Info, len(workloads))
-	for _, cq := range snapshot.ClusterQueues() {
-		for _, wl := range cq.Workloads {
-			wlInfos[wl.Obj.Name] = wl
-		}
-	}
-	return ctx, cqCache, wlInfos
+	return setupSnapshotSimulationTest(t, flavors, clusterQueues, workloads)
 }
 
 func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
@@ -181,28 +187,13 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			Obj(),
 	}
 
-	ctx, log := utiltesting.ContextWithLog(t)
-	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
-
-	cqCache := schdcache.New(cl)
-	for _, flv := range flavors {
-		cqCache.AddOrUpdateResourceFlavor(log, flv)
-	}
-	for _, cq := range clusterQueues {
-		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
-			t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
-		}
-	}
+	ctx, cqCache, wlInfos := setupSnapshotSimulationTest(t, flavors, clusterQueues, workloads)
 	initialSnapshot, err := cqCache.Snapshot(ctx)
+
 	if err != nil {
 		t.Fatalf("unexpected error while building snapshot: %v", err)
 	}
-	wlInfos := make(map[workload.Reference]*workload.Info, len(workloads))
-	for _, cq := range initialSnapshot.ClusterQueues() {
-		for _, wl := range cq.Workloads {
-			wlInfos[workload.Key(wl.Obj)] = wl
-		}
-	}
+
 	initialCohortResources := initialSnapshot.ClusterQueue("lend-a").Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
 		remove []workload.Reference
@@ -546,10 +537,10 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 			for _, name := range tc.remove {
-				sim.removeWorkload(wlInfos[name])
+				sim.removeWorkload(wlInfos[string(name)])
 			}
 			for _, name := range tc.add {
-				sim.addWorkload(wlInfos[name])
+				sim.addWorkload(wlInfos[string(name)])
 			}
 			if diff := cmp.Diff(tc.want, *snap, extendedCmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
@@ -559,7 +550,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 }
 
 func TestPreemptWorkload(t *testing.T) {
-	ctx, cqCache, wlInfos := setupSnapshotSimulationTest(t)
+	ctx, cqCache, wlInfos := defaultSetup(t)
 	errSimulatorFailed := errors.New("simulator preempt error")
 
 	cases := map[string]struct {
@@ -653,7 +644,7 @@ func (s *errSimulatorSnapshot) PreemptWorkload(_ context.Context, _ types.Namesp
 }
 
 func TestRestoreWorkload(t *testing.T) {
-	ctx, cqCache, wlInfos := setupSnapshotSimulationTest(t)
+	ctx, cqCache, wlInfos := defaultSetup(t)
 	errRevertFailed := errors.New("revert error")
 
 	cases := map[string]struct {
@@ -773,7 +764,7 @@ func TestRestoreWorkload(t *testing.T) {
 }
 
 func TestRestoreSnapshot(t *testing.T) {
-	ctx, cqCache, wlInfos := setupSnapshotSimulationTest(t)
+	ctx, cqCache, wlInfos := defaultSetup(t)
 	errRevertFailed := errors.New("revert error")
 
 	cases := map[string]struct {
@@ -890,7 +881,7 @@ func TestRestoreSnapshot(t *testing.T) {
 }
 
 func TestSimulation(t *testing.T) {
-	ctx, cqCache, wlInfos := setupSnapshotSimulationTest(t)
+	ctx, cqCache, wlInfos := defaultSetup(t)
 
 	initialSnap, err := cqCache.Snapshot(ctx)
 	if err != nil {
@@ -1035,27 +1026,11 @@ func TestAddRemoveWorkload(t *testing.T) {
 			Obj(),
 	}
 
-	ctx, log := utiltesting.ContextWithLog(t)
-	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
-
-	cqCache := schdcache.New(cl)
-	for _, flv := range flavors {
-		cqCache.AddOrUpdateResourceFlavor(log, flv)
-	}
-	for _, cq := range clusterQueues {
-		if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
-			t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
-		}
-	}
+	ctx, cqCache, wlInfos := setupSnapshotSimulationTest(t, flavors, clusterQueues, workloads)
 	initialSnapshot, err := cqCache.Snapshot(ctx)
+
 	if err != nil {
 		t.Fatalf("unexpected error while building snapshot: %v", err)
-	}
-	wlInfos := make(map[workload.Reference]*workload.Info, len(workloads))
-	for _, cq := range initialSnapshot.ClusterQueues() {
-		for _, wl := range cq.Workloads {
-			wlInfos[workload.Key(wl.Obj)] = wl
-		}
 	}
 	initialCohortResources := initialSnapshot.ClusterQueue("c1").Parent().ResourceNode.SubtreeQuota
 	cases := map[string]struct {
@@ -1232,10 +1207,10 @@ func TestAddRemoveWorkload(t *testing.T) {
 			}
 			sim := newSimulationContext(snap)
 			for _, name := range tc.remove {
-				sim.removeWorkload(wlInfos[name])
+				sim.removeWorkload(wlInfos[string(name)])
 			}
 			for _, name := range tc.add {
-				sim.addWorkload(wlInfos[name])
+				sim.addWorkload(wlInfos[string(name)])
 			}
 			if diff := cmp.Diff(tc.want, *snap, extendedCmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
