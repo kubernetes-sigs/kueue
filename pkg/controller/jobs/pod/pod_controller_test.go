@@ -6792,6 +6792,79 @@ func TestReconciler(t *testing.T) {
 	}
 }
 
+func TestFindMatchingWorkloadsPreservesMultiKueueMembers(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	oldPod := testingpod.MakePod("old", "ns").UID("old-uid").
+		GroupNameLabel("group").GroupTotalCount("1").RoleHash("role").
+		PrebuiltWorkloadLabel("prebuilt").Label(kueue.MultiKueueOriginLabel, "manager").
+		KueueFinalizer().StatusPhase(corev1.PodRunning).NodeName("node").Obj()
+	replacement := testingpod.MakePod("replacement", "ns").UID("new-uid").
+		GroupNameLabel("group").GroupTotalCount("1").RoleHash("role").
+		PrebuiltWorkloadLabel("prebuilt").Label(kueue.MultiKueueOriginLabel, "manager").
+		KueueFinalizer().KueueSchedulingGate().Obj()
+	wl := utiltestingapi.MakeWorkload("prebuilt", "ns").
+		PodSets(*utiltestingapi.MakePodSet("role", 1).Obj()).Obj()
+	c := utiltesting.NewClientBuilder().WithObjects(oldPod, replacement, wl).Build()
+	p := &Pod{pod: *oldPod, isGroup: true, list: corev1.PodList{Items: []corev1.Pod{*oldPod, *replacement}}}
+	wantPods := p.list.DeepCopy()
+
+	matched, toDelete, err := p.FindMatchingWorkloads(ctx, c, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("FindMatchingWorkloads returned error: %v", err)
+	}
+	if matched == nil || matched.Name != wl.Name || len(toDelete) != 0 {
+		t.Fatalf("Expected the prebuilt Workload without cleanup, got match %v and deletions %v", matched, toDelete)
+	}
+	if diff := cmp.Diff(wantPods, &p.list); diff != "" {
+		t.Errorf("Mirrored membership changed (-want,+got):\n%s", diff)
+	}
+	for _, pod := range wantPods.Items {
+		got := &corev1.Pod{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(&pod), got); err != nil {
+			t.Fatalf("Could not get mirrored Pod: %v", err)
+		}
+		if diff := cmp.Diff(pod, *got, podCmpOpts...); diff != "" {
+			t.Errorf("Mirrored Pod changed (-want,+got):\n%s", diff)
+		}
+	}
+}
+
+func TestDeletingPrebuiltPodAccounting(t *testing.T) {
+	for name, tc := range map[string]struct {
+		mirrored        bool
+		wantActive      int
+		wantReclaimable []kueue.ReclaimablePod
+	}{
+		"local replacement retains its slot": {},
+		"mirrored completion retains existing accounting": {
+			mirrored: true, wantActive: 1,
+			wantReclaimable: []kueue.ReclaimablePod{{Name: "role", Count: 1}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			pod := testingpod.MakePod("pod", "ns").GroupNameLabel("group").RoleHash("role").
+				PrebuiltWorkloadLabel("prebuilt").StatusPhase(corev1.PodSucceeded).
+				NodeName("node").DeletionTimestamp(time.Now()).Obj()
+			if tc.mirrored {
+				pod.Labels[kueue.MultiKueueOriginLabel] = "manager"
+			}
+			p := &Pod{pod: *pod, isGroup: true, list: corev1.PodList{Items: []corev1.Pod{*pod}}}
+			active, _ := p.partitionPods()
+			if len(active) != tc.wantActive {
+				t.Errorf("Expected %d active Pods, got %d", tc.wantActive, len(active))
+			}
+			reclaimable, err := p.ReclaimablePods(ctx, nil)
+			if err != nil {
+				t.Fatalf("ReclaimablePods returned error: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantReclaimable, reclaimable); diff != "" {
+				t.Errorf("Reclaimable Pods differ (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 	const pogGroupPodSetName = "dc85db45"
 

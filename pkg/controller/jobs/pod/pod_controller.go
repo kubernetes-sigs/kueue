@@ -921,7 +921,8 @@ func (p *Pod) partitionPods() (active, inactive []corev1.Pod) {
 }
 
 func isDeletingPrebuiltPod(pod *corev1.Pod) bool {
-	return !pod.DeletionTimestamp.IsZero() && jobframework.PrebuiltWorkloadNameFor(pod) != ""
+	_, mirrored := pod.Labels[kueue.MultiKueueOriginLabel]
+	return !mirrored && !pod.DeletionTimestamp.IsZero() && jobframework.PrebuiltWorkloadNameFor(pod) != ""
 }
 
 // shouldFinalizeNow reports whether a group pod's finalizer can be removed as part of this
@@ -1314,6 +1315,11 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		log.Error(err, "Unable to get related workload")
 		return nil, nil, err
 	}
+	// MultiKueue owns mirrored membership. A deleted manager Pod can still have a
+	// running worker copy, so trimming by age here could delete its replacement.
+	if _, mirrored := p.pod.Labels[kueue.MultiKueueOriginLabel]; prebuiltWorkload != "" && mirrored {
+		return workload, nil, nil
+	}
 
 	// For ordinary Pod groups, only adopt Workloads created by the pod-group framework.
 	// Refuse without putting the foreign Workload in toDelete, or the reconciler would
@@ -1472,9 +1478,10 @@ func (p *Pod) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 
 	var result []kueue.ReclaimablePod
 	for _, pod := range p.list.Items {
-		// A deleting member of a prebuilt group can be replaced under the same
-		// fixed-size Workload. It still consumes its reserved slot, so it must not
-		// release quota that reclaimable counts cannot later reacquire.
+		// Do not count a deleting member of a prebuilt group as a finished slot,
+		// even if it Succeeded: in a fixed-size group the slot is mid-handover to
+		// a replacement, not done. Reclaimable counts only grow, so quota released
+		// here could never be reacquired for the replacement.
 		if pod.Status.Phase == corev1.PodSucceeded && !isDeletingPrebuiltPod(&pod) {
 			roleHash, err := getRoleHash(pod)
 			if err != nil {
