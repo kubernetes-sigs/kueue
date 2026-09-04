@@ -134,6 +134,13 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		}
 	}
 
+	if features.Enabled(features.DynamicQuotaOrchestration) {
+		dqoRec := NewDynamicQuotaOrchestratorReconciler(mgr.GetClient(), WithDynamicQuotaOrchestratorRoleTracker(opts.RoleTracker))
+		if err := dqoRec.SetupWithManager(mgr); err != nil {
+			return "DynamicQuotaOrchestrator", err
+		}
+	}
+
 	qManager.AddTopologyUpdateWatcher(cqRec)
 	qManager.AddWorkloadUpdateWatcher(qRec)
 	qManager.AddWorkloadUpdateWatcher(cqRec)

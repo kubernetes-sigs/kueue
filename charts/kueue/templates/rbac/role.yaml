@@ -298,6 +298,7 @@ rules:
       - admissionchecks/status
       - clusterqueues/status
       - cohorts/status
+      - dynamicquotaorchestrators/status
       - localqueues/status
       - multikueueclusters/status
       - workloads/status
@@ -308,7 +309,9 @@ rules:
   - apiGroups:
       - kueue.x-k8s.io
     resources:
+      - capacityproviders
       - cohorts
+      - dynamicquotaorchestrators
       - localqueues
       - multikueueclusters
       - multikueueconfigs
