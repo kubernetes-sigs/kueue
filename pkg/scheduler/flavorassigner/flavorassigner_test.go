@@ -4410,7 +4410,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 		workload   workload.Info
 		wantErr    error
 	}{
-		"required topology is rejected with ElasticJobsViaWorkloadSlices": {
+		"required topology is rejected even with ElasticJobsViaWorkloadSlicesWithTAS enabled": {
 			cq: schdcache.ClusterQueueSnapshot{
 				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
 			},
@@ -4452,7 +4452,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 			}),
 			wantErr: ErrElasticRequiredTopologyNotSupported,
 		},
-		"preferred topology is rejected with ElasticJobsViaWorkloadSlices": {
+		"preferred topology is accepted with ElasticJobsViaWorkloadSlices": {
 			cq: schdcache.ClusterQueueSnapshot{
 				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
 			},
@@ -4492,9 +4492,9 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: ErrElasticPreferredTopologyNotSupported,
+			wantErr: nil,
 		},
-		"preferred topology is rejected for new elastic workload": {
+		"preferred topology is accepted for new elastic workload": {
 			cq: schdcache.ClusterQueueSnapshot{
 				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": tasFlavor},
 			},
@@ -4523,7 +4523,7 @@ func TestWorkloadsTopologyRequests_ElasticJobsValidation(t *testing.T) {
 					},
 				},
 			}),
-			wantErr: ErrElasticPreferredTopologyNotSupported,
+			wantErr: nil,
 		},
 		"unconstrained topology is accepted with ElasticJobsViaWorkloadSlices": {
 			cq: schdcache.ClusterQueueSnapshot{
