@@ -15,7 +15,7 @@ This guide is for [serving users](/docs/tasks#serving-user) that have a basic un
 
 ## Before you begin
 
-1. Make sure you are using KubeRay v1.3.0 or newer.
+1. Make sure you are using Kueue v0.17.0 or newer and KubeRay v1.3.0 or newer.
 
 2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
@@ -92,6 +92,6 @@ The RayService looks like the following:
 {{< include "examples/jobs/ray-service-sample.yaml" "yaml" >}}
 
 {{% alert title="Note" color="primary" %}}
-The example above comes from [here](https://raw.githubusercontent.com/ray-project/kuberay/v1.7.0/ray-operator/config/samples/ray-service.sample.yaml)
+The example above comes from [the KubeRay RayService sample](https://raw.githubusercontent.com/ray-project/kuberay/v1.7.0/ray-operator/config/samples/ray-service.sample.yaml)
 and only has the `queue-name` label added.
 {{% /alert %}}
