@@ -260,9 +260,17 @@ func (t *TrainJob) RunWithPodSetsInfo(ctx context.Context, c client.Client, podS
 		replicatedJobsByName[jobset.Spec.ReplicatedJobs[i].Name] = &jobset.Spec.ReplicatedJobs[i]
 	}
 
+	// Keep the admission-to-replicated-job mapping one-to-one.
+	seenPodSets := make(map[string]struct{}, len(podSetsInfo))
 	var replicatedJobPatches []kftrainer.ReplicatedJobPatch
 	for _, info := range podSetsInfo {
-		replicatedJob, found := replicatedJobsByName[string(info.Name)]
+		name := string(info.Name)
+		if _, seen := seenPodSets[name]; seen {
+			return fmt.Errorf("%w: podset %q appears more than once", podset.ErrInvalidPodsetInfo, info.Name)
+		}
+		seenPodSets[name] = struct{}{}
+
+		replicatedJob, found := replicatedJobsByName[name]
 		if !found {
 			return fmt.Errorf("%w: podset %q does not match a replicated job", podset.ErrInvalidPodsetInfo, info.Name)
 		}
