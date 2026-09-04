@@ -118,7 +118,6 @@ The partial admission mechanism will be applied for the workload that represents
 ### Opportunistic scale up when capacity is freed
 
 In order to schedule remaining pods after partial scale up, the workload controller will create a new workload representing the full job and add it to the queue. The scheduler will admit the new workload and replace the old workload via the workload slice mechanism as capacity becomes available.
-The workload representing the full requested capacity is always created, regardless of whether the partial-scale-up feature gate is enabled. This keeps behavior consistent if a user disables the feature gate later
 
 #### WorkloadSlice Name
 

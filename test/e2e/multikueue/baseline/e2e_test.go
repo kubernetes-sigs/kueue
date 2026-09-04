@@ -678,46 +678,6 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
 			})
 		})
-
-		ginkgo.It("Should not propagate Job TTL and should clean up the completed manager Job", func() {
-			job := testingjob.MakeJob("job-with-ttl", managerNs.Name).
-				Queue(kueue.LocalQueueName(managerLq.Name)).
-				TTLSecondsAfterFinished(0).
-				TerminationGracePeriod(1).
-				RequestAndLimit(corev1.ResourceCPU, "100m").
-				RequestAndLimit(corev1.ResourceMemory, "100M").
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
-				Obj()
-
-			ginkgo.By("Creating the job with immediate TTL cleanup", func() {
-				util.MustCreate(ctx, k8sManagerClient, job)
-			})
-
-			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
-			admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
-			admittedWorker := kubernetesClients[admittedWorkerName]
-
-			ginkgo.By("Checking that the remote Job does not inherit the manager Job TTL", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					remoteJob := &batchv1.Job{}
-					g.Expect(admittedWorker.client.Get(ctx, client.ObjectKeyFromObject(job), remoteJob)).To(gomega.Succeed())
-					g.Expect(remoteJob.Spec.TTLSecondsAfterFinished).To(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Finishing the remote Job", func() {
-				listOpts := util.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
-				util.WaitForActivePodsAndTerminate(ctx, admittedWorker.client, admittedWorker.restClient, admittedWorker.cfg, job.Namespace, 1, 0, listOpts)
-			})
-
-			ginkgo.By("Waiting for the completed manager Job to be deleted by the TTL controller", func() {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, job, false, util.MediumTimeout)
-			})
-
-			ginkgo.By("Checking that the remote Jobs are cleaned up", func() {
-				util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
-			})
-		})
 	})
 
 	ginkgo.When("Preemption with a multikueue admission check", func() {

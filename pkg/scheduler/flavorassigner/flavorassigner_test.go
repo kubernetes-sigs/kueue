@@ -4857,11 +4857,12 @@ func TestAssignment_TotalRequestsFor(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			a := &Assignment{
 				PodSets:              tt.fields.PodSets,
 				replaceWorkloadSlice: tt.fields.replaceWorkloadSlice,
 			}
-			got := a.TotalRequestsFor(logr.Discard(), tt.args.wl)
+			got := a.TotalRequestsFor(log, tt.args.wl)
 			if diff := cmp.Diff(got, tt.want); diff != "" {
 				t.Errorf("TotalRequestsFor() (-want +got):\n%s", diff)
 			}

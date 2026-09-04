@@ -25,6 +25,7 @@ import (
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftrainerruntime "github.com/kubeflow/trainer/v2/pkg/runtime"
 	kftrainerruntimecore "github.com/kubeflow/trainer/v2/pkg/runtime/core"
+	kftrainerframework "github.com/kubeflow/trainer/v2/pkg/runtime/framework"
 	kftrainerjobset "github.com/kubeflow/trainer/v2/pkg/runtime/framework/plugins/jobset"
 	trainjobutil "github.com/kubeflow/trainer/v2/pkg/util/trainjob"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -166,12 +167,16 @@ func getChildJobSet(ctx context.Context, c client.Client, t *TrainJob) (*jobseta
 		return nil, err
 	}
 
-	// Jobset replicaJob parallelism/completions are set outside of the jobset builder
-	for psIdx, ps := range info.TemplateSpec.PodSets {
-		if ps.Count != nil {
-			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Parallelism = ps.Count
-			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Completions = ps.Count
-		}
+	jobSetPlugin, err := kftrainerjobset.New(ctx, c, nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	cbp, ok := jobSetPlugin.(kftrainerframework.ComponentBuilderPlugin)
+	if !ok {
+		return nil, errors.New("jobset plugin does not implement ComponentBuilderPlugin")
+	}
+	if err := cbp.SyncParallelCount(info); err != nil {
+		return nil, err
 	}
 
 	jobsetApply := kftrainerjobset.NewBuilder(jobsetapplyapi.JobSet(t.Name, t.Namespace).

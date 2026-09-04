@@ -996,7 +996,8 @@ func (s *Scheduler) getInitialAssignments(
 		}
 	}
 
-	if features.Enabled(features.PartialAdmission) && wl.CanBePartiallyAdmitted() {
+	if (features.Enabled(features.PartialAdmission) || (features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) && workload.IsElasticWorkload(wl.Obj))) &&
+		wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
 			assignment, err := flvAssigner.Assign(ctx, nextCounts)
 			if err != nil {

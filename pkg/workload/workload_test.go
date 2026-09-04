@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
@@ -1134,6 +1134,7 @@ func TestUpdateWithRebuild(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			info := NewInfo(tc.initial, tc.initialOptions...)
 			if len(tc.updateOptions) == 0 {
 				if diff := cmp.Diff(tc.wantRequests, info.TotalRequests,
@@ -1142,7 +1143,7 @@ func TestUpdateWithRebuild(t *testing.T) {
 					t.Fatal("precondition failed: initial TotalRequests should differ from expected post-rebuild state")
 				}
 			}
-			info.Update(logr.Discard(), tc.updated, tc.updateOptions...)
+			info.Update(log, tc.updated, tc.updateOptions...)
 			if diff := cmp.Diff(tc.wantRequests, info.TotalRequests,
 				cmpopts.IgnoreFields(PodSetResources{}, "Flavors"),
 				cmp.Comparer(resources.Equal)); diff != "" {
@@ -3185,11 +3186,12 @@ func TestSchedulingHash(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			info1 := NewInfo(tc.wl1)
-			info1.UpdateSchedulingHash(logr.Discard())
+			info1.updateSchedulingHash(log)
 			info2 := NewInfo(tc.wl2)
-			info2.UpdateSchedulingHash(logr.Discard())
+			info2.updateSchedulingHash(log)
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
 			}
@@ -3203,13 +3205,14 @@ func TestSchedulingHash(t *testing.T) {
 	}
 
 	t.Run("DRA translation producing different TotalRequests produces different hash", func(t *testing.T) {
+		_, log := utiltesting.ContextWithLog(t)
 		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 			features.SchedulingEquivalenceHashing: true,
 		})
 		wl := utiltestingapi.MakeWorkload("wl", "ns").
 			Request("example.com/gpu", "1").Obj()
 		before := NewInfo(wl)
-		before.UpdateSchedulingHash(logr.Discard())
+		before.updateSchedulingHash(log)
 
 		after := NewInfo(wl, WithPreprocessedDRAResources(
 			map[kueue.PodSetReference]corev1.ResourceList{
@@ -3221,7 +3224,7 @@ func TestSchedulingHash(t *testing.T) {
 				kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		))
-		after.UpdateSchedulingHash(logr.Discard())
+		after.updateSchedulingHash(log)
 
 		if diff := cmp.Diff(before.TotalRequests, after.TotalRequests, cmp.Comparer(resources.Equal)); diff == "" {
 			t.Fatal("precondition failed: TotalRequests should differ after DRA translation")
@@ -3230,6 +3233,150 @@ func TestSchedulingHash(t *testing.T) {
 			t.Errorf("expected different hashes after DRA translation, got same %q", before.SchedulingHash)
 		}
 	})
+}
+
+func TestUpdateSchedulingHashReuse(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.SchedulingEquivalenceHashing: true,
+	})
+
+	// This helper hands back a different shape at an unchanged ResourceVersion,
+	// which production never does, so that reuse is observable. Only priority
+	// varies: the hash reads it, the effective requests do not.
+	workload := func(uid types.UID, rv string, priority int32) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", "ns").UID(uid).ResourceVersion(rv).
+			Priority(priority).Request(corev1.ResourceCPU, "1").Obj()
+	}
+	draWorkload := utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("1").
+		Request("example.com/gpu", "1").Obj()
+	draOptions := []InfoOption{WithPreprocessedDRAResources(
+		map[kueue.PodSetReference]corev1.ResourceList{
+			kueue.DefaultPodSetName: {"gpu": resource.MustParse("1")},
+		},
+		map[kueue.PodSetReference]sets.Set[corev1.ResourceName]{
+			kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
+		},
+	)}
+
+	withoutHash := func(info *Info) *Info {
+		info.SchedulingHash = ""
+		return info
+	}
+
+	cases := map[string]struct {
+		info      *Info
+		reread    *kueue.Workload
+		opts      []InfoOption
+		wantReuse bool
+	}{
+		"same UID and ResourceVersion keeps the hash": {
+			info:      NewInfo(workload("uid", "1", 1)),
+			reread:    workload("uid", "1", 2),
+			wantReuse: true,
+		},
+		"changed ResourceVersion recomputes the hash": {
+			info:   NewInfo(workload("uid", "1", 1)),
+			reread: workload("uid", "2", 2),
+		},
+		"changed UID recomputes the hash": {
+			info:   NewInfo(workload("uid", "1", 1)),
+			reread: workload("other", "1", 2),
+		},
+		// Objects that never round-tripped through the API server share the
+		// empty ResourceVersion, which says nothing about their shape.
+		"absent ResourceVersion on both sides recomputes the hash": {
+			info:   NewInfo(workload("uid", "", 1)),
+			reread: workload("uid", "", 2),
+		},
+		"an Info holding no hash computes one": {
+			// Requests match, so only the missing hash can force the recompute.
+			info:   withoutHash(NewInfo(workload("uid", "1", 1))),
+			reread: workload("uid", "1", 2),
+		},
+		"an Info holding no object computes one": {
+			info:   &Info{SchedulingHash: "stale"},
+			reread: workload("uid", "1", 2),
+		},
+		// The requeue path carries DRA-preprocessed requests over deliberately,
+		// which leaves the version check to decide alone.
+		"preserved TotalRequests leave the decision to the version check": {
+			info: NewInfo(workload("uid", "1", 1)),
+			reread: utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("1").
+				Priority(2).Request(corev1.ResourceCPU, "2").Obj(),
+			opts:      []InfoOption{WithPreserveTotalRequests()},
+			wantReuse: true,
+		},
+		// The requeue path drops the DRA options when NeedsDRAReconcile turns
+		// false, which it can do at an unchanged ResourceVersion.
+		"dropped DRA preprocessing recomputes the hash": {
+			info:   NewInfo(draWorkload, draOptions...),
+			reread: draWorkload,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			before := tc.info.SchedulingHash
+			if before == SchedulingHashUnknown {
+				t.Fatalf("precondition failed: hash is %q", before)
+			}
+
+			tc.info.Update(log, tc.reread, tc.opts...)
+
+			if got := tc.info.SchedulingHash == before; got != tc.wantReuse {
+				t.Errorf("hash reused = %v, want %v (hash %q -> %q)", got, tc.wantReuse, before, tc.info.SchedulingHash)
+			}
+			// A recomputed hash must describe the inputs the Info now holds.
+			if !tc.wantReuse {
+				want := computeSchedulingHash(log, tc.info.Obj, tc.info.TotalRequests)
+				if tc.info.SchedulingHash != want {
+					t.Errorf("SchedulingHash = %q, does not describe the Info's own inputs (%q)", tc.info.SchedulingHash, want)
+				}
+			}
+		})
+	}
+
+	t.Run("the hash stays unknown while the feature gate is off", func(t *testing.T) {
+		_, log := utiltesting.ContextWithLog(t)
+		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+			features.SchedulingEquivalenceHashing: false,
+		})
+		info := NewInfo(workload("uid", "1", 1))
+		info.Update(log, workload("uid", "1", 2))
+		if info.SchedulingHash != SchedulingHashUnknown {
+			t.Errorf("SchedulingHash = %q, want %q", info.SchedulingHash, SchedulingHashUnknown)
+		}
+	})
+}
+
+func TestSameHashedRequests(t *testing.T) {
+	podSet := func(count int32, cpu int64) PodSetResources {
+		return PodSetResources{
+			Name:     kueue.DefaultPodSetName,
+			Count:    count,
+			Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: cpu}),
+		}
+	}
+
+	cases := map[string]struct {
+		prev, current []PodSetResources
+		want          bool
+	}{
+		"identical":            {prev: []PodSetResources{podSet(1, 1000)}, current: []PodSetResources{podSet(1, 1000)}, want: true},
+		"both empty":           {want: true},
+		"different count":      {prev: []PodSetResources{podSet(1, 1000)}, current: []PodSetResources{podSet(2, 1000)}},
+		"different requests":   {prev: []PodSetResources{podSet(1, 1000)}, current: []PodSetResources{podSet(1, 2000)}},
+		"a PodSet was added":   {prev: []PodSetResources{podSet(1, 1000)}, current: []PodSetResources{podSet(1, 1000), podSet(1, 1000)}},
+		"a PodSet was dropped": {prev: []PodSetResources{podSet(1, 1000), podSet(1, 1000)}, current: []PodSetResources{podSet(1, 1000)}},
+		"requests appeared":    {prev: []PodSetResources{{Name: kueue.DefaultPodSetName, Count: 1}}, current: []PodSetResources{podSet(1, 1000)}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := sameHashedRequests(tc.prev, tc.current); got != tc.want {
+				t.Errorf("sameHashedRequests() = %v, want %v", got, tc.want)
+			}
+		})
+	}
 }
 
 func TestUsedNodes(t *testing.T) {

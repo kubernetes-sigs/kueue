@@ -39,6 +39,7 @@ type DynamicQuotaOrchestratorSpec struct {
 type CapacityDiscovery struct {
 	// providers lists CapacityProvider objects consumed by this DQO.
 	//
+	// +required
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MinItems=1
@@ -48,6 +49,8 @@ type CapacityDiscovery struct {
 
 type CapacityDiscoveryProviderContribution struct {
 	// name identifies a CapacityProvider.
+	//
+	// +required
 	Name CapacityProviderName `json:"name"`
 
 	// effectiveCapacityMultiplier specifies the multiplier applied to the
@@ -81,6 +84,8 @@ type CapacityDistributionSubtreeRootRef struct {
 	Kind SubtreeRootRefKind `json:"kind"`
 
 	// name indicates the name of the quota node, i.e. ClusterQueue or Cohort.
+	//
+	// +required
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
@@ -92,6 +97,7 @@ type CapacityDistributionSubtreeRootRef struct {
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
 type CapacityProviderName string
 
+// TODO: once we graduate this API to beta, we should leverage beta API's ResourceFlavorReference type instead of Alpha one.
 // ResourceFlavorReference is the name of the ResourceFlavor.
 // +kubebuilder:validation:MaxLength=253
 // +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
@@ -117,6 +123,7 @@ type DynamicQuotaOrchestratorStatus struct {
 type EffectiveCapacity struct {
 	// flavors contains capacity per flavor and resource.
 	//
+	// +required
 	// +listType=map
 	// +listMapKey=name
 	// +kubebuilder:validation:MaxItems=128

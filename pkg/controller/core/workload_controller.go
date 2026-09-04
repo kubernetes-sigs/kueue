@@ -529,8 +529,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 
 	if workload.IsActive(&wl) {
 		if apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadDeactivationTarget) {
-			wl.Spec.Active = new(false)
-			err := r.client.Update(ctx, &wl)
+			// Patch only the field this branch owns: the in-memory object may
+			// carry the resource adjustments (see handleDRA above), which a
+			// full-object update would persist into the user's spec.
+			err := clientutil.Patch(ctx, r.client, &wl, func() (bool, error) {
+				wl.Spec.Active = new(false)
+				return true, nil
+			})
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
@@ -2081,7 +2086,7 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 			log.Error(err, "Invalid ClusterQueue NamespaceSelector", "clusterQueue", cq.Name)
 			return kueue.WorkloadQuotaReservedReasonMisconfigured, fmt.Sprintf("invalid namespace selector: %v", err), nil
 		}
-		wlInfo := workload.NewInfo(wl)
+		wlInfo := workload.NewInfoWithLogger(ctrl.LoggerFrom(ctx), wl)
 		admissibilityErr = workload.ValidateAdmissibility(ctx, r.client, wlInfo, selector)
 		if admissibilityErr != nil && errors.Is(admissibilityErr, workload.ErrInternal) {
 			return "", "", admissibilityErr

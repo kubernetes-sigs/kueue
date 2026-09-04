@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
@@ -107,7 +107,7 @@ func BenchmarkTASFlavorSnapshot(b *testing.B) {
 func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int, name string, mode benchSnapshotMode) {
 	b.Run(name, func(b *testing.B) {
 		b.ReportAllocs()
-		log := logr.Discard()
+		_, log := utiltesting.ContextWithLog(b)
 
 		nodes := buildBenchNodes(topo)
 		levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
@@ -199,7 +199,7 @@ func BenchmarkTASFlavorAssignment(b *testing.B) {
 func runBenchmarkTASFlavorAssignment(b *testing.B, topo benchTopology, name string, withLeader bool) {
 	b.Run(name, func(b *testing.B) {
 		b.ReportAllocs()
-		log := logr.Discard()
+		_, log := utiltesting.ContextWithLog(b)
 		nodes := buildBenchNodes(topo)
 		levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
 
