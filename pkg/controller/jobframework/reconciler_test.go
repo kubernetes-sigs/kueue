@@ -1480,6 +1480,15 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 	}
 }
 
+type mockElasticWorkloadNameProviderJob struct {
+	*mocks.MockGenericJob
+	nameExtraPart string
+}
+
+func (j *mockElasticWorkloadNameProviderJob) GetWorkloadNameExtraPart() string {
+	return j.nameExtraPart
+}
+
 func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
@@ -1498,8 +1507,8 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 	prevWl := utiltestingapi.MakeWorkload("job-multi-prev", "ns").
 		PodSets(
 			kueue.PodSet{Name: kueue.PodSetReference("head"), Count: 1},
-			kueue.PodSet{Name: kueue.PodSetReference("workers-reservation"), Count: 2},
-			kueue.PodSet{Name: kueue.PodSetReference("workers-spot"), Count: 10},
+			kueue.PodSet{Name: kueue.PodSetReference("workers-reservation"), Count: 4},
+			kueue.PodSet{Name: kueue.PodSetReference("workers-spot"), Count: 20},
 		).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
 			utiltestingapi.MakePodSetAssignment(kueue.PodSetReference("head")).
@@ -1519,15 +1528,17 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 		Obj()
 
 	cases := map[string]struct {
-		job              client.Object
-		podSets          []kueue.PodSet
-		existingObjects  []client.Object
-		wantCounts       map[kueue.PodSetReference]int32
-		wantMinCounts    map[kueue.PodSetReference]*int32
-		wantDiffNameFrom *kueue.Workload
+		job             client.Object
+		nameExtraPart   string
+		podSets         []kueue.PodSet
+		existingObjects []client.Object
+		wantCounts      map[kueue.PodSetReference]int32
+		wantMinCounts   map[kueue.PodSetReference]*int32
+		wantName        string
 	}{
 		"initial creation without previous admitted workload": {
-			job: job,
+			job:           job,
+			nameExtraPart: "provider-gen-1",
 			podSets: []kueue.PodSet{
 				{Name: kueue.PodSetReference("head"), Count: 1},
 				{Name: kueue.PodSetReference("workers-reservation"), Count: 4, MinCount: new(int32(4))},
@@ -1543,9 +1554,11 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-reservation"): new(int32(4)),
 				kueue.PodSetReference("workers-spot"):        new(int32(20)),
 			},
+			wantName: GenerateWorkloadNameWithExtra(job.Name, job.UID, gvk, "provider-gen-1"),
 		},
 		"scale-up with previous admitted workload sets minCount and probe extra": {
-			job: job,
+			job:           job,
+			nameExtraPart: "provider-gen-1",
 			podSets: []kueue.PodSet{
 				{Name: kueue.PodSetReference("head"), Count: 1},
 				{Name: kueue.PodSetReference("workers-reservation"), Count: 4},
@@ -1562,7 +1575,7 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				kueue.PodSetReference("workers-reservation"): new(int32(2)),
 				kueue.PodSetReference("workers-spot"):        new(int32(5)),
 			},
-			wantDiffNameFrom: prevWl,
+			wantName: GenerateWorkloadNameWithExtra(job.Name, job.UID, gvk, "provider-gen-1-scale-up-probe-6"),
 		},
 	}
 
@@ -1573,6 +1586,10 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 			mgj.EXPECT().Object().Return(tc.job).AnyTimes()
 			mgj.EXPECT().GVK().Return(gvk).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
+			var genericJob GenericJob = mgj
+			if tc.nameExtraPart != "" {
+				genericJob = &mockElasticWorkloadNameProviderJob{MockGenericJob: mgj, nameExtraPart: tc.nameExtraPart}
+			}
 
 			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}
 			objects := append([]client.Object{ns}, tc.existingObjects...)
@@ -1581,7 +1598,7 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(gvk), indexer.WorkloadOwnerIndexFunc(gvk)).
 				Build()
 
-			wl, err := ConstructWorkload(ctx, cl, mgj, nil, nil)
+			wl, err := ConstructWorkload(ctx, cl, genericJob, nil, nil)
 			if err != nil {
 				t.Fatalf("ConstructWorkload failed: %v", err)
 			}
@@ -1614,8 +1631,8 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 					}
 				}
 			}
-			if tc.wantDiffNameFrom != nil && wl.Name == tc.wantDiffNameFrom.Name {
-				t.Errorf("expected workload name to differ from existing workload %q, got %q", tc.wantDiffNameFrom.Name, wl.Name)
+			if wl.Name != tc.wantName {
+				t.Errorf("workload name = %q, want %q", wl.Name, tc.wantName)
 			}
 		})
 	}
