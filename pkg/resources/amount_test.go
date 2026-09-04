@@ -20,6 +20,7 @@ import (
 	"math"
 	"math/big"
 	"testing"
+	"time"
 
 	"gopkg.in/inf.v0"
 	corev1 "k8s.io/api/core/v1"
@@ -240,9 +241,11 @@ func TestScaledBigMatchesTheAccessors(t *testing.T) {
 
 // A Quantity is not only built by the parser, and one built directly carries a
 // scale the parser never reaches: ParseQuantity does not return for a scale
-// this size. The conversion answers from the sign rather than building the
-// divisor, which would be a power of ten with two billion digits. Without that
-// short circuit this test does not fail, it hangs.
+// this size, so this shape reaches the conversion from Go rather than from the
+// API. The conversion answers from the sign instead of building the divisor,
+// which would be a power of ten with two billion digits. Removing the short
+// circuit makes it not return, so it runs under a deadline: the point is to
+// name the regression rather than to hang the package while it exhausts memory.
 func TestAmountFromQuantityBelowOneAtAScaleTooLargeToBuild(t *testing.T) {
 	for _, tc := range []struct {
 		unscaled int64
@@ -252,8 +255,15 @@ func TestAmountFromQuantityBelowOneAtAScaleTooLargeToBuild(t *testing.T) {
 		{-1, "-1"},
 	} {
 		q := resource.NewDecimalQuantity(*inf.NewDec(tc.unscaled, 2147483647), resource.DecimalSI)
-		if got := AmountFromQuantity("example.com/gpu", *q); got.String() != tc.want {
-			t.Errorf("AmountFromQuantity(%d at scale 2147483647) = %s, want %s", tc.unscaled, got, tc.want)
+		done := make(chan string, 1)
+		go func() { done <- AmountFromQuantity("example.com/gpu", *q).String() }()
+		select {
+		case got := <-done:
+			if got != tc.want {
+				t.Errorf("AmountFromQuantity(%d at scale 2147483647) = %s, want %s", tc.unscaled, got, tc.want)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("AmountFromQuantity(%d at scale 2147483647) did not return, so the short circuit is gone and the divisor is being built", tc.unscaled)
 		}
 	}
 }
