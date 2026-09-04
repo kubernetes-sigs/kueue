@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -58,12 +59,13 @@ import (
 )
 
 const (
-	ConcurrentAdmissionController  = "concurrent-admission-controller"
-	ReasonCreatedVariant           = "CreatedVariant"
-	ReasonDeletedVariant           = "DeletedVariant"
-	ReasonActivatedVariant         = "ActivatedVariant"
-	ReasonDeactivatedVariant       = "DeactivatedVariant"
-	ReasonPreemptionUngatedVariant = "PreemptionUngatedVariant"
+	ConcurrentAdmissionController    = "concurrent-admission-controller"
+	ReasonCreatedVariant             = "CreatedVariant"
+	ReasonDeletedVariant             = "DeletedVariant"
+	ReasonActivatedVariant           = "ActivatedVariant"
+	ReasonDeactivatedVariant         = "DeactivatedVariant"
+	ReasonPreemptionUngatedVariant   = "PreemptionUngatedVariant"
+	ReasonVariantsNotPreemptionGated = "VariantsNotPreemptionGated"
 
 	preemptionTimeout = 5 * time.Minute
 )
@@ -235,6 +237,13 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
+	if len(parent.Spec.PreemptionGates) > 0 {
+		if err := r.syncInheritedPreemptionGateStates(ctx, parent, variants); err != nil {
+			log.Error(err, "Failed to sync inherited preemption gate states")
+			return ctrl.Result{}, err
+		}
+	}
+
 	log.V(3).Info("Deactivating variants if needed")
 	if err := r.deactivateVariants(ctx, parent, variants, cq, flavorOrder); err != nil {
 		log.Error(err, "Failed to deactivate variants")
@@ -245,6 +254,13 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	if err := r.activateVariants(ctx, parent, variants, cq, flavorOrder); err != nil {
 		log.Error(err, "Failed to activate variants")
 		return ctrl.Result{}, err
+	}
+
+	if len(parent.Spec.PreemptionGates) > 0 {
+		if err := r.syncVariantPreemptionSignal(ctx, parent, variants); err != nil {
+			log.Error(err, "Failed to sync variant preemption signal")
+			return ctrl.Result{}, err
+		}
 	}
 
 	if err := r.syncAdmissionStatus(ctx, parent, variants); err != nil {
@@ -372,6 +388,10 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 		Spec:   parent.Spec,
 		Status: parent.Status,
 	}
+	// The Parent condition aggregates Variant state. A new Variant must report
+	// that it is blocked on preemption gates independently.
+	variant.Status.Conditions = slices.Clone(variant.Status.Conditions)
+	apimeta.RemoveStatusCondition(&variant.Status.Conditions, kueue.WorkloadBlockedOnPreemptionGates)
 	variant.Spec.PreemptionGates = slices.Clone(variant.Spec.PreemptionGates)
 	workload.EnsurePreemptionGateOnSpec(variant, controllerconsts.ConcurrentAdmissionPreemptionGate)
 	delete(variant.Labels, controllerconsts.ConcurrentAdmissionParentLabelKey)
@@ -660,6 +680,90 @@ func (r *variantReconciler) syncPodsReadyCond(parent, variant *kueue.Workload) b
 		return false
 	}
 	return apimeta.SetStatusCondition(&variant.Status.Conditions, *parentCond)
+}
+
+func updateInheritedPreemptionGateStates(parent, variant *kueue.Workload) bool {
+	inheritedGates := make(map[string]struct{}, len(parent.Spec.PreemptionGates))
+	for _, gate := range parent.Spec.PreemptionGates {
+		inheritedGates[gate.Name] = struct{}{}
+	}
+
+	updated := false
+	for _, parentState := range parent.Status.PreemptionGates {
+		if _, inherited := inheritedGates[parentState.Name]; !inherited {
+			continue
+		}
+
+		variantStateIdx := slices.IndexFunc(variant.Status.PreemptionGates, func(state kueue.PreemptionGateState) bool {
+			return state.Name == parentState.Name
+		})
+		if variantStateIdx == -1 {
+			variant.Status.PreemptionGates = append(variant.Status.PreemptionGates, parentState)
+			updated = true
+			continue
+		}
+		if !equality.Semantic.DeepEqual(variant.Status.PreemptionGates[variantStateIdx], parentState) {
+			variant.Status.PreemptionGates[variantStateIdx] = parentState
+			updated = true
+		}
+	}
+	return updated
+}
+
+func (r *variantReconciler) syncInheritedPreemptionGateStates(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) error {
+	for i := range variants {
+		variant := &variants[i]
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, variant, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return updateInheritedPreemptionGateStates(parent, wl), nil
+		}, workloadpatching.WithRetryOnConflict()); err != nil {
+			return fmt.Errorf("syncing inherited preemption gate states to variant %s: %w", klog.KObj(variant), err)
+		}
+	}
+	return nil
+}
+
+func oldestPreemptionGatedVariant(variants []*kueue.Workload) (*kueue.Workload, *metav1.Condition) {
+	var oldestVariant *kueue.Workload
+	var oldestCondition *metav1.Condition
+	for _, variant := range variants {
+		condition := workload.BlockedOnPreemptionGatesCondition(variant)
+		if condition == nil {
+			continue
+		}
+		if oldestCondition == nil || condition.LastTransitionTime.Before(&oldestCondition.LastTransitionTime) {
+			oldestVariant = variant
+			oldestCondition = condition
+		}
+	}
+	return oldestVariant, oldestCondition
+}
+
+func (r *variantReconciler) syncVariantPreemptionSignal(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) error {
+	blockedVariant, blockedCondition := oldestPreemptionGatedVariant(admissibleVariants(variants))
+	if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
+		if blockedCondition == nil {
+			current := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadBlockedOnPreemptionGates)
+			if current == nil || current.Status != metav1.ConditionTrue {
+				return false, nil
+			}
+			return apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+				Type:               kueue.WorkloadBlockedOnPreemptionGates,
+				Status:             metav1.ConditionFalse,
+				Reason:             ReasonVariantsNotPreemptionGated,
+				Message:            "No Variant Workload is blocked on preemption gates",
+				ObservedGeneration: wl.Generation,
+				LastTransitionTime: metav1.NewTime(r.clock.Now()),
+			}), nil
+		}
+
+		condition := *blockedCondition.DeepCopy()
+		condition.Message = fmt.Sprintf("Variant Workload %q is blocked on preemption gates", klog.KObj(blockedVariant))
+		condition.ObservedGeneration = wl.Generation
+		return apimeta.SetStatusCondition(&wl.Status.Conditions, condition), nil
+	}, workloadpatching.WithRetryOnConflict()); err != nil {
+		return fmt.Errorf("syncing variant preemption signal to parent %s: %w", klog.KObj(parent), err)
+	}
+	return nil
 }
 
 func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kueue.Workload, variants []kueue.Workload) error {

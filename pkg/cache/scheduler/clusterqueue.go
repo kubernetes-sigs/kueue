@@ -180,6 +180,9 @@ func (c *clusterQueue) updateClusterQueue(
 	c.isStopped = ptr.Deref(in.Spec.StopPolicy, kueue.None) != kueue.None
 
 	c.AdmissionChecks = admissioncheck.NewAdmissionChecks(in)
+	if features.Enabled(features.ConcurrentAdmission) {
+		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
+	}
 
 	if in.Spec.Preemption != nil {
 		c.Preemption = *in.Spec.Preemption
@@ -204,9 +207,6 @@ func (c *clusterQueue) updateClusterQueue(
 
 	c.FairWeight = parseFairWeight(in.Spec.FairSharing)
 	c.AdmissionScope = in.Spec.AdmissionScope
-	if features.Enabled(features.ConcurrentAdmission) {
-		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
-	}
 	return nil
 }
 
@@ -260,7 +260,9 @@ func (c *clusterQueue) updateQueueStatus(log logr.Logger) {
 		len(c.multiKueueAdmissionChecks) > 1 ||
 		len(c.perFlavorMultiKueueAdmissionChecks) > 0 ||
 		// provisioning requests should not be used on manager cluster with multikueue
-		(len(c.multiKueueAdmissionChecks) > 0 && len(c.provisioningAdmissionChecks) > 0) {
+		(len(c.multiKueueAdmissionChecks) > 0 && len(c.provisioningAdmissionChecks) > 0) ||
+		// concurrent admission should only be used on worker clusters with multikueue
+		(len(c.multiKueueAdmissionChecks) > 0 && c.ConcurrentAdmissionEnabled()) {
 		status = pending
 	}
 	if c.Status == terminating {
@@ -346,6 +348,11 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultiKueueWithProvisioningRequest)
 			messages = append(messages, fmt.Sprintf("Cannot use both MultiKueue and ProvisioningRequest AdmissionChecks together, found: %s, %s",
 				stringsutils.Join(c.multiKueueAdmissionChecks, ","), stringsutils.Join(c.provisioningAdmissionChecks, ",")))
+		}
+
+		if len(c.multiKueueAdmissionChecks) > 0 && c.ConcurrentAdmissionEnabled() {
+			reasons = append(reasons, kueue.ClusterQueueActiveReasonMultiKueueWithConcurrentAdmission)
+			messages = append(messages, "Cannot use ConcurrentAdmission on a ClusterQueue with a MultiKueue AdmissionCheck")
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) && len(c.tasFlavors) > 0 {
