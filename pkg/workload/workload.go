@@ -799,6 +799,10 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 			}
 			setRes.Count = countAfterReclaim
 		}
+		if setRes.Count == 0 {
+			setRes.TopologyRequest = nil
+			setRes.DelayedTopologyRequest = nil
+		}
 		// Otherwise if countAfterReclaim is higher it means that the podSet was partially admitted
 		// and the count should be preserved.
 		res = append(res, setRes)
