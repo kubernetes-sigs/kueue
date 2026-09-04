@@ -66,6 +66,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	. "sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -497,10 +498,281 @@ func TestReconcileGenericJob(t *testing.T) {
 					Obj(),
 			},
 		},
-		"setup workload annotations for pods": {
+		"waitForPodsReady with scheduling tracking adds the workload annotation": {
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryIntegration: true,
-				features.TopologyAwareScheduling:     false,
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.TopologyAwareScheduling:            false,
+				features.SchedulerLibraryIntegration:        false,
+			},
+			reconcilerOptions: []Option{WithWaitForPodsReady(&configapi.WaitForPodsReady{UnscheduledTimeout: &metav1.Duration{Duration: time.Minute}})},
+			req:               baseReq,
+			job:               baseJob.Clone().Obj(),
+			podSets:           basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().
+					Name("job-test-job-1").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage, LastTransitionTime: metav1.NewTime(reservedAt)}).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  "main",
+								Count: new(int32(1)),
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().
+					Name("job-test-job-1").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage, LastTransitionTime: metav1.NewTime(reservedAt)}).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  "main",
+								Count: new(int32(1)),
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantPodSets: []podset.PodSetInfo{
+				{
+					Name:  "main",
+					Count: 1,
+					Annotations: map[string]string{
+						kueue.WorkloadAnnotation: "job-test-job-1",
+					},
+					Labels: map[string]string{
+						kueueconstants.ClusterQueueLabel: "default-cq",
+						kueueconstants.LocalQueueLabel:   "test-lq",
+						kueueconstants.PodSetLabel:       "main",
+					},
+					NodeSelector: map[string]string{},
+				},
+			},
+		},
+		"waitForPodsReady disabled does not add the workload annotation": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+				features.TopologyAwareScheduling:            false,
+				features.SchedulerLibraryIntegration:        false,
+			},
+			req:     baseReq,
+			job:     baseJob.Clone().Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().
+					Name("job-test-job-1").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  "main",
+								Count: new(int32(1)),
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().
+					Name("job-test-job-1").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  "main",
+								Count: new(int32(1)),
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantPodSets: []podset.PodSetInfo{
+				{
+					Name:        "main",
+					Count:       1,
+					Annotations: map[string]string{},
+					Labels: map[string]string{
+						kueueconstants.ClusterQueueLabel: "default-cq",
+						kueueconstants.LocalQueueLabel:   "test-lq",
+						kueueconstants.PodSetLabel:       "main",
+					},
+					NodeSelector: map[string]string{},
+				},
+			},
+		},
+		"scheduling tracking disabled does not add the workload annotation": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+				features.TopologyAwareScheduling:            false,
+				features.SchedulerLibraryIntegration:        false,
+			},
+			reconcilerOptions: []Option{WithWaitForPodsReady(&configapi.WaitForPodsReady{})},
+			req:               baseReq,
+			job:               baseJob.Clone().Obj(),
+			podSets:           basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().
+					Name("job-test-job-1").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage, LastTransitionTime: metav1.NewTime(reservedAt)}).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  "main",
+								Count: new(int32(1)),
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().
+					Name("job-test-job-1").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Condition(metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage, LastTransitionTime: metav1.NewTime(reservedAt)}).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  "main",
+								Count: new(int32(1)),
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantPodSets: []podset.PodSetInfo{
+				{
+					Name:        "main",
+					Count:       1,
+					Annotations: map[string]string{},
+					Labels: map[string]string{
+						kueueconstants.ClusterQueueLabel: "default-cq",
+						kueueconstants.LocalQueueLabel:   "test-lq",
+						kueueconstants.PodSetLabel:       "main",
+					},
+					NodeSelector: map[string]string{},
+				},
+			},
+		},
+		"TopologyAwareScheduling adds the workload annotation": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+				features.TopologyAwareScheduling:            true,
+				features.SchedulerLibraryIntegration:        false,
+			},
+			req:     baseReq,
+			job:     baseJob.Clone().Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().
+					Name("job-test-job-1").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  "main",
+								Count: new(int32(1)),
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().
+					Name("job-test-job-1").
+					Conditions(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}, metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+					}).
+					Admission(&kueue.Admission{
+						ClusterQueue: "default-cq",
+						PodSetAssignments: []kueue.PodSetAssignment{
+							{
+								Name:  "main",
+								Count: new(int32(1)),
+							},
+						},
+					}).
+					Obj(),
+			},
+			wantPodSets: []podset.PodSetInfo{
+				{
+					Name:  "main",
+					Count: 1,
+					Annotations: map[string]string{
+						kueue.WorkloadAnnotation: "job-test-job-1",
+					},
+					Labels: map[string]string{
+						kueueconstants.ClusterQueueLabel: "default-cq",
+						kueueconstants.LocalQueueLabel:   "test-lq",
+						kueueconstants.PodSetLabel:       "main",
+					},
+					NodeSelector: map[string]string{},
+				},
+			},
+		},
+		"SchedulerLibraryIntegration adds the workload annotation": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+				features.TopologyAwareScheduling:            false,
+				features.SchedulerLibraryIntegration:        true,
 			},
 			req:     baseReq,
 			job:     baseJob.Clone().Obj(),
@@ -683,7 +955,12 @@ func TestReconcileGenericJob(t *testing.T) {
 			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
 			mgj.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
 			mgj.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
-			mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).AnyTimes()
+			if tc.wantPodSets != nil {
+				mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).Times(1)
+			} else {
+				mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).AnyTimes()
+			}
+			mgj.EXPECT().PodsReady(gomock.Any(), gomock.Any()).Return(false).AnyTimes()
 			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
@@ -1234,7 +1511,7 @@ func TestProcessOptions(t *testing.T) {
 		"all options are passed": {
 			inputOpts: []Option{
 				WithManageJobsWithoutQueueName(true),
-				WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
+				WithWaitForPodsReady(&configapi.WaitForPodsReady{UnscheduledTimeout: &metav1.Duration{Duration: time.Minute}}),
 				WithKubeServerVersion(&kubeversion.ServerVersionFetcher{}),
 				WithLabelKeysToCopy(sets.New("toCopyKey")),
 				WithAnnotationsToCopy(sets.New("toCopyAnnotation")),
@@ -1243,6 +1520,7 @@ func TestProcessOptions(t *testing.T) {
 			wantOpts: Options{
 				ManageJobsWithoutQueueName: true,
 				WaitForPodsReady:           true,
+				WaitForPodsReadyConfig:     &configapi.WaitForPodsReady{UnscheduledTimeout: &metav1.Duration{Duration: time.Minute}},
 				KubeServerVersion:          &kubeversion.ServerVersionFetcher{},
 				IntegrationOptions:         nil,
 				LabelKeysToCopy:            sets.New("toCopyKey"),
