@@ -39,7 +39,7 @@ require (
 	k8s.io/code-generator v0.36.4 // Used not only as code-generator but also for compatibility_lifecycle (feature-gates docs) tool versioning.
 	sigs.k8s.io/cluster-inventory-api v0.1.3 // indirect
 	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.24.1
-	sigs.k8s.io/controller-tools v0.20.1
+	sigs.k8s.io/controller-tools v0.21.0
 	sigs.k8s.io/dra-example-driver v0.4.0
 	sigs.k8s.io/kind v0.33.0
 	sigs.k8s.io/kustomize/kustomize/v5 v5.8.1
