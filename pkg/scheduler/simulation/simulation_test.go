@@ -41,7 +41,12 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-var cmpOpts = cmp.Options{
+var simCmpOpts = []cmp.Option{
+	cmpopts.IgnoreFields(preemption{}, "revert"),
+	cmpopts.IgnoreTypes(&workload.Info{}),
+}
+
+var snapshotCmpOpts = cmp.Options{
 	cmpopts.EquateEmpty(),
 	cmpopts.IgnoreUnexported(schdcache.ClusterQueueSnapshot{}),
 	cmpopts.IgnoreUnexported(schdcache.CohortSnapshot{}),
@@ -51,16 +56,19 @@ var cmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(resources.Amount{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	cmpopts.IgnoreFields(schdcache.Snapshot{}, "SimulatorSnapshot"),
-}
-
-var extendedCmpOpts = append(cmpOpts,
 	cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{},
-		"NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration",
-		"Workloads", "ResourceGroups", "FlavorFungibility", "FairWeight",
+		"NamespaceSelector",
+		"Preemption",
+		"Status",
+		"AllocatableResourceGeneration",
+		"Workloads",
+		"ResourceGroups",
+		"FlavorFungibility",
+		"FairWeight",
 	),
 	cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
 	cmpopts.IgnoreTypes(&workload.Info{}),
-)
+}
 
 func setupSimulationTest(t *testing.T, flavors []*kueue.ResourceFlavor, clusterQueues []*kueue.ClusterQueue, workloads []kueue.Workload) (context.Context, *schdcache.Cache, map[string]*workload.Info) {
 	t.Helper()
@@ -474,7 +482,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			for _, name := range tc.add {
 				sim.addWorkload(wlInfos[string(name)])
 			}
-			if diff := cmp.Diff(tc.want, *snap, extendedCmpOpts...); diff != "" {
+			if diff := cmp.Diff(tc.want, *snap, snapshotCmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
 			}
 		})
@@ -580,14 +588,10 @@ func TestPreemptWorkload(t *testing.T) {
 			if (preemptErr != nil) != tc.wantErr {
 				t.Errorf("PreemptWorkload() error = %v, wantErr %v", preemptErr, tc.wantErr)
 			}
-			if diff := cmp.Diff(tc.wantSnapshotState, *snap, extendedCmpOpts...); diff != "" {
+			if diff := cmp.Diff(tc.wantSnapshotState, *snap, snapshotCmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after preemptions (-want,+got):\n%s", diff)
 			}
-			simOpts := []cmp.Option{
-				cmpopts.IgnoreFields(preemption{}, "revert"),
-				cmpopts.IgnoreTypes(&workload.Info{}),
-			}
-			if diff := cmp.Diff(tc.wantSimulationState, sim.simulatedPreemptions, simOpts...); diff != "" {
+			if diff := cmp.Diff(tc.wantSimulationState, sim.simulatedPreemptions, simCmpOpts...); diff != "" {
 				t.Errorf("Unexpected simulator state after preemptions (-want,+got):\n%s", diff)
 			}
 		})
@@ -740,14 +744,10 @@ func TestRestoreWorkload(t *testing.T) {
 			if (restoreErr != nil) != tc.wantErr {
 				t.Errorf("RestoreWorkloads() error = %v, wantErr %v", restoreErr, tc.wantErr)
 			}
-			if diff := cmp.Diff(tc.want, *snap, extendedCmpOpts...); diff != "" {
+			if diff := cmp.Diff(tc.want, *snap, snapshotCmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after restores (-want,+got):\n%s", diff)
 			}
-			simOpts := []cmp.Option{
-				cmpopts.IgnoreFields(preemption{}, "revert"),
-				cmpopts.IgnoreTypes(&workload.Info{}),
-			}
-			if diff := cmp.Diff(tc.wantSimState, sim.simulatedPreemptions, simOpts...); diff != "" {
+			if diff := cmp.Diff(tc.wantSimState, sim.simulatedPreemptions, simCmpOpts...); diff != "" {
 				t.Errorf("Unexpected simulator state after restores (-want,+got):\n%s", diff)
 			}
 		})
@@ -887,14 +887,10 @@ func TestRestoreSnapshot(t *testing.T) {
 			if (err != nil) != tc.wantErr {
 				t.Errorf("RestoreSnapshot() error = %v, wantErr %v", err, tc.wantErr)
 			}
-			if diff := cmp.Diff(tc.want, *snap, extendedCmpOpts...); diff != "" {
+			if diff := cmp.Diff(tc.want, *snap, snapshotCmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after RestoreSnapshot (-want,+got):\n%s", diff)
 			}
-			simOpts := []cmp.Option{
-				cmpopts.IgnoreFields(preemption{}, "revert"),
-				cmpopts.IgnoreTypes(&workload.Info{}),
-			}
-			if diff := cmp.Diff(tc.wantSimState, sim.simulatedPreemptions, simOpts...); diff != "" {
+			if diff := cmp.Diff(tc.wantSimState, sim.simulatedPreemptions, simCmpOpts...); diff != "" {
 				t.Errorf("Unexpected simulator state after RestoreSnapshot (-want,+got):\n%s", diff)
 			}
 		})
@@ -972,7 +968,7 @@ func TestSimulation(t *testing.T) {
 			if err != nil {
 				t.Errorf("Unexpected error during simulation: %v", err)
 			}
-			if diff := cmp.Diff(*initialSnap, *snap, extendedCmpOpts...); diff != "" {
+			if diff := cmp.Diff(*initialSnap, *snap, snapshotCmpOpts...); diff != "" {
 				t.Errorf("schdcache.Snapshot state was not restored after simulation (-want,+got):\n%s", diff)
 			}
 		})
@@ -1204,7 +1200,7 @@ func TestAddRemoveWorkload(t *testing.T) {
 			for _, name := range tc.add {
 				sim.addWorkload(wlInfos[string(name)])
 			}
-			if diff := cmp.Diff(tc.want, *snap, extendedCmpOpts...); diff != "" {
+			if diff := cmp.Diff(tc.want, *snap, snapshotCmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
 			}
 		})
