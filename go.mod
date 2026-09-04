@@ -14,7 +14,7 @@ require (
 	github.com/kubeflow/trainer/v2 v2.3.0
 	github.com/kubeflow/training-operator v1.9.4
 	github.com/onsi/ginkgo/v2 v2.32.1
-	github.com/onsi/gomega v1.42.1
+	github.com/onsi/gomega v1.43.0
 	github.com/open-policy-agent/cert-controller v0.16.0
 	github.com/project-codeflare/appwrapper v1.2.2
 	github.com/prometheus/client_golang v1.24.1
