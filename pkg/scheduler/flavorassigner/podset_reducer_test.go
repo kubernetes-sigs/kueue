@@ -17,6 +17,7 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"math"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -185,5 +186,18 @@ func TestSearchTotalDeltaOverflow(t *testing.T) {
 	wantCount := []int32{999_999_999, 1}
 	if diff := cmp.Diff(wantCount, count); diff != "" {
 		t.Errorf("Unexpected counts (-want,+got):\n%s", diff)
+	}
+}
+
+func TestSearchInt64MaxInt64(t *testing.T) {
+	got, found := searchInt64(math.MaxInt64, func(i int64) bool {
+		return i == math.MaxInt64
+	})
+
+	if !found {
+		t.Fatal("Expected to find a solution")
+	}
+	if got != math.MaxInt64 {
+		t.Errorf("Unexpected index: %d, want %d", got, math.MaxInt64)
 	}
 }

@@ -82,7 +82,6 @@ func distributeOrderBased(out, fullCounts, deltas []int32, amount, _ int64) {
 // binary Search so the last call to fits() might not be a successful one
 // Returns nil if no solution was found
 func (psr *PodSetReducer[R]) Search() (R, bool) {
-	var lastGoodIdx int64
 	var lastR R
 
 	if psr.totalDelta == 0 {
@@ -90,29 +89,30 @@ func (psr *PodSetReducer[R]) Search() (R, bool) {
 	}
 
 	current := make([]int32, len(psr.podSets))
-	idx := searchInt64(psr.totalDelta+1, func(i int64) bool {
+	_, found := searchInt64(psr.totalDelta, func(i int64) bool {
 		psr.distribute(current, psr.fullCounts, psr.deltas, i, psr.totalDelta)
 		r, f := psr.fits(current)
 		if f {
-			lastGoodIdx = i
 			lastR = r
 		}
 		return f
 	})
-	return lastR, idx == lastGoodIdx
+
+	return lastR, found
 }
 
-func searchInt64(n int64, f func(int64) bool) int64 {
+func searchInt64(max int64, f func(int64) bool) (int64, bool) {
 	var i int64
-	j := n
+	j := max
 
 	for i < j {
 		h := i + (j-i)/2
-		if !f(h) {
-			i = h + 1
-		} else {
+		if f(h) {
 			j = h
+		} else {
+			i = h + 1
 		}
 	}
-	return i
+
+	return i, f(i)
 }
