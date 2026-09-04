@@ -1348,7 +1348,7 @@ func TestGetWorkloadStatus(t *testing.T) {
 			_ = cl.Get(ctx, wlKey, wl)
 
 			sliceName := workloadslicing.SliceName(wl)
-			pods, err := ListPodsForWorkloadSlice(ctx, cl, wl.Namespace, sliceName, client.MatchingFields{indexer.PodNodeSelectorHostnameKey: tc.nodeName})
+			pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, cl, wl.Namespace, sliceName, client.MatchingFields{indexer.PodNodeSelectorHostnameKey: tc.nodeName})
 			if err != nil {
 				t.Fatalf("Failed to list pods: %v", err)
 			}
