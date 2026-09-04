@@ -153,11 +153,16 @@ func CompareDRS(a, b DRS) int {
 // roundedWeightedShare returns a value ranging from 0 to math.MaxInt,
 // representing the maximum of the ratios of usage above nominal quota
 // to the lendable resources in the cohort, among all the resources
-// provided by the ClusterQueue, and divided by the weight.  If zero,
-// it means that the usage of the ClusterQueue is below the nominal
-// quota.  The function also returns the resource name that yielded
-// this value.  When the FairSharing weight is 0, and the ClusterQueue
-// or Cohort is borrowing, we return math.MaxInt.
+// provided by the ClusterQueue, and divided by the weight.  The
+// function also returns the resource name that yielded this value.
+// When the FairSharing weight is 0, and the ClusterQueue or Cohort is
+// borrowing, we return math.MaxInt.
+//
+// Zero usually means usage is below nominal quota. It also covers a
+// borrower for which no borrowed resource had a positive lendable
+// amount to divide by: that share is absent rather than small, and
+// this function keeps the ordering it has today rather than defining
+// a new one for it.
 func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 	// The same conversion the ClusterQueue and Cohort status write through, so
 	// the value a test reads here and the value an operator reads there cannot
@@ -167,7 +172,9 @@ func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 
 // ZeroWeightBorrows returns whether this DRS represents a
 // borrowing state for a ClusterQueue/Cohort with a zero weight.
-// This is equivalent to PreciseWeightedShare returning +Inf.
+// It implies PreciseWeightedShare returning +Inf. The reverse does
+// not hold: a positive weight reaches +Inf too when the division is
+// NaN, which two infinities produce.
 func (d DRS) ZeroWeightBorrows() bool {
 	return d.isWeightZero() && d.borrowing
 }

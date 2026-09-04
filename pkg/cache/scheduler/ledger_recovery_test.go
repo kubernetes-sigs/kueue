@@ -96,7 +96,11 @@ func TestLedgerRecoversAcrossTheCache(t *testing.T) {
 			assertLedgers(t, cache, "after the saturating workload joined", mustAmount(t, "9223372036854775807"))
 
 			cache.AddOrUpdateWorkload(log, seven)
-			assertLedgers(t, cache, "after the 7-unit workload joined", mustAmount(t, "9223372036854775814"))
+			// Built by arithmetic rather than parsed: a single Quantity does not
+			// carry more than MaxInt64, which is the point of the two workloads.
+			// The ledger reaches the total; no one request could have asked for it.
+			assertLedgers(t, cache, "after the 7-unit workload joined",
+				mustAmount(t, "9223372036854775807").AddInt64(7))
 
 			// A snapshot taken now must not follow the cache afterwards. The
 			// observation is a string: a mutation written through the shared
@@ -157,6 +161,8 @@ func assertLedgers(t *testing.T, cache *Cache, when string, want resources.Amoun
 	}
 }
 
+// mustAmount reads one request the way the cache does, so what a test asks for
+// is bounded the same way a real request is.
 func mustAmount(t *testing.T, s string) resources.Amount {
 	t.Helper()
 	return resources.AmountFromQuantity(ledgerResource, resource.MustParse(s))

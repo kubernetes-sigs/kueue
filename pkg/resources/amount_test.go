@@ -120,7 +120,15 @@ func TestAmountFromQuantity(t *testing.T) {
 		"whole devices":             {name: "example.com/gpu", qty: "8", want: "8"},
 		"a fraction rounds up":      {name: "example.com/gpu", qty: "0.5", want: "1"},
 		"the largest int64":         {name: "example.com/gpu", qty: "9223372036854775807", want: "9223372036854775807"},
-		"one past it":               {name: "example.com/gpu", qty: "9223372036854775808", want: "9223372036854775808"},
+		"one past it is capped":     {name: "example.com/gpu", qty: "9223372036854775808", want: "9223372036854775807"},
+		"and downward too":          {name: "example.com/gpu", qty: "-9223372036854775808", want: "-9223372036854775807"},
+		"the binary spelling of it": {name: "example.com/gpu", qty: "8Ei", want: "9223372036854775807"},
+		"a whole prefix past it":    {name: "example.com/gpu", qty: "1000E", want: "9223372036854775807"},
+		"the largest cpu in cores":  {name: corev1.ResourceCPU, qty: "9223372036854775807", want: "9223372036854775807000"},
+		"one core past it":          {name: corev1.ResourceCPU, qty: "9223372036854775808", want: "9223372036854775807000"},
+		// A scale this large is never expanded, so these answer at once rather
+		// than building a power of ten with two billion digits.
+		"a scale too large to hold": {name: "example.com/gpu", qty: "1e2147483647", want: "9223372036854775807"},
 		"a negative amount":         {name: "example.com/gpu", qty: "-3", want: "-3"},
 	}
 
@@ -215,6 +223,53 @@ func TestScaledBigMatchesTheAccessors(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// The parser caps the binary path at the magnitude a Quantity holds and leaves
+// the decimal path alone, so two spellings of the same number arrive as
+// different values. Reading them as different quotas would make capacity depend
+// on the suffix it was written with, which is not something the format decides.
+func TestAmountFromQuantityDoesNotDependOnTheSuffix(t *testing.T) {
+	for _, tc := range []struct{ decimal, binary string }{
+		{"9223372036854775808", "8Ei"},
+		{"-9223372036854775808", "-8Ei"},
+	} {
+		t.Run(tc.decimal, func(t *testing.T) {
+			d := AmountFromQuantity("example.com/gpu", resource.MustParse(tc.decimal))
+			b := AmountFromQuantity("example.com/gpu", resource.MustParse(tc.binary))
+			if !d.Equal(b) {
+				t.Errorf("%s = %s and %s = %s, want one amount", tc.decimal, d, tc.binary, b)
+			}
+		})
+	}
+}
+
+// The bound is applied in the unit the API reports and the conversion in the
+// unit the resource is accounted in, so a Quantity that goes in comes back out.
+// The two are only the same unit for CPU when the cap is built in cores.
+func TestAmountFromQuantityRoundTrips(t *testing.T) {
+	f := NewResourceFormatter()
+	for _, tc := range []struct {
+		name corev1.ResourceName
+		qty  string
+	}{
+		{"example.com/gpu", "9223372036854775807"},
+		{"example.com/gpu", "9223372036854775808"},
+		{"example.com/gpu", "8Ei"},
+		{corev1.ResourceCPU, "1E"},
+		{corev1.ResourceCPU, "9223372036854775807"},
+	} {
+		t.Run(string(tc.name)+"/"+tc.qty, func(t *testing.T) {
+			in := AmountFromQuantity(tc.name, resource.MustParse(tc.qty))
+			out, exact := f.AmountQuantity(tc.name, in)
+			if !exact {
+				t.Errorf("AmountQuantity(%s) reported %s inexactly", in, out.String())
+			}
+			if back := AmountFromQuantity(tc.name, out); !back.Equal(in) {
+				t.Errorf("%s went in as %s and came back as %s", tc.qty, in, back)
+			}
+		})
 	}
 }
 
