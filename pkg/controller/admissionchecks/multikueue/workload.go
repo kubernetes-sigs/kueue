@@ -593,17 +593,14 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 		evictedCond := apimeta.FindStatusCondition(group.local.Status.Conditions, kueue.WorkloadEvicted)
 		if workload.HasQuotaReservation(group.local) && evictedCond != nil && evictedCond.Status == metav1.ConditionTrue {
-			err := workloadpatching.PatchAdmissionStatus(ctx, remoteCl, remoteWl, w.clock, func(remoteWl *kueue.Workload) (bool, error) {
-				return workload.SetDeactivationTarget(
-					remoteWl,
-					kueue.WorkloadEvictedOnManagerCluster,
-					api.TruncateConditionMessage(fmt.Sprintf("Evicted on manager: %s", evictedCond.Message)),
-				), nil
-			})
-			if err != nil {
-				log.Error(err, "Failed to patch workload status")
+			if workload.IsActive(remoteWl) {
+				remoteWl.Spec.Active = new(false)
+				if err := remoteCl.Update(ctx, remoteWl); err != nil {
+					log.Error(err, "Failed to deactivate remote workload")
+					return reconcile.Result{}, err
+				}
 			}
-			return reconcile.Result{}, err
+			return reconcile.Result{}, nil
 		}
 
 		if _, err := jobframework.ValidateRemoteObjectOwnership(ctx, remoteCl, group.controllerKey, group.jobAdapter.GVK(), w.origin); err != nil {
@@ -673,6 +670,11 @@ func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
 	// so any differences should not be considered as out-of-sync.
 	local.PreemptionGates = nil
 	remote.PreemptionGates = nil
+	// Active is managed independently on the remote: the manager sets it to false
+	// to propagate a manager-side eviction, so a difference must not be treated as
+	// out of sync.
+	local.Active = nil
+	remote.Active = nil
 	return !equality.Semantic.DeepEqual(local, remote)
 }
 
