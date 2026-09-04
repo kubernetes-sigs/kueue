@@ -4207,6 +4207,7 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels disabled", ginkg
 })
 
 var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
+
 	ginkgo.Label("job:pod", "area:jobs"),
 	ginkgo.Ordered,
 	ginkgo.ContinueOnFailure,
@@ -4219,11 +4220,35 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 			localQueue     *kueue.LocalQueue
 		)
 
+		nsSelector := &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      corev1.LabelMetadataName,
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{"kube-system", "kueue-system"},
+				},
+			},
+		}
+		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		ginkgo.BeforeAll(func() {
 			features.SetFeatureGateDuringTest(
 				ginkgo.GinkgoTB(),
 				features.PodGroupSchedulingShapeOrdering,
 				true,
+			)
+
+			fwk.StartManager(
+				ctx,
+				cfg,
+				managerSetup(
+					false,
+					true, // enable scheduler so pods get automatically admitted
+					nil,
+					jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
+					jobframework.WithEnabledFrameworks([]string{"pod"}),
+				),
 			)
 
 			ns = util.CreateNamespaceFromPrefixWithLog(
@@ -4270,6 +4295,8 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
+
+			fwk.StopManager(ctx)
 		})
 
 		ginkgo.It("Should assign flavors according to pod scheduling shape ordering", func() {
@@ -4278,6 +4305,7 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				GroupTotalCount("2").
 				Queue(localQueue.Name).
 				Request(corev1.ResourceName("nvidia.com/gpu"), "1").
+				Limit(corev1.ResourceName("nvidia.com/gpu"), "1").
 				Obj()
 
 			worker := testingpod.MakePod("worker", ns.Name).
@@ -4285,6 +4313,7 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				GroupTotalCount("2").
 				Queue(localQueue.Name).
 				Request(corev1.ResourceName("nvidia.com/gpu"), "4").
+				Limit(corev1.ResourceName("nvidia.com/gpu"), "4").
 				Obj()
 
 			leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
