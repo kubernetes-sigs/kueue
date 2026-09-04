@@ -84,10 +84,11 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 	testCtr := testingtrainjob.MakeClusterTrainingRuntime("test", testJobset.Spec)
 
 	cases := map[string]struct {
-		trainJob     *kftrainerapi.TrainJob
-		podsetsInfo  []podset.PodSetInfo
-		wantTrainJob *kftrainerapi.TrainJob
-		wantErr      bool
+		trainJob        *kftrainerapi.TrainJob
+		podsetsInfo     []podset.PodSetInfo
+		wantTrainJob    *kftrainerapi.TrainJob
+		wantTolerations []corev1.Toleration
+		wantErr         bool
 	}{
 		"should add to the TrainJob the config specified in the PodSet info": {
 			trainJob: testTrainJob.Clone().
@@ -181,6 +182,7 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 								PodLabel(constants.PodSetLabel, "node").
 								PodLabel("test-label", "label").
 								NodeSelector("gpu", "nvidia").
+								Toleration(*toleration1.DeepCopy()).
 								Toleration(*toleration2.DeepCopy()).
 								SchedulingGate("test-scheduling-gate-2").
 								Obj(),
@@ -189,7 +191,8 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 				}).
 				Suspend(false).
 				Obj(),
-			wantErr: false,
+			wantTolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
+			wantErr:         false,
 		},
 		"should not modify the TrainJob if the wrong number of PodSet infos is provided": {
 			trainJob: testTrainJob.DeepCopy(),
@@ -206,6 +209,14 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 					Tolerations:     []corev1.Toleration{*toleration2.DeepCopy()},
 					SchedulingGates: []corev1.PodSchedulingGate{{Name: "test-scheduling-gate-2"}},
 				},
+			},
+			wantTrainJob: testTrainJob.DeepCopy(),
+			wantErr:      true,
+		},
+		"should reject a PodSet info with an unknown name": {
+			trainJob: testTrainJob.DeepCopy(),
+			podsetsInfo: []podset.PodSetInfo{
+				{Name: "non-existent-job"},
 			},
 			wantTrainJob: testTrainJob.DeepCopy(),
 			wantErr:      true,
@@ -305,7 +316,209 @@ func TestRunWithPodsetsInfo(t *testing.T) {
 			if diff := cmp.Diff(tc.wantTrainJob, tc.trainJob, tjobCmpOpts); diff != "" {
 				t.Errorf("RunWithPodSetsInfo() mismatch (-want,+got):\n%s", diff)
 			}
+			if tc.wantTolerations != nil {
+				jobset, err := getChildJobSet(ctx, kClient, kTrainJob)
+				if err != nil {
+					t.Fatalf("getChildJobSet() error: %v", err)
+				}
+				gotTolerations := jobset.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Tolerations
+				if diff := cmp.Diff(tc.wantTolerations, gotTolerations); diff != "" {
+					t.Errorf("rendered JobSet tolerations mismatch (-want,+got):\n%s", diff)
+				}
+			}
 		})
+	}
+}
+
+// TestRunWithPodSetsInfoMatchesReplicatedJobsByName verifies that admission
+// tolerations are merged into the matching replicated job regardless of input order.
+func TestRunWithPodSetsInfoMatchesReplicatedJobsByName(t *testing.T) {
+	chiefBase := corev1.Toleration{
+		Key:      "workload.example.com/chief",
+		Operator: corev1.TolerationOpEqual,
+		Value:    "true",
+		Effect:   corev1.TaintEffectNoSchedule,
+	}
+	workerBase := corev1.Toleration{
+		Key:      "workload.example.com/worker",
+		Operator: corev1.TolerationOpEqual,
+		Value:    "true",
+		Effect:   corev1.TaintEffectNoSchedule,
+	}
+	chiefInjected := corev1.Toleration{
+		Key:      "pool.example.com/chief",
+		Operator: corev1.TolerationOpEqual,
+		Value:    "reserved",
+		Effect:   corev1.TaintEffectNoExecute,
+	}
+	workerInjected := corev1.Toleration{
+		Key:      "pool.example.com/worker",
+		Operator: corev1.TolerationOpEqual,
+		Value:    "spot",
+		Effect:   corev1.TaintEffectNoExecute,
+	}
+
+	testJobSet := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+		testingjobset.ReplicatedJobRequirements{Name: "chief"},
+		testingjobset.ReplicatedJobRequirements{Name: "worker"},
+	).Obj()
+	testJobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Tolerations = []corev1.Toleration{chiefBase}
+	testJobSet.Spec.ReplicatedJobs[1].Template.Spec.Template.Spec.Tolerations = []corev1.Toleration{workerBase}
+	testRuntime := testingtrainjob.MakeClusterTrainingRuntime("test", testJobSet.Spec)
+	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
+		APIGroup: new(kftrainerapi.GroupVersion.Group),
+		Name:     testRuntime.Name,
+		Kind:     new(kftrainerapi.ClusterTrainingRuntimeKind),
+	}).RuntimePatches([]kftrainerapi.RuntimePatch{
+		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).EmptyMetadata().Obj(),
+	}).Obj()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme).WithObjects()
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(testTrainJob, testRuntime).Build()
+	recorder := &utiltesting.EventRecorder{}
+	if _, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithManageJobsWithoutQueueName(true)); err != nil {
+		t.Fatalf("Error creating the reconciler: %v", err)
+	}
+
+	trainJob := (*TrainJob)(testTrainJob)
+	// Reverse the admission order to ensure assignments are matched by name.
+	if err := trainJob.RunWithPodSetsInfo(ctx, kClient, []podset.PodSetInfo{
+		{Name: "worker", Tolerations: []corev1.Toleration{workerInjected}},
+		{Name: "chief", Tolerations: []corev1.Toleration{chiefInjected}},
+	}); err != nil {
+		t.Fatalf("RunWithPodSetsInfo() error = %v", err)
+	}
+
+	wantTolerations := map[string][]corev1.Toleration{
+		"chief":  {chiefBase, chiefInjected},
+		"worker": {workerBase, workerInjected},
+	}
+	kueuePatch := getKueueRuntimePatch(trainJob)
+	if kueuePatch == nil {
+		t.Fatal("expected Kueue RuntimePatch")
+	}
+	gotPatchTolerations := make(map[string][]corev1.Toleration, len(wantTolerations))
+	for _, replicatedJob := range kueuePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs {
+		gotPatchTolerations[replicatedJob.Name] = replicatedJob.Template.Spec.Template.Spec.Tolerations
+	}
+	if diff := cmp.Diff(wantTolerations, gotPatchTolerations); diff != "" {
+		t.Errorf("Kueue RuntimePatch tolerations mismatch (-want,+got):\n%s", diff)
+	}
+
+	jobSet, err := getChildJobSet(ctx, kClient, trainJob)
+	if err != nil {
+		t.Fatalf("getChildJobSet() error = %v", err)
+	}
+	gotJobSetTolerations := make(map[string][]corev1.Toleration, len(wantTolerations))
+	for _, replicatedJob := range jobSet.Spec.ReplicatedJobs {
+		gotJobSetTolerations[replicatedJob.Name] = replicatedJob.Template.Spec.Template.Spec.Tolerations
+	}
+	if diff := cmp.Diff(wantTolerations, gotJobSetTolerations); diff != "" {
+		t.Errorf("rendered JobSet tolerations mismatch (-want,+got):\n%s", diff)
+	}
+}
+
+// TestRunWithPodSetsInfoPreservesTrainingRuntimeTolerations verifies that the
+// Kueue patch retains tolerations defined by the resolved TrainingRuntime.
+func TestRunWithPodSetsInfoPreservesTrainingRuntimeTolerations(t *testing.T) {
+	baseToleration := corev1.Toleration{
+		Key:      "user.example.com/dedicated",
+		Operator: corev1.TolerationOpEqual,
+		Value:    "training",
+		Effect:   corev1.TaintEffectNoSchedule,
+	}
+	injectedToleration := corev1.Toleration{
+		Key:      "pool.example.com/gpu",
+		Operator: corev1.TolerationOpEqual,
+		Value:    "true",
+		Effect:   corev1.TaintEffectNoSchedule,
+	}
+	// Simulate an old Kueue-managed toleration left by a previous admission.
+	staleKueueToleration := corev1.Toleration{
+		Key:      "old.example.com/pool",
+		Operator: corev1.TolerationOpEqual,
+		Value:    "old",
+		Effect:   corev1.TaintEffectNoSchedule,
+	}
+
+	testJobSet := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+		testingjobset.ReplicatedJobRequirements{Name: "node"},
+	).Obj()
+	testJobSet.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Tolerations = []corev1.Toleration{baseToleration}
+	testRuntime := testingtrainjob.MakeClusterTrainingRuntime("test", testJobSet.Spec)
+	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns").RuntimeRef(kftrainerapi.RuntimeRef{
+		APIGroup: new(kftrainerapi.GroupVersion.Group),
+		Name:     testRuntime.Name,
+		Kind:     new(kftrainerapi.ClusterTrainingRuntimeKind),
+	}).RuntimePatches([]kftrainerapi.RuntimePatch{
+		testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
+			EmptyMetadata().
+			ReplicatedJobs(
+				testingtrainjob.MakeReplicatedJobPatch("node").
+					Toleration(staleKueueToleration).
+					Obj(),
+			).
+			Obj(),
+	}).Obj()
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	clientBuilder := utiltesting.NewClientBuilder(kftrainerapi.AddToScheme, jobsetapi.AddToScheme).WithObjects()
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(testTrainJob, testRuntime).Build()
+	recorder := &utiltesting.EventRecorder{}
+	if _, err := NewReconciler(ctx, kClient, indexer, recorder, jobframework.WithManageJobsWithoutQueueName(true)); err != nil {
+		t.Fatalf("Error creating the reconciler: %v", err)
+	}
+
+	trainJob := (*TrainJob)(testTrainJob)
+	if err := trainJob.RunWithPodSetsInfo(ctx, kClient, []podset.PodSetInfo{{
+		Name:        "node",
+		Tolerations: []corev1.Toleration{injectedToleration},
+	}}); err != nil {
+		t.Fatalf("RunWithPodSetsInfo() error = %v", err)
+	}
+	if err := trainJob.RunWithPodSetsInfo(ctx, kClient, []podset.PodSetInfo{{
+		Name:        "node",
+		Tolerations: []corev1.Toleration{injectedToleration},
+	}}); err != nil {
+		t.Fatalf("repeated RunWithPodSetsInfo() error = %v", err)
+	}
+
+	kueuePatch := getKueueRuntimePatch(trainJob)
+	if kueuePatch == nil {
+		t.Fatal("expected Kueue RuntimePatch")
+	}
+	gotTolerations := kueuePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Tolerations
+	wantTolerations := []corev1.Toleration{baseToleration, injectedToleration}
+	if diff := cmp.Diff(wantTolerations, gotTolerations); diff != "" {
+		t.Errorf("Kueue RuntimePatch tolerations mismatch (-want,+got):\n%s", diff)
+	}
+
+	jobset, err := getChildJobSet(ctx, kClient, trainJob)
+	if err != nil {
+		t.Fatalf("getChildJobSet() error = %v", err)
+	}
+	gotTolerations = jobset.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Tolerations
+	if diff := cmp.Diff(wantTolerations, gotTolerations); diff != "" {
+		t.Errorf("rendered JobSet tolerations mismatch (-want,+got):\n%s", diff)
+	}
+
+	if err := trainJob.RunWithPodSetsInfo(ctx, kClient, []podset.PodSetInfo{{Name: "node"}}); err != nil {
+		t.Fatalf("RunWithPodSetsInfo() without injected tolerations error = %v", err)
+	}
+	kueuePatch = getKueueRuntimePatch(trainJob)
+	if got := kueuePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Tolerations; got != nil {
+		t.Errorf("Kueue RuntimePatch tolerations = %v, want nil when no tolerations are injected", got)
+	}
+	jobset, err = getChildJobSet(ctx, kClient, trainJob)
+	if err != nil {
+		t.Fatalf("getChildJobSet() after clearing injected tolerations error = %v", err)
+	}
+	gotTolerations = jobset.Spec.ReplicatedJobs[0].Template.Spec.Template.Spec.Tolerations
+	if diff := cmp.Diff([]corev1.Toleration{baseToleration}, gotTolerations); diff != "" {
+		t.Errorf("rendered JobSet tolerations after clearing injection mismatch (-want,+got):\n%s", diff)
 	}
 }
 
