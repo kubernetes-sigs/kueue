@@ -416,6 +416,24 @@ func TestIndexPodWorkloadSliceName(t *testing.T) {
 				Obj(),
 			want: []string{"slice-123"},
 		},
+		"empty slice annotation does not fall back to workload": {
+			obj: testingpod.MakePod("pod", "ns").
+				Annotation(kueue.WorkloadSliceNameAnnotation, "").
+				Annotation(kueue.WorkloadAnnotation, "wl-abc").
+				Obj(),
+			want: []string{""},
+		},
+		"empty workload annotation is indexed": {
+			obj:  testingpod.MakePod("pod", "ns").Annotation(kueue.WorkloadAnnotation, "").Obj(),
+			want: []string{""},
+		},
+		"both annotations empty are still indexed": {
+			obj: testingpod.MakePod("pod", "ns").
+				Annotation(kueue.WorkloadSliceNameAnnotation, "").
+				Annotation(kueue.WorkloadAnnotation, "").
+				Obj(),
+			want: []string{""},
+		},
 	}
 
 	for name, tc := range cases {
