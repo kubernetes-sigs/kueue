@@ -67,8 +67,12 @@ func TestAmountQuantity(t *testing.T) {
 		"the largest negative device": {name: "example.com/gpu", amount: NewAmount(-math.MaxInt64), want: "-9223372036854775807", wantExact: true},
 		// MinInt64 fits an int64 and is one past the magnitude a Quantity carries.
 		"the smallest int64 device": {name: "example.com/gpu", amount: NewAmount(math.MinInt64), want: "-9223372036854775807", wantExact: false},
-		"far past in the negative":  {name: "example.com/gpu", amount: bigAmount(t, "-18446744073709551614"), want: "-9223372036854775807", wantExact: false},
-		"memory past int64":         {name: corev1.ResourceMemory, amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775807", wantExact: false},
+		// The same amount in CPU is milli, so the number it stands for is nine
+		// million cores rather than nine quintillion, and a Quantity holds it.
+		// That is why the exclusion above is on the non-CPU branch alone.
+		"the smallest int64 milli of cpu": {name: corev1.ResourceCPU, amount: NewAmount(math.MinInt64), want: "-9223372036854775808m", wantExact: true},
+		"far past in the negative":        {name: "example.com/gpu", amount: bigAmount(t, "-18446744073709551614"), want: "-9223372036854775807", wantExact: false},
+		"memory past int64":               {name: corev1.ResourceMemory, amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775807", wantExact: false},
 	}
 
 	for name, tc := range cases {
