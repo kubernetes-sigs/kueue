@@ -21,6 +21,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -939,6 +940,72 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 
 					util.ExpectPodsJustFinalized(ctx, k8sClient, pod1LookupKey, pod2LookupKey)
 				})
+			})
+
+			ginkgo.It("Should surface a warning when fast-admission pods have diverging role hashes", func() {
+				// Regression test for https://github.com/kubernetes-sigs/kueue/issues/13242
+				//
+				// With fast admission the group Workload is built from the first
+				// runnable pod via constructGroupPodSetsFast, producing a single
+				// role PodSet. If a later member of the group has a different
+				// role hash, FindMatchingWorkloads partitions active pods strictly
+				// by the Workload's existing PodSets, so the divergent pod matches
+				// no role and is silently gated forever with no event. (There is
+				// no delete/recreate churn: the single-role Workload keeps a
+				// stable identity because equivalentToWorkload never sees the
+				// missing role.) The fix detects active pods whose role hash is
+				// absent from the Workload during FindMatchingWorkloads and emits
+				// a Warning event so the misconfiguration is reported.
+				wlLookupKey := types.NamespacedName{Namespace: ns.Name, Name: "test-group"}
+
+				ginkgo.By("Creating the first fast-admission pod (role-a)")
+				pod1 := testingpod.MakePod("test-pod1", ns.Name).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					RoleHash("role-a").
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Queue("test-queue").
+					Obj()
+				util.MustCreate(ctx, k8sClient, pod1)
+
+				ginkgo.By("Waiting for the single-role Workload to be created from the first pod")
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				firstUID := createdWorkload.UID
+
+				ginkgo.By("Creating a second group member with a diverging role hash (role-b)")
+				pod2 := testingpod.MakePod("test-pod2", ns.Name).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					RoleHash("role-b").
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Queue("test-queue").
+					Obj()
+				util.MustCreate(ctx, k8sClient, pod2)
+
+				ginkgo.By("Checking a Warning event is emitted for the divergent pod")
+				gomega.Eventually(func(g gomega.Gomega) {
+					found, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *eventsv1.Event) bool {
+						return e.Reason == jobframework.ReasonErrWorkloadCompose &&
+							e.Type == corev1.EventTypeWarning &&
+							e.Regarding.Namespace == ns.Name &&
+							strings.Contains(e.Note, "pod 'test-pod2'") &&
+							strings.Contains(e.Note, "role hash 'role-b'") &&
+							strings.Contains(e.Note, "does not match any role in the group workload 'test-group'")
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(found).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("Checking the Workload is not deleted and recreated (no reconcile churn)")
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.UID).Should(gomega.Equal(firstUID),
+						"Workload was recreated, indicating unexpected reconcile churn")
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.It("Should keep the running pod group with the queue name if workload is evicted", framework.SlowSpec, func() {
