@@ -40,14 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-const defaultWeight = 1.0
-
-var defaultFlavorFungibility = kueue.FlavorFungibility{
-	WhenCanBorrow:  kueue.MayStopSearch,
-	WhenCanPreempt: kueue.TryNextFlavor,
-}
-
-var snapCmpOpts = cmp.Options{
+var cmpOpts = cmp.Options{
 	cmpopts.EquateEmpty(),
 	cmpopts.IgnoreUnexported(schdcache.ClusterQueueSnapshot{}),
 	cmpopts.IgnoreUnexported(schdcache.CohortSnapshot{}),
@@ -58,6 +51,16 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	cmpopts.IgnoreFields(schdcache.Snapshot{}, "SimulatorSnapshot"),
 }
+
+var extendedCmpOpts = append(cmpOpts,
+	cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{},
+		"NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration",
+		"Workloads", "ResourceGroups", "FlavorFungibility", "FairWeight",
+	),
+	cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
+	cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+	cmpopts.IgnoreTypes(&workload.Info{}),
+)
 
 func setupSnapshotSimulationTest(t *testing.T) (context.Context, *schdcache.Cache, map[string]*workload.Info) {
 	t.Helper()
@@ -230,11 +233,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						},
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
-								Name:              "lend-a",
-								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
+								Name: "lend-a",
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
@@ -245,11 +244,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								},
 							},
 							"lend-b": {
-								Name:              "lend-b",
-								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
+								Name: "lend-b",
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
@@ -283,11 +278,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						},
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
-								Name:              "lend-a",
-								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
+								Name: "lend-a",
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(7_000),
@@ -299,10 +290,6 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							},
 							"lend-b": {
 								Name:                          "lend-b",
-								Workloads:                     make(map[workload.Reference]*workload.Info),
-								ResourceGroups:                initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
-								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -337,11 +324,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						},
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
-								Name:              "lend-a",
-								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
+								Name: "lend-a",
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
@@ -353,10 +336,6 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							},
 							"lend-b": {
 								Name:                          "lend-b",
-								Workloads:                     make(map[workload.Reference]*workload.Info),
-								ResourceGroups:                initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
-								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -391,11 +370,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						},
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
-								Name:              "lend-a",
-								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
+								Name: "lend-a",
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
@@ -407,10 +382,6 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							},
 							"lend-b": {
 								Name:                          "lend-b",
-								Workloads:                     make(map[workload.Reference]*workload.Info),
-								ResourceGroups:                initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
-								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -446,11 +417,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						},
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
-								Name:              "lend-a",
-								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
+								Name: "lend-a",
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
@@ -462,10 +429,6 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							},
 							"lend-b": {
 								Name:                          "lend-b",
-								Workloads:                     make(map[workload.Reference]*workload.Info),
-								ResourceGroups:                initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
-								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -501,11 +464,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						},
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
-								Name:              "lend-a",
-								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
+								Name: "lend-a",
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
@@ -516,11 +475,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 								},
 							},
 							"lend-b": {
-								Name:              "lend-b",
-								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
+								Name: "lend-b",
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
@@ -555,11 +510,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 						},
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"lend-a": {
-								Name:              "lend-a",
-								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    initialSnapshot.ClusterQueue("lend-a").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
+								Name: "lend-a",
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
@@ -571,10 +522,6 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 							},
 							"lend-b": {
 								Name:                          "lend-b",
-								Workloads:                     make(map[workload.Reference]*workload.Info),
-								ResourceGroups:                initialSnapshot.ClusterQueue("lend-b").ResourceGroups,
-								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -591,11 +538,6 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			}(),
 		},
 	}
-	cmpOpts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
-		cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
-		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			snap, err := cqCache.Snapshot(ctx)
@@ -609,7 +551,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			for _, name := range tc.add {
 				sim.addWorkload(wlInfos[name])
 			}
-			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
+			if diff := cmp.Diff(tc.want, *snap, extendedCmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
 			}
 		})
@@ -687,12 +629,7 @@ func TestPreemptWorkload(t *testing.T) {
 			if (preemptErr != nil) != tc.wantErr {
 				t.Errorf("PreemptWorkload() error = %v, wantErr %v", preemptErr, tc.wantErr)
 			}
-			opts := append(snapCmpOpts,
-				cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
-				cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
-				cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
-				cmpopts.IgnoreTypes(&workload.Info{}))
-			if diff := cmp.Diff(tc.wantSnapshotState, *snap, opts...); diff != "" {
+			if diff := cmp.Diff(tc.wantSnapshotState, *snap, extendedCmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after preemptions (-want,+got):\n%s", diff)
 			}
 			simOpts := []cmp.Option{
@@ -821,12 +758,7 @@ func TestRestoreWorkload(t *testing.T) {
 			if (restoreErr != nil) != tc.wantErr {
 				t.Errorf("RestoreWorkloads() error = %v, wantErr %v", restoreErr, tc.wantErr)
 			}
-			opts := append(snapCmpOpts,
-				cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
-				cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
-				cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
-				cmpopts.IgnoreTypes(&workload.Info{}))
-			if diff := cmp.Diff(tc.want, *snap, opts...); diff != "" {
+			if diff := cmp.Diff(tc.want, *snap, extendedCmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after restores (-want,+got):\n%s", diff)
 			}
 			simOpts := []cmp.Option{
@@ -943,12 +875,7 @@ func TestRestoreSnapshot(t *testing.T) {
 			if (err != nil) != tc.wantErr {
 				t.Errorf("RestoreSnapshot() error = %v, wantErr %v", err, tc.wantErr)
 			}
-			opts := append(snapCmpOpts,
-				cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
-				cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
-				cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
-				cmpopts.IgnoreTypes(&workload.Info{}))
-			if diff := cmp.Diff(tc.want, *snap, opts...); diff != "" {
+			if diff := cmp.Diff(tc.want, *snap, extendedCmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after RestoreSnapshot (-want,+got):\n%s", diff)
 			}
 			simOpts := []cmp.Option{
@@ -1023,12 +950,6 @@ func TestSimulation(t *testing.T) {
 		},
 	}
 
-	opts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
-		cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
-		cmpopts.IgnoreTypes(&workload.Info{}))
-
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			snap, err := cqCache.Snapshot(ctx)
@@ -1039,7 +960,7 @@ func TestSimulation(t *testing.T) {
 			if err != nil {
 				t.Errorf("Unexpected error during simulation: %v", err)
 			}
-			if diff := cmp.Diff(*initialSnap, *snap, opts...); diff != "" {
+			if diff := cmp.Diff(*initialSnap, *snap, extendedCmpOpts...); diff != "" {
 				t.Errorf("schdcache.Snapshot state was not restored after simulation (-want,+got):\n%s", diff)
 			}
 		})
@@ -1168,11 +1089,7 @@ func TestAddRemoveWorkload(t *testing.T) {
 						},
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"c1": {
-								Name:              "c1",
-								Workloads:         make(map[workload.Reference]*workload.Info),
-								ResourceGroups:    initialSnapshot.ClusterQueue("c1").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
+								Name: "c1",
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
@@ -1188,10 +1105,6 @@ func TestAddRemoveWorkload(t *testing.T) {
 							},
 							"c2": {
 								Name:                          "c2",
-								Workloads:                     make(map[workload.Reference]*workload.Info),
-								ResourceGroups:                initialSnapshot.ClusterQueue("c2").ResourceGroups,
-								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    defaultWeight,
 								AllocatableResourceGeneration: 1,
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1229,13 +1142,6 @@ func TestAddRemoveWorkload(t *testing.T) {
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"c1": {
 								Name: "c1",
-								Workloads: map[workload.Reference]*workload.Info{
-									"/c1-memory-alpha": nil,
-									"/c1-memory-beta":  nil,
-								},
-								ResourceGroups:    initialSnapshot.ClusterQueue("c1").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
@@ -1250,14 +1156,7 @@ func TestAddRemoveWorkload(t *testing.T) {
 								},
 							},
 							"c2": {
-								Name: "c2",
-								Workloads: map[workload.Reference]*workload.Info{
-									"/c2-cpu-1": nil,
-									"/c2-cpu-2": nil,
-								},
-								ResourceGroups:                initialSnapshot.ClusterQueue("c2").ResourceGroups,
-								FlavorFungibility:             defaultFlavorFungibility,
-								FairWeight:                    defaultWeight,
+								Name:                          "c2",
 								AllocatableResourceGeneration: 1,
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
@@ -1295,13 +1194,6 @@ func TestAddRemoveWorkload(t *testing.T) {
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"c1": {
 								Name: "c1",
-								Workloads: map[workload.Reference]*workload.Info{
-									"/c1-memory-alpha": nil,
-									"/c1-memory-beta":  nil,
-								},
-								ResourceGroups:    initialSnapshot.ClusterQueue("c1").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(1_000),
@@ -1317,13 +1209,6 @@ func TestAddRemoveWorkload(t *testing.T) {
 							},
 							"c2": {
 								Name: "c2",
-								Workloads: map[workload.Reference]*workload.Info{
-									"/c2-cpu-1": nil,
-									"/c2-cpu-2": nil,
-								},
-								ResourceGroups:    initialSnapshot.ClusterQueue("c2").ResourceGroups,
-								FlavorFungibility: defaultFlavorFungibility,
-								FairWeight:        defaultWeight,
 								ResourceNode: schdcache.ResourceNode{
 									Usage: resources.FlavorResourceQuantities{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
@@ -1339,11 +1224,6 @@ func TestAddRemoveWorkload(t *testing.T) {
 			}(),
 		},
 	}
-	cmpOpts := append(snapCmpOpts,
-		cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
-		cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
-		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			snap, err := cqCache.Snapshot(ctx)
@@ -1357,7 +1237,7 @@ func TestAddRemoveWorkload(t *testing.T) {
 			for _, name := range tc.add {
 				sim.addWorkload(wlInfos[name])
 			}
-			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
+			if diff := cmp.Diff(tc.want, *snap, extendedCmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
 			}
 		})
@@ -1365,16 +1245,11 @@ func TestAddRemoveWorkload(t *testing.T) {
 }
 
 func newSimulationTestManager(cqCache *schdcache.Cache, wls map[workload.Reference]*workload.Info, usage int64) hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot] {
-	snap, _ := cqCache.Snapshot(context.Background())
 	return hierarchy.NewManagerForTest(
 		map[kueue.CohortReference]*schdcache.CohortSnapshot{},
 		map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 			"c1": {
-				Name:              "c1",
-				Workloads:         wls,
-				ResourceGroups:    snap.ClusterQueue("c1").ResourceGroups,
-				FlavorFungibility: defaultFlavorFungibility,
-				FairWeight:        defaultWeight,
+				Name: "c1",
 				ResourceNode: schdcache.ResourceNode{
 					Usage: resources.FlavorResourceQuantities{
 						{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(usage),
