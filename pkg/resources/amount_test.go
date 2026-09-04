@@ -125,8 +125,19 @@ func TestAmountFromQuantity(t *testing.T) {
 		"and downward too":          {name: "example.com/gpu", qty: "-9223372036854775808", want: "-9223372036854775807"},
 		"the binary spelling of it": {name: "example.com/gpu", qty: "8Ei", want: "9223372036854775807"},
 		"a whole prefix past it":    {name: "example.com/gpu", qty: "1000E", want: "9223372036854775807"},
-		"the largest cpu in cores":  {name: corev1.ResourceCPU, qty: "9223372036854775807", want: "9223372036854775807000"},
-		"one core past it":          {name: corev1.ResourceCPU, qty: "9223372036854775808", want: "9223372036854775807000"},
+		// The largest int64 and a fraction is past the ceiling as surely as the
+		// next whole number is, and rounding it away from zero the way the
+		// accessors do would land one past what the API reports back.
+		"a fraction past it":          {name: "example.com/gpu", qty: "9223372036854775807.001", want: "9223372036854775807"},
+		"a fraction past it downward": {name: "example.com/gpu", qty: "-9223372036854775807.001", want: "-9223372036854775807"},
+		"a fraction short of it":      {name: "example.com/gpu", qty: "9223372036854775806.999", want: "9223372036854775807"},
+		"the largest cpu in cores":    {name: corev1.ResourceCPU, qty: "9223372036854775807", want: "9223372036854775807000"},
+		"one core past it":            {name: corev1.ResourceCPU, qty: "9223372036854775808", want: "9223372036854775807000"},
+		// The bound is on the cores the API reports, so a fraction too small to
+		// reach a milli still puts the value past it.
+		"a fraction past it in cpu":     {name: corev1.ResourceCPU, qty: "9223372036854775807.001", want: "9223372036854775807000"},
+		"below a milli past it in cpu":  {name: corev1.ResourceCPU, qty: "9223372036854775807.0009", want: "9223372036854775807000"},
+		"a fraction short of it in cpu": {name: corev1.ResourceCPU, qty: "9223372036854775806.999", want: "9223372036854775806999"},
 		// A scale this large is never expanded, so these answer at once rather
 		// than building a power of ten with two billion digits.
 		"a scale too large to hold": {name: "example.com/gpu", qty: "1e2147483647", want: "9223372036854775807"},
@@ -247,6 +258,66 @@ func TestAmountFromQuantityBelowOneAtAScaleTooLargeToBuild(t *testing.T) {
 	}
 }
 
+// The exponents either side of the ceiling that the parser cannot reach: it
+// normalizes every spelling to one scale, so the bound is called directly.
+func TestExceedsQuantity(t *testing.T) {
+	cases := map[string]struct {
+		unscaled string
+		exp      int64
+		want     bool
+	}{
+		"the ceiling itself":           {unscaled: "9223372036854775807", exp: 0},
+		"one past the ceiling":         {unscaled: "9223372036854775808", exp: 0, want: true},
+		"nine at the ceiling's scale":  {unscaled: "9", exp: 18},
+		"one digit more":               {unscaled: "1", exp: 19, want: true},
+		"the ceiling written smaller":  {unscaled: "9223372036854775807000", exp: -3},
+		"the ceiling and a thousandth": {unscaled: "9223372036854775807001", exp: -3, want: true},
+		"a thousandth short of it":     {unscaled: "9223372036854775806999", exp: -3},
+		"a scale too large to build":   {unscaled: "1", exp: -2147483647},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			unscaled, ok := new(big.Int).SetString(tc.unscaled, 10)
+			if !ok {
+				t.Fatalf("SetString(%s) did not parse", tc.unscaled)
+			}
+			if got := exceedsQuantity(unscaled, tc.exp); got != tc.want {
+				t.Errorf("exceedsQuantity(%s, %d) = %v, want %v", tc.unscaled, tc.exp, got, tc.want)
+			}
+			if got := exceedsQuantity(new(big.Int).Neg(unscaled), tc.exp); got != tc.want {
+				t.Errorf("exceedsQuantity(-%s, %d) = %v, want %v", tc.unscaled, tc.exp, got, tc.want)
+			}
+		})
+	}
+}
+
+// One is the boundary, and the conversion answers the same either side of it
+// once the divisor is small enough to build, so a line drawn one place over
+// would go unnoticed there.
+func TestScaledIsBelowOne(t *testing.T) {
+	cases := map[string]struct {
+		unscaled int64
+		exp      int64
+		want     bool
+	}{
+		"nine tenths":                {unscaled: 9, exp: -1, want: true},
+		"exactly one":                {unscaled: 10, exp: -1},
+		"ninety-nine hundredths":     {unscaled: 99, exp: -2, want: true},
+		"a whole number":             {unscaled: 5, exp: 0},
+		"a scaled-up number":         {unscaled: 5, exp: 3},
+		"a scale too large to build": {unscaled: 1, exp: -2147483647, want: true},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := scaledIsBelowOne(big.NewInt(tc.unscaled), tc.exp); got != tc.want {
+				t.Errorf("scaledIsBelowOne(%d, %d) = %v, want %v", tc.unscaled, tc.exp, got, tc.want)
+			}
+		})
+	}
+}
+
 // The parser caps the binary path at the magnitude a Quantity holds and leaves
 // the decimal path alone, so two spellings of the same number arrive as
 // different values. Reading them as different quotas would make capacity depend
@@ -266,9 +337,10 @@ func TestAmountFromQuantityDoesNotDependOnTheSuffix(t *testing.T) {
 	}
 }
 
-// The bound is applied in the unit the API reports and the conversion in the
-// unit the resource is accounted in, so a Quantity that goes in comes back out.
-// The two are only the same unit for CPU when the cap is built in cores.
+// What the API reports converts back to the amount it was reported for, so a
+// value at the boundary is bounded once rather than moving on every pass. An
+// oversized Quantity is bounded on the way in, so it is the bounded amount that
+// makes the round trip and not the spelling it arrived as.
 func TestAmountFromQuantityRoundTrips(t *testing.T) {
 	f := NewResourceFormatter()
 	for _, tc := range []struct {

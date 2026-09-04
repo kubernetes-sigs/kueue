@@ -95,23 +95,19 @@ func (a Amount) big() *big.Int {
 	return big.NewInt(a.small)
 }
 
-// AmountFromQuantity converts a resource.Quantity into the Amount for it.
-//
-// Quantity is arbitrary precision, so a quota past int64 arrives here intact
-// and is charged as the number it is rather than becoming a sentinel. The
-// conversion goes through the decimal the Quantity already holds rather than
-// through Value or MilliValue, which document that they may overflow: at the
-// smallest int64 milliCPU, MilliValue returns zero.
-//
-// This is the safe constructor that all quota-side conversion (Nominal,
-// BorrowingLimit, LendingLimit) must use. ResourceValue is the equivalent for
-// workload requests, which clamp to the int64 range instead.
 // AmountFromQuantity converts one API Quantity into the unit the resource is
-// accounted in. A magnitude past what a Quantity carries is capped rather than
-// taken exactly, at the same ceiling AmountQuantity reports back, so what goes
-// in comes out. The parser already caps the binary path there and does not cap
-// the decimal one, so taking either at face value would let the same quota
-// differ by the suffix it was written with.
+// accounted in, milli for CPU. A magnitude past what a Quantity carries is
+// capped at the same ceiling AmountQuantity reports back, so the boundary is
+// reached in one pass rather than moving each time a value crosses it: the
+// parser caps the binary spelling there and not the decimal one, and taking
+// either at face value would let the same quota differ by the suffix it was
+// written with. It reads the decimal the Quantity holds rather than Value or
+// MilliValue, which document that they may overflow: at the smallest int64
+// milliCPU, MilliValue returns zero.
+//
+// All quota-side conversion (Nominal, BorrowingLimit, LendingLimit) goes
+// through here. ResourceValue is the equivalent for workload requests, which
+// clamp to the int64 range instead.
 func AmountFromQuantity(name corev1.ResourceName, q resource.Quantity) Amount {
 	return fromBig(scaledBig(name, q))
 }
@@ -136,7 +132,7 @@ func scaledBig(name corev1.ResourceName, q resource.Quantity) *big.Int {
 		exp += 3
 	}
 	if scaledIsBelowOne(unscaled, exp) {
-		// Rounds away from zero, and the divisor below is too large to build.
+		// Rounds away from zero, and the divisor below can be too large to build.
 		return big.NewInt(int64(unscaled.Sign()))
 	}
 	if exp >= 0 {
@@ -309,11 +305,9 @@ func (a Amount) PerThousandOf(b Amount) float64 {
 	return f
 }
 
-// absAtMost reports whether the magnitude of v is at most limit. MinInt64
-// cannot be negated, so both ends are compared rather than an absolute taken.
 // exceedsQuantity reports whether the magnitude of unscaled x 10^exp is past
 // what a Quantity holds. It answers from the digit count wherever it can: a
-// two-character exponent reaches a scale of two billion, and building that
+// short exponent spelling reaches a scale of two billion, and building that
 // power of ten to compare is the allocation the bound exists to prevent.
 func exceedsQuantity(unscaled *big.Int, exp int64) bool {
 	abs := new(big.Int).Abs(unscaled)
@@ -322,16 +316,16 @@ func exceedsQuantity(unscaled *big.Int, exp int64) bool {
 		return false
 	case digits+exp > maxQuantityDigits:
 		return true
-	default:
-		// Within one power of ten of the ceiling, where the power is small
-		// enough to build: a non-negative exp is at most maxQuantityDigits, and
-		// a negative one is shorter than the mantissa it divides.
-		if exp >= 0 {
-			abs.Mul(abs, new(big.Int).Exp(ten, big.NewInt(exp), nil))
-		} else {
-			abs.Quo(abs, new(big.Int).Exp(ten, big.NewInt(-exp), nil))
-		}
+	case exp >= 0:
+		// Within one power of ten of the ceiling, so the shorter side is scaled
+		// up to meet the other. Either power is at most as long as the mantissa,
+		// and scaling the ceiling up rather than the mantissa down keeps the
+		// fraction that decides the comparison.
+		abs.Mul(abs, new(big.Int).Exp(ten, big.NewInt(exp), nil))
 		return abs.Cmp(maxQuantityInt) > 0
+	default:
+		limit := new(big.Int).Mul(maxQuantityInt, new(big.Int).Exp(ten, big.NewInt(-exp), nil))
+		return abs.Cmp(limit) > 0
 	}
 }
 
@@ -339,7 +333,7 @@ func exceedsQuantity(unscaled *big.Int, exp int64) bool {
 // one, which is the other end of the same scale: the divisor would be the power
 // of ten the check above refuses to build.
 func scaledIsBelowOne(unscaled *big.Int, exp int64) bool {
-	return exp < 0 && -exp > int64(len(new(big.Int).Abs(unscaled).String()))
+	return exp < 0 && -exp >= int64(len(new(big.Int).Abs(unscaled).String()))
 }
 
 // quantityCapAmount is the largest amount one Quantity expresses, with sign, in
@@ -356,6 +350,8 @@ func quantityCapAmount(name corev1.ResourceName, sign int) *big.Int {
 	return capped
 }
 
+// absAtMost reports whether the magnitude of v is at most limit. MinInt64
+// cannot be negated, so both ends are compared rather than an absolute taken.
 func absAtMost(v, limit int64) bool {
 	return v <= limit && v >= -limit
 }
