@@ -78,7 +78,7 @@ import (
 const (
 	FailedToStartFinishedReason = "FailedToStart"
 	managedOwnersChainLimit     = 10
-	fullScaleUpProbeExtra       = "full-scaleup-probe"
+	scaleUpProbeExtra           = "scale-up-probe"
 )
 
 var (
@@ -1671,7 +1671,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		return nil, err
 	}
 	extra := ""
-	if WorkloadSliceEnabled(job) {
+	if shouldCreatePartialScaleUpProbe(job) {
 		extra, err = prepareWorkloadSliceForScaleUp(ctx, c, job, podSets)
 		if err != nil {
 			return nil, err
@@ -1700,19 +1700,23 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	return wl, nil
 }
 
+// shouldCreatePartialScaleUpProbe reports whether the job takes the partial
+// replica scale-up path for its workload slices.
+func shouldCreatePartialScaleUpProbe(job GenericJob) bool {
+	return WorkloadSliceEnabled(job) &&
+		features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		job.Object().GetAnnotations()[constants.ElasticJobScaleUpStrategyAnnotationKey] == constants.ElasticJobScaleUpStrategyPartial
+}
+
 func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job GenericJob, podSets []kueue.PodSet) (string, error) {
 	object := job.Object()
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) ||
-		object.GetAnnotations()[constants.ElasticJobScaleUpStrategyAnnotationKey] != constants.ElasticJobScaleUpStrategyPartial {
-		return "", nil
-	}
 	prevWl, err := workloadslicing.FindLatestActiveWorkload(ctx, c, object, job.GVK())
 	if err != nil {
 		return "", err
 	}
 	extra := ""
-	if prevWl != nil && workload.HasQuotaReservation(prevWl) {
-		extra = fullScaleUpProbeExtra
+	if prevWl != nil {
+		extra = scaleUpProbeExtra
 		if len(prevWl.Spec.PodSets) != len(podSets) {
 			extra = ""
 		} else {
@@ -1723,11 +1727,23 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			}
 		}
 		grantedCounts := workload.ExtractGrantedPodSetCounts(prevWl)
+		admitted := int32(0)
 		for i := range podSets {
-			if prevAdmittedCount, ok := grantedCounts[podSets[i].Name]; ok && podSets[i].Count > prevAdmittedCount {
+			prevAdmittedCount, ok := grantedCounts[podSets[i].Name]
+			if !ok {
+				continue
+			}
+			admitted += prevAdmittedCount
+			if podSets[i].Count > prevAdmittedCount {
 				minCount := prevAdmittedCount + 1
 				podSets[i].MinCount = &minCount
 			}
+		}
+		if extra != "" {
+			// The admitted level the probe is issued against. It grows with every partial
+			// admission, so successive probes within one scale event get distinct names,
+			// while a retry against an unchanged level reuses the same one.
+			extra = fmt.Sprintf("%s-%d", extra, admitted)
 		}
 	}
 	return extra, nil

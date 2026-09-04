@@ -692,7 +692,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.9"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster: {
-		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TopologyAwareScheduling: {
 		{Version: version.MustParse("0.9"), Default: false, PreRelease: featuregate.Alpha},

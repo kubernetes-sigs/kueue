@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
@@ -546,7 +545,7 @@ func TestPodSets(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
-			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantPodSets, gotPodSets); diff != "" {
 				t.Errorf("PodSets() mismatch (-want +got):\n%s", diff)
 			}
 		})

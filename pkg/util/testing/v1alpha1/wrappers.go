@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -100,6 +101,18 @@ func MakeCapacityProvider(name string) *CapacityProviderWrapper {
 	}
 }
 
+// MakeCapacityProviderWithGenerateName creates a CapacityProvider wrapper with a generateName prefix.
+func MakeCapacityProviderWithGenerateName(prefix string) *CapacityProviderWrapper {
+	return MakeCapacityProvider("").GenerateName(prefix)
+}
+
+// GenerateName sets the generateName in the CapacityProvider.
+func (w *CapacityProviderWrapper) GenerateName(prefix string) *CapacityProviderWrapper {
+	w.Name = ""
+	w.ObjectMeta.GenerateName = prefix
+	return w
+}
+
 // Obj returns the CapacityProvider.
 func (w *CapacityProviderWrapper) Obj() *kueuealpha.CapacityProvider {
 	return &w.CapacityProvider
@@ -142,4 +155,104 @@ func (w *CapacityProviderWrapper) Capacity(capacity *kueuealpha.CapacityProvider
 func (w *CapacityProviderWrapper) Condition(condition metav1.Condition) *CapacityProviderWrapper {
 	w.Status.Conditions = append(w.Status.Conditions, condition)
 	return w
+}
+
+// CapacityProviderNormalizedCapacityWrapper wraps a CapacityProviderNormalizedCapacity.
+type CapacityProviderNormalizedCapacityWrapper struct {
+	kueuealpha.CapacityProviderNormalizedCapacity
+}
+
+// MakeNormalizedCapacity creates a CapacityProviderNormalizedCapacity wrapper.
+func MakeNormalizedCapacity() *CapacityProviderNormalizedCapacityWrapper {
+	return &CapacityProviderNormalizedCapacityWrapper{}
+}
+
+// Flavors appends flavors to the normalized capacity.
+func (w *CapacityProviderNormalizedCapacityWrapper) Flavors(flavors ...kueuealpha.CapacityProviderNormalizedCapacityFlavor) *CapacityProviderNormalizedCapacityWrapper {
+	w.CapacityProviderNormalizedCapacity.Flavors = append(w.CapacityProviderNormalizedCapacity.Flavors, flavors...)
+	return w
+}
+
+// Obj returns the CapacityProviderNormalizedCapacity.
+func (w *CapacityProviderNormalizedCapacityWrapper) Obj() *kueuealpha.CapacityProviderNormalizedCapacity {
+	return &w.CapacityProviderNormalizedCapacity
+}
+
+// CapacityProviderNormalizedCapacityFlavorWrapper wraps a CapacityProviderNormalizedCapacityFlavor.
+type CapacityProviderNormalizedCapacityFlavorWrapper struct {
+	kueuealpha.CapacityProviderNormalizedCapacityFlavor
+}
+
+// MakeNormalizedCapacityFlavor creates a CapacityProviderNormalizedCapacityFlavor wrapper.
+func MakeNormalizedCapacityFlavor(name string) *CapacityProviderNormalizedCapacityFlavorWrapper {
+	return &CapacityProviderNormalizedCapacityFlavorWrapper{
+		CapacityProviderNormalizedCapacityFlavor: kueuealpha.CapacityProviderNormalizedCapacityFlavor{
+			Name:      kueuealpha.ResourceFlavorReference(name),
+			Resources: corev1.ResourceList{},
+		},
+	}
+}
+
+// Resource adds a resource quantity to the flavor.
+func (f *CapacityProviderNormalizedCapacityFlavorWrapper) Resource(name corev1.ResourceName, qty string) *CapacityProviderNormalizedCapacityFlavorWrapper {
+	if f.Resources == nil {
+		f.Resources = corev1.ResourceList{}
+	}
+	f.Resources[name] = resource.MustParse(qty)
+	return f
+}
+
+// Obj returns the inner CapacityProviderNormalizedCapacityFlavor.
+func (f *CapacityProviderNormalizedCapacityFlavorWrapper) Obj() kueuealpha.CapacityProviderNormalizedCapacityFlavor {
+	return f.CapacityProviderNormalizedCapacityFlavor
+}
+
+// EffectiveCapacityWrapper wraps an EffectiveCapacity.
+type EffectiveCapacityWrapper struct {
+	kueuealpha.EffectiveCapacity
+}
+
+// MakeEffectiveCapacity creates an EffectiveCapacity wrapper.
+func MakeEffectiveCapacity() *EffectiveCapacityWrapper {
+	return &EffectiveCapacityWrapper{}
+}
+
+// Flavors appends flavors to the effective capacity.
+func (w *EffectiveCapacityWrapper) Flavors(flavors ...kueuealpha.EffectiveCapacityFlavor) *EffectiveCapacityWrapper {
+	w.EffectiveCapacity.Flavors = append(w.EffectiveCapacity.Flavors, flavors...)
+	return w
+}
+
+// Obj returns the EffectiveCapacity.
+func (w *EffectiveCapacityWrapper) Obj() *kueuealpha.EffectiveCapacity {
+	return &w.EffectiveCapacity
+}
+
+// EffectiveCapacityFlavorWrapper wraps an EffectiveCapacityFlavor.
+type EffectiveCapacityFlavorWrapper struct {
+	kueuealpha.EffectiveCapacityFlavor
+}
+
+// MakeEffectiveCapacityFlavor creates an EffectiveCapacityFlavor wrapper.
+func MakeEffectiveCapacityFlavor(name string) *EffectiveCapacityFlavorWrapper {
+	return &EffectiveCapacityFlavorWrapper{
+		EffectiveCapacityFlavor: kueuealpha.EffectiveCapacityFlavor{
+			Name:      kueuealpha.ResourceFlavorReference(name),
+			Resources: corev1.ResourceList{},
+		},
+	}
+}
+
+// Resource adds a resource quantity to the flavor.
+func (f *EffectiveCapacityFlavorWrapper) Resource(name corev1.ResourceName, qty string) *EffectiveCapacityFlavorWrapper {
+	if f.Resources == nil {
+		f.Resources = corev1.ResourceList{}
+	}
+	f.Resources[name] = resource.MustParse(qty)
+	return f
+}
+
+// Obj returns the inner EffectiveCapacityFlavor.
+func (f *EffectiveCapacityFlavorWrapper) Obj() *kueuealpha.EffectiveCapacityFlavor {
+	return &f.EffectiveCapacityFlavor
 }

@@ -23,17 +23,41 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestEffectiveResourceGroups(t *testing.T) {
 	specFlavor := utiltestingapi.MakeFlavorQuotas("spec-flavor").Resource(corev1.ResourceCPU, "10").FlavorQuotas
+	effectiveFlavor := utiltestingapi.MakeFlavorQuotas("effective-flavor").Resource(corev1.ResourceCPU, "20").FlavorQuotas
 
 	cases := map[string]struct {
-		cq      *kueue.ClusterQueue
-		wantRGs []kueue.ResourceGroup
+		dynamicQuota bool
+		cq           *kueue.ClusterQueue
+		wantRGs      []kueue.ResourceGroup
 	}{
-		"cluster queue returns spec resource groups": {
+		"DynamicQuotaOrchestration disabled returns spec": {
+			dynamicQuota: false,
+			cq: utiltestingapi.MakeClusterQueue("test-cq").
+				ResourceGroup(specFlavor).
+				EffectiveQuotas(effectiveFlavor).
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(specFlavor),
+			},
+		},
+		"DynamicQuotaOrchestration enabled returns status effectiveQuotas when set": {
+			dynamicQuota: true,
+			cq: utiltestingapi.MakeClusterQueue("test-cq").
+				ResourceGroup(specFlavor).
+				EffectiveQuotas(effectiveFlavor).
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(effectiveFlavor),
+			},
+		},
+		"DynamicQuotaOrchestration enabled returns spec when effectiveQuotas is nil": {
+			dynamicQuota: true,
 			cq: utiltestingapi.MakeClusterQueue("test-cq").
 				ResourceGroup(specFlavor).
 				Obj(),
@@ -41,14 +65,26 @@ func TestEffectiveResourceGroups(t *testing.T) {
 				utiltestingapi.ResourceGroup(specFlavor),
 			},
 		},
+		"DynamicQuotaOrchestration enabled returns empty status effectiveQuotas when set to empty": {
+			dynamicQuota: true,
+			cq: func() *kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("test-cq").ResourceGroup(specFlavor).Obj()
+				cq.Status.EffectiveQuotas = &kueue.EffectiveQuotaStatus{ResourceGroups: []kueue.ResourceGroup{}}
+				return cq
+			}(),
+			wantRGs: []kueue.ResourceGroup{},
+		},
 		"nil cluster queue returns nil": {
-			cq:      nil,
-			wantRGs: nil,
+			dynamicQuota: true,
+			cq:           nil,
+			wantRGs:      nil,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, tc.dynamicQuota)
+
 			if diff := cmp.Diff(tc.wantRGs, EffectiveResourceGroups(tc.cq)); diff != "" {
 				t.Errorf("Unexpected EffectiveResourceGroups (-want +got):\n%s", diff)
 			}
@@ -58,12 +94,35 @@ func TestEffectiveResourceGroups(t *testing.T) {
 
 func TestEffectiveCohortResourceGroups(t *testing.T) {
 	specFlavor := utiltestingapi.MakeFlavorQuotas("spec-flavor").Resource(corev1.ResourceCPU, "10").FlavorQuotas
+	effectiveFlavor := utiltestingapi.MakeFlavorQuotas("effective-flavor").Resource(corev1.ResourceCPU, "20").FlavorQuotas
 
 	cases := map[string]struct {
-		cohort  *kueue.Cohort
-		wantRGs []kueue.ResourceGroup
+		dynamicQuota bool
+		cohort       *kueue.Cohort
+		wantRGs      []kueue.ResourceGroup
 	}{
-		"cohort returns spec resource groups": {
+		"DynamicQuotaOrchestration disabled returns spec": {
+			dynamicQuota: false,
+			cohort: utiltestingapi.MakeCohort("test-cohort").
+				ResourceGroup(specFlavor).
+				EffectiveQuotas(effectiveFlavor).
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(specFlavor),
+			},
+		},
+		"DynamicQuotaOrchestration enabled returns status effectiveQuotas when set": {
+			dynamicQuota: true,
+			cohort: utiltestingapi.MakeCohort("test-cohort").
+				ResourceGroup(specFlavor).
+				EffectiveQuotas(effectiveFlavor).
+				Obj(),
+			wantRGs: []kueue.ResourceGroup{
+				utiltestingapi.ResourceGroup(effectiveFlavor),
+			},
+		},
+		"DynamicQuotaOrchestration enabled returns spec when effectiveQuotas is nil": {
+			dynamicQuota: true,
 			cohort: utiltestingapi.MakeCohort("test-cohort").
 				ResourceGroup(specFlavor).
 				Obj(),
@@ -71,14 +130,26 @@ func TestEffectiveCohortResourceGroups(t *testing.T) {
 				utiltestingapi.ResourceGroup(specFlavor),
 			},
 		},
+		"DynamicQuotaOrchestration enabled returns empty status effectiveQuotas when set to empty": {
+			dynamicQuota: true,
+			cohort: func() *kueue.Cohort {
+				c := utiltestingapi.MakeCohort("test-cohort").ResourceGroup(specFlavor).Obj()
+				c.Status.EffectiveQuotas = &kueue.EffectiveQuotaStatus{ResourceGroups: []kueue.ResourceGroup{}}
+				return c
+			}(),
+			wantRGs: []kueue.ResourceGroup{},
+		},
 		"nil cohort returns nil": {
-			cohort:  nil,
-			wantRGs: nil,
+			dynamicQuota: true,
+			cohort:       nil,
+			wantRGs:      nil,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, tc.dynamicQuota)
+
 			if diff := cmp.Diff(tc.wantRGs, EffectiveCohortResourceGroups(tc.cohort)); diff != "" {
 				t.Errorf("Unexpected EffectiveCohortResourceGroups (-want +got):\n%s", diff)
 			}
