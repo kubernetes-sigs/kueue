@@ -310,6 +310,15 @@ func validateWaitForPodsReady(c *configapi.Configuration) field.ErrorList {
 		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("recoveryTimeout"),
 			c.WaitForPodsReady.RecoveryTimeout, apimachineryvalidation.IsNegativeErrorMsg))
 	}
+	if c.WaitForPodsReady.UnscheduledTimeout != nil && c.WaitForPodsReady.UnscheduledTimeout.Duration < 0 {
+		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("unscheduledTimeout"),
+			c.WaitForPodsReady.UnscheduledTimeout, apimachineryvalidation.IsNegativeErrorMsg))
+	}
+	if c.WaitForPodsReady.UnscheduledTimeout != nil && c.WaitForPodsReady.UnscheduledTimeout.Duration > 0 &&
+		c.WaitForPodsReady.UnscheduledTimeout.Duration > c.WaitForPodsReady.Timeout.Duration {
+		allErrs = append(allErrs, field.Invalid(waitForPodsReadyPath.Child("unscheduledTimeout"),
+			c.WaitForPodsReady.UnscheduledTimeout, "must not be greater than timeout"))
+	}
 	if strategy := c.WaitForPodsReady.RequeuingStrategy; strategy != nil {
 		if strategy.Timestamp != nil &&
 			*strategy.Timestamp != configapi.CreationTimestamp && *strategy.Timestamp != configapi.EvictionTimestamp {

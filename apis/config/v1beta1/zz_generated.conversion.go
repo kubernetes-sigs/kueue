@@ -907,6 +907,7 @@ func autoConvert_v1beta1_WaitForPodsReady_To_v1beta2_WaitForPodsReady(in *WaitFo
 	out.BlockAdmission = (*bool)(unsafe.Pointer(in.BlockAdmission))
 	out.RequeuingStrategy = (*v1beta2.RequeuingStrategy)(unsafe.Pointer(in.RequeuingStrategy))
 	out.RecoveryTimeout = (*metav1.Duration)(unsafe.Pointer(in.RecoveryTimeout))
+	out.UnscheduledTimeout = (*metav1.Duration)(unsafe.Pointer(in.UnscheduledTimeout))
 	return nil
 }
 
@@ -917,6 +918,7 @@ func autoConvert_v1beta2_WaitForPodsReady_To_v1beta1_WaitForPodsReady(in *v1beta
 	out.BlockAdmission = (*bool)(unsafe.Pointer(in.BlockAdmission))
 	out.RequeuingStrategy = (*RequeuingStrategy)(unsafe.Pointer(in.RequeuingStrategy))
 	out.RecoveryTimeout = (*metav1.Duration)(unsafe.Pointer(in.RecoveryTimeout))
+	out.UnscheduledTimeout = (*metav1.Duration)(unsafe.Pointer(in.UnscheduledTimeout))
 	return nil
 }
 

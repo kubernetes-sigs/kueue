@@ -249,6 +249,7 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 
 type waitForPodsReadyConfig struct {
 	timeout                     time.Duration
+	unscheduledTimeout          *time.Duration
 	recoveryTimeout             *time.Duration
 	requeuingBackoffLimitCount  *int32
 	requeuingBackoffBaseSeconds int32
@@ -1226,6 +1227,10 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	// Increments a re-queueing count and update a time to be re-queued.
 	log.V(2).Info("Start the eviction of the workload due to exceeding the PodsReady timeout")
 	message := fmt.Sprintf("Exceeded the PodsReady timeout %s", req.String())
+	if underlyingCause == kueue.WorkloadWaitForScheduling && r.waitForPodsReady.unscheduledTimeout != nil {
+		log.V(2).Info("Start the eviction of the workload due to exceeding the unscheduled pods timeout")
+		message = fmt.Sprintf("Exceeded the unscheduled pods timeout %s", req.String())
+	}
 	exposeLqMetrics := r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl)
 	err = workloadevict.Evict(
 		ctx,
@@ -1650,9 +1655,23 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 		return "", 0
 	}
 
-	if podsReadyCond == nil || podsReadyCond.Reason == kueue.WorkloadWaitForStart || podsReadyCond.Reason == "PodsReady" {
-		admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+	admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+
+	if podsReadyCond != nil && podsReadyCond.Reason == kueue.WorkloadWaitForScheduling {
 		elapsedTime := r.clock.Since(admittedCond.LastTransitionTime.Time)
+		timeout := r.waitForPodsReady.timeout
+		if r.waitForPodsReady.unscheduledTimeout != nil {
+			timeout = *r.waitForPodsReady.unscheduledTimeout
+		}
+		return kueue.WorkloadWaitForScheduling, max(timeout-elapsedTime, 0)
+	}
+
+	if podsReadyCond == nil || podsReadyCond.Reason == kueue.WorkloadWaitForStart || podsReadyCond.Reason == "PodsReady" {
+		startTime := admittedCond.LastTransitionTime.Time
+		if r.waitForPodsReady.unscheduledTimeout != nil && podsReadyCond != nil {
+			startTime = podsReadyCond.LastTransitionTime.Time
+		}
+		elapsedTime := r.clock.Since(startTime)
 		return kueue.WorkloadWaitForStart, max(r.waitForPodsReady.timeout-elapsedTime, 0)
 	} else if podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil {
 		// A pod has failed and the workload is waiting for recovery

@@ -202,6 +202,24 @@ func (j *AppWrapper) PodsReady(ctx context.Context, _ client.Client) bool {
 	return meta.IsStatusConditionTrue(j.Status.Conditions, string(awv1beta2.PodsReady))
 }
 
+func (j *AppWrapper) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
+	minCount := 0
+	for _, cs := range j.Status.ComponentStatus {
+		for _, ps := range cs.PodSets {
+			replicas := int32(1)
+			if ps.Replicas != nil {
+				replicas = *ps.Replicas
+			}
+			minCount += int(replicas)
+		}
+	}
+	if minCount == 0 {
+		return false, nil
+	}
+	selector := fmt.Sprintf("%s=%s", awv1beta2.AppWrapperLabel, j.Name)
+	return jobframework.PodsScheduledBySelector(ctx, c, j.Namespace, selector, minCount)
+}
+
 func (j *AppWrapper) CanDefaultManagedBy() bool {
 	jobSpecManagedBy := j.Spec.ManagedBy
 	return features.Enabled(features.MultiKueue) &&

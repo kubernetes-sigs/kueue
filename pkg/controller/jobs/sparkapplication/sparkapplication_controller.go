@@ -337,6 +337,11 @@ func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool 
 	return ready >= expected
 }
 
+func (j *SparkApplication) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
+	minCount := 1 + int(ptr.Deref(j.Spec.Executor.Instances, 0))
+	return jobframework.PodsScheduledBySelector(ctx, c, j.Namespace, j.PodLabelSelector(), minCount)
+}
+
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }

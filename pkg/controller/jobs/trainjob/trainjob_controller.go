@@ -166,7 +166,7 @@ func getChildJobSet(ctx context.Context, c client.Client, t *TrainJob) (*jobseta
 	// Get the jobsetSpecApply and apply the TrainJob object overrides for the trainer and initializer jobs
 	jobSetSpec, ok := kftrainerruntime.TemplateSpecApply[jobsetapplyapi.JobSetSpecApplyConfiguration](info)
 	if !ok {
-		return nil, err
+		return nil, fmt.Errorf("runtime %q did not provide a JobSet template", runtimeRefGK)
 	}
 
 	jobSetPlugin, err := kftrainerjobset.New(ctx, c, nil, nil)
@@ -409,6 +409,22 @@ func (t *TrainJob) PodsReady(ctx context.Context, c client.Client) bool {
 		readyReplicas += ptr.Deref(jobStatus.Ready, 0) + ptr.Deref(jobStatus.Succeeded, 0)
 	}
 	return replicas == readyReplicas
+}
+
+func (t *TrainJob) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
+	jobset, err := getChildJobSet(ctx, c, t)
+	if err != nil {
+		return false, err
+	}
+	if jobset == nil {
+		return false, nil
+	}
+	minCount := 0
+	for i := range jobset.Spec.ReplicatedJobs {
+		replicatedJob := &jobset.Spec.ReplicatedJobs[i]
+		minCount += int(replicatedJob.Replicas) * int(workloadjobset.PodsCountPerReplica(replicatedJob))
+	}
+	return jobframework.PodsScheduledBySelector(ctx, c, t.Namespace, t.PodLabelSelector(), minCount)
 }
 
 func (t *TrainJob) ReclaimablePods(ctx context.Context, c client.Client) ([]kueue.ReclaimablePod, error) {

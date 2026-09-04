@@ -832,6 +832,12 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 				g.Expect(createdJobSet.Spec.Suspend).Should(gomega.Equal(new(false)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
+			ginkgo.By("Create scheduled pods for the JobSet")
+			selector := fmt.Sprintf("%s=%s", jobsetapi.JobSetNameKey, createdJobSet.Name)
+			gomega.Expect(util.CreateScheduledPodsForWorkload(ctx, k8sClient, createdWorkload, ns.Name, selector)).Should(gomega.Succeed())
+			util.TriggerReconcileEventually(ctx, k8sClient, lookupKey, createdJobSet)
+			gomega.Expect(k8sClient.Status().Update(ctx, createdJobSet)).Should(gomega.Succeed())
+
 			if podsReadyTestSpec.beforeJobSetStatus != nil {
 				ginkgo.By("Update the JobSet status to simulate its initial progress towards completion")
 				createdJobSet.Status = *podsReadyTestSpec.beforeJobSetStatus

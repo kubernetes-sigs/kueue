@@ -509,6 +509,28 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	return true
 }
 
+// PodsScheduled instructs whether all job derived pods are scheduled.
+func (p *Pod) PodsScheduled(ctx context.Context, _ client.Client) (bool, error) {
+	if !p.isGroup {
+		return jobframework.HasPodScheduledTrue(p.pod.Status.Conditions), nil
+	}
+
+	tc, err := p.groupTotalCount()
+	if err != nil {
+		return false, err
+	}
+	if len(p.list.Items) < tc {
+		return false, nil
+	}
+
+	for i := range p.list.Items {
+		if !jobframework.HasPodScheduledTrue(p.list.Items[i].Status.Conditions) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
 // GVK returns GVK (Group Version Kind) for the job.
 func (p *Pod) GVK() schema.GroupVersionKind {
 	return gvk

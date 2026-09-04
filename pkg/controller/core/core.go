@@ -155,6 +155,9 @@ func waitForPodsReady(cfg *configapi.WaitForPodsReady) *waitForPodsReadyConfig {
 	result := waitForPodsReadyConfig{
 		timeout: cfg.Timeout.Duration,
 	}
+	if cfg.UnscheduledTimeout != nil && cfg.UnscheduledTimeout.Duration > 0 {
+		result.unscheduledTimeout = &cfg.UnscheduledTimeout.Duration
+	}
 	if cfg.RecoveryTimeout != nil && cfg.RecoveryTimeout.Duration > 0 {
 		result.recoveryTimeout = &cfg.RecoveryTimeout.Duration
 	}

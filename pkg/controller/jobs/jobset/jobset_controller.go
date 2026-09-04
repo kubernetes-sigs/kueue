@@ -193,6 +193,15 @@ func (j *JobSet) PodsReady(ctx context.Context, _ client.Client) bool {
 	return replicas == readyReplicas
 }
 
+func (j *JobSet) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
+	minCount := 0
+	for i := range j.Spec.ReplicatedJobs {
+		replicatedJob := &j.Spec.ReplicatedJobs[i]
+		minCount += int(replicatedJob.Replicas) * int(PodsCountPerReplica(replicatedJob))
+	}
+	return jobframework.PodsScheduledBySelector(ctx, c, j.Namespace, j.PodLabelSelector(), minCount)
+}
+
 func (j *JobSet) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.ReclaimablePod, error) {
 	if len(j.Status.ReplicatedJobsStatus) == 0 {
 		return nil, nil

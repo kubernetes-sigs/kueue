@@ -1977,6 +1977,7 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 	log := ctrl.LoggerFrom(ctx)
 	const (
 		notReadyMsg           = "Not all pods are ready or succeeded"
+		notScheduledMsg       = "Not all pods are scheduled"
 		waitingForRecoveryMsg = "At least one pod has failed, waiting for recovery"
 		readyMsg              = "All pods reached readiness and the workload is running"
 	)
@@ -2003,6 +2004,24 @@ func generatePodsReadyCondition(ctx context.Context, c client.Client, job Generi
 		return workload.CreatePodsReadyCondition(metav1.ConditionTrue,
 			reason,
 			readyMsg,
+			clock)
+	}
+
+	scheduled, err := job.PodsScheduled(ctx, c)
+	if err != nil {
+		log.Error(err, "Failed to inspect pod scheduling status")
+		if podsReadyCond != nil {
+			return *podsReadyCond
+		}
+		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
+			kueue.WorkloadWaitForStart,
+			notReadyMsg,
+			clock)
+	}
+	if !scheduled {
+		return workload.CreatePodsReadyCondition(metav1.ConditionFalse,
+			kueue.WorkloadWaitForScheduling,
+			notScheduledMsg,
 			clock)
 	}
 

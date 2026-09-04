@@ -36,6 +36,7 @@ import (
 	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -144,6 +145,8 @@ func controllersSetup(
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 	failedWebhook, err := webhooks.Setup(mgr, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+	err = pod.SetupWebhook(mgr, opts...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	if setupJobManager {
 		jobReconciler, _ := job.NewReconciler(

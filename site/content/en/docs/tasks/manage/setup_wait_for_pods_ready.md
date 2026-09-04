@@ -42,6 +42,7 @@ install a release version and customize the default `waitForPodsReady` configura
 ```yaml
     waitForPodsReady:
       timeout: 30m
+      unscheduledTimeout: 5m
       recoveryTimeout: 30m
       blockAdmission: false
       requeuingStrategy:
@@ -64,10 +65,22 @@ kubectl delete pods --all -n kueue-system
 The `timeout` (`waitForPodsReady.timeout`) is an optional parameter, defaulting to
 30 minutes.
 
-When the `timeout` expires for an admitted Workload, and the workload's
-pods are not all scheduled yet (i.e., the Workload condition remains
-`PodsReady=False`), then the Workload's admission is
-cancelled, the corresponding job is suspended and the Workload is re-queued.
+When the `timeout` expires for an admitted Workload whose pods are scheduled but
+not all ready (i.e., the Workload condition is `PodsReady=False` with reason
+`WaitForStart`), then the Workload's admission is cancelled, the corresponding job
+is suspended and the Workload is re-queued.
+
+`unscheduledTimeout` (`waitForPodsReady.unscheduledTimeout`) is an optional parameter
+that detects admitted Workloads whose required pods remain unscheduled
+(`PodScheduled != True`) sooner than the main `timeout`. This is useful when
+`timeout` is set high to accommodate image pulls or initialization after scheduling,
+but you still want faster recovery from transient scheduling stalls. When
+`unscheduledTimeout` expires, the workload is evicted and requeued using the same
+machinery as `timeout`. If not specified or set to `0s`, unscheduled-timeout
+enforcement is disabled; the `PodsReady=False` reason `WaitForScheduling` is still
+set for observability, but eviction timing matches the previous behavior (counted
+from admission using `timeout`). When `unscheduledTimeout` is enabled, the main
+`timeout` is measured from when all pods become scheduled (`WaitForStart`).
 
 `recoveryTimeout` is an optional parameter used for
 workloads that are already running but have one or more Pods in a not-ready state

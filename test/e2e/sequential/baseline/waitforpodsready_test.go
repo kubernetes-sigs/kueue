@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 				RequeuingStrategy: &configapi.RequeuingStrategy{
 					Timestamp:          new(configapi.EvictionTimestamp),
 					BackoffBaseSeconds: new(int32(10)),
-					BackoffLimitCount:  new(int32(1)),
+					BackoffLimitCount:  new(int32(3)),
 				},
 			}
 		})
@@ -153,6 +153,24 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.Admission).To(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("waiting for the job pod to be scheduled", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				podList := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, podList, client.InNamespace(ns.Name), client.MatchingLabels{batchv1.JobNameLabel: job.Name})).Should(gomega.Succeed())
+				g.Expect(podList.Items).NotTo(gomega.BeEmpty())
+				for _, p := range podList.Items {
+					scheduled := false
+					for _, cond := range p.Status.Conditions {
+						if cond.Type == corev1.PodScheduled && cond.Status == corev1.ConditionTrue {
+							scheduled = true
+							break
+						}
+					}
+					g.Expect(scheduled).To(gomega.BeTrue())
+				}
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

@@ -621,6 +621,25 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	}
 }
 
+func scheduledSparkPods(namespace, sparkAppName string, count int) []client.Object {
+	objs := make([]client.Object, 0, count)
+	for i := range count {
+		objs = append(objs, &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      fmt.Sprintf("%s-pod-%d", sparkAppName, i),
+				Namespace: namespace,
+				Labels: map[string]string{
+					sparkcommon.LabelSparkAppName: sparkAppName,
+				},
+			},
+			Status: corev1.PodStatus{
+				Conditions: []corev1.PodCondition{{Type: corev1.PodScheduled, Status: corev1.ConditionTrue}},
+			},
+		})
+	}
+	return objs
+}
+
 func TestReconciler(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
@@ -697,6 +716,7 @@ func TestReconciler(t *testing.T) {
 		reconcilerOptions []jobframework.Option
 		sparkApp          *sparkappv1beta2.SparkApplication
 		workloads         []kueue.Workload
+		extraObjects      []client.Object
 		wantWorkloads     []kueue.Workload
 	}{
 		"workload is created with the corresponding podsets": {
@@ -720,7 +740,8 @@ func TestReconciler(t *testing.T) {
 				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
 				jobframework.WithWaitForPodsReady(baseWaitForPodsReadyConf),
 			},
-			sparkApp: sparkAppDriverRunningOnly,
+			sparkApp:     sparkAppDriverRunningOnly,
+			extraObjects: scheduledSparkPods(testNamespace.Name, sparkAppDriverRunningOnly.Name, 3),
 			workloads: []kueue.Workload{
 				*makeAdmittedWorkload(sparkAppDriverRunningOnly).Obj(),
 			},
@@ -786,7 +807,7 @@ func TestReconciler(t *testing.T) {
 			clientBuilder := utiltesting.NewClientBuilder(sparkappv1beta2.AddToScheme).
 				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 			kClient := clientBuilder.
-				WithObjects(tc.sparkApp, testNamespace).
+				WithObjects(append([]client.Object{tc.sparkApp, testNamespace}, tc.extraObjects...)...).
 				WithStatusSubresource(&kueue.Workload{}).
 				Build()
 			// Pre-existing workloads must be created via the client (not WithObjects)

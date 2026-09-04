@@ -135,6 +135,14 @@ func (j *RayCluster) PodsReady(ctx context.Context, _ client.Client) bool {
 	return j.Status.State == rayv1.Ready
 }
 
+func (j *RayCluster) PodsScheduled(ctx context.Context, c client.Client) (bool, error) {
+	podSets, err := BuildPodSets(&j.Spec, j.Annotations)
+	if err != nil {
+		return false, err
+	}
+	return PodsScheduledForRayCluster(ctx, c, j.Namespace, j.Name, podSets)
+}
+
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
 	return jobframework.SetupWorkloadOwnerIndex(ctx, indexer, gvk)
 }
