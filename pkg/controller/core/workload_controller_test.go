@@ -671,9 +671,7 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if tc.atQuotaReservation {
-				features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, true)
-			}
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, tc.atQuotaReservation)
 			afsConfig := &configapi.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: time.Minute},
 				UsageSamplingInterval: metav1.Duration{Duration: time.Second},
@@ -797,9 +795,7 @@ func TestUpdateSettlesAfsEntryPenaltyPerReservation(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if tc.atQuotaReservation {
-				features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, true)
-			}
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, tc.atQuotaReservation)
 			qManager, reconciler, _, log := setupAfsPenaltyTest(t, now)
 
 			reserve := func() {
@@ -2637,9 +2633,7 @@ func TestUpdateAfsConsumedUsageReadsAnchoredUsage(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if tc.atQuotaReservation {
-				features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, true)
-			}
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharingAnchorAtQuotaReservation, tc.atQuotaReservation)
 			qManager, reconciler, _, log := setupAfsPenaltyTestFor(t, now, !tc.plainClusterQueue)
 
 			reserved := utiltestingapi.MakeWorkload("wl", "ns").

@@ -1343,6 +1343,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 
 		ginkgo.It("should subtract the entry penalty when the workload is admitted via an AdmissionCheck", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharingAnchorAtQuotaReservation, false)
 			lqKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lq.Name))
 
 			ginkgo.By("Creating a workload which reserves quota and waits for the admission check")
@@ -1387,6 +1388,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 
 		ginkgo.It("should drop the entry penalty when the workload is deleted while waiting for the admission check", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharingAnchorAtQuotaReservation, false)
 			lqKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lq.Name))
 
 			ginkgo.By("Creating a workload which reserves quota and waits for the admission check")
@@ -1408,6 +1410,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 
 		ginkgo.It("should not stack entry penalties when an evicted workload reserves quota again", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.AdmissionFairSharingAnchorAtQuotaReservation, false)
 			lqKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lq.Name))
 
 			ginkgo.By("Creating a workload which reserves quota and waits for the admission check")
