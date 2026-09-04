@@ -2177,6 +2177,97 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
+		"workload gets scheduled when another admitted workload has a completed podset that released its topology domain": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label("tas-node", "true").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label("tas-node", "true").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+				*utiltestingapi.MakeWorkload("bar-admitted", "default").
+					Queue("tas-main").
+					PodSets(
+						*utiltestingapi.MakePodSet("driver", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("workers", 1).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("driver").
+									Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("workers").
+									Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+										Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					ReclaimablePods(
+						kueue.ReclaimablePod{
+							Name:  "workers",
+							Count: 1,
+						},
+					).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("one").
+							Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).
+					Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "foo", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "foo", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
 		"workload does not get scheduled as the node capacity is already used by a non-TAS pod": {
 			nodes: defaultSingleNode,
 			pods: []corev1.Pod{
