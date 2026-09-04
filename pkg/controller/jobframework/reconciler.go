@@ -1652,8 +1652,20 @@ func (r *JobReconciler) constructWorkload(ctx context.Context, job GenericJob) (
 func newWorkloadName(job GenericJob, extra string) string {
 	object := job.Object()
 	if WorkloadSliceEnabled(job) {
+		// A caller-supplied extra (e.g. the scale-up-probe suffix, which encodes the
+		// admitted level) must not be silently discarded by ElasticWorkloadNameProvider:
+		// that provider's extra is generation-based and does not change across
+		// successive partial admissions within the same generation, so letting it
+		// override the caller's extra here would make repeated probes collide on the
+		// active workload's name instead of each requesting a distinct, larger
+		// admission. Combine both so each contributes to uniqueness.
 		if elasticWorkloadNameProvider, ok := job.(ElasticWorkloadNameProvider); ok {
-			extra = elasticWorkloadNameProvider.GetWorkloadNameExtraPart()
+			providerExtra := elasticWorkloadNameProvider.GetWorkloadNameExtraPart()
+			if extra == "" {
+				extra = providerExtra
+			} else {
+				extra = providerExtra + "-" + extra
+			}
 		} else if extra == "" {
 			extra = strconv.FormatInt(object.GetGeneration(), 10)
 		}
