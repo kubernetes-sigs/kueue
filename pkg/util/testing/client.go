@@ -157,7 +157,33 @@ func TreatSSAAsStrategicMergeForApplyConfiguration(ctx context.Context, clnt cli
 	}
 
 	ssaPatch := client.RawPatch(types.ApplyPatchType, data)
-	return clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(ssaPatch))
+	if err := clnt.SubResource(subResourceName).Patch(ctx, obj, wrapSSAPatch(ssaPatch)); err != nil {
+		return err
+	}
+
+	// The fakes have no response of their own, so decode the applied object as the real client does.
+	applier, ok := applyConf.(json.Unmarshaler)
+	if !ok {
+		return nil
+	}
+	result, err := json.Marshal(obj)
+	if err != nil {
+		return fmt.Errorf("failed to marshal applied object: %w", err)
+	}
+	if err := applier.UnmarshalJSON(result); err != nil {
+		return fmt.Errorf("failed to decode applied object into ApplyConfiguration: %w", err)
+	}
+	return nil
+}
+
+// DecodeApplyConfiguration decodes the object carried by an ApplyConfiguration into obj, so
+// that assertions can read the patched fields from a typed object.
+func DecodeApplyConfiguration(applyConf runtime.ApplyConfiguration, obj client.Object) error {
+	_, data, err := ConvertApplyConfigToObject(applyConf)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, obj)
 }
 
 func ConvertApplyConfigToObject(applyConf runtime.ApplyConfiguration) (client.Object, []byte, error) {

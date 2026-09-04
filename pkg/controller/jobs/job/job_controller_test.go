@@ -5107,7 +5107,10 @@ func TestReconciler(t *testing.T) {
 
 				ctx, _ := utiltesting.ContextWithLog(t)
 				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(
-					interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+					interceptor.Funcs{
+						SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
+						SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					})
 				indexer := utiltesting.AsIndexer(clientBuilder)
 				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)

@@ -937,6 +937,7 @@ func TestScheduleForAFS(t *testing.T) {
 						WithStatusSubresource(&kueue.Workload{}).
 						WithInterceptorFuncs(interceptor.Funcs{
 							SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
+							SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
 							Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 								if _, isLocalQueue := obj.(*kueue.LocalQueue); isLocalQueue && errors.Is(tc.wantErr, snapshotErr) {
 									return tc.wantErr

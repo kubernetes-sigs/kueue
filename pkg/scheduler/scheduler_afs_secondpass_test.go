@@ -126,7 +126,10 @@ func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
 			&kueue.LocalQueueList{Items: []kueue.LocalQueue{lq}}).
 		WithObjects(utiltesting.MakeNamespace("default"), &provCheck).
 		WithStatusSubresource(&kueue.Workload{}).
-		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge,
+			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+		})
 	if err := tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 		t.Fatalf("setting up TAS indexes: %v", err)
 	}
