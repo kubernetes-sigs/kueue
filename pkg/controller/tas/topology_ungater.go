@@ -359,7 +359,7 @@ func shouldReconcileWorkload(wl *kueue.Workload) bool {
 }
 
 func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceName string, psName kueue.PodSetReference) ([]*corev1.Pod, error) {
-	pods, err := ListPodsForWorkloadSlice(ctx, r.client, ns, workloadSliceName,
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, ns, workloadSliceName,
 		client.MatchingLabels{constants.PodSetLabel: string(psName)})
 	if err != nil {
 		return nil, err
