@@ -69,3 +69,71 @@ func TestWorkloadsToRemoveNilReceiver(t *testing.T) {
 func workloadInfoForTest(namespace, name string) *workload.Info {
 	return &workload.Info{Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}}}
 }
+
+func TestPreemptedWorkloadsDelete(t *testing.T) {
+	victimA := workloadInfoForTest("ns", "victim-a")
+	victimB := workloadInfoForTest("ns", "victim-b")
+	keyA, keyB := workload.Key(victimA.Obj), workload.Key(victimB.Obj)
+
+	tests := map[string]struct {
+		preempted PreemptedWorkloads
+		remove    []*Target
+		want      []workload.Reference
+	}{
+		"removes the only target": {
+			preempted: PreemptedWorkloads{keyA: victimA},
+			remove:    []*Target{{WorkloadInfo: victimA}},
+			want:      nil,
+		},
+		"removes one target and keeps the other": {
+			preempted: PreemptedWorkloads{keyA: victimA, keyB: victimB},
+			remove:    []*Target{{WorkloadInfo: victimA}},
+			want:      []workload.Reference{keyB},
+		},
+		"target that was never inserted is a no-op": {
+			preempted: PreemptedWorkloads{keyB: victimB},
+			remove:    []*Target{{WorkloadInfo: victimA}},
+			want:      []workload.Reference{keyB},
+		},
+		"no targets is a no-op": {
+			preempted: PreemptedWorkloads{keyB: victimB},
+			remove:    nil,
+			want:      []workload.Reference{keyB},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			tc.preempted.Delete(tc.remove)
+			if len(tc.preempted) != len(tc.want) {
+				t.Fatalf("after Delete: got %d workloads, want %d (%#v)", len(tc.preempted), len(tc.want), tc.preempted)
+			}
+			for _, key := range tc.want {
+				if _, found := tc.preempted[key]; !found {
+					t.Errorf("after Delete: %q was removed but should have been kept", key)
+				}
+			}
+		})
+	}
+}
+
+// TestPreemptedWorkloadsInsertDeleteRoundTrip asserts Delete undoes Insert, which is
+// what lets processEntry release the targets it reserved when a migration is denied.
+func TestPreemptedWorkloadsInsertDeleteRoundTrip(t *testing.T) {
+	existing := workloadInfoForTest("ns", "already-preempted")
+	reserved := workloadInfoForTest("ns", "reserved-then-released")
+	preempted := PreemptedWorkloads{workload.Key(existing.Obj): existing}
+
+	targets := []*Target{{WorkloadInfo: reserved}}
+	preempted.Insert(targets)
+	if !preempted.HasAny(targets) {
+		t.Fatalf("Insert did not record the target")
+	}
+	preempted.Delete(targets)
+	if preempted.HasAny(targets) {
+		t.Errorf("Delete did not release the target, so it would still block later entries in the cycle")
+	}
+	if _, found := preempted[workload.Key(existing.Obj)]; !found {
+		t.Errorf("Delete removed an unrelated workload preempted by an earlier entry")
+	}
+}
