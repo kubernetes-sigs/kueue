@@ -87,7 +87,7 @@ type clusterQueue struct {
 	workloadInfoOptions                []workload.InfoOption
 	resourceFormatter                  *resources.ResourceFormatter
 
-	resourceNode ResourceNode
+	resourceNode resourceNode
 	hierarchy.ClusterQueue[*cohort]
 
 	tasCache *tasCache
@@ -129,7 +129,7 @@ func (c *clusterQueue) parentAndRootCohort() (parent, root kueue.CohortReference
 
 // implement flatResourceNode/hierarchicalResourceNode interfaces
 
-func (c *clusterQueue) getResourceNode() ResourceNode {
+func (c *clusterQueue) getResourceNode() resourceNode {
 	return c.resourceNode
 }
 

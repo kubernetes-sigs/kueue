@@ -238,7 +238,7 @@ func TestSnapshot(t *testing.T) {
 			wantSnapshot: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "borrowing",
-					ResourceNode: ResourceNode{
+					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "demand", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 							{Flavor: "spot", Resource: corev1.ResourceCPU}:   resources.NewAmount(10_000),
@@ -266,7 +266,7 @@ func TestSnapshot(t *testing.T) {
 										Flavors:          []kueue.ResourceFlavorReference{"demand", "spot"},
 									},
 								},
-								ResourceNode: ResourceNode{
+								ResourceNode: resourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
 										{Flavor: "demand", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(100_000)},
 										{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: resources.NewAmount(200_000)},
@@ -310,7 +310,7 @@ func TestSnapshot(t *testing.T) {
 										Flavors:          []kueue.ResourceFlavorReference{"default"},
 									},
 								},
-								ResourceNode: ResourceNode{
+								ResourceNode: resourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
 										{Flavor: "spot", Resource: corev1.ResourceCPU}:   {Nominal: resources.NewAmount(100_000)},
 										{Flavor: "default", Resource: "example.com/gpu"}: {Nominal: resources.NewAmount(50)},
@@ -368,7 +368,7 @@ func TestSnapshot(t *testing.T) {
 										Flavors:          []kueue.ResourceFlavorReference{"default"},
 									},
 								},
-								ResourceNode: ResourceNode{
+								ResourceNode: resourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
 										{Flavor: "default", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(100_000)},
 									},
@@ -501,7 +501,7 @@ func TestSnapshot(t *testing.T) {
 			wantSnapshot: func() Snapshot {
 				cohort := &CohortSnapshot{
 					Name: "lending",
-					ResourceNode: ResourceNode{
+					ResourceNode: resourceNode{
 						Usage: resources.FlavorResourceQuantities{
 							{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 						},
@@ -526,7 +526,7 @@ func TestSnapshot(t *testing.T) {
 										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
 									},
 								},
-								ResourceNode: ResourceNode{
+								ResourceNode: resourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
 										{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(10_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(5_000))},
 										{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(20_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(10_000))},
@@ -587,7 +587,7 @@ func TestSnapshot(t *testing.T) {
 										Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
 									},
 								},
-								ResourceNode: ResourceNode{
+								ResourceNode: resourceNode{
 									Quotas: map[resources.FlavorResource]ResourceQuota{
 										{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(10_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(5_000))},
 										{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(20_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(10_000))},
@@ -643,7 +643,7 @@ func TestSnapshot(t *testing.T) {
 					map[kueue.CohortReference]*CohortSnapshot{
 						"cohort": {
 							Name: "cohort",
-							ResourceNode: ResourceNode{
+							ResourceNode: resourceNode{
 								Quotas: map[resources.FlavorResource]ResourceQuota{
 									{Flavor: "arm", Resource: corev1.ResourceCPU}:  {Nominal: resources.NewAmount(10_000), BorrowingLimit: nil, LendingLimit: nil},
 									{Flavor: "x86", Resource: corev1.ResourceCPU}:  {Nominal: resources.NewAmount(20_000), BorrowingLimit: nil, LendingLimit: nil},
@@ -668,7 +668,7 @@ func TestSnapshot(t *testing.T) {
 									Flavors:          []kueue.ResourceFlavorReference{"arm", "x86"},
 								},
 							},
-							ResourceNode: ResourceNode{
+							ResourceNode: resourceNode{
 								Quotas: map[resources.FlavorResource]ResourceQuota{
 									{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(7_000), BorrowingLimit: nil, LendingLimit: new(resources.NewAmount(3_000))},
 									{Flavor: "x86", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(5_000), BorrowingLimit: nil, LendingLimit: nil},
@@ -730,7 +730,7 @@ func TestSnapshot(t *testing.T) {
 					map[kueue.CohortReference]*CohortSnapshot{
 						"nocycle": {
 							Name: "nocycle",
-							ResourceNode: ResourceNode{
+							ResourceNode: resourceNode{
 								SubtreeQuota: resources.FlavorResourceQuantities{
 									{Flavor: "arm", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 								},
@@ -748,7 +748,7 @@ func TestSnapshot(t *testing.T) {
 									Flavors:          []kueue.ResourceFlavorReference{"arm"},
 								},
 							},
-							ResourceNode: ResourceNode{
+							ResourceNode: resourceNode{
 								Quotas: map[resources.FlavorResource]ResourceQuota{
 									{Flavor: "arm", Resource: corev1.ResourceCPU}: {Nominal: resources.NewAmount(0)},
 								},
@@ -845,7 +845,7 @@ func TestSnapshot(t *testing.T) {
 									Flavors:          []kueue.ResourceFlavorReference{"tas-flavor"},
 								},
 							},
-							ResourceNode: ResourceNode{
+							ResourceNode: resourceNode{
 								Quotas: map[resources.FlavorResource]ResourceQuota{
 									{Flavor: "tas-flavor", Resource: corev1.ResourceCPU}: {
 										Nominal: resources.NewAmount(100_000),

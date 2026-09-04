@@ -25,7 +25,7 @@ import (
 type CohortSnapshot struct {
 	Name kueue.CohortReference
 
-	ResourceNode ResourceNode
+	ResourceNode resourceNode
 	hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]
 
 	FairWeight float64
@@ -73,7 +73,7 @@ func (c *CohortSnapshot) DominantResourceShare() DRS {
 
 // implement flatResourceNode/hierarchicalResourceNode interfaces
 
-func (c *CohortSnapshot) getResourceNode() ResourceNode {
+func (c *CohortSnapshot) getResourceNode() resourceNode {
 	return c.ResourceNode
 }
 

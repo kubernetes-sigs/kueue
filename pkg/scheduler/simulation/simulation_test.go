@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -57,12 +58,11 @@ var extendedCmpOpts = append(cmpOpts,
 		"NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration",
 		"Workloads", "ResourceGroups", "FlavorFungibility", "FairWeight",
 	),
-	cmpopts.IgnoreFields(schdcache.ResourceNode{}, "Quotas"),
 	cmpopts.IgnoreFields(schdcache.Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
 	cmpopts.IgnoreTypes(&workload.Info{}),
 )
 
-func setupSnapshotSimulationTest(t *testing.T, flavors []*kueue.ResourceFlavor, clusterQueues []*kueue.ClusterQueue, workloads []kueue.Workload) (context.Context, *schdcache.Cache, map[string]*workload.Info) {
+func setupSimulationTest(t *testing.T, flavors []*kueue.ResourceFlavor, clusterQueues []*kueue.ClusterQueue, workloads []kueue.Workload) (context.Context, *schdcache.Cache, map[string]*workload.Info) {
 	t.Helper()
 
 	ctx, log := utiltesting.ContextWithLog(t)
@@ -122,7 +122,7 @@ func defaultSetup(t *testing.T) (context.Context, *schdcache.Cache, map[string]*
 				Obj(), now).
 			Obj(),
 	}
-	return setupSnapshotSimulationTest(t, flavors, clusterQueues, workloads)
+	return setupSimulationTest(t, flavors, clusterQueues, workloads)
 }
 
 func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
@@ -187,7 +187,7 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			Obj(),
 	}
 
-	ctx, cqCache, wlInfos := setupSnapshotSimulationTest(t, flavors, clusterQueues, workloads)
+	ctx, cqCache, wlInfos := setupSimulationTest(t, flavors, clusterQueues, workloads)
 	initialSnapshot, err := cqCache.Snapshot(ctx)
 
 	if err != nil {
@@ -207,326 +207,258 @@ func TestAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 		},
 		"remove all": {
 			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
-			want: func() schdcache.Snapshot {
-				cohort := &schdcache.CohortSnapshot{
-					Name: "lend",
-					ResourceNode: schdcache.ResourceNode{
-						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-						},
-						SubtreeQuota: initialCohortResources,
+			want: schdcache.Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+						"lend": makeCohortSnapshot(
+							"lend",
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+							},
+							initialCohortResources,
+						),
 					},
-				}
-				return schdcache.Snapshot{
-					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*schdcache.CohortSnapshot{
-							"lend": cohort,
-						},
-						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-							"lend-a": {
-								Name: "lend-a",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"lend-a": makeCQSnapshot("lend-a",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
 							},
-							"lend-b": {
-								Name: "lend-b",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 							},
-						},
-					),
-				}
-			}(),
+						),
+						"lend-b": makeCQSnapshot("lend-b",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
+					},
+				),
+			},
 		},
 		"remove workload, but still using quota over GuaranteedQuota": {
 			remove: []workload.Reference{"/lend-a-2"},
-			want: func() schdcache.Snapshot {
-				cohort := &schdcache.CohortSnapshot{
-					Name: "lend",
-					ResourceNode: schdcache.ResourceNode{
-						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-						},
-						SubtreeQuota: initialCohortResources,
+			want: schdcache.Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+						"lend": makeCohortSnapshot(
+							"lend",
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+							},
+							initialCohortResources,
+						),
 					},
-				}
-				return schdcache.Snapshot{
-					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*schdcache.CohortSnapshot{
-							"lend": cohort,
-						},
-						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-							"lend-a": {
-								Name: "lend-a",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(7_000),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"lend-a": makeCQSnapshot("lend-a",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(7_000),
 							},
-							"lend-b": {
-								Name:                          "lend-b",
-								AllocatableResourceGeneration: 1,
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 							},
-						},
-					),
-				}
-			}(),
+						),
+						"lend-b": makeCQSnapshot("lend-b",
+							1,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
+					},
+				),
+			},
 		},
 		"remove wokload, using same quota as GuaranteedQuota": {
 			remove: []workload.Reference{"/lend-a-1", "/lend-a-2"},
-			want: func() schdcache.Snapshot {
-				cohort := &schdcache.CohortSnapshot{
-					Name: "lend",
-					ResourceNode: schdcache.ResourceNode{
-						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-						},
-						SubtreeQuota: initialCohortResources,
+			want: schdcache.Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+						"lend": makeCohortSnapshot(
+							"lend",
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+							},
+							initialCohortResources,
+						),
 					},
-				}
-				return schdcache.Snapshot{
-					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*schdcache.CohortSnapshot{
-							"lend": cohort,
-						},
-						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-							"lend-a": {
-								Name: "lend-a",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"lend-a": makeCQSnapshot("lend-a",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
 							},
-							"lend-b": {
-								Name:                          "lend-b",
-								AllocatableResourceGeneration: 1,
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 							},
-						},
-					),
-				}
-			}(),
+						),
+						"lend-b": makeCQSnapshot("lend-b",
+							1,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
+					},
+				),
+			},
 		},
 		"remove workload, using less quota than GuaranteedQuota": {
 			remove: []workload.Reference{"/lend-a-2", "/lend-a-3"},
-			want: func() schdcache.Snapshot {
-				cohort := &schdcache.CohortSnapshot{
-					Name: "lend",
-					ResourceNode: schdcache.ResourceNode{
-						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-						},
-						SubtreeQuota: initialCohortResources,
+			want: schdcache.Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+						"lend": makeCohortSnapshot(
+							"lend",
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+							},
+							initialCohortResources,
+						),
 					},
-				}
-				return schdcache.Snapshot{
-					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*schdcache.CohortSnapshot{
-							"lend": cohort,
-						},
-						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-							"lend-a": {
-								Name: "lend-a",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"lend-a": makeCQSnapshot("lend-a",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 							},
-							"lend-b": {
-								Name:                          "lend-b",
-								AllocatableResourceGeneration: 1,
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 							},
-						},
-					),
-				}
-			}(),
+						),
+						"lend-b": makeCQSnapshot("lend-b",
+							1,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
+					},
+				),
+			},
 		},
 		"remove all then add workload, using less quota than GuaranteedQuota": {
 			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			add:    []workload.Reference{"/lend-a-1"},
-			want: func() schdcache.Snapshot {
-				cohort := &schdcache.CohortSnapshot{
-					Name: "lend",
-					ResourceNode: schdcache.ResourceNode{
-						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-						},
-						SubtreeQuota: initialCohortResources,
+			want: schdcache.Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+						"lend": makeCohortSnapshot(
+							"lend",
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+							},
+							initialCohortResources,
+						),
 					},
-				}
-				return schdcache.Snapshot{
-					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*schdcache.CohortSnapshot{
-							"lend": cohort,
-						},
-						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-							"lend-a": {
-								Name: "lend-a",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"lend-a": makeCQSnapshot("lend-a",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
 							},
-							"lend-b": {
-								Name:                          "lend-b",
-								AllocatableResourceGeneration: 1,
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 							},
-						},
-					),
-				}
-			}(),
+						),
+						"lend-b": makeCQSnapshot("lend-b",
+							1,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
+					},
+				),
+			},
 		},
 		"remove all then add workload, using same quota as GuaranteedQuota": {
 			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			add:    []workload.Reference{"/lend-a-3"},
-			want: func() schdcache.Snapshot {
-				cohort := &schdcache.CohortSnapshot{
-					Name: "lend",
-					ResourceNode: schdcache.ResourceNode{
-						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-						},
-						SubtreeQuota: initialCohortResources,
+			want: schdcache.Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+						"lend": makeCohortSnapshot(
+							"lend",
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+							},
+							initialCohortResources,
+						),
 					},
-				}
-				return schdcache.Snapshot{
-					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*schdcache.CohortSnapshot{
-							"lend": cohort,
-						},
-						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-							"lend-a": {
-								Name: "lend-a",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"lend-a": makeCQSnapshot("lend-a",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
 							},
-							"lend-b": {
-								Name: "lend-b",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 							},
-						},
-					),
-				}
-			}(),
+						),
+						"lend-b": makeCQSnapshot("lend-b",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
+					},
+				),
+			},
 		},
 		"remove all then add workload, using quota over GuaranteedQuota": {
 			remove: []workload.Reference{"/lend-a-1", "/lend-a-2", "/lend-a-3", "/lend-b-1"},
 			add:    []workload.Reference{"/lend-a-2"},
-			want: func() schdcache.Snapshot {
-				cohort := &schdcache.CohortSnapshot{
-					Name: "lend",
-					ResourceNode: schdcache.ResourceNode{
-						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
-						},
-						SubtreeQuota: initialCohortResources,
+			want: schdcache.Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+						"lend": makeCohortSnapshot(
+							"lend",
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
+							},
+							initialCohortResources,
+						),
 					},
-				}
-				return schdcache.Snapshot{
-					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*schdcache.CohortSnapshot{
-							"lend": cohort,
-						},
-						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-							"lend-a": {
-								Name: "lend-a",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"lend-a": makeCQSnapshot("lend-a",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
 							},
-							"lend-b": {
-								Name:                          "lend-b",
-								AllocatableResourceGeneration: 1,
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-									},
-								},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 							},
-						},
-					),
-				}
-			}(),
+						),
+						"lend-b": makeCQSnapshot("lend-b",
+							1,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+							},
+						),
+					},
+				),
+			},
 		},
 	}
 	for name, tc := range cases {
@@ -1026,7 +958,7 @@ func TestAddRemoveWorkload(t *testing.T) {
 			Obj(),
 	}
 
-	ctx, cqCache, wlInfos := setupSnapshotSimulationTest(t, flavors, clusterQueues, workloads)
+	ctx, cqCache, wlInfos := setupSimulationTest(t, flavors, clusterQueues, workloads)
 	initialSnapshot, err := cqCache.Snapshot(ctx)
 
 	if err != nil {
@@ -1045,158 +977,129 @@ func TestAddRemoveWorkload(t *testing.T) {
 		},
 		"remove all": {
 			remove: []workload.Reference{"/c1-cpu", "/c1-memory-alpha", "/c1-memory-beta", "/c2-cpu-1", "/c2-cpu-2"},
-			want: func() schdcache.Snapshot {
-				cohort := &schdcache.CohortSnapshot{
-					Name: "cohort",
-					ResourceNode: schdcache.ResourceNode{
-						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
-							{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
-							{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(0),
-						},
-						SubtreeQuota: initialCohortResources,
+			want: schdcache.Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+						"cohort": makeCohortSnapshot(
+							"cohort",
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
+								{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
+								{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(0),
+							},
+							initialCohortResources,
+						),
 					},
-				}
-				return schdcache.Snapshot{
-					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*schdcache.CohortSnapshot{
-							"cohort": cohort,
-						},
-						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-							"c1": {
-								Name: "c1",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
-										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
-										{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(0),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(6_000),
-										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi * 6),
-										{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi * 6),
-									},
-								},
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
+								{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
+								{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(0),
 							},
-							"c2": {
-								Name:                          "c2",
-								AllocatableResourceGeneration: 1,
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
-									},
-								},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(6_000),
+								{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi * 6),
+								{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi * 6),
 							},
-						},
-					),
-				}
-			}(),
+						),
+						"c2": makeCQSnapshot("c2",
+							1,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(0),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
+							},
+						),
+					},
+				),
+			},
 		},
 		"remove c1-cpu": {
 			remove: []workload.Reference{"/c1-cpu"},
-			want: func() schdcache.Snapshot {
-				cohort := &schdcache.CohortSnapshot{
-					Name: "cohort",
-					ResourceNode: schdcache.ResourceNode{
-						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(2_000),
-							{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi),
-							{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi),
-						},
-						SubtreeQuota: initialCohortResources,
+			want: schdcache.Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+						"cohort": makeCohortSnapshot(
+							"cohort",
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(2_000),
+								{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi),
+								{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi),
+							},
+							initialCohortResources,
+						),
 					},
-				}
-				return schdcache.Snapshot{
-					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*schdcache.CohortSnapshot{
-							"cohort": cohort,
-						},
-						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-							"c1": {
-								Name: "c1",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
-										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi),
-										{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(6_000),
-										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi * 6),
-										{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi * 6),
-									},
-								},
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(0),
+								{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi),
+								{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi),
 							},
-							"c2": {
-								Name:                          "c2",
-								AllocatableResourceGeneration: 1,
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
-									},
-								},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(6_000),
+								{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi * 6),
+								{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi * 6),
 							},
-						},
-					),
-				}
-			}(),
+						),
+						"c2": makeCQSnapshot("c2",
+							1,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
+							},
+						),
+					},
+				),
+			},
 		},
 		"remove c1-memory-alpha": {
 			remove: []workload.Reference{"/c1-memory-alpha"},
-			want: func() schdcache.Snapshot {
-				cohort := &schdcache.CohortSnapshot{
-					Name: "cohort",
-					ResourceNode: schdcache.ResourceNode{
-						Usage: resources.FlavorResourceQuantities{
-							{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(3_000),
-							{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
-							{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi),
-						},
-						SubtreeQuota: initialCohortResources,
+			want: schdcache.Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*schdcache.CohortSnapshot{
+						"cohort": makeCohortSnapshot(
+							"cohort",
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(3_000),
+								{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
+								{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi),
+							},
+							initialCohortResources,
+						),
 					},
-				}
-				return schdcache.Snapshot{
-					Manager: hierarchy.NewManagerForTest(
-						map[kueue.CohortReference]*schdcache.CohortSnapshot{
-							"cohort": cohort,
-						},
-						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-							"c1": {
-								Name: "c1",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(1_000),
-										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
-										{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(6_000),
-										{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi * 6),
-										{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi * 6),
-									},
-								},
+					map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
+						"c1": makeCQSnapshot("c1",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(1_000),
+								{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(0),
+								{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi),
 							},
-							"c2": {
-								Name: "c2",
-								ResourceNode: schdcache.ResourceNode{
-									Usage: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
-									},
-									SubtreeQuota: resources.FlavorResourceQuantities{
-										{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
-									},
-								},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}:  resources.NewAmount(6_000),
+								{Flavor: "alpha", Resource: corev1.ResourceMemory}: resources.NewAmount(utiltesting.Gi * 6),
+								{Flavor: "beta", Resource: corev1.ResourceMemory}:  resources.NewAmount(utiltesting.Gi * 6),
 							},
-						},
-					),
-				}
-			}(),
+						),
+						"c2": makeCQSnapshot("c2",
+							0,
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+							},
+							resources.FlavorResourceQuantities{
+								{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(6_000),
+							},
+						),
+					},
+				),
+			},
 		},
 	}
 	for name, tc := range cases {
@@ -1219,21 +1122,40 @@ func TestAddRemoveWorkload(t *testing.T) {
 	}
 }
 
+func makeCohortSnapshot(name kueue.CohortReference, usage, subtreeQuota resources.FlavorResourceQuantities) *schdcache.CohortSnapshot {
+	resourceNode := scheduler.NewResourceNode()
+	resourceNode.Usage = usage
+	resourceNode.SubtreeQuota = subtreeQuota
+	return &schdcache.CohortSnapshot{
+		Name:         name,
+		ResourceNode: resourceNode,
+	}
+}
+
+func makeCQSnapshot(name kueue.ClusterQueueReference, allocatableResourceGeneration int64, usage, subtreeQuota resources.FlavorResourceQuantities) *schdcache.ClusterQueueSnapshot {
+	resourceNode := scheduler.NewResourceNode()
+	resourceNode.Usage = usage
+	resourceNode.SubtreeQuota = subtreeQuota
+	return &schdcache.ClusterQueueSnapshot{
+		Name:                          name,
+		AllocatableResourceGeneration: allocatableResourceGeneration,
+		ResourceNode:                  resourceNode,
+	}
+}
+
 func newSimulationTestManager(cqCache *schdcache.Cache, wls map[workload.Reference]*workload.Info, usage int64) hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot] {
 	return hierarchy.NewManagerForTest(
 		map[kueue.CohortReference]*schdcache.CohortSnapshot{},
 		map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
-			"c1": {
-				Name: "c1",
-				ResourceNode: schdcache.ResourceNode{
-					Usage: resources.FlavorResourceQuantities{
-						{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(usage),
-					},
-					SubtreeQuota: resources.FlavorResourceQuantities{
-						{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
-					},
+			"c1": makeCQSnapshot("c1",
+				0,
+				resources.FlavorResourceQuantities{
+					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(usage),
 				},
-			},
+				resources.FlavorResourceQuantities{
+					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
+				},
+			),
 		},
 	)
 }
