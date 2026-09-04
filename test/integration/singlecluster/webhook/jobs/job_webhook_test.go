@@ -21,7 +21,6 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/discovery"
@@ -317,15 +316,10 @@ var _ = ginkgo.Describe("Job Webhook with WorkloadPriorityClassDefaulting enable
 	ginkgo.It("Should not set the label when the default WPC does not exist", func() {
 		gomega.Expect(k8sClient.Delete(ctx, defaultWPC)).To(gomega.Succeed())
 
-		// Use Eventually with DryRun to wait for cache invalidation
 		gomega.Eventually(func(g gomega.Gomega) {
 			j := testingjob.MakeJob("job-no-default-wpc", ns.Name).Queue("test-queue").Obj()
 
-			// Use DryRun so we don't create actual jobs
-			opts := &client.CreateOptions{}
-			opts.DryRun = []string{metav1.DryRunAll}
-
-			g.Expect(k8sClient.Create(ctx, j, opts)).Should(gomega.Succeed())
+			g.Expect(k8sClient.Create(ctx, j, client.DryRunAll)).Should(gomega.Succeed())
 			g.Expect(j.Labels).ShouldNot(gomega.HaveKey(constants.WorkloadPriorityClassLabel))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
