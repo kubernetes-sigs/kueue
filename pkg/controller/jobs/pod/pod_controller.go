@@ -828,6 +828,11 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 			if string(resultPodSets[psi].podSet.Name) == roleHash {
 				podRoleFound = true
 				resultPodSets[psi].podSet.Count++
+
+				if podInGroup.Name < resultPodSets[psi].podName {
+					resultPodSets[psi].podName = podInGroup.Name
+				}
+
 				break
 			}
 		}
@@ -853,13 +858,18 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 		}
 	}
 
-	slices.SortFunc(resultPodSets, func(a, b podSetWithShapeHash) int {
-		if byShape := cmp.Compare(a.shapeHash, b.shapeHash); byShape != 0 {
-			return byShape
-		}
-		return cmp.Compare(a.podName, b.podName)
-	})
-
+	if features.Enabled(features.PodGroupSchedulingShapeOrdering) {
+		slices.SortFunc(resultPodSets, func(a, b podSetWithShapeHash) int {
+			if byShape := cmp.Compare(a.shapeHash, b.shapeHash); byShape != 0 {
+				return byShape
+			}
+			return cmp.Compare(a.podName, b.podName)
+		})
+	} else {
+		slices.SortFunc(resultPodSets, func(a, b podSetWithShapeHash) int {
+			return cmp.Compare(string(a.podSet.Name), string(b.podSet.Name))
+		})
+	}
 	podSets := make([]kueue.PodSet, len(resultPodSets))
 	for i := range resultPodSets {
 		podSets[i] = resultPodSets[i].podSet

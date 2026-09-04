@@ -229,8 +229,155 @@ func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
 		})
 	}
 }
+func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testing.T) {
+	leader := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "zzzz",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "leader",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
 
+	worker := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "aaaa",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "worker",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("4"),
+					},
+				},
+			}},
+		},
+	}
+
+	got, err := constructGroupPodSets([]corev1.Pod{leader, worker})
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
+	}
+
+	gotOrder := []string{
+		got[0].Template.Spec.Containers[0].Name,
+		got[1].Template.Spec.Containers[0].Name,
+	}
+
+	wantOrder := []string{"worker", "leader"}
+	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
+		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
+	}
+}
+func TestConstructGroupPodSetsSameRoleUsesDeterministicPodNameTieBreaker(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
+	workerA := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-a",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "worker",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "worker",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	workerB := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker-b",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "worker",
+			},
+		},
+		Spec: *workerA.Spec.DeepCopy(),
+	}
+
+	leader := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "leader",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "leader",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "leader",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("2"),
+					},
+				},
+			}},
+		},
+	}
+
+	got1, err := constructGroupPodSets([]corev1.Pod{workerB, leader, workerA})
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	got2, err := constructGroupPodSets([]corev1.Pod{workerA, leader, workerB})
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() with reordered input error = %v", err)
+	}
+
+	if len(got1) != 2 || len(got2) != 2 {
+		t.Fatalf("expected 2 PodSets, got %d and %d", len(got1), len(got2))
+	}
+
+	firstOrder := []string{
+		string(got1[0].Name),
+		string(got1[1].Name),
+	}
+
+	secondOrder := []string{
+		string(got2[0].Name),
+		string(got2[1].Name),
+	}
+
+	if diff := cmp.Diff(firstOrder, secondOrder); diff != "" {
+		t.Errorf("PodSet order depends on input pod order (-first, +second):\n%s", diff)
+	}
+
+	if got1[0].Name != kueue.NewPodSetReference("leader") ||
+		got1[1].Name != kueue.NewPodSetReference("worker") {
+		t.Errorf("unexpected PodSet order: %v, %v", got1[0].Name, got1[1].Name)
+	}
+
+	if got1[1].Count != 2 {
+		t.Errorf("worker PodSet count = %d, want 2", got1[1].Count)
+	}
+}
 func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
 	leader := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{},
@@ -325,6 +472,9 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 }
 
 func TestConstructGroupPodSetsOrderIndependentOfInputOrder(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
 	leader := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "leader",
