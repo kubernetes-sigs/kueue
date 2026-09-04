@@ -938,8 +938,7 @@ func (s *Scheduler) getInitialAssignments(ctx context.Context, wl *workload.Info
 		}
 	}
 
-	if (features.Enabled(features.PartialAdmission) || (features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) && workload.IsElasticWorkload(wl.Obj))) &&
-		wl.CanBePartiallyAdmitted() {
+	if workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		reducer := flavorassigner.NewOrderedPodSetReducer(wl.Obj.Spec.PodSets, func(nextCounts []int32) (*partialAssignment, bool) {
 			assignment := flvAssigner.Assign(ctx, nextCounts)
 			mode := assignment.RepresentativeMode()
