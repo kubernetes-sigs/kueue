@@ -10343,3 +10343,91 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 		t.Fatalf("fits() = %v, want %v (overlapping victim must be subtracted once)", got, schdcache.FitsCheckNoQuota)
 	}
 }
+
+// TestProcessEntryKeepsQueuedWorkloadSliceUnmutated asserts that adopting the
+// ClusterName of the replaced workload slice does not write through to the Workload
+// object the entry was built from. That object is shared with the queue manager, and
+// processEntry can still bail out after the copy - for instance when a
+// ConcurrentAdmission migration is denied - so a workload that was never admitted
+// must not be left holding the ClusterName of the slice it would have replaced.
+func TestProcessEntryKeepsQueuedWorkloadSliceUnmutated(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+
+	now := time.Now().Truncate(time.Second)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	ns := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()
+	rf := utiltestingapi.MakeResourceFlavor("rf").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "1").
+				Obj(),
+		).Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
+	oldSlice := utiltestingapi.MakeWorkload("old-slice", metav1.NamespaceDefault).
+		Queue(kueue.LocalQueueName(lq.Name)).
+		Request(corev1.ResourceCPU, "1").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(rf.Name), "1").
+				Obj()).
+			Obj(), now).
+		AdmittedAt(true, now).
+		ClusterName("worker-cluster").
+		Obj()
+	newSlice := utiltestingapi.MakeWorkload("new-slice", metav1.NamespaceDefault).
+		Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(oldSlice))).
+		Queue(kueue.LocalQueueName(lq.Name)).
+		Request(corev1.ResourceCPU, "1").
+		Obj()
+
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(ns, rf, cq, lq, oldSlice, newSlice).
+		WithStatusSubresource(&kueue.Workload{}).
+		Build()
+
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	cqCache.AddOrUpdateResourceFlavor(log, rf)
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+	}
+	if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+	}
+
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
+	wg := sync.WaitGroup{}
+	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+		func() { wg.Add(1) },
+		func() { wg.Done() },
+	))
+
+	snapshot, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Building snapshot: %v", err)
+	}
+
+	// The entry holds the very same Workload pointer the queue manager handed out,
+	// which is what makes an in-place status write observable outside the cycle.
+	info := workload.NewInfo(newSlice)
+	info.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
+	entries, inadmissibleEntries := scheduler.nominate(ctx, []qcache.Head{{Info: *info}}, snapshot)
+	if len(entries) != 1 {
+		t.Fatalf("Expected the replacing slice to be nominated, got %d entries and %d inadmissible entries", len(entries), len(inadmissibleEntries))
+	}
+	if entries[0].Obj != newSlice {
+		t.Fatalf("Expected the entry to reference the queued Workload object")
+	}
+
+	scheduler.processEntry(ctx, &entries[0], snapshot, make(preemption.PreemptedWorkloads), make(map[kueue.ClusterQueueReference]int))
+	wg.Wait()
+
+	if newSlice.Status.ClusterName != nil {
+		t.Errorf("Queued Workload was mutated in place: got ClusterName %q, want unset", *newSlice.Status.ClusterName)
+	}
+}
