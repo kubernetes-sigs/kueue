@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -31,6 +32,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -428,6 +430,7 @@ func TestValidateJobOnUpdate(t *testing.T) {
 
 func TestValidateJobOnCreate(t *testing.T) {
 	elasticAnnotationPath := field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey)
+	scaleUpStrategyPath := field.NewPath("metadata", "annotations").Key(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey)
 	testCases := map[string]struct {
 		job          *batchv1.Job
 		gvk          schema.GroupVersionKind
@@ -464,6 +467,76 @@ func TestValidateJobOnCreate(t *testing.T) {
 				Obj(),
 			gvk:          schema.GroupVersionKind{Group: "jobset.x-k8s.io", Version: "v1alpha2", Kind: "JobSet"},
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+		},
+		"scale-up strategy atomic is allowed with elastic job and feature gate": {
+			job: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyAtomic).
+				Obj(),
+			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		"scale-up strategy partial is allowed with elastic job and feature gate": {
+			job: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial).
+				Obj(),
+			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		"scale-up strategy without elastic job is rejected": {
+			job: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial).
+				Obj(),
+			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			wantErr: field.ErrorList{
+				field.Forbidden(scaleUpStrategyPath,
+					fmt.Sprintf("requires the %q annotation set to %q", workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)),
+			},
+		},
+		"scale-up strategy with feature gate disabled is rejected": {
+			job: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial).
+				Obj(),
+			gvk:          batchv1.SchemeGroupVersion.WithKind("Job"),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false},
+			wantErr: field.ErrorList{
+				field.Forbidden(scaleUpStrategyPath, "requires the ElasticJobsViaWorkloadSlices feature gate"),
+			},
+		},
+		"scale-up strategy with invalid value is rejected": {
+			job: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, "Partial").
+				Obj(),
+			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			wantErr: field.ErrorList{
+				field.NotSupported(scaleUpStrategyPath, "Partial", []string{kueueconstants.ElasticJobScaleUpStrategyAtomic, kueueconstants.ElasticJobScaleUpStrategyPartial}),
+			},
+		},
+		"scale-up strategy with empty value is rejected": {
+			job: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, "").
+				Obj(),
+			gvk: batchv1.SchemeGroupVersion.WithKind("Job"),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			wantErr: field.ErrorList{
+				field.NotSupported(scaleUpStrategyPath, "", []string{kueueconstants.ElasticJobScaleUpStrategyAtomic, kueueconstants.ElasticJobScaleUpStrategyPartial}),
+			},
 		},
 	}
 
