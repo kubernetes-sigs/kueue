@@ -13,9 +13,9 @@
     version: "0.15"
 - name: AdmissionFairSharingAnchorAtQuotaReservation
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.20"
 - name: AdmissionGatedBy
   versionedSpecs:
