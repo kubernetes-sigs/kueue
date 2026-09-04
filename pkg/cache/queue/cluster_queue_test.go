@@ -2096,9 +2096,15 @@ func TestQueueInadmissibleWorkloadsClearsHashes(t *testing.T) {
 }
 
 func TestRequeueHashTriggerByReason(t *testing.T) {
+	usageBasedAFS := &kueue.AdmissionScope{AdmissionMode: kueue.UsageBasedAdmissionFairSharing}
+
 	tests := map[string]struct {
-		reason   RequeueReason
-		wantHash bool
+		reason RequeueReason
+		// admissionScope and afsConfig must both be set for the ClusterQueue to
+		// actually order by LocalQueue usage; see afs.ResourceWeights.
+		admissionScope *kueue.AdmissionScope
+		afsConfig      *config.AdmissionFairSharing
+		wantHash       bool
 	}{
 		"nofit triggers hash": {
 			reason:   RequeueReasonNoFit,
@@ -2120,20 +2126,47 @@ func TestRequeueHashTriggerByReason(t *testing.T) {
 			reason:   RequeueReasonGeneric,
 			wantHash: false,
 		},
+		"nofit triggers hash under usage-based admission fair sharing": {
+			reason:         RequeueReasonNoFit,
+			admissionScope: usageBasedAFS,
+			afsConfig:      &config.AdmissionFairSharing{},
+			wantHash:       true,
+		},
+		"preempt no candidates does not trigger hash under usage-based admission fair sharing": {
+			// The scheduling shape omits the queue-order timestamp that
+			// UsageBasedAdmissionFairSharing's LocalQueue-usage-first pop order can
+			// reorder relative to LowerOrNewerEqualPriority preemption eligibility, so a
+			// class-wide PreemptionNoCandidates conclusion is unsafe here. See Kueue#14231.
+			reason:         RequeueReasonPreemptionNoCandidates,
+			admissionScope: usageBasedAFS,
+			afsConfig:      &config.AdmissionFairSharing{},
+			wantHash:       false,
+		},
+		"preempt no candidates triggers hash when admission mode is set but admission fair sharing is not configured": {
+			// Without admissionFairSharing in the Configuration the queue still pops
+			// oldest-first, so the queue-order timestamp gap does not apply and the
+			// optimization must be retained.
+			reason:         RequeueReasonPreemptionNoCandidates,
+			admissionScope: usageBasedAFS,
+			afsConfig:      nil,
+			wantHash:       true,
+		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
+			features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			cq, _ := newClusterQueue(ctx, nil,
 				&kueue.ClusterQueue{
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy: kueue.BestEffortFIFO,
+						AdmissionScope:   tc.admissionScope,
 					},
 				}, nil,
 				workload.Ordering{PodsReadyRequeuingTimestamp: config.EvictionTimestamp},
-				nil, nil)
+				tc.afsConfig, nil)
 
 			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
 				Request(corev1.ResourceCPU, "1").Obj()
