@@ -1455,6 +1455,82 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 	})
 
+	ginkgo.When("Preemption is enabled in fairsharing and the preemptor's cohort has nominal quota", func() {
+		// Hierarchy:
+		//
+		//                 root
+		//             /          \
+		//  cohort-a (1 premium)   b (0 premium, 6 cheap)
+		//           |
+		//           a (0 premium, 0 cheap)
+		//
+		// CQ "a" itself has no nominal quota on either flavor. Its parent
+		// cohort "cohort-a" has only 1 CPU nominal on "premium" — not
+		// enough to admit both of the first two workloads, which fall
+		// through to borrowing "cheap" from "b" instead and inflate cqA's
+		// aggregate DRS. A third workload in "a" that needs "premium"
+		// fits within cohort-a's nominal quota (0 used + 1 requested <=
+		// 1), and should be able to reclaim that CPU from "b" — which is
+		// only borrowing "premium" from cohort-a's lendable quota —
+		// regardless of cqA's high DRS from borrowing "cheap".
+		var (
+			cqA *kueue.ClusterQueue
+			cqB *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			createCohort(utiltestingapi.MakeCohort("cohort-a").
+				Parent("all").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+
+			cqA = createQueue(utiltestingapi.MakeClusterQueue("a").
+				Cohort("cohort-a").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Resource(corev1.ResourceCPU, "0").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.MayStopSearch,
+					WhenCanPreempt: kueue.MayStopSearch,
+				}).
+				Obj())
+
+			cqB = createQueue(utiltestingapi.MakeClusterQueue("b").
+				Cohort("all").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Resource(corev1.ResourceCPU, "0").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor2").Resource(corev1.ResourceCPU, "6").Obj(),
+				).
+				Obj())
+		})
+
+		ginkgo.It("Should preempt a workload borrowing cohort nominal quota, despite the preemptor's high aggregate DRS", func() {
+			ginkgo.By("Admitting a workload in cqB that will later be reclaimed for cohort-a's nominal premium quota")
+			wlB := createWorkloadWithPriority("b", "1", 0)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
+			util.ExpectAdmittedWorkloadsTotalMetric(cqB, "", 1)
+
+			ginkgo.By("Admitting workloads in cqA that exhaust cohort-a's premium nominal and borrow cheap from cqB")
+			for range 2 {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createWorkload("a", "1"))
+			}
+			util.ExpectAdmittedWorkloadsTotalMetric(cqA, "", 2)
+
+			ginkgo.By("Creating a workload in cqA that also needs premium quota, within cohort-a's nominal 1 CPU")
+			wlA := createWorkload("a", "1")
+
+			ginkgo.By("The workload in cqB should be preempted to reclaim cohort-a's nominal premium quota")
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlB)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlB)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+		})
+	})
+
 	ginkgo.When("Preemption is enabled in fairsharing and there are best effort and guaranteed workloads", func() {
 		var (
 			bestEffortCQA *kueue.ClusterQueue
