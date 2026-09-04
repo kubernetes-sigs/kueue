@@ -1217,11 +1217,12 @@ func KExecute(ctx context.Context, cfg *rest.Config, client *rest.RESTClient, ns
 		return nil, nil, err
 	}
 
-	if err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{Stdout: &out, Stderr: &outErr}); err != nil {
-		return nil, nil, err
-	}
+	// Return whatever was captured even on error: when the remote command exits
+	// non-zero the streams still hold its output, and stderr is usually the only
+	// explanation of the failure. Callers assert on err and report stderr with it.
+	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{Stdout: &out, Stderr: &outErr})
 
-	return out.Bytes(), outErr.Bytes(), nil
+	return out.Bytes(), outErr.Bytes(), err
 }
 
 // getProjectBaseDir retrieves the project base directory either from an environment variable or by searching for a Makefile.
