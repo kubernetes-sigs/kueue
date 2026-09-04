@@ -73,12 +73,17 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	if podSetGroupNameFound {
 		allErrs = append(allErrs, validatePodSetGroupNameAnnotation(podSetGroupNameValue, annotationsPath.Key(kueue.PodSetGroupName))...)
 
-		if sliceSizeFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceSizeAnnotation)))
-		}
+		if !features.Enabled(features.TASGroupedPodSetSlicing) {
+			if sliceSizeFound {
+				allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceSizeAnnotation)))
+			}
 
-		if sliceRequiredFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyAnnotation)))
+			if sliceRequiredFound {
+				allErrs = append(
+					allErrs,
+					field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyAnnotation)),
+				)
+			}
 		}
 
 		if !preferredFound && !requiredFound {
@@ -339,8 +344,8 @@ func validateSliceRequiredTopologyConstraintsAnnotation(
 			fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceSizeAnnotation)))
 	}
 
-	// Incompatible with podset-group-name.
-	if podSetGroupNameFound {
+	// Incompatible with podset-group-name when TASGroupedPodSetSlicing is disabled.
+	if podSetGroupNameFound && !features.Enabled(features.TASGroupedPodSetSlicing) {
 		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName),
 			fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyConstraintsAnnotation)))
 	}
