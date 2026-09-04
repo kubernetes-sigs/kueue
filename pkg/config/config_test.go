@@ -52,6 +52,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 
@@ -981,6 +982,47 @@ objectRetentionPolicies:
 				}
 			}
 		})
+	}
+}
+
+// Without a half-life the usage decay never advances, so admission ordering silently
+// falls back to the non-fair-sharing path.
+func TestLoadAdmissionFairSharingDefaults(t *testing.T) {
+	testScheme := runtime.NewScheme()
+	if err := configapi.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+
+	configFile := filepath.Join(t.TempDir(), "afs.yaml")
+	if err := os.WriteFile(configFile, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+admissionFairSharing: {}
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
+	_, cfg, err := Load(testScheme, configFile)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	want := &configapi.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: time.Hour},
+		UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+	}
+	if diff := cmp.Diff(want, cfg.AdmissionFairSharing); diff != "" {
+		t.Errorf("Unexpected admissionFairSharing (-want +got):\n%s", diff)
+	}
+
+	penalty := admissionfairsharing.CalculateEntryPenalty(
+		corev1.ResourceList{corev1.ResourceCPU: resourcev1.MustParse("10")},
+		cfg.AdmissionFairSharing,
+	)
+	busy := admissionfairsharing.CalculateUsage(nil, penalty, 1, nil)
+	idle := admissionfairsharing.CalculateUsage(nil, nil, 1, nil)
+	if busy <= idle {
+		t.Errorf("Queue that just admitted 10 CPU must rank above an idle queue, got busy=%v idle=%v", busy, idle)
 	}
 }
 
