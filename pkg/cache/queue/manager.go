@@ -1079,6 +1079,10 @@ func (m *Manager) resyncUnadmittedWorkloadsMetricsLocked(cqName kueue.ClusterQue
 }
 
 func (m *Manager) resyncLocalQueueUnadmittedWorkloadsMetricsLocked(lqRef queue.LocalQueueReference) {
+	lq := m.localQueues[lqRef]
+	if lq == nil || !m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels) {
+		return
+	}
 	m.unadmittedWorkloads.resyncLQMetrics(lqRef, m)
 }
 
@@ -1119,20 +1123,24 @@ func (m *Manager) AddWorkloadUpdateWatcher(watcher WorkloadUpdateWatcher) {
 func (m *Manager) unadmittedQueueInfo(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	m.RLock()
 	defer m.RUnlock()
+	return m.unadmittedQueueInfoWithoutLock(wl)
+}
+
+func (m *Manager) unadmittedQueueInfoWithoutLock(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	cqName, _ := m.ClusterQueueNameForWorkloadWithoutLock(wl)
-	lqExists := m.LocalQueueExistsWithoutLock(queue.KeyFromWorkload(wl))
-	return cqName, lqExists
+	lq, lqExists := m.localQueues[queue.KeyFromWorkload(wl)]
+	lqMetricsExposed := lqExists && m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels)
+	return cqName, lqMetricsExposed
 }
 
 func (m *Manager) UpdateUnadmittedWorkload(log logr.Logger, wl *kueue.Workload) {
-	cqName, lqExists := m.unadmittedQueueInfo(wl)
-	m.unadmittedWorkloads.update(log, wl, cqName, lqExists, m)
+	cqName, lqMetricsExposed := m.unadmittedQueueInfo(wl)
+	m.unadmittedWorkloads.update(log, wl, cqName, lqMetricsExposed, m)
 }
 
 func (m *Manager) updateUnadmittedWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) {
-	cqName, _ := m.ClusterQueueNameForWorkloadWithoutLock(wl)
-	lqExists := m.LocalQueueExistsWithoutLock(queue.KeyFromWorkload(wl))
-	m.unadmittedWorkloads.update(log, wl, cqName, lqExists, m)
+	cqName, lqMetricsExposed := m.unadmittedQueueInfoWithoutLock(wl)
+	m.unadmittedWorkloads.update(log, wl, cqName, lqMetricsExposed, m)
 }
 
 func (m *Manager) RemoveUnadmittedWorkload(log logr.Logger, wlKey workload.Reference) {
