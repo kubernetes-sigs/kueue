@@ -21,10 +21,12 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/discovery"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -315,15 +317,17 @@ var _ = ginkgo.Describe("Job Webhook with WorkloadPriorityClassDefaulting enable
 	ginkgo.It("Should not set the label when the default WPC does not exist", func() {
 		gomega.Expect(k8sClient.Delete(ctx, defaultWPC)).To(gomega.Succeed())
 
-		j := testingjob.MakeJob("job-no-default-wpc", ns.Name).Queue("test-queue").Obj()
-		util.MustCreate(ctx, k8sClient, j)
+		// Use Eventually with DryRun to wait for cache invalidation
+		gomega.Eventually(func(g gomega.Gomega) {
+			j := testingjob.MakeJob("job-no-default-wpc", ns.Name).Queue("test-queue").Obj()
 
-		lookupKey := types.NamespacedName{Name: j.Name, Namespace: j.Namespace}
-		createdJob := &batchv1.Job{}
-		gomega.Consistently(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Labels).ShouldNot(gomega.HaveKey(constants.WorkloadPriorityClassLabel))
-		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			// Use DryRun so we don't create actual jobs
+			opts := &client.CreateOptions{}
+			opts.DryRun = []string{metav1.DryRunAll}
+
+			g.Expect(k8sClient.Create(ctx, j, opts)).Should(gomega.Succeed())
+			g.Expect(j.Labels).ShouldNot(gomega.HaveKey(constants.WorkloadPriorityClassLabel))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		defaultWPC = utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
 		util.MustCreate(ctx, k8sClient, defaultWPC)
