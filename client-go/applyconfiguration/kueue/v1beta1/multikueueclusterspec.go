@@ -28,6 +28,9 @@ type MultiKueueClusterSpecApplyConfiguration struct {
 	// This is only used to prevent data loss when converting between v1beta2 and v1beta1.
 	// It has no effect in v1beta1.
 	ClusterProfileRef *ClusterProfileReferenceApplyConfiguration `json:"clusterProfileRef,omitempty"`
+	// expectedFrameworks is only used to prevent data loss when converting between v1beta2 and v1beta1.
+	// It has no effect in v1beta1.
+	ExpectedFrameworks []string `json:"expectedFrameworks,omitempty"`
 }
 
 // MultiKueueClusterSpecApplyConfiguration constructs a declarative configuration of the MultiKueueClusterSpec type for use with
@@ -49,5 +52,15 @@ func (b *MultiKueueClusterSpecApplyConfiguration) WithKubeConfig(value *KubeConf
 // If called multiple times, the ClusterProfileRef field is set to the value of the last call.
 func (b *MultiKueueClusterSpecApplyConfiguration) WithClusterProfileRef(value *ClusterProfileReferenceApplyConfiguration) *MultiKueueClusterSpecApplyConfiguration {
 	b.ClusterProfileRef = value
+	return b
+}
+
+// WithExpectedFrameworks adds the given values to the ExpectedFrameworks field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the ExpectedFrameworks field.
+func (b *MultiKueueClusterSpecApplyConfiguration) WithExpectedFrameworks(values ...string) *MultiKueueClusterSpecApplyConfiguration {
+	for i := range values {
+		b.ExpectedFrameworks = append(b.ExpectedFrameworks, values[i])
+	}
 	return b
 }

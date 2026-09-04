@@ -37,14 +37,15 @@ const (
 )
 
 type SetupOptions struct {
-	gcInterval           time.Duration
-	origin               string
-	workerLostTimeout    time.Duration
-	eventsBatchPeriod    time.Duration
-	adapters             map[string]jobframework.MultiKueueAdapter
-	dispatcherName       string
-	clusterProfileConfig *configapi.ClusterProfile
-	roleTracker          *roletracker.RoleTracker
+	gcInterval            time.Duration
+	origin                string
+	workerLostTimeout     time.Duration
+	eventsBatchPeriod     time.Duration
+	adapters              map[string]jobframework.MultiKueueAdapter
+	adapterFrameworkNames map[string]string
+	dispatcherName        string
+	clusterProfileConfig  *configapi.ClusterProfile
+	roleTracker           *roletracker.RoleTracker
 }
 
 type SetupOption func(o *SetupOptions)
@@ -88,6 +89,13 @@ func WithAdapters(adapters map[string]jobframework.MultiKueueAdapter) SetupOptio
 	}
 }
 
+// WithAdapterFrameworkNames sets the framework name corresponding to each adapter GVK.
+func WithAdapterFrameworkNames(names map[string]string) SetupOption {
+	return func(o *SetupOptions) {
+		o.adapterFrameworkNames = names
+	}
+}
+
 // WithDispatcherName sets or updates the dispatcher of the MultiKueue workload.
 func WithDispatcherName(dispatcherName string) SetupOption {
 	return func(o *SetupOptions) {
@@ -110,12 +118,13 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
 
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
-		gcInterval:        defaultGCInterval,
-		origin:            defaultOrigin,
-		workerLostTimeout: defaultWorkerLostTimeout,
-		eventsBatchPeriod: constants.UpdatesBatchPeriod,
-		adapters:          make(map[string]jobframework.MultiKueueAdapter),
-		dispatcherName:    configapi.MultiKueueDispatcherModeAllAtOnce,
+		gcInterval:            defaultGCInterval,
+		origin:                defaultOrigin,
+		workerLostTimeout:     defaultWorkerLostTimeout,
+		eventsBatchPeriod:     constants.UpdatesBatchPeriod,
+		adapters:              make(map[string]jobframework.MultiKueueAdapter),
+		adapterFrameworkNames: make(map[string]string),
+		dispatcherName:        configapi.MultiKueueDispatcherModeAllAtOnce,
 	}
 
 	for _, o := range opts {
@@ -157,6 +166,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		options.adapters, cpAccessProvider, options.roleTracker,
 		mgr.GetEventRecorder("multikueue-cluster"),
 	)
+	cRec.adapterFrameworkNames = options.adapterFrameworkNames
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
 		return err

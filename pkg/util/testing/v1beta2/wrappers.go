@@ -1731,6 +1731,11 @@ func (mkc *MultiKueueClusterWrapper) ClusterProfile(name string) *MultiKueueClus
 	return mkc
 }
 
+func (mkc *MultiKueueClusterWrapper) ExpectedFrameworks(frameworks ...string) *MultiKueueClusterWrapper {
+	mkc.Spec.ExpectedFrameworks = append(mkc.Spec.ExpectedFrameworks, frameworks...)
+	return mkc
+}
+
 func (mkc *MultiKueueClusterWrapper) Active(state metav1.ConditionStatus, reason, message string, generation int64) *MultiKueueClusterWrapper {
 	cond := metav1.Condition{
 		Type:               kueue.MultiKueueClusterActive,

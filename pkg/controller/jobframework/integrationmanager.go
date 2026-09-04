@@ -215,7 +215,15 @@ func (m *IntegrationManager) GetEmptyOwnerObject(owner *metav1.OwnerReference) c
 
 // GetMultiKueueAdapters returns adapters for enabled integrations registered with this manager.
 func (m *IntegrationManager) GetMultiKueueAdapters(enabledIntegrations sets.Set[string]) (map[string]MultiKueueAdapter, error) {
+	adapters, _, err := m.GetMultiKueueAdaptersWithFrameworkNames(enabledIntegrations)
+	return adapters, err
+}
+
+// GetMultiKueueAdaptersWithFrameworkNames returns adapters keyed by GVK and the
+// corresponding framework name for each GVK.
+func (m *IntegrationManager) GetMultiKueueAdaptersWithFrameworkNames(enabledIntegrations sets.Set[string]) (map[string]MultiKueueAdapter, map[string]string, error) {
 	ret := map[string]MultiKueueAdapter{}
+	frameworkNames := map[string]string{}
 	if err := m.forEach(func(intName string, cb IntegrationCallbacks) error {
 		if cb.MultiKueueAdapter != nil && enabledIntegrations.Has(intName) {
 			gvk := cb.MultiKueueAdapter.GVK().String()
@@ -223,12 +231,13 @@ func (m *IntegrationManager) GetMultiKueueAdapters(enabledIntegrations sets.Set[
 				return fmt.Errorf("multiple adapters for GVK: %q", gvk)
 			}
 			ret[gvk] = cb.MultiKueueAdapter
+			frameworkNames[gvk] = intName
 		}
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return ret, nil
+	return ret, frameworkNames, nil
 }
 
 func (m *IntegrationManager) register(name string, cb IntegrationCallbacks) error {
