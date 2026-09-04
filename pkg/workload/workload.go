@@ -617,7 +617,10 @@ func (i *Info) TASUsage() TASUsage {
 	}
 	result := make(TASUsage, 0)
 	for _, ps := range i.TotalRequests {
-		if ps.TopologyRequest != nil {
+		// Do not count PodSets which can be fully reclaimed towards TAS usage.
+		// This way the assigned topology of the finished parts in a multi-PodSet workload (like JobSet) is freed.
+		// See: https://github.com/kubernetes-sigs/kueue/pull/15219
+		if ps.TopologyRequest != nil && (!features.Enabled(features.ReclaimablePods) || ps.Count > 0) {
 			psFlavors := sets.New[kueue.ResourceFlavorReference]()
 			for _, psFlavor := range ps.Flavors {
 				psFlavors.Insert(psFlavor)
