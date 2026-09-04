@@ -119,8 +119,8 @@ func (d DRS) PreciseWeightedShare() float64 {
 	default:
 		// A borrower with no positive lendable denominator falls through with
 		// its zero. Whether such a node should outrank an idle one is a
-		// fair-sharing policy question rather than an arithmetic one, and it is
-		// left where it is today; see #14412.
+		// fair-sharing policy question rather than an arithmetic one, and this
+		// change does not answer it.
 		return share
 	}
 }
@@ -150,13 +150,13 @@ func CompareDRS(a, b DRS) int {
 	}
 }
 
-// roundedWeightedShare returns a value ranging from 0 to math.MaxInt,
+// roundedWeightedShare returns a value ranging from 0 to math.MaxInt64,
 // representing the maximum of the ratios of usage above nominal quota
 // to the lendable resources in the cohort, among all the resources
 // provided by the ClusterQueue, and divided by the weight.  The
 // function also returns the resource name that yielded this value.
 // When the FairSharing weight is 0, and the ClusterQueue or Cohort is
-// borrowing, we return math.MaxInt.
+// borrowing, we return math.MaxInt64.
 //
 // Zero usually means usage is below nominal quota. It also covers a
 // borrower for which no borrowed resource had a positive lendable
