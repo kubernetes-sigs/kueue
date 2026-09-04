@@ -682,7 +682,7 @@ func TestReconcile(t *testing.T) {
 								autoscaling.ProvisioningClassPodAnnotationKey:   "atomic",
 							},
 							NodeSelector: map[string]string{
-								"autoscaling.gke.io/provisioning-request": "current-booking",
+								"cloud.example.com/provisioning-request": "current-booking",
 							},
 						}},
 					}).
@@ -721,8 +721,8 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantPods: []corev1.Pod{
-				// A stale immutable consume value must keep the pod gated and
-				// must not consume capacity from the replacement request.
+				// A stale immutable consume value must keep the pod gated; it
+				// cannot consume capacity from the replacement PRQ.
 				*testingpod.MakePod("pod-from-parent", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
@@ -737,7 +737,44 @@ func TestReconcile(t *testing.T) {
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-slice-1-provisioning-1").
 					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
-					NodeSelector("autoscaling.gke.io/provisioning-request", "current-booking").
+					NodeSelector("cloud.example.com/provisioning-request", "current-booking").
+					Obj(),
+			},
+		},
+		"ungates when active slice has no provisioning admission check": {
+			// Leftover consume annotations must not permanently gate pods when
+			// the active slice has no ProvisioningRequest PodSetUpdates.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(rayClusterGVK, "ray", "ray-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "1").
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "stale-request").
+					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "stale-request").
+					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
 					Obj(),
 			},
 		},
@@ -982,15 +1019,15 @@ func TestReconcile(t *testing.T) {
 			},
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod-0", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Obj(),
 				*testingpod.MakePod("pod-1", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Obj(),
 				*testingpod.MakePod("pod-2", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Obj(),
 			},
@@ -1055,13 +1092,19 @@ func TestReconcile(t *testing.T) {
 			},
 			// Reconcile keyed on the FINISHED origin slice, as a conflict-requeue would.
 			reconcileKey: client.ObjectKey{Name: "wl", Namespace: "ns"},
+			// The workload annotation is refreshed to the active replacement
+			// ("wl-2"), not left pointing at the finished, potentially-GC'd
+			// origin: it is Kueue-owned and mutable, unlike the PRQ consume/class
+			// identity. The stable workload-slice-name annotation still tracks
+			// the origin ("wl") since that identifies the chain, not a single
+			// admission.
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod-0", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadAnnotation, "wl-2").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Obj(),
 				*testingpod.MakePod("pod-1", "ns").
-					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadAnnotation, "wl-2").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Obj(),
 			},
@@ -1267,6 +1310,7 @@ func TestRecordPodSchedulingGateRemovalSeconds(t *testing.T) {
 			wantPods: []corev1.Pod{
 				*testingpod.MakePod("pod", corev1.NamespaceDefault).
 					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					Obj(),
 			},

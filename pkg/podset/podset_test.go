@@ -24,6 +24,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -447,20 +448,52 @@ func TestMergeRestore(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			podSet: utiltestingapi.MakePodSet("", 1).
 				Annotations(map[string]string{
-					kueue.WorkloadAnnotation:          "old-slice",
-					kueue.WorkloadSliceNameAnnotation: "old-slice",
+					kueue.WorkloadAnnotation:                        "old-slice",
+					kueue.WorkloadSliceNameAnnotation:               "old-slice",
+					autoscaling.ProvisioningRequestPodAnnotationKey: "old-request",
+					autoscaling.ProvisioningClassPodAnnotationKey:   "old-class",
 				}).
 				Obj(),
 			info: PodSetInfo{
 				Annotations: map[string]string{
-					kueue.WorkloadAnnotation:          "new-slice",
-					kueue.WorkloadSliceNameAnnotation: "new-slice",
+					kueue.WorkloadAnnotation:                        "new-slice",
+					kueue.WorkloadSliceNameAnnotation:               "new-slice",
+					autoscaling.ProvisioningRequestPodAnnotationKey: "new-request",
+					autoscaling.ProvisioningClassPodAnnotationKey:   "new-class",
+				},
+			},
+			// consume is stripped from elastic templates; class may stay (stable).
+			wantPodSet: utiltestingapi.MakePodSet("", 1).
+				Annotations(map[string]string{
+					kueue.WorkloadAnnotation:                      "new-slice",
+					kueue.WorkloadSliceNameAnnotation:             "new-slice",
+					autoscaling.ProvisioningClassPodAnnotationKey: "new-class",
+				}).
+				Obj(),
+			wantRestoreChanges: true,
+		},
+		"strips stale consume annotation from elastic template when absent in admission": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			podSet: utiltestingapi.MakePodSet("", 1).
+				Annotations(map[string]string{
+					kueue.WorkloadAnnotation:                        "slice",
+					kueue.WorkloadSliceNameAnnotation:               "slice",
+					autoscaling.ProvisioningRequestPodAnnotationKey: "stale-request",
+					autoscaling.ProvisioningClassPodAnnotationKey:   "class",
+				}).
+				Obj(),
+			info: PodSetInfo{
+				Annotations: map[string]string{
+					kueue.WorkloadAnnotation:                      "slice",
+					kueue.WorkloadSliceNameAnnotation:             "slice",
+					autoscaling.ProvisioningClassPodAnnotationKey: "class",
 				},
 			},
 			wantPodSet: utiltestingapi.MakePodSet("", 1).
 				Annotations(map[string]string{
-					kueue.WorkloadAnnotation:          "new-slice",
-					kueue.WorkloadSliceNameAnnotation: "new-slice",
+					kueue.WorkloadAnnotation:                      "slice",
+					kueue.WorkloadSliceNameAnnotation:             "slice",
+					autoscaling.ProvisioningClassPodAnnotationKey: "class",
 				}).
 				Obj(),
 			wantRestoreChanges: true,
