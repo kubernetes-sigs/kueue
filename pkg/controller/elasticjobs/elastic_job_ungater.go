@@ -85,13 +85,10 @@ func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracke
 		client:            r.client,
 		expectationsStore: r.expectationsStore,
 	}
-	// Reconcile by the chain's active slice, resolved from whichever slice fired
-	// the event. Every slice maps to the single currently-admitted slice, whose
-	// granted counts cap ungating; Reconcile then loads it directly (no lookup
-	// through a possibly-deleted origin).
+	// Enqueue the active slice; Reconcile resolves it again in case of a rollover.
 	sliceKeyHandler := handler.TypedEnqueueRequestsFromMapFunc(
 		func(ctx context.Context, wl *kueue.Workload) []reconcile.Request {
-			active, err := r.activeSlice(ctx, wl)
+			active, err := workloadslicing.FindLatestAdmittedWorkload(ctx, r.client, wl, false)
 			if err != nil || active == nil {
 				return nil
 			}
@@ -122,35 +119,12 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile ElasticJobUngater")
 
-	// req.Name is whichever slice the enqueue handlers resolved as active when the
-	// event fired. It is only a snapshot: a requeue (e.g. after a pod-patch
-	// conflict) can re-run this against a slice that has since finished, so the
-	// eligibility check below redirects to the current active slice rather than
-	// trusting req.Name. If nothing in the chain is admitted anymore, there is
-	// nothing to ungate.
-	active := &kueue.Workload{}
-	if err := r.client.Get(ctx, req.NamespacedName, active); err != nil {
-		return reconcile.Result{}, client.IgnoreNotFound(err)
+	active, err := workloadslicing.FindActiveWorkload(ctx, r.client, req.NamespacedName, false)
+	if err != nil || active == nil {
+		return reconcile.Result{}, err
 	}
-	// The handlers only enqueue active elastic slices, but req.Name is a snapshot:
-	// by the time this runs (especially on a requeue after a pod-patch conflict),
-	// the enqueued slice may have finished as part of a scale rollover. Bailing
-	// here would strand any pending ungate until the next periodic resync, so
-	// redirect to the chain's current active slice instead. Eviction is two
-	// writes — the condition is set before the reservation is released — so an
-	// evicted slice still reports a reservation while its capacity is on the way
-	// out; treat it as ineligible too, matching workloadslicing.FindLatestActiveWorkload.
 	if !shouldUngate(active) || workloadevict.IsEvicted(active) {
-		redirected, err := r.activeSlice(ctx, active)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-		// No eligible active slice, or it is the same (still-ineligible) object we
-		// just loaded: nothing new to ungate against.
-		if redirected == nil || redirected.Name == active.Name {
-			return reconcile.Result{}, nil
-		}
-		active = redirected
+		return reconcile.Result{}, nil
 	}
 
 	// Expectations are keyed by the stable chain key (the origin slice name shared
@@ -357,12 +331,6 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	return gated, nil
 }
 
-// activeSlice resolves the admitted slice of the chain the workload anyWl belongs
-// to, or nil if none is admitted.
-func (r *elasticJobUngater) activeSlice(ctx context.Context, anyWl *kueue.Workload) (*kueue.Workload, error) {
-	return workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, r.client, anyWl.Namespace, workloadslicing.SliceName(anyWl))
-}
-
 // Workload predicates
 
 func (r *elasticJobUngater) Create(e event.TypedCreateEvent[*kueue.Workload]) bool {
@@ -427,7 +395,7 @@ func (h *elasticPodHandler) queueReconcileForPod(ctx context.Context, object cli
 		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workloadSlice", sliceKey.String())
 		h.expectationsStore.ObservedUID(log, *sliceKey, pod.UID)
 	}
-	active, err := workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, h.client, sliceKey.Namespace, sliceKey.Name)
+	active, err := workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, h.client, sliceKey.Namespace, sliceKey.Name, false)
 	if err != nil || active == nil {
 		return
 	}
