@@ -617,7 +617,7 @@ func (i *Info) TASUsage() TASUsage {
 	}
 	result := make(TASUsage, 0)
 	for _, ps := range i.TotalRequests {
-		if ps.TopologyRequest != nil && ps.Count > 0 {
+		if ps.TopologyRequest != nil && (!features.Enabled(features.ReclaimablePods) || ps.Count > 0) {
 			psFlavors := sets.New[kueue.ResourceFlavorReference]()
 			for _, psFlavor := range ps.Flavors {
 				psFlavors.Insert(psFlavor)

@@ -1900,8 +1900,9 @@ func TestFlavorResourceUsage(t *testing.T) {
 func TestTASUsage(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 	cases := map[string]struct {
-		info *Info
-		want TASUsage
+		info         *Info
+		want         TASUsage
+		featureGates map[featuregate.Feature]bool
 	}{
 		"not using TAS": {
 			info: &Info{
@@ -2063,9 +2064,69 @@ func TestTASUsage(t *testing.T) {
 			},
 			want: TASUsage{},
 		},
+		"workload with completed podSet does not exclude it from TAS usage when ReclaimablePods is disabled": {
+			info: &Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name:  "driver",
+						Count: 1,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "tas-flavor",
+						},
+						TopologyRequest: &TopologyRequest{
+							Levels: []string{corev1.LabelHostname},
+							DomainRequests: []TopologyDomainRequests{{
+								Values: []string{"node-a"},
+								SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+									corev1.ResourceCPU: 1000,
+								}),
+								Count: 1,
+							}},
+						},
+					},
+					{
+						Name:    "workers",
+						Count:   0,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "tas-flavor"},
+						TopologyRequest: &TopologyRequest{
+							Levels: []string{corev1.LabelHostname},
+							DomainRequests: []TopologyDomainRequests{{
+								Values: []string{"node-b"},
+								SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+									corev1.ResourceCPU: 1000,
+								}),
+								Count: 2,
+							}},
+						},
+					},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.ReclaimablePods: false,
+			},
+			want: TASUsage{
+				"tas-flavor": []TopologyDomainRequests{
+					{
+						Values: []string{"node-a"},
+						SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 1000,
+						}),
+						Count: 1,
+					},
+					{
+						Values: []string{"node-b"},
+						SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 1000,
+						}),
+						Count: 2,
+					},
+				},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			got := tc.info.TASUsage()
 			if diff := cmp.Diff(tc.want, got, cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("info.TASUsage() returned (-want,+got):\n%s", diff)
