@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -2911,6 +2912,76 @@ func TestMatchingClusterQueuesAfterFailedUpdate(t *testing.T) {
 					t.Errorf("MatchingClusterQueues(%v) returned unexpected ClusterQueues (-want,+got):\n%s", nsLabels, diff)
 				}
 			}
+		})
+	}
+}
+
+// TestUpdateClusterQueueAfterCohortCycle covers the spec-derived fields that are
+// assigned after the fallible Cohort-tree update, since the ClusterQueue stays
+// cached and keeps being scheduled against when that update fails.
+func TestUpdateClusterQueueAfterCohortCycle(t *testing.T) {
+	baseClusterQueue := func() *utiltestingapi.ClusterQueueWrapper {
+		return utiltestingapi.MakeClusterQueue("cq").
+			Cohort("cycle-a").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f").Resource(corev1.ResourceCPU, "10").Obj())
+	}
+	// The quota change is what makes updateClusterQueue enter the Cohort-tree
+	// branch, which is where the cycle is reported.
+	updatedResourceGroup := func(c *utiltestingapi.ClusterQueueWrapper) *utiltestingapi.ClusterQueueWrapper {
+		return c.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f").Resource(corev1.ResourceCPU, "20").Obj())
+	}
+
+	cases := map[string]struct {
+		updated *kueue.ClusterQueue
+		want    func(*testing.T, *clusterQueue, *kueue.ClusterQueue)
+	}{
+		"StopPolicy is applied": {
+			updated: updatedResourceGroup(baseClusterQueue().StopPolicy(kueue.Hold)).Obj(),
+			want: func(t *testing.T, cq *clusterQueue, _ *kueue.ClusterQueue) {
+				t.Helper()
+				if !cq.isStopped {
+					t.Error("Expected the ClusterQueue to be stopped")
+				}
+			},
+		},
+		"AdmissionChecks are applied": {
+			updated: updatedResourceGroup(baseClusterQueue().AdmissionChecks("check")).Obj(),
+			want: func(t *testing.T, cq *clusterQueue, in *kueue.ClusterQueue) {
+				t.Helper()
+				want := admissioncheck.NewAdmissionChecks(in)
+				if diff := cmp.Diff(want, cq.AdmissionChecks); diff != "" {
+					t.Errorf("Unexpected AdmissionChecks (-want,+got):\n%s", diff)
+				}
+			},
+		},
+		"FairWeight is applied": {
+			updated: updatedResourceGroup(baseClusterQueue().FairWeight(resource.MustParse("3"))).Obj(),
+			want: func(t *testing.T, cq *clusterQueue, _ *kueue.ClusterQueue) {
+				t.Helper()
+				if got := cq.FairWeight; got != 3 {
+					t.Errorf("Unexpected FairWeight: got %v, want 3", got)
+				}
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cache := New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, baseClusterQueue().Obj()); err != nil {
+				t.Fatal(err)
+			}
+			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cycle-a").Parent("cycle-b").Obj()); err != nil {
+				t.Fatal(err)
+			}
+			if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cycle-b").Parent("cycle-a").Obj()); err == nil {
+				t.Fatal("Expected failure when cycle")
+			}
+
+			if err := cache.UpdateClusterQueue(log, tc.updated); !errors.Is(err, ErrCohortHasCycle) {
+				t.Fatalf("Expected ErrCohortHasCycle, got %v", err)
+			}
+			tc.want(t, cache.hm.ClusterQueue("cq"), tc.updated)
 		})
 	}
 }
