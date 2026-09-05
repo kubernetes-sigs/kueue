@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
 func TestUpdate(t *testing.T) {
@@ -141,5 +142,160 @@ func TestEntryPenaltyHelpersDoNotMutateSharedMaps(t *testing.T) {
 	}
 	if snapshot.HasPenaltyRecord("ns/wl2") {
 		t.Error("a later write inserted a record into a fetched entry's map")
+	}
+}
+
+func TestSettlePenaltyDoesNotMutateSharedSettledMap(t *testing.T) {
+	lqKey := utilqueue.NewLocalQueueReference("default", "lq")
+	ledger := NewAfsUsageLedger()
+	ledger.PushPenalty(lqKey, "ns/wl1", corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, time.Now())
+	ledger.Update(lqKey, func(entry UsageLedgerEntry, _ bool) UsageLedgerEntry {
+		entry, _ = entry.SettlePenalty("ns/wl1")
+		return entry
+	})
+
+	snapshot, found := ledger.Get(lqKey)
+	if !found {
+		t.Fatal("expected the settlement to create an entry")
+	}
+
+	ledger.PushPenalty(lqKey, "ns/wl2", corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")}, time.Now())
+	ledger.Update(lqKey, func(entry UsageLedgerEntry, _ bool) UsageLedgerEntry {
+		entry, _ = entry.SettlePenalty("ns/wl2")
+		return entry
+	})
+	ledger.ForgetSettledPenalty(lqKey, "ns/wl1")
+
+	if !snapshot.HasSettledPenalty("ns/wl1") {
+		t.Error("a later write deleted a settled identity from a fetched entry's map")
+	}
+	if snapshot.HasSettledPenalty("ns/wl2") {
+		t.Error("a later write inserted a settled identity into a fetched entry's map")
+	}
+}
+
+// A Workload is charged at most once per LocalQueue. Settlement keeps enough
+// identity that a later re-push (admit → evict → re-admit) neither inflates
+// pending usage nor folds a second time.
+func TestSettlePenaltyDeduplicatesPerWorkload(t *testing.T) {
+	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
+	now := time.Now()
+	penalty := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}
+
+	ledger := NewAfsUsageLedger()
+	ledger.PushPenalty(lqKey, "ns/wl", penalty, now)
+
+	var first corev1.ResourceList
+	ledger.Update(lqKey, func(entry UsageLedgerEntry, _ bool) UsageLedgerEntry {
+		var folded corev1.ResourceList
+		entry, folded = entry.SettlePenalty("ns/wl")
+		first = folded
+		entry.Resources = utilresource.MergeResourceListKeepSum(entry.Resources, folded)
+		return entry
+	})
+	if got := first[corev1.ResourceCPU]; got.MilliValue() != 2_000 {
+		t.Fatalf("first SettlePenalty() folded %dm CPU, want 2000m", got.MilliValue())
+	}
+
+	entry, found := ledger.Get(lqKey)
+	if !found {
+		t.Fatal("expected a ledger entry after settlement")
+	}
+	if !entry.HasSettledPenalty("ns/wl") {
+		t.Fatal("expected the Workload identity to be retained after settlement")
+	}
+	if entry.HasPenaltyRecord("ns/wl") {
+		t.Fatal("expected the pending record to be dropped after settlement")
+	}
+	if ledger.HasPendingPenalty(lqKey) {
+		t.Fatalf("pending penalty after settlement: %v", ledger.PeekPenalty(lqKey))
+	}
+
+	// Re-push as the scheduler would on re-assume after eviction.
+	ledger.PushPenalty(lqKey, "ns/wl", penalty, now)
+	if ledger.HasPendingPenalty(lqKey) {
+		t.Fatalf("re-push after settlement inflated pending usage: %v", ledger.PeekPenalty(lqKey))
+	}
+
+	var second corev1.ResourceList
+	ledger.Update(lqKey, func(entry UsageLedgerEntry, _ bool) UsageLedgerEntry {
+		entry, second = entry.SettlePenalty("ns/wl")
+		entry.Resources = utilresource.MergeResourceListKeepSum(entry.Resources, second)
+		return entry
+	})
+	if len(second) != 0 {
+		t.Errorf("second SettlePenalty() folded %v, want nothing", second)
+	}
+	entry, _ = ledger.Get(lqKey)
+	if got := entry.Resources[corev1.ResourceCPU]; got.MilliValue() != 2_000 {
+		t.Errorf("consumed CPU after re-push and re-settle = %dm, want 2000m", got.MilliValue())
+	}
+
+	// A distinct Workload on the same LocalQueue is still charged once.
+	ledger.PushPenalty(lqKey, "ns/wl2", penalty, now)
+	ledger.Update(lqKey, func(entry UsageLedgerEntry, _ bool) UsageLedgerEntry {
+		var folded corev1.ResourceList
+		entry, folded = entry.SettlePenalty("ns/wl2")
+		entry.Resources = utilresource.MergeResourceListKeepSum(entry.Resources, folded)
+		return entry
+	})
+	entry, _ = ledger.Get(lqKey)
+	if got := entry.Resources[corev1.ResourceCPU]; got.MilliValue() != 4_000 {
+		t.Errorf("consumed CPU after a second Workload settled = %dm, want 4000m", got.MilliValue())
+	}
+	if !entry.HasSettledPenalty("ns/wl2") {
+		t.Error("expected the second Workload's identity to be retained")
+	}
+}
+
+// Forgetting the settled identity (deletion, LocalQueue move, finish) lets a
+// later entry for the same Workload name be charged again.
+func TestForgetSettledPenaltyAllowsNewCharge(t *testing.T) {
+	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
+	now := time.Now()
+	penalty := corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}
+
+	ledger := NewAfsUsageLedger()
+	ledger.PushPenalty(lqKey, "ns/wl", penalty, now)
+	ledger.Update(lqKey, func(entry UsageLedgerEntry, _ bool) UsageLedgerEntry {
+		var folded corev1.ResourceList
+		entry, folded = entry.SettlePenalty("ns/wl")
+		entry.Resources = utilresource.MergeResourceListKeepSum(entry.Resources, folded)
+		return entry
+	})
+
+	ledger.ForgetSettledPenalty(lqKey, "ns/wl")
+	entry, _ := ledger.Get(lqKey)
+	if entry.HasSettledPenalty("ns/wl") {
+		t.Fatal("ForgetSettledPenalty() left the settled identity in place")
+	}
+
+	ledger.PushPenalty(lqKey, "ns/wl", penalty, now)
+	if !ledger.HasPendingPenalty(lqKey) {
+		t.Fatal("expected a new pending penalty after forgetting the settled identity")
+	}
+
+	var folded corev1.ResourceList
+	ledger.Update(lqKey, func(entry UsageLedgerEntry, _ bool) UsageLedgerEntry {
+		entry, folded = entry.SettlePenalty("ns/wl")
+		entry.Resources = utilresource.MergeResourceListKeepSum(entry.Resources, folded)
+		return entry
+	})
+	if got := folded[corev1.ResourceCPU]; got.MilliValue() != 2_000 {
+		t.Errorf("SettlePenalty() after forget folded %dm CPU, want 2000m", got.MilliValue())
+	}
+	entry, _ = ledger.Get(lqKey)
+	if got := entry.Resources[corev1.ResourceCPU]; got.MilliValue() != 4_000 {
+		t.Errorf("consumed CPU after a new charge = %dm, want 4000m", got.MilliValue())
+	}
+}
+
+// ForgetSettledPenalty must not create an entry for a LocalQueue that has none.
+func TestForgetSettledPenaltyDoesNotCreateEntry(t *testing.T) {
+	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
+	ledger := NewAfsUsageLedger()
+	ledger.ForgetSettledPenalty(lqKey, "ns/wl")
+	if _, found := ledger.Get(lqKey); found {
+		t.Error("ForgetSettledPenalty materialized a ledger entry for a LocalQueue that had none")
 	}
 }
