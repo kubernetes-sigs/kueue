@@ -57,7 +57,7 @@ var (
 	prebuiltWorkloadAnnotationPath          = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
 	elasticJobAnnotationPath                = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
 	elasticJobScaleUpStrategyAnnotationPath = annotationsPath.Key(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey)
-	supportedElasticJobScaleUpStrategies    = []string{kueueconstants.ElasticJobScaleUpStrategyAtomic, kueueconstants.ElasticJobScaleUpStrategyPartial}
+	supportedElasticJobScaleUpStrategies    = sets.New(kueueconstants.ElasticJobScaleUpStrategyAtomic, kueueconstants.ElasticJobScaleUpStrategyPartial)
 	supportedElasticJobGVKs                 = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
 		rayv1.GroupVersion.WithKind("RayCluster").String(),
@@ -166,8 +166,8 @@ func validateElasticJobScaleUpStrategyAnnotation(obj client.Object) field.ErrorL
 		allErrs = append(allErrs, field.Forbidden(elasticJobScaleUpStrategyAnnotationPath,
 			fmt.Sprintf("requires the %q annotation set to %q", workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)))
 	}
-	if strategy != kueueconstants.ElasticJobScaleUpStrategyAtomic && strategy != kueueconstants.ElasticJobScaleUpStrategyPartial {
-		allErrs = append(allErrs, field.NotSupported(elasticJobScaleUpStrategyAnnotationPath, strategy, supportedElasticJobScaleUpStrategies))
+	if !supportedElasticJobScaleUpStrategies.Has(strategy) {
+		allErrs = append(allErrs, field.NotSupported(elasticJobScaleUpStrategyAnnotationPath, strategy, sets.List(supportedElasticJobScaleUpStrategies)))
 	}
 	return allErrs
 }
