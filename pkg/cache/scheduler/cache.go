@@ -618,6 +618,14 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 		}
 	}
 
+	// The custom label value cache is keyed by Workload and shared by every
+	// ClusterQueue, so entries for the Workloads this ClusterQueue still holds
+	// would outlive it and never be reclaimed: once the ClusterQueue is gone,
+	// DeleteWorkload can no longer reach them.
+	for wlKey := range curCq.Workloads {
+		c.customLabels.Delete(config.SourceKindWorkload, string(wlKey))
+	}
+
 	parent := curCq.Parent()
 
 	c.hm.DeleteClusterQueue(cqName)
