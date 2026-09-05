@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -132,11 +133,18 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 	}
 
 	if groupName := utilpod.GetPodGroupName(pod); groupName == wlName {
+		changed := false
 		if queueName != "" && pod.Labels[ctrlconstants.QueueLabel] != string(queueName) {
 			pod.Labels[ctrlconstants.QueueLabel] = string(queueName)
-			return true, nil
+			changed = true
 		}
-		return false, nil
+		if features.Enabled(features.TopologyAwareScheduling) || features.Enabled(features.SchedulerLibraryIntegration) {
+			if pod.Annotations[kueue.WorkloadAnnotation] != wlName {
+				pod.Annotations[kueue.WorkloadAnnotation] = wlName
+				changed = true
+			}
+		}
+		return changed, nil
 	}
 
 	if queueName == "" && !r.manageJobsWithoutQueueName {
@@ -159,6 +167,9 @@ func (r *PodReconciler) setDefault(ctx context.Context, pod *corev1.Pod) (bool, 
 	pod.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
 	pod.Annotations[kueue.PodGroupPodIndexLabelAnnotation] = appsv1.PodIndexLabel
 	pod.Annotations[podconstants.RoleHashAnnotation] = string(kueue.DefaultPodSetName)
+	if features.Enabled(features.TopologyAwareScheduling) || features.Enabled(features.SchedulerLibraryIntegration) {
+		pod.Annotations[kueue.WorkloadAnnotation] = wlName
+	}
 
 	return true, nil
 }

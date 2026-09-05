@@ -148,7 +148,59 @@ func TestPodReconciler(t *testing.T) {
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName("sts-uid", "sts")).
 					Obj(),
+			},
+		},
+		"should set WorkloadAnnotation when SchedulerLibraryIntegration is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false, features.SchedulerLibraryIntegration: true},
+			sts: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("queue").
+				Replicas(3).
+				Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				OwnerReference("sts", gvk).
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").
+					OwnerReference("sts", gvk).
+					Queue("queue").
+					ManagedByKueueLabel().
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					GroupTotalCount("3").
+					PrebuiltWorkloadLabel(GetWorkloadName("sts-uid", "sts")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName("sts-uid", "sts")).
+					Obj(),
+			},
+		},
+		"should set WorkloadAnnotation when TopologyAwareScheduling is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: true, features.SchedulerLibraryIntegration: false},
+			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Queue("queue").Replicas(3).Obj(),
+			pod:          testingjobspod.MakePod("pod", "ns").OwnerReference("sts", gvk).Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").OwnerReference("sts", gvk).Queue("queue").ManagedByKueueLabel().GroupNameLabel(GetWorkloadName("sts-uid", "sts")).GroupTotalCount("3").PrebuiltWorkloadLabel(GetWorkloadName("sts-uid", "sts")).Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).Annotation(kueue.WorkloadAnnotation, GetWorkloadName("sts-uid", "sts")).Obj(),
+			},
+		},
+		"should backfill WorkloadAnnotation on already-labeled pod when feature gate is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false, features.TopologyAwareScheduling: false, features.SchedulerLibraryIntegration: true},
+			sts:          statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Queue("queue").Replicas(3).Obj(),
+			pod: testingjobspod.MakePod("pod", "ns").
+				OwnerReference("sts", gvk).
+				Queue("queue").
+				ManagedByKueueLabel().
+				GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+				GroupTotalCount("3").
+				Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod", "ns").OwnerReference("sts", gvk).Queue("queue").ManagedByKueueLabel().GroupNameLabel(GetWorkloadName("sts-uid", "sts")).GroupTotalCount("3").Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).Annotation(kueue.WorkloadAnnotation, GetWorkloadName("sts-uid", "sts")).Obj(),
 			},
 		},
 		"should set default values with priority class": {
@@ -177,6 +229,7 @@ func TestPodReconciler(t *testing.T) {
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName("sts-uid", "sts")).
 					Obj(),
 			},
 		},
@@ -203,6 +256,7 @@ func TestPodReconciler(t *testing.T) {
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					GroupTotalCount("3").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName("sts-uid", "sts")).
 					Obj(),
 			},
 		},
@@ -229,6 +283,7 @@ func TestPodReconciler(t *testing.T) {
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					GroupTotalCount("3").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName("sts-uid", "sts")).
 					Obj(),
 			},
 		},
@@ -258,6 +313,7 @@ func TestPodReconciler(t *testing.T) {
 					GroupNameLabel(GetWorkloadName("", "sts")).
 					GroupTotalCount("3").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName("", "sts")).
 					Obj(),
 			},
 		},
@@ -288,6 +344,7 @@ func TestPodReconciler(t *testing.T) {
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName("", "sts")).
 					Obj(),
 			},
 		},
@@ -314,6 +371,7 @@ func TestPodReconciler(t *testing.T) {
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(kueue.PodGroupPodIndexLabelAnnotation, appsv1.PodIndexLabel).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Annotation(kueue.WorkloadAnnotation, GetWorkloadName("sts-uid", "sts")).
 					Obj(),
 			},
 		},
