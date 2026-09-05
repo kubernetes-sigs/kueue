@@ -1279,3 +1279,52 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 		})
 	}
 }
+
+func TestEquivalentToWorkloadOwnerHandling(t *testing.T) {
+	job := testingjob.MakeJob("job", "ns").UID("job-uid").Obj()
+
+	nonControllerOwner := func(name string) []metav1.OwnerReference {
+		return []metav1.OwnerReference{{
+			APIVersion: batchv1.SchemeGroupVersion.String(),
+			Kind:       "Job",
+			Name:       name,
+			UID:        "other-uid",
+		}}
+	}
+
+	cases := map[string]struct {
+		ownerRefs []metav1.OwnerReference
+	}{
+		// Regression: the owner index matches non-controller owner references, so a
+		// Workload can reach EquivalentToWorkload with no controller owner. Before the
+		// guard, GetControllerOf returned nil and owner.Name panicked.
+		"non-controller owner reference matching the job name": {
+			ownerRefs: nonControllerOwner("job"),
+		},
+		"no owner references at all": {
+			ownerRefs: nil,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			mockctrl := gomock.NewController(t)
+			wl := utiltestingapi.MakeWorkload("wl", "ns").Obj()
+			wl.OwnerReferences = tc.ownerRefs
+
+			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
+				WithObjects(job, wl).
+				Build()
+
+			mgj := mocks.NewMockGenericJob(mockctrl)
+			mgj.EXPECT().Object().Return(job).AnyTimes()
+
+			equivalent, err := EquivalentToWorkload(t.Context(), cl, mgj, wl)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+			if equivalent {
+				t.Error("A Workload not controlled by the job must not be equivalent")
+			}
+		})
+	}
+}
