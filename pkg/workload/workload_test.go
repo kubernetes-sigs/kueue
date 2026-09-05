@@ -4310,3 +4310,23 @@ func TestTotalExecutionTime(t *testing.T) {
 		})
 	}
 }
+
+func TestScaledToKeepsASaturatedRequestSaturated(t *testing.T) {
+	// 3 Pods x MaxInt64/2 overflows, so the aggregate saturates to the sentinel.
+	// Scaling it down must keep it saturated, not divide it into a finite undercharge (#14371).
+	half := resource.NewQuantity(math.MaxInt64/2, resource.DecimalSI)
+	wl := utiltestingapi.MakeWorkload("w", "ns").
+		PodSets(*utiltestingapi.MakePodSet("main", 3).
+			Request("example.com/gpu", half.String()).Obj()).
+		Obj()
+
+	total := NewInfo(wl).TotalRequests[0]
+	if agg := total.Requests.ResourceValue("example.com/gpu"); agg != math.MaxInt64 {
+		t.Fatalf("precondition: aggregate over 3 Pods should saturate to MaxInt64, got %d", agg)
+	}
+
+	got := total.ScaledTo(1).Requests.ResourceValue("example.com/gpu")
+	if got != math.MaxInt64 {
+		t.Errorf("ScaledTo(1) = %d, want MaxInt64 (a saturated request must stay saturated when scaled down)", got)
+	}
+}
