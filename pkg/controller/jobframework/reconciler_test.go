@@ -553,7 +553,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				utiltestingapi.MakeWorkload("job-test-job-1", metav1.NamespaceDefault).
 					ResourceVersion("1").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					OwnerReference(testGVK, testJobName, "other-uid").
+					OwnerReference(testGVK, testJobName, testJobName).
 					Queue(testLocalQueueName).
 					PodSets(*utiltestingapi.MakePodSet("old", 2).Obj()).
 					Priority(0).
@@ -563,7 +563,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				*utiltestingapi.MakeWorkload("job-test-job-1", metav1.NamespaceDefault).
 					ResourceVersion("2").
 					Finalizers(kueue.ResourceInUseFinalizerName).
-					OwnerReference(testGVK, testJobName, "other-uid").
+					OwnerReference(testGVK, testJobName, testJobName).
 					Queue(testLocalQueueName).
 					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 					Priority(0).
