@@ -106,14 +106,24 @@ func parametersKueueToProvisioning(in map[string]kueue.Parameter) map[string]aut
 	return out
 }
 
-// provReqSyncedWithConfig checks if the provisioning request has the same provisioningClassName as the provisioning request config
-// and contains all the parameters from the config
-func provReqSyncedWithConfig(req *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) bool {
+// provReqSyncedWithConfig checks if the provisioning request has the same provisioningClassName as the
+// provisioning request config, and carries the config's parameters and no others of its own.
+func provReqSyncedWithConfig(wl *kueue.Workload, req *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) bool {
 	if req.Spec.ProvisioningClassName != prc.Spec.ProvisioningClassName {
 		return false
 	}
 	for k, vCfg := range prc.Spec.Parameters {
 		if vReq, found := req.Spec.Parameters[k]; !found || string(vReq) != string(vCfg) {
+			return false
+		}
+	}
+	// The workload's own annotations land in the same map, so only a parameter
+	// belonging to neither side is one the config has since dropped.
+	for k := range req.Spec.Parameters {
+		if _, fromConfig := prc.Spec.Parameters[k]; fromConfig {
+			continue
+		}
+		if _, fromWorkload := wl.Annotations[constants.ProvReqAnnotationPrefix+k]; !fromWorkload {
 			return false
 		}
 	}
