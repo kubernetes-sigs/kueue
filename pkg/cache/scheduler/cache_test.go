@@ -3410,18 +3410,14 @@ func TestCohortCycles(t *testing.T) {
 func TestCohortCyclesWithClusterQueue(t *testing.T) {
 	testCases := map[string]struct {
 		initialCohorts []kueue.Cohort
-		operation      func(t *testing.T, cache *Cache) error
+		cq             *kueue.ClusterQueue
 		wantErr        error
 	}{
-		"clusterqueue add succeeds when cohort has no cycle": {
+		"add clusterqueue succeeds when cohort has no cycle": {
 			initialCohorts: []kueue.Cohort{
 				*utiltestingapi.MakeCohort("cohort").Obj(),
 			},
-			operation: func(t *testing.T, cache *Cache) error {
-				ctx, _ := utiltesting.ContextWithLog(t)
-				cq := utiltestingapi.MakeClusterQueue("cq").Cohort("cohort").Obj()
-				return cache.AddClusterQueue(ctx, cq)
-			},
+			cq:      utiltestingapi.MakeClusterQueue("cq").Cohort("cohort").Obj(),
 			wantErr: nil,
 		},
 	}
@@ -3429,20 +3425,18 @@ func TestCohortCyclesWithClusterQueue(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			cache := New(utiltesting.NewFakeClient())
+			ctx, _ := utiltesting.ContextWithLog(t)
 
 			for i := range tc.initialCohorts {
 				if err := cache.AddOrUpdateCohort(&tc.initialCohorts[i]); err != nil {
-					t.Fatalf("setup failed to add initial cohort: %v", err)
+					t.Fatalf("setup failed: %v", err)
 				}
 			}
 
-			err := tc.operation(t, cache)
+			err := cache.AddClusterQueue(ctx, tc.cq)
 
-			if (err != nil) != (tc.wantErr != nil) {
-				t.Fatalf("expected error %v, got %v", tc.wantErr, err)
-			}
-			if err != nil && !errors.Is(err, tc.wantErr) {
-				t.Fatalf("expected error %v, got %v", tc.wantErr, err)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 		})
 	}
@@ -3450,9 +3444,10 @@ func TestCohortCyclesWithClusterQueue(t *testing.T) {
 
 func TestCohortCyclesWithUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		initialCohorts []kueue.Cohort
-		cohort         *kueue.Cohort
-		wantErr        error
+		initialCohorts  []kueue.Cohort
+		cohort          *kueue.Cohort
+		wantErr         error
+		verifyResources bool
 	}{
 		"update cohort to create cycle fails": {
 			initialCohorts: []kueue.Cohort{
@@ -3475,8 +3470,9 @@ func TestCohortCyclesWithUpdate(t *testing.T) {
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
 					Obj(),
 			},
-			cohort:  utiltestingapi.MakeCohort("cohort").Parent("root2").Obj(),
-			wantErr: nil,
+			cohort:          utiltestingapi.MakeCohort("cohort").Parent("root2").Obj(),
+			wantErr:         nil,
+			verifyResources: true,
 		},
 	}
 
@@ -3494,6 +3490,26 @@ func TestCohortCyclesWithUpdate(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			}
+
+			if tc.verifyResources && err == nil {
+				root1 := cache.hm.Cohort("root1")
+				root2 := cache.hm.Cohort("root2")
+				cohort := cache.hm.Cohort("cohort")
+
+				if root1 == nil || root2 == nil || cohort == nil {
+					t.Fatalf("cohorts not found after update")
+				}
+
+				root1SubtreeQuota := root1.getResourceNode().SubtreeQuota
+				if len(root1SubtreeQuota) == 0 {
+					t.Errorf("root1 should have updated subtree quota after losing child")
+				}
+
+				root2SubtreeQuota := root2.getResourceNode().SubtreeQuota
+				if len(root2SubtreeQuota) == 0 {
+					t.Errorf("root2 should have updated subtree quota after gaining child")
+				}
 			}
 		})
 	}
@@ -4000,100 +4016,4 @@ func TestLocalQueueCustomMetricLabelsRace(t *testing.T) {
 
 	close(start)
 	wg.Wait()
-}
-
-func TestCohortCyclesWithClusterQueueAdd(t *testing.T) {
-	testCases := map[string]struct {
-		initialCohorts []kueue.Cohort
-		cq             *kueue.ClusterQueue
-		wantErr        error
-	}{
-		"add clusterqueue succeeds when cohort has no cycle": {
-			initialCohorts: []kueue.Cohort{
-				*utiltestingapi.MakeCohort("cohort").Obj(),
-			},
-			cq:      utiltestingapi.MakeClusterQueue("cq").Cohort("cohort").Obj(),
-			wantErr: nil,
-		},
-		"add clusterqueue fails when cohort has cycle": {
-			initialCohorts: []kueue.Cohort{
-				*utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
-				*utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj(),
-			},
-			cq:      utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Obj(),
-			wantErr: ErrCohortHasCycle,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			cache := New(utiltesting.NewFakeClient())
-			ctx, _ := utiltesting.ContextWithLog(t)
-
-			for i := range tc.initialCohorts {
-				if err := cache.AddOrUpdateCohort(&tc.initialCohorts[i]); err != nil {
-					t.Fatalf("setup failed to add initial cohort: %v", err)
-				}
-			}
-
-			err := cache.AddClusterQueue(ctx, tc.cq)
-
-			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestCohortCyclesWithClusterQueueUpdate(t *testing.T) {
-	testCases := map[string]struct {
-		initialCohorts []kueue.Cohort
-		initialCq      *kueue.ClusterQueue
-		updatedCq      *kueue.ClusterQueue
-		wantErr        error
-	}{
-		"update clusterqueue succeeds when new cohort has no cycle": {
-			initialCohorts: []kueue.Cohort{
-				*utiltestingapi.MakeCohort("cohort1").Obj(),
-				*utiltestingapi.MakeCohort("cohort2").Obj(),
-			},
-			initialCq: utiltestingapi.MakeClusterQueue("cq").Cohort("cohort1").Obj(),
-			updatedCq: utiltestingapi.MakeClusterQueue("cq").Cohort("cohort2").Obj(),
-			wantErr:   nil,
-		},
-		"update clusterqueue fails when new cohort has cycle": {
-			initialCohorts: []kueue.Cohort{
-				*utiltestingapi.MakeCohort("cohort1").Obj(),
-				*utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
-				*utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj(),
-			},
-			initialCq: utiltestingapi.MakeClusterQueue("cq").Cohort("cohort1").Obj(),
-			updatedCq: utiltestingapi.MakeClusterQueue("cq").Cohort("cohort-a").Obj(),
-			wantErr:   ErrCohortHasCycle,
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			cache := New(utiltesting.NewFakeClient())
-			ctx, log := utiltesting.ContextWithLog(t)
-
-			// Setup: Add initial cohorts
-			for i := range tc.initialCohorts {
-				if err := cache.AddOrUpdateCohort(&tc.initialCohorts[i]); err != nil {
-					t.Fatalf("setup failed to add initial cohort: %v", err)
-				}
-			}
-
-			if err := cache.AddClusterQueue(ctx, tc.initialCq); err != nil {
-				t.Fatalf("setup failed to add initial cluster queue: %v", err)
-			}
-
-			err := cache.UpdateClusterQueue(log, tc.updatedCq)
-
-			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
-				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
-			}
-		})
-	}
 }
