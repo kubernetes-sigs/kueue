@@ -3275,6 +3275,227 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 			})
 
+			// A pod pinned to a node by the TopologyAssignment can never be scheduled while that
+			// node carries a taint the workload does not tolerate. checkPodsOnNode used to report
+			// the workload healthy in that situation whenever another pod of the same workload was
+			// still progressing on the node, which cleared the node from Status.UnhealthyNodes while
+			// still terminating the pinned pod. With that field empty neither the second pass nor
+			// the topology ungater's unhealthy-node guard can engage, so every recreated pod is
+			// ungated onto the same node and terminated again.
+			ginkgo.It("should replace the assigned node when it is tainted while a pod is pinned to it and another pod is still progressing", framework.SlowSpec, func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnNodeTaints, true)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnPodTermination, true)
+
+				var wl1 *kueue.Workload
+				var assignedNode string
+
+				ginkgo.By("creating a two-pod workload confined to a single node", func() {
+					// Every rack in this fixture holds exactly one node, so requiring a rack puts
+					// both pods on that node and gives the test one deterministic assigned node.
+					// Two is the smallest count that lets one pod keep running while the other is
+					// replaced - a count of one would make the pair below an impossible state,
+					// since a group with a healthy running pod has nothing to replace. 500m each
+					// keeps both inside the node's 1 CPU.
+					wl1 = utiltestingapi.MakeWorkload("wl-taint-pinned", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 2).
+							RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "500m").Obj()
+					util.MustCreate(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("verify the workload is admitted and read its assigned node", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					assignedNodes := workload.TASAssignedNodeNames(wl1)
+					gomega.Expect(assignedNodes).To(gomega.HaveLen(1))
+					assignedNode = assignedNodes[0]
+				})
+
+				ginkgo.By("creating a pod already progressing on the assigned node", func() {
+					// A running TAS pod carries both halves: the ungater stamps the hostname
+					// selector, then the scheduler binds it and sets nodeName. spec.nodeName with
+					// a non-terminal phase is what makes hasProgressingPods true for this node,
+					// which is what selected the buggy branch.
+					progressing := testingpod.MakePod("p-progressing", ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl1.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+						Label(constants.PodSetLabel, "worker").
+						NodeSelector(corev1.LabelHostname, assignedNode).
+						NodeName(assignedNode).
+						Obj()
+					util.MustCreate(ctx, k8sClient, progressing)
+				})
+
+				ginkgo.By("creating an ungated replacement pod pinned to the same node", func() {
+					// No scheduling gate, no nodeName, Pending: this is exactly the shape
+					// getPodsToTerminate collects.
+					replacement := testingpod.MakePod("p-replacement", ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl1.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+						Label(constants.PodSetLabel, "worker").
+						NodeSelector(corev1.LabelHostname, assignedNode).
+						Obj()
+					util.MustCreate(ctx, k8sClient, replacement)
+				})
+
+				ginkgo.By("tainting the assigned node with an untolerated NoSchedule taint", func() {
+					// NoSchedule, and the node stays Ready: NoExecute or NotReady would clear
+					// hasProgressingPods and take the already-working code path instead.
+					nodeToUpdate := &corev1.Node{}
+					gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: assignedNode}, nodeToUpdate)).Should(gomega.Succeed())
+					nodeToUpdate.Spec.Taints = append(nodeToUpdate.Spec.Taints, corev1.Taint{
+						Key:    "example.com/integration-test-unhealthy",
+						Value:  "true",
+						Effect: corev1.TaintEffectNoSchedule,
+					})
+					gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("1: verify the replacement pod is terminated by Kueue", func() {
+					util.ExpectPodTerminatedByKueueCondition(ctx, k8sClient,
+						client.ObjectKey{Namespace: ns.Name, Name: "p-replacement"},
+						"UnschedulableOnAssignedNode")
+				})
+
+				// Assert the outcome, not the intermediate Status.UnhealthyNodes record: that
+				// record is deliberately short-lived. It is written, it pre-queues the second
+				// pass, and the next reconcile clears it once the pinned pod is Failed and
+				// podsToTerminate is empty again - roughly 100ms later. What must hold is that
+				// the workload ends up assigned somewhere other than the tainted node.
+				ginkgo.By("2: verify the TopologyAssignment moves off the tainted node", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+						nodes := workload.TASAssignedNodeNames(wl1)
+						g.Expect(nodes).NotTo(gomega.BeEmpty())
+						g.Expect(nodes).NotTo(gomega.ContainElement(assignedNode))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("3: verify the workload kept its admission throughout", func() {
+					// FailFast is disabled, so the workload must be re-placed by the second pass
+					// rather than evicted and requeued.
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+						g.Expect(workload.IsAdmitted(wl1)).To(gomega.BeTrue())
+						g.Expect(workload.TASAssignedNodeNames(wl1)).NotTo(gomega.ContainElement(assignedNode))
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+			})
+
+			// The record written by the case above is what arms both the second pass and the
+			// topology ungater's unhealthy-node guard, so it has to survive for as long as the
+			// node is unusable. Once the pinned pod has been terminated podsToTerminate is empty
+			// again, and checkPodsOnNode used to fall back to the healthy branch on the next
+			// reconcile - clearing the record and letting the ungater put the following pod
+			// straight back onto the tainted node, which re-arms the loop. Every node is tainted
+			// here so no replacement domain exists and the assignment cannot move, which is what
+			// makes the record's lifetime observable.
+			ginkgo.It("should keep the assigned node recorded as unhealthy while it stays tainted and no replacement exists", framework.SlowSpec, func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnNodeTaints, true)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnPodTermination, true)
+
+				var wl1 *kueue.Workload
+				var assignedNode string
+
+				ginkgo.By("creating a two-pod workload confined to a single node", func() {
+					// Same shape as the case above: a rack holds one node, so both pods land on
+					// it, and two is the smallest count for which one pod running alongside a
+					// replacement is a state the group can actually be in.
+					wl1 = utiltestingapi.MakeWorkload("wl-taint-sticky", ns.Name).
+						PodSets(*utiltestingapi.MakePodSet("worker", 2).
+							RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+							Obj()).
+						Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "500m").Obj()
+					util.MustCreate(ctx, k8sClient, wl1)
+				})
+
+				ginkgo.By("verify the workload is admitted and read its assigned node", func() {
+					util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					assignedNodes := workload.TASAssignedNodeNames(wl1)
+					gomega.Expect(assignedNodes).To(gomega.HaveLen(1))
+					assignedNode = assignedNodes[0]
+				})
+
+				ginkgo.By("creating a pod already progressing on the assigned node", func() {
+					// Both halves again: hostname selector from the ungater, nodeName from the
+					// scheduler. Keeps hasProgressingPods true for this node, which is what makes
+					// the healthy branch reachable once podsToTerminate empties.
+					progressing := testingpod.MakePod("p-progressing", ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl1.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+						Label(constants.PodSetLabel, "worker").
+						NodeSelector(corev1.LabelHostname, assignedNode).
+						NodeName(assignedNode).
+						Obj()
+					util.MustCreate(ctx, k8sClient, progressing)
+				})
+
+				ginkgo.By("creating an ungated replacement pod pinned to the same node", func() {
+					replacement := testingpod.MakePod("p-replacement", ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl1.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+						Label(constants.PodSetLabel, "worker").
+						NodeSelector(corev1.LabelHostname, assignedNode).
+						Obj()
+					util.MustCreate(ctx, k8sClient, replacement)
+				})
+
+				ginkgo.By("tainting every node so the second pass has no replacement domain", func() {
+					// TAS filters domains by taint tolerations when assigning, so with all nodes
+					// tainted the assignment is stuck where it is and the record cannot be
+					// legitimately dropped by the node leaving the assignment.
+					for i := range nodes {
+						nodeToUpdate := &corev1.Node{}
+						gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: nodes[i].Name}, nodeToUpdate)).Should(gomega.Succeed())
+						nodeToUpdate.Spec.Taints = append(nodeToUpdate.Spec.Taints, corev1.Taint{
+							Key:    "example.com/integration-test-unhealthy",
+							Value:  "true",
+							Effect: corev1.TaintEffectNoSchedule,
+						})
+						gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
+					}
+				})
+
+				ginkgo.By("1: verify the replacement pod is terminated by Kueue", func() {
+					util.ExpectPodTerminatedByKueueCondition(ctx, k8sClient,
+						client.ObjectKey{Namespace: ns.Name, Name: "p-replacement"},
+						"UnschedulableOnAssignedNode")
+				})
+
+				ginkgo.By("2: verify the assigned node is recorded as unhealthy", func() {
+					// Without the guard the record is dropped about 100ms after it is written -
+					// sooner than step 1 returns - and nothing here recreates pods, so it is
+					// never re-added. That makes this step, rather than step 3, the one that
+					// usually catches the regression.
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+						g.Expect(wl1.Status.UnhealthyNodes).To(gomega.ContainElement(kueue.UnhealthyNode{Name: assignedNode}))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("3: verify the record survives after the pinned pod is terminated", func() {
+					// The terminated pod is Failed, so it no longer counts towards
+					// podsToTerminate. This is the window in which the record used to be dropped,
+					// and it also rules out the record flapping back and forth.
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+						g.Expect(wl1.Status.UnhealthyNodes).To(gomega.ContainElement(kueue.UnhealthyNode{Name: assignedNode}))
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("4: verify the workload kept its admission on the tainted node", func() {
+					// FailFast is disabled and no replacement domain exists, so the workload stays
+					// admitted where it is rather than being evicted.
+					gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					gomega.Expect(workload.IsAdmitted(wl1)).To(gomega.BeTrue())
+					gomega.Expect(workload.TASAssignedNodeNames(wl1)).To(gomega.ContainElement(assignedNode))
+				})
+			})
+
 			ginkgo.It("should evict workload when multiple assigned nodes are deleted", func() {
 				var wl1 *kueue.Workload
 				node1Name := "x3"
