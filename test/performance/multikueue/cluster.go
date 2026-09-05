@@ -242,7 +242,7 @@ func setupCoreControllers(ctx context.Context, mgr manager.Manager) error {
 	return nil
 }
 
-func setupManagerControllers(configNamespace string) managerSetup {
+func setupManagerControllers(configNamespace string, cfg benchmarkConfig) managerSetup {
 	return func(ctx context.Context, mgr manager.Manager) error {
 		if err := setupCoreControllers(ctx, mgr); err != nil {
 			return err
@@ -269,6 +269,10 @@ func setupManagerControllers(configNamespace string) managerSetup {
 			multikueue.WithEventsBatchPeriod(benchmarkEventsBatchPeriod),
 			multikueue.WithAdapters(adapters),
 			multikueue.WithDispatcherName(benchmarkDispatcherName),
+			multikueue.WithClientConnection(&configapi.ClientConnection{
+				QPS:   new(cfg.RemoteClientQPS),
+				Burst: new(cfg.RemoteClientBurst),
+			}),
 		); err != nil {
 			return fmt.Errorf("setup MultiKueue controllers: %w", err)
 		}

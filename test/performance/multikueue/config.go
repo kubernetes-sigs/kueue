@@ -31,11 +31,13 @@ import (
 const maxWorkloadCount = 10_000
 
 type benchmarkConfig struct {
-	WorkloadCount   int             `json:"workloadCount"`
-	WorkerClusters  int             `json:"workerClusters"`
-	CreationWorkers int             `json:"creationWorkers"`
-	CPURequest      string          `json:"cpuRequest"`
-	Timeout         metav1.Duration `json:"timeout"`
+	WorkloadCount     int             `json:"workloadCount"`
+	WorkerClusters    int             `json:"workerClusters"`
+	CreationWorkers   int             `json:"creationWorkers"`
+	RemoteClientQPS   float32         `json:"remoteClientQPS"`
+	RemoteClientBurst int32           `json:"remoteClientBurst"`
+	CPURequest        string          `json:"cpuRequest"`
+	Timeout           metav1.Duration `json:"timeout"`
 }
 
 func loadConfig(path string) (benchmarkConfig, error) {
@@ -66,6 +68,12 @@ func (c benchmarkConfig) validate() error {
 	}
 	if c.CreationWorkers < 1 {
 		return errors.New("creationWorkers must be positive")
+	}
+	if c.RemoteClientQPS <= 0 {
+		return errors.New("remoteClientQPS must be positive")
+	}
+	if c.RemoteClientBurst <= 0 {
+		return errors.New("remoteClientBurst must be positive")
 	}
 	cpuRequest, err := resource.ParseQuantity(c.CPURequest)
 	if err != nil {

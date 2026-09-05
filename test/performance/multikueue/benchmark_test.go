@@ -26,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -92,10 +91,12 @@ func TestObservationCollectorSummarize(t *testing.T) {
 	}
 
 	summary, err := collector.summarize(benchmarkConfig{
-		WorkloadCount:   1,
-		WorkerClusters:  3,
-		CreationWorkers: 1,
-		CPURequest:      "1m",
+		WorkloadCount:     1,
+		WorkerClusters:    3,
+		CreationWorkers:   1,
+		RemoteClientQPS:   731.5,
+		RemoteClientBurst: 997,
+		CPURequest:        "1m",
 	}, time.Millisecond, 0)
 	if err != nil {
 		t.Fatalf("summarize() unexpected error: %v", err)
@@ -117,17 +118,32 @@ func TestObservationCollectorSummarize(t *testing.T) {
 	if summary.Scenario.EventsBatchPeriod != benchmarkEventsBatchPeriod.String() {
 		t.Errorf("Scenario.EventsBatchPeriod = %q, want %q", summary.Scenario.EventsBatchPeriod, benchmarkEventsBatchPeriod.String())
 	}
-	if summary.Scenario.RemoteClientQPS != rest.DefaultQPS || summary.Scenario.RemoteClientBurst != rest.DefaultBurst {
+	if summary.Scenario.RemoteClientQPS != 731.5 || summary.Scenario.RemoteClientBurst != 997 {
 		t.Errorf(
 			"Scenario remote rate limits = %v, %v, want %v, %v",
 			summary.Scenario.RemoteClientQPS,
 			summary.Scenario.RemoteClientBurst,
-			rest.DefaultQPS,
-			rest.DefaultBurst,
+			731.5,
+			997,
 		)
 	}
 	if summary.Scenario.WorkloadConcurrency != workloadConcurrency {
 		t.Errorf("Scenario.WorkloadConcurrency = %d, want %d", summary.Scenario.WorkloadConcurrency, workloadConcurrency)
+	}
+}
+
+func TestReceiveWorkloadsReturnsReconnectError(t *testing.T) {
+	watcher := watch.NewRaceFreeFake()
+	watcher.Stop()
+	wantErr := errors.New("watch reconnect failed")
+	c := interceptor.NewClient(utiltesting.NewClientBuilder().Build(), interceptor.Funcs{
+		Watch: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) (watch.Interface, error) {
+			return nil, wantErr
+		},
+	})
+	out := make(chan timedWorkload, 1)
+	if err := receiveWorkloads(t.Context(), c, "run", watcher, "1", &watchTracker{}, out); !errors.Is(err, wantErr) {
+		t.Fatalf("receiveWorkloads() error = %v, want %v", err, wantErr)
 	}
 }
 
