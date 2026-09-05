@@ -1457,6 +1457,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("8"),
 					corev1.ResourceMemory: resource.MustParse("10Gi"),
+					corev1.ResourcePods:   resource.MustParse("110"),
 				}).
 				Ready().
 				Obj()
@@ -1604,4 +1605,126 @@ func TestUpdateCountsToMinimumGenericLogsLeafSummary(t *testing.T) {
 			t.Errorf("Observed leaf domain fields mismatch (-want +got):\n%s", diff)
 		}
 	})
+}
+
+func TestFits(t *testing.T) {
+	singlePod := func(cpu int64) resources.Requests {
+		return resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: cpu})
+	}
+	inDomain := func(reqs resources.Requests, count int32) workload.TopologyDomainRequests {
+		return workload.TopologyDomainRequests{Values: []string{"node-a"}, SinglePodRequests: reqs, Count: count}
+	}
+	cases := map[string]struct {
+		allocatable  corev1.ResourceList
+		admitted     resources.Requests
+		admittedPods int32
+		usage        workload.TASFlavorUsage
+		want         bool
+	}{
+		"a PodSet the node has room for": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("110"),
+			},
+			usage: workload.TASFlavorUsage{inDomain(singlePod(4000), 1)},
+			want:  true,
+		},
+		"a PodSet the node has no slot for": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("100"),
+				corev1.ResourcePods: resource.MustParse("1"),
+			},
+			admitted:     singlePod(1000),
+			admittedPods: 1,
+			usage:        workload.TASFlavorUsage{inDomain(singlePod(1000), 1)},
+			want:         false,
+		},
+		"two PodSets that fit alone but not together": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("110"),
+			},
+			usage: workload.TASFlavorUsage{inDomain(singlePod(4000), 1), inDomain(singlePod(4000), 1)},
+			want:  false,
+		},
+		"two PodSets the node has room for": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("110"),
+			},
+			usage: workload.TASFlavorUsage{inDomain(singlePod(4000), 1), inDomain(singlePod(4000), 1)},
+			want:  true,
+		},
+		"replicas past the first are counted too": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("3"),
+			},
+			usage: workload.TASFlavorUsage{inDomain(singlePod(2000), 2), inDomain(singlePod(4000), 1)},
+			want:  true,
+		},
+		"replicas past the first exhaust the CPU": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("7"),
+				corev1.ResourcePods: resource.MustParse("3"),
+			},
+			usage: workload.TASFlavorUsage{inDomain(singlePod(2000), 2), inDomain(singlePod(4000), 1)},
+			want:  false,
+		},
+		"replicas past the first exhaust the Pod slots": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("2"),
+			},
+			usage: workload.TASFlavorUsage{inDomain(singlePod(2000), 2), inDomain(singlePod(4000), 1)},
+			want:  false,
+		},
+		"a PodSet asking for nothing but a slot": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("1"),
+			},
+			usage: workload.TASFlavorUsage{inDomain(resources.NewRequestsFromMap(map[corev1.ResourceName]int64{}), 1)},
+			want:  true,
+		},
+		"a PodSet asking for nothing when no slot is left": {
+			allocatable: corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("8"),
+				corev1.ResourcePods: resource.MustParse("1"),
+			},
+			admitted:     singlePod(1000),
+			admittedPods: 1,
+			usage:        workload.TASFlavorUsage{inDomain(resources.NewRequestsFromMap(map[corev1.ResourceName]int64{}), 1)},
+			want:         false,
+		},
+	}
+	for _, vectorized := range []bool{false, true} {
+		for _, caching := range []bool{false, true} {
+			for name, tc := range cases {
+				t.Run(fmt.Sprintf("%s [vectorized=%t caching=%t]", name, vectorized, caching), func(t *testing.T) {
+					features.SetFeatureGateDuringTest(t, features.VectorizedResourceRequests, vectorized)
+					features.SetFeatureGateDuringTest(t, features.TASCachingRemainingResources, caching)
+					_, log := utiltesting.ContextWithLog(t)
+					nodeObj := node.MakeNode("node-a").
+						Label(corev1.LabelHostname, "node-a").
+						StatusAllocatable(tc.allocatable).
+						Ready().
+						Obj()
+					snapshot := newTASFlavorSnapshot(log, "tas-topology",
+						newTopologyTree([]string{corev1.LabelHostname}, []*corev1.Node{nodeObj}, 0), nil, &defaultChecker{})
+					if tc.admitted != nil {
+						snapshot.updateTASUsage(tas.TopologyDomainID("node-a"), tc.admitted, add, tc.admittedPods)
+					}
+					if got := snapshot.Fits(tc.usage); got != tc.want {
+						t.Errorf("Fits() = %t, want %t", got, tc.want)
+					}
+					// The running deduction is local to the call, so asking twice
+					// has to give the same answer.
+					if got := snapshot.Fits(tc.usage); got != tc.want {
+						t.Errorf("Fits() asked a second time = %t, want %t", got, tc.want)
+					}
+				})
+			}
+		}
+	}
 }
