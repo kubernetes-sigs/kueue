@@ -26,6 +26,7 @@ require (
 	go.uber.org/mock v0.6.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/sync v0.22.0
+	golang.org/x/sys v0.47.0
 	gopkg.in/inf.v0 v0.9.1
 	k8s.io/api v0.36.4
 	k8s.io/apiextensions-apiserver v0.36.4
@@ -147,7 +148,6 @@ require (
 	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
 	golang.org/x/time v0.15.0 // indirect

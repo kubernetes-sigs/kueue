@@ -1202,6 +1202,38 @@ func TestValidateKubeconfig(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		"client-certificate file disallowed": {
+			cfgFn: func() *clientcmdapi.Config {
+				config := kubeconfigBase.DeepCopy()
+				config.AuthInfos["u"].ClientCertificate = "/tmp/client.crt"
+				return config
+			},
+			wantErr: true,
+		},
+		"client-key file disallowed": {
+			cfgFn: func() *clientcmdapi.Config {
+				config := kubeconfigBase.DeepCopy()
+				config.AuthInfos["u"].ClientKey = "/tmp/client.key"
+				return config
+			},
+			wantErr: true,
+		},
+		"HTTP server disallowed": {
+			cfgFn: func() *clientcmdapi.Config {
+				config := kubeconfigBase.DeepCopy()
+				config.Clusters["test"].Server = "http://10.10.10.10"
+				return config
+			},
+			wantErr: true,
+		},
+		"inline client credentials allowed": {
+			cfgFn: func() *clientcmdapi.Config {
+				config := kubeconfigBase.DeepCopy()
+				config.AuthInfos["u"].ClientCertificateData = []byte("certificate")
+				config.AuthInfos["u"].ClientKeyData = []byte("key")
+				return config
+			},
+		},
 		"valid config": {
 			cfgFn: func() *clientcmdapi.Config {
 				return kubeconfigBase.DeepCopy()

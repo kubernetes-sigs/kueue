@@ -99,6 +99,10 @@ restricts kubeconfig file paths to the hardcoded prefix
 - Reject paths containing `..` segments after cleaning.
 - Resolve symlinks and reject any path that resolves outside the prefix.
 
+Regardless of the feature gate setting, path-based kubeconfigs must be regular
+files no larger than 1 MiB. The controller opens these files without following a
+final symlink and without blocking on special files such as FIFOs.
+
 To disable this validation, set the feature gate:
 
 ```bash
@@ -122,6 +126,12 @@ spec:
       locationType: Path
       location: /etc/multikueue/kubeconfigs/worker1.kubeconfig
 ```
+
+For every credential source, the API server endpoint must use HTTPS and must not
+contain user information. Kubeconfigs must use the inline
+`certificate-authority-data`, `client-certificate-data`, and `client-key-data`
+fields. `ClusterProfile` access providers must return inline `CAData`, `CertData`,
+and `KeyData` in the REST config. File-backed variants are rejected.
 
 ### Create a sample setup
 
