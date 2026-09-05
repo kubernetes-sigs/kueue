@@ -2628,11 +2628,18 @@ func TestAdmitEvictReadmitDoesNotDoubleChargeAfsEntryPenalty(t *testing.T) {
 		UsageHalfLifeTime:     metav1.Duration{Duration: time.Minute},
 		UsageSamplingInterval: metav1.Duration{Duration: time.Second},
 	}
+	fakeClock := testingclock.NewFakeClock(now)
 	cl := utiltesting.NewClientBuilder().Build()
 	recorder := &utiltesting.EventRecorder{}
 	cqCache := schdcache.New(cl, schdcache.WithAdmissionFairSharing(afsConfig))
-	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
-	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithAdmissionFairSharing(afsConfig))
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+		qcache.WithClock(fakeClock),
+		qcache.WithAdmissionFairSharing(afsConfig),
+		qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder,
+		WithAdmissionFairSharing(afsConfig),
+		WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler.clock = fakeClock
 
 	ctx, _ := utiltesting.ContextWithLog(t)
 	cq := utiltestingapi.MakeClusterQueue("cq").
