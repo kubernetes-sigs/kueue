@@ -36,6 +36,7 @@ import (
 	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -49,14 +50,74 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	statefulsettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
 	baseCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	}
 )
+
+func TestEmptyPodGroupEvictionWithLiveStatefulSet(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.FinishOrphanedWorkloads: true,
+	})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	manager := jobframework.NewIntegrationManager()
+	for _, register := range []func(*jobframework.IntegrationManager) error{
+		podcontroller.RegisterIntegration,
+		RegisterIntegration,
+	} {
+		if err := register(manager); err != nil {
+			t.Fatalf("RegisterIntegration() error = %v", err)
+		}
+	}
+	t.Cleanup(manager.EnableIntegrationsForTest(t, podcontroller.FrameworkName, FrameworkName))
+
+	sts := statefulsettesting.MakeStatefulSet("sts", "ns").UID("sts-uid").Obj()
+	wl := utiltestingapi.MakeWorkload("test-group", "ns").Group().
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		OwnerReference(appsv1.SchemeGroupVersion.WithKind("StatefulSet"), sts.Name, string(sts.UID)).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+		AdmittedAt(true, time.Now()).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadEvicted,
+			Status:  metav1.ConditionTrue,
+			Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+			Message: "Exceeded the PodsReady timeout",
+		}).
+		Obj()
+	clientBuilder := utiltesting.NewClientBuilder().
+		WithObjects(sts, wl).
+		WithStatusSubresource(wl)
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	if err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName); err != nil {
+		t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
+	}
+	cl := clientBuilder.Build()
+	reconciler, err := podcontroller.NewReconciler(ctx, cl, indexer, &utiltesting.EventRecorder{}, jobframework.WithIntegrationManager(manager))
+	if err != nil {
+		t.Fatalf("NewReconciler() error: %v", err)
+	}
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "group/ns", Name: wl.Name}})
+	if err != nil {
+		t.Fatalf("Reconcile() error: %v", err)
+	}
+
+	got := &kueue.Workload{}
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
+		t.Fatalf("Get Workload: %v", err)
+	}
+	if !controllerutil.ContainsFinalizer(got, kueue.ResourceInUseFinalizerName) {
+		t.Error("Workload finalizer was removed while its StatefulSet owner is live")
+	}
+	if workload.HasQuotaReservation(got) {
+		t.Error("Workload quota reservation was not cleared after eviction")
+	}
+}
 
 func TestReconciler(t *testing.T) {
 	now := time.Now()
@@ -248,6 +309,18 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					OwnerReference(gvk, "sts", "sts-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadOnHold,
+						Message: "StatefulSet scaled to zero; workload on hold",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+						Message: "The workload has no reservation",
+					}).
 					Obj(),
 			},
 		},
@@ -724,7 +797,7 @@ func TestReconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder()
+			clientBuilder := utiltesting.NewClientBuilder().WithStatusSubresource(&kueue.Workload{})
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName)
 			if err != nil {
