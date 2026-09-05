@@ -1042,12 +1042,25 @@ func Enabled(f featuregate.Feature) bool {
 	return utilfeature.DefaultFeatureGate.Enabled(f)
 }
 
-func LogFeatureGates(log logr.Logger) {
-	features := make(map[featuregate.Feature]bool, len(defaultVersionedFeatureGates))
-	for f := range utilfeature.DefaultMutableFeatureGate.GetAll() {
+// KueueFeatureGates returns the specs of Kueue's own feature gates, resolved at the
+// running emulation version. Kueue shares the process-wide registry with the apiserver
+// libraries it links against, so the registry also holds gates Kueue does not own;
+// those are filtered out.
+func KueueFeatureGates() map[featuregate.Feature]featuregate.FeatureSpec {
+	gates := make(map[featuregate.Feature]featuregate.FeatureSpec, len(defaultVersionedFeatureGates))
+	for f, spec := range utilfeature.DefaultMutableFeatureGate.GetAll() {
 		if _, ok := defaultVersionedFeatureGates[f]; ok {
-			features[f] = Enabled(f)
+			gates[f] = spec
 		}
+	}
+	return gates
+}
+
+func LogFeatureGates(log logr.Logger) {
+	gates := KueueFeatureGates()
+	features := make(map[featuregate.Feature]bool, len(gates))
+	for f := range gates {
+		features[f] = Enabled(f)
 	}
 	log.V(2).Info("Loaded feature gates", "featureGates", features)
 }

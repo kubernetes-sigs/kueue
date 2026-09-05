@@ -78,6 +78,28 @@ const (
 var (
 	CQStatuses = []ClusterQueueStatus{CQStatusPending, CQStatusActive, CQStatusTerminating}
 
+	// Metrics tied to the Kueue process
+
+	// Unlike the metrics below, this one is built here rather than in InitMetricVectors:
+	// it carries no custom labels, and a re-initialization would swap the registered
+	// vector for an empty one that nothing re-seeds. It is likewise not passed through
+	// trackGaugeVec, because feature gates describe the process, not a queue, so the
+	// values must survive a leader-election role change.
+	//
+	// +metricsdoc:group=health
+	// +metricsdoc:labels=name="the name of the Kueue feature gate",stage="one of `ALPHA`, `BETA`, `DEPRECATED`, or empty for a generally available gate"
+	featureEnabled = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "feature_enabled",
+			Help: `Reports the enablement of each Kueue feature gate: 1 if enabled, 0 if disabled.
+The label 'stage' reports the maturity of the gate at the running version and can have the following values:
+- "ALPHA" and "BETA" mean the gate is at that stage and may still be changed or removed.
+- "DEPRECATED" means the gate is scheduled for removal.
+- "" (empty) means the gate is generally available.`,
+		}, []string{"name", "stage"},
+	)
+
 	// Metrics tied to the scheduler
 
 	// +metricsdoc:group=health
@@ -1621,6 +1643,7 @@ func ClearClusterQueueResourceReservations(cqName, flavor, resource string) {
 func Register() {
 	metrics.Registry.MustRegister(
 		buildInfo,
+		featureEnabled,
 		AdmissionAttemptsTotal,
 		admissionAttemptDuration,
 		MultiKueueWorkloadsDispatchedTotal,
@@ -1670,6 +1693,24 @@ func Register() {
 	}
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
+	}
+
+	// Feature gates are finalized only after the --feature-gates flag and the
+	// configuration file are merged, which happens long after this package is
+	// initialized, so the gauge is seeded here rather than at declaration.
+	reportFeatureGates()
+}
+
+// reportFeatureGates records a snapshot of Kueue's feature gates. Gates are immutable
+// once the process has started, so there is nothing to refresh afterwards.
+func reportFeatureGates() {
+	featureEnabled.Reset()
+	for f, spec := range features.KueueFeatureGates() {
+		value := 0.0
+		if features.Enabled(f) {
+			value = 1.0
+		}
+		featureEnabled.WithLabelValues(string(f), string(spec.PreRelease)).Set(value)
 	}
 }
 
