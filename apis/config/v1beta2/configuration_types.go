@@ -396,6 +396,11 @@ type MultiKueue struct {
 	// Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.
 	// +optional
 	IncrementalDispatcherConfig *IncrementalDispatcherConfig `json:"incrementalDispatcherConfig,omitempty"`
+
+	// WorkerClientConnection configuration for the connection to the worker clusters.
+	// If not specified, the default client connection will be used.
+	// +optional
+	WorkerClientConnection *ClientConnection `json:"workerClientConnection,omitempty"`
 }
 
 // IncrementalDispatcherConfig holds configuration for the MultiKueue Incremental Dispatcher.
@@ -553,9 +558,11 @@ type ClientConnection struct {
 	// connection.
 	//
 	// Setting this to a negative value will disable client-side ratelimiting.
+	// +optional
 	QPS *float32 `json:"qps,omitempty"`
 
 	// Burst allows extra queries to accumulate when a client is exceeding its rate.
+	// +optional
 	Burst *int32 `json:"burst,omitempty"`
 }
 

@@ -1,0 +1,16 @@
+# MultiKueue control-plane performance baseline.
+#
+# This is observational until repeated runs establish stable CI thresholds.
+#
+# Keep the worker limits explicit so changes to production defaults cannot
+# silently change the scenario. The manager's local client uses Kueue defaults.
+workloadCount: 1000
+workerClusters: 3
+# A single generator avoids overflowing cold API-server watch buffers while
+# still building an admission backlog well before MultiKueue finishes.
+creationWorkers: 1
+remoteClientQPS: 1000
+remoteClientBurst: 1000
+cpuRequest: 1m
+# Safety bound for a hung run, not a performance threshold.
+timeout: 10m

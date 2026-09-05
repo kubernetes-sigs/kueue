@@ -99,7 +99,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
+verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-test-performance-multikueue-runner verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -212,6 +212,10 @@ verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
 .PHONY: verify-e2e-common-test
 verify-e2e-common-test: verify-tree-prereqs ## e2e-common shell helper tests after generation
 	$(_e2e_common_test_recipe)
+
+.PHONY: verify-test-performance-multikueue-runner
+verify-test-performance-multikueue-runner: verify-tree-prereqs ## MultiKueue performance runner unit tests after generation
+	$(MAKE) test-performance-multikueue-runner
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
