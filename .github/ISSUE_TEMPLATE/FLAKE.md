@@ -22,3 +22,5 @@ Links to specific failures in Prow are appreciated.
 
 **Anything else we need to know?**:
 
+**Do you plan to contribute a fix?**:
+

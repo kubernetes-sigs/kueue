@@ -8,4 +8,6 @@ labels: kind/documentation
 
 **What would you like to be documented or improved**:
 
+**Do you plan to contribute a fix?**:
+
 **Location** (URL, file path, or section if applicable):
