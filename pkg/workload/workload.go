@@ -124,6 +124,9 @@ type AssignmentClusterQueueState struct {
 	// for a particular set of requests, so it only carries meaning while the Workload keeps
 	// the shape it had then.
 	SchedulingHash EquivalenceHash
+
+	// PreemptionTopologyAssignments records the topology assignments chosen when preemption was initiated.
+	PreemptionTopologyAssignments map[kueue.PodSetReference]*kueue.TopologyAssignment
 }
 
 type dra struct {
@@ -180,10 +183,11 @@ func WithPreprocessedDRAResources(
 
 func (s *AssignmentClusterQueueState) Clone() *AssignmentClusterQueueState {
 	c := AssignmentClusterQueueState{
-		LastTriedFlavorIdx:     make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
-		ClusterQueueGeneration: s.ClusterQueueGeneration,
-		SchedulingCycle:        s.SchedulingCycle,
-		SchedulingHash:         s.SchedulingHash,
+		LastTriedFlavorIdx:             make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIdx)),
+		ClusterQueueGeneration:         s.ClusterQueueGeneration,
+		SchedulingCycle:                s.SchedulingCycle,
+		SchedulingHash:                 s.SchedulingHash,
+		PreemptionTopologyAssignments: maps.Clone(s.PreemptionTopologyAssignments),
 	}
 	for ps, flavorIdx := range s.LastTriedFlavorIdx {
 		c.LastTriedFlavorIdx[ps] = maps.Clone(flavorIdx)

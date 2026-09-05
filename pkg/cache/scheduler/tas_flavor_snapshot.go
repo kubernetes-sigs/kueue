@@ -33,6 +33,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -480,6 +481,23 @@ type topologyAssignmentParameters struct {
 	required              bool
 	unconstrained         bool
 	multiLayerConstraints []kueue.PodsetSliceRequiredTopologyConstraint
+	preferredDomains      sets.Set[string]
+}
+
+func (p *topologyAssignmentParameters) isPreferredDomain(d *domain) bool {
+	if p == nil || p.preferredDomains == nil || p.preferredDomains.Len() == 0 {
+		return false
+	}
+	key := strings.Join(d.levelValues, "/")
+	if p.preferredDomains.Has(key) {
+		return true
+	}
+	for pref := range p.preferredDomains {
+		if strings.HasPrefix(pref, key) || strings.HasSuffix(key, pref) || strings.HasSuffix(pref, key) {
+			return true
+		}
+	}
+	return false
 }
 
 // findTopologyAssignmentState stores the derived state for a single run of the
@@ -900,6 +918,15 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		},
 		stats: &tasExclusionStats{},
 	}
+	if workersTasPodSetRequests.PreviousAssignment != nil {
+		internalPrev := utiltas.InternalFrom(workersTasPodSetRequests.PreviousAssignment)
+		if internalPrev != nil {
+			state.preferredDomains = sets.New[string]()
+			for _, d := range internalPrev.Domains {
+				state.preferredDomains.Insert(strings.Join(d.Values, "/"))
+			}
+		}
+	}
 	requirements.requests = workersTasPodSetRequests.SinglePodRequests.Clone()
 	requirements.requests.Add(resources.OnePodRequest)
 
@@ -1036,7 +1063,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	for ; currentLevelIdx < min(len(s.domainsPerLevel)-1, state.sliceLevelIdx) && !useBalancedPlacement; currentLevelIdx++ {
 		// If we are "above" the requested slice topology level and we don't run the balanced placement algorithm,
 		// we're greedily assigning pods/slices to all domains without checking what we've assigned to parent domains.
-		sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), state.unconstrained)
+		sortedLowerDomains := s.sortedDomains(s.lowerLevelDomains(currFitDomain), state.unconstrained, state)
 		currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, state.count, state.leaderCount, state.sliceSize, state.unconstrained, true)
 	}
 
@@ -1057,7 +1084,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		}
 		newCurrFitDomain := make([]*domain, 0)
 		for _, domain := range currFitDomain {
-			sortedLowerDomains := s.sortedDomains(domain.children, state.unconstrained)
+			sortedLowerDomains := s.sortedDomains(domain.children, state.unconstrained, state)
 
 			if sliceSizeOnLevel > 1 {
 				// For inner slice layers, recompute sliceCount on the
@@ -1342,7 +1369,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[searchLevelIdx])
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
-	sortedDomain := s.sortedDomainsWithLeader(levelDomains, state.unconstrained)
+	sortedDomain := s.sortedDomainsWithLeader(levelDomains, state.unconstrained, state)
 	topDomain := sortedDomain[0]
 
 	sliceCount := state.count / state.sliceSize
@@ -1421,7 +1448,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 
 		// At this point we have assigned all leaders, so we sort remaining domains based on worker capacity
 		// and assign remaining workers.
-		sortedDomain = s.sortedDomains(sortedDomain[idx:], state.unconstrained)
+		sortedDomain = s.sortedDomains(sortedDomain[idx:], state.unconstrained, state)
 		for idx := 0; remainingSliceCount > 0 && idx < len(sortedDomain); idx++ {
 			domain := sortedDomain[idx]
 			if useBestFitAlgorithm(state.unconstrained) && s.domainStateOf(sortedDomain[idx]).sliceCount >= remainingSliceCount {
@@ -1728,7 +1755,11 @@ func compareDomainLevelValues(a, b *domain) int {
 	return slices.CompareFunc(a.levelValues, b.levelValues, strings.Compare)
 }
 
-func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool) []*domain {
+func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool, state ...*findTopologyAssignmentState) []*domain {
+	var st *findTopologyAssignmentState
+	if len(state) > 0 {
+		st = state[0]
+	}
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	respectNodeAffinityPreferred := features.Enabled(features.TASRespectNodeAffinityPreferred)
 	result := slices.Clone(domains)
@@ -1755,6 +1786,16 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 			return cmp.Compare(aDomainState.podCountWithLeader, bDomainState.podCountWithLeader)
 		}
 
+		if st != nil {
+			aPref, bPref := st.isPreferredDomain(a), st.isPreferredDomain(b)
+			if aPref != bPref {
+				if aPref {
+					return -1
+				}
+				return 1
+			}
+		}
+
 		return s.compareDomainLevelValues(a, b)
 	})
 	return result
@@ -1767,7 +1808,11 @@ func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstra
 // - **LeastFreeCapacity**: `sliceCount` (ascending), `podCount` (ascending), `levelValues` (ascending)
 //
 // `podCount` is always sorted ascending. This prioritizes domains that can accommodate slices with minimal leftover pod capacity.
-func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool) []*domain {
+func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool, state ...*findTopologyAssignmentState) []*domain {
+	var st *findTopologyAssignmentState
+	if len(state) > 0 {
+		st = state[0]
+	}
 	isLeastFreeCapacity := useLeastFreeCapacityAlgorithm(unconstrained)
 	respectNodeAffinityPreferred := features.Enabled(features.TASRespectNodeAffinityPreferred)
 	result := slices.Clone(domains)
@@ -1788,6 +1833,16 @@ func (s *TASFlavorSnapshot) sortedDomains(domains []*domain, unconstrained bool)
 
 		if aDomainState.podCount != bDomainState.podCount {
 			return cmp.Compare(aDomainState.podCount, bDomainState.podCount)
+		}
+
+		if st != nil {
+			aPref, bPref := st.isPreferredDomain(a), st.isPreferredDomain(b)
+			if aPref != bPref {
+				if aPref {
+					return -1
+				}
+				return 1
+			}
 		}
 
 		return s.compareDomainLevelValues(a, b)
