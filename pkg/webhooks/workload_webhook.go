@@ -305,7 +305,7 @@ func validateAdmission(obj, oldObj *kueue.Workload, path *field.Path) field.Erro
 		if count := ptr.Deref(ps.Count, 0); count > 0 {
 			for k, v := range ps.ResourceUsage {
 				if (resources.ResourceValue(k, v) % int64(count)) != 0 {
-					allErrs = append(allErrs, field.Invalid(psaPath.Child("resourceUsage").Key(string(k)), v, fmt.Sprintf("is not a multiple of %d", ps.Count)))
+					allErrs = append(allErrs, field.Invalid(psaPath.Child("resourceUsage").Key(string(k)), v, fmt.Sprintf("is not a multiple of %d", count)))
 				}
 			}
 		}

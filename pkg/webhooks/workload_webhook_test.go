@@ -62,6 +62,39 @@ func quotaReservedWithoutAdmission(now time.Time) *kueue.Workload {
 	return wl
 }
 
+// TestValidateAdmissionResourceUsageMultiple checks that the "not a multiple"
+// error names the pod count, not the address of the count pointer.
+func TestValidateAdmissionResourceUsageMultiple(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	wl := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "flv", "1").
+				Count(3).
+				Obj()).
+			Obj(), now).
+		Obj()
+
+	// The same base path the webhook passes, so the reported field is the one
+	// a user would see.
+	errs := validateAdmission(wl, wl, field.NewPath("status", "admission"))
+	if len(errs) != 1 {
+		t.Fatalf("got %d errors, want 1: %v", len(errs), errs)
+	}
+	if got, want := errs[0].Type, field.ErrorTypeInvalid; got != want {
+		t.Errorf("Type = %q, want %q", got, want)
+	}
+	if got, want := errs[0].Field, "status.admission.podSetAssignments[0].resourceUsage[cpu]"; got != want {
+		t.Errorf("Field = %q, want %q", got, want)
+	}
+	if got, want := errs[0].Detail, "is not a multiple of 3"; got != want {
+		t.Errorf("Detail = %q, want %q", got, want)
+	}
+}
+
 func TestValidateWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	specPath := field.NewPath("spec")

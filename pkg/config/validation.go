@@ -464,12 +464,12 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 	}
 	if afs.UsageSamplingInterval.Duration <= 0 {
 		allErrs = append(allErrs, field.Invalid(afsPath.Child("usageSamplingInterval"),
-			afs.UsageHalfLifeTime, "must be greater than 0"))
+			afs.UsageSamplingInterval, "must be greater than 0"))
 	}
 	for resName, weight := range afs.ResourceWeights {
 		if weight < 0 {
 			allErrs = append(allErrs, field.Invalid(afsResourceWeightsPath.Key(string(resName)),
-				afs.ResourceWeights, apimachineryvalidation.IsNegativeErrorMsg))
+				weight, apimachineryvalidation.IsNegativeErrorMsg))
 		}
 	}
 	return allErrs
