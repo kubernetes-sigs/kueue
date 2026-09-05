@@ -45,6 +45,7 @@ type TrainJobWebhook struct {
 // SetupTrainJobWebhook configures the webhook for kubeflow TrainJob.
 func SetupTrainJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
+
 	wh := &TrainJobWebhook{
 		integrationManager:           options.IntegrationManager,
 		client:                       mgr.GetClient(),
