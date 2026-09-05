@@ -54,6 +54,7 @@ var snapCmpOpts = cmp.Options{
 }
 
 func TestSnapshot(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	now := time.Now().Truncate(time.Second)
 	testCases := map[string]struct {
 		cqs        []*kueue.ClusterQueue
@@ -97,7 +98,7 @@ func TestSnapshot(t *testing.T) {
 							FlavorFungibility:             defaultFlavorFungibility,
 							AllocatableResourceGeneration: 1,
 							Workloads: map[workload.Reference]*workload.Info{
-								"/alpha": workload.NewInfo(
+								"/alpha": workload.NewInfo(log,
 									utiltestingapi.MakeWorkload("alpha", "").
 										ReserveQuotaAt(&kueue.Admission{ClusterQueue: "a"}, now).Obj()),
 							},
@@ -111,7 +112,7 @@ func TestSnapshot(t *testing.T) {
 							FlavorFungibility:             defaultFlavorFungibility,
 							AllocatableResourceGeneration: 1,
 							Workloads: map[workload.Reference]*workload.Info{
-								"/beta": workload.NewInfo(
+								"/beta": workload.NewInfo(log,
 									utiltestingapi.MakeWorkload("beta", "").
 										ReserveQuotaAt(&kueue.Admission{ClusterQueue: "b"}, now).Obj()),
 							},
@@ -279,7 +280,7 @@ func TestSnapshot(t *testing.T) {
 								},
 								FlavorFungibility: defaultFlavorFungibility,
 								Workloads: map[workload.Reference]*workload.Info{
-									"/alpha": workload.NewInfo(utiltestingapi.MakeWorkload("alpha", "").
+									"/alpha": workload.NewInfo(log, utiltestingapi.MakeWorkload("alpha", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
 										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
@@ -324,7 +325,7 @@ func TestSnapshot(t *testing.T) {
 								},
 								FlavorFungibility: defaultFlavorFungibility,
 								Workloads: map[workload.Reference]*workload.Info{
-									"/beta": workload.NewInfo(utiltestingapi.MakeWorkload("beta", "").
+									"/beta": workload.NewInfo(log, utiltestingapi.MakeWorkload("beta", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "1").
 											Request("example.com/gpu", "2").
@@ -337,7 +338,7 @@ func TestSnapshot(t *testing.T) {
 												Obj()).
 											Obj(), now).
 										Obj()),
-									"/gamma": workload.NewInfo(utiltestingapi.MakeWorkload("gamma", "").
+									"/gamma": workload.NewInfo(log, utiltestingapi.MakeWorkload("gamma", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "1").
 											Request("example.com/gpu", "1").
@@ -541,7 +542,7 @@ func TestSnapshot(t *testing.T) {
 								FlavorFungibility: defaultFlavorFungibility,
 								FairWeight:        defaultWeight,
 								Workloads: map[workload.Reference]*workload.Info{
-									"/alpha": workload.NewInfo(utiltestingapi.MakeWorkload("alpha", "").
+									"/alpha": workload.NewInfo(log, utiltestingapi.MakeWorkload("alpha", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
 										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
@@ -551,7 +552,7 @@ func TestSnapshot(t *testing.T) {
 												Obj()).
 											Obj(), now).
 										Obj()),
-									"/beta": workload.NewInfo(utiltestingapi.MakeWorkload("beta", "").
+									"/beta": workload.NewInfo(log, utiltestingapi.MakeWorkload("beta", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "1").Obj()).
 										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").
@@ -561,7 +562,7 @@ func TestSnapshot(t *testing.T) {
 												Obj()).
 											Obj(), now).
 										Obj()),
-									"/gamma": workload.NewInfo(utiltestingapi.MakeWorkload("gamma", "").
+									"/gamma": workload.NewInfo(log, utiltestingapi.MakeWorkload("gamma", "").
 										PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
 											Request(corev1.ResourceCPU, "2").Obj()).
 										ReserveQuotaAt(utiltestingapi.MakeAdmission("a").

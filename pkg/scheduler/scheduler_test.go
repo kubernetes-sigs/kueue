@@ -9240,7 +9240,7 @@ func TestResourcesToReserve(t *testing.T) {
 				Borrowing: tc.borrowing,
 				Usage:     workload.Usage{Quota: tc.assignmentUsage},
 			}
-			e := &entry{assignment: assignment, Head: qcache.Head{Info: *workload.NewInfo(
+			e := &entry{assignment: assignment, Head: qcache.Head{Info: *workload.NewInfo(log,
 				&kueue.Workload{},
 			)}}
 			cl := utiltesting.NewClientBuilder().
@@ -9814,8 +9814,8 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 		t.Fatal("ClusterQueue snapshot missing")
 	}
 
-	victimInfo := workload.NewInfo(victimWL)
-	otherInfo := workload.NewInfo(otherWL)
+	victimInfo := workload.NewInfo(log, victimWL)
+	otherInfo := workload.NewInfo(log, otherWL)
 	snapshot.AddWorkload(victimInfo)
 	snapshot.AddWorkload(otherInfo)
 

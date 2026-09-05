@@ -1245,7 +1245,7 @@ func TestFairPreemptions(t *testing.T) {
 			if tc.assignmentFlavor != "" {
 				flavorName = tc.assignmentFlavor
 			}
-			wlInfo := workload.NewInfo(tc.incoming)
+			wlInfo := workload.NewInfo(log, tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
 			targets := preemptor.GetTargets(ctx, *wlInfo, singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{
@@ -1311,6 +1311,7 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			_, setupLog := utiltesting.ContextWithLog(t)
 			// Count the FairSharing V(4) log entries. The first strategy logs
 			// one collapsed entry per candidate ClusterQueue, carrying a
 			// strategyEvaluations array (so its args include targetNewShare);
@@ -1372,7 +1373,7 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 
 			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, &config.FairSharing{},
 				false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
-			wlInfo := workload.NewInfo(unitWl.Clone().Name("a_incoming").Obj())
+			wlInfo := workload.NewInfo(setupLog, unitWl.Clone().Name("a_incoming").Obj())
 			wlInfo.ClusterQueue = "a"
 			targets := preemptor.GetTargets(ctx, *wlInfo, singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{
