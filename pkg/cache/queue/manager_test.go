@@ -2160,9 +2160,18 @@ func TestHeadsContextCancelledBeforeWait(t *testing.T) {
 	cancelledCtx, cancel := context.WithCancel(ctx)
 	cancel()
 
-	heads := manager.Heads(cancelledCtx)
-	if len(heads) != 0 {
-		t.Errorf("Heads returned %d elements, expected none", len(heads))
+	done := make(chan []Head, 1)
+	go func() {
+		done <- manager.Heads(cancelledCtx)
+	}()
+
+	select {
+	case heads := <-done:
+		if len(heads) != 0 {
+			t.Errorf("Heads returned %d elements, expected none", len(heads))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Heads blocked on cond.Wait instead of returning immediately on cancelled context")
 	}
 }
 
