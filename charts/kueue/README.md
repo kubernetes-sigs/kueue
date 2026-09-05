@@ -172,7 +172,10 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.backend.nodeSelector | object | `{}` | KueueViz backend nodeSelector |
 | kueueViz.backend.podSecurityContext | object | `{"runAsNonRoot":true,"seccompProfile":{"type":"RuntimeDefault"}}` | KueueViz backend pod securityContext |
 | kueueViz.backend.priorityClassName | string | `nil` | Enable PriorityClass for KueueViz dashboard backend deployments |
+| kueueViz.backend.rbac.create | bool | `true` | If true, create a ClusterRole(Binding) that grants the service account appropriate permissions |
 | kueueViz.backend.resources | object | `{"limits":{"cpu":"500m","memory":"512Mi"},"requests":{"cpu":"500m","memory":"512Mi"}}` | KueueViz backend pod resources |
+| kueueViz.backend.serviceAccount.create | bool | `false` | If true, create a ServiceAccount for the backend. |
+| kueueViz.backend.serviceAccount.name | string | `""` | Name of the ServiceAccount to create/use. Not set if empty and create is false. |
 | kueueViz.backend.tolerations | list | `[]` | KueueViz backend tolerations |
 | kueueViz.frontend.containerSecurityContext | object | `{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"readOnlyRootFilesystem":true}` | KueueViz frontend container securityContext |
 | kueueViz.frontend.env | list | `[]` | Environment variables for KueueViz frontend deployment |
