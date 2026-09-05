@@ -1030,6 +1030,14 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		}
 
 		if cj, implements := job.(ComposableJob); implements {
+			// Prebuilt composable workloads bypass the ordinary matching path. Run it
+			// here as well so replaced members are finalized before validating the
+			// prebuilt Workload against the remaining live members.
+			if match, _, matchErr := cj.FindMatchingWorkloads(ctx, r.client, r.record); matchErr != nil {
+				return nil, matchErr
+			} else if match != nil && match.Name == prebuiltWorkload {
+				wl = match
+			}
 			err = cj.EnsureWorkloadOwnedByAllMembers(ctx, r.client, r.record, wl)
 		} else {
 			err = EnsurePrebuiltWorkloadOwnership(ctx, r.client, wl, object)

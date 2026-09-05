@@ -530,6 +530,15 @@ func (p *Pod) Stop(ctx context.Context, c client.Client, _ []podset.PodSetInfo, 
 	stoppedNow := make([]client.Object, 0)
 	for i := range podsInGroup {
 		if !podsInGroup[i].DeletionTimestamp.IsZero() {
+			// A prebuilt Workload can disappear while its Pods are already deleting.
+			// There is no admission object left to coordinate with, so retaining the
+			// Kueue finalizer would make the deletion permanent.
+			if stopReason == jobframework.StopReasonNoMatchingWorkload && isDeletingPrebuiltPod(&podsInGroup[i]) {
+				if _, err := removePodFinalizers(ctx, c, &podsInGroup[i]); client.IgnoreNotFound(err) != nil {
+					return stoppedNow, err
+				}
+				continue
+			}
 			// Already deleting from an earlier Stop() call; finalize now if it has since terminated.
 			if p.shouldFinalizeNow(&podsInGroup[i], stopReason) {
 				if _, err := removePodFinalizers(ctx, c, &podsInGroup[i]); client.IgnoreNotFound(err) != nil {
@@ -897,13 +906,23 @@ func (p *Pod) validatePodGroupMetadata(r events.EventRecorder, activePods []core
 // partitionPods splits pods in the group into active and inactive pods
 func (p *Pod) partitionPods() (active, inactive []corev1.Pod) {
 	for i := range p.list.Items {
-		if isPodRunnableOrSucceeded(&p.list.Items[i]) {
+		pod := &p.list.Items[i]
+		// An external controller can replace a deleting member of a prebuilt
+		// group before kubelet records its terminal phase. Treat that member as
+		// inactive so the replacement, rather than the terminating Pod, consumes
+		// the fixed Workload slot.
+		if !isDeletingPrebuiltPod(pod) && isPodRunnableOrSucceeded(pod) {
 			active = append(active, p.list.Items[i])
 		} else {
 			inactive = append(inactive, p.list.Items[i])
 		}
 	}
 	return active, inactive
+}
+
+func isDeletingPrebuiltPod(pod *corev1.Pod) bool {
+	_, mirrored := pod.Labels[kueue.MultiKueueOriginLabel]
+	return !mirrored && !pod.DeletionTimestamp.IsZero() && jobframework.PrebuiltWorkloadNameFor(pod) != ""
 }
 
 // shouldFinalizeNow reports whether a group pod's finalizer can be removed as part of this
@@ -1281,20 +1300,31 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	if groupName == "" {
 		return jobframework.FindMatchingWorkloads(ctx, c, p)
 	}
+	prebuiltWorkload := jobframework.PrebuiltWorkloadNameFor(&p.pod)
+	workloadName := groupName
+	if prebuiltWorkload != "" {
+		workloadName = prebuiltWorkload
+	}
 
 	// Find a matching workload first if there is one.
 	workload := &kueue.Workload{}
-	if err := c.Get(ctx, types.NamespacedName{Name: groupName, Namespace: p.pod.GetNamespace()}, workload); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Name: workloadName, Namespace: p.pod.GetNamespace()}, workload); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil, nil
 		}
 		log.Error(err, "Unable to get related workload")
 		return nil, nil, err
 	}
+	// MultiKueue owns mirrored membership. A deleted manager Pod can still have a
+	// running worker copy, so trimming by age here could delete its replacement.
+	if _, mirrored := p.pod.Labels[kueue.MultiKueueOriginLabel]; prebuiltWorkload != "" && mirrored {
+		return workload, nil, nil
+	}
 
-	// Only adopt Workloads created by the pod-group framework. Refuse without putting the
-	// foreign Workload in toDelete, or the reconciler would delete the victim's Workload.
-	if features.Enabled(features.PodIntegrationValidateGroupOwner) &&
+	// For ordinary Pod groups, only adopt Workloads created by the pod-group framework.
+	// Refuse without putting the foreign Workload in toDelete, or the reconciler would
+	// delete the victim's Workload.
+	if prebuiltWorkload == "" && features.Enabled(features.PodIntegrationValidateGroupOwner) &&
 		workload.Annotations[podconstants.IsGroupWorkloadAnnotationKey] != podconstants.IsGroupWorkloadAnnotationValue {
 		log.V(4).Info("Existing workload with the pod group name was not created by the pod group framework; refusing adoption",
 			"workload", klog.KObj(workload))
@@ -1448,7 +1478,11 @@ func (p *Pod) ReclaimablePods(ctx context.Context, _ client.Client) ([]kueue.Rec
 
 	var result []kueue.ReclaimablePod
 	for _, pod := range p.list.Items {
-		if pod.Status.Phase == corev1.PodSucceeded {
+		// Do not count a deleting member of a prebuilt group as a finished slot,
+		// even if it Succeeded: in a fixed-size group the slot is mid-handover to
+		// a replacement, not done. Reclaimable counts only grow, so quota released
+		// here could never be reacquired for the replacement.
+		if pod.Status.Phase == corev1.PodSucceeded && !isDeletingPrebuiltPod(&pod) {
 			roleHash, err := getRoleHash(pod)
 			if err != nil {
 				return nil, err

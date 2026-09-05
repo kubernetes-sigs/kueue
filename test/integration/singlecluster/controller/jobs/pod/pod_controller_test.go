@@ -1781,7 +1781,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 			})
 
-			ginkgo.It("Should ungate pods with prebuilt workload", framework.SlowSpec, func() {
+			ginkgo.It("Should replace deleting members of an admitted prebuilt workload", framework.SlowSpec, func() {
 				const (
 					workloadName = "test-workload"
 				)
@@ -1872,6 +1872,50 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				ginkgo.By("Checking the second pod is unsuspended", func() {
 					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
 				})
+
+				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
+				workloadUID := wl.UID
+				admission := wl.Status.Admission.DeepCopy()
+				replacement := testingpod.MakePod("test-pod-replacement", ns.Name).
+					GroupNameLabel(workloadName).GroupTotalCount("2").
+					Request(corev1.ResourceCPU, "1").Queue(lq.Name).
+					PrebuiltWorkloadLabel(workloadName).RoleHash("leader").Obj()
+
+				ginkgo.By("Replacing a deleting, node-assigned Running member", func() {
+					util.BindPodWithNode(ctx, k8sClient, "node1", pod1, pod2)
+					util.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod1, pod2)
+					gomega.Expect(k8sClient.Delete(ctx, pod1, client.GracePeriodSeconds(0))).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Get(ctx, pod1LookupKey, pod1)).To(gomega.Succeed())
+					gomega.Expect(pod1.DeletionTimestamp.IsZero()).To(gomega.BeFalse())
+					gomega.Expect(pod1.Finalizers).To(gomega.ContainElement(podconstants.PodFinalizer))
+					util.MustCreate(ctx, k8sClient, replacement)
+				})
+
+				ginkgo.By("Finalizing the predecessor and admitting its replacement", func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, pod1, false)
+					util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(replacement), map[string]string{corev1.LabelArchStable: "arm64"})
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
+						g.Expect(wl.OwnerReferences).To(gomega.ContainElement(gomega.HaveField("UID", replacement.UID)))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Preserving admission, reserved quota, and the surviving member", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).To(gomega.Succeed())
+						g.Expect(wl.UID).To(gomega.Equal(workloadUID))
+						g.Expect(wl.Status.Admission).To(gomega.Equal(admission))
+						g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+						g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+						g.Expect(wl.Status.Conditions).NotTo(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+						g.Expect(wl.Status.ReclaimablePods).To(gomega.BeEmpty())
+						survivingPod := &corev1.Pod{}
+						g.Expect(k8sClient.Get(ctx, pod2LookupKey, survivingPod)).To(gomega.Succeed())
+						g.Expect(survivingPod.UID).To(gomega.Equal(pod2.UID))
+						g.Expect(survivingPod.DeletionTimestamp.IsZero()).To(gomega.BeTrue())
+					}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+				pod1 = replacement
 
 				ginkgo.By("Finish pods", func() {
 					util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod1)
