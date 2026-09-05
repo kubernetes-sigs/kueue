@@ -3581,6 +3581,43 @@ func TestSchedulingHash(t *testing.T) {
 		})
 	}
 
+	t.Run("workload slice replacement is excluded from equivalence hashing", func(t *testing.T) {
+		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+			features.SchedulingEquivalenceHashing: true,
+			features.ElasticJobsViaWorkloadSlices: true,
+		})
+		plain := utiltestingapi.MakeWorkload("wl-plain", "ns").
+			Request(corev1.ResourceCPU, "1").Obj()
+		plainInfo := NewInfo(plain)
+		plainInfo.UpdateSchedulingHash(logr.Discard())
+		if plainInfo.SchedulingHash == SchedulingHashUnknown {
+			t.Fatal("precondition failed: non-replacement workload should get a real scheduling hash")
+		}
+
+		// Two replacement workloads with an otherwise-identical shape must not be
+		// treated as scheduling-equivalent to each other or to a non-replacement
+		// workload, since only the replaced slice's own state (not modeled in the
+		// hash) determines whether either one actually fits.
+		replacement1 := utiltestingapi.MakeWorkload("wl-repl-1", "ns").
+			Request(corev1.ResourceCPU, "1").Obj()
+		replacement1.Annotations = map[string]string{kueue.WorkloadSliceReplacementForAnnotation: "ns/old-slice-1"}
+		replacement1Info := NewInfo(replacement1)
+		replacement1Info.UpdateSchedulingHash(logr.Discard())
+
+		replacement2 := utiltestingapi.MakeWorkload("wl-repl-2", "ns").
+			Request(corev1.ResourceCPU, "1").Obj()
+		replacement2.Annotations = map[string]string{kueue.WorkloadSliceReplacementForAnnotation: "ns/old-slice-2"}
+		replacement2Info := NewInfo(replacement2)
+		replacement2Info.UpdateSchedulingHash(logr.Discard())
+
+		if replacement1Info.SchedulingHash != SchedulingHashUnknown {
+			t.Errorf("expected replacement workload to get the unknown hash, got %q", replacement1Info.SchedulingHash)
+		}
+		if replacement2Info.SchedulingHash != SchedulingHashUnknown {
+			t.Errorf("expected replacement workload to get the unknown hash, got %q", replacement2Info.SchedulingHash)
+		}
+	})
+
 	t.Run("DRA translation producing different TotalRequests produces different hash", func(t *testing.T) {
 		_, log := utiltesting.ContextWithLog(t)
 		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{

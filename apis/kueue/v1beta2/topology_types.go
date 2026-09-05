@@ -102,6 +102,12 @@ const (
 	// associated with that Workload.
 	// This annotation is alpha-level for the ElasticJobsViaWorkloadSlices feature gate.
 	WorkloadSliceNameAnnotation = "kueue.x-k8s.io/workload-slice-name"
+
+	// WorkloadSliceReplacementForAnnotation is set on a new workload slice to indicate the key
+	// of the workload slice it is intended to replace (i.e., the "old" slice being scaled up
+	// from). It is only present on the newer, replacement side of a workload slice pair.
+	// This annotation is alpha-level for the ElasticJobsViaWorkloadSlices feature gate.
+	WorkloadSliceReplacementForAnnotation = "kueue.x-k8s.io/workload-slice-replacement-for"
 )
 
 // TopologySpec defines the desired state of Topology

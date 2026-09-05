@@ -443,6 +443,16 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	if !features.Enabled(features.SchedulingEquivalenceHashing) {
 		return SchedulingHashUnknown
 	}
+	// A workload-slice replacement is evaluated against the (unmodeled) state of the slice it
+	// replaces: the additional quota it needs is the delta between its own requests and what the
+	// replaced slice already holds. Two replacements can share an otherwise-identical scheduling
+	// shape while only one actually fits, so they must never be treated as equivalent — return
+	// the unknown hash to opt them out of class-wide bulk deferral entirely.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if _, found := wl.GetAnnotations()[kueue.WorkloadSliceReplacementForAnnotation]; found {
+			return SchedulingHashUnknown
+		}
+	}
 	effectivePriority := priority.EffectivePriority(log, wl)
 	podSetShapes := make([]map[string]any, 0, len(wl.Spec.PodSets))
 	for i, ps := range wl.Spec.PodSets {
