@@ -545,6 +545,55 @@ func TestReconcileGenericJob(t *testing.T) {
 					Obj(),
 			},
 		},
+		"non-controller owner reference matching the job name is not equivalent and gets updated in place": {
+			req:     baseReq,
+			job:     baseJob.DeepCopy(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				utiltestingapi.MakeWorkload("job-test-job-1", metav1.NamespaceDefault).
+					ResourceVersion("1").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					OwnerReference(testGVK, testJobName, "other-uid").
+					Queue(testLocalQueueName).
+					PodSets(*utiltestingapi.MakePodSet("old", 2).Obj()).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job-test-job-1", metav1.NamespaceDefault).
+					ResourceVersion("2").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					OwnerReference(testGVK, testJobName, "other-uid").
+					Queue(testLocalQueueName).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+					Priority(0).
+					Obj(),
+			},
+		},
+		"workload with no owner references at all is not matched and a new workload is created": {
+			req:     baseReq,
+			job:     baseJob.DeepCopy(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				utiltestingapi.MakeWorkload("orphan-wl", metav1.NamespaceDefault).
+					ResourceVersion("1").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(testLocalQueueName).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-ce737").Obj(),
+				*utiltestingapi.MakeWorkload("orphan-wl", metav1.NamespaceDefault).
+					ResourceVersion("1").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Queue(testLocalQueueName).
+					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+					Priority(0).
+					Obj(),
+			},
+		},
 		// Same group and kind, so the rename is legal while reserved.
 		"quota-reserved workload follows the owner to another workload priority class": {
 			req:     baseReq,
@@ -1368,55 +1417,6 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 			}
 			if cond.Status != metav1.ConditionFalse || cond.Reason != wantReason {
 				t.Errorf("Unexpected QuotaReserved condition status/reason: got %s/%s, want False/%s", cond.Status, cond.Reason, wantReason)
-			}
-		})
-	}
-}
-
-func TestEquivalentToWorkloadOwnerHandling(t *testing.T) {
-	job := testingjob.MakeJob("job", "ns").UID("job-uid").Obj()
-
-	nonControllerOwner := func(name string) []metav1.OwnerReference {
-		return []metav1.OwnerReference{{
-			APIVersion: batchv1.SchemeGroupVersion.String(),
-			Kind:       "Job",
-			Name:       name,
-			UID:        "other-uid",
-		}}
-	}
-
-	cases := map[string]struct {
-		ownerRefs []metav1.OwnerReference
-	}{
-		// Regression: the owner index matches non-controller owner references, so a
-		// Workload can reach EquivalentToWorkload with no controller owner. Before the
-		// guard, GetControllerOf returned nil and owner.Name panicked.
-		"non-controller owner reference matching the job name": {
-			ownerRefs: nonControllerOwner("job"),
-		},
-		"no owner references at all": {
-			ownerRefs: nil,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			mockctrl := gomock.NewController(t)
-			wl := utiltestingapi.MakeWorkload("wl", "ns").Obj()
-			wl.OwnerReferences = tc.ownerRefs
-
-			cl := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
-				WithObjects(job, wl).
-				Build()
-
-			mgj := mocks.NewMockGenericJob(mockctrl)
-			mgj.EXPECT().Object().Return(job).AnyTimes()
-
-			equivalent, err := EquivalentToWorkload(t.Context(), cl, mgj, wl)
-			if err != nil {
-				t.Fatalf("Unexpected error: %v", err)
-			}
-			if equivalent {
-				t.Error("A Workload not controlled by the job must not be equivalent")
 			}
 		})
 	}
