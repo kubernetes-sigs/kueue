@@ -36,13 +36,16 @@ jobs:
         id: validate
         run: |
           REQUIRED_ITEMS=(
+            ".github/actions/authorize-release-actor/action.yml"
             ".github/actions/create-draft-release/action.yml"
             ".github/actions/create-release-tag/action.yml"
             ".github/actions/generate-openvex/action.yml"
             ".github/actions/generate-sbom/action.yml"
             ".github/actions/publish-release/action.yml"
             ".github/actions/report-result/action.yml"
+            "hack/releasing/authorize_release_actor.py"
             "hack/releasing/log_to_issue.py"
+            "hack/releasing/requirements.txt"
           )
           MISSING=()
           for item in "${REQUIRED_ITEMS[@]}"; do
@@ -92,24 +95,12 @@ jobs:
 
       - name: Verify Actor Authorization
         id: auth
-        env:
-          ACTOR: ${{ github.actor }}
-          OWNERS_FILE: OWNERS_ALIASES
-        run: |
-          if [ ! -f "$OWNERS_FILE" ]; then
-            echo "error_message=❌ $OWNERS_FILE not found." >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
-          if ! python3 -c "
-          import os, yaml
-
-          aliases = yaml.safe_load(open(os.environ['OWNERS_FILE'])).get('aliases', {})
-          authorized = set(aliases.get('release-team', [])) | set(aliases.get('kueue-approvers', []))
-          raise SystemExit(0 if os.environ['ACTOR'] in authorized else 1)
-          "; then
-            echo "error_message=❌ Actor $ACTOR is not authorized." >> "$GITHUB_OUTPUT"
-            exit 1
-          fi
+        uses: ./.github/actions/authorize-release-actor
+        with:
+          actor: ${{ github.actor }}
+          aliases: |
+            release-team
+            kueue-approvers
 
       - name: Parse and Validate Command and Version
         id: parse
