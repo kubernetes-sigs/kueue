@@ -25,6 +25,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -33,6 +34,14 @@ type SetupControllersOption func(*setupControllersOptions)
 
 type setupControllersOptions struct {
 	podUsageOpts []podUsageOption
+	customLabels *metrics.CustomLabels
+}
+
+// WithCustomLabels sets the labels the ungater's scheduling-gate-removal metric is recorded with.
+func WithCustomLabels(cl *metrics.CustomLabels) SetupControllersOption {
+	return func(o *setupControllersOptions) {
+		o.customLabels = cl
+	}
 }
 
 // WithRequeueBatchInterval overrides the interval at which freed non-TAS
@@ -65,7 +74,7 @@ func SetupControllers(
 	if ctrlName, err := rfRec.setupWithManager(mgr, cache, cfg); err != nil {
 		return ctrlName, err
 	}
-	topologyUngater := newTopologyUngater(mgr.GetClient(), roleTracker)
+	topologyUngater := newTopologyUngater(mgr.GetClient(), roleTracker, options.customLabels)
 	if ctrlName, err := topologyUngater.setupWithManager(mgr, cfg); err != nil {
 		return ctrlName, err
 	}

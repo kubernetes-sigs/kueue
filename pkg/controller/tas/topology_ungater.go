@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
@@ -84,6 +85,7 @@ type topologyUngater struct {
 	clock             clock.Clock
 	expectationsStore *expectations.Store
 	roleTracker       *roletracker.RoleTracker
+	customLabels      *metrics.CustomLabels
 }
 
 type podWithUngateInfo struct {
@@ -103,7 +105,7 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*topologyUngater)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get
 
-func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker, opts ...topologyUngaterOption) *topologyUngater {
+func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels, opts ...topologyUngaterOption) *topologyUngater {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -113,6 +115,7 @@ func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker, o
 		clock:             options.clock,
 		expectationsStore: expectations.NewStore(TASTopologyUngater),
 		roleTracker:       roleTracker,
+		customLabels:      customLabels,
 	}
 }
 
@@ -325,7 +328,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 			// We don't expect an event in this case.
 			r.expectationsStore.ObservedUID(log, req.NamespacedName, podWithUngateInfo.pod.UID)
 		} else {
-			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.TopologySchedulingGate, wl, utilpod.IsPodGroup(podWithUngateInfo.pod), r.roleTracker)
+			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.TopologySchedulingGate, wl, utilpod.IsPodGroup(podWithUngateInfo.pod), r.customLabels, r.roleTracker)
 		}
 		return e
 	})
