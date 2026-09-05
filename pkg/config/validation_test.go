@@ -416,6 +416,40 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"negative multiKueue.objectRetentionPolicies.remoteObjects.afterFinished": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ObjectRetentionPolicies: &configapi.MultiKueueObjectRetentionPolicies{
+						RemoteObjects: &configapi.RemoteObjectRetentionPolicy{
+							AfterFinished: &metav1.Duration{
+								Duration: -time.Second,
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "multiKueue.objectRetentionPolicies.remoteObjects.afterFinished",
+				},
+			},
+		},
+		"zero multiKueue.objectRetentionPolicies.remoteObjects.afterFinished": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				MultiKueue: &configapi.MultiKueue{
+					ObjectRetentionPolicies: &configapi.MultiKueueObjectRetentionPolicies{
+						RemoteObjects: &configapi.RemoteObjectRetentionPolicy{
+							AfterFinished: &metav1.Duration{
+								Duration: 0,
+							},
+						},
+					},
+				},
+			},
+		},
 		"invalid .multiKueue.origin label value": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,

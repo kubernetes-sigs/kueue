@@ -279,6 +279,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: MultiKueueRemoteObjectRetention
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: MultiKueueRemoteSpecSync
   versionedSpecs:
   - default: true
