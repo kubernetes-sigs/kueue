@@ -42,8 +42,6 @@ const Workloads = () => {
 
   const error = workloadsError || namespacesError;
 
-  if (error) return <ErrorMessage error={error} />;
-
   // Group workloads by namespace
   const workloadsByNamespace = workloads.reduce((acc, workload) => {
     const namespace = workload.metadata.namespace;
@@ -77,17 +75,19 @@ const Workloads = () => {
         </Select>
       </FormControl>
       
-      {workloadsData === null ? (
+      {error ? (
+        <ErrorMessage error={error} />
+      ) : workloadsData === null ? (
         <Box display="flex" justifyContent="center" my={4}>
           <CircularProgress />
         </Box>
       ) : workloads.length === 0 ? (
-        <Typography>
+        <Alert severity="info">
           {selectedNamespace === '' 
             ? 'No workloads found in any namespace.' 
             : `No workloads found in namespace "${selectedNamespace}". Ready to monitor when workloads are submitted!`
           }
-        </Typography>
+        </Alert>
       ) : (
         <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>

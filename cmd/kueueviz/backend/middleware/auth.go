@@ -21,8 +21,10 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +32,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
 	authenticationv1 "k8s.io/api/authentication/v1"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilcache "k8s.io/apimachinery/pkg/util/cache"
 	"k8s.io/client-go/kubernetes"
 )
@@ -46,7 +50,36 @@ const (
 	// bounding memory regardless of how many unique (invalid) tokens an attacker
 	// sends.
 	defaultCacheSize = 1024
+
+	ContextKeyIdentity = "identity"
+	ContextKeyToken    = "token"
+	ContextKeyWSError  = "ws_error"
+	ContextKeyWSStatus = "ws_status"
+
+	// Custom WebSocket close codes for granular error reporting
+	wsCloseUnauthorized       = 4001
+	wsCloseServiceUnavailable = 4002
+	wsCloseForbidden          = 4003
 )
+
+// Identity represents the authenticated Kubernetes user.
+type Identity struct {
+	Username string
+	Groups   []string
+	UID      string
+	Extra    map[string][]string
+}
+
+// IdentityFromContext returns the authenticated caller's identity as recorded by Middleware.
+// Returns false if authentication is disabled or failed.
+func IdentityFromContext(c *gin.Context) (Identity, bool) {
+	val, exists := c.Get(ContextKeyIdentity)
+	if !exists {
+		return Identity{}, false
+	}
+	identity, ok := val.(Identity)
+	return identity, ok
+}
 
 type realClock struct{}
 
@@ -54,7 +87,7 @@ func (realClock) Now() time.Time { return time.Now() }
 
 type cacheEntry struct {
 	authenticated bool
-	username      string
+	identity      Identity
 }
 
 type AuthConfig struct {
@@ -151,22 +184,22 @@ func (a *Authenticator) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := extractToken(c.Request)
 		if token == "" {
-			abortUnauthorized(c, "missing bearer token")
+			abortWithWebSocketAwareStatus(c, http.StatusUnauthorized, "missing bearer token", wsCloseUnauthorized)
 			return
 		}
 
-		authenticated, username, err := a.authenticate(c.Request.Context(), token)
+		authenticated, identity, err := a.authenticate(c.Request.Context(), token)
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "authentication service unavailable"})
+			abortWithWebSocketAwareStatus(c, http.StatusServiceUnavailable, "authentication service unavailable", wsCloseServiceUnavailable)
 			return
 		}
 		if !authenticated {
-			abortUnauthorized(c, "invalid token")
+			abortWithWebSocketAwareStatus(c, http.StatusUnauthorized, "invalid token", wsCloseUnauthorized)
 			return
 		}
 
-		c.Set("username", username)
-		c.Set("token", token)
+		c.Set(ContextKeyIdentity, identity)
+		c.Set(ContextKeyToken, token)
 		c.Next()
 	}
 }
@@ -174,15 +207,15 @@ func (a *Authenticator) Middleware() gin.HandlerFunc {
 // authenticate hashes the token, checks the shared TTL cache, and falls back
 // to a live TokenReview when the cache entry is absent or expired. The result
 // is written back to the cache before returning.
-func (a *Authenticator) authenticate(ctx context.Context, token string) (bool, string, error) {
+func (a *Authenticator) authenticate(ctx context.Context, token string) (bool, Identity, error) {
 	key := hashToken(token)
 	if cachedRaw, ok := a.cache.Get(key); ok {
 		cached := cachedRaw.(cacheEntry)
-		return cached.authenticated, cached.username, nil
+		return cached.authenticated, cached.identity, nil
 	}
-	authenticated, username, err := a.reviewToken(ctx, token)
+	authenticated, identity, err := a.reviewToken(ctx, token)
 	if err != nil {
-		return false, "", err
+		return false, Identity{}, err
 	}
 	ttl := a.config.NegativeCacheTTL
 	if authenticated {
@@ -190,9 +223,9 @@ func (a *Authenticator) authenticate(ctx context.Context, token string) (bool, s
 	}
 	a.cache.Add(key, cacheEntry{
 		authenticated: authenticated,
-		username:      username,
+		identity:      identity,
 	}, ttl)
-	return authenticated, username, nil
+	return authenticated, identity, nil
 }
 
 // ValidateToken performs a live TokenReview against the Kubernetes API,
@@ -204,7 +237,7 @@ func (a *Authenticator) ValidateToken(ctx context.Context, token string) (bool, 
 	return authenticated, err
 }
 
-func (a *Authenticator) reviewToken(ctx context.Context, token string) (bool, string, error) {
+func (a *Authenticator) reviewToken(ctx context.Context, token string) (bool, Identity, error) {
 	review := &authenticationv1.TokenReview{
 		Spec: authenticationv1.TokenReviewSpec{
 			Token:     token,
@@ -215,15 +248,37 @@ func (a *Authenticator) reviewToken(ctx context.Context, token string) (bool, st
 	result, err := a.clientset.AuthenticationV1().TokenReviews().Create(ctx, review, metav1.CreateOptions{})
 	if err != nil {
 		slog.Error("TokenReview request failed", "error", err)
-		return false, "", err
+		return false, Identity{}, err
 	}
 
-	return result.Status.Authenticated, result.Status.User.Username, nil
+	var extra map[string][]string
+	if len(result.Status.User.Extra) > 0 {
+		extra = make(map[string][]string, len(result.Status.User.Extra))
+		for k, v := range result.Status.User.Extra {
+			extra[k] = v
+		}
+	}
+
+	identity := Identity{
+		Username: result.Status.User.Username,
+		Groups:   result.Status.User.Groups,
+		UID:      result.Status.User.UID,
+		Extra:    extra,
+	}
+
+	return result.Status.Authenticated, identity, nil
 }
 
-func abortUnauthorized(c *gin.Context, message string) {
-	c.Header("WWW-Authenticate", "Bearer")
-	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": message})
+func abortWithWebSocketAwareStatus(c *gin.Context, httpStatus int, message string, wsStatus int) {
+	if c.GetHeader("Upgrade") == "websocket" {
+		c.Set(ContextKeyWSError, message)
+		c.Set(ContextKeyWSStatus, wsStatus)
+		return
+	}
+	if httpStatus == http.StatusUnauthorized {
+		c.Header("WWW-Authenticate", "Bearer")
+	}
+	c.AbortWithStatusJSON(httpStatus, gin.H{"error": message})
 }
 
 func extractToken(r *http.Request) string {
@@ -247,4 +302,163 @@ func extractToken(r *http.Request) string {
 func hashToken(token string) string {
 	h := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(h[:])
+}
+
+// Authorizer decides whether an authenticated caller may perform an action on a resource.
+type Authorizer interface {
+	Authorize(ctx context.Context, identity Identity, attributes authorizationv1.ResourceAttributes) (bool, error)
+}
+
+type sarAuthorizer struct {
+	client kubernetes.Interface
+	config AuthConfig
+	cache  *utilcache.LRUExpireCache
+	clock  utilcache.Clock
+}
+
+type sarCacheKey struct {
+	User        string
+	Groups      string
+	UID         string
+	Extra       string
+	Verb        string
+	Group       string
+	Version     string
+	Resource    string
+	Subresource string
+	Namespace   string
+	Name        string
+}
+
+func formatExtra(extra map[string][]string) string {
+	if len(extra) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(extra))
+	for k := range extra {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+
+	var b strings.Builder
+	for _, k := range keys {
+		b.WriteString(k)
+		b.WriteString("=")
+		b.WriteString(strings.Join(extra[k], ","))
+		b.WriteString(";")
+	}
+	return b.String()
+}
+
+func cacheKeyForSAR(identity Identity, attributes authorizationv1.ResourceAttributes) sarCacheKey {
+	return sarCacheKey{
+		User:        identity.Username,
+		Groups:      strings.Join(identity.Groups, ","),
+		UID:         identity.UID,
+		Extra:       formatExtra(identity.Extra),
+		Verb:        attributes.Verb,
+		Group:       attributes.Group,
+		Version:     attributes.Version,
+		Resource:    attributes.Resource,
+		Subresource: attributes.Subresource,
+		Namespace:   attributes.Namespace,
+		Name:        attributes.Name,
+	}
+}
+
+func NewSARAuthorizer(client kubernetes.Interface, config AuthConfig) Authorizer {
+	size := config.CacheSize
+	if size <= 0 {
+		size = defaultCacheSize
+	}
+	clock := utilcache.Clock(realClock{})
+	return &sarAuthorizer{
+		client: client,
+		config: config,
+		cache:  utilcache.NewLRUExpireCacheWithClock(size, clock),
+		clock:  clock,
+	}
+}
+
+func (a *sarAuthorizer) Authorize(ctx context.Context, identity Identity, attributes authorizationv1.ResourceAttributes) (bool, error) {
+	key := cacheKeyForSAR(identity, attributes)
+	if val, ok := a.cache.Get(key); ok {
+		if allowed, ok := val.(bool); ok {
+			return allowed, nil
+		}
+	}
+
+	var sarExtra map[string]authorizationv1.ExtraValue
+	if len(identity.Extra) > 0 {
+		sarExtra = make(map[string]authorizationv1.ExtraValue, len(identity.Extra))
+		for k, v := range identity.Extra {
+			sarExtra[k] = authorizationv1.ExtraValue(v)
+		}
+	}
+
+	review := &authorizationv1.SubjectAccessReview{
+		Spec: authorizationv1.SubjectAccessReviewSpec{
+			User:               identity.Username,
+			Groups:             identity.Groups,
+			UID:                identity.UID,
+			Extra:              sarExtra,
+			ResourceAttributes: &attributes,
+		},
+	}
+	result, err := a.client.AuthorizationV1().SubjectAccessReviews().Create(ctx, review, metav1.CreateOptions{})
+	if err != nil {
+		slog.Error("SubjectAccessReview request failed", "error", err)
+		return false, err
+	}
+
+	allowed := result.Status.Allowed
+	ttl := a.config.NegativeCacheTTL
+	if allowed {
+		ttl = a.config.CacheTTL
+	}
+	a.cache.Add(key, allowed, ttl)
+
+	return allowed, nil
+}
+
+func RequireAuthorization(authorizer Authorizer, getRequests func(c *gin.Context) []authorizationv1.ResourceAttributes) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, exists := c.Get(ContextKeyWSError); exists {
+			return
+		}
+
+		if authorizer == nil {
+			c.Next()
+			return
+		}
+		identity, _ := IdentityFromContext(c)
+		requests := getRequests(c)
+
+		if c.IsAborted() {
+			return
+		}
+
+		for _, req := range requests {
+			allowed, err := authorizer.Authorize(c.Request.Context(), identity, req)
+			if err != nil {
+				abortWithWebSocketAwareStatus(c, http.StatusServiceUnavailable, "authorization service unavailable", wsCloseServiceUnavailable)
+				return
+			}
+			if !allowed {
+				abortWithWebSocketAwareStatus(c, http.StatusForbidden, fmt.Sprintf("forbidden: cannot %s %s", req.Verb, req.Resource), wsCloseForbidden)
+				return
+			}
+		}
+		c.Next()
+	}
+}
+
+func ResourceAccess(verb string, gvr schema.GroupVersionResource, namespace, name string) authorizationv1.ResourceAttributes {
+	return authorizationv1.ResourceAttributes{
+		Verb:      verb,
+		Group:     gvr.Group,
+		Resource:  gvr.Resource,
+		Namespace: namespace,
+		Name:      name,
+	}
 }

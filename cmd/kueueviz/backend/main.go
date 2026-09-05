@@ -78,7 +78,7 @@ func main() {
 		IdleTimeout: 90 * time.Second,
 	}
 
-	h := handlers.New(handlers.NewClientFromManager(manager), nil)
+	h := handlers.New(handlers.NewClientFromManager(manager), nil, nil)
 
 	publicRoutes := r.Group("/")
 	handlers.InitializeUnauthenticatedRoutes(publicRoutes, serverConfig.AuthMode)
@@ -93,7 +93,8 @@ func main() {
 		slog.Info("Authentication enabled", "mode", serverConfig.AuthMode)
 		auth := middleware.NewAuthenticator(clientset, serverConfig.AuthConfig)
 		protectedRoutes.Use(auth.Middleware())
-		h = handlers.New(handlers.NewClientFromManager(manager), auth)
+		authorizer := middleware.NewSARAuthorizer(clientset, serverConfig.AuthConfig)
+		h = handlers.New(handlers.NewClientFromManager(manager), auth, authorizer)
 	}
 
 	h.InitializeWebSocketRoutes(protectedRoutes)

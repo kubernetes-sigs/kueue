@@ -689,6 +689,9 @@ files:
             - apiGroups: ["authentication.k8s.io"]
               resources: ["tokenreviews"]
               verbs: ["create"]
+            - apiGroups: ["authorization.k8s.io"]
+              resources: ["subjectaccessreviews"]
+              verbs: ["create"]
           {{- end }}
         onFileCondition: '.kind == "ClusterRole"'
       - type: INSERT_TEXT

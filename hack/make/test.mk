@@ -819,6 +819,8 @@ test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz with
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-local.sh
+	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
+	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-rbac-bypass.sh
 
 .PHONY: test-e2e-kueueviz
 test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
@@ -827,6 +829,9 @@ test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without ru
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
 	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh
+	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
+	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
+	${PROJECT_DIR}/hack/testing/e2e-kueueviz-rbac-bypass.sh
 
 .PHONY: verify-ci-build-times
 verify-ci-build-times: ## Verify that CI build times are below threshold.
