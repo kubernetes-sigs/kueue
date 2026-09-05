@@ -736,6 +736,61 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				WaitForPodsReady: defaultWaitForPodsReady,
 			},
 		},
+		"defaulting admissionFairSharing": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				AdmissionFairSharing: &AdmissionFairSharing{},
+			},
+			want: &Configuration{
+				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
+				Namespace:            new(DefaultNamespace),
+				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				AdmissionFairSharing: &AdmissionFairSharing{
+					UsageHalfLifeTime:     metav1.Duration{Duration: time.Hour},
+					UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+				},
+				VisibilityServer: defaultVisibilityServer,
+				WaitForPodsReady: defaultWaitForPodsReady,
+			},
+		},
+		"respecting provided admissionFairSharing values": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				AdmissionFairSharing: &AdmissionFairSharing{
+					UsageHalfLifeTime:     metav1.Duration{Duration: 24 * time.Hour},
+					UsageSamplingInterval: metav1.Duration{Duration: time.Minute},
+				},
+			},
+			want: &Configuration{
+				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
+				Namespace:            new(DefaultNamespace),
+				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection:             defaultClientConnection,
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				AdmissionFairSharing: &AdmissionFairSharing{
+					UsageHalfLifeTime:     metav1.Duration{Duration: 24 * time.Hour},
+					UsageSamplingInterval: metav1.Duration{Duration: time.Minute},
+				},
+				VisibilityServer: defaultVisibilityServer,
+				WaitForPodsReady: defaultWaitForPodsReady,
+			},
+		},
 	}
 
 	for name, tc := range testCases {

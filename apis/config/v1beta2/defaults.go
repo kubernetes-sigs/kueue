@@ -145,6 +145,7 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	}
 
 	if afs := cfg.AdmissionFairSharing; afs != nil {
+		afs.UsageHalfLifeTime.Duration = cmp.Or(afs.UsageHalfLifeTime.Duration, time.Hour)
 		afs.UsageSamplingInterval.Duration = cmp.Or(afs.UsageSamplingInterval.Duration, 5*time.Minute)
 	}
 	cfg.VisibilityServer = cmp.Or(cfg.VisibilityServer, &VisibilityServerConfiguration{})

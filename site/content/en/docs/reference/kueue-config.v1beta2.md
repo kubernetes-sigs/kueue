@@ -190,8 +190,9 @@ of Kueue-managed objects. A nil value disables all automatic deletions.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
 </td>
 <td>
-   <p>usageHalfLifeTime indicates the time after which the current usage will decay by a half
-If set to 0, usage will be reset to 0 immediately.</p>
+   <p>usageHalfLifeTime indicates the time after which the current usage will decay by a half.
+Defaults to 1h. Jobs that run for longer are usually better served by a longer
+half-life, such as 12h or 24h.</p>
 </td>
 </tr>
 <tr><td><code>usageSamplingInterval</code> <B>[Required]</B><br/>
