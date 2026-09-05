@@ -9,6 +9,7 @@
   - [User Stories](#user-stories)
   - [Policy source](#policy-source)
   - [Notes and constraints](#notes-and-constraints)
+  - [Compatibility with user-set scheduling](#compatibility-with-user-set-scheduling)
   - [Risks and mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [Defaulting rules](#defaulting-rules)
@@ -41,6 +42,7 @@ Workload-Aware Scheduling (WAS) lets a Job request gang scheduling through `spec
 
 This KEP adds an administrator-controlled default that sets `spec.scheduling.schedulingPolicy.gang: {}` and `spec.scheduling.disruptionMode.all: {}` on eligible Kueue-managed Jobs at creation time.
 A Job that sets `spec.scheduling` itself is never modified.
+A user-set `spec.scheduling` raises a second question, which this KEP also answers: a WAS semantic Kueue does not reason about at admission can conflict with how Kueue admits the Job, so this KEP defines the alpha behavior for each semantic a Job can express.
 
 ## Motivation
 
@@ -64,7 +66,8 @@ Defining what Kueue does with each of those semantics is the other half of this 
 
 - Add an alpha feature gate, default off, for administrator-controlled gang scheduling defaults.
 - Default `spec.scheduling.schedulingPolicy.gang: {}` and `spec.scheduling.disruptionMode.all: {}` on eligible Kueue-managed `batch/v1` Jobs at creation time.
-- Leave every Job that sets `spec.scheduling` itself untouched.
+- Never write into a `spec.scheduling` that the user set.
+- Define and document alpha's behavior for each WAS semantic a Job can set through `spec.scheduling`, and fail visibly for the combinations alpha determines are incompatible.
 - Define Job eligibility and the reason for excluding other Job shapes.
 - Define the interaction with partial admission, workload slices, suspend and resume, `waitForPodsReady`, and MultiKueue.
 - Define behavior and observability when the upstream API or feature gate is unavailable.
@@ -110,7 +113,8 @@ This document writes `kueue.Workload` for the Kueue queueing unit and `schedulin
 - As a platform administrator of a shared GPU cluster, I enable the feature once instead of asking every team to add `spec.scheduling` to its manifests.
 - As an ML engineer, I want an all-at-once Job to start only when all its Pods can be placed, without learning the WAS API.
   For a Job that should not use gang scheduling, I set `schedulingPolicy.basic: {}`.
-- As an existing user, I see no change unless an administrator enables the feature.
+- As a user who already wrote `spec.scheduling`, I keep what I wrote, and where Kueue cannot honor it I am told at creation rather than watching the Job hold quota and never start.
+- As an existing user who writes no `spec.scheduling`, I see no change unless an administrator enables the feature.
 
 ### Policy source
 
@@ -132,6 +136,23 @@ What carries the administrator's intent once the gate graduates is [OQ4](#open-q
 - **API support constrains when Kueue may mutate.**
   A cluster that does not honor the field discards it silently at write time, and it cannot be restored on that Job afterwards.
   See [Feature gate and API availability](#feature-gate-and-api-availability).
+
+### Compatibility with user-set scheduling
+
+Kueue never mutates a user-set `spec.scheduling`, but some of its semantics still interact with Kueue admission.
+Alpha handles them as follows:
+
+| WAS intent | Compatibility | Alpha behavior |
+|---|---|---|
+| `schedulingPolicy.basic` | Compatible | Preserve. This is the supported opt-out. |
+| `schedulingPolicy.gang` | Compatible | Preserve. An explicit `minCount` excludes partial admission in alpha ([OQ1](#open-questions), [OQ2](#open-questions)). |
+| `disruptionMode.all` | Compatible | Preserve. It matches Kueue's Job-granularity eviction. |
+| `disruptionMode.single` | Unresolved | Preserve for alpha; scheduler-side disruption may break up an admitted gang ([OQ9](#open-questions)). |
+| `schedulingConstraints.topology` | Potential conflict | Proposed refusal; enforcement and gating are [OQ7](#open-questions) and [OQ8](#open-questions). |
+| `resourceClaims` | Out of scope | Preserve. A `resourceClaims`-only Job also loses the default, because rule 5 owns the whole field ([Drawbacks](#drawbacks)). |
+
+`CompositePodGroup` is not expressed through `Job.spec.scheduling` and is not supported by the Job integration today.
+Hierarchical-group compatibility is future work.
 
 ### Risks and mitigations
 
@@ -186,7 +207,7 @@ Consuming user-provided `PodGroup`s belongs to [KEP-13150](/keps/13150-bring-you
 Rule 5 keys on the presence of `spec.scheduling`, not on the scheduling policy inside it.
 Presence means presence in the admission request, which is the only version of the object a webhook sees; on a cluster that does not preserve the field, the request carries it and the stored Job does not.
 A Job that sets any part of the field owns all of it, so Kueue writes the two fields together or not at all.
-What Kueue should do with the contents of a user-set `spec.scheduling`, for example a `gang.minCount` that differs from `parallelism` or `schedulingConstraints` on their own, is deliberately left to the follow-up in [Future extensions](#future-extensions).
+What Kueue does with the contents is a separate question from whether it writes them, and is answered in [Compatibility with user-set scheduling](#compatibility-with-user-set-scheduling); a `gang.minCount` that differs from `parallelism` is the one case still left to the follow-up in [Future extensions](#future-extensions).
 
 The presence test also keeps Kueue out of upstream admission decisions.
 A Job that sets `disruptionMode.all` and no policy is rejected today: Job validation resolves an unset policy to `Basic`, through a default configuration it shares with the Job controller so that the two cannot drift, and rejects "the disruptionMode `all` is not supported with the Basic scheduling policy".
@@ -309,6 +330,7 @@ That work depends on upstream settling what a partially specified `spec.scheduli
 | OQ4 | What carries the administrator's cluster-level choice once `BatchJobGangSchedulingByDefault` graduates? | Open. Alpha needs nothing, since the gate is default-off and enabling it is itself the administrator's choice. Once the gate defaults on, the behavior becomes cluster-wide with only a per-Job opt-out. `WorkloadPriorityClass` defaulting has a second switch, the presence of a `WorkloadPriorityClass` named `default`, and gang has no object whose presence can carry the same intent. |
 | OQ5 | Should defaulting be skipped when workload slices are enabled? | Yes for alpha, because the Kueue-side slice semantics are unverified. |
 | OQ6 | Should a preflight probe replace the check after creation for clusters that discard the field? | Beta. The version rule and the annotation comparison in [Feature gate and API availability](#feature-gate-and-api-availability) are enough while the gate is default-off; a probe buys pre-admission detection, and a per-cluster result that MultiKueue workers could be checked against, at the cost of a cache contract. |
+| OQ9 | What compatibility contract should Kueue offer for a user-set `disruptionMode.single`? | Open. Upstream lets the scheduler disrupt Pods of the group individually, so on a Job that also sets `gang` it can preempt Pods out of a group Kueue has admitted. Whether Kueue's eviction and preemption paths assume disruption is all-or-nothing has not been verified. The positions are to preserve it as today, to refuse it as with `schedulingConstraints`, or to reconcile the two disruption units; alpha proposes preserving it. |
 
 ### Upstream dependencies
 
@@ -401,6 +423,12 @@ Kueue changes the scheduling policy of a Job without a per-Job request.
 The default-off feature gate, the eligibility rules, and the object-level opt-out reduce that risk without removing it.
 Because the gate is the only control, an administrator cannot narrow the default to part of the cluster except by narrowing which Jobs Kueue manages.
 The implementation also depends on an upstream field whose availability varies across clusters, which adds version and gate checks to both single-cluster and MultiKueue operation.
+
+Rule 5's presence test costs reach in a case nobody intends.
+A Job that sets only `spec.scheduling.resourceClaims` has expressed no scheduling policy at all and still loses both defaults.
+Keying on the policy-bearing fields instead would recover it, and is rejected for the reason under [Alternatives](#alternatives), that it makes Kueue read a half-specified field whose meaning upstream has not settled.
+Alpha accepts the loss rather than resolving it.
+
 
 Keying rule 5 on the presence of `spec.scheduling` also gives up reach, and does so unpredictably when another mutating webhook writes the same field.
 A Job that reaches Kueue with `schedulingConstraints` already added loses the default; a Job that reaches Kueue without them, and acquires them afterwards, keeps the injected gang and ends up with the combination this KEP says it does not produce.
