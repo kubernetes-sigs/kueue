@@ -27,24 +27,18 @@ import (
 )
 
 // Amount is an exact integer resource amount, in the unit the resource is
-// accounted in: milliCPU for cpu, whole units for everything else.
-//
-// Values inside the int64 range are held in small and cost no allocation. A
-// result that leaves that range is held in large instead, and one that comes
-// back inside it is held in small again.
-//
-// A stored *big.Int is never mutated and never handed out. big.Int does not
-// support shallow copies, while resourceNode.Clone and
-// FlavorResourceQuantities.Clone copy their maps shallowly, so a snapshot and
-// the cache it came from share these pointers. Treating them as immutable is
-// what makes that sharing safe, and nothing outside this package can reach one
-// to break it.
-//
-// The zero-sized func field makes Amount uncomparable, so == is a compile error
-// rather than an answer about the pointer in large. Use Equal or Cmp.
+// accounted in: milliCPU for cpu, whole units for everything else. Equal
+// amounts are held the same way however they were reached.
 type Amount struct {
-	_     [0]func()
+	// Makes Amount uncomparable, so == is a compile error rather than an
+	// answer about the pointer in large. Use Equal or Cmp.
+	_ [0]func()
+	// Holds the value while it fits an int64, at no allocation cost.
 	small int64
+	// Holds it otherwise, and is never mutated or handed out. big.Int has no
+	// shallow copy, and resourceNode and FlavorResourceQuantities clone their
+	// maps shallowly, so a snapshot shares this pointer with the cache it came
+	// from; immutability is what makes that safe.
 	large *big.Int
 }
 
@@ -96,24 +90,20 @@ func (a Amount) big() *big.Int {
 }
 
 // AmountFromQuantity converts one API Quantity into the unit the resource is
-// accounted in, milli for CPU. A magnitude past what a Quantity carries is
-// capped at the same ceiling AmountQuantity reports back, so the boundary is
-// reached in one pass rather than moving each time a value crosses it: the
-// parser caps the binary spelling there and not the decimal one, and taking
-// either at face value would let the same quota differ by the suffix it was
-// written with. It reads the decimal the Quantity holds rather than Value or
-// MilliValue, which document that they may overflow: at the smallest int64
-// milliCPU, MilliValue returns zero.
-//
-// All quota-side conversion (Nominal, BorrowingLimit, LendingLimit) goes
-// through here. ResourceValue is the equivalent for workload requests, which
-// clamp to the int64 range instead.
+// accounted in, milli for CPU, capping a magnitude past what a Quantity carries
+// at the ceiling AmountQuantity reports back. All quota-side conversion goes
+// through here (Nominal, BorrowingLimit, LendingLimit); ResourceValue is the
+// workload-request equivalent, which clamps instead.
 func AmountFromQuantity(name corev1.ResourceName, q resource.Quantity) Amount {
 	return fromBig(scaledBig(name, q))
 }
 
 // scaledBig returns the quantity in the unit the resource is accounted in,
-// rounding away from zero the way Quantity.Value and MilliValue do.
+// rounding away from zero the way Quantity.Value and MilliValue do. It reads
+// the decimal the Quantity holds rather than those two, which document that
+// they may overflow: at the smallest int64 milliCPU, MilliValue returns zero.
+// The parser caps the binary spelling at the Quantity ceiling and not the
+// decimal one, so the bound below is applied to both spellings.
 func scaledBig(name corev1.ResourceName, q resource.Quantity) *big.Int {
 	d := q.AsDec()
 	unscaled := new(big.Int).Set(d.UnscaledBig())

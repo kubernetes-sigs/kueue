@@ -153,20 +153,15 @@ func CompareDRS(a, b DRS) int {
 // roundedWeightedShare returns a value ranging from 0 to math.MaxInt64,
 // representing the maximum of the ratios of usage above nominal quota
 // to the lendable resources in the cohort, among all the resources
-// provided by the ClusterQueue, and divided by the weight.  The
-// function also returns the resource name that yielded this value.
-// When the FairSharing weight is 0, and the ClusterQueue or Cohort is
-// borrowing, we return math.MaxInt64.
-//
-// Zero usually means usage is below nominal quota. It also covers a
-// borrower for which no borrowed resource had a positive lendable
-// amount to divide by: that share is absent rather than small, and
-// this function keeps the ordering it has today rather than defining
-// a new one for it.
+// provided by the ClusterQueue, and divided by the weight.  If zero,
+// the usage is below the nominal quota, or the borrower had no
+// positive lendable amount to divide by.  The function also returns
+// the resource name that yielded this value.  When the FairSharing
+// weight is 0, and the ClusterQueue or Cohort is borrowing, we return
+// math.MaxInt64.
 func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
-	// The same conversion the ClusterQueue and Cohort status write through, so
-	// the value a test reads here and the value an operator reads there cannot
-	// come from two different rules.
+	// The conversion the ClusterQueue and Cohort status write through, so a
+	// test and an operator cannot read two different rules.
 	return utilmath.SaturatingCeilToNonNegativeInt64(d.PreciseWeightedShare()), d.dominantResource
 }
 

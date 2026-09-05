@@ -243,17 +243,21 @@ func TestScaledBigMatchesTheAccessors(t *testing.T) {
 // TestExceedsQuantity, which decide them from the digit count and build
 // nothing.
 func TestAmountFromQuantityBelowOneAtALargeScale(t *testing.T) {
-	for _, tc := range []struct {
+	cases := map[string]struct {
 		unscaled int64
 		want     string
 	}{
-		{1, "1"},
-		{-1, "-1"},
-	} {
-		q := resource.NewDecimalQuantity(*inf.NewDec(tc.unscaled, 100_000), resource.DecimalSI)
-		if got := AmountFromQuantity("example.com/gpu", *q); got.String() != tc.want {
-			t.Errorf("AmountFromQuantity(%d at scale 100000) = %s, want %s", tc.unscaled, got, tc.want)
-		}
+		"below one rounds away from zero":          {unscaled: 1, want: "1"},
+		"below one rounds away from zero downward": {unscaled: -1, want: "-1"},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			q := resource.NewDecimalQuantity(*inf.NewDec(tc.unscaled, 100_000), resource.DecimalSI)
+			if got := AmountFromQuantity("example.com/gpu", *q); got.String() != tc.want {
+				t.Errorf("AmountFromQuantity(%d at scale 100000) = %s, want %s", tc.unscaled, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -327,11 +331,13 @@ func TestScaledIsBelowOne(t *testing.T) {
 // different values. Reading them as different quotas would make capacity depend
 // on the suffix it was written with, which is not something the format decides.
 func TestAmountFromQuantityDoesNotDependOnTheSuffix(t *testing.T) {
-	for _, tc := range []struct{ decimal, binary string }{
-		{"9223372036854775808", "8Ei"},
-		{"-9223372036854775808", "-8Ei"},
-	} {
-		t.Run(tc.decimal, func(t *testing.T) {
+	cases := map[string]struct{ decimal, binary string }{
+		"one past the largest int64":  {decimal: "9223372036854775808", binary: "8Ei"},
+		"one past it in the negative": {decimal: "-9223372036854775808", binary: "-8Ei"},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			d := AmountFromQuantity("example.com/gpu", resource.MustParse(tc.decimal))
 			b := AmountFromQuantity("example.com/gpu", resource.MustParse(tc.binary))
 			if !d.Equal(b) {
@@ -347,17 +353,19 @@ func TestAmountFromQuantityDoesNotDependOnTheSuffix(t *testing.T) {
 // makes the round trip and not the spelling it arrived as.
 func TestAmountFromQuantityRoundTrips(t *testing.T) {
 	f := NewResourceFormatter()
-	for _, tc := range []struct {
+	cases := map[string]struct {
 		name corev1.ResourceName
 		qty  string
 	}{
-		{"example.com/gpu", "9223372036854775807"},
-		{"example.com/gpu", "9223372036854775808"},
-		{"example.com/gpu", "8Ei"},
-		{corev1.ResourceCPU, "1E"},
-		{corev1.ResourceCPU, "9223372036854775807"},
-	} {
-		t.Run(string(tc.name)+"/"+tc.qty, func(t *testing.T) {
+		"the largest int64 device":   {name: "example.com/gpu", qty: "9223372036854775807"},
+		"one past it is bounded":     {name: "example.com/gpu", qty: "9223372036854775808"},
+		"the binary spelling of it":  {name: "example.com/gpu", qty: "8Ei"},
+		"cpu past int64 milli":       {name: corev1.ResourceCPU, qty: "1E"},
+		"the largest int64 in cores": {name: corev1.ResourceCPU, qty: "9223372036854775807"},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
 			in := AmountFromQuantity(tc.name, resource.MustParse(tc.qty))
 			out := f.AmountQuantity(tc.name, in)
 			if back := AmountFromQuantity(tc.name, out); !back.Equal(in) {
