@@ -3217,3 +3217,73 @@ func TestLQPendingWorkloads_InadmissibleAndDelete(t *testing.T) {
 		t.Errorf("after delete silver: gold/inadmissible = %v, want 1", got)
 	}
 }
+
+func TestQueueAssociatedInadmissibleWorkloadsAfter(t *testing.T) {
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	cases := map[string]struct {
+		setup          func(mgr *Manager, w *kueue.Workload)
+		workload       *kueue.Workload
+		wantRequeuedCQ bool
+	}{
+		"workload assigned to local queue": {
+			setup: func(mgr *Manager, w *kueue.Workload) {
+				_ = mgr.AddClusterQueue(ctx, cq)
+				_ = mgr.AddLocalQueue(ctx, lq)
+				_ = mgr.AddOrUpdateWorkload(logr.Discard(), w)
+			},
+			workload:       utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj(),
+			wantRequeuedCQ: true,
+		},
+		"pre-admitted workload without queue assignment fallback to admission": {
+			setup: func(mgr *Manager, w *kueue.Workload) {
+				_ = mgr.AddClusterQueue(ctx, cq)
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+				Obj(),
+			wantRequeuedCQ: true,
+		},
+		"workload with assigned queue whose localQueue was deleted fallback to admission": {
+			setup: func(mgr *Manager, w *kueue.Workload) {
+				_ = mgr.AddClusterQueue(ctx, cq)
+				_ = mgr.AddLocalQueue(ctx, lq)
+				_ = mgr.AddOrUpdateWorkload(logr.Discard(), w)
+				mgr.DeleteLocalQueue(logr.Discard(), lq)
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+				Obj(),
+			wantRequeuedCQ: true,
+		},
+		"untracked workload without admission returns without notification": {
+			setup: func(mgr *Manager, w *kueue.Workload) {
+				_ = mgr.AddClusterQueue(ctx, cq)
+			},
+			workload:       utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			wantRequeuedCQ: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			mgr, requeuer := NewManagerForUnitTestsWithRequeuer(
+				utiltesting.NewFakeClient(),
+				nil,
+				WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			tc.setup(mgr, tc.workload)
+			requeuer.cqs.Clear()
+
+			mgr.QueueAssociatedInadmissibleWorkloadsAfter(ctx, workload.Key(tc.workload), nil, tc.workload)
+
+			hasCQ := requeuer.cqs.Has(kueue.ClusterQueueReference(cq.Name))
+			if hasCQ != tc.wantRequeuedCQ {
+				t.Errorf("got requeued CQ %t, want %t", hasCQ, tc.wantRequeuedCQ)
+			}
+		})
+	}
+}

@@ -1318,7 +1318,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 		if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
 			log.Error(err, "Failed to delete workload from cache")
 		}
-	})
+	}, e.Object)
 
 	// Even if the state is unknown, the last cached state tells us whether the
 	// workload was in the queues and should be cleared from them.
@@ -1326,6 +1326,7 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 
 	if afs.Enabled(r.admissionFSConfig) {
 		// A Workload deleted before settling (e.g. a Job deleted while waiting
+
 		// for an AdmissionCheck) would leave its penalty pending forever,
 		// inflating the LocalQueue's fair-sharing usage until restart.
 		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.Object), queueafs.WorkloadReference(wlKey))
@@ -1392,7 +1393,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			if err := r.cache.DeleteWorkload(log, wlKey); err != nil && prevStatus == workload.StatusAdmitted {
 				log.Error(err, "Failed to delete workload from cache")
 			}
-		})
+		}, wlCopy)
+
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
 		switch {
 		case onHold:
@@ -1451,7 +1453,8 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			if !workload.NeedsSecondPass(wlCopy) {
 				r.queues.DeleteSecondPassWithoutLock(wlKey)
 			}
-		})
+		}, wlCopy)
+
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
 		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew):
@@ -1461,7 +1464,7 @@ func (r *WorkloadReconciler) Update(e event.TypedUpdateEvent[*kueue.Workload]) b
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
 			r.cache.AddOrUpdateWorkload(log, wlCopy)
-		})
+		}, wlCopy)
 
 	default:
 		// Workload update in the cache is handled here; however, some fields are immutable
