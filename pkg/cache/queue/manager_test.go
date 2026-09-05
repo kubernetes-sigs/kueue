@@ -2151,6 +2151,21 @@ func TestHeadsCancelledNoLostWakeup(t *testing.T) {
 	}
 }
 
+// TestHeadsContextCancelledBeforeWait verifies that Heads exits immediately
+// when called with an already cancelled context without blocking on cond.Wait.
+func TestHeadsContextCancelledBeforeWait(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil)
+
+	cancelledCtx, cancel := context.WithCancel(ctx)
+	cancel()
+
+	heads := manager.Heads(cancelledCtx)
+	if len(heads) != 0 {
+		t.Errorf("Heads returned %d elements, expected none", len(heads))
+	}
+}
+
 // waitForGoroutine polls runtime.Stack until a goroutine whose stack contains
 // the given substring is found, or the timeout expires.
 func waitForGoroutine(t *testing.T, substr string, timeout time.Duration) {
