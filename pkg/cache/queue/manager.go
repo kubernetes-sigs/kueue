@@ -756,29 +756,60 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	m.Lock()
 	defer m.Unlock()
 
-	// This call decides where the workload goes, so the claim taken by Pop does
-	// not survive it. Releasing it up front also covers the returns below that
-	// never reach the ClusterQueue: a claim left behind makes PushOrUpdate a
-	// no-op, keeping the workload out of the queues even once it could be added
-	// again. Read before info.Update, which resets info.ClusterQueue.
-	m.forgetInflight(info.ClusterQueue, workload.Key(info.Obj))
+	log := ctrl.LoggerFrom(ctx)
+	wlKey := workload.Key(info.Obj)
+
+	// The scheduler is giving this workload back. End its checkout first,
+	// unconditionally, so every branch below starts from the same state: the
+	// queue will accept this workload again. End it while we still remember
+	// which queue it was borrowed from; info.Update below forgets that.
+	m.forgetInflight(info.ClusterQueue, wlKey)
 
 	var w kueue.Workload
 	// Always get the newest workload to avoid requeuing the out-of-date obj.
 	err := m.client.Get(ctx, client.ObjectKeyFromObject(info.Obj), &w)
-	// Since the client is cached, the only possible error is NotFound.
-	// We should not requeue a workload that is not admissible.
-	if apierrors.IsNotFound(err) || !workload.IsAdmissible(&w) {
+	// Since the client is cached, the only expected error is NotFound.
+	// We should not requeue a workload that is not admissible. None of the three
+	// branches below requeues, so each has to clear what the checkout left in the
+	// queues: if the object is gone its queue assignment goes with it, and if it
+	// still exists that record belongs to the workload controller.
+	if apierrors.IsNotFound(err) {
+		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
+		return false
+	}
+	if err != nil {
+		// Unexpected with a cached client; the object may still exist, so
+		// clear only the queue-side bookkeeping and keep the records owned
+		// by the workload controller.
+		m.deleteWorkloadWithoutLock(log, wlKey)
+		return false
+	}
+	if !workload.IsAdmissible(&w) {
+		// The workload still exists (e.g. it finished or was put on hold
+		// while inflight), so keep its finished/unadmitted records and queue
+		// assignment: the workload controller owns their lifecycle and only
+		// forgets them when the object is deleted.
+		m.deleteWorkloadWithoutLock(log, wlKey)
 		return false
 	}
 
 	qKey := queue.KeyFromWorkload(&w)
+	if assignedQueue, ok := m.workloadAssignedQueues[wlKey]; ok && assignedQueue != qKey {
+		// The workload changed LocalQueue while it was checked out, so drop what
+		// it left in the old one. Its entry in the unadmitted-workloads registry
+		// is only labelled by queue, not held by it, so count it again under the
+		// new labels: this call is the scheduler's, and no reconcile follows it
+		// to rebuild the entry.
+		m.deleteAndForgetWorkloadWithoutLock(log, wlKey)
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			m.updateUnadmittedWorkloadWithoutLock(log, &w)
+		}
+	}
 
 	q := m.localQueues[qKey]
 	if q == nil {
 		return false
 	}
-	log := ctrl.LoggerFrom(ctx)
 	workload.AdjustResources(ctx, m.client, &w)
 	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
 		info.Update(log, &w, workload.WithPreserveTotalRequests())
@@ -940,26 +971,82 @@ func (m *Manager) heads() []Head {
 		if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
 			continue
 		}
-		wl := cq.Pop()
-		reportCQPendingWorkloads(m, cq)
-		if wl == nil {
-			continue
+		if h := m.takePopped(cq, cq.Pop()); h != nil {
+			heads = append(heads, *h)
 		}
-		wlKey := workload.Key(wl.Obj)
-		wlCopy := *wl
-		wlCopy.ClusterQueue = cqName
-		heads = append(heads, Head{
-			Info:        wlCopy,
-			IsPreemptor: cq.IsPreemptor(wl),
-		})
-
-		qKey := m.workloadAssignedQueues[wlKey]
-		q := m.localQueues[qKey]
-		delete(q.items, wlKey)
-
-		reportLQPendingWorkloads(m, q)
 	}
 	return heads
+}
+
+// takePopped completes a checkout. Popping only takes the workload off the
+// ClusterQueue's heap; its LocalQueue keeps a copy, and that copy is what seeds
+// a heap when a ClusterQueue is added or a LocalQueue is repointed at another
+// one. Those heaps know nothing about this checkout, so drop the LocalQueue's
+// copy here, then hand the workload to the scheduler as a Head.
+func (m *Manager) takePopped(cq *ClusterQueue, wl *workload.Info) *Head {
+	reportCQPendingWorkloads(m, cq)
+	if wl == nil {
+		return nil
+	}
+	wlCopy := *wl
+	wlCopy.ClusterQueue = cq.GetName()
+	head := Head{Info: wlCopy, IsPreemptor: cq.IsPreemptor(wl)}
+	// Defensive: deleting a LocalQueue removes its workloads from the heap
+	// under the same lock, so q is expected to exist here.
+	wlKey := workload.Key(wl.Obj)
+	if q := m.localQueues[m.workloadAssignedQueues[wlKey]]; q != nil {
+		delete(q.items, wlKey)
+		reportLQPendingWorkloads(m, q)
+	}
+	return &head
+}
+
+// PopFrom pops the head of the given ClusterQueue so it can join the running
+// scheduling cycle mid-way (fair sharing refill), with the same per-queue
+// bookkeeping as heads(). The popped workload is checked out and, like the
+// workloads returned by Heads, the caller must end that checkout before the
+// cycle ends.
+func (m *Manager) PopFrom(cqName kueue.ClusterQueueReference) *Head {
+	m.Lock()
+	defer m.Unlock()
+	cq := m.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return nil
+	}
+	// Cache might be nil in tests, if cache is nil, we'll skip the check.
+	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
+		return nil
+	}
+	return m.takePopped(cq, cq.PopMidCycle())
+}
+
+// HasQueuedWorkloads reports whether a mid-cycle pop would find a successor:
+// a workload waiting in the ClusterQueue's active heap, and the ClusterQueue
+// active. Inflight and inadmissible workloads do not count.
+func (m *Manager) HasQueuedWorkloads(cqName kueue.ClusterQueueReference) bool {
+	m.RLock()
+	defer m.RUnlock()
+	cq := m.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return false
+	}
+	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(cqName) {
+		return false
+	}
+	return cq.hasQueuedWorkloads()
+}
+
+// ForgetInflight ends a scheduler checkout by walking away: the scheduler took
+// this workload but found nothing to do with it, so the checkout ends without
+// the workload being requeued or deleted. This happens when a popped workload
+// turns out to be already accounted in the scheduler cache.
+func (m *Manager) ForgetInflight(cqName kueue.ClusterQueueReference, key workload.Reference) {
+	m.Lock()
+	defer m.Unlock()
+	m.forgetInflight(cqName, key)
+	if q := m.localQueues[m.workloadAssignedQueues[key]]; q != nil {
+		reportLQPendingWorkloads(m, q)
+	}
 }
 
 func (m *Manager) Broadcast() {

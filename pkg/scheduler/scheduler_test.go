@@ -324,6 +324,17 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
 						t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
 					}
+					// Every workload the cycle popped owes the queue an exit; only the
+					// admitted ones keep their claim, until the cache hands them over.
+					// Nothing reclaims a claim on its own, so a missed release
+					// lasts until the object is deleted.
+					for cqName, keys := range qManager.DumpInflight() {
+						for _, key := range keys {
+							if _, admitted := gotAssignments[key]; !admitted {
+								t.Errorf("Workload %s left an inflight claim on clusterQueue %s without being admitted", key, cqName)
+							}
+						}
+					}
 
 					if len(tc.wantEvents) > 0 {
 						wantEvents := make([]utiltesting.EventRecord, len(tc.wantEvents))

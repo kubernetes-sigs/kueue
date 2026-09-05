@@ -447,3 +447,60 @@ func TestSchedulingHashCountsInadmissibleTransitions(t *testing.T) {
 		})
 	}
 }
+
+// TestSchedulingHashCountsMultiInflight pins the inflight count-map
+// semantics that fair sharing refill relies on when a ClusterQueue holds
+// several inflight workloads at once.
+func TestSchedulingHashCountsMultiInflight(t *testing.T) {
+	now := time.Now()
+	popped := func(counts *schedulingHashCounts, name string, hash workload.EquivalenceHash) *workload.Info {
+		info := makeSchedulingHashInfo(now, name, hash, "1")
+		counts.addActive(info)
+		counts.moveActiveToInflight(info)
+		return info
+	}
+	assertActive := func(t *testing.T, counts *schedulingHashCounts, step string, want int) {
+		t.Helper()
+		if got, _ := counts.pendingLens(); got != want {
+			t.Errorf("%s: pendingLens() active = %d, want %d", step, got, want)
+		}
+		if got := counts.pendingUnionLen(); got != want {
+			t.Errorf("%s: pendingUnionLen() = %d, want %d", step, got, want)
+		}
+	}
+
+	t.Run("a shared hash is released one holder at a time", func(t *testing.T) {
+		counts := newSchedulingHashCounts()
+		first := popped(counts, "first", "hash-a")
+		second := popped(counts, "second", "hash-a")
+		third := popped(counts, "third", "hash-b")
+
+		assertActive(t, counts, "all inflight", 2)
+
+		// hash-a is still held by the second workload.
+		counts.removeInflight(first)
+		assertActive(t, counts, "one hash-a holder released", 2)
+
+		counts.removeInflight(second)
+		assertActive(t, counts, "hash-a fully released", 1)
+
+		counts.removeInflight(third)
+		assertActive(t, counts, "all released", 0)
+		if len(counts.inflight) != 0 {
+			t.Errorf("inflight counts after all removals = %v, want empty", counts.inflight)
+		}
+	})
+
+	t.Run("the fold dedups against active and ignores invalid hashes", func(t *testing.T) {
+		counts := newSchedulingHashCounts()
+		// hash-a is pending in the heap and held inflight at the same time;
+		// hash-b is inflight only; the unknown hash must not be recorded.
+		counts.addActive(makeSchedulingHashInfo(now, "active", "hash-a", "1"))
+		popped(counts, "first", "hash-a")
+		popped(counts, "second", "hash-b")
+		popped(counts, "unknown", workload.SchedulingHashUnknown)
+
+		// hash-a counted once via the active bucket, hash-b folded in.
+		assertActive(t, counts, "mixed buckets", 2)
+	})
+}
