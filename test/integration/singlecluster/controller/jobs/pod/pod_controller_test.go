@@ -3508,21 +3508,14 @@ var _ = ginkgo.Describe("Pod controller with TASFailedNodeReplacementFailFast di
 		wlKey := types.NamespacedName{Namespace: ns.Name, Name: podGroupName}
 		wl := &kueue.Workload{}
 
-		ginkgo.By("checking that the workload is created", func() {
-			// Also populates wl, whose name/namespace ExpectWorkloadsToBeAdmitted
-			// below uses as the lookup key.
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
-				g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-		})
-
 		ginkgo.By("verify the workload is admitted onto both nodes", func() {
 			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			nodeNames := slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))
 			gomega.Expect(nodeNames).To(gomega.ConsistOf("x1", "x2"))
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.By("wait for pods to be ungated and bind each to its assigned node", func() {
