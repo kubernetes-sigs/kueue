@@ -43,6 +43,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -74,6 +75,10 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	cq := &kueue.ClusterQueue{}
 	if err := r.client.Get(ctx, req.NamespacedName, cq); err != nil {
+		if apierrors.IsNotFound(err) {
+			// The ClusterQueue is gone, so its worker status series must go too.
+			metrics.ClearMultiKueueClusterQueueMetrics(kueue.ClusterQueueReference(req.Name))
+		}
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -83,11 +88,18 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 	if !hasAC {
 		log.V(3).Info("Not a MultiKueue manager ClusterQueue, skipping reconcile.")
+		metrics.ClearMultiKueueClusterQueueMetrics(kueue.ClusterQueueReference(cq.Name))
 		err := r.removeQuotaAutomationCondition(ctx, cq)
 		return reconcile.Result{}, err
 	}
 
 	log.V(2).Info("Reconciling MultiKueue manager ClusterQueue")
+
+	// Report the worker cluster statuses before the quota-automation handling below,
+	// which returns early for ClusterQueues that do not opt into it.
+	if err := r.reportWorkerClusterStatuses(ctx, cq, kueue.AdmissionCheckReference(ac.Name)); err != nil {
+		return reconcile.Result{}, err
+	}
 
 	cfg, err := r.helper.ConfigFromRef(ctx, ac.Spec.Parameters)
 	if err != nil {

@@ -25,6 +25,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -315,6 +316,109 @@ func TestReportMultiKueueWorkloadAdmitted(t *testing.T) {
 	ReportMultiKueueWorkloadAdmitted("admit-cq2", "admit-worker3", nil)
 	if got := testutil.ToFloat64(MultiKueueWorkloadsAdmittedTotal.WithLabelValues("admit-cq2", "admit-worker3", roletracker.RoleStandalone)); got != 1 {
 		t.Errorf("expected 1 admitted workload for admit-worker3 with standalone role, got %v", got)
+	}
+}
+
+func TestReportMultiKueueClusterStatus(t *testing.T) {
+	cases := map[string]struct {
+		conditionStatus metav1.ConditionStatus
+		tracker         *roletracker.RoleTracker
+		wantRole        string
+	}{
+		"active cluster": {
+			conditionStatus: metav1.ConditionTrue,
+			tracker:         roletracker.NewFakeRoleTracker(roletracker.RoleLeader),
+			wantRole:        roletracker.RoleLeader,
+		},
+		"inactive cluster": {
+			conditionStatus: metav1.ConditionFalse,
+			tracker:         roletracker.NewFakeRoleTracker(roletracker.RoleLeader),
+			wantRole:        roletracker.RoleLeader,
+		},
+		"unknown status": {
+			conditionStatus: metav1.ConditionUnknown,
+			tracker:         roletracker.NewFakeRoleTracker(roletracker.RoleLeader),
+			wantRole:        roletracker.RoleLeader,
+		},
+		"nil tracker is reported as standalone": {
+			conditionStatus: metav1.ConditionTrue,
+			tracker:         nil,
+			wantRole:        roletracker.RoleStandalone,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			MultiKueueClusterByStatus.Reset()
+
+			ReportMultiKueueClusterStatus("cq1", "worker1", tc.conditionStatus, tc.tracker)
+
+			// Exactly one status must be 1, all the others 0.
+			for _, status := range ConditionStatusValues {
+				want := 0.0
+				if status == tc.conditionStatus {
+					want = 1.0
+				}
+				got := testutil.ToFloat64(MultiKueueClusterByStatus.WithLabelValues("cq1", "worker1", string(status), tc.wantRole))
+				if got != want {
+					t.Errorf("cluster_status with active=%s: want %v, got %v", status, want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestReportMultiKueueClusterStatusOverwritesPreviousStatus(t *testing.T) {
+	MultiKueueClusterByStatus.Reset()
+	tracker := roletracker.NewFakeRoleTracker(roletracker.RoleStandalone)
+
+	ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, tracker)
+	ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionFalse, tracker)
+
+	// The previously reported status must be reset to 0, otherwise the cluster
+	// would look both active and inactive at the same time.
+	if got := testutil.ToFloat64(MultiKueueClusterByStatus.WithLabelValues("cq1", "worker1", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 0 {
+		t.Errorf("expected the stale True status to be reset to 0, got %v", got)
+	}
+	if got := testutil.ToFloat64(MultiKueueClusterByStatus.WithLabelValues("cq1", "worker1", string(metav1.ConditionFalse), roletracker.RoleStandalone)); got != 1 {
+		t.Errorf("expected the current False status to be 1, got %v", got)
+	}
+}
+
+func TestClearMultiKueueClusterMetrics(t *testing.T) {
+	MultiKueueClusterByStatus.Reset()
+	tracker := roletracker.NewFakeRoleTracker(roletracker.RoleStandalone)
+
+	ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, tracker)
+	ReportMultiKueueClusterStatus("cq1", "worker2", metav1.ConditionTrue, tracker)
+
+	ClearMultiKueueClusterMetrics("worker1")
+
+	// worker1 series are gone, worker2 is untouched.
+	if got := testutil.CollectAndCount(MultiKueueClusterByStatus); got != len(ConditionStatusValues) {
+		t.Errorf("expected only worker2 series to remain, got %d series", got)
+	}
+	if got := testutil.ToFloat64(MultiKueueClusterByStatus.WithLabelValues("cq1", "worker2", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
+		t.Errorf("expected worker2 to still be active, got %v", got)
+	}
+}
+
+func TestClearMultiKueueClusterQueueMetrics(t *testing.T) {
+	MultiKueueClusterByStatus.Reset()
+	tracker := roletracker.NewFakeRoleTracker(roletracker.RoleStandalone)
+
+	// The same worker cluster is shared by two ClusterQueues.
+	ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, tracker)
+	ReportMultiKueueClusterStatus("cq2", "worker1", metav1.ConditionTrue, tracker)
+
+	ClearMultiKueueClusterQueueMetrics("cq1")
+
+	// Only cq1 loses its series; the shared cluster is still reported for cq2.
+	if got := testutil.CollectAndCount(MultiKueueClusterByStatus); got != len(ConditionStatusValues) {
+		t.Errorf("expected only cq2 series to remain, got %d series", got)
+	}
+	if got := testutil.ToFloat64(MultiKueueClusterByStatus.WithLabelValues("cq2", "worker1", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
+		t.Errorf("expected cq2 to still report worker1 as active, got %v", got)
 	}
 }
 
