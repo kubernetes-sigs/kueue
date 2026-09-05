@@ -86,8 +86,8 @@ var _ = ginkgo.Describe("Workload accounting across a manager restart", func() {
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	}
 
-	// The sequence from kueue#14105, through the API rather than through the
-	// cache. Reaching a single ledger past int64 needs the capacity to admit it,
+	// Ledger recovery through the API rather than through the cache. Reaching a
+	// single ledger past int64 needs the capacity to admit it,
 	// which one ClusterQueue cannot hold on its own because a nominal quota is a
 	// Quantity: the borrower uses the seven it owns and borrows the rest from
 	// the lender, so both Workloads are admitted on their merits and the

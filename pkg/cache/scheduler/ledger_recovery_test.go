@@ -53,11 +53,11 @@ func admittedWorkload(name string, count int64) *kueue.Workload {
 		Obj()
 }
 
-// The sequence from #14105, driven through the cache rather than through
-// Amount alone. A workload whose usage reaches the old ceiling used to become
-// indistinguishable from the unlimited sentinel, so the second workload's units
-// were never added while its removal was still subtracted, and the ledgers came
-// back below where they started.
+// Ledger recovery driven through the cache rather than through Amount alone. A
+// workload whose usage reaches the old ceiling used to become indistinguishable
+// from the unlimited sentinel, so the second workload's units were never added
+// while its removal was still subtracted, and the ledgers came back below where
+// they started.
 //
 // Run against both Requests backends, since the charge reaches the cache
 // through whichever one is compiled in.
