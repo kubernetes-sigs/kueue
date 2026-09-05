@@ -42,21 +42,23 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
 
 var _ = ginkgo.Describe("MultiKueue remote object retention", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.Label("area:multikueue", "feature:multikueue"), func() {
-	// Longer than util.LongConsistentDuration, so that the remote objects can be
-	// observed being kept, and short enough for their deletion to be observed within
-	// util.MediumTimeout.
-	const remoteObjectsAfterFinished = 15 * time.Second
-
 	var f *multiKueueFixture
+	var remoteObjectsAfterFinished time.Duration
 
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueRemoteObjectRetention, true)
+		// Keep objects longer than util.LongConsistentDuration, but expire them
+		// within util.MediumTimeout.
+		remoteObjectsAfterFinished = 15 * time.Second
+	})
 
+	ginkgo.JustBeforeEach(func() {
 		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
 			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce,
 				multikueue.WithRemoteObjectsAfterFinished(remoteObjectsAfterFinished))
@@ -206,6 +208,39 @@ var _ = ginkgo.Describe("MultiKueue remote object retention", ginkgo.Ordered, gi
 				g.Expect(createdJob.UID).NotTo(gomega.Equal(leftoverUID))
 				g.Expect(createdJob.Annotations[controllerconstants.PrebuiltWorkloadAnnotation]).To(gomega.Equal(wlLookupKey.Name))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("completion races with eviction", func() {
+		ginkgo.BeforeEach(func() {
+			remoteObjectsAfterFinished = time.Hour
+		})
+
+		ginkgo.It("Should immediately delete retained objects when the finished manager Workload is evicted", func() {
+			job, wlLookupKey := admitJobOnWorker1(f)
+			jobLookupKey := client.ObjectKeyFromObject(job)
+			finishWorker1Job(jobLookupKey)
+
+			ginkgo.By("observing completion while remote objects are retained", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					wl := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, wl)).To(gomega.Succeed())
+					g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, jobLookupKey, &batchv1.Job{})).To(gomega.Succeed())
+			})
+
+			ginkgo.By("reconciling the eviction condition alongside completion", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					wl := &kueue.Workload{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, wl)).To(gomega.Succeed())
+					workloadevict.SetEvictedCondition(wl, time.Now(), kueue.WorkloadEvictedByPreemption, "preempted")
+					wl.Status.ClusterName = nil
+					g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, wl)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			expectWorker1ObjectsDeleted(jobLookupKey, wlLookupKey, util.Timeout)
 		})
 	})
 })
