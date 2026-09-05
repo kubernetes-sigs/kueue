@@ -9446,7 +9446,8 @@ spec:
             == ''QuotaReserved'' && c.status == ''True''))) ? ((has(oldSelf.spec.queueName)
             == has(self.spec.queueName)) && (!has(oldSelf.spec.queueName) || oldSelf.spec.queueName
             == self.spec.queueName)) : true'
-        - message: maximumExecutionTimeSeconds is immutable while workload quota reserved
+        - message: maximumExecutionTimeSeconds is immutable while the workload is
+            admitted
           rule: ((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
             c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions)
             && self.status.conditions.exists(c, c.type == 'Admitted' && c.status ==
@@ -19133,7 +19134,8 @@ spec:
             == ''QuotaReserved'' && c.status == ''True''))) ? ((has(oldSelf.spec.queueName)
             == has(self.spec.queueName)) && (!has(oldSelf.spec.queueName) || oldSelf.spec.queueName
             == self.spec.queueName)) : true'
-        - message: maximumExecutionTimeSeconds is immutable while workload quota reserved
+        - message: maximumExecutionTimeSeconds is immutable while the workload is
+            admitted
           rule: ((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c,
             c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions)
             && self.status.conditions.exists(c, c.type == 'Admitted' && c.status ==
