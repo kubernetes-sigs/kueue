@@ -84,6 +84,9 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 		if err := client.Get(ctx, types.NamespacedName{Name: string(flvRef)}, &flv); err != nil {
 			return info, err
 		}
+		if err := utilmaps.HaveConflict(info.NodeSelector, flv.Spec.NodeLabels); err != nil {
+			return info, BadPodSetsUpdateError("nodeSelector", err)
+		}
 		utilmaps.Copy(&info.NodeSelector, flv.Spec.NodeLabels)
 		info.Tolerations = append(info.Tolerations, flv.Spec.Tolerations...)
 
