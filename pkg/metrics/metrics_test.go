@@ -644,20 +644,44 @@ func TestClearCohortMetricsOnlyClearsScopedGauges(t *testing.T) {
 	ReportCohortSubtreeQuota(cohortName, "flavor", "cpu", 10, nil, nil)
 	ReportCohortSubtreeResourceReservations(cohortName, "flavor", "cpu", 6, nil, nil)
 	ReportCohortSubtreeAdmittedActiveWorkloads(cohortName, 4, nil, nil)
+	ReportCohortSubtreePendingWorkloads(cohortName, PendingStatusActive, 3, nil, nil)
 
 	expectFilteredMetricsCount(t, CohortWeightedShare, 1, "cohort", cohortName)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 1, "cohort", cohortName)
 	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 1, "cohort", cohortName)
 	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 1, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreePendingWorkloads, 1, "cohort", cohortName)
 
 	ClearCohortMetrics(cohortName)
 
 	expectFilteredMetricsCount(t, CohortWeightedShare, 0, "cohort", cohortName)
 	expectFilteredMetricsCount(t, CohortSubtreeQuota, 0, "cohort", cohortName)
 	expectFilteredMetricsCount(t, CohortSubtreeResourceReservations, 0, "cohort", cohortName)
+	// Not scoped — not cleared by ClearCohortMetrics.
 	expectFilteredMetricsCount(t, CohortSubtreeAdmittedActiveWorkloads, 1, "cohort", cohortName)
+	expectFilteredMetricsCount(t, CohortSubtreePendingWorkloads, 1, "cohort", cohortName)
 
 	ClearCohortAdmittedWorkloadsMetrics(cohortName)
+	ClearCohortPendingWorkloadsMetrics(cohortName)
+}
+
+func TestClearCohortPendingWorkloadsMetrics(t *testing.T) {
+	const cohortA = "cohort-pending-a"
+	const cohortB = "cohort-pending-b"
+
+	ReportCohortSubtreePendingWorkloads(cohortA, PendingStatusActive, 5, nil, nil)
+	ReportCohortSubtreePendingWorkloads(cohortA, PendingStatusInadmissible, 2, nil, nil)
+	ReportCohortSubtreePendingWorkloads(cohortB, PendingStatusActive, 3, nil, nil)
+
+	expectFilteredMetricsCount(t, CohortSubtreePendingWorkloads, 2, "cohort", cohortA)
+	expectFilteredMetricsCount(t, CohortSubtreePendingWorkloads, 1, "cohort", cohortB)
+
+	ClearCohortPendingWorkloadsMetrics(cohortA)
+
+	expectFilteredMetricsCount(t, CohortSubtreePendingWorkloads, 0, "cohort", cohortA)
+	expectFilteredMetricsCount(t, CohortSubtreePendingWorkloads, 1, "cohort", cohortB)
+
+	ClearCohortPendingWorkloadsMetrics(cohortB)
 }
 
 func TestWorkloadRecoveryWaitTimeMetrics(t *testing.T) {

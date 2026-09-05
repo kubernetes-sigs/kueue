@@ -205,6 +205,18 @@ type ClusterQueue struct {
 	pw *preemptorWorkload
 
 	ConcurrentAdmissionPolicy *kueue.ConcurrentAdmissionPolicy
+
+	// lastReportedCohort holds the pending counts last propagated into the
+	// cohort subtree aggregates. Used to compute the signed delta on each
+	// reportCQPendingWorkloads call.
+	lastReportedCohort cohortPendingReport
+}
+
+// cohortPendingReport tracks the last active and inadmissible pending counts
+// propagated into the cohort subtree aggregates for a ClusterQueue.
+type cohortPendingReport struct {
+	active       int
+	inadmissible int
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
