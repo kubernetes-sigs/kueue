@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -46,16 +47,18 @@ import (
 )
 
 var (
-	metaPath                       = field.NewPath("metadata")
-	labelsPath                     = metaPath.Child("labels")
-	annotationsPath                = metaPath.Child("annotations")
-	queueNameLabelPath             = labelsPath.Key(constants.QueueLabel)
-	maxExecTimeLabelPath           = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
-	workloadPriorityClassNamePath  = labelsPath.Key(constants.WorkloadPriorityClassLabel)
-	prebuiltWorkloadLabelPath      = labelsPath.Key(constants.PrebuiltWorkloadLabel)
-	prebuiltWorkloadAnnotationPath = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
-	elasticJobAnnotationPath       = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
-	supportedElasticJobGVKs        = sets.New(
+	metaPath                                = field.NewPath("metadata")
+	labelsPath                              = metaPath.Child("labels")
+	annotationsPath                         = metaPath.Child("annotations")
+	queueNameLabelPath                      = labelsPath.Key(constants.QueueLabel)
+	maxExecTimeLabelPath                    = labelsPath.Key(constants.MaxExecTimeSecondsLabel)
+	workloadPriorityClassNamePath           = labelsPath.Key(constants.WorkloadPriorityClassLabel)
+	prebuiltWorkloadLabelPath               = labelsPath.Key(constants.PrebuiltWorkloadLabel)
+	prebuiltWorkloadAnnotationPath          = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
+	elasticJobAnnotationPath                = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
+	elasticJobScaleUpStrategyAnnotationPath = annotationsPath.Key(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey)
+	supportedElasticJobScaleUpStrategies    = sets.New(kueueconstants.ElasticJobScaleUpStrategyAtomic, kueueconstants.ElasticJobScaleUpStrategyPartial)
+	supportedElasticJobGVKs                 = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),
 		rayv1.GroupVersion.WithKind("RayCluster").String(),
 		rayv1.GroupVersion.WithKind("RayJob").String(),
@@ -132,15 +135,41 @@ func validateCreateForPrebuiltWorkload(job GenericJob) field.ErrorList {
 	return allErrs
 }
 
-// ValidateElasticJobAnnotation rejects the elastic-job annotation on unsupported frameworks.
+// ValidateElasticJobAnnotation rejects the elastic-job annotation on unsupported frameworks
+// and validates the optional elastic-job-scale-up-strategy annotation.
 func ValidateElasticJobAnnotation(obj client.Object, gvk schema.GroupVersionKind) field.ErrorList {
+	allErrs := validateElasticJobScaleUpStrategyAnnotation(obj)
 	if !workloadslicing.Enabled(obj) {
-		return nil
+		return allErrs
 	}
 	if !supportedElasticJobGVKs.Has(gvk.String()) {
-		return field.ErrorList{field.Forbidden(elasticJobAnnotationPath, fmt.Sprintf("elastic job is not supported for %q", gvk))}
+		allErrs = append(allErrs, field.Forbidden(elasticJobAnnotationPath, fmt.Sprintf("elastic job is not supported for %q", gvk)))
 	}
-	return nil
+	return allErrs
+}
+
+// validateElasticJobScaleUpStrategyAnnotation rejects kueue.x-k8s.io/elastic-job-scale-up-strategy
+// unless ElasticJobsViaWorkloadSlices is enabled, the job is opted into elastic-job, and the
+// value is "atomic" or "partial". Missing annotation is valid (defaults to atomic).
+func validateElasticJobScaleUpStrategyAnnotation(obj client.Object) field.ErrorList {
+	annotations := obj.GetAnnotations()
+	strategy, found := annotations[kueueconstants.ElasticJobScaleUpStrategyAnnotationKey]
+	if !found {
+		return nil
+	}
+
+	var allErrs field.ErrorList
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		allErrs = append(allErrs, field.Forbidden(elasticJobScaleUpStrategyAnnotationPath, "requires the ElasticJobsViaWorkloadSlices feature gate"))
+	}
+	if annotations[workloadslicing.EnabledAnnotationKey] != workloadslicing.EnabledAnnotationValue {
+		allErrs = append(allErrs, field.Forbidden(elasticJobScaleUpStrategyAnnotationPath,
+			fmt.Sprintf("requires the %q annotation set to %q", workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)))
+	}
+	if !supportedElasticJobScaleUpStrategies.Has(strategy) {
+		allErrs = append(allErrs, field.NotSupported(elasticJobScaleUpStrategyAnnotationPath, strategy, sets.List(supportedElasticJobScaleUpStrategies)))
+	}
+	return allErrs
 }
 
 func ValidateLabelAsCRDName(obj client.Object, crdNameLabel string) field.ErrorList {
