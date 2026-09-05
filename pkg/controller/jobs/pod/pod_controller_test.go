@@ -30,6 +30,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -226,6 +227,399 @@ func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
 				t.Fatalf("podSets count = %d, want %d", len(wl.Spec.PodSets), tc.roleCount)
 			}
 		})
+	}
+}
+func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testing.T) {
+	leader := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "zzzz",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "leader",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	worker := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "aaaa",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "worker",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("4"),
+					},
+				},
+			}},
+		},
+	}
+
+	got, err := constructGroupPodSets([]corev1.Pod{leader, worker})
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
+	}
+
+	gotOrder := []string{
+		got[0].Template.Spec.Containers[0].Name,
+		got[1].Template.Spec.Containers[0].Name,
+	}
+
+	wantOrder := []string{"worker", "leader"}
+	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
+		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
+	}
+}
+func TestConstructGroupPodSetsSameShapeUsesRoleHashTieBreaker(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
+
+	leader := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "leader",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation:               "aaaa",
+				podconstants.PodSchedulingShapeHashAnnotation: "same-shape",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "leader",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	worker := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation:               "zzzz",
+				podconstants.PodSchedulingShapeHashAnnotation: "same-shape",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "worker",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	got, err := constructGroupPodSets([]corev1.Pod{worker, leader})
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
+	}
+
+	gotOrder := []string{
+		string(got[0].Name),
+		string(got[1].Name),
+	}
+
+	wantOrder := []string{
+		string(kueue.NewPodSetReference("aaaa")),
+		string(kueue.NewPodSetReference("zzzz")),
+	}
+
+	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
+		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
+	}
+}
+
+func TestConstructGroupPodSetsMissingShapeHashUsesRoleHashFallback(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
+
+	first := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "first",
+			Annotations: map[string]string{},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "first",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	second := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "second",
+			Annotations: map[string]string{},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "second",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("2"),
+					},
+				},
+			}},
+		},
+	}
+
+	firstShapeHash, err := utilpod.GenerateRoleHash(&first.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate first shape hash: %v", err)
+	}
+
+	secondShapeHash, err := utilpod.GenerateRoleHash(&second.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate second shape hash: %v", err)
+	}
+
+	// Deliberately make role-hash ordering opposite to live-spec shape
+	// ordering. With the shape annotation missing, constructGroupPodSets
+	// must use the role hash as the fallback rather than recomputing the
+	// shape hash from the current PodSpec.
+	if firstShapeHash < secondShapeHash {
+		first.Annotations[podconstants.RoleHashAnnotation] = "zzzz"
+		second.Annotations[podconstants.RoleHashAnnotation] = "aaaa"
+	} else {
+		first.Annotations[podconstants.RoleHashAnnotation] = "aaaa"
+		second.Annotations[podconstants.RoleHashAnnotation] = "zzzz"
+	}
+
+	got, err := constructGroupPodSets([]corev1.Pod{first, second})
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
+	}
+
+	gotOrder := []string{
+		string(got[0].Name),
+		string(got[1].Name),
+	}
+
+	wantOrder := []string{
+		string(kueue.NewPodSetReference("aaaa")),
+		string(kueue.NewPodSetReference("zzzz")),
+	}
+
+	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
+		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
+	}
+}
+
+func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
+	leader := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "leader",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	worker := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Annotations: map[string]string{},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "worker",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("4"),
+					},
+				},
+			}},
+		},
+	}
+
+	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate leader shape hash: %v", err)
+	}
+	workerShapeHash, err := utilpod.GenerateRoleHash(&worker.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate worker shape hash: %v", err)
+	}
+	leader.Annotations[podconstants.PodSchedulingShapeHashAnnotation] = leaderShapeHash
+	worker.Annotations[podconstants.PodSchedulingShapeHashAnnotation] = workerShapeHash
+
+	// Make the client-supplied role-hash ordering intentionally opposite
+	// to the shape-derived ordering.
+	if leaderShapeHash < workerShapeHash {
+		leader.Annotations[podconstants.RoleHashAnnotation] = "zzzz"
+		worker.Annotations[podconstants.RoleHashAnnotation] = "aaaa"
+	} else {
+		leader.Annotations[podconstants.RoleHashAnnotation] = "aaaa"
+		worker.Annotations[podconstants.RoleHashAnnotation] = "zzzz"
+	}
+
+	pods := []corev1.Pod{leader, worker}
+
+	got, err := constructGroupPodSets(pods)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
+	}
+
+	// Record the order before changing the role-hashes.
+	firstOrder := []string{
+		got[0].Template.Spec.Containers[0].Name,
+		got[1].Template.Spec.Containers[0].Name,
+	}
+
+	// Swap only the client-supplied role-hashes.
+	leader.Annotations[podconstants.RoleHashAnnotation],
+		worker.Annotations[podconstants.RoleHashAnnotation] =
+		worker.Annotations[podconstants.RoleHashAnnotation],
+		leader.Annotations[podconstants.RoleHashAnnotation]
+
+	got, err = constructGroupPodSets(pods)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() after swapping role-hashes error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() after swapping role-hashes returned %d PodSets, want 2", len(got))
+	}
+
+	secondOrder := []string{
+		got[0].Template.Spec.Containers[0].Name,
+		got[1].Template.Spec.Containers[0].Name,
+	}
+
+	if diff := cmp.Diff(firstOrder, secondOrder); diff != "" {
+		t.Errorf("PodSet order changed after swapping client-supplied role-hashes (-before, +after):\n%s", diff)
+	}
+}
+
+func TestConstructGroupPodSetsOrderIndependentOfInputOrder(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
+	leader := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "leader",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "zzzz",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "container",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	worker := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation: "aaaa",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "container",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate leader shape hash: %v", err)
+	}
+	workerShapeHash, err := utilpod.GenerateRoleHash(&worker.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate worker shape hash: %v", err)
+	}
+
+	if leaderShapeHash != workerShapeHash {
+		t.Fatalf("expected identical PodSpecs to have the same shape hash, got %q and %q",
+			leaderShapeHash, workerShapeHash)
+	}
+
+	got1, err := constructGroupPodSets([]corev1.Pod{leader, worker})
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	got2, err := constructGroupPodSets([]corev1.Pod{worker, leader})
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() with reversed input error = %v", err)
+	}
+
+	if len(got1) != 2 || len(got2) != 2 {
+		t.Fatalf("expected 2 PodSets, got %d and %d", len(got1), len(got2))
+	}
+
+	firstOrder := []string{
+		string(got1[0].Name),
+		string(got1[1].Name),
+	}
+
+	secondOrder := []string{
+		string(got2[0].Name),
+		string(got2[1].Name),
+	}
+
+	if diff := cmp.Diff(firstOrder, secondOrder); diff != "" {
+		t.Errorf("PodSet order depends on input pod order (-first, +second):\n%s", diff)
 	}
 }
 

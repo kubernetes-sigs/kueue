@@ -295,6 +295,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: PodGroupSchedulingShapeOrdering
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: PodIntegrationValidateGroupOwner
   versionedSpecs:
   - default: true

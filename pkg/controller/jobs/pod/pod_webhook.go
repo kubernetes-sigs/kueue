@@ -50,6 +50,7 @@ var (
 	groupNameAnnotationPath        = annotationsPath.Key(podconstants.GroupNameAnnotation)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(podconstants.GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(podconstants.RetriableInGroupAnnotationKey)
+	podSchedulingShapeHashPath     = annotationsPath.Key(podconstants.PodSchedulingShapeHashAnnotation)
 )
 
 type PodWebhook struct {
@@ -100,6 +101,21 @@ func (p *Pod) addRoleHash() error {
 	}
 
 	p.pod.Annotations[podconstants.RoleHashAnnotation] = hash
+	return nil
+}
+
+// addSchedulingShapeHash calculates the scheduling shape hash and adds it to the pod's annotations.
+func (p *Pod) addSchedulingShapeHash() error {
+	if p.pod.Annotations == nil {
+		p.pod.Annotations = make(map[string]string)
+	}
+
+	hash, err := utilpod.GenerateRoleHash(&p.pod.Spec)
+	if err != nil {
+		return err
+	}
+
+	p.pod.Annotations[podconstants.PodSchedulingShapeHashAnnotation] = hash
 	return nil
 }
 
@@ -189,6 +205,9 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 		if err := pod.addRoleHash(); err != nil {
 			return err
 		}
+		if err := pod.addSchedulingShapeHash(); err != nil {
+			return err
+		}
 		// copy back changes to the object
 		pod.pod.DeepCopyInto(obj)
 	}
@@ -225,9 +244,22 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *corev1.
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Validating update")
 
+	oldShapeHash := oldPod.pod.Annotations[podconstants.PodSchedulingShapeHashAnnotation]
+	newShapeHash := newPod.pod.Annotations[podconstants.PodSchedulingShapeHashAnnotation]
+
 	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod, w.queues.DefaultLocalQueueExist)
 	allErrs = append(allErrs, validateCommon(newPod)...)
 	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
+
+	if oldShapeHash != "" {
+		allErrs = append(allErrs,
+			validation.ValidateImmutableField(
+				newShapeHash,
+				oldShapeHash,
+				podSchedulingShapeHashPath,
+			)...,
+		)
+	}
 
 	if oldGroupName := utilpod.GetPodGroupName(&oldPod.pod); oldGroupName != "" {
 		newGroupName := utilpod.GetPodGroupName(&newPod.pod)

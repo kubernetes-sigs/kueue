@@ -4206,6 +4206,223 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels disabled", ginkg
 	})
 })
 
+var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
+	ginkgo.Label("job:pod", "area:jobs"),
+	ginkgo.Ordered,
+	ginkgo.ContinueOnFailure,
+	func() {
+		var (
+			ns             *corev1.Namespace
+			onDemandFlavor *kueue.ResourceFlavor
+			spotFlavor     *kueue.ResourceFlavor
+			clusterQueue   *kueue.ClusterQueue
+			localQueue     *kueue.LocalQueue
+		)
+
+		nsSelector := &metav1.LabelSelector{
+			MatchExpressions: []metav1.LabelSelectorRequirement{
+				{
+					Key:      corev1.LabelMetadataName,
+					Operator: metav1.LabelSelectorOpNotIn,
+					Values:   []string{"kube-system", "kueue-system"},
+				},
+			},
+		}
+		mjnsSelector, err := metav1.LabelSelectorAsSelector(nsSelector)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		ginkgo.BeforeAll(func() {
+			features.SetFeatureGateDuringTest(
+				ginkgo.GinkgoTB(),
+				features.PodGroupSchedulingShapeOrdering,
+				true,
+			)
+
+			fwk.StartManager(
+				ctx,
+				cfg,
+				managerSetup(
+					false,
+					true, // enable scheduler so pods get automatically admitted
+					nil,
+					jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
+					jobframework.WithEnabledFrameworks([]string{"pod"}),
+				),
+			)
+
+			ns = util.CreateNamespaceFromPrefixWithLog(
+				ctx, k8sClient, "pod-shape-ordering-",
+			)
+
+			onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").
+				NodeLabel(instanceKey, "on-demand").
+				Obj()
+			util.MustCreate(ctx, k8sClient, onDemandFlavor)
+
+			spotFlavor = utiltestingapi.MakeResourceFlavor("spot").
+				NodeLabel(instanceKey, "spot").
+				Obj()
+			util.MustCreate(ctx, k8sClient, spotFlavor)
+
+			clusterQueue = utiltestingapi.MakeClusterQueue("test-cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("on-demand").
+						Resource(corev1.ResourceName("nvidia.com/gpu"), "4").
+						Obj(),
+					*utiltestingapi.MakeFlavorQuotas("spot").
+						Resource(corev1.ResourceName("nvidia.com/gpu"), "2").
+						Obj(),
+				).
+				FlavorFungibility(kueue.FlavorFungibility{
+					WhenCanBorrow:  kueue.TryNextFlavor,
+					WhenCanPreempt: kueue.TryNextFlavor,
+				}).
+				Obj()
+			util.MustCreate(ctx, k8sClient, clusterQueue)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+			localQueue = utiltestingapi.MakeLocalQueue(
+				"local-queue", ns.Name,
+			).ClusterQueue(clusterQueue.Name).Obj()
+			util.MustCreate(ctx, k8sClient, localQueue)
+		})
+
+		ginkgo.AfterAll(func() {
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).
+				To(gomega.Succeed())
+
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
+
+			fwk.StopManager(ctx)
+		})
+
+		ginkgo.It("Should assign flavors according to pod scheduling shape ordering", func() {
+			leader := testingpod.MakePod("leader", ns.Name).
+				GroupNameLabel("gpu-group").
+				GroupTotalCount("2").
+				Annotation(podconstants.RoleHashAnnotation, "leader").
+				Queue(localQueue.Name).
+				Request(corev1.ResourceName("nvidia.com/gpu"), "1").
+				Limit(corev1.ResourceName("nvidia.com/gpu"), "1").
+				Obj()
+
+			worker := testingpod.MakePod("worker", ns.Name).
+				GroupNameLabel("gpu-group").
+				GroupTotalCount("2").
+				Annotation(podconstants.RoleHashAnnotation, "worker").
+				Queue(localQueue.Name).
+				Request(corev1.ResourceName("nvidia.com/gpu"), "4").
+				Limit(corev1.ResourceName("nvidia.com/gpu"), "4").
+				Obj()
+
+			util.MustCreate(ctx, k8sClient, leader)
+			util.MustCreate(ctx, k8sClient, worker)
+
+			wlKey := types.NamespacedName{
+				Namespace: ns.Name,
+				Name:      "gpu-group",
+			}
+			wl := &kueue.Workload{}
+
+			ginkgo.By("checking the workload has two pod sets", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).
+						To(gomega.Succeed())
+					g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(2))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking the workload is admitted", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).
+						To(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).To(
+						utiltesting.HaveConditionStatusTrue(
+							kueue.WorkloadAdmitted,
+						),
+					)
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking the 4-GPU pod gets on-demand and the 1-GPU pod gets spot", func() {
+				gomega.Expect(wl.Status.Admission.PodSetAssignments).
+					To(gomega.HaveLen(2))
+
+				for _, podSet := range wl.Spec.PodSets {
+					var flavor kueue.ResourceFlavorReference
+
+					for _, assignment := range wl.Status.Admission.PodSetAssignments {
+						if assignment.Name == podSet.Name {
+							flavor = assignment.Flavors[corev1.ResourceName("nvidia.com/gpu")]
+							break
+						}
+					}
+
+					gomega.Expect(flavor).NotTo(gomega.BeEmpty())
+
+					gpuRequest := podSet.Template.Spec.Containers[0].
+						Resources.Requests[corev1.ResourceName("nvidia.com/gpu")]
+
+					switch gpuRequest.String() {
+					case "4":
+						gomega.Expect(flavor).
+							To(gomega.Equal(
+								kueue.ResourceFlavorReference(onDemandFlavor.Name),
+							))
+					case "1":
+						gomega.Expect(flavor).
+							To(gomega.Equal(
+								kueue.ResourceFlavorReference(spotFlavor.Name),
+							))
+					default:
+						gomega.Expect(false).To(
+							gomega.BeTrue(),
+							"unexpected GPU request %q",
+							gpuRequest.String(),
+						)
+					}
+				}
+			})
+
+			ginkgo.By("checking the flavor assignments are reflected in the pods", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdLeader := &corev1.Pod{}
+					g.Expect(k8sClient.Get(
+						ctx,
+						client.ObjectKeyFromObject(leader),
+						createdLeader,
+					)).To(gomega.Succeed())
+
+					createdWorker := &corev1.Pod{}
+					g.Expect(k8sClient.Get(
+						ctx,
+						client.ObjectKeyFromObject(worker),
+						createdWorker,
+					)).To(gomega.Succeed())
+
+					g.Expect(
+						createdLeader.Spec.NodeSelector[instanceKey],
+					).To(gomega.Equal(spotFlavor.Name))
+
+					g.Expect(
+						createdWorker.Spec.NodeSelector[instanceKey],
+					).To(gomega.Equal(onDemandFlavor.Name))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			util.SetPodsPhase(
+				ctx,
+				k8sClient,
+				corev1.PodSucceeded,
+				leader,
+				worker,
+			)
+		})
+	},
+)
+
 type staticNameTB struct {
 	testing.TB
 	name string

@@ -804,8 +804,13 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 	return nil, errors.New("failed to find a runnable pod in the group")
 }
 
+type podSetWithShapeHash struct {
+	podSet    kueue.PodSet
+	shapeHash string
+}
+
 func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
-	var resultPodSets []kueue.PodSet
+	var resultPodSets []podSetWithShapeHash
 
 	for _, podInGroup := range pods {
 		if !isPodRunnableOrSucceeded(&podInGroup) {
@@ -819,9 +824,10 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 
 		podRoleFound := false
 		for psi := range resultPodSets {
-			if string(resultPodSets[psi].Name) == roleHash {
+			if string(resultPodSets[psi].podSet.Name) == roleHash {
 				podRoleFound = true
-				resultPodSets[psi].Count++
+				resultPodSets[psi].podSet.Count++
+
 				break
 			}
 		}
@@ -831,17 +837,39 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 			if err != nil {
 				return nil, err
 			}
+
+			shapeHash := podInGroup.Annotations[podconstants.PodSchedulingShapeHashAnnotation]
+			if shapeHash == "" {
+				shapeHash = roleHash
+			}
+
 			podSet.Name = kueue.NewPodSetReference(roleHash)
 
-			resultPodSets = append(resultPodSets, podSet)
+			resultPodSets = append(resultPodSets, podSetWithShapeHash{
+				podSet:    podSet,
+				shapeHash: shapeHash,
+			})
 		}
 	}
 
-	slices.SortFunc(resultPodSets, func(a, b kueue.PodSet) int {
-		return cmp.Compare(a.Name, b.Name)
-	})
+	if features.Enabled(features.PodGroupSchedulingShapeOrdering) {
+		slices.SortFunc(resultPodSets, func(a, b podSetWithShapeHash) int {
+			if byShape := cmp.Compare(a.shapeHash, b.shapeHash); byShape != 0 {
+				return byShape
+			}
+			return cmp.Compare(string(a.podSet.Name), string(b.podSet.Name))
+		})
+	} else {
+		slices.SortFunc(resultPodSets, func(a, b podSetWithShapeHash) int {
+			return cmp.Compare(string(a.podSet.Name), string(b.podSet.Name))
+		})
+	}
+	podSets := make([]kueue.PodSet, len(resultPodSets))
+	for i := range resultPodSets {
+		podSets[i] = resultPodSets[i].podSet
+	}
 
-	return resultPodSets, nil
+	return podSets, nil
 }
 
 // validatePodGroupMetadata validates metadata of all members of the pod group
