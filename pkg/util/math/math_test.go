@@ -101,3 +101,51 @@ func TestSaturatingSub(t *testing.T) {
 		})
 	}
 }
+
+func TestBoundedAdd(t *testing.T) {
+	cases := map[string]struct {
+		a, b   int64
+		want   int64
+		wantOK bool
+	}{
+		"ordinary":               {a: 2, b: 3, want: 5, wantOK: true},
+		"zero":                   {a: 0, b: 0, want: 0, wantOK: true},
+		"one below the sentinel": {a: stdmath.MaxInt64 - 2, b: 1, want: stdmath.MaxInt64 - 1, wantOK: true},
+		"reaching the sentinel":  {a: stdmath.MaxInt64 - 1, b: 1},
+		"past the sentinel":      {a: stdmath.MaxInt64, b: 1},
+		"a negative operand":     {a: -1, b: 2},
+		"the other one negative": {a: 2, b: -1},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, ok := BoundedAdd(tc.a, tc.b)
+			if got != tc.want || ok != tc.wantOK {
+				t.Errorf("BoundedAdd(%d, %d) = %d, %t, want %d, %t", tc.a, tc.b, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestBoundedMul(t *testing.T) {
+	cases := map[string]struct {
+		a, b   int64
+		want   int64
+		wantOK bool
+	}{
+		"ordinary":               {a: 3, b: 4, want: 12, wantOK: true},
+		"by zero":                {a: stdmath.MaxInt64, b: 0, want: 0, wantOK: true},
+		"zero by":                {a: 0, b: stdmath.MaxInt64, want: 0, wantOK: true},
+		"one below the sentinel": {a: (stdmath.MaxInt64 - 1) / 2, b: 2, want: stdmath.MaxInt64 - 1, wantOK: true},
+		"reaching the sentinel":  {a: stdmath.MaxInt64, b: 1},
+		"overflowing":            {a: 3000000000, b: 4000000000},
+		"a negative operand":     {a: -2, b: 3},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, ok := BoundedMul(tc.a, tc.b)
+			if got != tc.want || ok != tc.wantOK {
+				t.Errorf("BoundedMul(%d, %d) = %d, %t, want %d, %t", tc.a, tc.b, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
