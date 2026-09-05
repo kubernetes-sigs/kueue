@@ -1948,6 +1948,13 @@ func (r *JobReconciler) handleJobWithNoWorkload(ctx context.Context, job Generic
 		return ErrPrebuiltWorkloadNotFound
 	}
 
+	// Skip creation when no member pod still needs Kueue's lifecycle management (e.g. all group pods are terminating and finalized).
+	// Fires only for fully detached pods, so it runs before composition: nothing observable is left to preserve.
+	if jpl, ok := job.(JobWithPodLifecycle); ok && !jpl.HasPodsNeedingWorkload() {
+		log.V(2).Info("Skip creating a Workload: no pod needs lifecycle management (all pods terminating and finalized)")
+		return nil
+	}
+
 	// Create the corresponding workload.
 	wl, err := r.constructWorkload(ctx, job)
 	if err != nil {

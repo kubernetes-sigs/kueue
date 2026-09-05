@@ -1560,6 +1560,159 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 			})
 
+			ginkgo.It("Should not recreate the workload while all pods of the group are terminating", func() {
+				ginkgo.By("Creating a pod group whose pods linger Terminating via a holding finalizer")
+				const holdFinalizer = "test.example.com/hold"
+				makePod := func(name string) *corev1.Pod {
+					return testingpod.MakePod(name, ns.Name).
+						GroupNameLabel("test-group").
+						GroupTotalCount("2").
+						Request(corev1.ResourceCPU, "1").
+						Queue("test-queue").
+						Finalizer(holdFinalizer).
+						Obj()
+				}
+				pod1 := makePod("test-pod1")
+				pod2 := makePod("test-pod2")
+				util.MustCreate(ctx, k8sClient, pod1)
+				util.MustCreate(ctx, k8sClient, pod2)
+
+				ginkgo.By("checking that workload is created for the pod group")
+				wlLookupKey := types.NamespacedName{
+					Namespace: pod1.Namespace,
+					Name:      "test-group",
+				}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("admitting the workload and binding the pods to a node, as the scheduler would", func() {
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
+						kueue.PodSetAssignment{
+							Name:    createdWorkload.Spec.PodSets[0].Name,
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "default"},
+							Count:   new(int32(2)),
+						},
+					).Obj()
+					util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+
+					for _, p := range []*corev1.Pod{pod1, pod2} {
+						util.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(p), map[string]string{corev1.LabelArchStable: "arm64"})
+					}
+					util.BindPodWithNode(ctx, k8sClient, "test-node", pod1, pod2)
+					createdPod := &corev1.Pod{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						for _, p := range []*corev1.Pod{pod1, pod2} {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), createdPod)).To(gomega.Succeed())
+							g.Expect(createdPod.Spec.NodeName).To(gomega.Equal("test-node"))
+						}
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("deleting both pods; they linger Terminating because of the holding finalizer", func() {
+					gomega.Expect(k8sClient.Delete(ctx, pod1)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Delete(ctx, pod2)).To(gomega.Succeed())
+
+					createdPod := &corev1.Pod{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						for _, p := range []*corev1.Pod{pod1, pod2} {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), createdPod)).To(gomega.Succeed())
+							g.Expect(createdPod.DeletionTimestamp.IsZero()).To(gomega.BeFalse())
+							g.Expect(createdPod.Spec.NodeName).To(gomega.Equal("test-node"))
+						}
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("stripping Kueue's finalizers from the terminating pods, as the platform would when force-cleaning the cancelled task", func() {
+					// Production forensics: on task cancellation the platform deletes the
+					// Workload directly, and the pods end up Terminating with no Kueue
+					// finalizer; terminating pods that were already scheduled keep it on the
+					// ordinary stop path, so strip it explicitly here.
+					createdPod := &corev1.Pod{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						for _, p := range []*corev1.Pod{pod1, pod2} {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), createdPod)).To(gomega.Succeed())
+							g.Expect(controllerutil.RemoveFinalizer(createdPod, podconstants.PodFinalizer)).To(gomega.BeTrue())
+							g.Expect(k8sClient.Update(ctx, createdPod)).To(gomega.Succeed())
+						}
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("deleting the workload, as the platform would when cancelling the task", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+						createdWorkload.Finalizers = nil
+						g.Expect(k8sClient.Update(ctx, createdWorkload)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					gomega.Expect(k8sClient.Delete(ctx, createdWorkload)).To(gomega.Succeed())
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("checking that no workload is created for the all-terminating, finalized group", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+					}, util.LongConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+			})
+
+			ginkgo.It("Should keep the existing workload while all pods of the group linger Terminating", func() {
+				ginkgo.By("Creating a pod group whose pods linger Terminating via a holding finalizer")
+				const holdFinalizer = "test.example.com/hold"
+				makePod := func(name string) *corev1.Pod {
+					return testingpod.MakePod(name, ns.Name).
+						GroupNameLabel("test-group").
+						GroupTotalCount("2").
+						Request(corev1.ResourceCPU, "1").
+						Queue("test-queue").
+						Finalizer(holdFinalizer).
+						Obj()
+				}
+				pod1 := makePod("test-pod1")
+				pod2 := makePod("test-pod2")
+				util.MustCreate(ctx, k8sClient, pod1)
+				util.MustCreate(ctx, k8sClient, pod2)
+
+				ginkgo.By("checking that workload is created for the pod group")
+				wlLookupKey := types.NamespacedName{
+					Namespace: pod1.Namespace,
+					Name:      "test-group",
+				}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.ObjectMeta.Finalizers).To(gomega.ContainElement("kueue.x-k8s.io/resource-in-use"),
+						"The Workload should have the finalizer")
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				ginkgo.By("deleting both pods; they linger Terminating because of the holding finalizer", func() {
+					gomega.Expect(k8sClient.Delete(ctx, pod1)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Delete(ctx, pod2)).To(gomega.Succeed())
+
+					createdPod := &corev1.Pod{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						for _, p := range []*corev1.Pod{pod1, pod2} {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), createdPod)).To(gomega.Succeed())
+							g.Expect(createdPod.DeletionTimestamp.IsZero()).To(gomega.BeFalse())
+						}
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("checking that the terminating pods, not the Workload lifecycle, gate finalization: the Workload is untouched", func() {
+					// Regression guard for waitForPodsReady / pod-replacement flows: an
+					// existing Workload must survive a fully-Terminating group until the
+					// pods actually leave the API. Only creation is gated (#13830, #2212).
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+						g.Expect(createdWorkload.Finalizers).Should(gomega.ContainElement("kueue.x-k8s.io/resource-in-use"))
+						g.Expect(createdWorkload.Status.Conditions).Should(gomega.Not(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished)))
+					}, util.LongConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				})
+			})
+
 			ginkgo.It("Should set WaitingForReplacementPod workload condition to false after replacement", func() {
 				podGroupName := "pod-group"
 

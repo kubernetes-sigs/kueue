@@ -179,6 +179,7 @@ var (
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
 	_ jobframework.TopLevelJob                     = (*Pod)(nil)
 	_ jobframework.JobWithCustomQueueNameChange    = (*Pod)(nil)
+	_ jobframework.JobWithPodLifecycle             = (*Pod)(nil)
 )
 
 // PodOption is a function type that modifies a Pod. It allows customization of a Pod's
@@ -916,6 +917,30 @@ func (p *Pod) shouldFinalizeNow(pod *corev1.Pod, stopReason jobframework.StopRea
 	isDeletion := stopReason == jobframework.StopReasonWorkloadDeleted
 	isServingEviction := p.isServing() && strings.HasPrefix(string(stopReason), string(jobframework.StopReasonWorkloadEvicted))
 	return p.isGroup && (isDeletion || (isServingEviction && utilpod.IsTerminated(pod)))
+}
+
+// HasPodsNeedingWorkload reports whether any pod still requires Kueue's lifecycle management.
+// It implements jobframework.JobWithPodLifecycle.
+func (p *Pod) HasPodsNeedingWorkload() bool {
+	if p.isGroup {
+		for i := range p.list.Items {
+			if podNeedsWorkload(&p.list.Items[i]) {
+				return true
+			}
+		}
+		return false
+	}
+	// Terminating standalone pods are routed to finalization in Load, so only a found, non-terminating one reaches this.
+	return p.isFound && podNeedsWorkload(&p.pod)
+}
+
+// podNeedsWorkload returns whether Kueue still owes the pod lifecycle work.
+func podNeedsWorkload(p *corev1.Pod) bool {
+	if p.DeletionTimestamp.IsZero() {
+		return true
+	}
+	// A terminating pod pending removal of Kueue's finalizer may await finalization against a matching Workload.
+	return slices.Contains(p.Finalizers, podconstants.PodFinalizer)
 }
 
 // isPodRunnableOrSucceeded returns whether the Pod can eventually run, is Running or Succeeded.
