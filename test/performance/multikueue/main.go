@@ -28,7 +28,6 @@ import (
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/yaml"
@@ -132,15 +131,15 @@ func run() error {
 	}
 
 	fmt.Printf(
-		"Starting manager control plane; remote clients at client-go's default %.0f QPS, burst %d per REST client\n",
-		float32(rest.DefaultQPS),
-		rest.DefaultBurst,
+		"Starting manager control plane; remote clients configured for %g QPS, burst %d per REST client\n",
+		cfg.RemoteClientQPS,
+		cfg.RemoteClientBurst,
 	)
 	managerCluster, err := startBenchmarkCluster(
 		clusterCtx,
 		"manager",
 		*crdsPath,
-		setupManagerControllers(configNamespaceName),
+		setupManagerControllers(configNamespaceName, cfg),
 		failClusters,
 	)
 	if err != nil {

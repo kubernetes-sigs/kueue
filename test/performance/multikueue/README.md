@@ -7,8 +7,8 @@ workers, matching the topology proposed in the tracking issue.
 The runner starts isolated `envtest` control planes and runs the real Kueue
 core scheduler and MultiKueue controllers in process. It creates a suspended
 batch Job and its Workload on the manager for every sample. MultiKueue copies
-each pair to the workers, the worker schedulers reserve quota, and the manager
-admits the Workload after a worker is selected.
+the Workload to the workers, whose schedulers reserve quota. It then copies the
+Job to the selected worker, and the manager admits the local Workload.
 
 This boundary deliberately excludes Kubernetes Job and Pod execution. It
 measures MultiKueue dispatch and admission rather than kube-controller-manager
@@ -20,10 +20,16 @@ or container runtime performance.
 make run-performance-multikueue
 ```
 
-The baseline creates all 120 workloads as fast as the manager accepts them and
-then waits for the queue to drain, which takes about 95 seconds. The 10-minute
-timeout in the configuration is a safety bound for a hung run, not a performance
-threshold.
+The baseline uses one generator to create 1,000 workloads as fast as the
+manager accepts them and then waits for the queue to drain. This workload count reduces the proportion
+of work covered by the clients' initial burst allowances. The 10-minute timeout is a safety bound for a hung run,
+not a performance threshold.
+
+One generator avoids overflowing the freshly started API server's small watch
+buffers with parallel creates. Check that generation remains substantially
+shorter than total admission time when calibrating on the CI worker, so the
+generator does not become the throughput bottleneck. `creationWorkers` is part
+of the scenario and must match the range spec.
 
 The summary is written to
 `artifacts/run-performance-multikueue/summary.yaml`.
@@ -38,6 +44,11 @@ The scenario is configured in
 [`configs/baseline.yaml`](configs/baseline.yaml). Command-line overrides are
 intended for smoke tests; committed baseline changes should be made in the
 configuration file.
+
+`remoteClientQPS` and `remoteClientBurst` must both be positive and explicitly
+configured. The baseline sets them to 1,000 each. The runner passes these values
+through MultiKueue's worker-client configuration and records the same values in
+the summary. A comparison against different limits fails the scenario check.
 
 `workloadCount` must be between 1 and 10,000. The upper bound keeps the
 runner's per-Workload observation state and watch handover buffer bounded while
@@ -76,83 +87,64 @@ alerting is enabled.
 For this target, the summary is written to
 `artifacts/test-performance-multikueue/run-performance-multikueue/summary.yaml`.
 
+## Worker-client configuration
+
+The runner uses MultiKueue's worker-client configuration API. The explicit
+1,000 QPS and 1,000 burst baseline follows the increased limits discussed in
+[issue 14973](https://github.com/kubernetes-sigs/kueue/issues/14973).
+These are scenario inputs, not a claim that every Kueue deployment uses them.
+
+Results from client-go's implicit 5 QPS and burst 10 measure the bottleneck
+addressed by that issue. Their throughput floor and latency ceilings are not
+comparable with this scenario and must not be reused.
+
+Five consecutive local runs on a macOS arm64 host produced:
+
+| Measurement | Observed range |
+|---|---|
+| Throughput | 27.81–27.89 workloads/s |
+| Admission P95 | 30.13–30.59 s |
+| Quota-reservation P95 | 2.78–2.87 s |
+| Generation time | 1.90–2.19 s |
+| Total admission time | 35.86–35.96 s |
+| Watch gaps | 0 in every run |
+
+The provisional floor of 22 workloads/s leaves about 21% headroom below the
+slowest local run. The 45-second admission P95 and 5-second quota-reservation
+P95 ceilings allow additional variance. These are initial regression guards,
+not CI calibration; tighten or revise them from measurements on the dedicated
+worker. No CPU or memory capacity claim follows from these results.
+
 ## What bounds the measurement
 
-Two client-side rate limits bound this benchmark, and one of them is always the
-binding constraint. Neither is an artifact of the harness: both are what a
-deployed Kueue runs with.
+The manager's local client uses Kueue's default QPS and burst with a single
+shared token bucket, matching the production entrypoint. The generator has its
+own client so its requests do not consume that bucket.
 
-The manager's own client uses a single shared token bucket configured by
-`clientConnection`, defaulting to 300 QPS and burst 500. `cmd/kueue/main.go`
-installs that limiter explicitly, because otherwise controller-runtime would give
-each API type its own.
+Worker-client QPS and burst are passed through MultiKueue to each worker's
+`rest.Config`. controller-runtime creates REST clients per GVK, so these limits
+apply per worker per Kind, rather than as one shared budget for a worker.
 
-MultiKueue's worker-cluster clients get no such treatment. `clustersReconciler`
-builds one controller-runtime client per worker from a kubeconfig Secret or a
-ClusterProfile, and that `rest.Config` carries no QPS, burst, or shared
-`RateLimiter`. controller-runtime lazily creates an underlying REST client per
-GVK, and each of those falls back to client-go's defaults of 5 QPS and burst 10.
-So the remote side is not one 5 QPS budget per worker; it is 5 QPS per worker per
-Kind.
+Raising the remote limits can move the bottleneck onto the manager's shared
+limiter or the host. The baseline measures end-to-end control-plane throughput;
+it does not measure unconstrained processing capacity or count API requests.
+CPU work, lock contention, or traffic outside the binding limiter can regress
+without reducing observed throughput. Compare results only at identical
+scenario settings and on stable CI capacity.
 
-Measured on a 32-core machine with three workers. The rows were taken at 120, 1000
-and 500 workloads respectively, each sized to give the regime a run long enough to
-reach steady state; once the load saturates a limiter, throughput barely moves with
-the workload count, which the first row shows directly at 1.30/s for 1000 against
-1.31/s for 120:
-
-| remote QPS per REST client | manager QPS | throughput | what binds |
-|---|---|---|---|
-| 5 (client-go default) | 300 (Kueue default) | 1.31/s | the remote limiter |
-| 300 | 300 (Kueue default) | 38.0/s | the manager's shared limiter |
-| 300 | 3000 | 95.3/s | neither limiter |
-
-The middle row is why the baseline leaves the remote clients alone. Lifting the
-remote throttle does not expose MultiKueue's processing capacity; it moves the
-constraint onto the manager's own limiter. Both regimes measure requests per
-Workload against a fixed token rate and differ only in which request count they
-respond to. Measuring at the remote default needs no production code and is the
-configuration a deployed Kueue actually runs, so that is where the baseline sits.
-
-The arithmetic behind each row says what a movement in the number means. At 300
-manager QPS and 38.0 workloads/s, a Workload spends about 7.9 tokens on the
-manager's shared bucket. At 5 remote QPS and 1.31 workloads/s, it spends about
-3.8 tokens on the busiest remote Kind. Neither figure counts all requests: the
-first excludes remote traffic entirely, and the second covers one Kind of it.
-
-Because the remote limiter releases tokens at a fixed rate regardless of how fast
-the host is, the baseline number is more portable across machines than a
-processing measurement would be, and the throughput floor can be set tightly
-enough to catch a single added remote request per Workload. What it cannot see is
-a regression that does not change the busiest remote Kind's request count: CPU
-work, lock contention, or extra traffic to some other Kind.
-
-Nothing here asserts anything about the garbage collection or worker-loss paths.
-Worker-loss detection cannot trigger at all, since its timeout is 15 minutes. The
-garbage collector does run: its interval is one minute against a drain of about 95
-seconds, so it fires once inside the measured window, listing Workloads on each
-worker and reading the local copy of every one it finds. That is a small cost
-against the run's token budget, but it is not zero, and where it lands relative to
-the run's progress varies, so it contributes to the run-to-run spread.
+The runner retains production garbage collection, worker-loss, and event-batch
+defaults. Garbage collection can add traffic during sufficiently long runs.
+Worker-loss detection is not exercised: its 15-minute timeout exceeds the
+baseline's 10-minute safety bound. Failure and recovery scenarios are deferred.
 
 ## Reconcile concurrency
 
 The runner sets `groupKindConcurrency` to match the MultiKueue e2e configuration,
-including `Workload.kueue.x-k8s.io: 10`. This has to be set explicitly:
-controller-runtime resolves each controller's concurrency from that map and
-otherwise runs one reconcile at a time, an order of magnitude below any deployed
-MultiKueue.
-
-At the committed baseline this does not move the throughput, because the remote
-limiter binds either way. It matters for fidelity, and it matters for any run
-that lifts the limiter: with the remote clients at 300 QPS, raising concurrency
-from one to ten took throughput from 24.8/s to 38.0/s. `workloadConcurrency` is
-recorded in the summary and matched exactly by the checker.
+including `Workload.kueue.x-k8s.io: 10`. Without that setting, controller-runtime
+would run only one reconcile at a time. `workloadConcurrency` is recorded in the
+summary and matched exactly by the checker.
 
 ## Reading the summary
-
-Throughput is the headline number. On a 32-core machine the baseline reports
-about 1.31 workloads/s; five consecutive runs spanned 1.289 to 1.335.
 
 The runner submits workloads as fast as it can rather than at a fixed arrival
 rate, so once the load saturates the dispatch path the latency percentiles
@@ -167,8 +159,9 @@ than the throughput floor so that throughput stays the binding guard.
 The summary also contains:
 
 - manager quota-reservation and end-to-end admission latency, each as
-  min/avg/P50/P95/P99/max. Quota reservation is manager-side scheduling and is
-  the one measurement here that does not track dispatch throughput. Admission
+  min/avg/P50/P95/P99/max. Quota reservation measures manager-side scheduling
+  before admission checks complete; dispatch traffic can also affect it through
+  the manager's shared local rate limiter. Admission
   includes MultiKueue dispatch and the subsequent manager reconcile that admits
   the local Workload, so the gap is an end-to-end control-plane interval rather
   than pure MultiKueue service time;
@@ -191,7 +184,8 @@ admission observation. The range spec tolerates one gap only while bounded
 latency and throughput remain in range; total and drain timings are
 observational. More than one gap fails. A watch error ends the run instead: it
 usually means the resource version to resume from has expired, which no retry
-recovers. No gap occurred in any calibration run.
+recovers. The committed tolerance is provisional and must also be checked on
+the CI worker.
 
 `workerDistribution` records which worker won each workload. Under the
 all-at-once dispatcher that is decided by whichever worker reserves quota
@@ -211,7 +205,8 @@ The raw runner remains observational. The dedicated test target applies broad,
 provisional guardrails, but there is no presubmit, periodic, or alert until a
 job is added and calibrated on stable CI capacity. The intended rollout is:
 
-1. merge the runner and regression-check target in this repository;
+1. merge the worker-client configuration dependency, then the runner and
+   regression-check target in this repository;
 2. add a dedicated non-alerting periodic job in
    [`kubernetes/test-infra`](https://github.com/kubernetes/test-infra/blob/master/config/jobs/kubernetes-sigs/kueue/kueue-periodics-main.yaml)
    that invokes `make test-performance-multikueue` and publishes `ARTIFACTS`;

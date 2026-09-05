@@ -34,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -184,13 +183,10 @@ func (c *observationCollector) summarize(cfg benchmarkConfig, generationDuration
 			GCInterval:          benchmarkGCInterval.String(),
 			WorkerLostTimeout:   benchmarkWorkerLostTimeout.String(),
 			EventsBatchPeriod:   benchmarkEventsBatchPeriod.String(),
-			// The remote limits are recorded rather than configured: MultiKueue leaves its worker
-			// clients at client-go's defaults, and controller-runtime applies those to each REST
-			// client it creates per GVK.
-			LocalClientQPS:    apiQPS,
-			LocalClientBurst:  apiBurst,
-			RemoteClientQPS:   rest.DefaultQPS,
-			RemoteClientBurst: rest.DefaultBurst,
+			LocalClientQPS:      apiQPS,
+			LocalClientBurst:    apiBurst,
+			RemoteClientQPS:     cfg.RemoteClientQPS,
+			RemoteClientBurst:   int(cfg.RemoteClientBurst),
 		},
 		Timing: report.Timing{
 			GenerationMs: generationDuration.Milliseconds(),
@@ -502,10 +498,11 @@ func receiveWorkloads(
 		}
 		watcher.Stop()
 		tracker.gaps.Add(1)
-		var err error
-		if watcher, err = watchWorkloadsFrom(ctx, c, runID, resourceVersion); err != nil {
+		resumedWatcher, err := watchWorkloadsFrom(ctx, c, runID, resourceVersion)
+		if err != nil {
 			return fmt.Errorf("resume workload watch at resource version %s: %w", resourceVersion, err)
 		}
+		watcher = resumedWatcher
 	}
 }
 

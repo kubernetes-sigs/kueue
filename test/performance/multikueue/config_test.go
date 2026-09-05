@@ -26,11 +26,13 @@ import (
 
 func TestBenchmarkConfigValidate(t *testing.T) {
 	valid := benchmarkConfig{
-		WorkloadCount:   1000,
-		WorkerClusters:  3,
-		CreationWorkers: 20,
-		CPURequest:      "1m",
-		Timeout:         metav1.Duration{Duration: 30 * time.Minute},
+		WorkloadCount:     1000,
+		WorkerClusters:    3,
+		CreationWorkers:   20,
+		RemoteClientQPS:   1000,
+		RemoteClientBurst: 1000,
+		CPURequest:        "1m",
+		Timeout:           metav1.Duration{Duration: 30 * time.Minute},
 	}
 
 	testCases := map[string]struct {
@@ -57,6 +59,22 @@ func TestBenchmarkConfigValidate(t *testing.T) {
 		},
 		"zero creation workers": {
 			mutate: func(c *benchmarkConfig) { c.CreationWorkers = 0 },
+		},
+		"missing remote QPS": {
+			mutate:  func(c *benchmarkConfig) { c.RemoteClientQPS = 0 },
+			wantErr: "remoteClientQPS must be positive",
+		},
+		"negative remote QPS": {
+			mutate:  func(c *benchmarkConfig) { c.RemoteClientQPS = -1 },
+			wantErr: "remoteClientQPS must be positive",
+		},
+		"missing remote burst": {
+			mutate:  func(c *benchmarkConfig) { c.RemoteClientBurst = 0 },
+			wantErr: "remoteClientBurst must be positive",
+		},
+		"negative remote burst": {
+			mutate:  func(c *benchmarkConfig) { c.RemoteClientBurst = -1 },
+			wantErr: "remoteClientBurst must be positive",
 		},
 		"invalid CPU": {
 			mutate: func(c *benchmarkConfig) { c.CPURequest = "not-a-quantity" },
