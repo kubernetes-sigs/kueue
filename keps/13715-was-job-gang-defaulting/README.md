@@ -48,9 +48,17 @@ Quota admission does not confirm that all Pods of a Workload can be placed at th
 Fragmentation, taints, topology, DRA, and non-Kueue Pods can prevent placement after quota has been reserved.
 A partially placed Job holds resources while making no progress; `waitForPodsReady` can evict and retry it after a timeout, but it cannot prevent the partial placement.
 
-Gang scheduling closes that gap at the scheduler level.
+Gang scheduling does not close that gap.
+It does not make admission placement-aware, and it does not make an unplaceable Job placeable: a Job blocked by taints, topology, or DRA stays unplaceable either way.
+What it changes is the failure mode.
+Instead of holding a subset of the nodes while making no progress, the Job stays fully Pending, which is the state Kueue's eviction and requeue path is built to act on.
 The upstream WAS and Job KEPs deliberately leave queueing and admission to systems such as Kueue, and the JobSet WAS KEP names the follow-up directly: "a follow-up Kueue design must define queueing and partial-eviction behavior" ([kubernetes-sigs/jobset#1253](https://github.com/kubernetes-sigs/jobset/issues/1253)).
 This KEP defines the Kueue-side behavior for `batch/v1` Jobs, allowing administrators to apply gang scheduling without requiring every user to update their manifests.
+
+A Job that sets `spec.scheduling` itself needs an answer of a different kind.
+Kueue does not read or reason about most of what a user can write there when it admits the Job.
+Some of those semantics are benign, but others can conflict with a decision Kueue is making itself, and a WAS topology constraint next to Kueue TAS is the concrete case: Kueue reserves quota for a `kueue.Workload` the scheduler will not place, and holds it until `waitForPodsReady` evicts the Job.
+Defining what Kueue does with each of those semantics is the other half of this KEP.
 
 ### Goals
 
