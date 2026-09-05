@@ -31,6 +31,7 @@ import (
 	"k8s.io/klog/v2"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -39,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
 type retentionTestAdapter struct {
@@ -140,6 +142,9 @@ func TestReconcileGroupRemoteRetention(t *testing.T) {
 	tests := map[string]struct {
 		gate              bool
 		withQuota         bool
+		evicted           bool
+		inactive          bool
+		selectedEvicted   bool
 		selectedOutOfSync bool
 		wantRetained      bool
 		wantRequeueAfter  time.Duration
@@ -153,6 +158,21 @@ func TestReconcileGroupRemoteRetention(t *testing.T) {
 		"quota loss remains immediate": {
 			gate:         true,
 			wantRetained: false,
+		},
+		"completion racing with manager eviction keeps cleanup immediate": {
+			gate:      true,
+			withQuota: true,
+			evicted:   true,
+		},
+		"completion racing with worker eviction keeps cleanup immediate": {
+			gate:            true,
+			withQuota:       true,
+			selectedEvicted: true,
+		},
+		"deactivated finished Workload keeps cleanup immediate": {
+			gate:      true,
+			withQuota: true,
+			inactive:  true,
 		},
 		"out-of-sync recovery remains immediate": {
 			gate:              true,
@@ -173,6 +193,10 @@ func TestReconcileGroupRemoteRetention(t *testing.T) {
 			if tc.withQuota {
 				localBuilder = localBuilder.ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now)
 			}
+			if tc.evicted {
+				localBuilder.EvictedAt(now)
+			}
+			localBuilder.Active(!tc.inactive)
 			localBuilder = localBuilder.Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue,
 				Reason: kueue.WorkloadFinishedReasonSucceeded, LastTransitionTime: metav1.NewTime(now.Add(-time.Minute))})
 			local := localBuilder.Obj()
@@ -181,6 +205,9 @@ func TestReconcileGroupRemoteRetention(t *testing.T) {
 			nonSelectedRemote := selectedRemote.DeepCopy()
 			if tc.selectedOutOfSync {
 				selectedRemote.Spec.QueueName = "other"
+			}
+			if tc.selectedEvicted {
+				workloadevict.SetEvictedCondition(selectedRemote, now, kueue.WorkloadEvictedByPreemption, "preempted")
 			}
 			remoteJob := func() *batchv1.Job {
 				return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job", Namespace: TestNamespace,
@@ -397,5 +424,53 @@ func TestSameNameReplacementSkipsPodGroups(t *testing.T) {
 	}
 	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remotePod), &corev1.Pod{}); err != nil {
 		t.Fatalf("remote Pod was deleted: %v", err)
+	}
+}
+
+func TestSameNameReplacementPreservesConcurrentOwnershipChange(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	managerJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job", Namespace: TestNamespace, UID: "manager"}}
+	managerClient := getClientBuilder(ctx).WithObjects(managerJob).Build()
+	remoteJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{
+		Name: managerJob.Name, Namespace: managerJob.Namespace, UID: "remote",
+		Labels:      map[string]string{kueue.MultiKueueOriginLabel: defaultOrigin},
+		Annotations: map[string]string{constants.PrebuiltWorkloadAnnotation: "old-workload"},
+	}}
+	workerClient := getClientBuilder(ctx).WithObjects(remoteJob).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				// Ownership changes after the reconciler reads the old metadata.
+				current := &batchv1.Job{}
+				if err := c.Get(ctx, client.ObjectKeyFromObject(remoteJob), current); err != nil {
+					return err
+				}
+				current.Labels[kueue.MultiKueueOriginLabel] = "other-origin"
+				if err := c.Update(ctx, current); err != nil {
+					return err
+				}
+				return c.Delete(ctx, obj, opts...)
+			},
+		}).Build()
+	worker := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker", nil)
+	worker.client = NewNeverCachingClient(workerClient)
+	local := utiltestingapi.MakeWorkload("new-workload", TestNamespace).
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), managerJob.Name, string(managerJob.UID)).Obj()
+	group := &wlGroup{
+		local: local, localClient: managerClient,
+		remotes:       map[string]*kueue.Workload{"worker": nil},
+		remoteClients: map[string]*remoteClient{"worker": worker},
+		jobAdapter:    retentionTestAdapter{}, controllerKey: client.ObjectKeyFromObject(managerJob),
+	}
+
+	_, err := (&wlReconciler{}).syncToSingleCluster(ctx, klog.Background(), group, "worker")
+	if !apierrors.IsConflict(err) {
+		t.Errorf("syncToSingleCluster() error = %v, want Conflict", err)
+	}
+	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remoteJob), &batchv1.Job{}); err != nil {
+		t.Fatalf("remote Job with changed ownership was deleted: %v", err)
+	}
+	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(local), &kueue.Workload{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("remote Workload was created before resolving the conflict, error = %v", err)
 	}
 }

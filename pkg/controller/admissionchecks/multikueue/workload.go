@@ -207,7 +207,11 @@ func (g *wlGroup) deleteRemoteObjectOfOtherWorkload(ctx context.Context, cluster
 	}
 
 	ctrl.LoggerFrom(ctx).V(3).Info("Deleting a remote object left by an earlier run", "remoteObject", g.controllerKey, "remoteObjectWorkload", remoteWorkloadName, "workload", g.local.Name)
-	if err := g.jobAdapter.DeleteRemoteObject(ctx, g.localClient, remoteClient.getClient(), g.controllerKey); err != nil {
+	// Only delete the dedicated object whose ownership we checked, even if it is
+	// replaced or its ownership changes before the delete reaches the worker.
+	if err := client.IgnoreNotFound(remoteClient.getClient().Delete(ctx, remoteObject,
+		client.Preconditions{UID: &remoteObject.UID, ResourceVersion: &remoteObject.ResourceVersion},
+		client.PropagationPolicy(metav1.DeletePropagationBackground))); err != nil {
 		return false, false, err
 	}
 	return true, true, nil
@@ -491,7 +495,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 	if group.IsFinished() {
 		remaining := w.remoteRetentionRemaining(group.local)
-		if remaining == 0 {
+		// Completion can race with eviction or deactivation while quota is still reserved.
+		if remaining == 0 || workloadevict.IsEvicted(group.local) || !workload.IsActive(group.local) {
 			return w.removeAllRemoteObjects(ctx, group)
 		}
 
@@ -502,7 +507,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if retainedCluster == "" {
 			return w.removeAllRemoteObjects(ctx, group)
 		}
-		if remote := group.remotes[retainedCluster]; remote != nil && isRemoteSpecOutOfSync(group.local.Spec, remote.Spec) {
+		if remote := group.remotes[retainedCluster]; remote != nil &&
+			(workloadevict.IsEvicted(remote) || isRemoteSpecOutOfSync(group.local.Spec, remote.Spec)) {
 			return w.removeAllRemoteObjects(ctx, group)
 		}
 
