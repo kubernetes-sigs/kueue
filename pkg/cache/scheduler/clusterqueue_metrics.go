@@ -23,6 +23,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 )
 
 func (c *Cache) RecordClusterQueueResourceMetrics(log logr.Logger, cqName kueue.ClusterQueueReference) {
@@ -51,22 +52,20 @@ func (c *Cache) ClearClusterQueueOldResourceMetrics(log logr.Logger, oldCq *kueu
 		return
 	}
 
-	for rgi := range oldCq.Spec.ResourceGroups {
-		oldRg := &oldCq.Spec.ResourceGroups[rgi]
+	for rgi, oldRg := range resourcegroups.EffectiveResourceGroups(oldCq) {
 		newFlavorSet := sets.New[kueue.ResourceFlavorReference]()
 		if rgi < len(newCq.ResourceGroups) && len(newCq.ResourceGroups[rgi].Flavors) > 0 {
 			newFlavorSet.Insert(newCq.ResourceGroups[rgi].Flavors...)
 		}
 
-		for fi := range oldRg.Flavors {
-			flavor := &oldRg.Flavors[fi]
+		for _, flavor := range oldRg.Flavors {
 			if !newFlavorSet.Has(flavor.Name) {
 				metrics.ClearClusterQueueResourceQuotas(oldCq.Name, string(flavor.Name), "")
 				metrics.ClearClusterQueueResourceReservations(oldCq.Name, string(flavor.Name), "")
 				metrics.ClearClusterQueueResourceUsage(oldCq.Name, string(flavor.Name), "")
 			} else {
-				for ri := range flavor.Resources {
-					fr := resources.FlavorResource{Flavor: flavor.Name, Resource: flavor.Resources[ri].Name}
+				for _, res := range flavor.Resources {
+					fr := resources.FlavorResource{Flavor: flavor.Name, Resource: res.Name}
 					if _, found := newCq.resourceNode.Quotas[fr]; !found {
 						metrics.ClearClusterQueueResourceQuotas(oldCq.Name, string(fr.Flavor), string(fr.Resource))
 						metrics.ClearClusterQueueResourceReservations(oldCq.Name, string(fr.Flavor), string(fr.Resource))
