@@ -15,6 +15,7 @@
   - [Defaulting rules](#defaulting-rules)
   - [Escape hatch](#escape-hatch)
   - [Eligibility](#eligibility)
+  - [WAS topology and Kueue TAS](#was-topology-and-kueue-tas)
   - [Compatibility with Kueue mechanisms](#compatibility-with-kueue-mechanisms)
   - [Feature gate and API availability](#feature-gate-and-api-availability)
   - [Observability](#observability)
@@ -76,8 +77,10 @@ Defining what Kueue does with each of those semantics is the other half of this 
 ### Non-Goals
 
 - Designing the upstream `spec.scheduling` API.
+- Honoring a user-set `schedulingConstraints` during Kueue admission, in either direction.
+  Alpha defines what happens when the two topology models meet and nothing more; converging them is out of scope, see [WAS topology and Kueue TAS](#was-topology-and-kueue-tas) and #13151.
 - Writing any WAS field other than `schedulingPolicy.gang` and `disruptionMode.all`, in particular `minCount`, `schedulingConstraints`, and DRA `resourceClaims`.
-- Acting on the contents of a user-set `spec.scheduling`, beyond the two decisions alpha already takes from it: skipping defaulting, and skipping partial admission for a Job that carries `gang.minCount`.
+- Acting on the contents of a user-set `spec.scheduling`, beyond the three decisions alpha takes from it: skipping defaulting, skipping partial admission for a Job that carries `gang.minCount`, and refusing a Job that carries `schedulingConstraints`.
   Alpha never writes into a field the user set; interpreting the rest of it is a follow-up ([Future extensions](#future-extensions)).
 - Creating `scheduling.k8s.io` objects in Kueue, including `CompositePodGroup`.
   The Job controller is the root controller and compiler for standalone Jobs.
@@ -85,7 +88,7 @@ Defining what Kueue does with each of those semantics is the other half of this 
 - Defining JobSet queueing or partial-eviction behavior.
   The JobSet WAS KEP places the Kueue-side integration in #13707.
 - Defining how group-level disruption interacts with Kueue preemption, eviction, and `WorkloadPriorityClass`.
-  This KEP sets the disruption granularity; which system decides, and on whose priority, belongs to a separate KEP, as proposed by @kannon92 in #13533.
+  This KEP sets the disruption granularity; which system decides, and on whose priority, belongs to a separate KEP (#13533).
 - Changing the `kueue.x-k8s.io` `Workload` API.
 - Extending defaulting to JobSet, RayJob, TrainJob, LWS, or other integrations during alpha.
 
@@ -118,7 +121,8 @@ This document writes `kueue.Workload` for the Kueue queueing unit and `schedulin
 
 ### Policy source
 
-The feature gate is the policy source and the mutating webhook is the execution point.
+The feature gate is the policy source for defaulting, and the mutating webhook is where it is applied.
+The proposed compatibility refusal is a second execution point, in the validating webhook, and is proposed not to follow the gate ([OQ8](#open-questions)).
 `BatchJobGangSchedulingByDefault` applies the default to every eligible Kueue-managed Job in the cluster; alpha adds no Kueue configuration field.
 An administrator who wants gang scheduling for only part of the cluster can scope which Jobs Kueue manages at all, through `managedJobsNamespaceSelector`.
 
@@ -159,6 +163,7 @@ Hierarchical-group compatibility is future work.
 **Changing scheduling semantics without a per-Job request.**
 The feature is disabled by default and requires an administrator to enable the gate; a Job that sets `spec.scheduling` is never modified, and `basic: {}` is the documented object-level opt-out.
 This follows the existing defaulting pattern from [KEP-10765](/keps/10765-workload-priority-class-defaulting), a gated creation-time mutation that preserves explicit user values, and which is itself still alpha and default-off.
+The proposed compatibility refusal does not follow the gate, so a cluster that upgrades can have Job creations refused while defaulting is still off; that is the cost [OQ8](#open-questions) weighs.
 The comparison is not exact: that feature also requires a `WorkloadPriorityClass` named `default` to exist, so its gate alone changes nothing, while here the gate is the whole switch ([OQ4](#open-questions)).
 
 **Silent loss of the field.**
@@ -236,6 +241,19 @@ Kueue skips defaulting for such a Job and reports the reason.
 
 Eligibility does not depend on `completionMode`; Indexed and NonIndexed Jobs of the same shape behave identically.
 
+### WAS topology and Kueue TAS
+
+Kueue TAS and WAS topology can become independent placement authorities.
+Kueue TAS commits a placement before the Pods become schedulable, while WAS then applies its own topology constraint.
+Their intersection can be empty, leaving an admitted Job holding quota until `waitForPodsReady` evicts it.
+
+Alpha therefore proposes refusing Kueue-managed Jobs that set `schedulingConstraints`, rather than silently admitting this combination.
+The exact enforcement point, and whether the refusal follows `BatchJobGangSchedulingByDefault`, remain [OQ7](#open-questions) and [OQ8](#open-questions).
+
+Alpha does not translate between the two topology models.
+Kueue TAS has semantics WAS cannot express, and even their required-topology overlap is not symmetric.
+Convergence is out of scope and tracked by #13151.
+
 ### Compatibility with Kueue mechanisms
 
 | Interaction | Behavior |
@@ -246,7 +264,7 @@ Eligibility does not depend on `completionMode`; Indexed and NonIndexed Jobs of 
 | Suspend, eviction, requeue | The Kueue side is unchanged: eviction suspends the Job, its Pods are deleted, the `kueue.Workload` is requeued, and re-admission resumes the Job; the injected policy is immutable and survives the cycle. What is upstream dependent is the compiled-object lifecycle: suspending a Job does not currently delete the compiled objects, and beta is expected to delete and recreate them. Resume reuses the same `PodGroup`, and gang scheduling still applies to the new Pods: on a cluster with room for two Pods of a three-Pod gang, none are placed. |
 | `waitForPodsReady` | The scheduler keeps the group Pending while Kueue can still evict it after the timeout ([OQ3](#open-questions)). |
 | JobSet | Child Jobs of a Kueue-managed JobSet are excluded by rule 3. The only child Jobs that remain eligible are those whose parent JobSet is not managed by Kueue and that are admitted individually through the Job integration. This KEP does not select a JobSet queueing model. |
-| Kueue TAS | Not analyzed in alpha. This KEP writes no `schedulingConstraints`, but that is not what keeps the two apart: Kueue TAS constrains placement through node selectors on the Pod template, so nothing prevents a defaulted Job from being placed by the scheduler's group cycle against constraints Kueue chose. `SchedulerLibraryIntegration`, which swaps Kueue's TAS node-fit check for a scheduler filter plugin set, sits on the same path and is equally unanalyzed. The longer-term direction removes the overlap rather than analyzing it, by delegating placement to the scheduler library (#13151). |
+| Kueue TAS | Defined by refusal rather than by reconciliation: a Kueue-managed Job that sets `schedulingConstraints` is refused at creation, so alpha never runs the two placement authorities against each other, and a defaulted Job carries no constraints, so Kueue TAS decides placement and the scheduler's group cycle only validates it. See [WAS topology and Kueue TAS](#was-topology-and-kueue-tas). `SchedulerLibraryIntegration`, which swaps Kueue's TAS node-fit check for a scheduler filter plugin set, is covered by the same refusal where the user set a constraint, but its effect on the defaulted path is not analyzed: it replaces the check this row assumes Kueue is making. |
 | `WorkloadPriorityClass` | Not projected. A Kueue priority reaches neither the compiled `PodGroup` nor the Pods, so the group is scheduled and preempted at whatever priority the `PodGroup` compiles to ([Risks and mitigations](#risks-and-mitigations)). |
 | MultiKueue | Defaulted on the manager only. Neither availability check reaches a worker, and rule 4 keeps the worker-side webhook off the dispatched copy ([Feature gate and API availability](#feature-gate-and-api-availability)). |
 | Preemption and eviction | The injected `disruptionMode.all` makes the compiled `PodGroup` one disruption unit on the scheduler side, which matches Kueue's Job-granularity eviction. Which system decides, and on whose priority, is out of scope for this KEP. |
@@ -330,6 +348,8 @@ That work depends on upstream settling what a partially specified `spec.scheduli
 | OQ4 | What carries the administrator's cluster-level choice once `BatchJobGangSchedulingByDefault` graduates? | Open. Alpha needs nothing, since the gate is default-off and enabling it is itself the administrator's choice. Once the gate defaults on, the behavior becomes cluster-wide with only a per-Job opt-out. `WorkloadPriorityClass` defaulting has a second switch, the presence of a `WorkloadPriorityClass` named `default`, and gang has no object whose presence can carry the same intent. |
 | OQ5 | Should defaulting be skipped when workload slices are enabled? | Yes for alpha, because the Kueue-side slice semantics are unverified. |
 | OQ6 | Should a preflight probe replace the check after creation for clusters that discard the field? | Beta. The version rule and the annotation comparison in [Feature gate and API availability](#feature-gate-and-api-availability) are enough while the gate is default-off; a probe buys pre-admission detection, and a per-cluster result that MultiKueue workers could be checked against, at the cost of a cache contract. |
+| OQ7 | At what point should Kueue refuse a WAS topology constraint: every Kueue-managed Job at CREATE, or only once admission determines that Kueue TAS applies? | Open, and the decision this KEP most needs confirmed. Alpha proposes CREATE, because a webhook cannot resolve the `ResourceFlavor` and refusing later means adding a compatibility check on the admission path. The cost is that a Job bound for a ClusterQueue with no topology-aware flavor is refused although nothing would have conflicted. |
+| OQ8 | Should that refusal follow `BatchJobGangSchedulingByDefault`, or stay independent of the defaulting feature? | Alpha proposes independent, on the grounds that a correctness guard should not be something an administrator opts into alongside a default. The counterweight is larger than it first appears: a webhook is shown the admission request rather than the stored object, so an independent guard also refuses Jobs on clusters where `WorkloadWithJob` is disabled on the API server and the field would have been discarded silently. Gating it would leave the guard off by default and tie a compatibility behavior to whether an administrator wanted gang defaults. |
 | OQ9 | What compatibility contract should Kueue offer for a user-set `disruptionMode.single`? | Open. Upstream lets the scheduler disrupt Pods of the group individually, so on a Job that also sets `gang` it can preempt Pods out of a group Kueue has admitted. Whether Kueue's eviction and preemption paths assume disruption is all-or-nothing has not been verified. The positions are to preserve it as today, to refuse it as with `schedulingConstraints`, or to reconcile the two disruption units; alpha proposes preserving it. |
 
 ### Upstream dependencies
@@ -412,6 +432,8 @@ A second `envtest` with the gate disabled on the API server covers the check aft
 - MultiKueue is not defaulted in alpha, and a manager below the required version does not carry a user-set `spec.scheduling` to its workers.
 - Kueue older than the Kubernetes dependency bump cannot write the field at all, and does not strip one the user wrote.
   A Kueue that can write it skips the mutation below the required API server version.
+- As proposed, the `schedulingConstraints` refusal follows the dependency bump rather than the feature gate, so upgrading into a Kueue that can read the field refuses a Job shape the cluster previously accepted, whether or not `BatchJobGangSchedulingByDefault` is enabled ([OQ8](#open-questions)).
+  Existing Jobs are unaffected only because the check is on CREATE alone, and because `spec.scheduling` cannot be added to a Job that was created without it.
 
 ## Implementation History
 
@@ -421,8 +443,13 @@ A second `envtest` with the gate disabled on the API server covers the check aft
 
 Kueue changes the scheduling policy of a Job without a per-Job request.
 The default-off feature gate, the eligibility rules, and the object-level opt-out reduce that risk without removing it.
-Because the gate is the only control, an administrator cannot narrow the default to part of the cluster except by narrowing which Jobs Kueue manages.
+Because the gate is the only control over defaulting, an administrator cannot narrow it to part of the cluster except by narrowing which Jobs Kueue manages, and the proposed refusal has no such control at all ([OQ8](#open-questions)).
 The implementation also depends on an upstream field whose availability varies across clusters, which adds version and gate checks to both single-cluster and MultiKueue operation.
+
+Refusing every Kueue-managed Job that carries a WAS topology constraint is broader than the conflict it prevents.
+A Job whose ClusterQueue uses no topology-aware flavor would have been placed correctly and is refused anyway, because the webhook cannot know at CREATE which flavor admission will assign.
+Refusal is the reversible direction, since it can be narrowed later without having to un-admit Jobs a permissive alpha accepted, but until it is narrowed it is a real loss of reach.
+
 
 Rule 5's presence test costs reach in a case nobody intends.
 A Job that sets only `spec.scheduling.resourceClaims` has expressed no scheduling policy at all and still loses both defaults.
@@ -458,6 +485,18 @@ Dropped because it makes Kueue read a half-specified field whose meaning upstrea
 **Leave `disruptionMode` to the follow-up KEP.**
 An earlier revision kept this KEP to `schedulingPolicy.gang` alone, on the grounds that `all` also changes scheduler-side preemption behavior.
 Dropped because `disruptionMode` is immutable and cannot be added to an existing Job, so a later KEP could apply it only to Jobs created after it ships, and the two halves of the default would never meet on the Jobs already running.
+
+**Defer the compatibility behavior to a follow-up.**
+Keep alpha to defaulting, and design what Kueue does with a user-set `spec.scheduling` separately.
+This is what the proof of concept does today: it preserves a user-set `spec.scheduling` and acts on none of it.
+The cost is that this interaction stays undefined for a release, so a cluster running both features gets the silent divergence in the meantime, and a Job created under a permissive alpha cannot be revisited because `spec.scheduling` is immutable.
+The argument for doing it here is that both halves meet on the same field and the same webhook.
+This is a live option rather than a rejected one, and it is the alternative to [OQ7](#open-questions).
+
+**Admit the Job and report the incompatibility.**
+Surface it on the `kueue.Workload` as a condition and an event instead of refusing at CREATE, leaving the operator to act; deactivating the `kueue.Workload` rather than admitting it is a third position between that and refusal.
+It needs no decision about the enforcement point.
+The argument against is that the `kueue.Workload` holds quota for the duration and the field cannot be corrected afterwards, so the report describes a state nobody can fix except by deleting and recreating the Job.
 
 **Policy on LocalQueue or ClusterQueue.**
 Useful per-queue control and possibly a better long-term model, but it requires a Kueue API change and is deferred from alpha.
