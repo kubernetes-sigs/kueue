@@ -400,6 +400,11 @@ test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=
 .PHONY: test-e2e-multikueue-dra
 test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the MultiKueue Dynamic Resource Allocation (DRA) e2e test suite.
 
+.PHONY: test-e2e-multikueue-map
+test-e2e-multikueue-map: E2E_MAP_K8S_VERSION ?= 1.36.1
+test-e2e-multikueue-map: setup-e2e-env
+	@$(MAKE) run-test-multikueue-e2e-map-$(E2E_MAP_K8S_VERSION) ## Run the MultiKueue MutatingAdmissionPolicy e2e test suite (Kubernetes 1.36).
+
 run-test-e2e-baseline-%: K8S_VERSION = $(@:run-test-e2e-baseline-%=%)
 run-test-e2e-baseline-%:
 	@echo Running baseline e2e for k8s ${K8S_VERSION}
@@ -603,6 +608,23 @@ run-test-e2e-multikueue-sequential-%:
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		CLUSTERPROFILE_VERSION=$(CLUSTERPROFILE_VERSION) \
 		CLUSTERPROFILE_PLUGIN_IMAGE_VERSION=$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		./hack/testing/e2e-multikueue-test.sh
+
+run-test-multikueue-e2e-map-%: K8S_VERSION = $(@:run-test-multikueue-e2e-map-%=%)
+run-test-multikueue-e2e-map-%:
+	@echo Running MAP multikueue e2e for k8s ${K8S_VERSION}
+	@if [ "$$(echo $(K8S_VERSION) | cut -d. -f1,2)" != "1.36" ]; then \
+		echo "Error: MutatingAdmissionPolicy MultiKueue e2e tests require Kubernetes 1.36 (got $(K8S_VERSION))"; \
+		exit 1; \
+	fi
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		E2E_TARGET_FOLDER="multikueue/map" \
+		E2E_CONFIG_FOLDER="multikueue/map" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-multikueue-test.sh
 
