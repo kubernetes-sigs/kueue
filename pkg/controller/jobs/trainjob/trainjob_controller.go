@@ -90,6 +90,12 @@ func NewReconciler(
 	eventRecorder events.EventRecorder,
 	opts ...jobframework.Option,
 ) (jobframework.JobReconcilerInterface, error) {
+	// Validate TrainJob CRD version compatibility before proceeding.
+	// This check ensures we fail fast at startup if v2.1 or earlier is installed.
+	if err := ValidateTrainJobCRDVersion(ctx, c); err != nil {
+		return nil, fmt.Errorf("TrainJob CRD compatibility check failed during setup: %w", err)
+	}
+
 	if _, err := kftrainerruntimecore.New(ctx, c, indexer, nil); err != nil {
 		return nil, err
 	}
