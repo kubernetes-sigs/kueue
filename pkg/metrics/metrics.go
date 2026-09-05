@@ -1319,9 +1319,12 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
+// ClearClusterQueueMetricsOnLabelChange removes gauge series that are
+// re-created after a ClusterQueue custom-label change. Cumulative counters and
+// histograms must survive this resync so their recorded history is preserved.
 func ClearClusterQueueMetricsOnLabelChange(cq kueue.ClusterQueueReference) {
 	cqName := string(cq)
-	ReplacedWorkloadSlicesTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueue, prometheus.Labels{"cluster_queue": cqName})
 	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueueLabelChange, prometheus.Labels{"cluster_queue": cqName})
 }
 

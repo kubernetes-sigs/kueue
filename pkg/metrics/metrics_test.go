@@ -500,16 +500,21 @@ func TestClearClusterQueueMetricsOnLabelChangeOnlyClearsScopedGaugeMetrics(t *te
 	ReportPendingWorkloads(cqName, PendingStatusInadmissible, 1, nil, nil)
 	ReportClusterQueueWeightedShare(cqName, "cohort", 7, nil, nil)
 	ReportReplacedWorkloadSlices(cqName, nil, nil)
+	AdmittedWorkload(cqName, "", 0, nil, nil)
 
 	expectFilteredMetricsCount(t, PendingWorkloads, 2, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueWeightedShare, 1, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ReplacedWorkloadSlicesTotal, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, AdmittedWorkloadsTotal, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, AdmissionWaitTime, 1, "cluster_queue", cqName)
 
 	ClearClusterQueueMetricsOnLabelChange(cqName)
 
-	expectFilteredMetricsCount(t, PendingWorkloads, 2, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, PendingWorkloads, 0, "cluster_queue", cqName)
 	expectFilteredMetricsCount(t, ClusterQueueWeightedShare, 0, "cluster_queue", cqName)
-	expectFilteredMetricsCount(t, ReplacedWorkloadSlicesTotal, 0, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ReplacedWorkloadSlicesTotal, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, AdmittedWorkloadsTotal, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, AdmissionWaitTime, 1, "cluster_queue", cqName)
 
 	ClearClusterQueueMetrics(cqName)
 }
