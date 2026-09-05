@@ -201,10 +201,19 @@ type podSetMatchKey struct {
 	PodSetName  string
 }
 
+// matchedLeaf is a leaf the checker accepted and the score it gave it. The score
+// is a value because the state a candidate reads it from is cleared between runs.
+// The leaf itself is shared by every snapshot and never written, so it is kept
+// by pointer rather than looked up again on each hit.
+type matchedLeaf struct {
+	leaf  *leafDomain
+	score int64
+}
+
 // matchingLeavesCacheEntry stores the cached list of matching leaves and accumulated
 // exclusion stats for a specific podSetMatchKey.
 type matchingLeavesCacheEntry struct {
-	leaves []simulator.MatchedCandidate
+	leaves []matchedLeaf
 	stats  *tasExclusionStats
 }
 
@@ -1811,9 +1820,8 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 		}
 		state.stats.add(stats)
 		for _, ml := range matchingLeaves {
-			leaf := s.leaves[ml.GetID()]
-			s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
-			s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
+			s.domainStateOf(&ml.leaf.domain).affinityScore = ml.score
+			s.fillLeafCounts(ml.leaf, requirements, state, cachingRemainingResourcesEnabled)
 		}
 	} else {
 		if s.isLowestLevelNode {
@@ -1825,7 +1833,7 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 
 			for _, ml := range feasibleLeaves {
 				leaf := s.leaves[ml.GetID()]
-				s.domainStateOf(&leaf.domain).affinityScore += ml.GetAffinityScore()
+				s.domainStateOf(&leaf.domain).affinityScore = ml.GetAffinityScore()
 				s.fillLeafCounts(leaf, requirements, state, cachingRemainingResourcesEnabled)
 			}
 		} else {
@@ -1842,13 +1850,13 @@ func (s *TASFlavorSnapshot) fillInCounts(ctx context.Context, requirements *topo
 	return nil
 }
 
-func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements *topologyAssignmentPodRequirements) ([]simulator.MatchedCandidate, *tasExclusionStats, error) {
+func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements *topologyAssignmentPodRequirements) ([]matchedLeaf, *tasExclusionStats, error) {
 	if !s.isLowestLevelNode {
 		stats := newTASExclusionStats()
 		stats.TotalNodes += len(s.leaves)
-		result := make([]simulator.MatchedCandidate, 0, len(s.leaves))
+		result := make([]matchedLeaf, 0, len(s.leaves))
 		for candidate := range s.candidates() {
-			result = append(result, candidate)
+			result = append(result, matchedLeaf{leaf: s.leaves[candidate.GetID()], score: candidate.GetAffinityScore()})
 		}
 		return result, stats, nil
 	}
@@ -1866,8 +1874,12 @@ func (s *TASFlavorSnapshot) getMatchingLeaves(ctx context.Context, requirements 
 	if err != nil {
 		return nil, nil, err
 	}
+	matched := make([]matchedLeaf, 0, len(feasibleLeaves))
+	for _, candidate := range feasibleLeaves {
+		matched = append(matched, matchedLeaf{leaf: s.leaves[candidate.GetID()], score: candidate.GetAffinityScore()})
+	}
 	entry := &matchingLeavesCacheEntry{
-		leaves: feasibleLeaves,
+		leaves: matched,
 		stats:  leafStats,
 	}
 
