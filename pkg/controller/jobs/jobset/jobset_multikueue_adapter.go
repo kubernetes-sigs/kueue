@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 )
@@ -63,6 +64,14 @@ func (b *multiKueueAdapter) SyncJob(ctx context.Context, localClient client.Clie
 	remoteJob = jobset.JobSet{
 		ObjectMeta: api.CloneObjectMetaForCreation(&localJob.ObjectMeta),
 		Spec:       *localJob.Spec.DeepCopy(),
+	}
+
+	if features.Enabled(features.MultiKueueJobSetClearingTTLSecondsAfterFinishedOnWorkerCluster) {
+		// The manager cluster is the source of truth for JobSet lifecycle. Propagating
+		// the TTL to the worker can delete the remote JobSet before its terminal status
+		// is synchronized back to the manager, causing the completed JobSet to be
+		// dispatched again.
+		remoteJob.Spec.TTLSecondsAfterFinished = nil
 	}
 
 	// Add prebuilt workload name and multikueue origin
