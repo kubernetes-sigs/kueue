@@ -208,7 +208,7 @@ func TestAddClusterQueueOrphans(t *testing.T) {
 // TestUpdateClusterQueue tests that a ClusterQueue transfers cohorts on update.
 // Inadmissible workloads should become active.
 func TestUpdateClusterQueue(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	clusterQueues := []*kueue.ClusterQueue{
 		utiltestingapi.MakeClusterQueue("cq1").Cohort("alpha").Obj(),
 		utiltestingapi.MakeClusterQueue("cq2").Cohort("beta").Obj(),
@@ -243,7 +243,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 		if err := cl.Create(ctx, w); err != nil {
 			t.Fatalf("Failed adding workload to client: %v", err)
 		}
-		manager.RequeueWorkload(ctx, workload.NewInfo(w), RequeueReasonGeneric, "")
+		manager.RequeueWorkload(ctx, workload.NewInfo(log, w), RequeueReasonGeneric, "")
 	}
 
 	// Verify that all workloads are marked as inadmissible after creation.
@@ -298,7 +298,7 @@ func TestUpdateClusterQueue(t *testing.T) {
 }
 
 func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
 	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
@@ -322,7 +322,7 @@ func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
 	if err := fakeClient.Create(ctx, wl); err != nil {
 		t.Fatalf("Failed adding workload to client: %v", err)
 	}
-	manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric, "")
+	manager.RequeueWorkload(ctx, workload.NewInfo(log, wl), RequeueReasonGeneric, "")
 	manager.ResyncClusterQueueGaugeMetrics("cq1")
 
 	expectPending := func(team string, count int) {
@@ -361,7 +361,7 @@ func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
 }
 
 func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)
 
 	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
@@ -390,7 +390,7 @@ func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
 	if err := fakeClient.Create(ctx, wl); err != nil {
 		t.Fatalf("Failed adding workload to client: %v", err)
 	}
-	manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric, "")
+	manager.RequeueWorkload(ctx, workload.NewInfo(log, wl), RequeueReasonGeneric, "")
 	manager.ResyncLocalQueueGaugeMetrics(queue.Key(lq))
 
 	expectPending := func(team string, count int) {
@@ -540,7 +540,7 @@ func expectGaugeValue(t *testing.T, collector prometheus.Collector, labels map[s
 }
 
 func TestRequeueWorkloadsCohortCycle(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, log := utiltesting.ContextWithLog(t)
 	cohorts := []*kueue.Cohort{
 		utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj(),
 		utiltestingapi.MakeCohort("cohort-b").Parent("cohort-c").Obj(),
@@ -570,7 +570,7 @@ func TestRequeueWorkloadsCohortCycle(t *testing.T) {
 	}
 	// This test will pass with the removal of this line.
 	// Update once we find a solution to #3066.
-	manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric, "")
+	manager.RequeueWorkload(ctx, workload.NewInfo(log, wl), RequeueReasonGeneric, "")
 
 	// This method is where we do a cycle check. We call it to ensure
 	// it behaves properly when a cycle exists
@@ -694,6 +694,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
 			var moveWorkloadsLogCount int
 			logger := funcr.New(func(prefix, args string) {
 				if strings.Contains(args, "Attempting to move workloads") {
@@ -723,7 +724,7 @@ func TestQueueInadmissibleWorkloads(t *testing.T) {
 				if err := cl.Create(ctx, wl); err != nil {
 					t.Fatalf("Failed adding workload to client: %v", err)
 				}
-				manager.RequeueWorkload(ctx, workload.NewInfo(wl), RequeueReasonGeneric, "")
+				manager.RequeueWorkload(ctx, workload.NewInfo(log, wl), RequeueReasonGeneric, "")
 			}
 
 			// Reset the counter before testing. Setup operations also trigger the log.
@@ -1033,7 +1034,7 @@ func TestDeleteWorkload(t *testing.T) {
 
 		q := manager.localQueues[queue.Key(queues[0])]
 		if diff := gocmp.Diff(map[workload.Reference]*workload.Info{
-			workload.Key(wl2): workload.NewInfo(wl2),
+			workload.Key(wl2): workload.NewInfo(log, wl2),
 		}, q.items, ignoreSchedulingHash); diff != "" {
 			t.Errorf("Unexpected workloads found in local queue (-want,+got):\n%s", diff)
 		}
@@ -1085,7 +1086,7 @@ func TestDeleteAndForgetWorkload(t *testing.T) {
 
 		q := manager.localQueues[queue.Key(queues[0])]
 		if diff := gocmp.Diff(map[workload.Reference]*workload.Info{
-			workload.Key(wl2): workload.NewInfo(wl2),
+			workload.Key(wl2): workload.NewInfo(log, wl2),
 		}, q.items, ignoreSchedulingHash); diff != "" {
 			t.Errorf("Unexpected workloads found in local queue (-want,+got):\n%s", diff)
 		}
@@ -1292,7 +1293,7 @@ func TestRequeueWorkloadSchedulingHash(t *testing.T) {
 			// A recomputed hash must describe the Info the queue now holds. The
 			// reuse cases cannot be checked this way: what they keep is the probe.
 			if !tc.wantReuse {
-				if want := workload.NewInfo(info.Obj).SchedulingHash; info.SchedulingHash != want {
+				if want := workload.NewInfo(log, info.Obj).SchedulingHash; info.SchedulingHash != want {
 					t.Errorf("SchedulingHash = %q, want %q", info.SchedulingHash, want)
 				}
 			}
@@ -1494,7 +1495,7 @@ func TestRequeueWorkload(t *testing.T) {
 			if tc.inQueue {
 				_ = manager.AddOrUpdateWorkload(log, tc.workload)
 			}
-			info := workload.NewInfo(tc.workload)
+			info := workload.NewInfo(log, tc.workload)
 			if tc.popped {
 				go manager.CleanUpOnContext(ctx)
 				heads := manager.Heads(ctx)
@@ -1871,6 +1872,7 @@ var (
 // TestHeadAsync ensures that Heads call is blocked until the queues are filled
 // asynchronously.
 func TestHeadsAsync(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	now := time.Now().Truncate(time.Second)
 	clusterQueues := []*kueue.ClusterQueue{
 		utiltestingapi.MakeClusterQueue("fooCq").Obj(),
@@ -2007,7 +2009,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				wg.Go(func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination, "")
+					mgr.RequeueWorkload(ctx, workload.NewInfo(log, &wl), RequeueReasonFailedAfterNomination, "")
 				})
 			},
 			wantHeads: []Head{
@@ -2037,7 +2039,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				wg.Go(func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination, "")
+					mgr.RequeueWorkload(ctx, workload.NewInfo(log, &wl), RequeueReasonFailedAfterNomination, "")
 				})
 			},
 			wantHeads: []Head{
@@ -2071,7 +2073,7 @@ func TestHeadsAsync(t *testing.T) {
 				// Remove the initial workload from the manager.
 				mgr.Heads(ctx)
 				wg.Go(func() {
-					mgr.RequeueWorkload(ctx, workload.NewInfo(&wl), RequeueReasonFailedAfterNomination, "")
+					mgr.RequeueWorkload(ctx, workload.NewInfo(log, &wl), RequeueReasonFailedAfterNomination, "")
 				})
 			},
 			wantHeads: []Head{

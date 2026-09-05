@@ -1851,7 +1851,7 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				if err != nil {
 					t.Fatalf("unexpected error while building snapshot: %v", err)
 				}
-				wlInfo := workload.NewInfo(tc.incoming)
+				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
 				targets := preemptor.GetTargets(log, *wlInfo, tc.assignment, snapshotWorkingCopy)
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
