@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
@@ -298,8 +299,16 @@ func isRollingUpdateWithSurge(lws *leaderworkersetv1.LeaderWorkerSet) bool {
 	if lws.Spec.RolloutStrategy.RollingUpdateConfiguration == nil {
 		return false
 	}
-	maxSurge := int32(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.MaxSurge.IntValue())
-	return maxSurge > 0 && lws.Status.UpdatedReplicas < ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
+	replicas := ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
+	// A percentage maxSurge is taken against the replicas the update started from,
+	// and rounds up, as the LeaderWorkerSet API documents. Anything else, including a
+	// quoted number, keeps the reading it has always had.
+	surge := &lws.Spec.RolloutStrategy.RollingUpdateConfiguration.MaxSurge
+	maxSurge, err := intstr.GetScaledValueFromIntOrPercent(surge, int(replicas), true)
+	if err != nil {
+		maxSurge = surge.IntValue()
+	}
+	return maxSurge > 0 && lws.Status.UpdatedReplicas < replicas
 }
 
 func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int) error {
