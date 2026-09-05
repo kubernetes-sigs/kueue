@@ -2595,4 +2595,114 @@ func TestRepeatedAfsSettlementFoldsPenaltyOnce(t *testing.T) {
 	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
 		t.Errorf("penalty still pending after settlement: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
 	}
+	if !entry.HasSettledPenalty(queueafs.WorkloadReference(workload.Key(wl))) {
+		t.Error("expected the Workload identity to be retained after settlement")
+	}
+}
+
+// Admit → evict → re-admit must not fold a second entry penalty for the same
+// Workload and LocalQueue. Settlement used to drop the Workload identity, so a
+// later re-push was treated as a new charge.
+func TestAdmitEvictReadmitDoesNotDoubleChargeAfsEntryPenalty(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	lqKey := utilqueue.NewLocalQueueReference("ns", "lq")
+
+	makeWl := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			Queue("lq").
+			Active(true).
+			Request(corev1.ResourceCPU, "4")
+	}
+	makeAdmission := func() *kueue.Admission {
+		return utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "rf", "4").Obj()).
+			Obj()
+	}
+	pending := makeWl().Obj()
+	admitted := makeWl().
+		ReserveQuotaAt(makeAdmission(), now).
+		AdmittedAt(true, now).
+		Obj()
+
+	afsConfig := &configapi.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: time.Minute},
+		UsageSamplingInterval: metav1.Duration{Duration: time.Second},
+	}
+	cl := utiltesting.NewClientBuilder().Build()
+	recorder := &utiltesting.EventRecorder{}
+	cqCache := schdcache.New(cl, schdcache.WithAdmissionFairSharing(afsConfig))
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithAdmissionFairSharing(afsConfig))
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+		Active(metav1.ConditionTrue).
+		Obj()
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, cq, false)
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	setupLocalQueue(ctx, t, cl, qManager, lq, false)
+	if err := cqCache.AddLocalQueue(lq); err != nil {
+		t.Fatalf("couldn't add the local queue to the scheduler cache: %v", err)
+	}
+
+	seeded := afs.CalculateEntryPenalty(workload.NewInfo(admitted).SumTotalRequests(reconciler.resourceFormatter), afsConfig)
+	if len(seeded) == 0 {
+		t.Fatal("the seeded penalty is empty, so the settlement would fold nothing and the test would pass")
+	}
+	wlRef := queueafs.WorkloadReference(workload.Key(admitted))
+	qManager.AfsUsageLedger.PushPenalty(lqKey, wlRef, seeded, now)
+
+	reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: pending.DeepCopy(),
+		ObjectNew: admitted.DeepCopy(),
+	})
+
+	entry, found := qManager.AfsUsageLedger.Get(lqKey)
+	if !found {
+		t.Fatal("expected an AfsUsageLedger entry after the first admission")
+	}
+	firstCPU := entry.Resources[corev1.ResourceCPU]
+	if firstCPU.IsZero() {
+		t.Fatal("first admission did not fold the entry penalty into consumed usage")
+	}
+	if !entry.HasSettledPenalty(wlRef) {
+		t.Fatal("expected the Workload identity to be retained after the first settlement")
+	}
+
+	reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: admitted.DeepCopy(),
+		ObjectNew: pending.DeepCopy(),
+	})
+
+	entry, _ = qManager.AfsUsageLedger.Get(lqKey)
+	if !entry.HasSettledPenalty(wlRef) {
+		t.Fatal("eviction dropped the settled identity; re-admission would double-charge")
+	}
+	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
+		t.Errorf("eviction re-created a pending penalty: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
+	}
+
+	// Re-assume after eviction: the scheduler would PushPenalty again because
+	// the Workload no longer holds a reservation.
+	qManager.AfsUsageLedger.PushPenalty(lqKey, wlRef, seeded, now)
+	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
+		t.Errorf("re-push after settlement inflated pending usage: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
+	}
+
+	reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+		ObjectOld: pending.DeepCopy(),
+		ObjectNew: admitted.DeepCopy(),
+	})
+
+	entry, found = qManager.AfsUsageLedger.Get(lqKey)
+	if !found {
+		t.Fatal("expected an AfsUsageLedger entry after re-admission")
+	}
+	if got := entry.Resources[corev1.ResourceCPU]; got.Cmp(firstCPU) != 0 {
+		t.Errorf("consumed CPU after admit → evict → re-admit = %s, want %s (folded once)", got.String(), firstCPU.String())
+	}
+	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
+		t.Errorf("penalty still pending after re-admission: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
+	}
 }
