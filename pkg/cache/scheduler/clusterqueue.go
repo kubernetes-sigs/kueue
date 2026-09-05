@@ -161,15 +161,18 @@ func (c *clusterQueue) updateClusterQueue(
 	}
 	c.NamespaceSelector = nsSelector
 
+	// A ClusterQueue is registered in the hierarchy manager before its cache state
+	// is populated, so a failed Cohort-tree update leaves it cached. Hold the error
+	// until the remaining spec-derived fields are assigned, so a cycle in the Cohort
+	// tree does not leave them at their previous values.
+	var treeErr error
 	if c.updateQuotasAndResourceGroups(resourcegroups.EffectiveResourceGroups(in)) || oldParent != c.Parent() {
 		if oldParent != nil && oldParent != c.Parent() {
 			updateCohortTreeResourcesIfNoCycle(oldParent)
 		}
 		if c.HasParent() {
 			// clusterQueue will be updated as part of tree update.
-			if err := updateCohortTreeResources(c.Parent()); err != nil {
-				return err
-			}
+			treeErr = updateCohortTreeResources(c.Parent())
 		} else {
 			// since ClusterQueue has no parent, it won't be updated
 			// as part of tree update.
@@ -207,7 +210,7 @@ func (c *clusterQueue) updateClusterQueue(
 	if features.Enabled(features.ConcurrentAdmission) {
 		c.ConcurrentAdmissionPolicy = in.Spec.ConcurrentAdmissionPolicy
 	}
-	return nil
+	return treeErr
 }
 
 func (c *clusterQueue) ConcurrentAdmissionEnabled() bool {
