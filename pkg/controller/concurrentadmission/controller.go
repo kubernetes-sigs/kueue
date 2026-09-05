@@ -213,7 +213,9 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	log = log.WithValues("clusterQueue", cq.Name)
 	log.V(2).Info("Found Workload family and ClusterQueue", "variants", klog.KObjSlice(variants))
 
-	// TODO: If ConcurrentAdmission is no longer enabled for this CQ, delete parent and variants.
+	if cq.Spec.ConcurrentAdmissionPolicy == nil {
+		return r.cleanupParentAndVariants(ctx, log, parent, variants)
+	}
 
 	log.V(3).Info("Reconciling variants against ClusterQueue flavors", "desired", len(flavorOrder), "actual", len(variants))
 	if err := r.createVariants(ctx, parent, variants, cqFlavors); err != nil {
@@ -259,6 +261,52 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		}
 	}
 	return ctrl.Result{RequeueAfter: timeToWait}, nil
+}
+
+// cleanupParentAndVariants handles the case where ConcurrentAdmission is no
+// longer enabled for the parent's ClusterQueue. If a variant is already
+// admitted while the parent is not, its admission is promoted onto the
+// parent (reusing the same transfer used in syncAdmissionStatus) so an
+// already-running workload isn't needlessly interrupted. The parent is only
+// evicted if it is admitted without any admitted variant backing that
+// admission. All variants are then deactivated and the parent label is
+// removed so this reconciler stops tracking it.
+func (r *variantReconciler) cleanupParentAndVariants(ctx context.Context, log logr.Logger, parent *kueue.Workload, variants []kueue.Workload) (ctrl.Result, error) {
+	log.V(2).Info("ConcurrentAdmission is no longer enabled for this ClusterQueue, cleaning up parent and variants")
+
+	admittedVariant := getAdmittedVariant(variants)
+	parentAdmitted := workload.IsAdmitted(parent)
+
+	if admittedVariant != nil && !parentAdmitted {
+		log.V(2).Info("Promoting admitted variant onto parent", "variant", klog.KObj(admittedVariant))
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
+			workload.SetQuotaReservation(wl, admittedVariant.Status.Admission, r.clock)
+			workload.SetAdmittedCondition(wl, r.clock.Now(), "Admitted", fmt.Sprintf("The variant %s is admitted", admittedVariant.Name))
+			return true, nil
+		}); err != nil {
+			return ctrl.Result{}, fmt.Errorf("promoting variant admission to parent: %w", err)
+		}
+	} else if parentAdmitted && admittedVariant == nil {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return workloadevict.SetEvictedCondition(wl, r.clock.Now(), "ConcurrentAdmissionDisabled", "ConcurrentAdmission is no longer enabled for this ClusterQueue"), nil
+		}); err != nil {
+			return ctrl.Result{}, fmt.Errorf("evicting parent: %w", err)
+		}
+	}
+
+	for i := range variants {
+		if err := r.deactivateVariant(ctx, &variants[i], "ConcurrentAdmission is no longer enabled for this ClusterQueue"); err != nil {
+			return ctrl.Result{}, fmt.Errorf("deactivating variant: %w", err)
+		}
+	}
+
+	if _, ok := parent.Labels[controllerconsts.ConcurrentAdmissionParentLabelKey]; ok {
+		delete(parent.Labels, controllerconsts.ConcurrentAdmissionParentLabelKey)
+		if err := r.client.Update(ctx, parent); err != nil {
+			return ctrl.Result{}, fmt.Errorf("removing parent label: %w", err)
+		}
+	}
+	return ctrl.Result{}, nil
 }
 
 func (r *variantReconciler) getFamilyAndClusterQueue(ctx context.Context, req ctrl.Request) (*kueue.Workload, []kueue.Workload, *kueue.ClusterQueue, error) {
