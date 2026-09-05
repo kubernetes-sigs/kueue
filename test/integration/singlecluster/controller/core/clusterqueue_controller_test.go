@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -1220,21 +1221,24 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			ctx, cancel := context.WithTimeout(ginkgo.GinkgoTB().Context(), util.MediumTimeout)
 			defer cancel() // Stop goroutines.
 
-			setClusterStatusPending := func() {
+			setClusterStatusPending := func(id int) {
 				defer ginkgo.GinkgoRecover()
 
-				for {
+				for i := 0; ; i++ {
 					var updatedCq kueue.ClusterQueue
 					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)
 					if errors.Is(err, context.Canceled) {
 						return // Test is over, exit quietly
 					}
 					gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+					// Use a distinct message for every write so that each update is a real change.
+					// Identical writes are dropped by the API server as no-ops, and then the
+					// reconciler's corrective status updates would never race against them.
 					apimeta.SetStatusCondition(&updatedCq.Status.Conditions, metav1.Condition{
 						Type:    kueue.ClusterQueueActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "ByTest",
-						Message: "by test",
+						Message: fmt.Sprintf("by test goroutine %d iteration %d", id, i),
 					})
 					err = k8sClient.Status().Update(ctx, &updatedCq)
 					if errors.Is(err, context.Canceled) {
@@ -1251,8 +1255,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				}
 			}
 
-			for range nGoroutines {
-				wg.Go(setClusterStatusPending)
+			for i := range nGoroutines {
+				wg.Go(func() { setClusterStatusPending(i) })
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {

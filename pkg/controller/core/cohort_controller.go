@@ -221,6 +221,8 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	return ctrl.Result{}, client.IgnoreNotFound(err)
 }
 
+// updateCohortStatusIfChanged recomputes the Cohort status from the cache and writes it to the
+// API server only when it differs from the current status.
 func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, cohort *kueue.Cohort) error {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -242,7 +244,7 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 		cohort.Status.FairSharing = nil
 	}
 
-	if !equality.Semantic.DeepEqual(cohort.Status, oldStatus) {
+	if !equality.Semantic.DeepEqual(&cohort.Status, oldStatus) {
 		return r.client.Status().Update(ctx, cohort)
 	}
 
