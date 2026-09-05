@@ -168,6 +168,129 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 	}
 }
 
+func TestPodSetUpdates(t *testing.T) {
+	refA := getProvisioningRequestPodTemplateName("pr", "worker-a")
+	refB := getProvisioningRequestPodTemplateName("pr", "worker-b")
+	annotations := map[string]string{
+		autoscaling.ProvisioningRequestPodAnnotationKey: "pr",
+		autoscaling.ProvisioningClassPodAnnotationKey:   "class",
+	}
+
+	cases := map[string]struct {
+		// groups is the annotation the request was created with, empty for a
+		// request made before it was recorded.
+		groups      string
+		refs        []string
+		mergePolicy *kueue.ProvisioningRequestConfigPodSetMergePolicy
+		want        []kueue.PodSetUpdate
+		wantErr     error
+	}{
+		"one podSet each": {
+			groups: `{"` + refA + `":["worker-a"],"` + refB + `":["worker-b"]}`,
+			refs:   []string{refA, refB},
+			want: []kueue.PodSetUpdate{
+				{Name: "worker-a", Annotations: annotations},
+				{Name: "worker-b", Annotations: annotations},
+			},
+		},
+		"both members of a merged group": {
+			groups: `{"` + refA + `":["worker-a","worker-b"]}`,
+			refs:   []string{refA},
+			want: []kueue.PodSetUpdate{
+				{Name: "worker-a", Annotations: annotations},
+				{Name: "worker-b", Annotations: annotations},
+			},
+		},
+		"recorded grouping outlives a merge policy change": {
+			groups:      `{"` + refA + `":["worker-a","worker-b"]}`,
+			refs:        []string{refA},
+			mergePolicy: new(kueue.IdenticalPodTemplates),
+			want: []kueue.PodSetUpdate{
+				{Name: "worker-a", Annotations: annotations},
+				{Name: "worker-b", Annotations: annotations},
+			},
+		},
+		"derived when nothing was recorded": {
+			refs:        []string{refA},
+			mergePolicy: new(kueue.IdenticalPodTemplates),
+			want: []kueue.PodSetUpdate{
+				{Name: "worker-a", Annotations: annotations},
+				{Name: "worker-b", Annotations: annotations},
+			},
+		},
+		"derived grouping that does not account for the request": {
+			refs:    []string{refA},
+			wantErr: errInconsistentPodSetGroups,
+		},
+		"a podTemplate the grouping does not know": {
+			groups:  `{"` + refB + `":["worker-b"]}`,
+			refs:    []string{refA},
+			wantErr: errInconsistentPodSetGroups,
+		},
+		"a group standing for nothing": {
+			groups:  `{"` + refA + `":[]}`,
+			refs:    []string{refA},
+			wantErr: errInconsistentPodSetGroups,
+		},
+		"a podSet the workload does not have": {
+			groups:  `{"` + refA + `":["worker-c"]}`,
+			refs:    []string{refA},
+			wantErr: errInconsistentPodSetGroups,
+		},
+		"a podSet claimed twice": {
+			groups:  `{"` + refA + `":["worker-a"],"` + refB + `":["worker-a"]}`,
+			refs:    []string{refA, refB},
+			wantErr: errInconsistentPodSetGroups,
+		},
+		"a grouping that cannot be read": {
+			groups:  "not json",
+			refs:    []string{refA},
+			wantErr: errInconsistentPodSetGroups,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wl := utiltestingapi.MakeWorkload("wl", TestNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("worker-a", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("worker-b", 1).Request(corev1.ResourceCPU, "1").Obj(),
+				).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q").PodSets(
+					kueue.PodSetAssignment{Name: "worker-a", Count: new(int32(1))},
+					kueue.PodSetAssignment{Name: "worker-b", Count: new(int32(1))},
+				).Obj(), time.Now()).
+				Obj()
+
+			pr := &autoscaling.ProvisioningRequest{
+				ObjectMeta: metav1.ObjectMeta{Name: "pr"},
+				Spec:       autoscaling.ProvisioningRequestSpec{ProvisioningClassName: "class"},
+			}
+			if tc.groups != "" {
+				pr.Annotations = map[string]string{podSetGroupsAnnotation: tc.groups}
+			}
+			for _, ref := range tc.refs {
+				pr.Spec.PodSets = append(pr.Spec.PodSets, autoscaling.PodSet{
+					PodTemplateRef: autoscaling.Reference{Name: ref},
+					Count:          1,
+				})
+			}
+			prc := &kueue.ProvisioningRequestConfig{Spec: kueue.ProvisioningRequestConfigSpec{
+				ProvisioningClassName: "class",
+				PodSetMergePolicy:     tc.mergePolicy,
+			}}
+
+			got, err := podSetUpdates(t.Context(), wl, pr, prc)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("unexpected error (-want/+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected podSetUpdates (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestReqIsNeeded(t *testing.T) {
 	makeWorkload := func(specCount int32, admissionCount *int32, includeAssignment bool) *kueue.Workload {
 		builder := utiltestingapi.MakeWorkload("wl", TestNamespace).

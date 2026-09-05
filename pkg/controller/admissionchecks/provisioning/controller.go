@@ -20,11 +20,11 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -65,10 +65,13 @@ const (
 	// 253 is the maximal length for a CRD name. We need to subtract one for '-', and the hash length.
 	objNameMaxPrefixLength = 252 - objNameHashLength
 	podTemplatesPrefix     = "ppt"
+	// The grouping a request was created with, which its immutable spec loses.
+	podSetGroupsAnnotation = "kueue.x-k8s.io/provisioning-podset-groups"
 )
 
 var (
 	errInconsistentPodSetAssignments = errors.New("inconsistent podSet assignments")
+	errInconsistentPodSetGroups      = errors.New("inconsistent podSet groups")
 )
 
 var (
@@ -319,6 +322,9 @@ func (c *Controller) syncOwnedProvisionRequest(
 
 			mergedPodSets, err := mergePodSets(ctx, wl, &prc.Spec)
 			if err != nil {
+				return err
+			}
+			if err := recordPodSetGroups(req, mergedPodSets); err != nil {
 				return err
 			}
 
@@ -657,10 +663,16 @@ func (c *Controller) syncCheckStates(
 						}
 					}
 				case isProvisioned(pr):
-					if updateCheckState(&checkState, kueue.CheckStateReady) {
+					if checkState.State != kueue.CheckStateReady {
+						// Before the check passes, so that a request whose grouping
+						// cannot be read holds it back instead of passing it empty.
+						psUpdates, err := podSetUpdates(ctx, wl, pr, prc)
+						if err != nil {
+							return false, err
+						}
 						updated = true
-						// add the pod podSetUpdates
-						checkState.PodSetUpdates = podSetUpdates(log, wl, pr, prc)
+						updateCheckState(&checkState, kueue.CheckStateReady)
+						checkState.PodSetUpdates = psUpdates
 						// propagate the message from the provisioning request status into the workload
 						// to change to the "successfully provisioned" message after provisioning
 						updateCheckMessage(&checkState, apimeta.FindStatusCondition(pr.Status.Conditions, autoscaling.Provisioned).Message)
@@ -703,14 +715,32 @@ func (c *Controller) syncCheckStates(
 	return nil
 }
 
-func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) []kueue.PodSetUpdate {
-	podSets := wl.Spec.PodSets
-	refMap := slices.ToMap(podSets, func(i int) (string, kueue.PodSetReference) {
-		return getProvisioningRequestPodTemplateName(pr.Name, podSets[i].Name), podSets[i].Name
-	})
-	return slices.Map(pr.Spec.PodSets, func(ps *autoscaling.PodSet) kueue.PodSetUpdate {
+func podSetUpdates(ctx context.Context, wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) ([]kueue.PodSetUpdate, error) {
+	log := ctrl.LoggerFrom(ctx)
+	groups, err := podSetGroups(ctx, wl, pr, prc)
+	if err != nil {
+		return nil, err
+	}
+	if len(groups) != len(pr.Spec.PodSets) {
+		return nil, fmt.Errorf("%w: request %q holds %d podSets, the grouping describes %d",
+			errInconsistentPodSetGroups, pr.Name, len(pr.Spec.PodSets), len(groups))
+	}
+
+	known := sets.New[kueue.PodSetReference]()
+	for i := range wl.Spec.PodSets {
+		known.Insert(wl.Spec.PodSets[i].Name)
+	}
+	covered := sets.New[kueue.PodSetReference]()
+
+	updates := make([]kueue.PodSetUpdate, 0, len(wl.Spec.PodSets))
+	for i := range pr.Spec.PodSets {
+		ref := pr.Spec.PodSets[i].PodTemplateRef.Name
+		members := groups[ref]
+		if len(members) == 0 {
+			return nil, fmt.Errorf("%w: request %q references podTemplate %q, which stands for no podSet",
+				errInconsistentPodSetGroups, pr.Name, ref)
+		}
 		podSetUpdate := kueue.PodSetUpdate{
-			Name: refMap[ps.PodTemplateRef.Name],
 			Annotations: map[string]string{
 				autoscaling.ProvisioningRequestPodAnnotationKey: pr.Name,
 				autoscaling.ProvisioningClassPodAnnotationKey:   pr.Spec.ProvisioningClassName,
@@ -727,8 +757,65 @@ func podSetUpdates(log logr.Logger, wl *kueue.Workload, pr *autoscaling.Provisio
 				podSetUpdate.NodeSelector[nodeSelector.Key] = string(value)
 			}
 		}
-		return podSetUpdate
-	})
+		for _, name := range members {
+			if !known.Has(name) {
+				return nil, fmt.Errorf("%w: podTemplate %q stands for podSet %q, which the workload does not have",
+					errInconsistentPodSetGroups, ref, name)
+			}
+			if covered.Has(name) {
+				return nil, fmt.Errorf("%w: podSet %q is claimed by more than one podTemplate",
+					errInconsistentPodSetGroups, name)
+			}
+			covered.Insert(name)
+			forPodSet := *podSetUpdate.DeepCopy()
+			forPodSet.Name = name
+			updates = append(updates, forPodSet)
+		}
+	}
+	return updates, nil
+}
+
+// recordPodSetGroups writes onto the request which workload podSets each of its
+// podSets stands for. A merge policy folds several into one, and the request
+// keeps only the name of the group, so nothing else survives to say what the
+// capacity was asked for.
+func recordPodSetGroups(req *autoscaling.ProvisioningRequest, merged []MergedPodSet) error {
+	groups := make(map[string][]kueue.PodSetReference, len(merged))
+	for _, mps := range merged {
+		groups[getProvisioningRequestPodTemplateName(req.Name, mps.Name)] = mps.Names
+	}
+	raw, err := json.Marshal(groups)
+	if err != nil {
+		return fmt.Errorf("recording podSet groups on %q: %w", req.Name, err)
+	}
+	if req.Annotations == nil {
+		req.Annotations = make(map[string]string, 1)
+	}
+	req.Annotations[podSetGroupsAnnotation] = string(raw)
+	return nil
+}
+
+// podSetGroups reads back what the request was created for. A request made
+// before this was recorded has the grouping derived instead, which only holds
+// while the configuration has not regrouped the podSets since; the caller
+// checks that against the request rather than trusting it.
+func podSetGroups(ctx context.Context, wl *kueue.Workload, pr *autoscaling.ProvisioningRequest, prc *kueue.ProvisioningRequestConfig) (map[string][]kueue.PodSetReference, error) {
+	if raw, recorded := pr.Annotations[podSetGroupsAnnotation]; recorded {
+		groups := map[string][]kueue.PodSetReference{}
+		if err := json.Unmarshal([]byte(raw), &groups); err != nil {
+			return nil, fmt.Errorf("%w: reading %s from request %q: %w", errInconsistentPodSetGroups, podSetGroupsAnnotation, pr.Name, err)
+		}
+		return groups, nil
+	}
+	merged, err := mergePodSets(ctx, wl, &prc.Spec)
+	if err != nil {
+		return nil, err
+	}
+	groups := make(map[string][]kueue.PodSetReference, len(merged))
+	for _, mps := range merged {
+		groups[getProvisioningRequestPodTemplateName(pr.Name, mps.Name)] = mps.Names
+	}
+	return groups, nil
 }
 
 type acHandler struct {
@@ -927,7 +1014,9 @@ func limitObjectName(fullName string) string {
 }
 
 type MergedPodSet struct {
-	Name             kueue.PodSetReference
+	Name kueue.PodSetReference
+	// Names are the workload PodSets folded into this one, Name first.
+	Names            []kueue.PodSetReference
 	PodSet           *kueue.PodSet
 	PodSetAssignment *kueue.PodSetAssignment
 	Count            int32
@@ -963,6 +1052,7 @@ func mergePodSets(
 			for i, mps := range mergedPodSets {
 				if merged = canMergePodSets(mps.PodSet, ps, mergePolicy); merged {
 					mergedPodSets[i].Count += count
+					mergedPodSets[i].Names = append(mergedPodSets[i].Names, psName)
 					break
 				}
 			}
@@ -971,6 +1061,7 @@ func mergePodSets(
 		if !merged {
 			mergedPodSets = append(mergedPodSets, MergedPodSet{
 				Name:             psName,
+				Names:            []kueue.PodSetReference{psName},
 				PodSet:           ps,
 				PodSetAssignment: psa,
 				Count:            count,
