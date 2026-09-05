@@ -64,6 +64,23 @@ helm install kueue oci://registry.k8s.io/kueue/charts/kueue --version="0.19.3" \
   --set "controllerManager.featureGates[0].enabled=true"
 ```
 
+##### Offline manifest generation
+
+When generating Kueue manifests without access to a Kubernetes cluster, specify the target Kubernetes version so that version-dependent resources are rendered correctly.
+
+For example, when using Kustomize's Helm integration:
+
+```yaml
+helmCharts:
+  - name: kueue
+    repo: https://kubernetes-sigs.github.io/kueue/
+    version: 0.19.x
+    kubeVersion: v1.36.0
+    releaseName: kueue
+```
+
+Set `kubeVersion` to the Kubernetes version of the cluster where the generated manifests will be deployed.
+
 ##### Verify that controller pods are running properly.
 
 ```bash
@@ -146,7 +163,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | enableAlphaAPIs | bool | `false` | Enable Alpha APIs (e.g. DynamicQuotaOrchestrator, CapacityProvider) |
 | enableCertManager | bool | `false` | Enable x509 automated certificate management using cert-manager (cert-manager.io) |
 | enableKueueViz | bool | `false` | Enable KueueViz dashboard |
-| enableMutatingAdmissionPolicy | bool | `false` | Enable MutatingAdmissionPolicy for clearing nominatedClusterNames on admission or eviction (requires K8s 1.36+) |
+| enableMutatingAdmissionPolicy | bool | `false` | Enable MutatingAdmissionPolicy for clearing nominatedClusterNames on admission or eviction (requires K8s 1.36+ or the MutatingAdmissionPolicy API to be available) |
 | enablePrometheus | bool | `false` | Enable Prometheus |
 | enableVisibilityAPF | bool | `false` | Enable API Priority and Fairness configuration for the visibility API |
 | enableVisibilityAuthReaderRoleBinding | bool | `true` | Enable the visibility server's auth-reader RoleBinding. It is always created in the kube-system namespace because it binds to the built-in extension-apiserver-authentication-reader Role, which only exists there. Disable when deploying under a GitOps project that cannot target kube-system, then create the RoleBinding out-of-band. |

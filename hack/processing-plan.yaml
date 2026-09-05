@@ -430,7 +430,7 @@ files:
       - type: INSERT_TEXT
         position: START
         value: |
-          {{- if and .Values.enableMutatingAdmissionPolicy (.Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/MutatingAdmissionPolicy") }}
+          {{- if and .Values.enableMutatingAdmissionPolicy (or (.Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/MutatingAdmissionPolicy") (semverCompare ">=1.36-0" .Capabilities.KubeVersion.Version)) }}
       - type: INSERT_TEXT
         position: END
         value: |
