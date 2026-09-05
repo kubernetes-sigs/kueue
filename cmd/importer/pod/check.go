@@ -134,7 +134,7 @@ func checkPodWorkload(ctx context.Context, c client.Client, importCache *cache.I
 	}
 	maps.Copy(wl.Labels, importCache.AddLabels)
 
-	info := workload.NewInfoWithLogger(ctrl.LoggerFrom(ctx), wl, importCache.WorkloadInfoOptions()...)
+	info := workload.NewInfo(ctrl.LoggerFrom(ctx), wl, importCache.WorkloadInfoOptions()...)
 	flavors, err := flavorAssignmentsForRequests(importCache.FlavorsByResourceForClusterQueue(kueue.ClusterQueueReference(cq.Name)), cq.Name, info.TotalRequests[0].Requests)
 	if err != nil {
 		return nil, err

@@ -230,7 +230,7 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 			candidateCQSet := sets.New(tc.candidateCQs...)
 			var candidates []*workload.Info
 			for i := range tc.admitted {
-				info := workload.NewInfo(&tc.admitted[i])
+				info := workload.NewInfo(log, &tc.admitted[i])
 				if candidateCQSet.Has(info.ClusterQueue) {
 					candidates = append(candidates, info)
 				}

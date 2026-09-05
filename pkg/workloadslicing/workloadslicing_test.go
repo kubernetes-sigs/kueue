@@ -1193,6 +1193,7 @@ func TestNormalizeActiveSlices(t *testing.T) {
 }
 
 func TestReplacedWorkloadSlice(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	type args struct {
 		wl   *workload.Info
 		snap *schdcache.Snapshot
@@ -1216,20 +1217,20 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		"EdgeCase_SnapshotIsNil": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").Obj()),
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").Obj()),
 			},
 		},
 		"WorkloadWithoutReplacementAnnotation": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
-				wl:   workload.NewInfo(utiltestingapi.MakeWorkload("test", "default").Obj()),
+				wl:   workload.NewInfo(log, utiltestingapi.MakeWorkload("test", "default").Obj()),
 				snap: &schdcache.Snapshot{},
 			},
 		},
 		"ReplacedWorkloadIsNotFound_MissingClusterQueue": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-new", "default").
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
 					Obj()),
 				snap: &schdcache.Snapshot{
@@ -1242,7 +1243,7 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		"EdgeCase_ReplacedWorkloadIsNotFound_NotInClusterQueue": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-new", "default").
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
 					Admission(utiltestingapi.MakeAdmission("default").Obj()).
 					Obj()),
@@ -1258,7 +1259,7 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		"ReplacedWorkloadIsFound": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-new", "default").
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test-new", "default").
 					Annotation(WorkloadSliceReplacementFor, "test-old").
 					Admission(utiltestingapi.MakeAdmission("default").Obj()).
 					Obj()),
@@ -1268,23 +1269,23 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"default": {
 								Workloads: map[workload.Reference]*workload.Info{
-									"test-old": workload.NewInfo(utiltestingapi.MakeWorkload("test-old", "default").Obj()),
+									"test-old": workload.NewInfo(log, utiltestingapi.MakeWorkload("test-old", "default").Obj()),
 								},
 							},
 						}),
 				},
 			},
 			want: want{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-old", "default").Obj()),
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test-old", "default").Obj()),
 				targets: []*preemption.Target{
-					{WorkloadInfo: workload.NewInfo(utiltestingapi.MakeWorkload("test-old", "default").Obj())},
+					{WorkloadInfo: workload.NewInfo(log, utiltestingapi.MakeWorkload("test-old", "default").Obj())},
 				},
 			},
 		},
 		"CrossNamespaceReplacementIsRejected": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			args: args{
-				wl: workload.NewInfo(utiltestingapi.MakeWorkload("test-new", "other-ns").
+				wl: workload.NewInfo(log, utiltestingapi.MakeWorkload("test-new", "other-ns").
 					Annotation(WorkloadSliceReplacementFor, "default/test-old").
 					Admission(utiltestingapi.MakeAdmission("shared-cq").Obj()).
 					Obj()),
@@ -1294,7 +1295,7 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 						map[kueue.ClusterQueueReference]*schdcache.ClusterQueueSnapshot{
 							"shared-cq": {
 								Workloads: map[workload.Reference]*workload.Info{
-									"default/test-old": workload.NewInfo(utiltestingapi.MakeWorkload("test-old", "default").Obj()),
+									"default/test-old": workload.NewInfo(log, utiltestingapi.MakeWorkload("test-old", "default").Obj()),
 								},
 							},
 						},
