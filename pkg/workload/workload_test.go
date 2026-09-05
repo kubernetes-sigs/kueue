@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -2913,6 +2914,54 @@ func TestSetQuotaReservation(t *testing.T) {
 				t.Errorf("SetQuotaReservation() (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestUnsetQuotaReservationWithCondition(t *testing.T) {
+	now := time.Now()
+	admission := utiltestingapi.MakeAdmission("test-queue").Obj()
+
+	wl := utiltestingapi.MakeWorkload("test", "default").
+		Admission(admission).
+		ReclaimablePods(kueue.ReclaimablePod{Name: "ps1", Count: 2}).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadQuotaReserved,
+			Status:             metav1.ConditionTrue,
+			Reason:             "QuotaReserved",
+			Message:            "Quota reserved",
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Obj()
+
+	// Invariant: while workload has quota reservation, reclaimablePods is preserved.
+	if !HasQuotaReservation(wl) {
+		t.Fatalf("HasQuotaReservation() = false, want true before unsetting")
+	}
+	if len(wl.Status.ReclaimablePods) == 0 {
+		t.Fatalf("len(wl.Status.ReclaimablePods) = 0, want non-empty before unsetting")
+	}
+
+	changed := UnsetQuotaReservationWithCondition(wl, "Evicted", "Workload evicted", now)
+	if !changed {
+		t.Errorf("UnsetQuotaReservationWithCondition() returned false, want true")
+	}
+
+	// Invariant: after UnsetQuotaReservationWithCondition, quota reservation is removed and reclaimablePods is cleared.
+	if HasQuotaReservation(wl) {
+		t.Errorf("HasQuotaReservation() = true, want false after unsetting")
+	}
+
+	if wl.Status.Admission != nil {
+		t.Errorf("wl.Status.Admission = %v, want nil", wl.Status.Admission)
+	}
+
+	if len(wl.Status.ReclaimablePods) > 0 {
+		t.Errorf("wl.Status.ReclaimablePods = %v, want empty", wl.Status.ReclaimablePods)
+	}
+
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+	if cond == nil || cond.Status != metav1.ConditionFalse {
+		t.Errorf("WorkloadQuotaReserved condition status = %v, want ConditionFalse", cond)
 	}
 }
 

@@ -862,7 +862,7 @@ func SetConditionAndUpdate(ctx context.Context,
 }
 
 // UnsetQuotaReservationWithCondition sets the QuotaReserved condition to false, clears
-// the admission and set the WorkloadRequeued status.
+// the admission and reclaimable pods, and sets the WorkloadRequeued status.
 // Returns whether any change was done.
 func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message string, now time.Time) bool {
 	condition := metav1.Condition{
@@ -876,6 +876,10 @@ func UnsetQuotaReservationWithCondition(wl *kueue.Workload, reason, message stri
 	changed := apimeta.SetStatusCondition(&wl.Status.Conditions, condition)
 	if wl.Status.Admission != nil {
 		wl.Status.Admission = nil
+		changed = true
+	}
+	if len(wl.Status.ReclaimablePods) > 0 {
+		wl.Status.ReclaimablePods = nil
 		changed = true
 	}
 
