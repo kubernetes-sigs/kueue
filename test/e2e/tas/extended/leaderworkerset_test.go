@@ -31,6 +31,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
@@ -164,6 +165,15 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 						"0/2": "kind-worker7",
 					}),
 				))
+			})
+
+			ginkgo.By("verify each pod carries WorkloadAnnotation, used by the WAS Simulator to map pods to their owning Workload", func() {
+				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				for _, pod := range pods.Items {
+					groupIndex := pod.Labels[leaderworkersetv1.GroupIndexLabelKey]
+					workloadName := leaderworkerset.GetWorkloadName(lws.UID, lws.Name, groupIndex)
+					gomega.Expect(pod.Annotations).Should(gomega.HaveKeyWithValue(kueue.WorkloadAnnotation, workloadName))
+				}
 			})
 		})
 	})
