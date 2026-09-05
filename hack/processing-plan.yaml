@@ -485,11 +485,22 @@ files:
         key: .metadata.namespace
         value: '"{{ .Release.Namespace }}"'
       - type: APPEND
+        key: .spec.template.spec.serviceAccountName
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-backend")'
+      - type: APPEND
+        key: .subjects.[].name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+        onFileCondition: '.kind == "ClusterRoleBinding"'
+      - type: APPEND
         key: .spec.template.spec.volumes.[].configMap.name
         value: '"{{ include \"kueue.fullname\" . }}-"'
         onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-frontend")'
       - type: DELETE
         key: .spec.template.spec.containers.[].resources
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-backend")'
+      - type: DELETE
+        key: .spec.template.spec.containers.[].env
         onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-backend")'
       - type: DELETE
         key: .spec.template.spec.containers.[].resources
@@ -620,9 +631,8 @@ files:
       - type: INSERT_TEXT
         key: .spec.template.spec.containers.[].name
         value: |
-          {{- $authEnv := list }}
+          {{- $authEnv := list (dict "name" "KUEUEVIZ_AUTH_MODE" "value" .Values.kueueViz.backend.auth.mode) }}
           {{- if eq .Values.kueueViz.backend.auth.mode "TokenReview" }}
-          {{- $authEnv = append $authEnv (dict "name" "KUEUEVIZ_AUTH_MODE" "value" "TokenReview") }}
           {{- with .Values.kueueViz.backend.auth.tokenReviewConfig.audiences }}
           {{- $authEnv = append $authEnv (dict "name" "KUEUEVIZ_AUTH_TOKEN_REVIEW_AUDIENCES" "value" .) }}
           {{- end }}
@@ -683,14 +693,12 @@ files:
         indentation: 2
         onFileCondition: '.kind == "Deployment" and  .metadata.name | contains("backend")' 
       - type: INSERT_TEXT
-        position: END
+        position: START
         value: |
-          {{- if ne .Values.kueueViz.backend.auth.mode "Disabled" }}
-            - apiGroups: ["authentication.k8s.io"]
-              resources: ["tokenreviews"]
-              verbs: ["create"]
+          {{- if and .Values.enableKueueViz (ne .Values.kueueViz.backend.auth.mode "TokenReview") }}
+          {{- fail "kueueViz.backend.auth.mode must be TokenReview for Helm deployments; unauthenticated mode is limited to local loopback use" }}
           {{- end }}
-        onFileCondition: '.kind == "ClusterRole"'
+        onFileCondition: '.kind == "Deployment" and .metadata.name | contains("kueueviz-backend")'
       - type: INSERT_TEXT
         position: START
         value: |

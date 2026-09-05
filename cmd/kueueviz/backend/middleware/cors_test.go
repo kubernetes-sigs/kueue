@@ -116,6 +116,24 @@ func TestValidateWebSocketOrigin(t *testing.T) {
 	}
 }
 
+func TestConfigureCORSDefaultsToSameOrigin(t *testing.T) {
+	originalMode := gin.Mode()
+	gin.SetMode(gin.DebugMode)
+	viper.Set("KUEUEVIZ_ALLOWED_ORIGINS", "")
+	t.Cleanup(func() {
+		gin.SetMode(originalMode)
+		viper.Set("KUEUEVIZ_ALLOWED_ORIGINS", "")
+	})
+
+	config, err := ConfigureCORS()
+	if err != nil {
+		t.Fatalf("ConfigureCORS() error = %v", err)
+	}
+	if len(config.AllowOrigins) != 0 {
+		t.Fatalf("ConfigureCORS().AllowOrigins = %v, want no cross-origin access", config.AllowOrigins)
+	}
+}
+
 func TestCanonicalizeOrigin(t *testing.T) {
 	tests := []struct {
 		name     string

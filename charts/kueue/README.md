@@ -152,7 +152,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | enableVisibilityAuthReaderRoleBinding | bool | `true` | Enable the visibility server's auth-reader RoleBinding. It is always created in the kube-system namespace because it binds to the built-in extension-apiserver-authentication-reader Role, which only exists there. Disable when deploying under a GitOps project that cannot target kube-system, then create the RoleBinding out-of-band. |
 | fullnameOverride | string | `""` | Override the resource name |
 | kubernetesClusterDomain | string | `"cluster.local"` | Kubernetes cluster's domain |
-| kueueViz.backend.auth.mode | string | `"Disabled"` | Authentication mode: "Disabled" or "TokenReview" (Alpha, disabled by default) |
+| kueueViz.backend.auth.mode | string | `"TokenReview"` | Authentication mode. Helm deployments require "TokenReview"; "Disabled" is limited to loopback-only local development. |
 | kueueViz.backend.auth.tokenReviewConfig | object | `{"audiences":"","cacheTTL":"60s","negativeCacheTTL":"5s"}` | TokenReview-specific configuration (only used when mode is "TokenReview") |
 | kueueViz.backend.auth.tokenReviewConfig.audiences | string | `""` | Optional comma-separated list of audiences for TokenReview |
 | kueueViz.backend.auth.tokenReviewConfig.cacheTTL | string | `"60s"` | TTL for successful authentication cache |

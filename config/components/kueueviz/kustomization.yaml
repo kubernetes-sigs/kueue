@@ -1,4 +1,5 @@
 resources:
+- service-account.yaml
 - clusterrole.yaml
 - cluster-role-binding.yaml
 - backend-deployment.yaml
