@@ -17,11 +17,13 @@ limitations under the License.
 package workload
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -94,6 +96,7 @@ func TestAdjustResources(t *testing.T) {
 						Obj(),
 					*utiltestingapi.MakePodSet("b", 1).
 						Obj(),
+					// Larger than the class defines, so it is what the Pods carry.
 					*utiltestingapi.MakePodSet("c", 1).
 						RuntimeClass("runtime-a").
 						PodOverHead(
@@ -156,6 +159,7 @@ func TestAdjustResources(t *testing.T) {
 						Obj(),
 					*utiltestingapi.MakePodSet("b", 1).
 						Obj(),
+					// The class defines none, so there is nothing to raise this to.
 					*utiltestingapi.MakePodSet("c", 1).
 						RuntimeClass("runtime-a").
 						PodOverHead(
@@ -751,6 +755,103 @@ func TestValidateLimitRange(t *testing.T) {
 			got := ValidateLimitRange(ctx, cliBuilder.Build(), &Info{Obj: tc.workload})
 			if diff := cmp.Diff(tc.wantError, got); len(diff) != 0 {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// podOwners is what the pod controller adds to a group's Workload: a plain
+// reference per member, none of them the controller.
+var podOwners = []metav1.OwnerReference{
+	{APIVersion: "v1", Kind: "Pod", Name: "p0", UID: "pod-0"},
+	{APIVersion: "v1", Kind: "Pod", Name: "p1", UID: "pod-1"},
+}
+
+func overheadWorkload(class string, overhead corev1.ResourceList, owners []metav1.OwnerReference) *kueue.Workload {
+	wl := utiltestingapi.MakeWorkload("w", "ns").
+		PodSets(*utiltestingapi.MakePodSet("a", 1).RuntimeClass(class).Obj()).Obj()
+	wl.Spec.PodSets[0].Template.Spec.Overhead = overhead
+	wl.OwnerReferences = owners
+	return wl
+}
+
+func TestHandlePodOverhead(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cpu := func(s string) corev1.ResourceList {
+		return corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(s)}
+	}
+	rc := utiltesting.MakeRuntimeClass("rc", "h").PodOverhead(cpu("250m")).RuntimeClass
+	bare := utiltesting.MakeRuntimeClass("bare", "h").RuntimeClass
+	mixed := utiltesting.MakeRuntimeClass("mixed", "h").PodOverhead(corev1.ResourceList{
+		corev1.ResourceCPU:    resource.MustParse("100m"),
+		corev1.ResourceMemory: resource.MustParse("2Gi"),
+	}).RuntimeClass
+
+	cases := map[string]struct {
+		wl      *kueue.Workload
+		want    corev1.ResourceList
+		wantErr bool
+	}{
+		"a PodSet carrying less than its class is raised to it": {
+			wl: overheadWorkload("rc", cpu("1m"), nil), want: cpu("250m"),
+		},
+		"a PodSet carrying none is given the class overhead": {
+			wl: overheadWorkload("rc", nil, nil), want: cpu("250m"),
+		},
+		// A StatefulSet builds its Workload from the parent template, which never
+		// passed the admission that writes overhead, and the pod controller adds
+		// the created Pods as owners afterwards. Neither costs it the class value.
+		"owning Pods do not stop the class from applying": {
+			wl: overheadWorkload("rc", nil, podOwners), want: cpu("250m"),
+		},
+		// Only handler is immutable, so a class can be lowered after a Pod was
+		// admitted under it, and that Pod still carries the older, larger value.
+		"a PodSet carrying more than its class keeps what it has": {
+			wl: overheadWorkload("rc", cpu("500m"), podOwners), want: cpu("500m"),
+		},
+		"a key the class does not define survives": {
+			wl: overheadWorkload("rc", corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")}, nil),
+			want: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("250m"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			},
+		},
+		// Larger on a different side for each resource, so taking whichever list
+		// wins on one of them cannot pass this.
+		"each resource takes its own larger value": {
+			wl: overheadWorkload("mixed", corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("1Gi"),
+			}, nil),
+			want: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+				corev1.ResourceMemory: resource.MustParse("2Gi"),
+			},
+		},
+		"a class defining no overhead leaves the PodSet alone": {
+			wl: overheadWorkload("bare", cpu("250m"), nil), want: cpu("250m"),
+		},
+		// AdjustResources only logs these, so the caller that can act on one has to see it here.
+		"a class that does not resolve is reported and changes nothing": {
+			wl: overheadWorkload("gone", cpu("250m"), nil), want: cpu("250m"), wantErr: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cl := utiltesting.NewClientBuilder().
+				WithLists(&nodev1.RuntimeClassList{Items: []nodev1.RuntimeClass{rc, bare, mixed}}).
+				Build()
+			errs := handlePodOverhead(ctx, cl, tc.wl)
+			if gotErr := len(errs) > 0; gotErr != tc.wantErr {
+				t.Errorf("errors = %v, want error %t", errs, tc.wantErr)
+			}
+			for _, err := range errs {
+				if !apierrors.IsNotFound(err) || !strings.Contains(err.Error(), "podSet a") {
+					t.Errorf("error does not name the podSet and the missing class: %v", err)
+				}
+			}
+			if diff := cmp.Diff(tc.want, tc.wl.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+				t.Errorf("Unexpected overhead (-want,+got):\n%s", diff)
 			}
 		})
 	}

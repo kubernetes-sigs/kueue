@@ -47,6 +47,23 @@ func TestComparePodSetSlices(t *testing.T) {
 			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps2", 10).SetMinimumCount(5).Obj()},
 			wantEquivalent: true,
 		},
+		// The class decides the overhead the Pods will actually carry, so a
+		// prebuilt Workload naming a cheaper one is not the Job it stands for.
+		"different runtime class": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RuntimeClass("kata").Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RuntimeClass("runc").Obj()},
+			wantEquivalent: false,
+		},
+		"runtime class on one side only": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RuntimeClass("kata").Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Obj()},
+			wantEquivalent: false,
+		},
+		"same runtime class": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RuntimeClass("kata").Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RuntimeClass("kata").Obj()},
+			wantEquivalent: true,
+		},
 		"different min count": {
 			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
 			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(2).Obj()},

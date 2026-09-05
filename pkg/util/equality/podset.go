@@ -48,6 +48,11 @@ func WithIgnoreTopologyRequest() ComparePodSetsOption {
 // TODO: Revisit this, maybe we should extend the check to everything that could potentially impact
 // the workload scheduling (priority, nodeSelectors(when suspended), tolerations and maybe more)
 func comparePodTemplate(a, b *corev1.PodSpec, opts *ComparePodSetsOptions) bool {
+	// The class the Pods will actually run under, and so the overhead they will
+	// actually carry, whatever the Workload says it is.
+	if !equality.Semantic.DeepEqual(a.RuntimeClassName, b.RuntimeClassName) {
+		return false
+	}
 	if !opts.ignoreTolerations && !equality.Semantic.DeepEqual(a.Tolerations, b.Tolerations) {
 		return false
 	}

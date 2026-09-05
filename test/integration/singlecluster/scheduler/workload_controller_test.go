@@ -208,6 +208,45 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
 		})
 
+		// A Workload is not a Pod, so it can carry an overhead the apiserver would
+		// never let a Pod carry beside this class.
+		ginkgo.It("Should charge the RuntimeClass overhead over the one the Workload carries", func() {
+			ginkgo.By("Create a Workload claiming a smaller overhead than the class defines", func() {
+				wl = utiltestingapi.MakeWorkload("one", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Request(corev1.ResourceCPU, "1").
+					RuntimeClass("kata").
+					Obj()
+				wl.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("1m"),
+				}
+				util.MustCreate(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					read := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Check the class overhead was charged, not the 1m", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+					g.Expect(updatedCQ.Status).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+						PendingWorkloads:   0,
+						ReservingWorkloads: 1,
+						FlavorsReservation: []kueue.FlavorUsage{{
+							Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+							Resources: []kueue.ResourceUsage{{
+								Name:  corev1.ResourceCPU,
+								Total: resource.MustParse("2"),
+							}},
+						}},
+					}, ignoreCqCondition, ignoreInClusterQueueStatus))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.It("Should accumulate RuntimeClass's overhead", func() {
 			ginkgo.By("Create and wait for workload admission", func() {
 				wl = utiltestingapi.MakeWorkload("one", ns.Name).
