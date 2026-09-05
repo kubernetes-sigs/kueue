@@ -6332,6 +6332,7 @@ func TestFlavorScanRecordsLastTriedFlavorIdx(t *testing.T) {
 
 		wantMode           FlavorAssignmentMode
 		wantTriedFlavorIdx int
+		wantNoBookmark     bool
 		// wantPlan is whether nomination produced a TopologyAssignment. Only an
 		// assignment that carries a plan can later be invalidated mid-cycle, which is
 		// what the in-cycle recomputation is triggered by.
@@ -6350,7 +6351,7 @@ func TestFlavorScanRecordsLastTriedFlavorIdx(t *testing.T) {
 			wantTriedFlavorIdx: 0,
 			wantPlan:           true,
 		},
-		"quota fits but the pod is larger than any node: bookmark still names the first flavor": {
+		"all flavors fail TAS: no bookmark needed after exhaustive retry": {
 			nominalPerFlavor: "10",
 			cohortSpare:      "0",
 			request:          "6",
@@ -6359,14 +6360,13 @@ func TestFlavorScanRecordsLastTriedFlavorIdx(t *testing.T) {
 				WhenCanPreempt: kueue.TryNextFlavor,
 				Preference:     new(kueue.PreemptionOverBorrowing),
 			},
-			// The quota scan stopped on flavor-1 and recorded it. TAS then rejected the
-			// flavor, and because the pod cannot fit a node even with every other
-			// Workload preempted the mode ends at NoFit rather than Preempt. Either way
-			// the bookmark was already written and still points at flavor-1.
-			wantMode:           NoFit,
-			wantTriedFlavorIdx: 0,
+			// TAS rejects both flavors even after simulating preemption. The retry loop
+			// exhausts the ResourceGroup in this assignment, so no cross-cycle bookmark
+			// is needed.
+			wantMode:       NoFit,
+			wantNoBookmark: true,
 		},
-		"quota fits but the topology is fragmented: bookmark still names the first flavor": {
+		"fragmented first flavor: retries the second flavor in the same assignment": {
 			nominalPerFlavor: "10",
 			cohortSpare:      "0",
 			// The pod would fit node-1 on its own, so this is fragmentation rather than a
@@ -6379,12 +6379,12 @@ func TestFlavorScanRecordsLastTriedFlavorIdx(t *testing.T) {
 				WhenCanPreempt: kueue.TryNextFlavor,
 				Preference:     new(kueue.PreemptionOverBorrowing),
 			},
-			// The real-state placement search fails, but the search that simulates every
-			// other Workload preempted succeeds, so the mode settles at Preempt. This is
-			// the shape reported in #13658, and the bookmark written during the quota scan
-			// still points at flavor-1.
-			wantMode:           Preempt,
-			wantTriedFlavorIdx: 0,
+			// The real-state placement search rejects flavor-1. Flavor fallback reruns
+			// assignment immediately and places the pod on flavor-2, reaching the end of
+			// the ResourceGroup and recording "start over" for the next cycle.
+			wantMode:           Fit,
+			wantTriedFlavorIdx: -1,
+			wantPlan:           true,
 		},
 		"fits only by borrowing: bookmark says start over": {
 			nominalPerFlavor: "1",
@@ -6483,10 +6483,14 @@ func TestFlavorScanRecordsLastTriedFlavorIdx(t *testing.T) {
 				t.Errorf("RepresentativeMode() = %s, want %s", gotMode, tc.wantMode)
 			}
 			got, ok := lastTriedFlavorIdx(assignment, corev1.ResourceCPU)
-			if !ok {
+			switch {
+			case tc.wantNoBookmark:
+				if ok {
+					t.Errorf("LastTriedFlavorIdx for cpu = %d, want no bookmark", got)
+				}
+			case !ok:
 				t.Fatalf("no bookmark recorded for cpu; mode was %s", assignment.RepresentativeMode())
-			}
-			if got != tc.wantTriedFlavorIdx {
+			case got != tc.wantTriedFlavorIdx:
 				t.Errorf("LastTriedFlavorIdx for cpu = %d, want %d", got, tc.wantTriedFlavorIdx)
 			}
 			if gotPlan := assignment.PodSets[0].TopologyAssignment != nil; gotPlan != tc.wantPlan {
@@ -6611,5 +6615,84 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 				t.Errorf("recomputation RepresentativeMode() = %s, want %s", got, Preempt)
 			}
 		})
+	}
+}
+
+func TestDowngradeTASFlavorModeForPodSetGroup(t *testing.T) {
+	wl := workload.NewInfo(&kueue.Workload{
+		Spec: kueue.WorkloadSpec{
+			PodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("worker", 1).PodSetGroup("group1").Obj(),
+				*utiltestingapi.MakePodSet("leader", 1).PodSetGroup("group1").Obj(),
+				*utiltestingapi.MakePodSet("standalone", 1).Obj(),
+			},
+		},
+	})
+	assigner := FlavorAssigner{wl: wl}
+	modes := make(tasFlavorModes)
+	failure := &schdcache.FailureInfo{
+		PodSetName: "worker",
+		Flavor:     "tas-a",
+		Reason:     "tas-a has no fitting topology domain",
+	}
+
+	if changed := assigner.downgradeTASFlavorMode(modes, failure, preempt); !changed {
+		t.Fatal("expected the first downgrade to change the TAS flavor mode")
+	}
+	for _, podSetID := range []int{0, 1} {
+		got, found := modes.modeForPodSets([]int{podSetID}, wl, "tas-a")
+		if !found || got.preemptionMode != preempt {
+			t.Errorf("podSet %q mode = (%v, %t), want (preempt, true)", wl.Obj.Spec.PodSets[podSetID].Name, got.preemptionMode, found)
+		}
+	}
+	if _, found := modes.modeForPodSets([]int{2}, wl, "tas-a"); found {
+		t.Error("standalone PodSet unexpectedly inherited the group downgrade")
+	}
+
+	if changed := assigner.downgradeTASFlavorMode(
+		modes,
+		failure,
+		noFit,
+	); !changed {
+		t.Fatal("expected the second downgrade to change the TAS flavor mode")
+	}
+	got, found := modes.modeForPodSets([]int{0, 1}, wl, "tas-a")
+	if !found || got.preemptionMode != noFit {
+		t.Errorf("group mode = (%v, %t), want (noFit, true)", got.preemptionMode, found)
+	}
+}
+
+func TestAssignFlavorsPreservesRejectedTASReasonsForNonTASWinner(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	fungibility := kueue.FlavorFungibility{
+		WhenCanPreempt: kueue.TryNextFlavor,
+		Preference:     new(kueue.PreemptionOverBorrowing),
+	}
+	cqSnapshot := newBookmarkSnapshot(ctx, t, log, "2", "0", fungibility)
+	cqSnapshot.AddUsage(workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+		{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+		{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+	}}})
+
+	wlInfo := bookmarkTestWorkload("2")
+	assigner := New(wlInfo, cqSnapshot, bookmarkTestFlavors(), false, &testOracle{}, nil,
+		configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
+	const tasReason = "flavor-1 has no fitting topology domain"
+	modes := tasFlavorModes{
+		{podSetName: kueue.DefaultPodSetName, flavor: "flavor-1"}: {
+			preemptionMode: noFit,
+			reasons:        []string{tasReason},
+		},
+	}
+
+	assignment := assigner.assignFlavors(ctx, log, nil, modes)
+	if got := assignment.PodSets[0].Flavors[corev1.ResourceCPU].Name; got != "flavor-2" {
+		t.Fatalf("assigned flavor = %q, want %q", got, "flavor-2")
+	}
+	if got := assignment.PodSets[0].Status.Message(); !strings.Contains(got, tasReason) {
+		t.Errorf("status message = %q, want it to contain %q", got, tasReason)
 	}
 }

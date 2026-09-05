@@ -696,7 +696,19 @@ func New(
 func (a *FlavorAssigner) Assign(ctx context.Context, counts []int32) Assignment {
 	log := log.FromContext(ctx)
 
-	return a.assignFlavors(ctx, log, counts)
+	tasFlavorModes := make(tasFlavorModes)
+	for {
+		assignment := a.assignFlavors(ctx, log, counts, tasFlavorModes)
+		if !features.Enabled(features.TopologyAwareScheduling) || assignment.RepresentativeMode() == NoFit {
+			return assignment
+		}
+		if !a.assignTopology(ctx, log, &assignment, tasFlavorModes) {
+			if features.Enabled(features.UnadmittedWorkloadsObservability) {
+				assignment.resolveNoFitReason(a.cq)
+			}
+			return assignment
+		}
+	}
 }
 
 type indexedPodSet struct {
@@ -705,7 +717,80 @@ type indexedPodSet struct {
 	podSetAssignment *PodSetAssignment
 }
 
-func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, counts []int32) Assignment {
+type tasFlavorModeKey struct {
+	podSetName kueue.PodSetReference
+	flavor     kueue.ResourceFlavorReference
+}
+
+type tasFlavorMode struct {
+	preemptionMode preemptionMode
+	reasons        []string
+}
+
+type tasFlavorModes map[tasFlavorModeKey]tasFlavorMode
+
+func (m tasFlavorModes) modeForPodSets(
+	podSetIDs []int,
+	wl *workload.Info,
+	flavor kueue.ResourceFlavorReference,
+) (tasFlavorMode, bool) {
+	result := tasFlavorMode{preemptionMode: fit}
+	found := false
+	for _, podSetID := range podSetIDs {
+		mode, exists := m[tasFlavorModeKey{
+			podSetName: wl.Obj.Spec.PodSets[podSetID].Name,
+			flavor:     flavor,
+		}]
+		if !exists {
+			continue
+		}
+		found = true
+		if mode.preemptionMode < result.preemptionMode {
+			result.preemptionMode = mode.preemptionMode
+		}
+		result.reasons = mergeUnique(result.reasons, mode.reasons)
+	}
+	return result, found
+}
+
+func (a *FlavorAssigner) downgradeTASFlavorMode(
+	modes tasFlavorModes,
+	failure *schdcache.FailureInfo,
+	mode preemptionMode,
+) bool {
+	failedPodSetIndex := slices.IndexFunc(a.wl.Obj.Spec.PodSets, func(podSet kueue.PodSet) bool {
+		return podSet.Name == failure.PodSetName
+	})
+	if failedPodSetIndex < 0 {
+		return false
+	}
+
+	failedGroupName := podSetGroupName(&a.wl.Obj.Spec.PodSets[failedPodSetIndex])
+	changed := false
+	for i := range a.wl.Obj.Spec.PodSets {
+		podSet := &a.wl.Obj.Spec.PodSets[i]
+		belongsToFailedGroup := podSet.Name == failure.PodSetName
+		if failedGroupName != nil {
+			groupName := podSetGroupName(podSet)
+			belongsToFailedGroup = groupName != nil && *groupName == *failedGroupName
+		}
+		if !belongsToFailedGroup {
+			continue
+		}
+
+		key := tasFlavorModeKey{podSetName: podSet.Name, flavor: failure.Flavor}
+		current, found := modes[key]
+		if !found || mode < current.preemptionMode {
+			current.preemptionMode = mode
+			changed = true
+		}
+		current.reasons = mergeUnique(current.reasons, []string{failure.Reason})
+		modes[key] = current
+	}
+	return changed
+}
+
+func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, counts []int32, tasFlavorModes tasFlavorModes) Assignment {
 	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
 	if len(counts) == 0 {
 		for i, ps := range a.wl.TotalRequests {
@@ -822,7 +907,7 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 				continue
 			}
 
-			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, resName, assignment.Usage.Quota.Assigned)
+			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, resName, assignment.Usage.Quota.Assigned, tasFlavorModes)
 			mergeFlavorAttemptsForResource(consideredFlavors, considered, resName, a.cq)
 			if status.IsError() || (len(flavors) == 0 && requests.Len() > 0) {
 				groupFlavors = nil
@@ -861,49 +946,6 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		return assignment
 	}
 
-	if features.Enabled(features.TopologyAwareScheduling) {
-		tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
-		if assignment.RepresentativeMode() == Fit {
-			result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkload(a.wl.Obj))
-			if failure := result.Failure(); failure != nil {
-				// There is at least one PodSet which does not fit
-				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
-				psAssignment.reason(failure.Reason)
-				// update the mode for all flavors and the representative mode
-				assignment.updateMode(failure.PodSetName, Preempt)
-			} else {
-				// All PodSets fit, we just update the TopologyAssignments
-				assignment.UpdateForTASResult(log, a.cq, a.wl, result)
-			}
-		}
-		if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
-			// Don't preempt other workloads if looking for a failed node replacement
-			result := a.cq.FindTopologyAssignmentsForWorkload(
-				ctx,
-				tasRequests,
-				schdcache.WithSimulateEmpty(true),
-				schdcache.WithWorkload(a.wl.Obj),
-			)
-			if failure := result.Failure(); failure != nil {
-				// There is at least one PodSet which does not fit even if
-				// all workloads are preempted.
-				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
-				if features.Enabled(features.UnadmittedWorkloadsObservability) {
-					psAssignment.markFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
-				}
-				// update the mode for all flavors and the representative mode
-				assignment.updateMode(failure.PodSetName, NoFit)
-			} else {
-				// Update TAS-related assignments to Preempt because preemptions might be needed
-				// in resources in which total unused quota is sufficient (Fit), but the
-				// quota is fragmented.
-				assignment.updateModeForTASRequests(tasRequests, Preempt)
-			}
-		}
-	}
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		assignment.resolveNoFitReason(a.cq)
-	}
 	return assignment
 }
 
@@ -942,6 +984,77 @@ func (a *FlavorAssigner) resolvePodSetFlavors(log logr.Logger, idxPodSet indexed
 	}
 
 	return nil
+}
+
+func (a *FlavorAssigner) assignTopology(
+	ctx context.Context,
+	log logr.Logger,
+	assignment *Assignment,
+	tasFlavorModes tasFlavorModes,
+) bool {
+	tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
+	if assignment.RepresentativeMode() == Fit {
+		result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkload(a.wl.Obj))
+		failure := result.Failure()
+		if failure == nil {
+			assignment.UpdateForTASResult(log, a.cq, a.wl, result)
+			return false
+		}
+
+		if a.shouldRetryFlavorAssignmentAfterTASFailure() &&
+			a.downgradeTASFlavorMode(tasFlavorModes, failure, preempt) {
+			return true
+		}
+
+		psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
+		psAssignment.reason(failure.Reason)
+		assignment.updateMode(failure.PodSetName, Preempt)
+	}
+
+	if assignment.RepresentativeMode() != Preempt || workload.HasUnhealthyNodes(a.wl.Obj) {
+		return false
+	}
+
+	// Don't preempt other workloads if looking for a failed node replacement.
+	tasRequests = assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
+	result := a.cq.FindTopologyAssignmentsForWorkload(
+		ctx,
+		tasRequests,
+		schdcache.WithSimulateEmpty(true),
+		schdcache.WithWorkload(a.wl.Obj),
+	)
+	failure := result.Failure()
+	if failure == nil {
+		// Update TAS-related assignments to Preempt because preemptions might be needed
+		// in resources in which total unused quota is sufficient (Fit), but the
+		// quota is fragmented.
+		assignment.updateModeForTASRequests(tasRequests, Preempt)
+		return false
+	}
+
+	if a.shouldRetryFlavorAssignmentAfterTASFailure() &&
+		a.downgradeTASFlavorMode(
+			tasFlavorModes,
+			failure,
+			noFit,
+		) {
+		return true
+	}
+
+	psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		psAssignment.markFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+	}
+	psAssignment.Status.reasons = mergeUnique(psAssignment.Status.reasons, []string{failure.Reason})
+	assignment.updateMode(failure.PodSetName, NoFit)
+	return false
+}
+
+func (a *FlavorAssigner) shouldRetryFlavorAssignmentAfterTASFailure() bool {
+	return features.Enabled(features.FlavorFungibility) &&
+		features.Enabled(features.FlavorFungibilityPreserveScanProgress) &&
+		!a.shouldRespectNominationMapping() &&
+		!workload.HasUnhealthyNodes(a.wl.Obj)
 }
 
 func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
@@ -1069,6 +1182,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	requests resources.Requests,
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
+	tasFlavorModes tasFlavorModes,
 ) (ResourceAssignment, *Status, FlavorAssignmentAttempts) {
 	resourceGroup := a.cq.RGByResource(resName)
 	if resourceGroup == nil {
@@ -1086,6 +1200,8 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	var bestAssignment ResourceAssignment
 	bestAssignmentMode := worstGranularMode()
 	consideredFlavors := newFlavorAssignmentAttempts(len(resourceGroup.Flavors))
+	var bestStatus *Status
+	bestHasTASFlavorMode := false
 
 	// We will only check against the flavors' labels for the resource.
 	attemptedFlavorIdx := -1
@@ -1171,17 +1287,37 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			}
 		})
 
+		tasMode, flavorHasTASFlavorMode := tasFlavorModes.modeForPodSets(psIDs, a.wl, fName)
+		if flavorHasTASFlavorMode {
+			if tasMode.preemptionMode < representativeMode.preemptionMode {
+				representativeMode.preemptionMode = tasMode.preemptionMode
+				for _, assignment := range assignments {
+					assignment.Mode = tasMode.preemptionMode.flavorAssignmentMode()
+				}
+			}
+			flavorQuotaReasons = mergeUnique(flavorQuotaReasons, tasMode.reasons)
+			status.reasons = mergeUnique(status.reasons, tasMode.reasons)
+			if tasMode.preemptionMode == noFit {
+				flavorNoFitReason = mostSevereReason(flavorNoFitReason, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+			}
+		}
+
 		consideredFlavors.AddRepresentativeModeFlavorAttempt(fName, representativeMode.preemptionMode, maxBorrow, flavorQuotaReasons, flavorNoFitReason)
+		flavorStatus := &Status{reasons: slices.Clone(flavorQuotaReasons), noFitReason: flavorNoFitReason}
 
 		if features.Enabled(features.FlavorFungibility) {
 			if !shouldTryNextFlavor(representativeMode, a.cq.FlavorFungibility) {
 				bestAssignment = assignments
 				bestAssignmentMode = representativeMode
+				bestStatus = flavorStatus
+				bestHasTASFlavorMode = flavorHasTASFlavorMode
 				break
 			}
 			if isPreferred(representativeMode, bestAssignmentMode, a.cq.FlavorFungibility) {
 				bestAssignment = assignments
 				bestAssignmentMode = representativeMode
+				bestStatus = flavorStatus
+				bestHasTASFlavorMode = flavorHasTASFlavorMode
 			}
 		} else if representativeMode.preemptionMode > bestAssignmentMode.preemptionMode {
 			bestAssignment = assignments
@@ -1204,6 +1340,9 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		}
 		if bestAssignmentMode.preemptionMode == fit {
 			return bestAssignment, nil, consideredFlavors
+		}
+		if bestHasTASFlavorMode && bestStatus != nil {
+			return bestAssignment, bestStatus, consideredFlavors
 		}
 	}
 	return bestAssignment, status, consideredFlavors
