@@ -449,6 +449,9 @@ func (s *Scheduler) processEntry(
 	mode := e.assignment.RepresentativeMode()
 
 	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
+		if s.tryDeferFailedTASReplacement(ctx, log, e, snapshot, cq) {
+			return
+		}
 		s.handleFailedTASReplacement(ctx, log, e)
 		return
 	}
@@ -546,6 +549,64 @@ func (s *Scheduler) processEntry(
 	if err := s.admit(ctx, e, cq, oldWorkloadSlice); err != nil {
 		e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 	}
+}
+
+// tryDeferFailedTASReplacement reports whether a failed TAS replacement should
+// be deferred instead of fail-fast evicted. If in-flight evictions (workloads
+// already marked Evicted, but still holding usage in the snapshot) may free a
+// suitable placement shortly, we simulate their removal, recompute the
+// assignment, and defer with PendingPreemption semantics when the replacement
+// then fits. Otherwise fail-fast eviction is preserved.
+func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) bool {
+	victims := inFlightEvictionVictims(snapshot)
+	if len(victims) == 0 {
+		return false
+	}
+	log.V(3).Info("Checking whether in-flight evictions free a suitable placement for the failed TAS replacement", "victims", len(victims))
+	// To get the projected cluster state after the in-flight evictions complete,
+	// simulate the removal of their workloads. The simulation is reverted below
+	// as the snapshot is shared across the scheduling cycle.
+	revertRemoval := snapshot.SimulateWorkloadRemoval(victims)
+	// Clear the last assignment so that the recomputation starts from the
+	// first flavor again, mirroring updateAssignmentIfNeeded.
+	e.LastAssignment = nil
+	e.NominationMapping = e.readResourceToFlavorMapping()
+	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
+	e.NominationMapping = nil
+	revertRemoval()
+	if newAssignment.RepresentativeMode() != flavorassigner.Fit {
+		return false
+	}
+	e.recordAssignment(newAssignment, newTargets)
+	e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
+	e.inadmissibleMsg = "Workload has an unhealthy node, but will fit after in-flight evictions complete"
+	e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+	e.requeueReason = qcache.RequeueReasonPendingPreemption
+	// Clear LastAssignment to force a full re-evaluation of all flavors in the
+	// next cycle, mirroring the DeferredFit branch.
+	e.LastAssignment = nil
+	// Reserve the net usage of the recomputed assignment, mirroring the
+	// DeferredFit branch, so that the placement the replacement will claim
+	// once the evictions complete is not admitted to another workload later
+	// in the same cycle.
+	cq.AddUsage(e.assignmentUsage(log))
+	log.V(2).Info("Deferring failed TAS replacement; waiting for in-flight evictions to free capacity")
+	return true
+}
+
+// inFlightEvictionVictims returns the workloads that are marked Evicted but
+// still hold usage in the snapshot, i.e. the victims of in-flight evictions
+// that are expected to free capacity once they complete.
+func inFlightEvictionVictims(snapshot *schdcache.Snapshot) []*workload.Info {
+	var victims []*workload.Info
+	for _, cq := range snapshot.ClusterQueues() {
+		for _, w := range cq.Workloads {
+			if workloadevict.IsEvicted(w.Obj) {
+				victims = append(victims, w)
+			}
+		}
+	}
+	return victims
 }
 
 func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry) {
@@ -1210,7 +1271,12 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	if s.queues.QueueSecondPassIfNeeded(ctx, e.Obj, e.SecondPassIteration) {
 		log.V(2).
 			Info("Workload re-queued for second pass", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "status", e.status)
-		s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "SecondPassFailed", "SecondPassFailed", api.TruncateEventMessage(e.inadmissibleMsg))
+		// Workloads requeued with PendingPreemption are intentionally waiting
+		// for in-flight preemptions to complete, so their second-pass requeue
+		// is not a failure and should not emit a SecondPassFailed event.
+		if e.requeueReason != qcache.RequeueReasonPendingPreemption {
+			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "SecondPassFailed", "SecondPassFailed", api.TruncateEventMessage(e.inadmissibleMsg))
+		}
 		return
 	}
 
