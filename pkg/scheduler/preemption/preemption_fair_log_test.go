@@ -137,7 +137,7 @@ func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fs
 
 	incoming := utiltestingapi.MakeWorkload("a-incoming", "").
 		Request(corev1.ResourceCPU, "3").Obj()
-	wlInfo := workload.NewInfo(incoming)
+	wlInfo := workload.NewInfo(setupLog, incoming)
 	wlInfo.ClusterQueue = "a"
 	assignment := singlePodSetAssignment(flavorassigner.ResourceAssignment{
 		corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
@@ -163,7 +163,7 @@ func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fs
 
 	candidates := make([]*workload.Info, 0, len(admitted))
 	for i := range admitted {
-		candidates = append(candidates, workload.NewInfo(&admitted[i]))
+		candidates = append(candidates, workload.NewInfo(setupLog, &admitted[i]))
 	}
 	return fsLogFixture{preemptionCtx: preemptionCtx, candidates: candidates}
 }
