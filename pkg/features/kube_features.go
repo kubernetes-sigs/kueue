@@ -248,6 +248,13 @@ const (
 	// controller falls back to the legacy behavior of allowing any path.
 	MultiKueueKubeConfigPathValidation featuregate.Feature = "MultiKueueKubeConfigPathValidation"
 
+	// owner: @MatteoFari
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/12404
+	//
+	// Skip worker clusters that contain a same-name Job object not owned by
+	// the current MultiKueue manager.
+	MultiKueueJobNameConflictCheck featuregate.Feature = "MultiKueueJobNameConflictCheck"
+
 	// owner: @pbundyra
 	//
 	// Enables reclaimable pods counting towards quota.
@@ -785,6 +792,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	MultiKueueKubeConfigPathValidation: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+	MultiKueueJobNameConflictCheck: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
