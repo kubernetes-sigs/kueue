@@ -88,6 +88,13 @@ spec:
                 - location
                 - locationType
                 type: object
+              supportedFrameworks:
+                description: |-
+                  supportedFrameworks is only used to prevent data loss when converting between v1beta2 and v1beta1.
+                  It has no effect in v1beta1.
+                items:
+                  type: string
+                type: array
             required:
             - kubeConfig
             type: object
@@ -240,6 +247,21 @@ spec:
                     must be set
                   rule: '[has(self.kubeConfig),has(self.clusterProfileRef)].filter(x,x==true).size()
                     == 1'
+              supportedFrameworks:
+                description: |-
+                  supportedFrameworks is the list of job frameworks supported by this worker cluster.
+                  MultiKueue only watches and dispatches jobs for these frameworks on this cluster.
+                  Built-in framework names must use the same values accepted by integrations.frameworks;
+                  external frameworks must use the name configured in multiKueue.externalFrameworks.
+                  An empty list means that every framework enabled in the manager is supported, preserving the
+                  behavior from before this field was introduced.
+                items:
+                  maxLength: 253
+                  minLength: 1
+                  type: string
+                maxItems: 64
+                type: array
+                x-kubernetes-list-type: set
             required:
             - clusterSource
             type: object

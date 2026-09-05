@@ -130,6 +130,8 @@ type remoteClient struct {
 	config       *clientConfig
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
+	// supportedFrameworks is empty when all manager-enabled frameworks are supported.
+	supportedFrameworks sets.Set[string]
 
 	watchEstablishing atomic.Bool
 
@@ -151,6 +153,33 @@ type remoteClient struct {
 	builderOverride clientWithWatchBuilder
 
 	mu sync.RWMutex
+}
+
+func (rc *remoteClient) setSupportedFrameworks(frameworks []string) bool {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+
+	supported := sets.New(frameworks...)
+	changed := !rc.supportedFrameworks.Equal(supported)
+	rc.supportedFrameworks = supported
+	return changed
+}
+
+func (rc *remoteClient) supportsAdapter(adapterKey string) bool {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+
+	if len(rc.supportedFrameworks) == 0 {
+		return true
+	}
+	if rc.supportedFrameworks.Has(adapterKey) {
+		return true
+	}
+	adapter, found := rc.adapters[adapterKey]
+	if !found {
+		return false
+	}
+	return rc.supportedFrameworks.Has(adapter.FrameworkName())
 }
 
 // connectionState holds a remote client's connection status. Its own mutex guards the fields
@@ -350,6 +379,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 
 	// add a watch for all the adapters implementing multiKueueWatcher
 	for kind, adapter := range rc.adapters {
+		if !rc.supportsAdapter(kind) {
+			continue
+		}
 		watcher, implementsWatcher := adapter.(jobframework.MultiKueueWatcher)
 		if !implementsWatcher {
 			continue
@@ -841,11 +873,15 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 	return client
 }
 
-func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string) (*time.Duration, error) {
+func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterName string, config *clientConfig, origin string, supportedFrameworks []string) (*time.Duration, error) {
 	client := c.findOrCreateRemoteClient(clusterName, origin)
 
 	client.updateConfigLock.Lock()
 	defer client.updateConfigLock.Unlock()
+	if client.setSupportedFrameworks(supportedFrameworks) {
+		client.StopWatchers()
+		client.connState.markDisconnected(client.clock.Now())
+	}
 
 	clientLog := ctrl.LoggerFrom(c.rootContext).WithValues("clusterName", clusterName)
 	clientCtx := ctrl.LoggerInto(c.rootContext, clientLog)
@@ -910,7 +946,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 		return reconcile.Result{}, fmt.Errorf("failed to load client config, reason: %s, error: %w", reason, err)
 	}
 
-	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin); err != nil {
+	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin, cluster.Spec.SupportedFrameworks); err != nil {
 		log.Error(err, "setting client config", "retryAfter", retryAfter)
 		c.disconnectCluster(req.Name)
 		if err := c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {

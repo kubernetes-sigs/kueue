@@ -1762,11 +1762,13 @@ func Convert_v1beta2_MultiKueueClusterList_To_v1beta1_MultiKueueClusterList(in *
 func autoConvert_v1beta1_MultiKueueClusterSpec_To_v1beta2_MultiKueueClusterSpec(in *MultiKueueClusterSpec, out *v1beta2.MultiKueueClusterSpec, s conversion.Scope) error {
 	// WARNING: in.KubeConfig requires manual conversion: does not exist in peer-type
 	// WARNING: in.ClusterProfileRef requires manual conversion: does not exist in peer-type
+	out.SupportedFrameworks = *(*[]string)(unsafe.Pointer(&in.SupportedFrameworks))
 	return nil
 }
 
 func autoConvert_v1beta2_MultiKueueClusterSpec_To_v1beta1_MultiKueueClusterSpec(in *v1beta2.MultiKueueClusterSpec, out *MultiKueueClusterSpec, s conversion.Scope) error {
 	// WARNING: in.ClusterSource requires manual conversion: does not exist in peer-type
+	out.SupportedFrameworks = *(*[]string)(unsafe.Pointer(&in.SupportedFrameworks))
 	return nil
 }
 

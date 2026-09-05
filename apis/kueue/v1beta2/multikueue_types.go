@@ -77,6 +77,20 @@ type MultiKueueClusterSpec struct {
 	// clusterSource is the source to connect to the cluster.
 	// +required
 	ClusterSource ClusterSource `json:"clusterSource,omitempty"`
+
+	// supportedFrameworks is the list of job frameworks supported by this worker cluster.
+	// MultiKueue only watches and dispatches jobs for these frameworks on this cluster.
+	// Built-in framework names must use the same values accepted by integrations.frameworks;
+	// external frameworks must use the name configured in multiKueue.externalFrameworks.
+	// An empty list means that every framework enabled in the manager is supported, preserving the
+	// behavior from before this field was introduced.
+	//
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=64
+	// +kubebuilder:validation:items:MaxLength=253
+	// +kubebuilder:validation:items:MinLength=1
+	SupportedFrameworks []string `json:"supportedFrameworks,omitempty"`
 }
 
 // +kubebuilder:validation:ExactlyOneOf=kubeConfig;clusterProfileRef

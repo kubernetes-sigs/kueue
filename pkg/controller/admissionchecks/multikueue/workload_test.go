@@ -2520,6 +2520,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 		name                      string
 		dispatcherMode            string
 		remotes                   map[string]*kueue.Workload
+		eligibleClusters          []string
 		nominatedWorkers          []string
 		localClusterName          *string
 		cond                      *metav1.Condition
@@ -2534,6 +2535,14 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			remotes:                   map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
 			wantCreated:               []string{remoteNames[0], remoteNames[1]},
 			wantNominatedClusterNames: []string{remoteNames[0], remoteNames[1]}, // stored sorted after patch
+		},
+		{
+			name:                      "AllClusters: only nominate framework-compatible remotes",
+			dispatcherMode:            config.MultiKueueDispatcherModeAllAtOnce,
+			remotes:                   map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
+			eligibleClusters:          []string{remoteNames[0]},
+			wantCreated:               []string{remoteNames[0]},
+			wantNominatedClusterNames: []string{remoteNames[0]},
 		},
 		{
 			name:           "AllClusters: workloads already created on remotes, do not create again",
@@ -2642,6 +2651,9 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 				remotes:       tt.remotes,
 				remoteClients: remoteClients,
 				acName:        "ac1",
+			}
+			if tt.eligibleClusters != nil {
+				group.eligibleClusters = sets.New(tt.eligibleClusters...)
 			}
 
 			wlRec := &wlReconciler{
@@ -3136,6 +3148,9 @@ func (s *deferredSyncStubAdapter) IsJobManagedByKueue(_ context.Context, _ clien
 }
 func (s *deferredSyncStubAdapter) GVK() schema.GroupVersionKind {
 	return batchv1.SchemeGroupVersion.WithKind("Job")
+}
+func (s *deferredSyncStubAdapter) FrameworkName() string {
+	return "batch/job"
 }
 
 // TestReconcileGroup_SyncDeferred_ShortRequeue is a regression test for
