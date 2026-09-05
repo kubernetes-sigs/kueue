@@ -165,7 +165,7 @@ func WithPreserveTotalRequests() InfoOption {
 	}
 }
 
-// WithPreprocessedDRAResources provides DRA resources to add and extended resources to remove.
+// WithPreprocessedDRAResources provides DRA resources to add and extended resources whose container contribution the charge replaces.
 func WithPreprocessedDRAResources(
 	draResources map[kueue.PodSetReference]corev1.ResourceList,
 	replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName],
@@ -627,7 +627,7 @@ func (i *Info) SumTotalRequests(formatter *resources.ResourceFormatter) corev1.R
 	return reqs.ToResourceList(formatter)
 }
 
-func applyResourceTransformations(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) corev1.ResourceList {
+func applyResourceTransformations(input corev1.ResourceList, transforms map[corev1.ResourceName]*config.ResourceTransformation) (retained, generated corev1.ResourceList) {
 	match := false
 	for resourceName := range input {
 		if _, ok := transforms[resourceName]; ok {
@@ -636,7 +636,7 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 		}
 	}
 	if !match {
-		return input
+		return input, nil
 	}
 	// What the transformations produce is kept apart from what the PodSet asked
 	// for until the end. A negative output factor is how an allowance is
@@ -644,8 +644,8 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 	// generates cannot go on to reduce a request that was never part of that
 	// arithmetic: an ordinary request under the same name, or the DRA charge
 	// merged in after this returns.
-	retained := make(corev1.ResourceList)
-	generated := make(corev1.ResourceList)
+	retained = make(corev1.ResourceList)
+	generated = make(corev1.ResourceList)
 	for inputName, inputQuantity := range input {
 		mapping, ok := transforms[inputName]
 		if !ok {
@@ -678,7 +678,7 @@ func applyResourceTransformations(input corev1.ResourceList, transforms map[core
 			generated[name] = resource.Quantity{}
 		}
 	}
-	return utilresource.MergeResourceListKeepSum(retained, generated)
+	return retained, generated
 }
 
 func CanBePartiallyAdmitted(wl *kueue.Workload) bool {
@@ -729,6 +729,31 @@ func PodSetNameToTopologyRequest(wl *kueue.Workload) map[kueue.PodSetReference]*
 	})
 }
 
+// subtractReplacedRequestsFrom takes out of retained what the containers asked for on
+// each name a DRA charge stands in for. The charge replaces that much and no more,
+// so a pod overhead or a transformation output carried under the same name is left
+// where it is.
+func subtractReplacedRequestsFrom(retained corev1.ResourceList, spec *corev1.PodSpec, replaced sets.Set[corev1.ResourceName]) {
+	// Read without the overhead rather than subtracting it back off, so this cannot
+	// disagree with whichever view the retained requests were taken as.
+	containerRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *spec},
+		resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
+	for extRes := range replaced {
+		// Gone already when an excluded prefix dropped it or a Replace
+		// transformation consumed it.
+		q, ok := retained[extRes]
+		if !ok {
+			continue
+		}
+		q.Sub(containerRequests[extRes])
+		if q.CmpInt64(0) <= 0 {
+			delete(retained, extRes)
+			continue
+		}
+		retained[extRes] = q
+	}
+}
+
 func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetResources {
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
@@ -742,14 +767,13 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			Count: count,
 		}
 		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: ps.Template.Spec}, resourcehelpers.PodResourcesOptions{})
-		effectiveRequests := dropExcludedResources(specRequests, info.excludedResourcePrefixes)
-		effectiveRequests = applyResourceTransformations(effectiveRequests, info.resourceTransformations)
+		retained, generated := applyResourceTransformations(
+			dropExcludedResources(specRequests, info.excludedResourcePrefixes),
+			info.resourceTransformations,
+		)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
-			// First, remove extended resources that were converted to DRA logical resources
 			if replacedRes, exists := info.replacedExtendedResources[ps.Name]; exists {
-				for extRes := range replacedRes {
-					delete(effectiveRequests, extRes)
-				}
+				subtractReplacedRequestsFrom(retained, &ps.Template.Spec, replacedRes)
 			}
 			// Then, add the DRA logical resources
 			//
@@ -758,13 +782,10 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 			// extended-resource path treats pods as native. A ClusterQueue that
 			// tracks the key has it overwritten with PodSet.Count at assignment.
 			if draRes, exists := info.preprocessedDRAResources[ps.Name]; exists {
-				for resName, quantity := range draRes {
-					q := effectiveRequests[resName]
-					q.Add(quantity)
-					effectiveRequests[resName] = q
-				}
+				generated = utilresource.MergeResourceListKeepSum(generated, draRes)
 			}
 		}
+		effectiveRequests := utilresource.MergeResourceListKeepSum(retained, generated)
 		setRes.Requests = resources.NewRequestsFromResourceList(effectiveRequests)
 		setRes.Requests.FloorToZero()
 		setRes.Requests.Mul(int64(count))

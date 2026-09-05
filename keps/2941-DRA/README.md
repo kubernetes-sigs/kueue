@@ -905,18 +905,15 @@ The two DRA paths resolve quota independently:
    name instead to unify quota with the ResourceClaimTemplate path. If the mapping has
    counter sources configured, the workload is marked inadmissible because extended resources
    do not carry the profile-level information needed for counter-based charging.
-2. **ResourceClaimTemplates** (`DynamicResourceAllocation` gate): uses `deviceClassMappings`
+2. **ResourceClaimTemplates** (`KueueDRAIntegration` gate): uses `deviceClassMappings`
    to map DeviceClass names to logical resource names. When the mapping has counter sources
    configured, charges counter units instead of device count.
 
 #### Processing Flow
 
-1. Kueue detects extended resources in `resources.requests` and computes each
-   original resource name's Pod-level request (max across init containers, sum
-   across regular containers, then max of the two) before any DeviceClass lookup
-   or quota-key mapping. Two different resource names later mapped to the same
-   quota key are therefore aggregated independently first, so neither collapses
-   into the other's contribution.
+1. Kueue detects extended resources in the PodSet spec and aggregates each original
+   name using `resourcehelpers.PodRequests` (overhead excluded; sidecars add to the
+   app-container total, they are not maxed as ordinary inits).
 2. Looks up DeviceClasses by `extendedResourceName` by field indexer
 3. If no matching DeviceClass is found, the resource is not DRA-backed and Kueue
    processes it through the standard resource quota path (counted via `node.Status.Allocatable`)
@@ -927,15 +924,18 @@ The two DRA paths resolve quota independently:
 5. If the mapping has counter sources configured, the workload is marked inadmissible.
    Extended resources do not carry profile-level information for counter-based charging.
    Otherwise charges device count.
-6. Removes original extended resource from the workload's effective resource requests
-   (tracked internally per PodSet) to avoid double-counting
-7. Admits workload against the resolved quota key
+6. Subtracts the original extended resource from the workload's effective resource
+   requests (tracked internally per PodSet) to avoid double-counting. Only the
+   translated container amount is subtracted; Pod overhead and transformation output
+   under the same name remain.
+7. Admits the Workload against the resulting requests
 
 The extended resource translation reads directly from the workload spec before
 `excludeResourcePrefixes` filtering is applied. The processing order:
 1. Extended resource translation runs first, reading the original spec
 2. `excludeResourcePrefixes` filters the pod's `resources.requests`
-3. Original extended resource is removed from the workload's effective resource requests
+3. The translated container amount is removed from the workload's effective resource
+   requests, so it is not double-counted
 4. Translated resource is added through `preprocessedDRAResources`
 
 This ensures no overlap or double-counting between the two mechanisms.
@@ -943,8 +943,8 @@ This ensures no overlap or double-counting between the two mechanisms.
 #### Same Hardware with Both Paths
 
 When the same hardware needs to serve both ResourceClaimTemplate users and extended resource
-users, admins configure separate flavors under the same ClusterQueue. Assuming a cluster
-with 1 node and 8 GPU devices available:
+users, both paths resolve to one logical device count, so that name carries the quota.
+Assuming a cluster with 1 node and 8 GPU devices available:
 
 ```yaml
 # DeviceClass
@@ -955,7 +955,8 @@ metadata:
 spec:
   extendedResourceName: example.com/gpu
 ---
-# Kueue config: deviceClassMappings only needed for ResourceClaimTemplate path
+# Kueue config: the ResourceClaimTemplate path needs deviceClassMappings, and
+# the extended-resource path reuses the same entry when one covers its DeviceClass
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 resources:
@@ -971,19 +972,22 @@ metadata:
   name: gpu-queue
 spec:
   resourceGroups:
-  - coveredResources: ["example.com/gpu", "gpu-claims"]
+  - coveredResources: ["gpu-claims"]
     flavors:
     - name: default
       resources:
-      - name: example.com/gpu    # for extended resource users
-        nominalQuota: 4
-      - name: gpu-claims          # for ResourceClaimTemplate users
-        nominalQuota: 4
+      - name: gpu-claims          # both paths charge here
+        nominalQuota: 8
 ```
 
-Both quota buckets draw from the same physical hardware. The admin controls how capacity is
-split between the two user populations. Since these are different resource names, the split
-is fixed at configuration time.
+`gpu-claims` is the device count both populations draw from. A container asking for
+`example.com/gpu` resolves its DeviceClass through the same `deviceClassMappings` entry,
+so it is charged to `gpu-claims` alongside the ResourceClaimTemplate users rather than to
+its own name.
+
+The original name needs quota of its own only where something other than the containers'
+request survives under it, a chargeable pod overhead or a resource transformation output.
+Size that for the residue, not for devices.
 
 #### DeviceClass Resolution via Field Indexer
 
