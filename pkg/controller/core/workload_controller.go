@@ -1328,7 +1328,12 @@ func (r *WorkloadReconciler) Delete(e event.TypedDeleteEvent[*kueue.Workload]) b
 		// A Workload deleted before settling (e.g. a Job deleted while waiting
 		// for an AdmissionCheck) would leave its penalty pending forever,
 		// inflating the LocalQueue's fair-sharing usage until restart.
-		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.Object), queueafs.WorkloadReference(wlKey))
+		// Also drop the settled identity so a replacement object with the same
+		// namespace/name can be charged as a new entry.
+		lqKey := qutil.KeyFromWorkload(e.Object)
+		wlRef := queueafs.WorkloadReference(wlKey)
+		r.queues.AfsUsageLedger.SubPenalty(lqKey, wlRef)
+		r.queues.AfsUsageLedger.ForgetSettledPenalty(lqKey, wlRef)
 	}
 	return true
 }
@@ -1502,18 +1507,28 @@ func (r *WorkloadReconciler) reconcileAfsPenaltiesOnUpdate(
 	// inactive with its reservation gone, or finished without admission — or it
 	// inflates the LocalQueue's fair-sharing usage until the object is deleted.
 	// An evicted Workload that stays active on the same LocalQueue keeps its
-	// record, and so does a deactivated Workload that still holds its
-	// reservation: reactivated in place, it can reach Admitted without another
-	// scheduler assume, and its penalty must still settle.
+	// pending record and its settled identity, so re-admission cannot charge
+	// a second entry penalty. A deactivated Workload that still holds its
+	// reservation keeps the pending record: reactivated in place, it can
+	// reach Admitted without another scheduler assume, and its penalty must
+	// still settle. Settled identity is also kept across deactivation so a
+	// later reactivate → admit does not double-charge.
 	wlRef := queueafs.WorkloadReference(workload.Key(e.ObjectNew))
 	if prevQueue != e.ObjectNew.Spec.QueueName {
-		r.queues.AfsUsageLedger.SubPenalty(qutil.NewLocalQueueReference(e.ObjectOld.Namespace, prevQueue), wlRef)
+		oldKey := qutil.NewLocalQueueReference(e.ObjectOld.Namespace, prevQueue)
+		r.queues.AfsUsageLedger.SubPenalty(oldKey, wlRef)
+		// Leaving this LocalQueue is a new entry if the Workload returns;
+		// forget so the old queue does not leak the identity.
+		r.queues.AfsUsageLedger.ForgetSettledPenalty(oldKey, wlRef)
 	}
 	inactiveUnreserved := !active && !workload.HasQuotaReservation(e.ObjectNew)
 	wasActiveOrReserved := workload.IsActive(e.ObjectOld) || workload.HasQuotaReservation(e.ObjectOld)
 	if (inactiveUnreserved && wasActiveOrReserved) ||
 		(status == workload.StatusFinished && prevStatus != workload.StatusFinished) {
 		r.queues.AfsUsageLedger.SubPenalty(qutil.KeyFromWorkload(e.ObjectNew), wlRef)
+	}
+	if status == workload.StatusFinished && prevStatus != workload.StatusFinished {
+		r.queues.AfsUsageLedger.ForgetSettledPenalty(qutil.KeyFromWorkload(e.ObjectNew), wlRef)
 	}
 }
 
@@ -1552,11 +1567,12 @@ func (r *WorkloadReconciler) updateAfsConsumedUsage(log logr.Logger, wl *kueue.W
 			storedLastUpdate = lastUpdate
 		}
 		newConsumed := afs.CalculateDecayedConsumed(old.Resources, newUsage, elapsed, r.admissionFSConfig.UsageHalfLifeTime.Seconds())
-		// Fold exactly the pushed amount and drop the record in the same write,
-		// so a repeated settlement folds nothing and other Workloads' pending
-		// penalties are untouched. No record (e.g. pushed before a manager
-		// restart) folds nothing; restart recovery is out of scope.
-		remaining, penalty := old.WithoutPenalty(wlKey)
+		// Fold exactly the pushed amount, drop the pending record, and retain
+		// the Workload identity so a later re-push after eviction folds
+		// nothing. Other Workloads' pending penalties are untouched. No
+		// record (e.g. pushed before a manager restart) folds nothing;
+		// restart recovery is out of scope.
+		remaining, penalty := old.SettlePenalty(wlKey)
 		settled = penalty
 		remaining.Resources = resource.MergeResourceListKeepSum(newConsumed, penalty)
 		remaining.LastUpdate = storedLastUpdate
