@@ -600,6 +600,81 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 		})
 	})
 
+	ginkgo.When("The referenced PriorityClass does not exist", func() {
+		ginkgo.It("Should report a warning and create no Workload when the pod template names a class that does not exist", func() {
+			// The API server accepts the Job itself: only Pod creation resolves
+			// priorityClassName, and a suspended Job creates no Pod. Kueue is the
+			// only thing that resolves the name here, so it has to be the one to
+			// report that it does not resolve.
+			job := testingjob.MakeJob(jobName, ns.Name).
+				Queue("main").
+				PriorityClass("missing-pc").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			ginkgo.By("checking the warning is on this Job and names the missing class", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					ok, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *eventsv1.Event) bool {
+						return e.Regarding.Namespace == ns.Name && e.Regarding.Name == job.Name &&
+							e.Regarding.Kind == "Job" && e.Regarding.UID == job.UID &&
+							e.Type == corev1.EventTypeWarning &&
+							e.Reason == jobframework.ReasonPriorityClassNotFound &&
+							e.Note == `PriorityClass "missing-pc" not found`
+					})
+					g.Expect(err).NotTo(gomega.HaveOccurred())
+					g.Expect(ok).To(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+
+			ginkgo.By("checking the workload is not created", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, &kueue.Workload{})).Should(utiltesting.BeNotFoundError())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+
+			// The error stays retryable on purpose: the class may simply not have
+			// been created yet, and nothing here watches PriorityClass.
+			ginkgo.By("checking the workload appears once the class is created", func() {
+				pc := utiltesting.MakePriorityClass("missing-pc").PriorityValue(1000).Obj()
+				util.MustCreate(ctx, k8sClient, pc)
+				ginkgo.DeferCleanup(func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, pc, true)
+				})
+				util.ExpectWorkloadsWithPodPriority(ctx, k8sClient, pc.Name, pc.Value, wlLookupKey)
+			})
+		})
+
+		ginkgo.It("Should report nothing when the pod template names a class that exists", func() {
+			pc := utiltesting.MakePriorityClass("present-pc").PriorityValue(1000).Obj()
+			util.MustCreate(ctx, k8sClient, pc)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, pc, true)
+			})
+
+			job := testingjob.MakeJob(jobName, ns.Name).
+				Queue("main").
+				PriorityClass(pc.Name).
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+
+			ginkgo.By("checking the workload carries that priority and nothing is reported", func() {
+				util.ExpectWorkloadsWithPodPriority(ctx, k8sClient, pc.Name, pc.Value, wlLookupKey)
+				// Polled as (found, err) rather than inverting an inner assertion, so a
+				// failed Event list is a test failure instead of looking like absence.
+				gomega.Consistently(func() (bool, error) {
+					return utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *eventsv1.Event) bool {
+						return e.Regarding.Namespace == ns.Name && e.Regarding.Name == job.Name &&
+							e.Reason == jobframework.ReasonPriorityClassNotFound
+					})
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.BeFalse())
+			})
+		})
+	})
+
 	ginkgo.When("A prebuilt workload is used", func() {
 		ginkgo.It("Should get suspended if the workload is not found", func() {
 			job := testingjob.MakeJob("job", ns.Name).

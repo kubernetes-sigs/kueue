@@ -1831,6 +1831,22 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 	return nil
 }
 
+// ExtractPriority resolves the priority the Workload should carry: from the
+// WorkloadPriorityClass the kueue.x-k8s.io/priority-class label names, and
+// otherwise from the scheduling.k8s.io PriorityClass the job names, either
+// through the integration's own accessor or through the first PodSet template
+// that sets one.
+//
+// A named class that does not exist is reported as a Warning event on the
+// object, here rather than from the error, which the callers aggregate and can
+// drop. Only a lookup a name sent us on reports, since that is the only case
+// where the missing class is known to be the one the object asked for rather
+// than a guess: an empty name resolves the cluster default, which names no
+// class, and a NotFound raised anywhere else keeps its existing handling.
+//
+// The event does not stand in for the error, which is returned unchanged, so
+// the reconcile still fails and no Workload is created or updated. A later
+// reconciliation succeeds once the class exists.
 func ExtractPriority(
 	ctx context.Context,
 	c client.Client,
@@ -1841,19 +1857,34 @@ func ExtractPriority(
 ) (*kueue.PriorityClassRef, int32, error) {
 	if workloadPriorityClass := WorkloadPriorityClassName(obj); len(workloadPriorityClass) > 0 {
 		ref, priority, err := utilpriority.GetPriorityFromWorkloadPriorityClass(ctx, c, workloadPriorityClass)
-		// Reported here rather than from the error, which the callers
-		// aggregate and can drop. Only reached when the label named a class,
-		// so a NotFound is that class and not one of the fallbacks below.
 		if apierrors.IsNotFound(err) {
 			r.Eventf(obj, nil, corev1.EventTypeWarning, ReasonWorkloadPriorityClassNotFound,
 				"WorkloadPriorityClassNotFound", "WorkloadPriorityClass %q not found", workloadPriorityClass)
 		}
 		return ref, priority, err
 	}
+
+	// The integration's own accessor wins over the PodSets, and can name a class
+	// that no Pod template carries: MPIJob and the Kubeflow jobs read
+	// .spec.runPolicy.schedulingPolicy.priorityClass ahead of their replica
+	// templates, so nothing else in the cluster ever resolves that name. Even a
+	// name that does come from a Pod template is only refused by the API server
+	// once a Pod is created, which a suspended job never does, so this lookup is
+	// where a missing class has to be noticed.
+	var priorityClassName string
 	if customPriorityClassFunc != nil {
-		return utilpriority.GetPriorityFromPriorityClass(ctx, c, customPriorityClassFunc())
+		priorityClassName = customPriorityClassFunc()
+	} else {
+		priorityClassName = extractPriorityFromPodSets(podSets)
 	}
-	return utilpriority.GetPriorityFromPriorityClass(ctx, c, extractPriorityFromPodSets(podSets))
+	ref, priority, err := utilpriority.GetPriorityFromPriorityClass(ctx, c, priorityClassName)
+	// An empty name resolved the cluster default instead, so there is no class
+	// the object asked for that a message could name.
+	if len(priorityClassName) > 0 && apierrors.IsNotFound(err) {
+		r.Eventf(obj, nil, corev1.EventTypeWarning, ReasonPriorityClassNotFound,
+			"PriorityClassNotFound", "PriorityClass %q not found", priorityClassName)
+	}
+	return ref, priority, err
 }
 
 func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
