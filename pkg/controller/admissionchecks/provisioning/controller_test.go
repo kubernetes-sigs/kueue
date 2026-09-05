@@ -2452,3 +2452,71 @@ func TestUpdateCheckMessage(t *testing.T) {
 		})
 	}
 }
+
+// One check has no ProvisioningRequest yet. Does the other one's transition survive?
+func findCheck(states []kueue.AdmissionCheckState, name kueue.AdmissionCheckReference) *kueue.AdmissionCheckState {
+	for i := range states {
+		if states[i].Name == name {
+			return &states[i]
+		}
+	}
+	return nil
+}
+
+func TestSyncCheckStatesKeepsASiblingCheckWithoutARequest(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	builder, ctx := getClientBuilder(ctx)
+
+	wl := utiltestingapi.MakeWorkload("wl", TestNamespace).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q").PodSets(
+			kueue.PodSetAssignment{Name: "main", Count: new(int32(1))}).Obj(), time.Now()).
+		AdmissionChecks(
+			kueue.AdmissionCheckState{Name: "with-request", State: kueue.CheckStatePending},
+			kueue.AdmissionCheckState{Name: "without-request", State: kueue.CheckStatePending}).
+		Obj()
+
+	builder = builder.WithObjects(wl).WithStatusSubresource(wl)
+	controller, err := NewController(builder.Build(), &utiltesting.EventRecorder{}, nil)
+	if err != nil {
+		t.Fatalf("Setting up the controller: %v", err)
+	}
+
+	prc := utiltestingapi.MakeProvisioningRequestConfig("config").
+		RetryStrategy(&kueue.ProvisioningRequestRetryStrategy{
+			BackoffLimitCount:  new(int32(3)),
+			BackoffBaseSeconds: new(int32(60)),
+			BackoffMaxSeconds:  new(int32(1800)),
+		}).Obj()
+	provisioned := &autoscaling.ProvisioningRequest{
+		ObjectMeta: metav1.ObjectMeta{Name: "pr", Namespace: TestNamespace},
+		Status: autoscaling.ProvisioningRequestStatus{Conditions: []metav1.Condition{{
+			Type: autoscaling.Provisioned, Status: metav1.ConditionTrue, Reason: "Provisioned",
+			LastTransitionTime: metav1.Now(),
+		}}},
+	}
+
+	if err := controller.syncCheckStates(ctx, wl, &workloadInfo{},
+		map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig{
+			"with-request":    prc,
+			"without-request": prc,
+		},
+		map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest{
+			"with-request":    provisioned,
+			"without-request": nil,
+		}); err != nil {
+		t.Fatalf("syncCheckStates: %v", err)
+	}
+
+	got := &kueue.Workload{}
+	if err := controller.client.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	for _, cs := range got.Status.AdmissionChecks {
+		t.Logf("check %q state=%s", cs.Name, cs.State)
+	}
+	state := findCheck(got.Status.AdmissionChecks, "with-request")
+	if state == nil || state.State != kueue.CheckStateReady {
+		t.Errorf("the check with a request was not persisted as Ready, got %v", state)
+	}
+}
