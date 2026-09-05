@@ -614,7 +614,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 	}
 	qKey := queue.KeyFromWorkload(wi.Obj)
 	if lq, ok := c.localQueues[qKey]; ok {
-		updateFlavorUsage(frUsage, lq.totalReserved, op)
+		lq.updateTotalReserved(frUsage, op)
 		lq.reservingWorkloads += op.asSignedOne()
 		if admitted {
 			lq.updateAdmittedUsage(frUsage, op)
@@ -688,7 +688,7 @@ func (c *clusterQueue) addLocalQueue(q *kueue.LocalQueue) error {
 	for _, wl := range c.Workloads {
 		if workloadBelongsToLocalQueue(wl.Obj, q) {
 			frq := wl.ResourceUsage().Assigned
-			updateFlavorUsage(frq, qImpl.totalReserved, add)
+			qImpl.updateTotalReserved(frq, add)
 			qImpl.reservingWorkloads++
 			if workload.IsAdmitted(wl.Obj) {
 				qImpl.updateAdmittedUsage(frq, add)

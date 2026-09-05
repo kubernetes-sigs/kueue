@@ -7,6 +7,7 @@
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [Entry penalty](#entry-penalty)
+  - [Accounting anchor](#accounting-anchor)
   - [User Stories (Optional)](#user-stories-optional)
     - [Story 1](#story-1)
     - [Story 2](#story-2)
@@ -221,7 +222,77 @@ scheduling pass, such as one using a
 or the [`TASFailedNodeReplacement` feature gate](../2724-topology-aware-scheduling/README.md#node-failures),
 is re-assumed while keeping its existing quota reservation. The second-pass assumption does not
 add another entry penalty. The penalty added during the first pass is settled on the transition to
-admission, unless the Workload is deactivated in the same update.
+admission, unless the Workload is deactivated in the same update. For ClusterQueues that admit on
+usage it settles earlier, at the anchor described in [Accounting anchor](#accounting-anchor).
+
+### Accounting anchor
+
+AFS uses one accounting anchor for both entry-penalty settlement and live-usage sampling. Keeping
+the two aligned is an invariant: if a penalty settles earlier than the usage the decay calculation
+samples, a Workload can keep holding quota while its accounted usage decays away.
+
+For ClusterQueues that admit on usage the anchor is actively holding a quota reservation, so a
+Workload waiting on its AdmissionChecks starts contributing to AFS, and settles its entry penalty, as
+soon as it reserves quota. Every other ClusterQueue anchors at `Admitted`, as does every ClusterQueue
+when `AdmissionFairSharingAnchorAtQuotaReservation` is disabled. At the quota-reservation anchor a
+Workload transition affects AFS accounting as follows; at the `Admitted` anchor only the transition
+into `Admitted` settles.
+
+| Event | Effect on AFS accounting |
+|---|---|
+| `Pending -> QuotaReserved` while active | Settle the pending entry penalty, when the ClusterQueue admits on usage. |
+| `Pending -> Admitted` while active | Settle it in the same update; without AdmissionChecks, quota reservation and admission happen together. |
+| `QuotaReserved -> Admitted` | No additional settlement. |
+| `QuotaReserved -> Pending` | Keep the settled cost in the decaying history. A later reservation settles a new entry penalty. |
+| Deactivated while still holding quota, before settlement | Keep the penalty pending. If the Workload is reactivated with its reservation intact, settle it then. |
+| The Workload can no longer reach the anchor — deleted, finished, moved to another LocalQueue, or left inactive without a reservation | Drop the pending penalty rather than settling it. |
+
+The following properties of the quota-reservation anchor are worth stating explicitly.
+
+**Sampling moves with settlement.** `current_usage` in the decay formula becomes the usage of
+Workloads actively holding quota rather than of admitted Workloads only. Were settlement to move to
+quota reservation while sampling stayed at admission, a Workload waiting on its AdmissionChecks
+could keep holding quota while its accounted usage decayed, and a tenant able to lengthen its own
+checks, with a slow ProvisioningRequest for instance, could keep its usage understated.
+Over-counting a tenant's own usage is self-correcting; under-counting is not.
+
+**Sampling can lag during bursts.** If a LocalQueue receives reservations faster than
+`usageSamplingInterval`, its published `consumedResources` and the scheduling order derived from it
+may lag until the burst pauses. The underlying decaying usage history continues to update.
+
+This is not unique to the quota-reservation anchor. The existing `Admitted` anchor has the same behavior when
+Workloads are admitted faster than the sampling interval.
+
+**Repeated reservations are charged repeatedly.** The anchor prices reservations rather than one
+lifetime of a Workload. A Workload that loses quota before admission and later reserves again
+settles another entry penalty, where the `Admitted` anchor would have charged it once. This keeps
+reservation churn from being free, but not every retry is tenant-driven: an AdmissionCheck
+returning `Retry`, a preemption before admission, and a stopped ClusterQueue each cause another
+reservation.
+
+Settlement is not deduplicated per Workload and LocalQueue. That gap predates this anchor — at the
+`Admitted` anchor a Workload that is admitted, evicted and admitted again already settles a penalty
+each time — so the underlying deduplication bug is tracked separately in #15221 rather than as a
+condition on this gate. What changes here is how often the repeat is reachable, since a Workload can
+now be charged without ever being admitted.
+
+**Concurrent admission over-counts.** With a `ConcurrentAdmissionPolicy`, several variants of the
+same Workload can hold reservations at once, and each contributes to usage, where at the `Admitted`
+anchor at most one ever could. At any instant the over-count is bounded by the number of flavors in
+the ResourceGroup. Under `RetainFirstAdmission` it collapses once a variant is admitted, because
+every other variant is deactivated and releases its reservation. Under the default
+`TryPreferredFlavors` only the variants less preferred than the admitted one are deactivated, so
+while the Workload runs on a non-preferred flavor, every reservation a more preferred variant takes
+— including one it holds while its own AdmissionChecks run — adds to the usage and settles another
+entry penalty.
+
+**The anchor is scoped per ClusterQueue.** It moves only for LocalQueues whose ClusterQueue admits
+on usage. Every other LocalQueue keeps reporting admitted usage in `consumedResources` and in the
+`kueue_local_queue_admission_fair_sharing_usage` metric, so enabling the gate does not redefine a
+value published by a ClusterQueue that does not use AFS.
+
+Moving the anchor changes which Workloads count as usage, and therefore admission ordering and
+cross-LocalQueue preemption victim ordering, which is why it is gated.
 
 ### User Stories (Optional)
 #### Story 1
@@ -257,12 +328,19 @@ The code will be thoroughly covered with unit tests.
 In particular:
 * CQ level fair sharing between LQ for both strict FIFO and best effort.
 * Cohort with owned resources, and CQ with guaranteed quota.
+* Under both states of `AdmissionFairSharingAnchorAtQuotaReservation`: which transitions settle a
+  Workload's entry penalty, that each crossing of the anchor settles one, and which LocalQueue usage
+  the consumed history is sampled from, including that a ClusterQueue not admitting on usage keeps
+  sampling admitted usage.
 
 
 #### Integration tests
 
 They will mainly focus on larger scope scheduling (involving multiple cohorts/cqs) and
 interactions with preemptive fair sharing outside admission scope.
+
+With `AdmissionFairSharingAnchorAtQuotaReservation` enabled, that a Workload waiting on an AdmissionCheck
+settles its entry penalty and reaches `consumedResources` before it is admitted.
 
 ### Graduation Criteria
 
@@ -281,6 +359,18 @@ The graduation criterias are quite standard:
 
 We hope to have CQ+LQ in alpha for the next Kueue release (0.12).
 
+`AdmissionFairSharingAnchorAtQuotaReservation` graduates separately from those two subfeatures:
+
+* Alpha - the gate ships disabled by default in the 0.18 and 0.19 patch releases, so a cluster where
+  the `Admitted` anchor understates check-gated Workloads can opt in without waiting for 0.20.
+* Beta - the gate is enabled by default in 0.20. The behavior it replaces was never specified by this
+  KEP, so it graduates on the correctness of the transition table above rather than on Alpha
+  feedback, and on integration coverage for the `ConcurrentAdmissionPolicy` interaction described
+  above. The anchor still moves only for ClusterQueues that admit on usage; that scoping does not
+  change.
+* GA - the quota-reservation anchor is the only anchor for ClusterQueues that admit on usage, and
+  the gate is removed.
+
 ### DRA Resource Integration
 
 DRA (Dynamic Resource Allocation) logical resources participate in Admission Fair Sharing
@@ -289,7 +379,8 @@ same usage tracking pipeline as standard resources:
 
 1. DRA resources are preprocessed into logical resource counts via `DeviceClassMappings`
 2. These logical resources appear in `TotalRequests` for workloads
-3. Upon admission, they are tracked in `ConsumedResources` and contribute to fair sharing usage
+3. Once the Workload reaches the [accounting anchor](#accounting-anchor), they are tracked in
+   `ConsumedResources` and contribute to fair sharing usage
 
 The existing `AdmissionFairSharing.ResourceWeights` configuration handles DRA logical resources
 naturally. The logical resource name from `deviceClassMappings.name` can be used as a key in
@@ -304,3 +395,8 @@ for configuration examples.
 
 * Not having the feature.
 * Modifying/replacing the existing preemptive fair sharing algorithm.
+* Anchoring the accounting at the point the scheduler assumes a Workload into its cache rather
+  than at the `QuotaReserved` condition. It is earlier, and it is already where the entry penalty
+  is pushed, but it would collapse the push and the settlement into one operation: the penalty
+  would never be pending, and the rollback the scheduler performs when the admission patch fails
+  could no longer subtract it, the amount having already been folded into a decaying history.
