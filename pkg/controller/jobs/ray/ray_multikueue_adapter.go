@@ -184,6 +184,11 @@ func (a *adapter[PtrT, T]) SyncJob(
 		return false, err
 	}
 
+	localJobRaw, err := jobframework.GetUnstructured(ctx, localClient, key, a.gvk)
+	if err != nil {
+		return false, err
+	}
+
 	remoteJob := PtrT(new(T))
 	err = remoteClient.Get(ctx, key, remoteJob)
 	if client.IgnoreNotFound(err) != nil {
@@ -210,14 +215,16 @@ func (a *adapter[PtrT, T]) SyncJob(
 
 	remoteJob = PtrT(new(T))
 	a.copySpec(remoteJob, localJob)
-
 	// Add prebuilt workload name and multikueue origin
 	jobframework.SetMultiKueueMeta(remoteJob, workloadName, origin)
 
 	// clearing the managedBy enables the controller to take over
 	a.setManagedBy(remoteJob, nil)
 
-	return false, remoteClient.Create(ctx, remoteJob)
+	if err := jobframework.CreateWithPreservedSpec(ctx, remoteClient, localJobRaw, localJob, remoteJob); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 // needElasticSync reports whether the remote object must be updated to reflect

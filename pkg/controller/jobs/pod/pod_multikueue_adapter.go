@@ -196,6 +196,10 @@ func syncLocalPodWithRemote(
 	}
 
 	// If the remote pod does not exist, create it
+	localPodRaw, err := jobframework.GetUnstructured(ctx, localClient, key, gvk)
+	if err != nil {
+		return err
+	}
 	remotePod = corev1.Pod{
 		ObjectMeta: api.CloneObjectMetaForCreation(&localPod.ObjectMeta),
 		Spec:       *localPod.Spec.DeepCopy(),
@@ -204,7 +208,7 @@ func syncLocalPodWithRemote(
 	// Add prebuilt workload name and multikueue origin
 	jobframework.SetMultiKueueMeta(&remotePod, workloadName, origin)
 
-	if err = remoteClient.Create(ctx, &remotePod); err != nil {
+	if err = jobframework.CreateWithPreservedSpec(ctx, remoteClient, localPodRaw, localPod, &remotePod); err != nil {
 		log.Error(err, "Failed to create remote pod", "podName", remotePod.Name)
 		return err
 	}
