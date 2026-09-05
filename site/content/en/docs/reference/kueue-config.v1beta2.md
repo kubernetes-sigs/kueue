@@ -1164,6 +1164,18 @@ This field is only valid when DispatcherName is set to the incremental dispatche
 Note: This field is going to be ignored when the MultiKueueIncrementalDispatcherConfig feature gate is disabled.</p>
 </td>
 </tr>
+<tr><td><code>objectRetentionPolicies</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-MultiKueueObjectRetentionPolicies"><code>MultiKueueObjectRetentionPolicies</code></a>
+</td>
+<td>
+   <p>ObjectRetentionPolicies provides configuration options for the deletion of the
+objects MultiKueue creates in the worker clusters. A nil value keeps the default
+behavior of deleting them as soon as they are no longer needed.
+This is unrelated to the top level objectRetentionPolicies, which only applies to
+objects in the manager cluster.
+Note: This field is going to be ignored when the MultiKueueRemoteObjectRetention feature gate is disabled.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
@@ -1190,6 +1202,35 @@ Note: This field is going to be ignored when the MultiKueueIncrementalDispatcher
    <p>Name is the GVK of the resource that are
 managed by external controllers
 the expected format is <code>kind.version.group</code>.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `MultiKueueObjectRetentionPolicies`     {#config-kueue-x-k8s-io-v1beta2-MultiKueueObjectRetentionPolicies}
+    
+
+**Appears in:**
+
+- [MultiKueue](#config-kueue-x-k8s-io-v1beta2-MultiKueue)
+
+
+<p>MultiKueueObjectRetentionPolicies holds retention settings for the objects MultiKueue
+creates in the worker clusters.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>remoteObjects</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-RemoteObjectRetentionPolicy"><code>RemoteObjectRetentionPolicy</code></a>
+</td>
+<td>
+   <p>RemoteObjects configures retention for the remote Workload and the mirrored job
+object, such as a Job or JobSet, created for it in the worker cluster.
+A nil value deletes them as soon as they are no longer needed.</p>
 </td>
 </tr>
 </tbody>
@@ -1267,6 +1308,45 @@ during admission.</p>
 
 
 
+
+## `RemoteObjectRetentionPolicy`     {#config-kueue-x-k8s-io-v1beta2-RemoteObjectRetentionPolicy}
+    
+
+**Appears in:**
+
+- [MultiKueueObjectRetentionPolicies](#config-kueue-x-k8s-io-v1beta2-MultiKueueObjectRetentionPolicies)
+
+
+<p>RemoteObjectRetentionPolicy defines when the objects MultiKueue created in a worker
+cluster should be deleted.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>afterFinished</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>AfterFinished is the duration to keep the remote objects after the local Workload
+finished, so that their logs and status remain available for inspection.
+Retention applies only when the Finished reason is Succeeded or Failed, i.e. the
+job ran to completion. Remote objects of workloads that finished for any other
+reason (for example OutOfSync, OwnerNotFound, FailedToStart), or that are evicted,
+deactivated, lose their quota reservation, or whose local Workload is deleted, are
+still removed immediately.
+Deleting the local Workload also deletes the remote objects, which happens on its
+own schedule when objectRetentionPolicies.workloads is configured.
+A duration of 0 or a nil value deletes them immediately. This is the opposite of
+the top-level objectRetentionPolicies.workloads.afterFinished, where nil disables
+deletion.
+Represented using metav1.Duration (e.g. &quot;10m&quot;, &quot;1h30m&quot;).</p>
+</td>
+</tr>
+</tbody>
+</table>
 
 ## `RequeuingStrategy`     {#config-kueue-x-k8s-io-v1beta2-RequeuingStrategy}
     

@@ -629,6 +629,17 @@ const (
 	//
 	// Enables Dynamic Quota Orchestration and respecting Effective Quota in ClusterQueue/Cohort status.
 	DynamicQuotaOrchestration featuregate.Feature = "DynamicQuotaOrchestration"
+
+	// owner: @YQ-Wang
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13847
+	//
+	// Enables multiKueue.objectRetentionPolicies.remoteObjects, which keeps the remote
+	// Workload and mirrored job object in the worker cluster for a configured duration
+	// after the local Workload finished, so their status and logs remain available. When
+	// disabled, the configuration field is ignored and remote objects are deleted as soon
+	// as the local Workload finishes.
+	MultiKueueRemoteObjectRetention featuregate.Feature = "MultiKueueRemoteObjectRetention"
 )
 
 func init() {
@@ -975,6 +986,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	DynamicQuotaOrchestration: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	MultiKueueRemoteObjectRetention: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
