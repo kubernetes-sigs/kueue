@@ -2457,3 +2457,79 @@ func TestClusterQueuePendingTrackers(t *testing.T) {
 		})
 	}
 }
+
+// TestPopHead ensures the right workload is popped and its preemptor status is
+// correctly identified.
+func TestPopHead(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil, utiltestingapi.MakeClusterQueue("cq").Obj(), nil, defaultOrdering, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).Obj()
+	wl.Generation = 1
+	wInfo := workload.NewInfo(wl)
+	wInfo.LastEvaluatedGeneration = 1
+
+	cq.PushOrUpdate(wInfo)
+	cq.RequeueIfNotPresent(ctx, wInfo, RequeueReasonPendingPreemption, "")
+
+	head := cq.PopHead()
+	if head == nil || !head.IsPreemptor {
+		t.Errorf("Unexpected popped head: %v", head)
+	}
+}
+
+// TestPopHeadConcurrentWithRequeue ensures PopHead can safely run concurrently with preemption requeues.
+func TestPopHeadConcurrentWithRequeue(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq, err := newClusterQueue(ctx, nil, utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj(), nil, defaultOrdering, nil, nil)
+	if err != nil {
+		t.Fatalf("failed to create ClusterQueue: %v", err)
+	}
+
+	wInfo := workload.NewInfo(utiltestingapi.MakeWorkload("wl", defaultNamespace).Obj())
+
+	stop := make(chan struct{})
+	started := make(chan struct{})
+	done := make(chan struct{})
+
+	// Continuously requeue the workload with pending preemption in a background goroutine.
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				cq.RequeueIfNotPresent(ctx, wInfo, RequeueReasonPendingPreemption, "")
+				select {
+				case <-started:
+				default:
+					// Signal that the background goroutine has performed at least one requeue
+					close(started)
+				}
+			}
+		}
+	}()
+	// Wait until the background goroutine has performed its first requeue
+	<-started
+
+	// Concurrently pop heads and verify that any returned head correctly reflects
+	// the pending preemptor state
+	for range 1000 {
+		head := cq.PopHead()
+		if head != nil {
+			if !head.IsPreemptor {
+				t.Errorf("PopHead returned non-preemptor head for workload with pending preemption: %v", head)
+			}
+			if workload.Key(head.Obj) != workload.Key(wInfo.Obj) {
+				t.Errorf("PopHead returned unexpected workload: %v, want %v", head.Obj, wInfo.Obj)
+			}
+		}
+	}
+	// Signal the writer goroutine to stop and wait for it to exit
+	close(stop)
+	<-done
+}

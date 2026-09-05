@@ -2390,7 +2390,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			fakeClock.Step(tc.passTime)
 
 			gotReady := sets.New[workload.Reference]()
-			for _, head := range manager.secondPassQueue.takeAllReady() {
+			for head := range manager.secondPassQueue.takeAllReady() {
 				gotReady.Insert(workload.Key(head.Obj))
 			}
 
@@ -2398,6 +2398,64 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				t.Errorf("Unexpected ready workloads returned (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestSecondPassQueueIsPreemptor verifies that workloads queued in the second-pass queue retain their preemptor status.
+func TestSecondPassQueueIsPreemptor(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").QueueingStrategy(kueue.BestEffortFIFO).Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+
+	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj())
+
+	wl := baseWorkloadBuilder.Clone().
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						Obj(),
+				).
+				Obj(),
+			time.Now(),
+		).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		}).Obj()
+
+	fakeClock := testingclock.NewFakeClock(time.Now())
+	kClient := utiltesting.NewFakeClient(lq, cq, wl)
+	manager := NewManagerForUnitTests(kClient, nil, WithClock(fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding clusterQeueu: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding localQueue: %v", err)
+	}
+	wInfo := workload.NewInfo(wl)
+	manager.getClusterQueue(kueue.ClusterQueueReference("cq")).RequeueIfNotPresent(ctx, wInfo, RequeueReasonPendingPreemption, "")
+
+	_ = manager.Heads(ctx)
+	got := manager.QueueSecondPassIfNeeded(ctx, wl, 0)
+	if !got {
+		t.Errorf("Expected workload to be queued")
+	}
+	fakeClock.Step(time.Second)
+
+	heads := manager.Heads(ctx)
+	if len(heads) != 1 {
+		t.Errorf("Expected 1 head, got %d", len(heads))
+	}
+	if !heads[0].IsPreemptor {
+		t.Errorf("Expected second pass workload to be IsPreemptor = true, got false")
 	}
 }
 

@@ -17,6 +17,7 @@ limitations under the License.
 package queue
 
 import (
+	"iter"
 	"sync"
 	"time"
 
@@ -50,16 +51,19 @@ func newSecondPassQueue() *secondPassQueue {
 	}
 }
 
-func (q *secondPassQueue) takeAllReady() []Head {
+// takeAllReady removes and returns all workloads currently queued for the second pass.
+func (q *secondPassQueue) takeAllReady() iter.Seq[workload.Info] {
 	q.Lock()
 	defer q.Unlock()
-
-	var result []Head
-	for _, v := range q.queued {
-		result = append(result, Head{Info: *v})
-	}
+	queued := q.queued
 	q.queued = make(map[workload.Reference]*workload.Info)
-	return result
+	return func(yield func(workload.Info) bool) {
+		for _, v := range queued {
+			if !yield(*v) {
+				return
+			}
+		}
+	}
 }
 
 func (q *secondPassQueue) prequeueIfAbsent(obj *kueue.Workload) bool {
