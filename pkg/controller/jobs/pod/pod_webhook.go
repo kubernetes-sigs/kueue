@@ -50,6 +50,7 @@ var (
 	groupNameAnnotationPath        = annotationsPath.Key(podconstants.GroupNameAnnotation)
 	groupTotalCountAnnotationPath  = annotationsPath.Key(podconstants.GroupTotalCountAnnotation)
 	retriableInGroupAnnotationPath = annotationsPath.Key(podconstants.RetriableInGroupAnnotationKey)
+	podSchedulingShapeHashPath     = annotationsPath.Key(podconstants.PodSchedulingShapeHashAnnotation)
 )
 
 type PodWebhook struct {
@@ -243,9 +244,22 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *corev1.
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Validating update")
 
+	oldShapeHash := oldPod.pod.Annotations[podconstants.PodSchedulingShapeHashAnnotation]
+	newShapeHash := newPod.pod.Annotations[podconstants.PodSchedulingShapeHashAnnotation]
+
 	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod, w.queues.DefaultLocalQueueExist)
 	allErrs = append(allErrs, validateCommon(newPod)...)
 	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
+
+	if oldShapeHash != "" {
+		allErrs = append(allErrs,
+			validation.ValidateImmutableField(
+				newShapeHash,
+				oldShapeHash,
+				podSchedulingShapeHashPath,
+			)...,
+		)
+	}
 
 	if oldGroupName := utilpod.GetPodGroupName(&oldPod.pod); oldGroupName != "" {
 		newGroupName := utilpod.GetPodGroupName(&newPod.pod)

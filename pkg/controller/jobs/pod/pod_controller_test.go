@@ -285,15 +285,37 @@ func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testi
 		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
 	}
 }
-func TestConstructGroupPodSetsSameRoleUsesDeterministicPodNameTieBreaker(t *testing.T) {
+func TestConstructGroupPodSetsSameShapeUsesRoleHashTieBreaker(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 		features.PodGroupSchedulingShapeOrdering: true,
 	})
-	workerA := corev1.Pod{
+
+	leader := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "worker-a",
+			Name: "leader",
 			Annotations: map[string]string{
-				podconstants.RoleHashAnnotation: "worker",
+				podconstants.RoleHashAnnotation:               "aaaa",
+				podconstants.PodSchedulingShapeHashAnnotation: "same-shape",
+			},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "leader",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	worker := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "worker",
+			Annotations: map[string]string{
+				podconstants.RoleHashAnnotation:               "zzzz",
+				podconstants.PodSchedulingShapeHashAnnotation: "same-shape",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -308,26 +330,60 @@ func TestConstructGroupPodSetsSameRoleUsesDeterministicPodNameTieBreaker(t *test
 		},
 	}
 
-	workerB := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "worker-b",
-			Annotations: map[string]string{
-				podconstants.RoleHashAnnotation: "worker",
-			},
-		},
-		Spec: *workerA.Spec.DeepCopy(),
+	got, err := constructGroupPodSets([]corev1.Pod{worker, leader})
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
 	}
 
-	leader := corev1.Pod{
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
+	}
+
+	gotOrder := []string{
+		string(got[0].Name),
+		string(got[1].Name),
+	}
+
+	wantOrder := []string{
+		string(kueue.NewPodSetReference("aaaa")),
+		string(kueue.NewPodSetReference("zzzz")),
+	}
+
+	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
+		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
+	}
+}
+
+func TestConstructGroupPodSetsMissingShapeHashUsesRoleHashFallback(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
+
+	first := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "leader",
-			Annotations: map[string]string{
-				podconstants.RoleHashAnnotation: "leader",
-			},
+			Name:        "first",
+			Annotations: map[string]string{},
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{
-				Name: "leader",
+				Name: "first",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("1"),
+					},
+				},
+			}},
+		},
+	}
+
+	second := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "second",
+			Annotations: map[string]string{},
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name: "second",
 				Resources: corev1.ResourceRequirements{
 					Requests: corev1.ResourceList{
 						corev1.ResourceCPU: resource.MustParse("2"),
@@ -337,43 +393,52 @@ func TestConstructGroupPodSetsSameRoleUsesDeterministicPodNameTieBreaker(t *test
 		},
 	}
 
-	got1, err := constructGroupPodSets([]corev1.Pod{workerB, leader, workerA})
+	firstShapeHash, err := utilpod.GenerateRoleHash(&first.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate first shape hash: %v", err)
+	}
+
+	secondShapeHash, err := utilpod.GenerateRoleHash(&second.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate second shape hash: %v", err)
+	}
+
+	// Deliberately make role-hash ordering opposite to live-spec shape
+	// ordering. With the shape annotation missing, constructGroupPodSets
+	// must use the role hash as the fallback rather than recomputing the
+	// shape hash from the current PodSpec.
+	if firstShapeHash < secondShapeHash {
+		first.Annotations[podconstants.RoleHashAnnotation] = "zzzz"
+		second.Annotations[podconstants.RoleHashAnnotation] = "aaaa"
+	} else {
+		first.Annotations[podconstants.RoleHashAnnotation] = "aaaa"
+		second.Annotations[podconstants.RoleHashAnnotation] = "zzzz"
+	}
+
+	got, err := constructGroupPodSets([]corev1.Pod{first, second})
 	if err != nil {
 		t.Fatalf("constructGroupPodSets() error = %v", err)
 	}
 
-	got2, err := constructGroupPodSets([]corev1.Pod{workerA, leader, workerB})
-	if err != nil {
-		t.Fatalf("constructGroupPodSets() with reordered input error = %v", err)
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
 	}
 
-	if len(got1) != 2 || len(got2) != 2 {
-		t.Fatalf("expected 2 PodSets, got %d and %d", len(got1), len(got2))
+	gotOrder := []string{
+		string(got[0].Name),
+		string(got[1].Name),
 	}
 
-	firstOrder := []string{
-		string(got1[0].Name),
-		string(got1[1].Name),
+	wantOrder := []string{
+		string(kueue.NewPodSetReference("aaaa")),
+		string(kueue.NewPodSetReference("zzzz")),
 	}
 
-	secondOrder := []string{
-		string(got2[0].Name),
-		string(got2[1].Name),
-	}
-
-	if diff := cmp.Diff(firstOrder, secondOrder); diff != "" {
-		t.Errorf("PodSet order depends on input pod order (-first, +second):\n%s", diff)
-	}
-
-	if got1[0].Name != kueue.NewPodSetReference("leader") ||
-		got1[1].Name != kueue.NewPodSetReference("worker") {
-		t.Errorf("unexpected PodSet order: %v, %v", got1[0].Name, got1[1].Name)
-	}
-
-	if got1[1].Count != 2 {
-		t.Errorf("worker PodSet count = %d, want 2", got1[1].Count)
+	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
+		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
 	}
 }
+
 func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 		features.PodGroupSchedulingShapeOrdering: true,
@@ -418,6 +483,8 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to calculate worker shape hash: %v", err)
 	}
+	leader.Annotations[podconstants.PodSchedulingShapeHashAnnotation] = leaderShapeHash
+	worker.Annotations[podconstants.PodSchedulingShapeHashAnnotation] = workerShapeHash
 
 	// Make the client-supplied role-hash ordering intentionally opposite
 	// to the shape-derived ordering.

@@ -1377,6 +1377,28 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
+		"pod scheduling shape hash annotation is changed": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "aaaa").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "bbbb").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/pod-scheduling-shape-hash]",
+				},
+			}.ToAggregate(),
+		},
+		"pod scheduling shape hash annotation is unchanged": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "aaaa").
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				Annotation(podconstants.PodSchedulingShapeHashAnnotation, "aaaa").
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {

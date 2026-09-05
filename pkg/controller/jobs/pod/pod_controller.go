@@ -807,7 +807,6 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 type podSetWithShapeHash struct {
 	podSet    kueue.PodSet
 	shapeHash string
-	podName   string
 }
 
 func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
@@ -829,10 +828,6 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 				podRoleFound = true
 				resultPodSets[psi].podSet.Count++
 
-				if podInGroup.Name < resultPodSets[psi].podName {
-					resultPodSets[psi].podName = podInGroup.Name
-				}
-
 				break
 			}
 		}
@@ -845,11 +840,7 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 
 			shapeHash := podInGroup.Annotations[podconstants.PodSchedulingShapeHashAnnotation]
 			if shapeHash == "" {
-				var err error
-				shapeHash, err = utilpod.GenerateRoleHash(&podInGroup.Spec)
-				if err != nil {
-					return nil, fmt.Errorf("failed to calculate pod shape hash: %w", err)
-				}
+				shapeHash = roleHash
 			}
 
 			podSet.Name = kueue.NewPodSetReference(roleHash)
@@ -857,7 +848,6 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 			resultPodSets = append(resultPodSets, podSetWithShapeHash{
 				podSet:    podSet,
 				shapeHash: shapeHash,
-				podName:   podInGroup.Name,
 			})
 		}
 	}
@@ -867,7 +857,7 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 			if byShape := cmp.Compare(a.shapeHash, b.shapeHash); byShape != 0 {
 				return byShape
 			}
-			return cmp.Compare(a.podName, b.podName)
+			return cmp.Compare(string(a.podSet.Name), string(b.podSet.Name))
 		})
 	} else {
 		slices.SortFunc(resultPodSets, func(a, b podSetWithShapeHash) int {
