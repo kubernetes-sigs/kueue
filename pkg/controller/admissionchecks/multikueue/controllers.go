@@ -45,6 +45,7 @@ type SetupOptions struct {
 	dispatcherName       string
 	clusterProfileConfig *configapi.ClusterProfile
 	roleTracker          *roletracker.RoleTracker
+	clientConnection     *configapi.ClientConnection
 }
 
 type SetupOption func(o *SetupOptions)
@@ -108,6 +109,13 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) SetupOption {
 	}
 }
 
+// WithClientConnection sets the client connection configuration.
+func WithClientConnection(clientConn *configapi.ClientConnection) SetupOption {
+	return func(o *SetupOptions) {
+		o.clientConnection = clientConn
+	}
+}
+
 func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) error {
 	options := &SetupOptions{
 		gcInterval:        defaultGCInterval,
@@ -116,6 +124,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		eventsBatchPeriod: constants.UpdatesBatchPeriod,
 		adapters:          make(map[string]jobframework.MultiKueueAdapter),
 		dispatcherName:    configapi.MultiKueueDispatcherModeAllAtOnce,
+		clientConnection:  &configapi.ClientConnection{},
 	}
 
 	for _, o := range opts {
@@ -155,7 +164,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 	cRec := newClustersReconciler(
 		mgr.GetClient(), namespace, options.gcInterval, options.origin, fsWatcher,
 		options.adapters, cpAccessProvider, options.roleTracker,
-		mgr.GetEventRecorder("multikueue-cluster"),
+		mgr.GetEventRecorder("multikueue-cluster"), options.clientConnection,
 	)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {

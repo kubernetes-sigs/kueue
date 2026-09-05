@@ -448,10 +448,11 @@ objectRetentionPolicies:
 	}
 
 	defaultMultiKueue := &configapi.MultiKueue{
-		GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-		Origin:            new(configapi.DefaultMultiKueueOrigin),
-		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-		DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
+		GCInterval:             &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
+		Origin:                 new(configapi.DefaultMultiKueueOrigin),
+		WorkerLostTimeout:      &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
+		DispatcherName:         new(configapi.MultiKueueDispatcherModeAllAtOnce),
+		WorkerClientConnection: defaultClientConnection,
 	}
 
 	defaultVisibility := &configapi.VisibilityServerConfiguration{
@@ -802,10 +803,11 @@ objectRetentionPolicies:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
-					Origin:            new("multikueue-manager1"),
-					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
-					DispatcherName:    new(configapi.MultiKueueDispatcherModeIncremental),
+					GCInterval:             &metav1.Duration{Duration: 90 * time.Second},
+					Origin:                 new("multikueue-manager1"),
+					WorkerLostTimeout:      &metav1.Duration{Duration: 10 * time.Minute},
+					DispatcherName:         new(configapi.MultiKueueDispatcherModeIncremental),
+					WorkerClientConnection: defaultClientConnection,
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -847,10 +849,11 @@ objectRetentionPolicies:
 				ClientConnection:           defaultClientConnection,
 				Integrations:               defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
-					Origin:            new("multikueue-manager1"),
-					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
-					DispatcherName:    new(configapi.MultiKueueDispatcherModeIncremental),
+					GCInterval:             &metav1.Duration{Duration: 90 * time.Second},
+					Origin:                 new("multikueue-manager1"),
+					WorkerLostTimeout:      &metav1.Duration{Duration: 10 * time.Minute},
+					DispatcherName:         new(configapi.MultiKueueDispatcherModeIncremental),
+					WorkerClientConnection: defaultClientConnection,
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -1067,6 +1070,10 @@ webhook:
 					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
 					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
+					WorkerClientConnection: &configapi.ClientConnection{
+						QPS:   new(configapi.DefaultClientConnectionQPS),
+						Burst: new(configapi.DefaultClientConnectionBurst),
+					},
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1117,7 +1124,11 @@ webhook:
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
 					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
+					WorkerClientConnection: &configapi.ClientConnection{
+						QPS:   new(configapi.DefaultClientConnectionQPS),
+						Burst: new(configapi.DefaultClientConnectionBurst),
+					},
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1271,6 +1282,10 @@ func TestEncode(t *testing.T) {
 					"origin":            "multikueue",
 					"workerLostTimeout": "15m0s",
 					"dispatcherName":    configapi.MultiKueueDispatcherModeAllAtOnce,
+					"workerClientConnection": map[string]any{
+						"qps":   int64(300),
+						"burst": int64(500),
+					},
 				},
 				"visibilityServer": map[string]any{
 					"bindPort": int64(8082),

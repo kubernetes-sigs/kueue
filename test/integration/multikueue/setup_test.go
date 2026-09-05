@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1251,6 +1252,46 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
+	})
+})
+
+var _ = ginkgo.Describe("MultiKueue ClientConnection setup", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	ginkgo.AfterEach(func() {
+		managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
+	})
+
+	ginkgo.It("Should connect to worker cluster when ClientConnection is configured", func() {
+		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+			managerSetup(ctx, mgr)
+			adapters, _ := jobcontrollers.NewIntegrationManager().GetMultiKueueAdapters(defaultEnabledIntegrations)
+			_ = multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
+			gomega.Expect(multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
+				multikueue.WithAdapters(adapters),
+				multikueue.WithClientConnection(&config.ClientConnection{
+					QPS:   ptr.To[float32](100),
+					Burst: ptr.To[int32](200),
+				}),
+			)).To(gomega.Succeed())
+		})
+
+		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		secret := utiltesting.MakeSecret("worker1-custom-secret", managersConfigNamespace.Name).
+			Data(kueue.MultiKueueConfigSecretKey, w1Kubeconfig).Obj()
+		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, secret)).To(gomega.Succeed())
+		ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, secret) })
+
+		cluster := utiltestingapi.MakeMultiKueueCluster("worker1-custom").
+			KubeConfig(kueue.SecretLocationType, secret.Name).Obj()
+		gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).To(gomega.Succeed())
+		ginkgo.DeferCleanup(func() error { return managerTestCluster.client.Delete(managerTestCluster.ctx, cluster) })
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			updatedCluster := kueue.MultiKueueCluster{}
+			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(cluster), &updatedCluster)).To(gomega.Succeed())
+			g.Expect(apimeta.IsStatusConditionTrue(updatedCluster.Status.Conditions, kueue.MultiKueueClusterActive)).To(gomega.BeTrue())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
 

@@ -138,6 +138,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.MultiKueue.Origin = new(cmp.Or(ptr.Deref(cfg.MultiKueue.Origin, ""), DefaultMultiKueueOrigin))
 	cfg.MultiKueue.WorkerLostTimeout = cmp.Or(cfg.MultiKueue.WorkerLostTimeout, &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout})
 	cfg.MultiKueue.DispatcherName = cmp.Or(cfg.MultiKueue.DispatcherName, new(MultiKueueDispatcherModeAllAtOnce))
+	cfg.MultiKueue.WorkerClientConnection = cmp.Or(cfg.MultiKueue.WorkerClientConnection, &ClientConnection{})
+	cfg.MultiKueue.WorkerClientConnection.QPS = cmp.Or(cfg.MultiKueue.WorkerClientConnection.QPS, new(DefaultClientConnectionQPS))
+	cfg.MultiKueue.WorkerClientConnection.Burst = cmp.Or(cfg.MultiKueue.WorkerClientConnection.Burst, new(DefaultClientConnectionBurst))
 
 	if ptr.Deref(cfg.MultiKueue.DispatcherName, "") == MultiKueueDispatcherModeIncremental {
 		cfg.MultiKueue.IncrementalDispatcherConfig = cmp.Or(cfg.MultiKueue.IncrementalDispatcherConfig, &IncrementalDispatcherConfig{})
