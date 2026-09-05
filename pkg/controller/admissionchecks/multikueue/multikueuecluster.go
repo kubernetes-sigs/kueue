@@ -65,6 +65,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -121,6 +122,7 @@ func (c *clientConfig) toRESTConfig() (*rest.Config, error) {
 type remoteClient struct {
 	clusterName  string
 	localClient  client.Client
+	localReader  client.Reader
 	client       SelectivelyCachingClient
 	wlUpdateCh   chan<- event.GenericEvent
 	watchEndedCh chan<- event.GenericEvent
@@ -151,6 +153,14 @@ type remoteClient struct {
 	builderOverride clientWithWatchBuilder
 
 	mu sync.RWMutex
+
+	workloadLocksMu sync.Mutex
+	workloadLocks   map[types.NamespacedName]*workloadLifecycleLock
+}
+
+type workloadLifecycleLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 // connectionState holds a remote client's connection status. Its own mutex guards the fields
@@ -201,20 +211,23 @@ func (c *connectionState) markDisconnected(now time.Time) (wasConnected bool) {
 
 func newRemoteClient(
 	localClient client.Client,
+	localReader client.Reader,
 	wlUpdateCh, watchEndedCh chan<- event.GenericEvent,
 	cqUpdateCh chan<- event.TypedGenericEvent[kueue.ClusterQueueReference],
 	origin, clusterName string,
 	adapters map[string]jobframework.MultiKueueAdapter,
 ) *remoteClient {
 	rc := &remoteClient{
-		clusterName:  clusterName,
-		wlUpdateCh:   wlUpdateCh,
-		watchEndedCh: watchEndedCh,
-		cqUpdateCh:   cqUpdateCh,
-		localClient:  localClient,
-		origin:       origin,
-		adapters:     adapters,
-		clock:        clock.RealClock{},
+		clusterName:   clusterName,
+		wlUpdateCh:    wlUpdateCh,
+		watchEndedCh:  watchEndedCh,
+		cqUpdateCh:    cqUpdateCh,
+		localClient:   localClient,
+		localReader:   localReader,
+		origin:        origin,
+		adapters:      adapters,
+		clock:         clock.RealClock{},
+		workloadLocks: make(map[types.NamespacedName]*workloadLifecycleLock),
 	}
 	// Start in the disconnected state, tracking the loss from creation. If the worker is
 	// unreachable when the client is created (e.g. the admitting worker is down right after a
@@ -223,6 +236,31 @@ func newRemoteClient(
 	// the grace never starting and the workload requeuing forever.
 	rc.connState.markDisconnected(rc.clock.Now())
 	return rc
+}
+
+func (rc *remoteClient) lockWorkload(key types.NamespacedName) func() {
+	rc.workloadLocksMu.Lock()
+	if rc.workloadLocks == nil {
+		rc.workloadLocks = make(map[types.NamespacedName]*workloadLifecycleLock)
+	}
+	entry := rc.workloadLocks[key]
+	if entry == nil {
+		entry = &workloadLifecycleLock{}
+		rc.workloadLocks[key] = entry
+	}
+	entry.refs++
+	rc.workloadLocksMu.Unlock()
+
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		rc.workloadLocksMu.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(rc.workloadLocks, key)
+		}
+		rc.workloadLocksMu.Unlock()
+	}
 }
 
 func newClientWithWatch(ctx context.Context, config *clientConfig, options client.Options) (SelectivelyCachingClient, error) {
@@ -672,9 +710,10 @@ func (rc *remoteClient) queueWatchEndedEvent(ctx context.Context) {
 	}
 }
 
-// runGC - lists all the remote workloads having the same multikueue-origin and remove those who
-// no longer have a local correspondent (missing or awaiting deletion). If the remote workload
-// is owned by a job, also delete the job.
+// runGC lists remote Workloads having the same MultiKueue origin and removes
+// those whose authenticated manager Workload is awaiting deletion. A missing
+// local Workload is not sufficient proof of ownership: another manager can use
+// the same public origin value, so uncorrelated remote objects are preserved.
 func (rc *remoteClient) runGC(ctx context.Context) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -696,40 +735,121 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 		return
 	}
 
-	for _, remoteWl := range wls.Items {
-		localWl := &kueue.Workload{}
-		wlLog := log.WithValues("remoteWl", klog.KObj(&remoteWl))
-		err := rc.localClient.Get(ctx, client.ObjectKeyFromObject(&remoteWl), localWl)
-		if client.IgnoreNotFound(err) != nil {
-			wlLog.Error(err, "Reading local workload")
-			continue
+	for i := range wls.Items {
+		rc.gcRemoteWorkload(ctx, remoteCl, &wls.Items[i])
+	}
+}
+
+func (rc *remoteClient) gcRemoteWorkload(ctx context.Context, remoteCl client.Client, listedRemote *kueue.Workload) {
+	wlLog := ctrl.LoggerFrom(ctx).WithValues("remoteWl", klog.KObj(listedRemote))
+	key := client.ObjectKeyFromObject(listedRemote)
+	unlock := rc.lockWorkload(key)
+	defer unlock()
+
+	remoteWl, err := currentRemoteWorkload(ctx, remoteCl, listedRemote)
+	if apierrors.IsNotFound(err) {
+		return
+	}
+	if err != nil {
+		wlLog.Error(err, "Reading current remote Workload")
+		return
+	}
+
+	localWl := &kueue.Workload{}
+	err = rc.localReader.Get(ctx, key, localWl)
+	if client.IgnoreNotFound(err) != nil {
+		wlLog.Error(err, "Reading local workload")
+		return
+	}
+	if apierrors.IsNotFound(err) {
+		wlLog.V(3).Info("Preserving remote Workload because no manager Workload is available to authenticate it")
+		return
+	}
+	if localWl.DeletionTimestamp.IsZero() {
+		return
+	}
+	if err := validateRemoteWorkloadOwnership(localWl, remoteWl, rc.origin); err != nil {
+		wlLog.Error(err, "Preserving remote Workload because its manager identity does not match")
+		return
+	}
+
+	// If the authenticated remote Workload has a controller (owning Job),
+	// delete the controller only when it has the exact Workload association.
+	if controller := metav1.GetControllerOf(remoteWl); controller != nil {
+		if controller.UID == "" {
+			wlLog.V(2).Info("Preserving remote Workload because its controller reference has no UID")
+			return
+		}
+		ownerKey := klog.KRef(remoteWl.Namespace, controller.Name)
+		adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
+		adapter, found := rc.adapters[adapterKey]
+		if !found {
+			wlLog.V(2).Info("Preserving remote Workload because no adapter can clean up its owner", "adapterKey", adapterKey, "ownerKey", ownerKey)
+			return
 		}
 
-		if err == nil && localWl.DeletionTimestamp.IsZero() {
-			// The local workload exists and isn't being deleted, so the remote workload is still relevant.
-			continue
+		wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownerKind", controller)
+		wlKey := types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace}
+		managerObjectUIDs, err := jobframework.MultiKueueManagerObjectUIDsForWorkload(localWl, adapter.GVK())
+		if err != nil {
+			wlLog.Error(err, "Preserving remote Workload because its manager controller identity is unavailable")
+			return
 		}
-
-		// if the remote wl has a controller(owning Job), delete the job
-		if controller := metav1.GetControllerOf(&remoteWl); controller != nil {
-			ownerKey := klog.KRef(remoteWl.Namespace, controller.Name)
-			adapterKey := schema.FromAPIVersionAndKind(controller.APIVersion, controller.Kind).String()
-			if adapter, found := rc.adapters[adapterKey]; !found {
-				wlLog.V(2).Info("No adapter found", "adapterKey", adapterKey, "ownerKey", ownerKey)
-			} else {
-				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownerKind", controller)
-				wlKey := types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace}
-				err := jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, remoteCl, adapter, wlKey, rc.origin)
-				if client.IgnoreNotFound(err) != nil {
-					wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
-				}
+		managerObjectUID := managerObjectUIDs[controller.Name]
+		fallbackUID, fallbackErr := managerControllerUIDForWorkload(localWl)
+		if managerObjectUID == "" {
+			if fallbackErr != nil {
+				wlLog.Error(fallbackErr, "Preserving remote Workload because its manager controller identity is unavailable")
+				return
 			}
+			managerObjectUID = fallbackUID
+		} else if fallbackErr == nil && fallbackUID != managerObjectUID {
+			wlLog.Error(
+				fmt.Errorf("manager Workload has conflicting controller UIDs %q and %q", managerObjectUID, fallbackUID),
+				"Preserving remote Workload because its manager controller identity is ambiguous",
+			)
+			return
 		}
-		wlLog.V(5).Info("MultiKueueGC deleting remote workload")
-		if err := remoteCl.Delete(ctx, &remoteWl); client.IgnoreNotFound(err) != nil {
-			wlLog.Error(err, "Deleting remote workload")
+		managerObjectUIDs[controller.Name] = managerObjectUID
+		err = jobframework.DeleteRemoteObjectWithCleanupContextIfOwned(ctx, rc.localClient, remoteCl, adapter, wlKey, jobframework.MultiKueueRemoteObjectCleanupContext{
+			RemoteObjectUID: controller.UID,
+			Association: jobframework.MultiKueueObjectAssociation{
+				Origin:           rc.origin,
+				WorkloadName:     remoteWl.Name,
+				ManagerObjectUID: managerObjectUID,
+			},
+			WorkloadKey:         key,
+			WorkloadAnnotations: maps.Clone(remoteWl.Annotations),
+			ManagerObjectUIDs:   managerObjectUIDs,
+		})
+		if client.IgnoreNotFound(err) != nil {
+			wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
+			return
 		}
 	}
+
+	wlLog.V(5).Info("MultiKueueGC deleting remote workload")
+	if err := deleteRemoteWorkload(ctx, remoteCl, remoteWl); err != nil {
+		wlLog.Error(err, "Deleting remote workload")
+	}
+}
+
+func managerControllerUIDForWorkload(workload *kueue.Workload) (types.UID, error) {
+	labelUID := types.UID(workload.Labels[controllerconstants.JobUIDLabel])
+	ownerUID := types.UID("")
+	if owner := metav1.GetControllerOf(workload); owner != nil {
+		ownerUID = owner.UID
+	}
+	if labelUID != "" && ownerUID != "" && labelUID != ownerUID {
+		return "", fmt.Errorf("manager Workload %q has conflicting controller UIDs %q and %q", klog.KObj(workload), labelUID, ownerUID)
+	}
+	if labelUID != "" {
+		return labelUID, nil
+	}
+	if ownerUID != "" {
+		return ownerUID, nil
+	}
+	return "", fmt.Errorf("manager Workload %q has no controller UID", klog.KObj(workload))
 }
 
 // clustersReconciler implements the reconciler for all MultiKueueClusters.
@@ -741,6 +861,7 @@ const defaultKubeConfigPathPrefix = "/etc/multikueue/kubeconfigs"
 
 type clustersReconciler struct {
 	localClient          client.Client
+	localReader          client.Reader
 	configNamespace      string
 	kubeConfigPathPrefix string
 	recorder             events.EventRecorder
@@ -832,7 +953,7 @@ func (c *clustersReconciler) findOrCreateRemoteClient(clusterName, origin string
 
 	client, found := c.remoteClients[clusterName]
 	if !found {
-		client = newRemoteClient(c.localClient, c.wlUpdateCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, c.adapters)
+		client = newRemoteClient(c.localClient, c.localReader, c.wlUpdateCh, c.watchEndedCh, c.cqUpdateCh, origin, clusterName, c.adapters)
 		if c.builderOverride != nil {
 			client.builderOverride = c.builderOverride
 		}
@@ -1211,6 +1332,7 @@ func (c *clustersReconciler) getRemoteClients() []*remoteClient {
 
 func newClustersReconciler(
 	c client.Client,
+	localReader client.Reader,
 	namespace string,
 	gcInterval time.Duration,
 	origin string,
@@ -1222,6 +1344,7 @@ func newClustersReconciler(
 ) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:                  c,
+		localReader:                  localReader,
 		configNamespace:              namespace,
 		kubeConfigPathPrefix:         defaultKubeConfigPathPrefix,
 		recorder:                     recorder,

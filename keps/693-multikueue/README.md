@@ -152,6 +152,51 @@ deployments with very high job throughput (above 1M jobs per day).
     learning the state of the world from the worker clusters (not covered
     by this KEP).
 
+* **Remote object name collisions**: Workloads and Jobs use the same Namespace
+  and name in the manager and worker clusters. MultiKueue therefore validates
+  the origin, prebuilt Workload association where the execution object belongs
+  to one Workload, and exact manager-object UID before
+  consuming status or mutating or deleting an existing worker object. Every
+  adapter-declared primary execution object carries its corresponding manager
+  execution-object UID, and every remote Workload carries the manager Workload UID, in the
+  `kueue.x-k8s.io/multikueue-origin-uid` annotation. Deletes use worker-object
+  UID preconditions so a replacement cannot be deleted after validation.
+  The admitted manager Workload is the identity authority: its owner references
+  retain the original execution-object UIDs, and the guarded client cross-checks
+  any live same-name manager object directly from the API server against that
+  controller-recorded mapping before remote creation or status use. A same-name
+  manager replacement cannot consume the original Workload's admission.
+  Uncorrelated objects are preserved for administrator review instead of being
+  garbage-collected.
+
+  Shared objects for multi-Workload integrations, such as LeaderWorkerSet, are
+  intentionally not bound to one Workload name. They are instead bound to the
+  MultiKueue origin and exact manager object UID, and each remote Workload is
+  independently bound to its same-name manager Workload UID.
+
+  These metadata checks prevent accidental collisions and confused-deputy
+  deletion, but they are not cryptographic proof of provenance. A principal
+  that can read and mutate worker objects, including by patching or replacing
+  them, can copy the labels and annotations.
+  Worker-cluster object mutation therefore remains inside the MultiKueue trust
+  boundary until authenticated remote-object provenance is implemented.
+  Manager principals that can patch or replace the UID-bearing owner references
+  on Kueue Workloads are also inside this trust boundary. The standard batch-user
+  role does not grant that mutation, but the Workload editor role does.
+
+  A running leader serializes reconcile and garbage-collection work for each
+  remote Workload and performs uncached manager-Workload checks before and after
+  remote creation. This does not make writes to two API servers transactional:
+  a leader crash or handoff after the worker commits a write, or an ambiguous
+  worker API error, can still leave an orphan. Without an authenticated manager
+  Workload, later garbage collection preserves that object for manual review.
+
+  Objects created by older managers do not consistently have these UID
+  bindings. Live migration is not supported because adapters can create more
+  than one execution object and custom adapters define their own mappings.
+  Upgrades must drain active MultiKueue dispatches before any upgraded manager
+  becomes leader; old and new leaders must not overlap during that rollout.
+
 * **Arbitrary file read via `locationType=Path`**: When `KubeConfig.LocationType`
   is set to `Path`, the controller reads the file at the user-supplied location
   using `os.ReadFile`. Without path restrictions, any principal with
@@ -336,12 +381,24 @@ Will monitor the workloads in the management cluster and manage their MultiKueue
 AdmissionCheckStates.
 
 When distributing a workload across clusters, the MultiKueue Workload Controller will first create
-a Kueue-internal workload object in each of the currently "nominated" worker clusters
+a Kueue-internal workload object in each of the currently "nominated" worker clusters. The remote
+Workload records the manager Workload UID in `kueue.x-k8s.io/multikueue-origin-uid`
 (see [MultiKueue Dispatcher API](#multikueue-dispatcher-api) for details).
 Only after the workload is admitted on one cluster and cleaned
 up on the other clusters, the real job will be created, to match the workload. That gives the guarantee
 that the workload will not start in more than one cluster. The workload will
 get the annotation stating where it is actually running.
+
+Each execution object created after admission records the UID of its exact
+manager-side counterpart in the same annotation. The guarded remote client is
+limited to the adapter's declared GVK; secondary-GVK reads and writes are
+rejected because they cannot be associated automatically. Multi-object adapters
+that use the declared GVK bind every object they create; for example, every
+PodGroup member records its same-name manager Pod UID and its cleanup extension
+receives the controller-recorded UID map retained by the manager Workload.
+The manager Workload's owner-reference UID mapping, not a live same-name object,
+is authoritative; the live object must still exist with the recorded UID before
+the guarded client creates or consumes its worker counterpart.
 
 When the job is running, MultiKueue Workload Controller will copy its status from worker cluster
 to the management cluster, to keep the impression that the job is running in the management 
@@ -359,7 +416,10 @@ In case of duplicates, all but one of them will be removed.
 
 Will monitor the workloads in the remote clusters to detect and remove
 those that were created by MultiKueue but were not deleted by the MultiKueue Workload Controller
-in the normal flow, due to a temporary connectivity outage to the remote cluster.
+in the normal flow, due to a temporary connectivity outage to the remote cluster. A remote
+Workload is removed only when a same-name manager Workload is awaiting deletion and its UID
+matches the remote Workload's origin UID annotation. Missing or mismatched manager identity is
+not sufficient evidence for deletion, so the garbage collector preserves the remote Workload.
 
 The garbage collector will run periodically with a configurable time interval.
 
@@ -372,10 +432,20 @@ interfaces:
 
 ```go
 type MultiKueueAdapter interface {
-	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) error
-	DeleteRemoteObject(ctx context.Context, remoteClient client.Client, key types.NamespacedName) error
+	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (deferred bool, err error)
+	DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error
 	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
-    ...
+	GVK() schema.GroupVersionKind
+}
+
+type MultiKueueAdapterWithRemoteObjectCleanup interface {
+	MultiKueueAdapter
+	DeleteRemoteObjectWithCleanupContext(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, cleanupContext MultiKueueRemoteObjectCleanupContext) error
+}
+
+type MultiKueueAdapterWithWorkloadReassignment interface {
+	MultiKueueAdapter
+	CanReassignWorkload(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, error)
 }
 ```
 Used by the [MultiKueue Workload Controller](#multikueue-workload-controller) to interact with the owner of the reconciled workloads.
@@ -385,6 +455,15 @@ Used by the [MultiKueue Workload Controller](#multikueue-workload-controller) to
 - If the remote job exists, get its status and update the status of the local job accordingly.
 
 `DeleteRemoteObject` - will delete the job from a remote cluster.
+
+The remote client passed to these methods authorizes only objects of `GVK()`.
+It validates origin, Workload association, exact manager-object UID, worker UID,
+and resource version as applicable. Cross-GVK access, subresource reads, apply,
+and writes that cannot carry a checked identity are rejected. Same-GVK
+multi-object adapters use `MultiKueueAdapterWithRemoteObjectCleanup` to receive
+the exact cleanup identities persisted in the manager Workload. Elastic
+adapters use `MultiKueueAdapterWithWorkloadReassignment` to authorize a stable,
+UID-bound object moving between Workload slices.
 
 `IsJobManagedByKueue` - will check if a specific job is managed by kueue making it a candidate for remote execution.
 

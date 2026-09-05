@@ -17,21 +17,226 @@ limitations under the License.
 package externalframeworks
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 )
+
+func metadataCompatibleUnstructuredClient(obj *unstructured.Unstructured) client.Client {
+	scheme := runtime.NewScheme()
+	scheme.AddKnownTypeWithName(obj.GroupVersionKind(), &unstructured.Unstructured{})
+	scheme.AddKnownTypeWithName(obj.GroupVersionKind().GroupVersion().WithKind(obj.GetKind()+"List"), &unstructured.UnstructuredList{})
+	base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(obj).WithStatusSubresource(obj).Build()
+	return interceptor.NewClient(base, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, target client.Object, opts ...client.GetOption) error {
+			if metadata, ok := target.(*metav1.PartialObjectMetadata); ok && metadata.GroupVersionKind() == obj.GroupVersionKind() && key == client.ObjectKeyFromObject(obj) {
+				metadata.SetName(obj.GetName())
+				metadata.SetNamespace(obj.GetNamespace())
+				metadata.SetUID(obj.GetUID())
+				metadata.SetResourceVersion(obj.GetResourceVersion())
+				metadata.SetLabels(obj.GetLabels())
+				metadata.SetAnnotations(obj.GetAnnotations())
+				return nil
+			}
+			return c.Get(ctx, key, target, opts...)
+		},
+	})
+}
+
+func externalBoundWorkload(name string, key types.NamespacedName, gvk schema.GroupVersionKind, managerUID types.UID) *kueue.Workload {
+	return &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:      name,
+		Namespace: key.Namespace,
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: gvk.GroupVersion().String(),
+			Kind:       gvk.Kind,
+			Name:       key.Name,
+			UID:        managerUID,
+		}},
+	}}
+}
+
+func TestAdapterOwnershipWrapperRejectsMismatchedWorkload(t *testing.T) {
+	gvk := schema.GroupVersionKind{Group: "security.example.com", Version: "v1", Kind: "GuardedJob"}
+	key := types.NamespacedName{Name: "test-job", Namespace: "default"}
+	const (
+		origin       = "origin1"
+		workloadName = "workload-1"
+	)
+
+	localObj := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": gvk.GroupVersion().String(),
+		"kind":       gvk.Kind,
+		"metadata": map[string]any{
+			"name":      key.Name,
+			"namespace": key.Namespace,
+			"uid":       "manager-object-uid",
+		},
+		"spec": map[string]any{"managedBy": kueue.MultiKueueControllerName},
+	}}
+	remoteObj := localObj.DeepCopy()
+	remoteObj.SetUID("remote-object-uid")
+	jobframework.SetMultiKueueMeta(remoteObj, "other-workload", origin)
+	remoteAnnotations := remoteObj.GetAnnotations()
+	if remoteAnnotations == nil {
+		remoteAnnotations = make(map[string]string)
+	}
+	remoteAnnotations[kueue.MultiKueueOriginUIDAnnotation] = "manager-object-uid"
+	remoteObj.SetAnnotations(remoteAnnotations)
+	if err := unstructured.SetNestedField(remoteObj.Object, "Succeeded", "status", "phase"); err != nil {
+		t.Fatalf("setting remote status: %v", err)
+	}
+
+	managerClient := metadataCompatibleUnstructuredClient(localObj)
+	workerClient := metadataCompatibleUnstructuredClient(remoteObj)
+	adapter := &Adapter{gvk: gvk}
+
+	if _, err := jobframework.SyncJobWithRemoteObjectOwnership(
+		t.Context(),
+		managerClient,
+		managerClient,
+		workerClient,
+		adapter,
+		key,
+		externalBoundWorkload(workloadName, key, gvk, "manager-object-uid"),
+		origin,
+	); !errors.Is(
+		err,
+		jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+	) {
+		t.Fatalf("SyncJobWithRemoteObjectOwnership() error = %v, want %v", err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue)
+	}
+	gotLocal := &unstructured.Unstructured{}
+	gotLocal.SetGroupVersionKind(gvk)
+	if err := managerClient.Get(t.Context(), key, gotLocal); err != nil {
+		t.Fatalf("getting manager object: %v", err)
+	}
+	if _, found, err := unstructured.NestedFieldNoCopy(gotLocal.Object, "status"); err != nil || found {
+		t.Fatalf("manager status found = %v, error = %v, want no copied status", found, err)
+	}
+
+	err := jobframework.DeleteRemoteObjectWithCleanupContextIfOwned(t.Context(), managerClient, workerClient, adapter, key, jobframework.MultiKueueRemoteObjectCleanupContext{
+		RemoteObjectUID: remoteObj.GetUID(),
+		Association: jobframework.MultiKueueObjectAssociation{
+			Origin:           origin,
+			WorkloadName:     workloadName,
+			ManagerObjectUID: "manager-object-uid",
+		},
+		WorkloadKey: types.NamespacedName{Name: workloadName, Namespace: key.Namespace},
+	})
+	if !errors.Is(err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue) {
+		t.Fatalf("DeleteRemoteObjectWithCleanupContextIfOwned() error = %v, want %v", err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue)
+	}
+	gotRemote := &unstructured.Unstructured{}
+	gotRemote.SetGroupVersionKind(gvk)
+	if err := workerClient.Get(t.Context(), key, gotRemote); err != nil {
+		t.Fatalf("getting worker object after guarded deletion: %v", err)
+	}
+}
+
+func TestAdapterOwnershipWrapperSyncsAndCleansMatchingUnstructuredObject(t *testing.T) {
+	gvk := schema.GroupVersionKind{Group: "security.example.com", Version: "v1", Kind: "GuardedJob"}
+	key := types.NamespacedName{Name: "test-job", Namespace: "default"}
+	const (
+		origin       = "origin1"
+		workloadName = "workload-1"
+		managerUID   = "manager-object-uid"
+	)
+	localObj := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": gvk.GroupVersion().String(),
+		"kind":       gvk.Kind,
+		"metadata": map[string]any{
+			"name":      key.Name,
+			"namespace": key.Namespace,
+			"uid":       managerUID,
+		},
+		"spec": map[string]any{"managedBy": kueue.MultiKueueControllerName},
+	}}
+	remoteObj := localObj.DeepCopy()
+	remoteObj.SetUID("remote-object-uid")
+	jobframework.SetMultiKueueMeta(remoteObj, workloadName, origin)
+	remoteAnnotations := remoteObj.GetAnnotations()
+	if remoteAnnotations == nil {
+		remoteAnnotations = make(map[string]string)
+	}
+	remoteAnnotations[kueue.MultiKueueOriginUIDAnnotation] = managerUID
+	remoteObj.SetAnnotations(remoteAnnotations)
+	if err := unstructured.SetNestedField(remoteObj.Object, "Succeeded", "status", "phase"); err != nil {
+		t.Fatalf("setting remote status: %v", err)
+	}
+
+	managerClient := metadataCompatibleUnstructuredClient(localObj)
+	workerClient := metadataCompatibleUnstructuredClient(remoteObj)
+	adapter := &Adapter{gvk: gvk}
+	for name, probe := range map[string]struct {
+		client client.Client
+		object client.Object
+	}{
+		"manager object":   {client: managerClient, object: func() client.Object { obj := &unstructured.Unstructured{}; obj.SetGroupVersionKind(gvk); return obj }()},
+		"manager metadata": {client: managerClient, object: func() client.Object { obj := &metav1.PartialObjectMetadata{}; obj.SetGroupVersionKind(gvk); return obj }()},
+		"worker object":    {client: workerClient, object: func() client.Object { obj := &unstructured.Unstructured{}; obj.SetGroupVersionKind(gvk); return obj }()},
+	} {
+		if err := probe.client.Get(t.Context(), key, probe.object); err != nil {
+			t.Fatalf("getting %s before wrapped sync: %v", name, err)
+		}
+	}
+	if _, err := jobframework.SyncJobWithRemoteObjectOwnership(
+		t.Context(),
+		managerClient,
+		managerClient,
+		workerClient,
+		adapter,
+		key,
+		externalBoundWorkload(workloadName, key, gvk, managerUID),
+		origin,
+	); err != nil {
+		t.Fatalf("SyncJobWithRemoteObjectOwnership() error = %v", err)
+	}
+	gotLocal := &unstructured.Unstructured{}
+	gotLocal.SetGroupVersionKind(gvk)
+	if err := managerClient.Get(t.Context(), key, gotLocal); err != nil {
+		t.Fatalf("getting manager object: %v", err)
+	}
+	if phase, found, err := unstructured.NestedString(gotLocal.Object, "status", "phase"); err != nil || !found || phase != "Succeeded" {
+		t.Fatalf("manager status phase = %q, found = %v, error = %v", phase, found, err)
+	}
+
+	if err := jobframework.DeleteRemoteObjectWithCleanupContextIfOwned(t.Context(), managerClient, workerClient, adapter, key, jobframework.MultiKueueRemoteObjectCleanupContext{
+		RemoteObjectUID: remoteObj.GetUID(),
+		Association: jobframework.MultiKueueObjectAssociation{
+			Origin:           origin,
+			WorkloadName:     workloadName,
+			ManagerObjectUID: managerUID,
+		},
+		WorkloadKey: types.NamespacedName{Name: workloadName, Namespace: key.Namespace},
+	}); err != nil {
+		t.Fatalf("DeleteRemoteObjectWithCleanupContextIfOwned() error = %v", err)
+	}
+	gotRemote := &unstructured.Unstructured{}
+	gotRemote.SetGroupVersionKind(gvk)
+	if err := workerClient.Get(t.Context(), key, gotRemote); !apierrors.IsNotFound(err) {
+		t.Fatalf("worker object Get() error = %v, want NotFound", err)
+	}
+}
 
 func TestAdapter_IsJobManagedByKueue(t *testing.T) {
 	tests := []struct {

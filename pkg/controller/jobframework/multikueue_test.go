@@ -28,15 +28,34 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
+
+type cleanupTrackingAdapter struct {
+	jobframework.MultiKueueAdapter
+	cleanupContext *jobframework.MultiKueueRemoteObjectCleanupContext
+}
+
+func (a *cleanupTrackingAdapter) DeleteRemoteObjectWithCleanupContext(
+	_ context.Context,
+	_, _ client.Client,
+	_ types.NamespacedName,
+	cleanupContext jobframework.MultiKueueRemoteObjectCleanupContext,
+) error {
+	a.cleanupContext = &cleanupContext
+	cleanupContext.WorkloadAnnotations["mutated-by-adapter"] = "true"
+	return nil
+}
 
 func TestValidateRemoteObjectOwnership(t *testing.T) {
 	key := types.NamespacedName{Name: "test", Namespace: "default"}
@@ -107,6 +126,142 @@ func TestValidateRemoteObjectOwnership(t *testing.T) {
 			}
 			if found != tc.wantFound {
 				t.Fatalf("ValidateRemoteObjectOwnership() found = %v, wantFound %v", found, tc.wantFound)
+			}
+		})
+	}
+}
+
+func TestValidateMultiKueueObjectAssociation(t *testing.T) {
+	const (
+		origin       = "origin-1"
+		workloadName = "workload-1"
+	)
+	longWorkloadName := "workload-name-that-is-longer-than-the-sixty-three-character-label-limit"
+
+	tests := map[string]struct {
+		featureGate bool
+		labels      map[string]string
+		annotations map[string]string
+		wantErr     error
+		workload    string
+	}{
+		"label survives gate enable": {
+			featureGate: true,
+			labels: map[string]string{
+				kueue.MultiKueueOriginLabel:     origin,
+				constants.PrebuiltWorkloadLabel: workloadName,
+			},
+		},
+		"annotation survives gate disable": {
+			featureGate: false,
+			labels:      map[string]string{kueue.MultiKueueOriginLabel: origin},
+			annotations: map[string]string{constants.PrebuiltWorkloadAnnotation: workloadName},
+		},
+		"matching label and annotation are accepted": {
+			featureGate: true,
+			labels: map[string]string{
+				kueue.MultiKueueOriginLabel:     origin,
+				constants.PrebuiltWorkloadLabel: workloadName,
+			},
+			annotations: map[string]string{constants.PrebuiltWorkloadAnnotation: workloadName},
+		},
+		"conflicting label and annotation are rejected": {
+			featureGate: false,
+			labels: map[string]string{
+				kueue.MultiKueueOriginLabel:     origin,
+				constants.PrebuiltWorkloadLabel: workloadName,
+			},
+			annotations: map[string]string{constants.PrebuiltWorkloadAnnotation: "another-workload"},
+			wantErr:     jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+		},
+		"long annotation survives gate disable": {
+			featureGate: false,
+			labels:      map[string]string{kueue.MultiKueueOriginLabel: origin},
+			annotations: map[string]string{constants.PrebuiltWorkloadAnnotation: longWorkloadName},
+			workload:    longWorkloadName,
+		},
+		"wrong origin is rejected": {
+			featureGate: true,
+			labels: map[string]string{
+				kueue.MultiKueueOriginLabel:     "another-origin",
+				constants.PrebuiltWorkloadLabel: workloadName,
+			},
+			wantErr: jobframework.ErrRemoteObjectNotOwnedByMultiKueue,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: tc.featureGate})
+			job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{
+				Name:        "job",
+				Namespace:   "default",
+				Labels:      tc.labels,
+				Annotations: tc.annotations,
+			}}
+			expectedWorkload := tc.workload
+			if expectedWorkload == "" {
+				expectedWorkload = workloadName
+			}
+			err := jobframework.ValidateMultiKueueObjectAssociation(job, jobframework.MultiKueueObjectAssociation{
+				Origin:       origin,
+				WorkloadName: expectedWorkload,
+			})
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("ValidateMultiKueueObjectAssociation() error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+
+	t.Run("empty origin is rejected", func(t *testing.T) {
+		job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job", Namespace: "default"}}
+		err := jobframework.ValidateMultiKueueObjectAssociation(job, jobframework.MultiKueueObjectAssociation{WorkloadName: workloadName})
+		if !errors.Is(err, jobframework.ErrMultiKueueOriginEmpty) {
+			t.Fatalf("ValidateMultiKueueObjectAssociation() error = %v, want %v", err, jobframework.ErrMultiKueueOriginEmpty)
+		}
+	})
+}
+
+func TestSetPrebuiltWorkloadNameReconcilesFeatureGateRepresentations(t *testing.T) {
+	const (
+		oldWorkload = "old-workload"
+		newWorkload = "new-workload"
+	)
+	for _, tc := range []struct {
+		name           string
+		featureGate    bool
+		labels         map[string]string
+		annotations    map[string]string
+		wantLabel      string
+		wantAnnotation string
+	}{
+		{
+			name:           "gate enabled updates an existing label and writes the annotation",
+			featureGate:    true,
+			labels:         map[string]string{constants.PrebuiltWorkloadLabel: oldWorkload},
+			wantLabel:      newWorkload,
+			wantAnnotation: newWorkload,
+		},
+		{
+			name:           "gate disabled updates an existing annotation and writes the label",
+			featureGate:    false,
+			annotations:    map[string]string{constants.PrebuiltWorkloadAnnotation: oldWorkload},
+			wantLabel:      newWorkload,
+			wantAnnotation: newWorkload,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: tc.featureGate})
+			job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Labels: tc.labels, Annotations: tc.annotations}}
+			jobframework.SetPrebuiltWorkloadName(job, newWorkload)
+			if got := job.Labels[constants.PrebuiltWorkloadLabel]; got != tc.wantLabel {
+				t.Fatalf("prebuilt Workload label = %q, want %q", got, tc.wantLabel)
+			}
+			if got := job.Annotations[constants.PrebuiltWorkloadAnnotation]; got != tc.wantAnnotation {
+				t.Fatalf("prebuilt Workload annotation = %q, want %q", got, tc.wantAnnotation)
+			}
+			if got, err := jobframework.MultiKueueWorkloadNameFor(job); err != nil || got != newWorkload {
+				t.Fatalf("MultiKueueWorkloadNameFor() = %q, %v, want %q, nil", got, err, newWorkload)
 			}
 		})
 	}
@@ -185,4 +340,142 @@ func TestDeleteRemoteObjectIfOwned(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDeleteRemoteObjectForWorkloadIfOwned(t *testing.T) {
+	key := types.NamespacedName{Name: "test-job", Namespace: "default"}
+	const (
+		origin       = "origin-1"
+		workloadName = "workload-1"
+		managerUID   = types.UID("manager-uid")
+	)
+	makeRemoteJob := func(remoteWorkloadName string) *batchv1.Job {
+		return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{
+			Name:      key.Name,
+			Namespace: key.Namespace,
+			UID:       "remote-uid",
+			Labels: map[string]string{
+				kueue.MultiKueueOriginLabel:     origin,
+				constants.PrebuiltWorkloadLabel: remoteWorkloadName,
+			},
+			Annotations: map[string]string{kueue.MultiKueueOriginUIDAnnotation: string(managerUID)},
+		}}
+	}
+	makeLocalWorkload := func() *kueue.Workload {
+		controller := true
+		return &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+			Name:      workloadName,
+			Namespace: key.Namespace,
+			OwnerReferences: []metav1.OwnerReference{{
+				APIVersion: batchv1.SchemeGroupVersion.String(),
+				Kind:       "Job",
+				Name:       key.Name,
+				UID:        managerUID,
+				Controller: &controller,
+			}},
+		}}
+	}
+	makeClients := func(t *testing.T, remoteObjects ...client.Object) (client.Client, client.Client) {
+		t.Helper()
+		scheme := runtime.NewScheme()
+		if err := batchv1.AddToScheme(scheme); err != nil {
+			t.Fatalf("adding batch scheme: %v", err)
+		}
+		return fake.NewClientBuilder().WithScheme(scheme).Build(), fake.NewClientBuilder().WithScheme(scheme).WithObjects(remoteObjects...).Build()
+	}
+
+	t.Run("cleanup-aware adapter receives exact identity and copied Workload context", func(t *testing.T) {
+		localClient, remoteClient := makeClients(t, makeRemoteJob(workloadName))
+		mockCtrl := gomock.NewController(t)
+		baseAdapter := mocks.NewMockMultiKueueAdapter(mockCtrl)
+		baseAdapter.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
+		adapter := &cleanupTrackingAdapter{MultiKueueAdapter: baseAdapter}
+		localWorkload := makeLocalWorkload()
+		localWorkload.Annotations = map[string]string{"context": "manager"}
+
+		ctx, _ := utiltesting.ContextWithLog(t)
+		if err := jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, localClient, remoteClient, adapter, key, localWorkload, origin); err != nil {
+			t.Fatalf("DeleteRemoteObjectForWorkloadIfOwned() error = %v", err)
+		}
+		if adapter.cleanupContext == nil {
+			t.Fatal("cleanup-aware adapter was not called")
+		}
+		if adapter.cleanupContext.RemoteObjectUID != "remote-uid" {
+			t.Fatalf("RemoteObjectUID = %q, want remote-uid", adapter.cleanupContext.RemoteObjectUID)
+		}
+		if adapter.cleanupContext.WorkloadKey != (types.NamespacedName{Name: workloadName, Namespace: key.Namespace}) {
+			t.Fatalf("WorkloadKey = %q", adapter.cleanupContext.WorkloadKey)
+		}
+		if _, mutated := localWorkload.Annotations["mutated-by-adapter"]; mutated {
+			t.Fatal("adapter mutation changed the manager Workload annotations")
+		}
+	})
+
+	t.Run("cleanup-aware adapter rejects another Workload association", func(t *testing.T) {
+		localClient, remoteClient := makeClients(t, makeRemoteJob("another-workload"))
+		mockCtrl := gomock.NewController(t)
+		baseAdapter := mocks.NewMockMultiKueueAdapter(mockCtrl)
+		baseAdapter.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
+		adapter := &cleanupTrackingAdapter{MultiKueueAdapter: baseAdapter}
+		localWorkload := makeLocalWorkload()
+
+		ctx, _ := utiltesting.ContextWithLog(t)
+		err := jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, localClient, remoteClient, adapter, key, localWorkload, origin)
+		if !errors.Is(err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue) {
+			t.Fatalf("DeleteRemoteObjectForWorkloadIfOwned() error = %v, want %v", err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue)
+		}
+		if adapter.cleanupContext != nil {
+			t.Fatal("cleanup-aware adapter was called for another Workload")
+		}
+	})
+
+	t.Run("cleanup-aware adapter rejects an unexpected remote UID", func(t *testing.T) {
+		localClient, remoteClient := makeClients(t, makeRemoteJob(workloadName))
+		mockCtrl := gomock.NewController(t)
+		baseAdapter := mocks.NewMockMultiKueueAdapter(mockCtrl)
+		baseAdapter.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
+		adapter := &cleanupTrackingAdapter{MultiKueueAdapter: baseAdapter}
+
+		ctx, _ := utiltesting.ContextWithLog(t)
+		err := jobframework.DeleteRemoteObjectWithCleanupContextIfOwned(ctx, localClient, remoteClient, adapter, key, jobframework.MultiKueueRemoteObjectCleanupContext{
+			RemoteObjectUID: "another-uid",
+			Association: jobframework.MultiKueueObjectAssociation{
+				Origin:           origin,
+				WorkloadName:     workloadName,
+				ManagerObjectUID: managerUID,
+			},
+			WorkloadKey: types.NamespacedName{Name: workloadName, Namespace: key.Namespace},
+		})
+		if !errors.Is(err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue) {
+			t.Fatalf("DeleteRemoteObjectWithCleanupContextIfOwned() error = %v, want %v", err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue)
+		}
+		if adapter.cleanupContext != nil {
+			t.Fatal("cleanup-aware adapter was called for an unexpected remote UID")
+		}
+	})
+
+	t.Run("ordinary adapter also requires exact Workload association", func(t *testing.T) {
+		localClient, remoteClient := makeClients(t, makeRemoteJob("another-workload"))
+		mockCtrl := gomock.NewController(t)
+		adapter := mocks.NewMockMultiKueueAdapter(mockCtrl)
+		adapter.EXPECT().GVK().Return(batchv1.SchemeGroupVersion.WithKind("Job")).AnyTimes()
+		localWorkload := makeLocalWorkload()
+
+		ctx, _ := utiltesting.ContextWithLog(t)
+		err := jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, localClient, remoteClient, adapter, key, localWorkload, origin)
+		if !errors.Is(err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue) {
+			t.Fatalf("DeleteRemoteObjectForWorkloadIfOwned() error = %v, want %v", err, jobframework.ErrRemoteObjectNotOwnedByMultiKueue)
+		}
+	})
+
+	t.Run("nil Workload is rejected", func(t *testing.T) {
+		localClient, remoteClient := makeClients(t)
+		mockCtrl := gomock.NewController(t)
+		adapter := mocks.NewMockMultiKueueAdapter(mockCtrl)
+		ctx, _ := utiltesting.ContextWithLog(t)
+		err := jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, localClient, remoteClient, adapter, key, nil, origin)
+		if !errors.Is(err, jobframework.ErrMultiKueueWorkloadNameEmpty) {
+			t.Fatalf("DeleteRemoteObjectForWorkloadIfOwned() error = %v, want %v", err, jobframework.ErrMultiKueueWorkloadNameEmpty)
+		}
+	})
 }

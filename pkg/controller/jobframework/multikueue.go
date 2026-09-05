@@ -27,9 +27,19 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-// MultiKueueAdapter interface needed for MultiKueue job delegation.
+// MultiKueueAdapter is the interface used for MultiKueue job delegation.
+//
+// In production SyncJob and DeleteRemoteObject receive an identity-guarded
+// remote client. That client only permits objects of GVK(), validates the
+// MultiKueue origin, manager-object UID, and Workload association, and rejects
+// operations that cannot carry an enforceable identity check. In particular,
+// cross-GVK access, subresource reads, apply operations, and alternate
+// subresource bodies are unsupported. Updates and patches require the checked
+// UID and resourceVersion; deletes use UID preconditions. Custom adapters must
+// use only this restricted client contract.
 type MultiKueueAdapter interface {
-	// SyncJob creates the Job object in the worker cluster using remote client, if not already created.
+	// SyncJob creates the Job object in the worker cluster using the guarded
+	// remote client, if not already created.
 	// Copy the status from the remote job if already exists.
 	//
 	// The returned deferred flag reports that the adapter intentionally skipped
@@ -43,7 +53,7 @@ type MultiKueueAdapter interface {
 	// discussion see
 	// https://github.com/kubernetes-sigs/kueue/pull/11730#issuecomment-4566063844.
 	SyncJob(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (deferred bool, err error)
-	// DeleteRemoteObject deletes the Job in the worker cluster.
+	// DeleteRemoteObject deletes the Job using the same guarded-client contract.
 	DeleteRemoteObject(ctx context.Context, localClient client.Client, remoteClient client.Client, key types.NamespacedName) error
 	// IsJobManagedByKueue returns:
 	// - a bool indicating if the job object identified by key is managed by kueue and can be delegated.
@@ -52,6 +62,49 @@ type MultiKueueAdapter interface {
 	IsJobManagedByKueue(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, string, error)
 	// GVK returns GVK (Group Version Kind) for the job.
 	GVK() schema.GroupVersionKind
+}
+
+// MultiKueueObjectAssociation identifies the origin and remote Workload that
+// mutable MultiKueue metadata associates with an object.
+type MultiKueueObjectAssociation struct {
+	Origin           string
+	WorkloadName     string
+	ManagerObjectUID types.UID
+}
+
+// MultiKueueRemoteObjectCleanupContext carries the expected remote object
+// identity and the Workload metadata needed for adapter-specific cleanup.
+// WorkloadAnnotations and ManagerObjectUIDs must be copies so later API
+// mutations cannot change the cleanup decision.
+type MultiKueueRemoteObjectCleanupContext struct {
+	RemoteObjectUID     types.UID
+	Association         MultiKueueObjectAssociation
+	WorkloadKey         types.NamespacedName
+	WorkloadAnnotations map[string]string
+	ManagerObjectUIDs   map[string]types.UID
+}
+
+// MultiKueueAdapterWithRemoteObjectCleanup is an optional extension for adapters
+// whose cleanup must remain bound to an exact remote controller-object instance.
+// Multi-object cleanup is one use case.
+type MultiKueueAdapterWithRemoteObjectCleanup interface {
+	MultiKueueAdapter
+	DeleteRemoteObjectWithCleanupContext(
+		ctx context.Context,
+		localClient client.Client,
+		remoteClient client.Client,
+		key types.NamespacedName,
+		cleanupContext MultiKueueRemoteObjectCleanupContext,
+	) error
+}
+
+// MultiKueueAdapterWithWorkloadReassignment marks adapters that can intentionally
+// move one stable remote controller object between Workload slices. The adapter
+// must authorize the specific manager object, and the remote object must carry
+// that object's exact UID before reassignment is allowed.
+type MultiKueueAdapterWithWorkloadReassignment interface {
+	MultiKueueAdapter
+	CanReassignWorkload(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, error)
 }
 
 // MultiKueueWatcher optional interface that can be implemented by a MultiKueueAdapter

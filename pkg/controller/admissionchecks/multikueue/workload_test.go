@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -103,6 +105,7 @@ func TestWlReconcile(t *testing.T) {
 		worker2Jobs              []batchv1.Job
 
 		wantError             error
+		wantAnyError          bool
 		wantResult            *reconcile.Result
 		wantEvents            []utiltesting.EventRecord
 		wantManagersWorkloads []kueue.Workload
@@ -213,6 +216,29 @@ func TestWlReconcile(t *testing.T) {
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+		},
+		"missing workload does not delete a same-name worker Job without a remote workload": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersDeletedWorkloads: []*kueue.Workload{
+				baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 					Obj(),
 			},
 		},
@@ -500,6 +526,61 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"forged remote Workload and Job identity cannot drive manager status": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			reconcileFor: "wl1",
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "foreign-manager-workload-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					AdmittedAt(true, now).
+					FinishedAt(now).
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					SetAnnotation(kueue.MultiKueueOriginUIDAnnotation, "foreign-manager-job-uid").
+					Active(7).
+					Obj(),
+			},
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{*baseJobManagedByKueueBuilder.DeepCopy()},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "foreign-manager-workload-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					AdmittedAt(true, now).
+					FinishedAt(now).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					SetAnnotation(kueue.MultiKueueOriginUIDAnnotation, "foreign-manager-job-uid").
+					Active(7).
+					Obj(),
+			},
+			wantAnyError: true,
+		},
 		"remote wl admitted - other workers deleted": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			reconcileFor: "wl1",
@@ -731,7 +812,9 @@ func TestWlReconcile(t *testing.T) {
 			},
 			useSecondWorker: true,
 			worker2Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.DeepCopy(),
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -768,7 +851,9 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantWorker2Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.DeepCopy(),
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
 			},
 		},
 		"handle workload evicted on worker cluster": {
@@ -811,7 +896,9 @@ func TestWlReconcile(t *testing.T) {
 			},
 			useSecondWorker: true,
 			worker2Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.DeepCopy(),
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
 			},
 			wantManagersWorkloads: []kueue.Workload{
 				*baseWorkloadBuilder.Clone().
@@ -848,7 +935,9 @@ func TestWlReconcile(t *testing.T) {
 					Obj(),
 			},
 			wantWorker2Workloads: []kueue.Workload{
-				*baseWorkloadBuilder.DeepCopy(),
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
 				{
@@ -2095,6 +2184,110 @@ func TestWlReconcile(t *testing.T) {
 	for name, tc := range cases {
 		for _, useMergePatch := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
+				managerUIDs := make(map[string]types.UID)
+				managerJobUIDs := make(map[string]types.UID)
+				setManagerUIDs := func(workloads []kueue.Workload) {
+					for i := range workloads {
+						if workloads[i].UID == "" {
+							workloads[i].UID = types.UID("manager-" + workloads[i].Name + "-uid")
+						}
+						managerUIDs[workloads[i].Name] = workloads[i].UID
+						if owner := metav1.GetControllerOf(&workloads[i]); owner != nil && owner.UID != "" {
+							managerJobUIDs[owner.Name] = owner.UID
+						}
+					}
+				}
+				setManagerUIDs(tc.managersWorkloads)
+				setManagerUIDs(tc.wantManagersWorkloads)
+				for _, workload := range tc.managersDeletedWorkloads {
+					if workload.UID == "" {
+						workload.UID = types.UID("manager-" + workload.Name + "-uid")
+					}
+					managerUIDs[workload.Name] = workload.UID
+					if owner := metav1.GetControllerOf(workload); owner != nil && owner.UID != "" {
+						managerJobUIDs[owner.Name] = owner.UID
+					}
+				}
+				setManagerJobUIDs := func(jobs []batchv1.Job) {
+					for i := range jobs {
+						if jobs[i].UID == "" {
+							jobs[i].UID = managerJobUIDs[jobs[i].Name]
+							if jobs[i].UID == "" {
+								jobs[i].UID = types.UID("manager-" + jobs[i].Name + "-uid")
+							}
+						}
+						managerJobUIDs[jobs[i].Name] = jobs[i].UID
+					}
+				}
+				setManagerJobUIDs(tc.managersJobs)
+				setManagerJobUIDs(tc.wantManagersJobs)
+				remoteWorkloadUIDs := make(map[string]map[string]types.UID)
+				setRemoteIdentities := func(workloads []kueue.Workload, worker string, recordInitial bool) {
+					if remoteWorkloadUIDs[worker] == nil {
+						remoteWorkloadUIDs[worker] = make(map[string]types.UID)
+					}
+					for i := range workloads {
+						if workloads[i].UID == "" {
+							if recordInitial {
+								workloads[i].UID = types.UID(worker + "-" + workloads[i].Name + "-uid")
+							} else {
+								workloads[i].UID = remoteWorkloadUIDs[worker][workloads[i].Name]
+							}
+						}
+						if recordInitial {
+							remoteWorkloadUIDs[worker][workloads[i].Name] = workloads[i].UID
+						}
+						if workloads[i].Labels[kueue.MultiKueueOriginLabel] != defaultOrigin || workloads[i].Annotations[kueue.MultiKueueOriginUIDAnnotation] != "" {
+							continue
+						}
+						if managerUID := managerUIDs[workloads[i].Name]; managerUID != "" {
+							if workloads[i].Annotations == nil {
+								workloads[i].Annotations = make(map[string]string, 1)
+							}
+							workloads[i].Annotations[kueue.MultiKueueOriginUIDAnnotation] = string(managerUID)
+						}
+					}
+				}
+				setRemoteIdentities(tc.worker1Workloads, "worker1", true)
+				setRemoteIdentities(tc.wantWorker1Workloads, "worker1", false)
+				setRemoteIdentities(tc.worker2Workloads, "worker2", true)
+				setRemoteIdentities(tc.wantWorker2Workloads, "worker2", false)
+				remoteJobUIDs := make(map[string]map[string]types.UID)
+				setRemoteJobIdentities := func(jobs []batchv1.Job, worker string, recordInitial bool) {
+					if remoteJobUIDs[worker] == nil {
+						remoteJobUIDs[worker] = make(map[string]types.UID)
+					}
+					for i := range jobs {
+						if jobs[i].UID == "" {
+							if recordInitial {
+								jobs[i].UID = types.UID(worker + "-" + jobs[i].Name + "-uid")
+							} else {
+								jobs[i].UID = remoteJobUIDs[worker][jobs[i].Name]
+							}
+						}
+						if recordInitial {
+							remoteJobUIDs[worker][jobs[i].Name] = jobs[i].UID
+						}
+						if jobs[i].Labels[kueue.MultiKueueOriginLabel] != defaultOrigin {
+							continue
+						}
+						managerJobUID := managerJobUIDs[jobs[i].Name]
+						if managerJobUID == "" {
+							continue
+						}
+						if jobs[i].Annotations == nil {
+							jobs[i].Annotations = make(map[string]string, 1)
+						}
+						if jobs[i].Annotations[kueue.MultiKueueOriginUIDAnnotation] == "" {
+							jobs[i].Annotations[kueue.MultiKueueOriginUIDAnnotation] = string(managerJobUID)
+						}
+					}
+				}
+				setRemoteJobIdentities(tc.worker1Jobs, "worker1", true)
+				setRemoteJobIdentities(tc.wantWorker1Jobs, "worker1", false)
+				setRemoteJobIdentities(tc.worker2Jobs, "worker2", true)
+				setRemoteJobIdentities(tc.wantWorker2Jobs, "worker2", false)
+
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
 				features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
@@ -2119,7 +2312,7 @@ func TestWlReconcile(t *testing.T) {
 				managerClient := managerBuilder.Build()
 				adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 				recorder := &utiltesting.EventRecorder{}
-				cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, recorder)
+				cRec := newClustersReconciler(managerClient, managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, recorder)
 
 				worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
 					WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}, &batchv1.JobList{Items: tc.worker1Jobs}).
@@ -2127,7 +2320,7 @@ func TestWlReconcile(t *testing.T) {
 					WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 					Build())
 
-				w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+				w1remoteClient := newRemoteClient(managerClient, managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 				w1remoteClient.client = worker1Client
 				w1remoteClient.connState.connected = !tc.worker1Reconnecting
 				w1remoteClient.connState.disconnectedSince = tc.worker1DisconnectedSince
@@ -2159,7 +2352,7 @@ func TestWlReconcile(t *testing.T) {
 						},
 					})
 					worker2Client = NewNeverCachingClient(worker2Builder.Build())
-					w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+					w2remoteClient := newRemoteClient(managerClient, managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 					w2remoteClient.client = worker2Client
 					w2remoteClient.connState.connected = !tc.worker2Reconnecting
 					w2remoteClient.connState.disconnectedSince = tc.worker2DisconnectedSince
@@ -2177,7 +2370,11 @@ func TestWlReconcile(t *testing.T) {
 				}
 
 				gotResult, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor, Namespace: TestNamespace}})
-				if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
+				if tc.wantAnyError {
+					if gotErr == nil {
+						t.Error("Reconcile() error = nil, want an ownership error")
+					}
+				} else if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
 					t.Errorf("unexpected error (-want/+got):\n%s", diff)
 				}
 				if tc.wantResult != nil {
@@ -2277,14 +2474,17 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 
 	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
-	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName)
+	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).UID("uid1").Suspend(false).ManagedBy(kueue.MultiKueueControllerName)
 
 	managerWl := *baseWorkloadBuilder.Clone().
+		UID("manager-wl-uid").
 		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
 		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 		Obj()
 	remoteWl := *baseWorkloadBuilder.Clone().
+		UID("worker-wl-uid").
 		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-wl-uid").
 		Obj()
 
 	managerBuilder := getClientBuilder(ctx).
@@ -2300,9 +2500,9 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	managerClient := managerBuilder.Build()
 
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, nil)
+	cRec := newClustersReconciler(managerClient, managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, nil)
 
-	w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	w1remoteClient := newRemoteClient(managerClient, managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 	w1remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
@@ -2315,7 +2515,7 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 		WithStatusSubresource(&kueue.Workload{}).
 		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge}).
 		Build())
-	w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	w2remoteClient := newRemoteClient(managerClient, managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 	w2remoteClient.client = worker2Client
 	cRec.remoteClients["worker2"] = w2remoteClient
 
@@ -2371,6 +2571,280 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	}
 }
 
+func TestRemoveRemoteObjectsPreservesReplacementWorkload(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	key := types.NamespacedName{Name: "wl1", Namespace: TestNamespace}
+	const origin = "origin1"
+	oldUID := types.UID("old-remote-workload-uid")
+	replacementUID := types.UID("replacement-remote-workload-uid")
+
+	localWorkload := utiltestingapi.MakeWorkload(key.Name, key.Namespace).
+		UID("manager-workload-uid").
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "manager-job-uid").
+		Obj()
+	remoteWorkload := utiltestingapi.MakeWorkload(key.Name, key.Namespace).
+		UID(oldUID).
+		Label(kueue.MultiKueueOriginLabel, origin).
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, string(localWorkload.UID)).
+		Obj()
+	remoteJob := testingjob.MakeJob("job1", key.Namespace).
+		UID("remote-job-uid").
+		PrebuiltWorkloadLabel(key.Name).
+		Label(kueue.MultiKueueOriginLabel, origin).
+		SetAnnotation(kueue.MultiKueueOriginUIDAnnotation, "manager-job-uid").
+		Obj()
+
+	managerClient := getClientBuilder(ctx).WithObjects(localWorkload).Build()
+	baseWorkerClient := getClientBuilder(ctx).WithObjects(remoteWorkload, remoteJob).Build()
+	replaced := false
+	workerClient := interceptor.NewClient(baseWorkerClient, interceptor.Funcs{
+		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			if _, isWorkload := obj.(*kueue.Workload); !isWorkload {
+				return c.Delete(ctx, obj, opts...)
+			}
+			deleteOptions := (&client.DeleteOptions{}).ApplyOptions(opts)
+			if deleteOptions.Preconditions == nil || deleteOptions.Preconditions.UID == nil || *deleteOptions.Preconditions.UID != oldUID {
+				t.Fatalf("delete precondition = %#v, want UID %q", deleteOptions.Preconditions, oldUID)
+			}
+			if err := c.Delete(ctx, obj); err != nil {
+				return err
+			}
+			replacement := remoteWorkload.DeepCopy()
+			replacement.UID = replacementUID
+			replacement.ResourceVersion = ""
+			if err := c.Create(ctx, replacement); err != nil {
+				return err
+			}
+			replaced = true
+			return apierrors.NewConflict(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "workloads"}, key.Name, errors.New("UID precondition failed"))
+		},
+	})
+
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	adapter := adapters[schema.FromAPIVersionAndKind(batchv1.SchemeGroupVersion.String(), "Job").String()]
+	remote := newRemoteClient(managerClient, managerClient, nil, nil, nil, origin, "worker1", adapters)
+	remote.client = NewNeverCachingClient(workerClient)
+	group := &wlGroup{
+		local:         localWorkload,
+		localClient:   managerClient,
+		remotes:       map[string]*kueue.Workload{"worker1": remoteWorkload.DeepCopy()},
+		remoteClients: map[string]*remoteClient{"worker1": remote},
+		jobAdapter:    adapter,
+		controllerKey: types.NamespacedName{Name: "job1", Namespace: key.Namespace},
+	}
+
+	err := group.RemoveRemoteObjects(ctx, "worker1")
+	if !apierrors.IsConflict(err) {
+		t.Fatalf("RemoveRemoteObjects() error = %v, want Conflict", err)
+	}
+	if !replaced {
+		t.Fatal("replacement race was not exercised")
+	}
+	got := &kueue.Workload{}
+	if err := baseWorkerClient.Get(ctx, key, got); err != nil {
+		t.Fatalf("getting replacement Workload: %v", err)
+	}
+	if got.UID != replacementUID {
+		t.Fatalf("replacement Workload UID = %q, want %q", got.UID, replacementUID)
+	}
+}
+
+func TestSyncJobCleansUpWhenManagerWorkloadDeletionStartsDuringCreate(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	const (
+		origin      = "origin1"
+		clusterName = "worker1"
+		workloadUID = "manager-workload-uid"
+		managerUID  = "manager-job-uid"
+	)
+	workloadKey := types.NamespacedName{Name: "wl1", Namespace: TestNamespace}
+	jobKey := types.NamespacedName{Name: "job1", Namespace: TestNamespace}
+	localWorkload := utiltestingapi.MakeWorkload(workloadKey.Name, workloadKey.Namespace).
+		UID(workloadUID).
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), jobKey.Name, managerUID).
+		Obj()
+	localJob := testingjob.MakeJob(jobKey.Name, jobKey.Namespace).UID(managerUID).Suspend(false).Obj()
+	remoteWorkload := utiltestingapi.MakeWorkload(workloadKey.Name, workloadKey.Namespace).
+		UID("remote-workload-uid").
+		Label(kueue.MultiKueueOriginLabel, origin).
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, workloadUID).
+		Obj()
+
+	managerClient := getClientBuilder(ctx).WithObjects(localWorkload, localJob).Build()
+	var workloadReads atomic.Int32
+	freshReader := interceptor.NewClient(managerClient, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if workload, ok := obj.(*kueue.Workload); ok && key == workloadKey && workloadReads.Add(1) > 1 {
+				*workload = *localWorkload.DeepCopy()
+				workload.DeletionTimestamp = new(metav1.Now())
+				return nil
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+
+	createStarted := make(chan struct{})
+	releaseCreate := make(chan struct{})
+	baseWorkerClient := getClientBuilder(ctx).WithObjects(remoteWorkload).Build()
+	workerClient := interceptor.NewClient(baseWorkerClient, interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if _, isJob := obj.(*batchv1.Job); isJob {
+				close(createStarted)
+				<-releaseCreate
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	})
+
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	adapter := adapters[schema.FromAPIVersionAndKind(batchv1.SchemeGroupVersion.String(), "Job").String()]
+	remote := newRemoteClient(managerClient, freshReader, nil, nil, nil, origin, clusterName, adapters)
+	remote.client = NewNeverCachingClient(workerClient)
+	group := &wlGroup{
+		local:         localWorkload,
+		localClient:   managerClient,
+		remotes:       map[string]*kueue.Workload{clusterName: remoteWorkload},
+		remoteClients: map[string]*remoteClient{clusterName: remote},
+		jobAdapter:    adapter,
+		controllerKey: jobKey,
+	}
+
+	syncResult := make(chan error, 1)
+	go func() {
+		_, err := group.syncJob(ctx, clusterName)
+		syncResult <- err
+	}()
+	select {
+	case <-createStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for remote Job creation")
+	}
+	close(releaseCreate)
+	select {
+	case err := <-syncResult:
+		if err == nil {
+			t.Fatal("syncJob() error = nil, want manager lifecycle error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for sync cleanup")
+	}
+
+	if err := baseWorkerClient.Get(ctx, jobKey, &batchv1.Job{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("remote Job Get() error = %v, want NotFound", err)
+	}
+	if err := baseWorkerClient.Get(ctx, workloadKey, &kueue.Workload{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("remote Workload Get() error = %v, want NotFound", err)
+	}
+}
+
+func TestSyncJobWaitsForGCAndDoesNotRecreateExecutionObject(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	const (
+		origin       = "origin1"
+		clusterName  = "worker1"
+		workloadUID  = "manager-workload-uid"
+		managerUID   = "manager-job-uid"
+		remoteJobUID = "remote-job-uid"
+	)
+	workloadKey := types.NamespacedName{Name: "wl1", Namespace: TestNamespace}
+	jobKey := types.NamespacedName{Name: "job1", Namespace: TestNamespace}
+	localWorkload := utiltestingapi.MakeWorkload(workloadKey.Name, workloadKey.Namespace).
+		UID(workloadUID).
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), jobKey.Name, managerUID).
+		Obj()
+	localWorkload.DeletionTimestamp = new(metav1.Now())
+	localWorkload.Finalizers = []string{kueue.ResourceInUseFinalizerName}
+	localJob := testingjob.MakeJob(jobKey.Name, jobKey.Namespace).UID(managerUID).Suspend(false).Obj()
+	remoteWorkload := utiltestingapi.MakeWorkload(workloadKey.Name, workloadKey.Namespace).
+		UID("remote-workload-uid").
+		Label(kueue.MultiKueueOriginLabel, origin).
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, workloadUID).
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), jobKey.Name, remoteJobUID).
+		Obj()
+	remoteJob := testingjob.MakeJob(jobKey.Name, jobKey.Namespace).
+		UID(remoteJobUID).
+		PrebuiltWorkloadLabel(workloadKey.Name).
+		Label(kueue.MultiKueueOriginLabel, origin).
+		SetAnnotation(kueue.MultiKueueOriginUIDAnnotation, managerUID).
+		Obj()
+
+	managerClient := getClientBuilder(ctx).WithObjects(localWorkload, localJob).Build()
+	workloadDeleteStarted := make(chan struct{})
+	releaseWorkloadDelete := make(chan struct{})
+	var jobCreates atomic.Int32
+	baseWorkerClient := getClientBuilder(ctx).WithObjects(remoteWorkload, remoteJob).Build()
+	workerClient := interceptor.NewClient(baseWorkerClient, interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if _, isJob := obj.(*batchv1.Job); isJob {
+				jobCreates.Add(1)
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			if _, isWorkload := obj.(*kueue.Workload); isWorkload {
+				close(workloadDeleteStarted)
+				<-releaseWorkloadDelete
+			}
+			return c.Delete(ctx, obj, opts...)
+		},
+	})
+
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	adapter := adapters[schema.FromAPIVersionAndKind(batchv1.SchemeGroupVersion.String(), "Job").String()]
+	remote := newRemoteClient(managerClient, managerClient, nil, nil, nil, origin, clusterName, adapters)
+	remote.client = NewNeverCachingClient(workerClient)
+	remote.connState.markConnected()
+	group := &wlGroup{
+		local:         localWorkload.DeepCopy(),
+		localClient:   managerClient,
+		remotes:       map[string]*kueue.Workload{clusterName: remoteWorkload.DeepCopy()},
+		remoteClients: map[string]*remoteClient{clusterName: remote},
+		jobAdapter:    adapter,
+		controllerKey: jobKey,
+	}
+
+	gcDone := make(chan struct{})
+	go func() {
+		defer close(gcDone)
+		remote.runGC(ctx)
+	}()
+	select {
+	case <-workloadDeleteStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for GC remote Workload deletion")
+	}
+
+	syncResult := make(chan error, 1)
+	go func() {
+		_, err := group.syncJob(ctx, clusterName)
+		syncResult <- err
+	}()
+	close(releaseWorkloadDelete)
+	select {
+	case <-gcDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for GC")
+	}
+	select {
+	case err := <-syncResult:
+		if err == nil {
+			t.Fatal("syncJob() error = nil, want inactive manager Workload error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for stale sync")
+	}
+
+	if got := jobCreates.Load(); got != 0 {
+		t.Fatalf("remote Job Create() calls = %d, want 0", got)
+	}
+	if err := baseWorkerClient.Get(ctx, jobKey, &batchv1.Job{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("remote Job Get() error = %v, want NotFound", err)
+	}
+	if err := baseWorkerClient.Get(ctx, workloadKey, &kueue.Workload{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("remote Workload Get() error = %v, want NotFound", err)
+	}
+}
+
 // setupAdmittedMetricTest builds a reconciler with a manager workload whose
 // admission check starts in acState and a worker1 remote workload that is
 // already admitted, so reconciliation reaches the admitted-metric code path.
@@ -2381,15 +2855,18 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 	fakeClock := testingclock.NewFakeClock(now)
 
 	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
-	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName)
+	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace).UID("uid1").Suspend(false).ManagedBy(kueue.MultiKueueControllerName)
 
 	managerWl := *baseWorkloadBuilder.Clone().
+		UID("manager-wl-uid").
 		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: acState}).
 		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 		Obj()
 	remoteWl := *baseWorkloadBuilder.Clone().
+		UID("worker-wl-uid").
 		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-wl-uid").
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
 		Condition(metav1.Condition{
 			Type:   kueue.WorkloadAdmitted,
@@ -2411,9 +2888,9 @@ func setupAdmittedMetricTest(ctx context.Context, t *testing.T, acState kueue.Ch
 		Build()
 
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
-	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, nil)
+	cRec := newClustersReconciler(managerClient, managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, nil, nil, nil)
 
-	w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	w1remoteClient := newRemoteClient(managerClient, managerClient, nil, nil, nil, defaultOrigin, "", adapters)
 	w1remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).
 		WithLists(&kueue.WorkloadList{Items: []kueue.Workload{remoteWl}}).
 		WithStatusSubresource(&kueue.Workload{}).
@@ -2594,7 +3071,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			fakeClock := testingclock.NewFakeClock(now)
 
 			local := &kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns"},
+				ObjectMeta: metav1.ObjectMeta{Name: "wl", Namespace: "ns", UID: "manager-workload-uid"},
 				Status: kueue.WorkloadStatus{
 					Conditions:            make([]metav1.Condition, 0, 1),
 					NominatedClusterNames: tt.nominatedWorkers,
@@ -2619,6 +3096,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 					return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
 				},
 			}).WithObjects(objs...).WithStatusSubresource(objs...)
+			managerClient := wlClientBuilder.Build()
 
 			remoteClientBuilders := make(map[string]*fake.ClientBuilder, len(tt.remotes))
 			for remote := range tt.remotes {
@@ -2629,7 +3107,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			}
 			remoteClients := make(map[string]*remoteClient, len(tt.remotes))
 			for remote, builder := range remoteClientBuilders {
-				rc := &remoteClient{client: NewNeverCachingClient(builder.Build()), origin: remote}
+				rc := &remoteClient{client: NewNeverCachingClient(builder.Build()), localClient: managerClient, localReader: managerClient, origin: remote}
 				rc.connState.markDisconnected(time.Now())
 				remoteClients[remote] = rc
 			}
@@ -2639,6 +3117,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			}
 			group := &wlGroup{
 				local:         local,
+				localClient:   managerClient,
 				remotes:       tt.remotes,
 				remoteClients: remoteClients,
 				acName:        "ac1",
@@ -2647,7 +3126,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			wlRec := &wlReconciler{
 				clock:          fakeClock,
 				dispatcherName: tt.dispatcherMode,
-				client:         wlClientBuilder.Build(),
+				client:         managerClient,
 			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -3161,6 +3640,8 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 
 	// Local manager workload: admitted on worker1, AC=Ready, no Evicted condition.
 	local := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		UID("manager-workload-uid").
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "manager-job-uid").
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
 		AdmittedAt(true, now).
 		AdmissionCheck(kueue.AdmissionCheckState{
@@ -3173,6 +3654,9 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 
 	// Remote workload on worker1: WorkloadAdmitted=True.
 	remote := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		UID("remote-workload-uid").
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		Annotation(kueue.MultiKueueOriginUIDAnnotation, "manager-workload-uid").
 		Condition(metav1.Condition{
 			Type:               kueue.WorkloadAdmitted,
 			Status:             metav1.ConditionTrue,
@@ -3194,7 +3678,7 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 		localClient: managerClient,
 		remotes:     map[string]*kueue.Workload{workerName: remote},
 		remoteClients: map[string]*remoteClient{
-			workerName: {client: workerClient, origin: defaultOrigin},
+			workerName: {client: workerClient, localClient: managerClient, localReader: managerClient, origin: defaultOrigin},
 		},
 		acName:        acName,
 		jobAdapter:    &deferredSyncStubAdapter{deferred: true},

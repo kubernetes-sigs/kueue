@@ -61,6 +61,17 @@ type adapter[PtrT objAsPtr[T], T any] struct {
 	remoteSpecSync RemoteSpecSyncer[PtrT]
 }
 
+func (a *adapter[PtrT, T]) CanReassignWorkload(ctx context.Context, localClient client.Client, key types.NamespacedName) (bool, error) {
+	if a.elastic == nil {
+		return false, nil
+	}
+	localJob := PtrT(new(T))
+	if err := localClient.Get(ctx, key, localJob); err != nil {
+		return false, err
+	}
+	return workloadslicing.Enabled(localJob), nil
+}
+
 // RemoteSpecSyncer lets a job type forward selected spec changes from the manager
 // copy to its worker copy after the job is admitted, via an in-place patch of the
 // remote. Each job type decides which fields to forward and when a sync is needed.
