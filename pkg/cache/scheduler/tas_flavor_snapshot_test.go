@@ -1339,6 +1339,11 @@ func TestTruncateAssignment(t *testing.T) {
 		newCount   int32
 		want       *tas.TopologyAssignment
 	}{
+		"nil assignment": {
+			assignment: nil,
+			newCount:   3,
+			want:       nil,
+		},
 		"truncate to zero": {
 			assignment: &tas.TopologyAssignment{
 				Levels: []string{"hostname"},
