@@ -7865,3 +7865,54 @@ func TestStop(t *testing.T) {
 		})
 	}
 }
+
+func TestGroupRepresentativePod(t *testing.T) {
+	base := time.Now().Truncate(time.Second)
+
+	pod := func(name, uid string, createdAt time.Time) corev1.Pod {
+		return *testingpod.MakePod(name, metav1.NamespaceDefault).
+			UID(uid).
+			CreationTimestamp(createdAt).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		pods     []corev1.Pod
+		wantName string
+	}{
+		"single pod": {
+			pods:     []corev1.Pod{pod("pod-a", "uid-a", base)},
+			wantName: "pod-a",
+		},
+		"picks the oldest pod regardless of list order": {
+			pods: []corev1.Pod{
+				pod("pod-b", "uid-b", base.Add(time.Second)),
+				pod("pod-a", "uid-a", base),
+			},
+			wantName: "pod-a",
+		},
+		"ties on creation timestamp break by name": {
+			pods: []corev1.Pod{
+				pod("pod-b", "uid-b", base),
+				pod("pod-a", "uid-a", base),
+			},
+			wantName: "pod-a",
+		},
+		"a younger pod joining the group never displaces the existing representative": {
+			pods: []corev1.Pod{
+				pod("pod-a", "uid-a", base),
+				pod("pod-new", "uid-new", base.Add(time.Minute)),
+			},
+			wantName: "pod-a",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := groupRepresentativePod(tc.pods)
+			if got.Name != tc.wantName {
+				t.Errorf("groupRepresentativePod() = %q, want %q", got.Name, tc.wantName)
+			}
+		})
+	}
+}

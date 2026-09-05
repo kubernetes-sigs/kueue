@@ -728,13 +728,28 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 
 	if len(p.list.Items) > 0 {
 		p.isFound = true
-		p.pod = p.list.Items[0]
+		p.pod = groupRepresentativePod(p.list.Items)
 		key.Name = p.pod.Name
 	}
 
 	// If none of the pods in group are found,
 	// the respective workload should be finalized
 	return !p.isFound, nil
+}
+
+// groupRepresentativePod picks a deterministic pod to back Object() for a group,
+// instead of relying on List's unspecified ordering. Object().GetUID() is used
+// elsewhere as the job's identity, so an arbitrary Items[0] can report a different
+// UID on every read of the very same, unchanged group. The oldest pod (ties broken
+// by name) is stable across repeated reads and is never displaced by pods joining
+// the group later.
+func groupRepresentativePod(pods []corev1.Pod) corev1.Pod {
+	return slices.MinFunc(pods, func(a, b corev1.Pod) int {
+		return cmputil.LazyOr(
+			func() int { return a.CreationTimestamp.Compare(b.CreationTimestamp.Time) },
+			func() int { return cmp.Compare(a.Name, b.Name) },
+		)
+	})
 }
 
 // fastAdmission determines if the pod is configured for fast admission based on specific annotations.
