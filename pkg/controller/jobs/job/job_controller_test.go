@@ -3782,12 +3782,12 @@ func TestReconciler(t *testing.T) {
 			},
 			job: baseJobWrapper.
 				Clone().
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				OwnerReferenceWithUID("parent", batchv1.SchemeGroupVersion.WithKind("Job"), "parent").
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				OwnerReferenceWithUID("parent", batchv1.SchemeGroupVersion.WithKind("Job"), "parent").
 				Suspend(false).
 				Obj(),
 			otherJobs: []batchv1.Job{
@@ -3825,12 +3825,12 @@ func TestReconciler(t *testing.T) {
 			},
 			job: baseJobWrapper.
 				Clone().
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				OwnerReferenceWithUID("parent", batchv1.SchemeGroupVersion.WithKind("Job"), "parent").
 				Suspend(false).
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				OwnerReferenceWithUID("parent", batchv1.SchemeGroupVersion.WithKind("Job"), "parent").
 				Obj(),
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
@@ -3870,13 +3870,13 @@ func TestReconciler(t *testing.T) {
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				OwnerReferenceWithUID("parent", batchv1.SchemeGroupVersion.WithKind("Job"), "parent").
 				Queue("test-queue").
 				Obj(),
 			wantJob: *baseJobWrapper.
 				Clone().
 				Suspend(false).
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				OwnerReferenceWithUID("parent", batchv1.SchemeGroupVersion.WithKind("Job"), "parent").
 				Queue("test-queue").
 				Obj(),
 			otherJobs: []batchv1.Job{

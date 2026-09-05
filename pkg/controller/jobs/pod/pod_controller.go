@@ -51,6 +51,7 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
@@ -61,6 +62,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 )
 
 const (
@@ -82,13 +84,18 @@ const (
 const (
 	// WorkloadPodsFailed means that at least one Pod are not runnable or not succeeded.
 	WorkloadPodsFailed = "PodsFailed"
+	// WorkloadComposeRejected means the pod group cannot be composed into the workload.
+	WorkloadComposeRejected = "ComposeRejected"
 )
+
+const podControllerWorkloadStatusOwner = constants.KueueName + "-pod-controller"
 
 var (
 	gvk                            = corev1.SchemeGroupVersion.WithKind("Pod")
 	errIncorrectReconcileRequest   = errors.New("event handler error: got a single pod reconcile request for a pod group")
 	errPendingOps                  = jobframework.UnretryableError("waiting to observe previous operations on pods")
 	errNotPodGroupWorkload         = jobframework.UnretryableError("a workload with the pod group name already exists but was not created by the pod group framework")
+	errPodExceedsRoleRequests      = jobframework.UnretryableError("a pod requests more resources than reserved for its role in the workload")
 	errPodGroupLabelsMismatch      = errors.New("constructing workload: pods have different label values")
 	errPodGroupAnnotationsMismatch = errors.New("constructing workload: pods have different annotation values")
 	realClock                      = clock.RealClock{}
@@ -784,57 +791,171 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 }
 
 func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.PodSet, error) {
-	for _, podInGroup := range pods {
-		if !isPodRunnableOrSucceeded(&podInGroup) {
+	var (
+		foundRoleHash string
+		podSets       []kueue.PodSet
+		found         bool
+	)
+	for i := range pods {
+		podInGroup := &pods[i]
+		if !isPodRunnableOrSucceeded(podInGroup) {
 			continue
 		}
-		roleHash, err := getRoleHash(podInGroup)
+		hash, err := getRoleHash(*podInGroup)
 		if err != nil {
-			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
+			return nil, errRoleHashCalculation(podInGroup.Name, err)
 		}
-		podSets, err := constructPodSets(&podInGroup)
-		if err != nil {
-			return nil, err
-		}
-		podSets[0].Name = kueue.NewPodSetReference(roleHash)
-		podSets[0].Count = int32(groupTotalCount)
-		return podSets, nil
-	}
-
-	return nil, errors.New("failed to find a runnable pod in the group")
-}
-
-func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
-	var resultPodSets []kueue.PodSet
-
-	for _, podInGroup := range pods {
-		if !isPodRunnableOrSucceeded(&podInGroup) {
-			continue
-		}
-
-		roleHash, err := getRoleHash(podInGroup)
-		if err != nil {
-			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
-		}
-
-		podRoleFound := false
-		for psi := range resultPodSets {
-			if string(resultPodSets[psi].Name) == roleHash {
-				podRoleFound = true
-				resultPodSets[psi].Count++
-				break
-			}
-		}
-
-		if !podRoleFound {
-			podSet, err := constructPodSet(&podInGroup)
+		if !found {
+			podSets, err = constructPodSets(podInGroup)
 			if err != nil {
 				return nil, err
 			}
-			podSet.Name = kueue.NewPodSetReference(roleHash)
-
-			resultPodSets = append(resultPodSets, podSet)
+			foundRoleHash = hash
+			podSets[0].Name = kueue.NewPodSetReference(foundRoleHash)
+			podSets[0].Count = int32(groupTotalCount)
+			found = true
+			continue
 		}
+		if hash != foundRoleHash {
+			return nil, errFastAdmissionRoleMismatch(podInGroup.Name, hash, foundRoleHash)
+		}
+		mergeMaxPodSpecsInto(&podSets[0].Template.Spec, &podInGroup.Spec)
+	}
+	if !found {
+		return nil, errors.New("failed to find a runnable pod in the group")
+	}
+	return podSets, nil
+}
+
+// mergeMaxPodSpecsInto merges resource requests per container index, taking the
+// element-wise maximum for each container.
+func mergeMaxPodSpecsInto(template, other *corev1.PodSpec) {
+	if template == nil || other == nil {
+		return
+	}
+	for i := range template.Containers {
+		if i >= len(other.Containers) {
+			continue
+		}
+		merged := mergeMaxRequests(
+			resources.NewRequestsFromResourceList(template.Containers[i].Resources.Requests),
+			resources.NewRequestsFromResourceList(other.Containers[i].Resources.Requests),
+		)
+		template.Containers[i].Resources.Requests = merged.ToResourceList(resources.NewResourceFormatter())
+	}
+}
+
+// mergeMaxRequests returns the element-wise maximum of two request vectors.
+func mergeMaxRequests(base, other resources.Requests) resources.Requests {
+	if other == nil {
+		return base
+	}
+	if base == nil {
+		return other.Clone()
+	}
+	result := base.Clone()
+	other.ForEach(func(name corev1.ResourceName, val int64) {
+		if val > result.ResourceValue(name) {
+			result.Set(name, val)
+		}
+	})
+	return result
+}
+
+// podWithMaxRequests returns a pod template whose requests are the element-wise
+// maximum across all pods in the group, per container.
+func podWithMaxRequests(pods []corev1.Pod) *corev1.Pod {
+	if len(pods) == 0 {
+		return nil
+	}
+	template := pods[0].DeepCopy()
+	for i := 1; i < len(pods); i++ {
+		mergeMaxPodSpecsInto(&template.Spec, &pods[i].Spec)
+	}
+	return template
+}
+
+// podExceedsRequests reports whether the pod requests more of any resource than reserved
+// for its role. Unreserved / missing reserved keys count as zero.
+func podExceedsRequests(pod *corev1.Pod, reserved resources.Requests) bool {
+	actual := resources.NewRequestsFromPodSpec(&pod.Spec)
+	if reserved == nil {
+		reserved = resources.NewRequests()
+	}
+	for name, val := range actual.Iter() {
+		if val > reserved.ResourceValue(name) {
+			return true
+		}
+	}
+	return false
+}
+
+func errFastAdmissionRoleMismatch(podName, gotRole, expectedRole string) error {
+	return jobframework.UnretryableError(fmt.Sprintf(
+		"pod %q has role %q but fast admission requires all pods to have the same role %q",
+		podName, gotRole, expectedRole))
+}
+
+func errRoleHashCalculation(podName string, err error) error {
+	return fmt.Errorf("failed to calculate pod role hash for pod %q: %w", podName, err)
+}
+
+func errRoleHashCalculations(errs []error) error {
+	return fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(errs...))
+}
+
+// validateFastAdmissionSingleRole ensures every active pod shares the expected role hash.
+func validateFastAdmissionSingleRole(activePods []corev1.Pod, expectedRole string) error {
+	for i := range activePods {
+		pod := &activePods[i]
+		hash, err := getRoleHash(*pod)
+		if err != nil {
+			return errRoleHashCalculation(pod.Name, err)
+		}
+		if hash != expectedRole {
+			return errFastAdmissionRoleMismatch(pod.Name, hash, expectedRole)
+		}
+	}
+	return nil
+}
+
+func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
+	type roleInfo struct {
+		pods []corev1.Pod
+	}
+	roles := make(map[string]*roleInfo)
+	var roleOrder []string
+
+	for _, podInGroup := range pods {
+		if !isPodRunnableOrSucceeded(&podInGroup) {
+			continue
+		}
+
+		roleHash, err := getRoleHash(podInGroup)
+		if err != nil {
+			return nil, errRoleHashCalculation(podInGroup.Name, err)
+		}
+
+		info, ok := roles[roleHash]
+		if !ok {
+			info = &roleInfo{}
+			roles[roleHash] = info
+			roleOrder = append(roleOrder, roleHash)
+		}
+		info.pods = append(info.pods, podInGroup)
+	}
+
+	resultPodSets := make([]kueue.PodSet, 0, len(roles))
+	for _, roleHash := range roleOrder {
+		info := roles[roleHash]
+		templatePod := podWithMaxRequests(info.pods)
+		podSet, err := constructPodSet(templatePod)
+		if err != nil {
+			return nil, err
+		}
+		podSet.Name = kueue.NewPodSetReference(roleHash)
+		podSet.Count = int32(len(info.pods))
+		resultPodSets = append(resultPodSets, podSet)
 	}
 
 	slices.SortFunc(resultPodSets, func(a, b kueue.PodSet) int {
@@ -1318,6 +1439,21 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	// Cleanup excess pods for each workload pod set (role)
 	activePods, inactivePods := p.partitionPods()
 
+	// Fast admission reserves one role for the group; refuse adoption if an active pod
+	// has a different role rather than silently dropping it.
+	if p.fastAdmission() && len(workload.Spec.PodSets) > 0 {
+		// For pod groups, PodSet.Name is the role hash (NewPodSetReference(roleHash)).
+		expectedRole := string(workload.Spec.PodSets[0].Name)
+		if err := validateFastAdmissionSingleRole(activePods, expectedRole); err != nil {
+			if jobframework.IsUnretryableError(err) {
+				if patchErr := p.patchComposeRejected(ctx, c, workload, r, nil, err.Error()); patchErr != nil {
+					log.Error(patchErr, "Unable to patch workload compose rejected condition")
+				}
+			}
+			return nil, nil, err
+		}
+	}
+
 	var absentPods int
 	var keptPods []corev1.Pod
 	var excessActivePods []corev1.Pod
@@ -1337,7 +1473,24 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		roleActivePods := utilslices.Pick(activePods, hasRoleFunc)
 		roleInactivePods := utilslices.Pick(inactivePods, hasRoleFunc)
 		if len(roleHashErrors) > 0 {
-			return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(roleHashErrors...))
+			return nil, nil, errRoleHashCalculations(roleHashErrors)
+		}
+
+		// Reject pods that request more than their role reserved; refuse adoption, do not delete the Workload.
+		if features.Enabled(features.PodIntegrationRecomputeRoleHash) {
+			reserved := resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+			for i := range roleActivePods {
+				pod := &roleActivePods[i]
+				if podExceedsRequests(pod, reserved) {
+					msg := fmt.Sprintf("Pod requests exceed the resources reserved for role %q in workload %q; this pod group cannot be admitted", ps.Name, groupName)
+					log.V(4).Info("Pod requests exceed the reserved requests of its role in the workload; refusing adoption",
+						"workload", klog.KObj(workload), "pod", klog.KObj(pod), "role", ps.Name)
+					if patchErr := p.patchComposeRejected(ctx, c, workload, r, pod, msg); patchErr != nil {
+						log.Error(patchErr, "Unable to patch workload compose rejected condition")
+					}
+					return nil, nil, errPodExceedsRoleRequests
+				}
+			}
 		}
 
 		absentPods += p.countAbsentPods(ps, len(roleActivePods))
@@ -1482,7 +1635,62 @@ func (p *Pod) CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, 
 			needToUpdateWorkload = true
 		}
 	}
+	if condition, updated := p.composeRejectedCondition(wl); condition != nil {
+		conditions = append(conditions, *condition)
+		if updated {
+			needToUpdateWorkload = true
+		}
+	}
 	return conditions, needToUpdateWorkload
+}
+
+func (p *Pod) patchComposeRejected(ctx context.Context, c client.Client, wl *kueue.Workload, r events.EventRecorder, pod *corev1.Pod, message string) error {
+	var newlyRejected bool
+	err := workloadpatching.PatchStatus(ctx, c, wl, podControllerWorkloadStatusOwner, func(wl *kueue.Workload) (bool, error) {
+		cond := apimeta.FindStatusCondition(wl.Status.Conditions, WorkloadComposeRejected)
+		if cond != nil && cond.Status == metav1.ConditionTrue {
+			if cond.Message == message {
+				return false, nil
+			}
+			cond = cond.DeepCopy()
+		} else {
+			newlyRejected = true
+			cond = &metav1.Condition{Type: WorkloadComposeRejected}
+		}
+		cond.Status = metav1.ConditionTrue
+		cond.Reason = jobframework.ReasonErrWorkloadCompose
+		cond.Message = message
+		cond.ObservedGeneration = wl.Generation
+		cond.LastTransitionTime = metav1.NewTime(p.clock.Now())
+		apimeta.SetStatusCondition(&wl.Status.Conditions, *cond)
+		return true, nil
+	})
+	if err != nil {
+		return err
+	}
+	if newlyRejected {
+		eventObj := pod
+		if eventObj == nil {
+			eventObj = &p.pod
+		}
+		r.Eventf(eventObj, nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", api.TruncateEventMessage(message))
+	}
+	return nil
+}
+
+func (p *Pod) composeRejectedCondition(wl *kueue.Workload) (*metav1.Condition, bool) {
+	composeCond := apimeta.FindStatusCondition(wl.Status.Conditions, WorkloadComposeRejected)
+	if composeCond == nil || composeCond.Status != metav1.ConditionTrue {
+		return nil, false
+	}
+
+	composeCond = composeCond.DeepCopy()
+	composeCond.Status = metav1.ConditionFalse
+	composeCond.Reason = kueue.WorkloadPodsReady
+	composeCond.Message = "No compose issues"
+	composeCond.ObservedGeneration = wl.Generation
+	composeCond.LastTransitionTime = metav1.NewTime(p.clock.Now())
+	return composeCond, true
 }
 
 func (p *Pod) waitingForReplacementPodsCondition(wl *kueue.Workload) (*metav1.Condition, bool) {
