@@ -5608,6 +5608,83 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		})
 	})
 
+	ginkgo.It("Should update the timeout on a quota-reserved workload slice before admission", func() {
+		admissionCheck := utiltestingapi.MakeAdmissionCheck("slice-timeout-check").
+			ControllerName("example.com/slice-timeout-check").
+			Obj()
+		util.MustCreate(ctx, k8sClient, admissionCheck)
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(util.DeleteObject(ctx, k8sClient, admissionCheck)).To(gomega.Succeed())
+		})
+		util.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
+
+		ginkgo.By("configuring an admission check that keeps the reserved slice from admission", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
+				clusterQueue.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{{
+						Name: kueue.AdmissionCheckReference(admissionCheck.Name),
+					}},
+				}
+				g.Expect(k8sClient.Update(ctx, clusterQueue)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
+				active := apimeta.FindStatusCondition(clusterQueue.Status.Conditions, kueue.ClusterQueueActive)
+				g.Expect(active).NotTo(gomega.BeNil())
+				g.Expect(active.Status).To(gomega.Equal(metav1.ConditionTrue))
+				g.Expect(active.ObservedGeneration).To(gomega.Equal(clusterQueue.Generation))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		job := testingjob.MakeJob("job-reserved-slice-timeout", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Label(constants.MaxExecTimeSecondsLabel, "5").
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1000m").
+			Parallelism(1).
+			Suspend(true).
+			Obj()
+		util.MustCreate(ctx, k8sClient, job)
+
+		var originalSlice *kueue.Workload
+		ginkgo.By("waiting for the admission check to hold the quota-reserved slice", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				g.Expect(workloads.Items).To(gomega.HaveLen(1))
+				wl := &workloads.Items[0]
+				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+				g.Expect(wl.Status.AdmissionChecks).To(gomega.HaveLen(1))
+				g.Expect(wl.Status.AdmissionChecks[0].Name).To(gomega.Equal(kueue.AdmissionCheckReference(admissionCheck.Name)))
+				g.Expect(wl.Status.AdmissionChecks[0].State).To(gomega.Equal(kueue.CheckStatePending))
+				g.Expect(wl.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(new(int32(5))))
+				originalSlice = wl.DeepCopy()
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("changing the explicit timeout while the slice remains unadmitted", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				job.Labels[constants.MaxExecTimeSecondsLabel] = "10"
+				g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("keeping the same reservation while updating the timeout through the API server", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(originalSlice), wl)).To(gomega.Succeed())
+				g.Expect(wl.UID).To(gomega.Equal(originalSlice.UID))
+				g.Expect(wl.Spec.PodSets[0].Count).To(gomega.Equal(originalSlice.Spec.PodSets[0].Count))
+				g.Expect(wl.Spec.MaximumExecutionTimeSeconds).To(gomega.Equal(new(int32(10))))
+				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeFalse())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should leave an admitted workload slice alone when the new class does not exist", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 
