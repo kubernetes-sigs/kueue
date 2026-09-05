@@ -108,6 +108,7 @@ type scheduleTestCase struct {
 	// wantPreemptionTargetRecomputations is a map of (cluster_queue, result) -> expected counter value
 	// for the preemption_target_recomputations_total metric.
 	wantPreemptionTargetRecomputations map[string]map[string]int
+	wantAssignmentRecomputations       map[assignmentRecomputationLabels]float64
 }
 
 // scheduleTestConfig carries the per-suite fixtures and knobs shared by the core
@@ -157,6 +158,8 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					features.SetFeatureGatesDuringTest(t, scenario)
 					metrics.AdmissionCyclePreemptionSkips.Reset()
 					metrics.PreemptionTargetRecomputationsTotal.Reset()
+					metrics.SchedulingAssignmentRecomputationsTotal.Reset()
+					t.Cleanup(metrics.SchedulingAssignmentRecomputationsTotal.Reset)
 					fg := map[featuregate.Feature]bool{}
 					maps.Copy(fg, tc.featureGates)
 					features.SetFeatureGatesDuringTest(t, fg)
@@ -347,6 +350,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 						}
 					}
 
+					checkAssignmentRecomputations(t, tc.wantAssignmentRecomputations)
 					for cqName, resultWants := range tc.wantPreemptionTargetRecomputations {
 						for result, want := range resultWants {
 							lvs := []string{cqName, result, roletracker.RoleStandalone}
@@ -485,7 +489,8 @@ func TestSchedule(t *testing.T) {
 	}
 	cases := map[string]scheduleTestCase{
 		"use second flavor when the first has no preemption candidates; WhenCanPreempt: MayStopSearch": {
-			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
+			wantAssignmentRecomputations: map[assignmentRecomputationLabels]float64{},
+			featureGates:                 map[featuregate.Feature]bool{features.PartialAdmission: true},
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("other-alpha").
 					Preemption(kueue.ClusterQueuePreemption{
