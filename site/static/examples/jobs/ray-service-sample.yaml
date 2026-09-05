@@ -1,8 +1,11 @@
+# Make sure to increase resource requests and limits before using this example in production.
+# For examples with more realistic resource configuration, see
+# ray-cluster.complete.large.yaml and
+# ray-cluster.autoscaler.large.yaml.
 apiVersion: ray.io/v1
 kind: RayService
 metadata:
-  name: test-rayservice
-  namespace: default
+  name: rayservice-sample
   labels:
     kueue.x-k8s.io/queue-name: user-queue
 spec:
@@ -59,7 +62,7 @@ spec:
           - name: Router
             num_replicas: 1
   rayClusterConfig:
-    rayVersion: '2.46.0' # should match the Ray version in the image of the containers
+    rayVersion: '2.52.0' # should match the Ray version in the image of the containers
     ######################headGroupSpecs#################################
     # Ray head pod template.
     headGroupSpec:
@@ -72,14 +75,14 @@ spec:
         spec:
           containers:
           - name: ray-head
-            image: rayproject/ray:2.46.0
+            image: rayproject/ray:2.52.0
             resources:
               limits:
-                cpu: 4
-                memory: 6Gi
+                cpu: "2"
+                memory: "5Gi"
               requests:
-                cpu: 2
-                memory: 4Gi
+                cpu: "2"
+                memory: "2Gi"
     workerGroupSpecs:
     # the pod replicas in this group typed worker
     - replicas: 1
@@ -96,11 +99,11 @@ spec:
         spec:
           containers:
           - name: ray-worker # must consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric character (e.g. 'my-name',  or '123-abc'
-            image: rayproject/ray:2.46.0
+            image: rayproject/ray:2.52.0
             resources:
               limits:
-                cpu: "2"
-                memory: "4Gi"
-              requests:
                 cpu: "1"
+                memory: "2Gi"
+              requests:
+                cpu: "500m"
                 memory: "2Gi"

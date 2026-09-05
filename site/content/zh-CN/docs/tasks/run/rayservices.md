@@ -10,25 +10,18 @@ description: >
 本页演示如何利用 Kueue 的调度与资源管理能力运行
 [RayService](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/rayservice-quick-start.html) 。
 
-在v0.17.0之前，Kueue 通过为 RayService 创建的 RayCluster 来管理 RayService。从v0.17.0开始，Kueue 可以直接管理 RayService，类似其直接管理 RayJob，
-不再通过 RayCluster。
+Kueue 可以直接管理 RayService，类似其直接管理 RayJob。
 
 本指南面向对 Kueue 有基本了解的、[对外提供服务的用户](/zh-cn/docs/tasks#serving-user)。
 更多信息，请参见 [Kueue 概览](/zh-cn/docs/overview)。
 
 ## 开始之前 {#before-you-begin}
 
-1. 请确保你使用的是 Kueue v0.6.0 版本或更高版本，以及 KubeRay v1.3.0 或更高版本。
+1. 请确保你使用的是 Kueue v0.17.0 或更高版本，以及 KubeRay v1.3.0 或更高版本。
 
 2. 请参见 [管理集群配额](/zh-cn/docs/tasks/manage/administer_cluster_quotas)了解初始 Kueue 设置的详细信息。
 
 3. 请参见 [KubeRay 安装说明](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html#step-2-deploy-a-kuberay-operator)了解 KubeRay 的安装和配置详情。
-
-{{% alert title="注意" color="primary" %}}
-RayService 通过 RayCluster 由 Kueue 管理；
-在 v0.17.0 之前，你需要在完成安装后重启 Kueue 才能使用 RayCluster。你可以通过运行
-`kubectl delete pods -l control-plane=controller-manager -n kueue-system` 来完成此操作。
-{{% /alert %}}
 
 ## RayService 定义 {#rayservice-definition}
 
@@ -71,11 +64,28 @@ spec:
 
 ### c. Suspend 控制 {#c-suspend-control}
 
-Kueue 控制 RayService 的 `spec.suspend` 字段。当 RayService 被 Kueue 接纳时，Kueue 会通过将 `spec.suspend` 设置为 `false` 来取消暂停，无论其之前的值是什么。
+Kueue 控制 RayService 的 `spec.rayClusterConfig.suspend` 字段。当 RayService 被 Kueue 接纳时，Kueue 会通过将 `spec.rayClusterConfig.suspend` 设置为 `false` 来取消暂停，无论其之前的值是什么。
 
 ### d. 限制事项 {#c-limitations}
-- 有限的 Worker Group：由于 Kueue 工作负载最多可以有 8 个 PodSet,
-  所以`spec.rayClusterConfig.workerGroupSpecs` 的最大数量为 7。
+- 内建自动扩缩约束：自动扩缩仅支持[弹性](/zh-cn/docs/concepts/elastic_workload) RayService 对象。要启用内建自动扩缩：
+
+  1. 启用 `ElasticJobsViaWorkloadSlices` 特性门控。
+  2. 为 RayService 对象添加注解：
+
+     ```yaml
+     metadata:
+       annotations:
+         kueue.x-k8s.io/elastic-job: "true"
+     ```
+  3. 设置以下字段启用 RayService 的 Ray 自动扩缩器：
+
+     ```yaml
+     spec:
+       rayClusterConfig:
+         enableInTreeAutoscaling: true
+     ```
+
+- 滚动升级限制：Kueue 的工作负载切片特性目前仅管理单个活跃集群的配额。启用工作负载切片时，暂不支持创建二级临时集群的升级策略（`spec.upgradeStrategy.type: NewCluster` 或 `NewClusterWithIncrementalUpgrade`），因为待处理集群的 Pod 会保持被门控状态。要在使用工作负载切片的同时进行自动扩缩，请使用 `spec.upgradeStrategy.type: None` 或进行就地更新。
 
 ## RayService 示例{#example-rayservice}
 
@@ -84,6 +94,6 @@ RayService 如下所示：
 {{< include "examples/jobs/ray-service-sample.yaml" "yaml" >}}
 
 {{% alert title="注意" color="primary" %}}
-上述示例来自[这里](https://raw.githubusercontent.com/ray-project/kuberay/v1.4.2/ray-operator/config/samples/ray-service.sample.yaml)，
-仅添加了 `queue-name` 标签并更新了请求。
+上述示例来自[KubeRay RayService 示例](https://raw.githubusercontent.com/ray-project/kuberay/v1.7.0/ray-operator/config/samples/ray-service.sample.yaml)，
+仅添加了 `queue-name` 标签。
 {{% /alert %}}
