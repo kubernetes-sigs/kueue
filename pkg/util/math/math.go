@@ -46,6 +46,24 @@ func SaturatingSub(a, b int64) int64 {
 	return a - b
 }
 
+// SaturatingCeilToNonNegativeInt64 rounds v up to an int64 in [0, MaxInt64].
+// A conversion straight from a float outside the int64 range is not defined to
+// give a usable value, and a finite share can leave that range now that amounts
+// aggregate exactly, so every caller that promises a value in that range has to
+// go through this rather than through int64(math.Ceil(v)).
+func SaturatingCeilToNonNegativeInt64(v float64) int64 {
+	switch {
+	case stdmath.IsNaN(v):
+		return stdmath.MaxInt64
+	case v >= float64(stdmath.MaxInt64):
+		return stdmath.MaxInt64
+	case v <= 0:
+		return 0
+	default:
+		return int64(stdmath.Ceil(v))
+	}
+}
+
 var (
 	maxMilliValue = *resource.NewMilliQuantity(stdmath.MaxInt64, resource.DecimalSI)
 	minMilliValue = *resource.NewMilliQuantity(stdmath.MinInt64, resource.DecimalSI)

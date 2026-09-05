@@ -27,25 +27,25 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/queue"
 )
 
-func TestClusterQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
+func TestClusterQueueResourceMetricsReportPastFloat64AsInf(t *testing.T) {
 	defer kueuemetrics.InitMetricVectors(nil)
 
 	formatter := resources.NewResourceFormatter()
 	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}
-	unlimited := resources.Unlimited
+	pastFloat := pastFloat64()
 	cq := &clusterQueue{
-		Name:              "unlimited-cq",
-		AdmittedUsage:     resources.FlavorResourceQuantities{fr: unlimited},
+		Name:              "past-float64-cq",
+		AdmittedUsage:     resources.FlavorResourceQuantities{fr: pastFloat},
 		resourceFormatter: formatter,
 		customLabels:      kueuemetrics.NewCustomLabels(nil),
 		resourceNode:      NewResourceNode(),
 	}
 	cq.resourceNode.Quotas[fr] = ResourceQuota{
-		Nominal:        unlimited,
-		BorrowingLimit: &unlimited,
-		LendingLimit:   &unlimited,
+		Nominal:        pastFloat,
+		BorrowingLimit: &pastFloat,
+		LendingLimit:   &pastFloat,
 	}
-	cq.resourceNode.Usage[fr] = unlimited
+	cq.resourceNode.Usage[fr] = pastFloat
 
 	cq.reportResourceMetrics(false)
 
@@ -63,16 +63,16 @@ func TestClusterQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
 	expectGaugeValue(t, kueuemetrics.ClusterQueueResourceUsage, labels, math.Inf(1))
 }
 
-func TestLocalQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
+func TestLocalQueueResourceMetricsReportPastFloat64AsInf(t *testing.T) {
 	defer kueuemetrics.InitMetricVectors(nil)
 
 	formatter := resources.NewResourceFormatter()
 	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceMemory}
-	unlimited := resources.Unlimited
+	pastFloat := pastFloat64()
 	lq := &LocalQueue{
-		key:               queue.NewLocalQueueReference("namespace", "unlimited-lq"),
-		totalReserved:     resources.FlavorResourceQuantities{fr: unlimited},
-		admittedUsage:     resources.FlavorResourceQuantities{fr: unlimited},
+		key:               queue.NewLocalQueueReference("namespace", "past-float64-lq"),
+		totalReserved:     resources.FlavorResourceQuantities{fr: pastFloat},
+		admittedUsage:     resources.FlavorResourceQuantities{fr: pastFloat},
 		customLabels:      kueuemetrics.NewCustomLabels(nil),
 		resourceFormatter: formatter,
 	}
@@ -80,7 +80,7 @@ func TestLocalQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
 	lq.reportResourceMetrics(map[resources.FlavorResource]ResourceQuota{fr: {}}, nil)
 
 	labels := map[string]string{
-		"name":         "unlimited-lq",
+		"name":         "past-float64-lq",
 		"namespace":    "namespace",
 		"flavor":       string(fr.Flavor),
 		"resource":     string(fr.Resource),

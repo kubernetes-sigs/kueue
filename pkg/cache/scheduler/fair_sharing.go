@@ -25,6 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 const (
@@ -48,6 +49,11 @@ type DRS struct {
 	// borrowing tracks whether the node's current usage
 	// exceeds its quota for any resource.
 	borrowing bool
+	// ratioDefined tracks whether any borrowed resource had a positive
+	// lendable amount to divide by. A borrower for which none did never
+	// reaches the division, so its zero is an absent ratio rather than one
+	// that underflowed, and the two are not corrected the same way.
+	ratioDefined bool
 	// borrowedFRs records which FlavorResources the node is
 	// currently borrowing on.
 	borrowedFRs []resources.FlavorResource
@@ -58,12 +64,12 @@ func NegativeDRS() DRS {
 	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: defaultWeight}
 }
 
-// IsZero returns whether the DRS unweighted ratio is 0.
-// In the current implementation, DRS unweighted ratio is zero
-// if and only if it is not borrowing any resources.
-// This may change in the future if the DRS implementation changes.
+// IsZero returns whether this DRS represents no share at all, which means not
+// borrowing. The ratio alone cannot answer that: a borrower whose share is
+// small enough rounds to zero in float64 while it is still borrowing, so the
+// flag decides and the ratio only breaks the remaining tie.
 func (d DRS) IsZero() bool {
-	return d.unweightedRatio == 0
+	return !d.borrowing && d.unweightedRatio == 0
 }
 
 // IsBorrowing returns whether the node's current usage exceeds
@@ -87,6 +93,13 @@ func (d DRS) isWeightZero() bool {
 	return d.fairWeight == 0
 }
 
+// PreciseWeightedShare returns the share of the node once its weight is
+// applied. A borrower whose ratio was taken never reports zero, which is what a
+// node below its nominal quota reports: the weight division can round a share
+// that survived the ratio down to zero. A borrower for which no resource had a
+// positive lendable amount never reached a division at all, and keeps the zero
+// it has today. A NaN, which two infinities reach, orders with the zero-weight
+// borrowers rather than below every finite share.
 func (d DRS) PreciseWeightedShare() float64 {
 	if d.IsZero() {
 		return 0.0
@@ -94,7 +107,22 @@ func (d DRS) PreciseWeightedShare() float64 {
 	if d.isWeightZero() {
 		return math.Inf(1)
 	}
-	return d.unweightedRatio / d.fairWeight
+	share := d.unweightedRatio / d.fairWeight
+	switch {
+	case math.IsNaN(share):
+		return math.Inf(1)
+	case d.borrowing && d.ratioDefined && share == 0:
+		// A ratio was taken and came back as zero, which only a magnitude
+		// float64 cannot hold produces. The node is borrowing, so it must not
+		// report the value a node inside its quota reports.
+		return math.SmallestNonzeroFloat64
+	default:
+		// A borrower with no positive lendable denominator falls through with
+		// its zero. Whether such a node should outrank an idle one is a
+		// fair-sharing policy question rather than an arithmetic one, and this
+		// change does not answer it.
+		return share
+	}
 }
 
 // PreciseWeightedShareSerialized returns the DRS value
@@ -122,29 +150,28 @@ func CompareDRS(a, b DRS) int {
 	}
 }
 
-// roundedWeightedShare returns a value ranging from 0 to math.MaxInt,
+// roundedWeightedShare returns a value ranging from 0 to math.MaxInt64,
 // representing the maximum of the ratios of usage above nominal quota
 // to the lendable resources in the cohort, among all the resources
 // provided by the ClusterQueue, and divided by the weight.  If zero,
-// it means that the usage of the ClusterQueue is below the nominal
-// quota.  The function also returns the resource name that yielded
-// this value.  When the FairSharing weight is 0, and the ClusterQueue
-// or Cohort is borrowing, we return math.MaxInt.
+// the usage is below the nominal quota, or the borrower had no
+// positive lendable amount to divide by.  The function also returns
+// the resource name that yielded this value.  When the FairSharing
+// weight is 0, and the ClusterQueue or Cohort is borrowing, we return
+// math.MaxInt64.
 func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
-	var weightedShare int64
-	if d.ZeroWeightBorrows() {
-		weightedShare = math.MaxInt64
-	} else {
-		weightedShare = int64(math.Ceil(d.PreciseWeightedShare()))
-	}
-	return weightedShare, d.dominantResource
+	// The conversion the ClusterQueue and Cohort status write through, so a
+	// test and an operator cannot read two different rules.
+	return utilmath.SaturatingCeilToNonNegativeInt64(d.PreciseWeightedShare()), d.dominantResource
 }
 
 // ZeroWeightBorrows returns whether this DRS represents a
 // borrowing state for a ClusterQueue/Cohort with a zero weight.
-// This is equivalent to PreciseWeightedShare returning +Inf.
+// It implies PreciseWeightedShare returning +Inf. The reverse does
+// not hold: a positive weight reaches +Inf too when the division is
+// NaN, which two infinities produce.
 func (d DRS) ZeroWeightBorrows() bool {
-	return d.isWeightZero() && !d.IsZero()
+	return d.isWeightZero() && d.borrowing
 }
 
 func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) DRS {
@@ -171,7 +198,8 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	lendable := calculateLendable(node.parentHRN())
 	for rName, b := range borrowing {
 		if lr := lendable[rName]; lr.CmpInt64(0) > 0 {
-			ratio := float64(b.Int64()) * 1000.0 / float64(lr.Int64())
+			drs.ratioDefined = true
+			ratio := b.PerThousandOf(lr)
 			// Use alphabetical order to get a deterministic resource name.
 			if ratio > drs.unweightedRatio || (ratio == drs.unweightedRatio && rName < drs.dominantResource) {
 				drs.unweightedRatio = ratio

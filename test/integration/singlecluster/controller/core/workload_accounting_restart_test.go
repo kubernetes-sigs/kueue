@@ -86,6 +86,97 @@ var _ = ginkgo.Describe("Workload accounting across a manager restart", func() {
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	}
 
+	// The sequence from kueue#14105, through the API rather than through the
+	// cache. Reaching a single ledger past int64 needs the capacity to admit it,
+	// which one ClusterQueue cannot hold on its own because a nominal quota is a
+	// Quantity: the borrower uses the seven it owns and borrows the rest from
+	// the lender, so both Workloads are admitted on their merits and the
+	// borrowed total is MaxInt64+7. Constructing the same state by writing
+	// reservations directly does not work, because the controller returns a
+	// Workload the scheduler will not admit to pending.
+	ginkgo.It("keeps a borrowed total past int64 across a restart, and gives it back exactly", func() {
+		const gpu = corev1.ResourceName("example.com/gpu")
+		const maxInt64 = "9223372036854775807"
+
+		bigFlavor := utiltestingapi.MakeResourceFlavor("on-demand-big").Obj()
+		util.MustCreate(ctx, k8sClient, bigFlavor)
+
+		cohort := utiltestingapi.MakeCohort("restart-cohort").Obj()
+		util.MustCreate(ctx, k8sClient, cohort)
+
+		lender := utiltestingapi.MakeClusterQueue("cq-restart-lender").
+			Cohort("restart-cohort").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(bigFlavor.Name).
+				Resource(gpu, maxInt64).Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, lender)
+
+		borrower := utiltestingapi.MakeClusterQueue("cq-restart-borrower").
+			Cohort("restart-cohort").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(bigFlavor.Name).
+				Resource(gpu, "7").Obj()).
+			Obj()
+		util.MustCreate(ctx, k8sClient, borrower)
+		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, lender, borrower)
+
+		lq := utiltestingapi.MakeLocalQueue("queue-borrower", ns.Name).ClusterQueue(borrower.Name).Obj()
+		util.MustCreate(ctx, k8sClient, lq)
+		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+
+		expectBorrowerReservation := func(total string) {
+			gomega.Eventually(func(g gomega.Gomega) {
+				read := kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(borrower), &read)).To(gomega.Succeed())
+				g.Expect(read.Status.FlavorsReservation).To(gomega.HaveLen(1))
+				g.Expect(read.Status.FlavorsReservation[0].Resources).To(gomega.HaveLen(1))
+				got := read.Status.FlavorsReservation[0].Resources[0].Total
+				g.Expect(got.Equal(resource.MustParse(total))).To(gomega.BeTrue(),
+					"reservation = %s, want %s", got.String(), total)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}
+
+		big := utiltestingapi.MakeWorkload("borrowed-max", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).Request(gpu, maxInt64).Obj()
+		small := utiltestingapi.MakeWorkload("borrowed-seven", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).Request(gpu, "7").Obj()
+
+		ginkgo.By("admitting both, so the ledger holds MaxInt64+7", func() {
+			util.MustCreate(ctx, k8sClient, big)
+			util.MustCreate(ctx, k8sClient, small)
+			// Both admitted on their merits is the premise; without it the
+			// capped status below would pass whether or not the second counted.
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, big, small)
+			// MaxInt64+7 is past what a Quantity carries, so the status reports
+			// the largest magnitude it can. The removal below reads back what
+			// the accounting actually held.
+			expectBorrowerReservation(maxInt64)
+		})
+
+		ginkgo.By("restarting the manager", func() {
+			fwk.StopManager(ctx)
+			fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+		})
+
+		ginkgo.By("finding the rebuilt total unchanged", func() {
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, big, small)
+			expectBorrowerReservation(maxInt64)
+		})
+
+		ginkgo.By("removing the larger reservation and finding the smaller one intact", func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, big, true)
+			expectBorrowerReservation("7")
+		})
+
+		ginkgo.By("tearing this cohort down before the suite reclaims the shared objects", func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, small, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, borrower, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lender, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, bigFlavor, true)
+		})
+	})
+
 	ginkgo.It("keeps the effective-resource accounting after a restart", func() {
 		wl := utiltestingapi.MakeWorkload("adjusted", ns.Name).
 			Queue(kueue.LocalQueueName(localQueue.Name)).

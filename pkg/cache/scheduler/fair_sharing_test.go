@@ -733,9 +733,9 @@ func TestDominantResourceShare(t *testing.T) {
 			},
 		},
 		// When the lending CQ holds an "exabyte-scale" quota (1E CPU), AmountFromQuantity
-		// returns Unlimited (math.MaxInt64 sentinel). calculateLendable then aggregates
-		// potentialAvailable and lendable["cpu"] saturates to Unlimited (MaxInt64).
-		// The ratio float64(b.Int64())*1000/float64(lr.Int64()) evaluates to a tiny
+		// is exact past int64. calculateLendable then aggregates potentialAvailable
+		// and lendable["cpu"] carries the whole of it.
+		// b.PerThousandOf(lr) divides the exact operands and evaluates to a tiny
 		// positive finite number; math.Ceil rounds it up to 1. This test pins that
 		// behaviour and guards against NaN/Inf regressions.
 		"borrowing against unlimited lendable capacity (exabyte-scale quota)": {
@@ -755,7 +755,7 @@ func TestDominantResourceShare(t *testing.T) {
 				FairWeight(resource.MustParse("1")).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").
-						// "1E" CPU overflows int64 milliCPU → AmountFromQuantity returns Unlimited.
+						// "1E" CPU is past int64 in milliCPU and is charged as the number it is.
 						ResourceQuotaWrapper("cpu").NominalQuota("1E").Append().
 						Obj(),
 				).Obj(),
@@ -763,7 +763,8 @@ func TestDominantResourceShare(t *testing.T) {
 				{
 					Name:     "cq",
 					NodeType: nodeTypeCq,
-					// ratio = float64(1000)*1000/float64(MaxInt64) ≈ 1.09e-13; math.Ceil → 1.
+					// ratio = 1000*1000/10^21 = 1e-15, the whole 1E quota being lendable;
+					// math.Ceil → 1.
 					DrValue:   1,
 					DrName:    corev1.ResourceCPU,
 					Borrowing: true,
@@ -811,7 +812,7 @@ func TestDominantResourceShare(t *testing.T) {
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
-				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
+				quantity := quantityForTest(fr.Resource, v)
 				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
@@ -960,7 +961,7 @@ func TestIsBorrowingOn(t *testing.T) {
 			i := 0
 			for fr, v := range tc.usage {
 				admission := utiltestingapi.MakeAdmission("cq")
-				quantity := resources.NewResourceFormatter().ResourceQuantity(fr.Resource, v.Int64())
+				quantity := quantityForTest(fr.Resource, v)
 				admission.PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Assignment(fr.Resource, fr.Flavor, quantity.String()).
 					Obj())
@@ -989,7 +990,7 @@ func TestZeroWeightBorrows(t *testing.T) {
 		want bool
 	}{
 		"zero weight and borrowing returns true": {
-			drs:  DRS{fairWeight: 0, unweightedRatio: 100},
+			drs:  DRS{fairWeight: 0, unweightedRatio: 100, borrowing: true},
 			want: true,
 		},
 		"zero weight and not borrowing returns false": {
@@ -997,8 +998,14 @@ func TestZeroWeightBorrows(t *testing.T) {
 			want: false,
 		},
 		"non-zero weight and borrowing returns false": {
-			drs:  DRS{fairWeight: 1, unweightedRatio: 100},
+			drs:  DRS{fairWeight: 1, unweightedRatio: 100, borrowing: true},
 			want: false,
+		},
+		// A borrower whose share rounds to zero is still a borrower, which
+		// reading the ratio alone could not tell from not borrowing at all.
+		"zero weight borrowing a share too small to show returns true": {
+			drs:  DRS{fairWeight: 0, unweightedRatio: 0, borrowing: true},
+			want: true,
 		},
 	}
 	for name, tc := range cases {
@@ -1039,5 +1046,142 @@ func TestPreciseWeightedShareSerialized(t *testing.T) {
 				t.Errorf("Unexpected string output (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// quantityForTest is the API boundary conversion the cache uses.
+func quantityForTest(name corev1.ResourceName, a resources.Amount) resource.Quantity {
+	q := resources.NewResourceFormatter().AmountQuantity(name, a)
+	return q
+}
+
+// The ratio survives the exact division, then the weight is applied to it. A
+// borrower whose ratio was taken and comes out of the second step at zero
+// reports what a node below its nominal quota reports.
+func TestWeightedShareDoesNotUnderflowBorrowerToZero(t *testing.T) {
+	cases := map[string]DRS{
+		"a share too small to survive the weight": {
+			borrowing: true, ratioDefined: true,
+			unweightedRatio: math.SmallestNonzeroFloat64, fairWeight: 2,
+		},
+		"a weight past float64": {
+			borrowing: true, ratioDefined: true,
+			unweightedRatio: 1, fairWeight: math.Inf(1),
+		},
+	}
+
+	for name, drs := range cases {
+		t.Run(name, func(t *testing.T) {
+			if raw := drs.unweightedRatio / drs.fairWeight; raw != 0 {
+				t.Fatalf("the fixture no longer divides to zero: %v", raw)
+			}
+			if got := drs.PreciseWeightedShare(); got <= 0 {
+				t.Errorf("PreciseWeightedShare() = %v for a borrower, want more than zero", got)
+			}
+		})
+	}
+}
+
+// A borrower none of whose resources had a positive lendable amount never
+// reached a division, so its zero is an absent ratio rather than one that
+// underflowed. What such a node's share should be is a fair-sharing policy
+// question, and this change deliberately leaves it where it is rather than
+// deciding it through the underflow correction.
+func TestWeightedShareLeavesAbsentRatioAlone(t *testing.T) {
+	drs := DRS{borrowing: true, unweightedRatio: 0, fairWeight: defaultWeight}
+	if drs.ratioDefined {
+		t.Fatal("the fixture defines a ratio, so it does not test the absent one")
+	}
+	if got := drs.PreciseWeightedShare(); got != 0 {
+		t.Errorf("PreciseWeightedShare() = %v, want 0", got)
+	}
+	if got, _ := drs.roundedWeightedShare(); got != 0 {
+		t.Errorf("roundedWeightedShare() = %d, want 0", got)
+	}
+}
+
+// A resource with nothing lendable is skipped rather than counted, so the
+// production path leaves the ratio undefined when it is the only one borrowed.
+func TestDominantResourceShareLeavesRatioUndefinedWithoutLendable(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient())
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+	if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("cohort").Obj()); err != nil {
+		t.Fatalf("AddOrUpdateCohort() = %v", err)
+	}
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		Cohort("cohort").
+		NamespaceSelector(nil).
+		FairWeight(resource.MustParse("1")).
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+			ResourceQuotaWrapper("cpu").NominalQuota("0").Append().Obj()).
+		Obj()
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("AddClusterQueue() = %v", err)
+	}
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Snapshot() = %v", err)
+	}
+
+	req := resources.FlavorResourceQuantities{
+		{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+	}
+	drs := dominantResourceShare(snapshot.ClusterQueue("cq"), req)
+	if !drs.borrowing {
+		t.Fatal("the fixture does not borrow, so it does not test the case")
+	}
+	if drs.ratioDefined {
+		t.Error("a resource with nothing lendable defined a ratio")
+	}
+	if got := drs.PreciseWeightedShare(); got != 0 {
+		t.Errorf("PreciseWeightedShare() = %v, want 0", got)
+	}
+}
+
+// Zero from roundedWeightedShare is documented as usage below the nominal
+// quota, so a borrower whose ratio underflowed has to reach at least one.
+func TestRoundedWeightedShareKeepsBorrowerPositive(t *testing.T) {
+	borrower := DRS{
+		borrowing: true, ratioDefined: true,
+		unweightedRatio: math.SmallestNonzeroFloat64, fairWeight: 2,
+	}
+	if got, _ := borrower.roundedWeightedShare(); got < 1 {
+		t.Errorf("roundedWeightedShare() = %d for a borrower, want at least 1", got)
+	}
+	idle := DRS{fairWeight: defaultWeight}
+	if got, _ := idle.roundedWeightedShare(); got != 0 {
+		t.Errorf("roundedWeightedShare() = %d for a node that is not borrowing, want 0", got)
+	}
+}
+
+// A borrower whose ratio underflowed outranks a node that is not borrowing,
+// rather than tying with it and falling through to the next tie-break.
+func TestCompareDRSRanksTinyBorrowerAboveNonBorrower(t *testing.T) {
+	borrower := DRS{
+		borrowing: true, ratioDefined: true,
+		unweightedRatio: math.SmallestNonzeroFloat64, fairWeight: 2,
+	}
+	idle := DRS{fairWeight: defaultWeight}
+	if got := CompareDRS(borrower, idle); got <= 0 {
+		t.Errorf("CompareDRS(borrower, idle) = %d, want a positive value", got)
+	}
+	if got := CompareDRS(idle, borrower); got >= 0 {
+		t.Errorf("CompareDRS(idle, borrower) = %d, want a negative value", got)
+	}
+}
+
+// Two infinities divide to NaN, which compares false against every bound and
+// would otherwise reach a conversion that promises a value in range.
+func TestWeightedShareNaNIsConservative(t *testing.T) {
+	drs := DRS{borrowing: true, unweightedRatio: math.Inf(1), fairWeight: math.Inf(1)}
+	if raw := drs.unweightedRatio / drs.fairWeight; !math.IsNaN(raw) {
+		t.Fatalf("the fixture no longer produces NaN: %v", raw)
+	}
+	if got := drs.PreciseWeightedShare(); !math.IsInf(got, 1) {
+		t.Errorf("PreciseWeightedShare() = %v, want +Inf", got)
+	}
+	if got, _ := drs.roundedWeightedShare(); got != math.MaxInt64 {
+		t.Errorf("roundedWeightedShare() = %d, want %d", got, int64(math.MaxInt64))
 	}
 }

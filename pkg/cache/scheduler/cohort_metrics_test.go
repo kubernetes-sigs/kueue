@@ -163,7 +163,7 @@ func TestRecordCohortMetrics_Guards(t *testing.T) {
 	}
 }
 
-func TestApplyCohortMetricPointReportsUnlimitedAsInf(t *testing.T) {
+func TestApplyCohortMetricPointReportsPastFloat64AsInf(t *testing.T) {
 	defer kueuemetrics.InitMetricVectors(nil)
 
 	cache := New(utiltesting.NewFakeClient())
@@ -175,8 +175,8 @@ func TestApplyCohortMetricPointReportsUnlimitedAsInf(t *testing.T) {
 	cache.applyCohortMetricPoint(cohortMetricPoint{
 		cohortName:      cohortName,
 		flavorResource:  fr,
-		quotaQty:        resources.Unlimited,
-		reservationsQty: resources.Unlimited,
+		quotaQty:        pastFloat64(),
+		reservationsQty: pastFloat64(),
 	})
 
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, labels, math.Inf(1))
@@ -862,4 +862,14 @@ func TestResyncGaugeMetrics_SkipsCohortInfoForCycle(t *testing.T) {
 
 	expectGaugeCount(t, kueuemetrics.CohortInfo, 0, map[string]string{"cohort": "cohort-a"})
 	expectGaugeCount(t, kueuemetrics.CohortInfo, 0, map[string]string{"cohort": "cohort-b"})
+}
+
+// pastFloat64 is an amount larger than float64 can hold, which is what the
+// gauges now report as an infinity.
+func pastFloat64() resources.Amount {
+	a := resources.NewAmount(math.MaxInt64)
+	for range 1100 {
+		a = a.Add(a)
+	}
+	return a
 }
