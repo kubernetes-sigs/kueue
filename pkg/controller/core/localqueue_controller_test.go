@@ -1091,3 +1091,109 @@ func TestLocalQueueReconcileReportsAdmissionFairSharingUsageMetric(t *testing.T)
 		t.Fatalf("Expected LocalQueue AFS usage metric value %v, got %v", wantUsage, got[0].Value)
 	}
 }
+
+// TestLocalQueueUpdateStatusIfChanged verifies the recomputed LocalQueue status and that the status
+// is written to the API server only when it changes.
+func TestLocalQueueUpdateStatusIfChanged(t *testing.T) {
+	const (
+		cqName   = "test-cluster-queue"
+		lqName   = "test-queue"
+		readyMsg = "Can submit new workloads to localQueue"
+	)
+	cases := map[string]struct {
+		localQueue        *kueue.LocalQueue
+		conditionStatus   metav1.ConditionStatus
+		reason            string
+		message           string
+		wantLocalQueue    *kueue.LocalQueue
+		wantStatusUpdates int
+	}{
+		"status unchanged": {
+			localQueue: utiltestingapi.MakeLocalQueue(lqName, "default").
+				ClusterQueue(cqName).
+				Generation(1).
+				Condition(kueue.LocalQueueActive, metav1.ConditionTrue, "Ready", readyMsg, 1).
+				Obj(),
+			conditionStatus: metav1.ConditionTrue,
+			reason:          "Ready",
+			message:         readyMsg,
+			wantLocalQueue: utiltestingapi.MakeLocalQueue(lqName, "default").
+				ClusterQueue(cqName).
+				Generation(1).
+				Condition(kueue.LocalQueueActive, metav1.ConditionTrue, "Ready", readyMsg, 1).
+				Obj(),
+		},
+		"condition changes": {
+			localQueue: utiltestingapi.MakeLocalQueue(lqName, "default").
+				ClusterQueue(cqName).
+				Generation(1).
+				Condition(kueue.LocalQueueActive, metav1.ConditionFalse, clusterQueueIsInactiveReason, clusterQueueIsInactiveMsg, 1).
+				Obj(),
+			conditionStatus: metav1.ConditionTrue,
+			reason:          "Ready",
+			message:         readyMsg,
+			wantLocalQueue: utiltestingapi.MakeLocalQueue(lqName, "default").
+				ClusterQueue(cqName).
+				Generation(1).
+				Condition(kueue.LocalQueueActive, metav1.ConditionTrue, "Ready", readyMsg, 1).
+				Obj(),
+			wantStatusUpdates: 1,
+		},
+		"stale pending workloads count": {
+			localQueue: utiltestingapi.MakeLocalQueue(lqName, "default").
+				ClusterQueue(cqName).
+				Generation(1).
+				PendingWorkloads(3).
+				Condition(kueue.LocalQueueActive, metav1.ConditionTrue, "Ready", readyMsg, 1).
+				Obj(),
+			conditionStatus: metav1.ConditionTrue,
+			reason:          "Ready",
+			message:         readyMsg,
+			wantLocalQueue: utiltestingapi.MakeLocalQueue(lqName, "default").
+				ClusterQueue(cqName).
+				Generation(1).
+				Condition(kueue.LocalQueueActive, metav1.ConditionTrue, "Ready", readyMsg, 1).
+				Obj(),
+			wantStatusUpdates: 1,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			clusterQueue := utiltestingapi.MakeClusterQueue(cqName).Obj()
+			var statusUpdates int
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(clusterQueue, tc.localQueue).
+				WithStatusSubresource(clusterQueue, tc.localQueue).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: utiltesting.CountSubResourceUpdates(&statusUpdates)}).
+				Build()
+			cqCache := schdcache.New(cl)
+			// AddClusterQueue loads the LocalQueues pointing at the ClusterQueue from the client.
+			if err := cqCache.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("Inserting clusterQueue in cache: %v", err)
+			}
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			if err := qManager.AddClusterQueue(ctx, clusterQueue); err != nil {
+				t.Fatalf("Inserting clusterQueue in manager: %v", err)
+			}
+			if err := qManager.AddLocalQueue(ctx, tc.localQueue); err != nil {
+				t.Fatalf("Inserting localQueue in manager: %v", err)
+			}
+			reconciler := NewLocalQueueReconciler(cl, qManager, cqCache)
+
+			if err := reconciler.UpdateStatusIfChanged(ctx, tc.localQueue, tc.conditionStatus, tc.reason, tc.message); err != nil {
+				t.Fatalf("Updating localQueue status: %v", err)
+			}
+			statusCmpOpts := cmp.Options{
+				util.IgnoreConditionTimestamps,
+				cmpopts.EquateEmpty(),
+			}
+			if diff := cmp.Diff(tc.wantLocalQueue.Status, tc.localQueue.Status, statusCmpOpts...); diff != "" {
+				t.Errorf("unexpected LocalQueueStatus (-want,+got):\n%s", diff)
+			}
+			if statusUpdates != tc.wantStatusUpdates {
+				t.Errorf("unexpected number of status updates: want %d, got %d", tc.wantStatusUpdates, statusUpdates)
+			}
+		})
+	}
+}

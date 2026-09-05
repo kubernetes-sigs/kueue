@@ -30,6 +30,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -42,6 +43,8 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
+// TestUpdateCqStatusIfChanged verifies the recomputed ClusterQueue status and that the status is
+// written to the API server only when it changes.
 func TestUpdateCqStatusIfChanged(t *testing.T) {
 	cqName := "test-cq"
 	lqName := "test-lq"
@@ -62,6 +65,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 		newWl               *kueue.Workload
 		wantCqStatus        kueue.ClusterQueueStatus
 		wantError           error
+		wantStatusUpdates   int
 	}{
 		"empty ClusterQueueStatus": {
 			insertCqIntoCache:   true,
@@ -80,6 +84,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					ObservedGeneration: 1,
 				}},
 			},
+			wantStatusUpdates: 1,
 		},
 		"same condition status": {
 			insertCqIntoCache:   true,
@@ -106,6 +111,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					ObservedGeneration: 1,
 				}},
 			},
+			wantStatusUpdates: 1,
 		},
 		"same condition status with different reason and message": {
 			insertCqIntoCache:   true,
@@ -132,6 +138,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					ObservedGeneration: 1,
 				}},
 			},
+			wantStatusUpdates: 1,
 		},
 		"different condition status": {
 			insertCqIntoCache:   true,
@@ -158,6 +165,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 					ObservedGeneration: 1,
 				}},
 			},
+			wantStatusUpdates: 1,
 		},
 		"different pendingWorkloads with same condition status": {
 			insertCqIntoCache:   true,
@@ -177,6 +185,34 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			newMessage:         "Can admit new workloads",
 			wantCqStatus: kueue.ClusterQueueStatus{
 				PendingWorkloads: int32(len(defaultWls.Items) + 1),
+				Conditions: []metav1.Condition{{
+					Type:               kueue.ClusterQueueActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Ready",
+					Message:            "Can admit new workloads",
+					ObservedGeneration: 1,
+				}},
+			},
+			wantStatusUpdates: 1,
+		},
+		"status unchanged": {
+			insertCqIntoCache:   true,
+			insertCqIntoManager: true,
+			cqStatus: kueue.ClusterQueueStatus{
+				PendingWorkloads: int32(len(defaultWls.Items)),
+				Conditions: []metav1.Condition{{
+					Type:               kueue.ClusterQueueActive,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Ready",
+					Message:            "Can admit new workloads",
+					ObservedGeneration: 1,
+				}},
+			},
+			newConditionStatus: metav1.ConditionTrue,
+			newReason:          "Ready",
+			newMessage:         "Can admit new workloads",
+			wantCqStatus: kueue.ClusterQueueStatus{
+				PendingWorkloads: int32(len(defaultWls.Items)),
 				Conditions: []metav1.Condition{{
 					Type:               kueue.ClusterQueueActive,
 					Status:             metav1.ConditionTrue,
@@ -206,7 +242,9 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				ClusterQueue(cqName).Obj()
 			ctx, log := utiltesting.ContextWithLog(t)
 
+			var statusUpdates int
 			cl := utiltesting.NewClientBuilder().WithLists(defaultWls).WithObjects(lq, cq).WithStatusSubresource(lq, cq).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: utiltesting.CountSubResourceUpdates(&statusUpdates)}).
 				Build()
 			cqCache := schdcache.New(cl)
 			options := qcache.WithPreemptionExpectations(preemptexpectations.New())
@@ -248,6 +286,9 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantCqStatus, cq.Status, configCmpOpts...); len(diff) != 0 {
 				t.Errorf("unexpected ClusterQueueStatus (-want,+got):\n%s", diff)
+			}
+			if statusUpdates != tc.wantStatusUpdates {
+				t.Errorf("unexpected number of status updates: want %d, got %d", tc.wantStatusUpdates, statusUpdates)
 			}
 		})
 	}

@@ -130,6 +130,16 @@ func wrapSSAPatch(patch client.Patch) client.Patch {
 	return patch
 }
 
+// CountSubResourceUpdates returns a SubResourceUpdate interceptor function that increments
+// count on every subresource update before delegating to the client. Use it to assert that a
+// reconciler skips the status update when nothing changed.
+func CountSubResourceUpdates(count *int) func(context.Context, client.Client, string, client.Object, ...client.SubResourceUpdateOption) error {
+	return func(ctx context.Context, clnt client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+		*count++
+		return clnt.SubResource(subResourceName).Update(ctx, obj, opts...)
+	}
+}
+
 // TreatSSAAsStrategicMerge - can be used as a SubResourcePatch interceptor function to treat SSA patches as StrategicMergePatchType.
 // Note: By doing so the values set in the patch will be updated but the call will have no knowledge of FieldManagement when it
 // comes to detecting conflicts between managers or removing fields that are missing from the patch.
