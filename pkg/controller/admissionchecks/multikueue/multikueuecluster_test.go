@@ -1830,3 +1830,41 @@ func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
 		t.Fatal("StopWatchers did not return: the watcher goroutine was never joined")
 	}
 }
+
+func TestClientConfigToRESTConfig(t *testing.T) {
+	cases := map[string]struct {
+		config    *clientConfig
+		wantQPS   float32
+		wantBurst int
+	}{
+		"from kubeconfig": {
+			config: &clientConfig{
+				Kubeconfig: []byte(testKubeconfig("worker1")),
+			},
+			wantQPS:   1000,
+			wantBurst: 1000,
+		},
+		"from restConfig": {
+			config: &clientConfig{
+				RestConfig: &rest.Config{},
+			},
+			wantQPS:   1000,
+			wantBurst: 1000,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			restConfig, err := tc.config.toRESTConfig()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if restConfig.QPS != tc.wantQPS {
+				t.Errorf("unexpected QPS, want: %v, got: %v", tc.wantQPS, restConfig.QPS)
+			}
+			if restConfig.Burst != tc.wantBurst {
+				t.Errorf("unexpected Burst, want: %v, got: %v", tc.wantBurst, restConfig.Burst)
+			}
+		})
+	}
+}
