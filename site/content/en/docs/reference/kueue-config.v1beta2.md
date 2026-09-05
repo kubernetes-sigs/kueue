@@ -272,7 +272,7 @@ using the ClusterProfile API.</p>
 </td>
 </tr>
 <tr><td><code>credentialsProviders</code><br/>
-<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileAccessProvider"><code>[]ClusterProfileAccessProvider</code></a>
+<a href="#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider"><code>[]ClusterProfileCredentialsProvider</code></a>
 </td>
 <td>
    <p>CredentialsProviders defines a list of providers to obtain credentials of worker clusters
@@ -316,6 +316,19 @@ are mutually exclusive.</p>
 </tr>
 </tbody>
 </table>
+
+## `ClusterProfileCredentialsProvider`     {#config-kueue-x-k8s-io-v1beta2-ClusterProfileCredentialsProvider}
+    
+
+**Appears in:**
+
+- [ClusterProfile](#config-kueue-x-k8s-io-v1beta2-ClusterProfile)
+
+
+<p>ClusterProfileAccessProvider defines an access provider in the ClusterProfile API.</p>
+
+
+
 
 ## `ControllerConfigurationSpec`     {#config-kueue-x-k8s-io-v1beta2-ControllerConfigurationSpec}
     
@@ -1620,6 +1633,18 @@ is awaited to be scheduled.
 After exceeding the timeout the corresponding job gets suspended again
 and requeued after the backoff delay.
 Defaults to the value of timeout. Setting to &quot;0s&quot; disables recovery timeout checking.</p>
+</td>
+</tr>
+<tr><td><code>maxTimeoutOnWorkload</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>MaxTimeoutOnWorkload defines the upper bound allowed for a per-workload
+PodsReady timeout override (set via the <code>kueue.x-k8s.io/wait-for-pods-ready-timeout-seconds</code>
+annotation). If a workload requests a timeout greater than
+MaxTimeoutOnWorkload, the effective timeout is capped to
+MaxTimeoutOnWorkload. It has no effect on workloads that don't set a
+per-workload override.</p>
 </td>
 </tr>
 </tbody>

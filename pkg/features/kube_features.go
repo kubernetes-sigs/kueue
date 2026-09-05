@@ -629,6 +629,13 @@ const (
 	//
 	// Enables Dynamic Quota Orchestration and respecting Effective Quota in ClusterQueue/Cohort status.
 	DynamicQuotaOrchestration featuregate.Feature = "DynamicQuotaOrchestration"
+
+	// owner: @MaysaMacedo
+	//
+	// Enables setting a per-workload WaitForPodsReady timeout via the
+	// kueue.x-k8s.io/pods-ready-timeout annotation, overriding the cluster-wide
+	// WaitForPodsReady.Timeout for that workload.
+	WorkloadLevelWaitForPodsReady featuregate.Feature = "WorkloadLevelWaitForPodsReady"
 )
 
 func init() {
@@ -975,6 +982,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	DynamicQuotaOrchestration: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	WorkloadLevelWaitForPodsReady: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }

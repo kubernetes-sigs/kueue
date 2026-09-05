@@ -18366,6 +18366,24 @@ spec:
                 maxLength: 253
                 pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                 type: string
+              waitForPodsReady:
+                description: |-
+                  WaitForPodsReady defines the per-workload pods-ready timeout.
+
+                  If unspecified, the cluster-wide WaitForPodsReady is used.
+                minProperties: 1
+                properties:
+                  timeoutSeconds:
+                    description: |-
+                      podsReadyTimeout defines the maximum duration the workload may remain
+                      admitted before all pods are in a Ready or Succeeded state.
+                      When elapsed, the workload is evicted with reason PodsReadyTimeout.
+                      If both this field and the cluster-wide WaitForPodsReady.Timeout are set,
+                      this field takes precedence.
+                    format: int64
+                    minimum: 1
+                    type: integer
+                type: object
             type: object
             x-kubernetes-validations:
             - message: priority should not be nil when priorityClassRef is set

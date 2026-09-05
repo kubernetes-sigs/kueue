@@ -203,6 +203,27 @@ func MaximumExecutionTimeSecondsForObject(object client.Object) *int32 {
 	return new(int32(v))
 }
 
+// WaitForPodsReadyTimeoutSecondsForObject extracts and parses the wait for pods ready timeout from the
+// kueue.x-k8s.io/wait-for-pods-ready-timeout-seconds annotation on any Kueue-managed resource object.
+// Returns nil if the WorkloadLevelWaitForPodsReady feature is disabled, the annotation
+// is absent, or the value is not a valid integer number of seconds.
+func WaitForPodsReadyTimeoutSecondsForObject(object client.Object) *int64 {
+	if !features.Enabled(features.WorkloadLevelWaitForPodsReady) || features.Enabled(features.DisableWaitForPodsReady) {
+		return nil
+	}
+	strVal, found := object.GetAnnotations()[controllerconstants.WaitForPodsReadyTimeoutSecondsAnnotation]
+	if !found {
+		return nil
+	}
+
+	v, err := strconv.ParseInt(strVal, 10, 64)
+	if err != nil || v <= 0 {
+		return nil
+	}
+
+	return new(int64(v))
+}
+
 // WorkloadPriorityClassName retrieves the value of the "kueue.x-k8s.io/priority-class" label
 // from the given object. If the label is not present, it returns an empty string.
 func WorkloadPriorityClassName(object client.Object) string {
@@ -258,6 +279,16 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 	SetPrebuiltWorkloadName(obj, workloadName)
 }
 
+// newWaitForPodsReady returns a WaitForPodsReady spec populated from the
+// object's annotation, or nil if the annotation is absent or invalid.
+func newWaitForPodsReady(obj client.Object) *kueue.WaitForPodsReady {
+	timeout := WaitForPodsReadyTimeoutSecondsForObject(obj)
+	if timeout == nil {
+		return nil
+	}
+	return &kueue.WaitForPodsReady{TimeoutSeconds: timeout}
+}
+
 // NewWorkload creates a new Workload object with the specified name,
 // associated object, pod sets, and label keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
@@ -277,6 +308,7 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 			QueueName:                   QueueNameForObject(obj),
 			PodSets:                     podSets,
 			MaximumExecutionTimeSeconds: MaximumExecutionTimeSecondsForObject(obj),
+			WaitForPodsReady:            newWaitForPodsReady(obj),
 		},
 	}
 }

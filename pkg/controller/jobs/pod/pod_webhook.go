@@ -60,6 +60,7 @@ type PodWebhook struct {
 	managedJobsNamespaceSelector labels.Selector
 	namespaceSelector            *metav1.LabelSelector
 	podSelector                  *metav1.LabelSelector
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 // SetupWebhook configures the webhook for pods.
@@ -71,6 +72,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &corev1.Pod{}
 	if options.NoopWebhook {
@@ -207,7 +209,7 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj *corev1.Pod) (admis
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Validating create")
 
-	allErrs := jobframework.ValidateJobOnCreate(pod)
+	allErrs := jobframework.ValidateJobOnCreate(pod, w.maxTimeoutOnWorkload)
 	allErrs = append(allErrs, validateCommon(pod)...)
 
 	if warn := warningForPodManagedLabel(w.integrationManager, pod); warn != "" {
@@ -225,7 +227,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *corev1.
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Validating update")
 
-	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod, w.queues.DefaultLocalQueueExist)
+	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
 	allErrs = append(allErrs, validateCommon(newPod)...)
 	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
 

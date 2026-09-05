@@ -22,6 +22,7 @@ import (
 	"slices"
 
 	"github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -60,6 +61,7 @@ type MpiJobWebhook struct {
 	kubeServerVersion            *kubeversion.ServerVersionFetcher
 	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 // SetupMPIJobWebhook configures the webhook for MPIJob.
@@ -73,6 +75,7 @@ func SetupMPIJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		kubeServerVersion:            options.KubeServerVersion,
 		queues:                       options.Queues,
 		cache:                        options.Cache,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &v2beta1.MPIJob{}
 	if options.NoopWebhook {
@@ -148,7 +151,7 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 	newMpiJob := fromObject(newObj)
 	log := ctrl.LoggerFrom(ctx).WithName("mpijob-webhook")
 	log.Info("Validating update")
-	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob, w.queues.DefaultLocalQueueExist)
+	allErrs := jobframework.ValidateJobOnUpdate(oldMpiJob, newMpiJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
 	validationErrs, err := w.validateCommon(ctx, newMpiJob)
 	if err != nil {
 		return nil, err
@@ -167,7 +170,7 @@ func (w *MpiJobWebhook) ValidateDelete(context.Context, *v2beta1.MPIJob) (admiss
 
 func (w *MpiJobWebhook) validateCommon(ctx context.Context, mpiJob *MPIJob) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = jobframework.ValidateJobOnCreate(mpiJob)
+	allErrs = jobframework.ValidateJobOnCreate(mpiJob, w.maxTimeoutOnWorkload)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, mpiJob)
 		if err != nil {

@@ -418,7 +418,7 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			oldMJ := newMockJob(tc.oldJob)
 			newMJ := newMockJob(tc.newJob)
 
-			gotErr := jobframework.ValidateJobOnUpdate(oldMJ, newMJ, func(string) bool { return tc.nsHasDefaultQueue })
+			gotErr := jobframework.ValidateJobOnUpdate(oldMJ, newMJ, func(string) bool { return tc.nsHasDefaultQueue }, nil)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
@@ -476,7 +476,7 @@ func TestValidateJobOnCreate(t *testing.T) {
 			mj.EXPECT().Object().Return(tc.job).AnyTimes()
 			mj.EXPECT().GVK().Return(tc.gvk).AnyTimes()
 
-			gotErr := jobframework.ValidateJobOnCreate(mj)
+			gotErr := jobframework.ValidateJobOnCreate(mj, nil)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}

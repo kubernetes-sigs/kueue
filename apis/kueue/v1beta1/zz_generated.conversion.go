@@ -2725,6 +2725,7 @@ func autoConvert_v1beta2_WorkloadSpec_To_v1beta1_WorkloadSpec(in *v1beta2.Worklo
 	out.Active = (*bool)(unsafe.Pointer(in.Active))
 	out.MaximumExecutionTimeSeconds = (*int32)(unsafe.Pointer(in.MaximumExecutionTimeSeconds))
 	// WARNING: in.PreemptionGates requires manual conversion: does not exist in peer-type
+	// WARNING: in.WaitForPodsReady requires manual conversion: does not exist in peer-type
 	return nil
 }
 
