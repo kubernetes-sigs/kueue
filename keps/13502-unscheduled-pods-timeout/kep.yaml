@@ -24,7 +24,7 @@ milestone:
   alpha: "v0.20"
 
 feature-gates:
-  - name: WaitForPodsReadyUnschedulableTimeout
+  - name: WaitForPodsReadyUnscheduledTimeout
 disable-supported: true
 
 metrics: []

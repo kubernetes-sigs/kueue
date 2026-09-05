@@ -16,7 +16,7 @@
   - [Feature gate](#feature-gate)
   - [Kueue Configuration API](#kueue-configuration-api)
   - [Linking Pods to Workloads](#linking-pods-to-workloads)
-  - [UnschedulablePodsTracker controller](#unschedulablepodstracker-controller)
+  - [UnscheduledPodsTracker controller](#unscheduledpodstracker-controller)
   - [Workload PodsScheduled condition](#workload-podsscheduled-condition)
   - [Workload PodsReady condition](#workload-podsready-condition)
   - [Admission cycle and reset](#admission-cycle-and-reset)
@@ -37,6 +37,8 @@
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [MultiKueue support](#multikueue-support)
+  - [Tracking replacement Pods after initial scheduling](#tracking-replacement-pods-after-initial-scheduling)
   - [Per-integration <code>PodsScheduled</code> on <code>GenericJob</code>](#per-integration-podsscheduled-on-genericjob)
   - [Restarting <code>timeout</code> once all required Pods are scheduled](#restarting-timeout-once-all-required-pods-are-scheduled)
   - [Workload controller reading <code>PodsScheduled</code> directly](#workload-controller-reading-podsscheduled-directly)
@@ -46,9 +48,9 @@
 ## Summary
 
 Extend WaitForPodsReady with a dedicated timeout to evict Workloads whose required Pods
-remain unschedulable long enough to exceed it.
+remain unscheduled long enough to exceed it.
 
-This allows admins to evict Workloads with unschedulable Pods earlier than with the catch-all
+This allows admins to evict Workloads with unscheduled Pods earlier than with the catch-all
 readiness timeout, which also covers image pulling, init containers and readiness probes.
 
 ## Motivation
@@ -65,16 +67,17 @@ they want to evict the Workload and save the remaining 25 minutes for other Work
 ### Goals
 
 - Introduce a configurable timeout which, when exceeded, evicts and requeues the Workloads
-  whose Pods remain unschedulable.
+  whose Pods remain unscheduled.
 
 ### Non-Goals
 
 - Replacing or modifying kube-scheduler scheduling queue timeouts.
 - Reporting Workloads whose Pods cannot be observed in the initial version.
+- Supporting MultiKueue in Alpha. Revisit at Beta (see [MultiKueue support](#multikueue-support)).
 
 ## Proposal
 
-Introduce an optional `waitForPodsReady.unschedulableTimeout`. A shared Pod-tracking
+Introduce an optional `waitForPodsReady.unscheduledTimeout`. A shared Pod-tracking
 controller detects scheduling progress across job integrations, while the job framework
 distinguishes scheduling waits from startup and recovery. Existing eviction and requeue
 mechanisms enforce the deadline.
@@ -93,7 +96,7 @@ apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
 waitForPodsReady:
   timeout: 30m
-  unschedulableTimeout: 5m
+  unscheduledTimeout: 5m
 ```
 
 #### Story 2
@@ -113,7 +116,7 @@ to maximize cluster utilization.
   A shared readiness detector could extend these benefits to WaitForPodsReady
   (see [Graduation Criteria](#graduation-criteria)).
 - Once `PodsScheduled=True`, it remains `True` for the current admission even if some Pods
-  fail or are recreated. Replacement Pods are not subject to `unschedulableTimeout`.
+  fail or are recreated. Replacement Pods are not subject to `unscheduledTimeout`.
   Existing readiness and recovery timeouts continue to apply. For unfinished Workloads,
   scheduling history can reset only after loss of admission, such as after quota release
   (see [Admission cycle and reset](#admission-cycle-and-reset)).
@@ -139,7 +142,7 @@ uses that readiness reason to select a deadline and reuse the existing eviction 
 ```mermaid
 graph TD
     Jobs[Job framework] -->|"(1) start job and link Pods"| Pods[Pods]
-    Pods -->|"(2) observe scheduling"| Tracker[UnschedulablePodsTracker]
+    Pods -->|"(2) observe scheduling"| Tracker[UnscheduledPodsTracker]
     Tracker -->|"(3) PodsScheduled"| Jobs
     Jobs -->|"(4) PodsReady and reason"| Workloads[Workload controller]
     Workloads -->|"(5) deadline exceeded: evict and requeue"| Jobs
@@ -148,7 +151,7 @@ graph TD
 ```mermaid
 graph TD
     Workloads[Workload controller] -->|"(1) evict Workload"| Jobs[Job framework]
-    Jobs -->|"(2) stop job, then release quota when inactive: Admitted=False"| Tracker[UnschedulablePodsTracker]
+    Jobs -->|"(2) stop job, then release quota when inactive: Admitted=False"| Tracker[UnscheduledPodsTracker]
     Tracker -->|"(3) PodsScheduled: True to False / WaitForStart"| Jobs
 ```
 
@@ -156,12 +159,12 @@ graph TD
 
 Each row shows a combination of feature-gate settings and timeout configuration.
 
-| `WaitForPodsReadyUnschedulableTimeout` | `DisableWaitForPodsReady` | `unschedulableTimeout` | Behavior |
+| `WaitForPodsReadyUnscheduledTimeout` | `DisableWaitForPodsReady` | `unscheduledTimeout` | Behavior |
 |-------------------------------------|--------------------------|-----------------------|----------|
 | `false` | `false` | Unset | Scheduling tracking disabled. Ordinary readiness behavior is unchanged. |
 | `false` | `true` | Unset | WaitForPodsReady disabled, including scheduling tracking. |
-| `false` | `false` | Set, including `0s` | Invalid: `unschedulableTimeout` requires `WaitForPodsReadyUnschedulableTimeout=true`. |
-| `false` | `true` | Set, including `0s` | Invalid: `unschedulableTimeout` requires `WaitForPodsReadyUnschedulableTimeout=true`. |
+| `false` | `false` | Set, including `0s` | Invalid: `unscheduledTimeout` requires `WaitForPodsReadyUnscheduledTimeout=true`. |
+| `false` | `true` | Set, including `0s` | Invalid: `unscheduledTimeout` requires `WaitForPodsReadyUnscheduledTimeout=true`. |
 | `true` | `true` | Unset or set | Invalid gate combination, even without configuration. |
 | `true` | `false` | Positive | Tracking, annotations/index, readiness propagation, timeouts and scheduling-history reset enabled. |
 | `true` | `false` | Unset or `0s` | No new behavior, including scheduling-history reset. Retained scheduling conditions are ignored. Ordinary readiness behavior is unchanged. |
@@ -171,7 +174,7 @@ Each row shows a combination of feature-gate settings and timeout configuration.
 ```go
 type WaitForPodsReady struct {
     // ...
-    // UnschedulableTimeout limits how long required Pods may remain unscheduled
+    // UnscheduledTimeout limits how long required Pods may remain unscheduled
     // from the current Admitted=True condition's lastTransitionTime. Scheduled
     // or succeeded Pods satisfy the requirement. While a current-admission
     // observation shows incomplete scheduling, exceeding this deadline evicts
@@ -180,9 +183,9 @@ type WaitForPodsReady struct {
     // Once scheduled, normal readiness and recovery timeouts apply.
     // Must be non-negative and no greater than timeout after defaulting.
     // Unset or 0s disables the entire feature, including scheduling-history reset.
-    // Requires the WaitForPodsReadyUnschedulableTimeout feature gate.
+    // Requires the WaitForPodsReadyUnscheduledTimeout feature gate.
     // +optional
-    UnschedulableTimeout *metav1.Duration `json:"unschedulableTimeout,omitempty"`
+    UnscheduledTimeout *metav1.Duration `json:"unscheduledTimeout,omitempty"`
 }
 ```
 
@@ -203,9 +206,9 @@ With tracking enabled, integrations add the annotations to Pod templates at job 
 remove them at stop. Pod-based integrations add them to gated Pods at start.
 Only annotated Pods are observed. Without observations, the regular `timeout` applies.
 
-### UnschedulablePodsTracker controller
+### UnscheduledPodsTracker controller
 
-A new controller, `UnschedulablePodsTracker`, is driven by batched Pod events.
+A new controller, `UnscheduledPodsTracker`, is driven by batched Pod events.
 
 **Responsibilities:**
 
@@ -213,22 +216,20 @@ A new controller, `UnschedulablePodsTracker`, is driven by batched Pod events.
   ConcurrentAdmission Variants. Elastic jobs use the active slice and its whole Pod chain.
 - Determine whether every admitted PodSet's grant is satisfied:
 
-  $$
-  \mathrm{scheduled}_p = \min\left(\mathrm{granted}_p,
-  \mathrm{activeScheduled}_p + \max\left(\mathrm{succeededRetained}_p, \mathrm{reclaimable}_p\right)\right)
-  $$
+  ```text
+  succeeded[p] = max(succeededRetained[p], reclaimable[p])
+  scheduledOrSucceeded[p] = activeScheduled[p] + succeeded[p]
 
-  $$
-  \mathrm{allScheduled} \iff \forall p \in \mathrm{PodSets},\quad
-  \mathrm{scheduled}_p = \mathrm{granted}_p
-  $$
+  allScheduled = all(scheduledOrSucceeded[p] >= granted[p] for p in admittedPodSets)
+  ```
 
   `granted` is the admission assignment count, without capping it at the current spec count
   after scale-down. Only a missing assignment count falls back to the spec count, as defined
   by the Workload API. `activeScheduled` counts scheduled Pods,
   excluding terminal and deleting Pods. `succeededRetained` includes deleting succeeded Pods.
-  `reclaimable` is the PodSet's `reclaimablePods` count when `ReclaimablePods` is enabled. The maximum avoids
-  double-counting completed Pods, and the cap prevents surplus Pods satisfying another PodSet.
+  `reclaimable` is the PodSet's `reclaimablePods` count when `ReclaimablePods` is enabled,
+  or zero otherwise. The maximum avoids double-counting completed Pods. Comparing each
+  admitted PodSet separately prevents surplus Pods from satisfying another PodSet's grant.
 - Start observation only with a live linked Pod or retained succeeded Pods filling the
   admission. No Pods, zero-count PodSets, or terminal/terminating Pods alone do not open a
   scheduling window. After observation starts, the formula determines completion.
@@ -237,7 +238,7 @@ A new controller, `UnschedulablePodsTracker`, is driven by batched Pod events.
 
 | Case | Behavior |
 |------|----------|
-| Pod bound to a node (`spec.nodeName` set or `PodScheduled=True`) | Scheduled. |
+| Pod bound to a node (`spec.nodeName` set and `PodScheduled=True`) | Scheduled. |
 | Pod not yet created (count below granted) | Not all scheduled. `PodsScheduled=False` / `WaitForScheduling` once a live Pod is observed. |
 | Pod held by a Kueue scheduling gate | Unscheduled. |
 | Pod being deleted (not `Succeeded`) or `Failed` | Does not satisfy a slot. A replacement Pod is required. Alone it never opens the scheduling window. |
@@ -294,19 +295,19 @@ When the JobFramework controller observes non-admission, it resets `PodsReady` t
 If re-admission occurs before the JobFramework controller observes non-admission, previous
 readiness or recovery state can remain. A retained `PodsReady=True` skips timeout evaluation
 until readiness is updated. Retained recovery state selects `recoveryTimeout` instead of
-`unschedulableTimeout`, even with a current unscheduled observation.
+`unscheduledTimeout`, even with a current unscheduled observation.
 
 ### Timeout interaction
 
 The workload controller selects the deadline from `PodsReady`. `PodsScheduled` confirms a
 current-admission scheduling observation. Let `A` be `Admitted=True.lastTransitionTime` and
-`R` the `PodsReady` transition time. Here, `unschedulableTimeout: 0s` is treated as unset.
+`R` the `PodsReady` transition time. Here, `unscheduledTimeout: 0s` is treated as unset.
 
 | `PodsReady` | Deadline | Underlying cause |
 |-------------|----------|------------------|
 | `True` | None | — |
 | Absent or `WaitForStart` | `A + timeout` | `WaitForStart` |
-| `WaitForScheduling`, `unschedulableTimeout` is specified and current unscheduled observation | `A + unschedulableTimeout` | `WaitForScheduling` |
+| `WaitForScheduling`, `unscheduledTimeout` is specified and current unscheduled observation | `A + unscheduledTimeout` | `WaitForScheduling` |
 | `WaitForScheduling`, timeout is specified but no current unscheduled observation | `A + timeout` | `WaitForScheduling` |
 | Retained `WaitForScheduling`, timeout unset/`0s` | `A + timeout` | `WaitForStart` |
 | `WaitForRecovery`, positive `recoveryTimeout` | `R + recoveryTimeout` | `WaitForRecovery` |
@@ -331,11 +332,11 @@ or migration. Quota release does not reset their readiness.
 
 ### Elastic Jobs via WorkloadSlices
 
-On scale-up, both `unschedulableTimeout` and `timeout` start when the new slice is
+On scale-up, both `unscheduledTimeout` and `timeout` start when the new slice is
 admitted, not when scaling is requested. Existing scheduled Pods count toward the
 expanded requirement. Scheduling completion does not restart `timeout`.
 
-`unschedulableTimeout` applies only when incomplete scheduling is observed before the
+`unscheduledTimeout` applies only when incomplete scheduling is observed before the
 new slice first reaches readiness. If the job remains ready during scale-up, it does not
 apply. Once the new slice has reached readiness, subsequent readiness loss follows the
 existing recovery policy instead.
@@ -346,14 +347,7 @@ reset the active slice.
 
 ### Version skew and rolling upgrade
 
-- Pre-upgrade Pods with linking annotations can be observed by name. When all Pods lack
-  annotations and no observation exists, the regular admission-based `timeout` applies.
-  Jobs started after enabling the feature receive annotations.
-- Admission timestamps distinguish retained observations from a previous admission, including
-  after quota release without eviction. Older controllers need not reset them for the new
-  tracker to start a fresh observation.
-- Both old and new controllers reset readiness only when Job reconcile observes non-admission.
-  Fast re-admission can retain the previous readiness state.
+Re-evaluate version skew and rolling-upgrade behavior at Beta and GA graduation.
 
 ### Test Plan
 
@@ -372,7 +366,8 @@ existing readiness expectations.
   with/without readiness configuration, older API conversion.
 - Lifecycle: [reset semantics](#admission-cycle-and-reset), generation/timestamps,
   no-ops and disabled gates.
-- Pod accounting: cover per-PodSet binding, `PodScheduled=True`, succeeded/reclaimable,
+- Pod accounting: require both node binding and `PodScheduled=True`, covering either
+  missing signal and both update orders. Cover per-PodSet succeeded/reclaimable,
   failed/deleting, replacement, surplus and gated Pods.
 - Job framework: propagate only current-admission initial observations and preserve recovery.
   Verify fresh `Started` transitions/metrics and annotation gates.
@@ -409,7 +404,7 @@ Use batch Jobs for timeout/lifecycle coverage in existing readiness suites.
 
 1. Enable tracking. Create a Job with an unsatisfiable node selector.
 2. Verify `PodsScheduled`, `PodsReady`: `False` / `WaitForScheduling`.
-3. Verify `WaitForScheduling` eviction at `A+unschedulableTimeout ≤ now < A+timeout`
+3. Verify `WaitForScheduling` eviction at `Admission time + unscheduledTimeout ≤ now < Admission time + timeout`
    and its counter increment.
 4. After non-admission: `PodsReady=False` / `WaitForStart`, unchanged `PodsScheduled`.
 
@@ -417,7 +412,7 @@ Use batch Jobs for timeout/lifecycle coverage in existing readiness suites.
 
 #### Alpha
 
-- The feature gate `WaitForPodsReadyUnschedulableTimeout` is disabled by default.
+- The feature gate `WaitForPodsReadyUnscheduledTimeout` is disabled by default.
 - The feature is implemented and all its code paths are isolated by the feature gate.
 - Unit and integration tests are added.
 
@@ -425,14 +420,15 @@ Use batch Jobs for timeout/lifecycle coverage in existing readiness suites.
 
 - The feature gate is enabled by default.
 - All known bugs are fixed and the user feedback is addressed.
-- Re-evaluate configuring `unschedulableTimeout` per Workload.
-- Consider applying `unschedulableTimeout` to partial Pod replacements after
-  `Admitted=True` and `PodsScheduled=True`.
+- Re-evaluate configuring `unscheduledTimeout` per Workload.
+- Re-evaluate [MultiKueue support](#multikueue-support).
+- Re-evaluate [tracking replacement Pods after initial scheduling](#tracking-replacement-pods-after-initial-scheduling).
 
 #### Stable
 
 - The feature gate is locked.
 - All known bugs are fixed and the user feedback is addressed.
+- Re-evaluate any MultiKueue support deferred at Beta.
 - Re-evaluate shared readiness tracking for per-PodSet accuracy, richer diagnostics and
   consistent timeouts across integrations, potentially unifying quota-release policies.
   The key constraint is knowing the expected active Pod count after Pods succeed or
@@ -448,6 +444,45 @@ No additional drawbacks beyond [Risks and Mitigations](#risks-and-mitigations).
 
 ## Alternatives
 
+### MultiKueue support
+
+MultiKueue runs jobs and Pods on worker clusters. The manager synchronizes job status,
+but not the worker Workload's `PodsScheduled` condition, so its local tracker cannot
+directly observe worker Pod scheduling. Without an observation, the existing readiness
+timeout continues to apply. Manager and worker Workloads have separate admission
+timestamps. Copying conditions alone would not preserve admission freshness or timeout deadlines.
+
+Support is deferred beyond Alpha. At Beta, evaluate excluding manager-side Workloads
+with a non-empty `status.clusterName` from scheduling tracking and `unscheduledTimeout`,
+while preserving the existing readiness policy. Verify this exclusion across eviction
+and elastic slice transitions before adoption.
+
+Also evaluate enforcing this timeout on workers or explicitly propagating worker
+observations. The design must define the admission used for timing, ownership of eviction
+and requeue, and behavior when the worker is unreachable.
+
+### Tracking replacement Pods after initial scheduling
+
+The tracker could reevaluate scheduling as an admitted Workload changes, including Pod
+failure or replacement, and start a new `unscheduledTimeout` window when required Pods
+become unscheduled again. Unlike the initial admission-based window, this would require
+defining a new start time and its interaction with readiness and recovery timeouts.
+
+This is deferred because successful Pods may be garbage-collected without requiring
+replacement. Comparing the remaining Pods with the original grant would then incorrectly
+report incomplete scheduling. `reclaimablePods` can retain this information, but not all
+integrations support it sufficiently. Future support could extend that accounting across
+integrations or synchronize the expected active Pod count from job status into Workload
+status. Retaining Pods with new finalizers would impede cleanup and is not preferred.
+
+For the alpha stage, `PodsScheduled=True` remains sticky within an admission. Pod failure
+or deletion after scheduling completes uses the overall timeout before first readiness and the
+recovery policy afterward. Readiness loss alone also does not imply a scheduling need:
+a readiness probe can fail on a scheduled Pod. Therefore, `PodsReady=False` does not
+reset scheduling history. Loss of admission remains a separate reset boundary.
+Re-evaluate replacement tracking and coordination of these conditions at Beta and,
+if deferred further, GA.
+
 ### Per-integration `PodsScheduled` on `GenericJob`
 
 Each integration could implement a scheduling probe on `GenericJob`. Rejected as the primary
@@ -457,7 +492,7 @@ and requires changes to in-house integrations.
 ### Restarting `timeout` once all required Pods are scheduled
 
 Starting the readiness budget after scheduling would allow an admission to consume
-`unschedulableTimeout + timeout`. Rejected because it changes the existing timeout contract
+`unscheduledTimeout + timeout`. Rejected because it changes the existing timeout contract
 and makes the deadline depend on potentially missing observations.
 
 ### Workload controller reading `PodsScheduled` directly
