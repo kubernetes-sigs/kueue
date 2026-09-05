@@ -18,6 +18,7 @@ package leaderworkerset
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
@@ -74,7 +75,7 @@ var _ = ginkgo.AfterSuite(func() {
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		integrationManager := jobcontrollers.NewIntegrationManager()
-		opts = append(opts, jobframework.WithIntegrationManager(integrationManager))
+
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -84,12 +85,22 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		err = leaderworkerset.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		cCache := schdcache.New(mgr.GetClient())
+		preemptionExpectations := preemptexpectations.New()
+		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
+		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		setupOpts := append(slices.Clone(opts),
+			jobframework.WithIntegrationManager(integrationManager),
+			jobframework.WithQueues(queues),
+			jobframework.WithCache(cCache),
+		)
+
 		reconciler, err := leaderworkerset.NewReconciler(
 			ctx,
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorder(constants.JobControllerName),
-			opts...)
+			setupOpts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = reconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -99,16 +110,10 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorder(constants.JobControllerName),
-			opts...)
+			setupOpts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = podJobReconciler.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		cCache := schdcache.New(mgr.GetClient())
-		preemptionExpectations := preemptexpectations.New()
-		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
-		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
 
 		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)
@@ -132,11 +137,11 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		err = sched.Start(ctx)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		err = leaderworkerset.SetupWebhook(mgr, opts...)
+		err = leaderworkerset.SetupWebhook(mgr, setupOpts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = pod.SetupWebhook(mgr, opts...)
+		err = pod.SetupWebhook(mgr, setupOpts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = statefulset.SetupWebhook(mgr, opts...)
+		err = statefulset.SetupWebhook(mgr, setupOpts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
