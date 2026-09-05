@@ -21,6 +21,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -96,8 +97,12 @@ type topologyTree struct {
 	// domainsPerLevel stores the static tree information
 	domainsPerLevel []domainByID
 
-	// isLowestLevelNode indicates if kubernetes.io/hostname is the lowest topology level
-	isLowestLevelNode bool
+	// virtualHostname is true when kubernetes.io/hostname was appended to the
+	// levels because the Topology did not declare it, which happens only with
+	// the TASNodeFeasibilityForAllLevels feature gate enabled. Every leaf is
+	// then exactly one node, and the appended level is excluded from
+	// topologyAssignment serialization.
+	virtualHostname bool
 
 	// nodes lists the nodes matching the flavor which the tree was built
 	// from.
@@ -111,20 +116,29 @@ type topologyTree struct {
 // newTopologyTree builds the static topology structure from the given node
 // set, read at the given nodesCache generation.
 func newTopologyTree(levels []string, nodes []*corev1.Node, generation int64) *topologyTree {
+	// Injecting the hostname level makes every leaf exactly one node, so
+	// capacity and feasibility are evaluated per node instead of per declared
+	// domain. Without the gate the lowest declared level stays the leaf.
+	virtual := features.Enabled(features.TASNodeFeasibilityForAllLevels) &&
+		(len(levels) == 0 || levels[len(levels)-1] != corev1.LabelHostname)
+	if virtual {
+		levels = append(slices.Clone(levels), corev1.LabelHostname)
+	}
+
 	domainsPerLevel := make([]domainByID, len(levels))
 	for level := range levels {
 		domainsPerLevel[level] = make(domainByID)
 	}
 
 	tree := &topologyTree{
-		generation:        generation,
-		levelKeys:         slices.Clone(levels),
-		leaves:            make(leafDomainByID),
-		roots:             make(domainByID),
-		domainsPerLevel:   domainsPerLevel,
-		isLowestLevelNode: len(levels) > 0 && levels[len(levels)-1] == corev1.LabelHostname,
-		nodes:             slices.Clip(slices.Clone(nodes)),
-		nodeToDomain:      make(map[string]utiltas.TopologyDomainID, len(nodes)),
+		generation:      generation,
+		levelKeys:       slices.Clone(levels),
+		leaves:          make(leafDomainByID),
+		roots:           make(domainByID),
+		domainsPerLevel: domainsPerLevel,
+		virtualHostname: virtual,
+		nodes:           slices.Clip(slices.Clone(nodes)),
+		nodeToDomain:    make(map[string]utiltas.TopologyDomainID, len(nodes)),
 	}
 	for _, node := range nodes {
 		tree.nodeToDomain[node.Name] = tree.addNode(node)
@@ -134,42 +148,55 @@ func newTopologyTree(levels []string, nodes []*corev1.Node, generation int64) *t
 }
 
 func (t *topologyTree) addNode(node *corev1.Node) utiltas.TopologyDomainID {
-	var levelValues []string
+	levelValues := utiltas.LevelValues(t.levelKeys, node.Labels)
 	var domainID utiltas.TopologyDomainID
-	var leafFound bool
-
-	if t.isLowestLevelNode {
-		// When the lowest level is kubernetes.io/hostname, directly extract hostname.
-		hostname := node.Labels[corev1.LabelHostname]
-		domainID = utiltas.TopologyDomainID(hostname)
-		_, leafFound = t.leaves[domainID]
-		// Only compute levelValues when we actually need to create a new leafDomain.
-		if !leafFound {
-			levelValues = utiltas.LevelValues(t.levelKeys, node.Labels)
-		}
-	} else {
-		// Compute full level values and domain ID.
-		levelValues = utiltas.LevelValues(t.levelKeys, node.Labels)
+	switch {
+	case t.virtualHostname:
+		// The injected level is internal, so key it by node name, which is
+		// unique. Hostname labels are neither unique nor immutable, and two
+		// nodes sharing one must not merge into a leaf with pooled capacity.
+		levelValues[len(levelValues)-1] = node.Name
+		domainID = utiltas.TopologyDomainID(node.Name)
+	case t.leafIsNode():
+		// A declared hostname level keeps the label, the user's contract.
+		domainID = utiltas.TopologyDomainID(node.Labels[corev1.LabelHostname])
+	default:
 		domainID = utiltas.DomainID(levelValues)
-		_, leafFound = t.leaves[domainID]
 	}
-	if !leafFound {
-		leafDomain := leafDomain{
+	if _, leafFound := t.leaves[domainID]; !leafFound {
+		leaf := &leafDomain{
 			domain:  domain{id: domainID, levelValues: levelValues},
 			leafIdx: len(t.leaves),
 		}
-
-		if t.isLowestLevelNode {
-			leafDomain.node = node
+		if t.leafIsNode() {
+			leaf.node = node
 		}
-		t.leaves[domainID] = &leafDomain
+		t.leaves[domainID] = leaf
 	}
 	capacity := resources.NewRequestsFromResourceList(node.Status.Allocatable)
 	t.addCapacity(domainID, capacity)
 	return domainID
 }
 
-func (t *topologyTree) lowestLevel() string {
+// leafIsNode reports whether every leaf of the tree is exactly one node. That
+// holds when the Topology declares kubernetes.io/hostname as its lowest level,
+// and when the level was injected.
+func (t *topologyTree) leafIsNode() bool {
+	return len(t.levelKeys) > 0 && t.levelKeys[len(t.levelKeys)-1] == corev1.LabelHostname
+}
+
+// declaresHostnameLevel reports whether the Topology itself names the hostname
+// level, as opposed to one having been injected.
+func (t *topologyTree) declaresHostnameLevel() bool {
+	return t.leafIsNode() && !t.virtualHostname
+}
+
+// explicitLowestLevel returns the lowest level the Topology CR declares,
+// excluding the hostname level when that was injected.
+func (t *topologyTree) explicitLowestLevel() string {
+	if t.virtualHostname {
+		return t.levelKeys[len(t.levelKeys)-2]
+	}
 	return t.levelKeys[len(t.levelKeys)-1]
 }
 

@@ -68,6 +68,7 @@
   - [Support for Elastic Workloads](#support-for-elastic-workloads)
   - [Balanced placement](#balanced-placement)
     - [Example](#example-3)
+  - [Support for topologies without a hostname level](#support-for-topologies-without-a-hostname-level)
   - [Support for Preferred Node Affinity](#support-for-preferred-node-affinity)
     - [Future Vision](#future-vision)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
@@ -1887,6 +1888,41 @@ For a 3-level topology (block, rack, hostname), in the TopologyRequest, the user
 | [[15],[15]] [[15, 15]] | 25 | 1 | [[0],[0]] [[13, 12]] | prefer block where the request fits in a single rack
 | [[15], [15], [15, 15]] | 25|5 |  [[0], [0], [15, 10]] | `podset-slice-required-topology = hostname`
 
+### Support for topologies without a hostname level
+
+Kueue evaluates capacity and feasibility at the lowest level a Topology declares. When
+that level is not `kubernetes.io/hostname` a domain covers several nodes, so the checks
+answer a question about the domain rather than about any node inside it. A rack of
+CPU-only nodes passes for a Workload requesting devices, and a Workload fitting a rack's
+total capacity is admitted even when no single node can hold one of its Pods. Its Pods
+then stay Pending, since kube-scheduler places them per node.
+
+Behind the `TASNodeFeasibilityForAllLevels` feature gate Kueue appends
+`kubernetes.io/hostname` to such a Topology's levels internally. Every leaf is then
+exactly one node, so node capacity, taints, node selectors and node affinity are
+evaluated per node on every Topology.
+
+The appended level is internal. Leaves are keyed by node name rather than by the
+hostname label, which is neither unique nor immutable, and the level is stripped on
+serialization, so a `TopologyAssignment` still names only the levels the Topology
+declares. Every check which reads the serialized levels, such as failed node
+replacement and the hostname-prefix encoding, is therefore unaffected.
+
+Usage stays recorded against the level the `TopologyAssignment` names, because the node
+inside a domain that holds a Pod is chosen by kube-scheduler after ungating and is never
+reported back. Leaves are evaluated against node capacity alone, and the domain's own
+remaining capacity bounds the count rolled up from its leaves. Usage accounting stays as
+accurate as it is today, while feasibility becomes exact.
+
+Declaring `kubernetes.io/hostname` explicitly still decides several things:
+- the assignment names nodes, so ungated Pods are pinned to them instead of being left
+  for kube-scheduler to place anywhere within the domain
+- `podset-required-topology: kubernetes.io/hostname` is only a valid request on a
+  Topology which declares the level
+- failed node replacement and cross-flavor usage aggregation both need assignments at
+  node granularity
+- usage is attributed exactly, with no domain-level approximation
+
 ### Support for Preferred Node Affinity
 
 In 0.18 we introduce the pilot support for domain affinity based on `preferredDuringSchedulingIgnoredDuringExecution`, behind the 
@@ -1894,7 +1930,9 @@ In 0.18 we introduce the pilot support for domain affinity based on `preferredDu
 When the feature gate is enabled, we compute the "domain affinity scores" at all levels by
 aggregating (summing) the scores from child topology domains.
 Then, the "domain affinity scores" takes precedence over standard placement ordering of domains (based on BestFit or LeastFreeCapacity policies).
-This feature only works when the lowest topology level specified in the Topology CRD is `kubernetes.io/hostname`.
+This feature works when the lowest topology level specified in the Topology CRD is
+`kubernetes.io/hostname`, and on other Topologies when the `TASNodeFeasibilityForAllLevels`
+feature gate is enabled (see [Support for topologies without a hostname level](#support-for-topologies-without-a-hostname-level)).
 
 #### Future Vision
 
@@ -2053,11 +2091,8 @@ The new validations which are for MVP, but likely will be relaxed in the future:
 - re-evaluate the need to support for "preferred/required" preferences at the
   Workload level (see [Story 3](#story-3))
 - re-evaluate the need for the `kueue.x-k8s.io/tas`
-- re-evaluate handling of topologies without `kubernetes.io/hostname` in the lowest
-  level, the main issues are: (a) no check for fragmentation, and (b) no support
-  for node taints. Some options to consider include virtual level as proposed in
-  the [issue](https://github.com/kubernetes-sigs/kueue/issues/3658#issuecomment-2505583333)
-  or explicit level added by webhook.
+- attribute a domain's usage to the node holding each Pod on topologies without
+  `kubernetes.io/hostname` in the lowest level, which needs Pod location tracking
 - re-evaluate the need for admin-facing configuration of the second phase
   requeuing for ProvisioningRequests based on user feedback
 - change how the information about the failed nodes is stored at a Workload from Annotation into a field in workload.Status

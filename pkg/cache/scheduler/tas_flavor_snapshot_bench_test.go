@@ -31,6 +31,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 const (
@@ -178,30 +179,43 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 	})
 }
 
+// assignmentBenchCase describes one BenchmarkTASFlavorAssignment run. levels
+// selects whether the topology declares the hostname level or gets a virtual
+// one, which decides where usage is accounted and how the counts roll up.
+type assignmentBenchCase struct {
+	name       string
+	topology   benchTopology
+	levels     []string
+	withLeader bool
+}
+
 func BenchmarkTASFlavorAssignment(b *testing.B) {
 	features.SetFeatureGateDuringTest(b, features.TASBalancedPlacement, true)
+	features.SetFeatureGateDuringTest(b, features.TASNodeFeasibilityForAllLevels, true)
 
-	benchmarks := []struct {
-		name       string
-		topology   benchTopology
-		withLeader bool
-	}{
-		{name: "nodes=100/workersOnly", topology: benchTopology{nodes: 100, nodesPerRack: 16, racksPerBlock: 16}},
-		{name: "nodes=500/workersOnly", topology: benchTopology{nodes: 500, nodesPerRack: 16, racksPerBlock: 16}},
-		{name: "nodes=2500/workersOnly", topology: benchTopology{nodes: 2500, nodesPerRack: 16, racksPerBlock: 16}},
-		{name: "nodes=2500/withLeader", topology: benchTopology{nodes: 2500, nodesPerRack: 16, racksPerBlock: 16}, withLeader: true},
-	}
-	for _, benchmark := range benchmarks {
-		runBenchmarkTASFlavorAssignment(b, benchmark.topology, benchmark.name, benchmark.withLeader)
+	topo := benchTopology{nodes: 2500, nodesPerRack: 16, racksPerBlock: 16}
+	hostnameLowest := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
+	rackLowest := []string{benchBlockLabel, benchRackLabel}
+
+	for _, benchmark := range []assignmentBenchCase{
+		{name: "nodes=100/workersOnly", topology: benchTopology{nodes: 100, nodesPerRack: 16, racksPerBlock: 16}, levels: hostnameLowest},
+		{name: "nodes=500/workersOnly", topology: benchTopology{nodes: 500, nodesPerRack: 16, racksPerBlock: 16}, levels: hostnameLowest},
+		{name: "nodes=2500/workersOnly", topology: topo, levels: hostnameLowest},
+		{name: "nodes=2500/withLeader", topology: topo, levels: hostnameLowest, withLeader: true},
+		{name: "nodes=2500/workersOnly/rackLowest", topology: topo, levels: rackLowest},
+		{name: "nodes=2500/withLeader/rackLowest", topology: topo, levels: rackLowest, withLeader: true},
+	} {
+		runBenchmarkTASFlavorAssignment(b, benchmark)
 	}
 }
 
-func runBenchmarkTASFlavorAssignment(b *testing.B, topo benchTopology, name string, withLeader bool) {
-	b.Run(name, func(b *testing.B) {
+func runBenchmarkTASFlavorAssignment(b *testing.B, tc assignmentBenchCase) {
+	b.Run(tc.name, func(b *testing.B) {
 		b.ReportAllocs()
 		_, log := utiltesting.ContextWithLog(b)
+		topo := tc.topology
 		nodes := buildBenchNodes(topo)
-		levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
+		levels := tc.levels
 
 		tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
 		for i := range nodes {
@@ -216,7 +230,7 @@ func runBenchmarkTASFlavorAssignment(b *testing.B, topo benchTopology, name stri
 			b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 		}
 
-		requests := balancedPlacementBenchRequests(topo, withLeader)
+		requests := balancedPlacementBenchRequests(topo, tc.withLeader)
 		result := snapshot.FindTopologyAssignmentsForFlavor(b.Context(), requests)
 		if failure := result.Failure(); failure != nil {
 			b.Fatalf("balanced placement preflight failed: %s", failure.Reason)
@@ -262,4 +276,62 @@ func balancedPlacementBenchRequests(topo benchTopology, withLeader bool) FlavorT
 		})
 	}
 	return requests
+}
+
+// Measures snapshot construction with admitted-Workload usage recorded, which
+// the modes above leave empty. The level schemes vary how many nodes a usage
+// domain spans: one for hostname-lowest, a rack, and a whole block.
+func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
+	// A no-op for the hostname-lowest scheme, which declares the level anyway.
+	features.SetFeatureGateDuringTest(b, features.TASNodeFeasibilityForAllLevels, true)
+	topo := benchTopology{nodes: 2500, nodesPerRack: 16, racksPerBlock: 16}
+	levelSchemes := []struct {
+		name   string
+		levels []string
+	}{
+		{name: "hostname-lowest", levels: []string{benchBlockLabel, benchRackLabel, benchHostLabel}},
+		{name: "rack-lowest", levels: []string{benchBlockLabel, benchRackLabel}},
+		{name: "block-lowest", levels: []string{benchBlockLabel}},
+	}
+	for _, scheme := range levelSchemes {
+		for _, admittedWorkloads := range []int{1000, 5000} {
+			name := fmt.Sprintf("levels=%s/workloads=%d", scheme.name, admittedWorkloads)
+			b.Run(name, func(b *testing.B) {
+				b.ReportAllocs()
+				_, log := utiltesting.ContextWithLog(b)
+				nodes := buildBenchNodes(topo)
+				tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+				for i := range nodes {
+					tasCache.SyncNode(&nodes[i])
+				}
+				fc := tasCache.NewTASFlavorCache(
+					topologyInformation{Levels: scheme.levels},
+					flavorInformation{TopologyName: "default"},
+				)
+				for i := range admittedWorkloads {
+					n := i % topo.nodes
+					rack := n / topo.nodesPerRack
+					block := rack / topo.racksPerBlock
+					values := []string{fmt.Sprintf("block-%d", block), fmt.Sprintf("rack-%d", rack)}
+					if len(scheme.levels) == 3 {
+						values = append(values, fmt.Sprintf("node-%d", n))
+					}
+					values = values[:len(scheme.levels)]
+					fc.addUsage(log, workload.Reference(fmt.Sprintf("wl-%d", i)), []workload.TopologyDomainRequests{{
+						Values:            values,
+						SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+						Count:             1,
+					}})
+				}
+				if _, err := fc.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+					b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
+				}
+				for b.Loop() {
+					if _, err := fc.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+						b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
+					}
+				}
+			})
+		}
+	}
 }

@@ -4103,9 +4103,7 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 				Ready().
 				Obj(),
 		}
-		for i := range nodes {
-			util.MustCreate(ctx, k8sClient, &nodes[i])
-		}
+		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeTopology("default").Levels(tasBlockLabel).Obj()
 		util.MustCreate(ctx, k8sClient, topology)
