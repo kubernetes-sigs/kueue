@@ -23,11 +23,17 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -433,4 +439,61 @@ func TestReconcileDRA(t *testing.T) {
 		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
+
+	// The DeviceClass handler runs outside the reconcile loop: a DeviceClass
+	// event requeues Workloads through deviceClassHandler.reconcileWorkloads,
+	// which Reconcile never triggers, so this scenario drives the handler
+	// directly instead of going through runReconcileTestCases above. It pins the
+	// deliberate decision that only Workloads without a quota reservation are
+	// requeued; a reserved Workload keeps its admission-time charge and is not
+	// revisited on a DeviceClass event (see issue #14563). If that decision
+	// changes, update this subtest alongside the handler.
+	t.Run("DeviceClass handler skips reserved workloads", func(t *testing.T) {
+		const extResource = "example.com/gpu"
+
+		pending := utiltestingapi.MakeWorkload("wl-pending", "ns").
+			Queue("lq").
+			Request(corev1.ResourceName(extResource), "1").
+			Obj()
+		reserved := utiltestingapi.MakeWorkload("wl-reserved", "ns").
+			Queue("lq").
+			Request(corev1.ResourceName(extResource), "1").
+			SimpleReserveQuota("cq", "default", time.Now()).
+			Obj()
+
+		cl := utiltesting.NewClientBuilder().
+			WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
+			WithIndex(&kueue.Workload{}, indexer.WorkloadExtendedResourceKey, indexer.IndexWorkloadExtendedResources).
+			WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+			WithObjects(pending, reserved).
+			Build()
+
+		cqCache := schdcache.New(cl)
+		qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+		r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})
+		h := &deviceClassHandler{r: r}
+
+		ctx, _ := utiltesting.ContextWithLog(t)
+		q := &recordingQueue{TypedRateLimitingInterface: workqueue.NewTypedRateLimitingQueue(
+			workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())}
+		defer q.ShutDown()
+
+		h.reconcileWorkloads(ctx, q, extResource)
+
+		// Both Workloads request the same extended resource, so only the
+		// QuotaReserved filter distinguishes them: pending is requeued, reserved
+		// is deliberately skipped.
+		if got, want := sets.New(q.added...), sets.New("wl-pending"); !got.Equal(want) {
+			t.Errorf("requeued workloads = %v, want %v", sets.List(got), sets.List(want))
+		}
+	})
+}
+
+type recordingQueue struct {
+	workqueue.TypedRateLimitingInterface[reconcile.Request]
+	added []string
+}
+
+func (q *recordingQueue) AddAfter(item reconcile.Request, _ time.Duration) {
+	q.added = append(q.added, item.Name)
 }
