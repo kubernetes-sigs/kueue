@@ -93,10 +93,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 	}
 
 	defaultMultiKueue := &MultiKueue{
-		GCInterval:        &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
-		Origin:            new(DefaultMultiKueueOrigin),
-		WorkerLostTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
-		DispatcherName:    new(MultiKueueDispatcherModeAllAtOnce),
+		GCInterval:             &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
+		Origin:                 new(DefaultMultiKueueOrigin),
+		WorkerLostTimeout:      &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
+		DispatcherName:         new(MultiKueueDispatcherModeAllAtOnce),
+		WorkerClientConnection: defaultClientConnection,
 	}
 
 	defaultVisibilityServer := &VisibilityServerConfiguration{
@@ -600,6 +601,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					IncrementalDispatcherConfig: &IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
+					WorkerClientConnection: defaultClientConnection,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
@@ -628,10 +630,11 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				MultiKueue: &MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: time.Second},
-					Origin:            new(DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: time.Minute},
-					DispatcherName:    defaultMultiKueue.DispatcherName,
+					GCInterval:             &metav1.Duration{Duration: time.Second},
+					Origin:                 new(DefaultMultiKueueOrigin),
+					WorkerLostTimeout:      &metav1.Duration{Duration: time.Minute},
+					DispatcherName:         defaultMultiKueue.DispatcherName,
+					WorkerClientConnection: defaultClientConnection,
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,
@@ -658,10 +661,47 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				ClientConnection: defaultClientConnection,
 				Integrations:     defaultIntegrations,
 				MultiKueue: &MultiKueue{
-					GCInterval:        &metav1.Duration{},
-					Origin:            new("multikueue-manager1"),
-					WorkerLostTimeout: &metav1.Duration{Duration: 15 * time.Minute},
+					GCInterval:             &metav1.Duration{},
+					Origin:                 new("multikueue-manager1"),
+					WorkerLostTimeout:      &metav1.Duration{Duration: 15 * time.Minute},
+					DispatcherName:         defaultMultiKueue.DispatcherName,
+					WorkerClientConnection: defaultClientConnection,
+				},
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+			},
+		},
+		"multiKueue workerClientConnection customized": {
+			original: &Configuration{
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				MultiKueue: &MultiKueue{
+					WorkerClientConnection: &ClientConnection{
+						QPS:   new(float32(1000)),
+						Burst: new(int32(1000)),
+					},
+				},
+			},
+			want: &Configuration{
+				QuotaReleaseStrategy: new(QuotaReleaseOnTerminating),
+				Namespace:            new(DefaultNamespace),
+				ControllerManager:    defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection: defaultClientConnection,
+				Integrations:     defaultIntegrations,
+				MultiKueue: &MultiKueue{
+					GCInterval:        &metav1.Duration{Duration: DefaultMultiKueueGCInterval},
+					Origin:            defaultMultiKueue.Origin,
+					WorkerLostTimeout: &metav1.Duration{Duration: DefaultMultiKueueWorkerLostTimeout},
 					DispatcherName:    defaultMultiKueue.DispatcherName,
+					WorkerClientConnection: &ClientConnection{
+						QPS:   new(float32(1000)),
+						Burst: new(int32(1000)),
+					},
 				},
 				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
 				VisibilityServer:             defaultVisibilityServer,

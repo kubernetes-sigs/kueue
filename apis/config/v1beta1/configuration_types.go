@@ -339,6 +339,11 @@ type MultiKueue struct {
 	// GroupVersionKind (GVK) for MultiKueue operations.
 	// +optional
 	ExternalFrameworks []MultiKueueExternalFramework `json:"externalFrameworks,omitempty"`
+
+	// WorkerClientConnection configuration for the connection to the worker clusters.
+	// If not specified, the default client connection will be used.
+	// +optional
+	WorkerClientConnection *ClientConnection `json:"workerClientConnection,omitempty"`
 }
 
 // MultiKueueExternalFramework defines a framework that is not built-in.
@@ -461,9 +466,11 @@ type ClientConnection struct {
 	// connection.
 	//
 	// Setting this to a negative value will disable client-side ratelimiting.
+	// +optional
 	QPS *float32 `json:"qps,omitempty"`
 
 	// Burst allows extra queries to accumulate when a client is exceeding its rate.
+	// +optional
 	Burst *int32 `json:"burst,omitempty"`
 }
 

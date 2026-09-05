@@ -43,6 +43,7 @@ import (
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -50,6 +51,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -686,7 +688,7 @@ func TestUpdateConfig(t *testing.T) {
 
 			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil, recorder)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil, recorder, nil)
 
 			reconciler.rootContext = ctx
 
@@ -862,7 +864,7 @@ func TestReconnectBackoff(t *testing.T) {
 
 			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder, nil)
 			reconciler.rootContext = ctx
 
 			var buildCalls int
@@ -919,7 +921,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 	recorder := &utiltesting.EventRecorder{}
-	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder)
+	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder, nil)
 	reconciler.rootContext = ctx
 
 	var buildCalls int
@@ -998,7 +1000,7 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 	managerClient := getClientBuilder(ctx).WithObjects(cluster).WithStatusSubresource(cluster).Build()
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 	recorder := &utiltesting.EventRecorder{}
-	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, &NoOpClusterProfileAccessProvider{}, nil, recorder)
+	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, &NoOpClusterProfileAccessProvider{}, nil, recorder, nil)
 
 	nextRetry := time.Now().Truncate(time.Second).Add(20 * time.Second)
 	rc := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
@@ -1333,7 +1335,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			c := getClientBuilder(ctx).Build()
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileAccessProvider{}, nil, recorder)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileAccessProvider{}, nil, recorder, nil)
 			reconciler.rootContext = ctx
 
 			if got := tc.invoke(reconciler); got != tc.wantReconcile {
@@ -1583,7 +1585,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 		Build()
 
 	recorder := &utiltesting.EventRecorder{}
-	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil, recorder)
+	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil, recorder, nil)
 	reconciler.rootContext = ctx
 	reconciler.builderOverride = gatedBuilder
 	t.Cleanup(func() {
@@ -1828,5 +1830,69 @@ func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
 	case <-stopped:
 	case <-time.After(30 * time.Second):
 		t.Fatal("StopWatchers did not return: the watcher goroutine was never joined")
+	}
+}
+
+func TestClientConfigToRESTConfig(t *testing.T) {
+	cases := map[string]struct {
+		config    *clientConfig
+		wantQPS   float32
+		wantBurst int
+	}{
+		"no client connection specified": {
+			config: &clientConfig{
+				Kubeconfig: []byte(testKubeconfig("worker1")),
+			},
+			wantQPS:   0,
+			wantBurst: 0,
+		},
+		"client connection with custom QPS and Burst": {
+			config: &clientConfig{
+				Kubeconfig: []byte(testKubeconfig("worker1")),
+				ClientConnection: &configapi.ClientConnection{
+					QPS:   ptr.To[float32](100),
+					Burst: ptr.To[int32](200),
+				},
+			},
+			wantQPS:   100,
+			wantBurst: 200,
+		},
+		"client connection with negative QPS": {
+			config: &clientConfig{
+				Kubeconfig: []byte(testKubeconfig("worker1")),
+				ClientConnection: &configapi.ClientConnection{
+					QPS:   ptr.To[float32](-1),
+					Burst: ptr.To[int32](200),
+				},
+			},
+			wantQPS:   -1,
+			wantBurst: 200,
+		},
+		"restConfig pre-populated with custom QPS and Burst": {
+			config: &clientConfig{
+				RestConfig: &rest.Config{},
+				ClientConnection: &configapi.ClientConnection{
+					QPS:   ptr.To[float32](50),
+					Burst: ptr.To[int32](100),
+				},
+			},
+			wantQPS:   50,
+			wantBurst: 100,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			restConfig, err := tc.config.toRESTConfig()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if restConfig.QPS != tc.wantQPS {
+				t.Errorf("unexpected QPS, want: %v, got: %v", tc.wantQPS, restConfig.QPS)
+			}
+			if restConfig.Burst != tc.wantBurst {
+				t.Errorf("unexpected Burst, want: %v, got: %v", tc.wantBurst, restConfig.Burst)
+			}
+		})
 	}
 }
