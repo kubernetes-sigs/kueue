@@ -210,6 +210,61 @@ var _ = ginkgo.Describe("Preemption", func() {
 			gomega.Expect(attempt.Load()).To(gomega.BeNumerically(">=", 2))
 		})
 
+		ginkgo.It("Should not make failed preemptor sticky under BestEffortFIFO and allow subsequent workloads to be admitted", func() {
+			setFakeSubResourcePatchSpec(func(obj client.Object) (fakeClientUsage, error) {
+				wl, ok := obj.(*kueue.Workload)
+				if !ok {
+					return fallThrough, nil
+				}
+				if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted); cond == nil || cond.Status != metav1.ConditionTrue {
+					return fallThrough, nil
+				}
+				// Ignore patches triggered by util.FinishEvictionForWorkloads()
+				if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); cond != nil && cond.Status == metav1.ConditionFalse && cond.Message == "By test" {
+					return fallThrough, nil
+				}
+				return emitResponse, errors.New("simulate API server error while preempting workload")
+			})
+
+			ginkgo.By("Creating a low priority Workload consuming 3 CPUs")
+			lowWl := utiltestingapi.MakeWorkload("low-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			util.MustCreate(ctx, k8sClient, lowWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+
+			ginkgo.By("Creating a mid priority Workload requiring 3 CPUs (triggers preemption which fails)")
+			failedPreemptorWl := utiltestingapi.MakeWorkload("failed-preemptor-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(midPriority).
+				Request(corev1.ResourceCPU, "3").
+				Obj()
+			util.MustCreate(ctx, k8sClient, failedPreemptorWl)
+
+			ginkgo.By("Waiting for failed preemption on mid-priority workload to be recorded")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(failedPreemptorWl), failedPreemptorWl)).To(gomega.Succeed())
+				cond := apimeta.FindStatusCondition(failedPreemptorWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).NotTo(gomega.BeNil())
+				g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
+				g.Expect(cond.Message).To(gomega.ContainSubstring("failed, will retry"))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating a subsequent higher priority Workload requiring 1 CPU that fits in remaining quota")
+			higherPriorityWl := utiltestingapi.MakeWorkload("higher-priority-wl", ns.Name).
+				Queue(kueue.LocalQueueName(q.Name)).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			util.MustCreate(ctx, k8sClient, higherPriorityWl)
+
+			ginkgo.By("Verifying higher priority workload is admitted while failed preemptor remains pending (not sticky)")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl, higherPriorityWl)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, failedPreemptorWl)
+		})
+
 		ginkgo.It("Should preempt newer Workloads with the same priority when there is not enough quota", framework.SlowSpec, func() {
 			ginkgo.By("Creating initial Workloads")
 			wl1 := utiltestingapi.MakeWorkload("wl-1", ns.Name).

@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -30,6 +31,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -10341,5 +10343,115 @@ func TestFitsDedupsOverlappingVictims(t *testing.T) {
 	got := fits(snapshot, cq, &incomingUsage, preempted, targets)
 	if got != schdcache.FitsCheckNoQuota {
 		t.Fatalf("fits() = %v, want %v (overlapping victim must be subtracted once)", got, schdcache.FitsCheckNoQuota)
+	}
+}
+func TestSchedulerWhenPreemptionFails(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	ns := utiltesting.MakeNamespaceWrapper("default").Obj()
+	rf := utiltestingapi.MakeResourceFlavor("default").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "3").
+				Obj(),
+		).
+		Preemption(kueue.ClusterQueuePreemption{
+			WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+		}).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
+
+	targetWl := utiltestingapi.MakeWorkload("target-wl", metav1.NamespaceDefault).
+		Priority(-1).
+		Queue(kueue.LocalQueueName(lq.Name)).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "3").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "3").
+					Obj()).
+				Obj(),
+			now,
+		).
+		Obj()
+
+	preemptorWl := utiltestingapi.MakeWorkload("preemptor-wl", metav1.NamespaceDefault).
+		Priority(1).
+		Queue(kueue.LocalQueueName(lq.Name)).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "3").
+			Obj()).
+		Obj()
+
+	clientBuilder := utiltesting.NewClientBuilder().
+		WithObjects(ns, rf, cq, lq, targetWl, preemptorWl).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+				if wl, ok := obj.(*kueue.Workload); ok && subResourceName == "status" && wl.Name == "target-wl" {
+					return errors.New("simulated eviction patch error")
+				}
+				return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+			},
+		})
+	cl := clientBuilder.Build()
+	recorder := &utiltesting.EventRecorder{}
+
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+
+	cqCache.AddOrUpdateResourceFlavor(log, rf)
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+	}
+	if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+	}
+
+	scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
+
+	wg := sync.WaitGroup{}
+	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+		func() { wg.Add(1) },
+		func() { wg.Done() },
+	))
+
+	ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+	go qManager.CleanUpOnContext(ctx)
+	defer cancel()
+
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	gotPreemptor := &kueue.Workload{}
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(preemptorWl), gotPreemptor); err != nil {
+		t.Fatalf("Failed getting preemptor workload: %v", err)
+	}
+
+	cond := apimeta.FindStatusCondition(gotPreemptor.Status.Conditions, kueue.WorkloadQuotaReserved)
+	if cond == nil {
+		t.Fatal("Expected QuotaReserved condition on preemptor workload")
+	}
+	if cond.Status != metav1.ConditionFalse {
+		t.Errorf("Expected QuotaReserved=False, got %v", cond.Status)
+	}
+	if !strings.Contains(cond.Message, "Preempting 1 workload(s) failed, will retry.") {
+		t.Errorf("Unexpected condition message: %q", cond.Message)
+	}
+
+	// Verify preemptor is requeued into active workloads
+	qDump := qManager.Dump()
+	wantActive := map[kueue.ClusterQueueReference][]workload.Reference{
+		kueue.ClusterQueueReference(cq.Name): {workload.Key(preemptorWl)},
+	}
+	if diff := cmp.Diff(wantActive, qDump, cmpDump...); diff != "" {
+		t.Errorf("Unexpected active workloads (-want,+got):\n%s", diff)
 	}
 }
