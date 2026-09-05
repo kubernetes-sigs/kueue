@@ -1,0 +1,42 @@
+title: MultiKueue Worker-Side Ray In-Tree Autoscaling for Elastic Jobs
+kep-number: 13243
+authors:
+  - "@kevin85421"
+status: provisional
+creation-date: 2026-07-26
+reviewers:
+  - "@mimowo"
+  - "@sohankunkerkar"
+approvers:
+  - "@mimowo"
+  - "@sohankunkerkar"
+
+see-also:
+  - "/keps/77-dynamically-sized-jobs"
+  - "/keps/693-multikueue"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.20"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.20"
+  beta: TBD
+  stable: TBD
+
+# The following PRR answers are required at alpha release.
+# The feature has its own alpha gate (off by default); it additionally requires
+# the ElasticJobsViaWorkloadSlices gate, MultiKueue, and the RayCluster/RayJob
+# setting enableInTreeAutoscaling.
+feature-gates:
+  - name: MultiKueueRayInTreeAutoscaling
+disable-supported: true
+
+# The following PRR answers are required at beta release.
+# metrics:
+#   - my_feature_metric
