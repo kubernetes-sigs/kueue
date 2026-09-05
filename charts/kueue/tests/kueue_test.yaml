@@ -507,6 +507,18 @@ tests:
       - matchRegex:
           path: data["env.js"]
           pattern: "wss://backend.kueueviz.fr"
+  - it: should default the backend host in frontend configmap when the host is empty
+    template: kueueviz/frontend-configmap.yaml
+    set:
+      enableKueueViz: true
+      kueueViz:
+        backend:
+          ingress:
+            host: ""
+    asserts:
+      - matchRegex:
+          path: data["env.js"]
+          pattern: "wss://backend.kueueviz.local"
   - it: should not render backend ingress when backend ingress is disabled
     template: kueueviz/backend-ingress.yaml
     set:
