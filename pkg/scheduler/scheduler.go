@@ -1278,9 +1278,13 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted", "Admitted by ClusterQueue %s, wait time since reservation was 0s", admission.ClusterQueue)
 
 	priorityClassName := workloadpatching.PriorityClassName(newWorkload)
-	cqCustomLabels := s.customLabels.CQGet(admission.ClusterQueue)
+	s.customLabels.Store(config.SourceKindWorkload, string(workload.Key(newWorkload)), newWorkload.Labels, newWorkload.Annotations)
+	cqWlCustomLabels := s.customLabels.GetFor(map[config.SourceKind]string{
+		config.SourceKindClusterQueue: string(admission.ClusterQueue),
+		config.SourceKindWorkload:     string(workload.Key(newWorkload)),
+	})
 	s.cache.ReportCohortSubtreeAdmittedWorkload(log, newWorkload)
-	metrics.AdmittedWorkload(admission.ClusterQueue, priorityClassName, waitTime, cqCustomLabels, s.roleTracker)
+	metrics.AdmittedWorkload(admission.ClusterQueue, priorityClassName, waitTime, cqWlCustomLabels, s.roleTracker)
 	shouldExposeLqMetrics := s.cache.ShouldExposeLocalQueueMetricsForWorkload(log, newWorkload)
 	if shouldExposeLqMetrics {
 		lqRef := metrics.LQRefFromWorkload(newWorkload)
@@ -1295,7 +1299,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 	}
 
 	if len(newWorkload.Status.AdmissionChecks) > 0 {
-		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, priorityClassName, 0, cqCustomLabels, s.roleTracker)
+		metrics.ReportAdmissionChecksWaitTime(admission.ClusterQueue, priorityClassName, 0, cqWlCustomLabels, s.roleTracker)
 		if shouldExposeLqMetrics {
 			lqRef := metrics.LQRefFromWorkload(newWorkload)
 			metrics.ReportLocalQueueAdmissionChecksWaitTime(lqRef, priorityClassName, 0, s.customLabels.LQGet(utilqueue.KeyFromWorkload(newWorkload)), s.roleTracker)

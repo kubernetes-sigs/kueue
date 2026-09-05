@@ -1084,6 +1084,58 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1, "lq-val", "kind2", "anno2")
 		})
 
+		ginkgo.It("admitted_workloads_total counter should carry CQ and Workload custom label dimensions", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-counter").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Label("team", "ml-team").Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-counter", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl1 := utiltestingapi.MakeWorkload("wl-counter-1", ns.Name).
+				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+
+			wl2 := utiltestingapi.MakeWorkload("wl-counter-2", ns.Name).
+				Label("workload-kind", "kind2").
+				Annotation("workload-anno", "anno2").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl2)
+
+			wl3 := utiltestingapi.MakeWorkload("wl-counter-3", ns.Name).
+				Label("workload-kind", "unrecognised").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl3)
+
+			ginkgo.By("verifying all workloads get admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var w kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &w)).To(gomega.Succeed())
+				g.Expect(w.Status.Admission).ToNot(gomega.BeNil())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &w)).To(gomega.Succeed())
+				g.Expect(w.Status.Admission).ToNot(gomega.BeNil())
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), &w)).To(gomega.Succeed())
+				g.Expect(w.Status.Admission).ToNot(gomega.BeNil())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying admitted_workloads_total counter has CQ+WL label breakdown")
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1, "ml-team", "kind1", "anno1")
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1, "ml-team", "kind2", "anno2")
+			util.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1, "ml-team",
+				config.UntrackedCustomLabelValue, "anno1")
+		})
+
 		ginkgo.It("should update AdmittedActiveWorkloads metric when workload labels match and we change CQ labels", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
