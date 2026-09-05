@@ -719,14 +719,35 @@ func (rc *remoteClient) runGC(ctx context.Context) {
 			} else {
 				wlLog.V(5).Info("MultiKueueGC deleting workload owner", "ownerKey", ownerKey, "ownerKind", controller)
 				wlKey := types.NamespacedName{Name: controller.Name, Namespace: remoteWl.Namespace}
-				err := jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, remoteCl, adapter, wlKey, rc.origin)
-				if client.IgnoreNotFound(err) != nil {
-					wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
+				var err error
+				if cleanupAdapter, ok := adapter.(jobframework.MultiKueueAdapterWithRemoteObjectCleanup); ok {
+					if controller.UID == "" {
+						wlLog.V(2).Info("Skipping remote workload owner deletion because its controller reference has no UID", "ownerKey", ownerKey)
+					} else {
+						err = jobframework.DeleteRemoteObjectWithCleanupContextIfOwned(ctx, rc.localClient, remoteCl, cleanupAdapter, wlKey, jobframework.MultiKueueRemoteObjectCleanupContext{
+							RemoteObjectUID: controller.UID,
+							Association: jobframework.MultiKueueObjectAssociation{
+								Origin:       rc.origin,
+								WorkloadName: remoteWl.Name,
+							},
+							WorkloadKey:         client.ObjectKeyFromObject(&remoteWl),
+							WorkloadAnnotations: maps.Clone(remoteWl.Annotations),
+						})
+					}
+				} else {
+					err = jobframework.DeleteRemoteObjectIfOwned(ctx, rc.localClient, remoteCl, adapter, wlKey, rc.origin)
+				}
+				if err != nil {
+					if !apierrors.IsNotFound(err) {
+						wlLog.Error(err, "Deleting remote workload's owner", "ownerKey", ownerKey)
+					}
+					continue
 				}
 			}
 		}
 		wlLog.V(5).Info("MultiKueueGC deleting remote workload")
-		if err := remoteCl.Delete(ctx, &remoteWl); client.IgnoreNotFound(err) != nil {
+		uid := remoteWl.UID
+		if err := remoteCl.Delete(ctx, &remoteWl, client.Preconditions{UID: &uid}); client.IgnoreNotFound(err) != nil {
 			wlLog.Error(err, "Deleting remote workload")
 		}
 	}

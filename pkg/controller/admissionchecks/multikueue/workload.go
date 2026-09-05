@@ -161,7 +161,7 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
 	remoteClient := g.remoteClients[cluster].getClient()
 	origin := g.remoteClients[cluster].origin
-	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, remoteClient, g.jobAdapter, g.controllerKey, origin); err != nil {
+	if err := jobframework.DeleteRemoteObjectForWorkloadIfOwned(ctx, g.localClient, remoteClient, g.jobAdapter, g.controllerKey, g.local, origin); err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 

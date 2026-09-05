@@ -32,6 +32,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -51,8 +52,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -1171,6 +1174,214 @@ func TestRemoteClientGC(t *testing.T) {
 				t.Errorf("unexpected worker's jobs (-want/+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestRemoteClientGCBindsPodOwnerUID(t *testing.T) {
+	const (
+		workloadName = "workload"
+		podName      = "pod"
+	)
+	workloadKey := types.NamespacedName{Name: workloadName, Namespace: TestNamespace}
+	podKey := types.NamespacedName{Name: podName, Namespace: TestNamespace}
+
+	for name, tc := range map[string]struct {
+		ownerUID types.UID
+		podUID   types.UID
+		wantPod  bool
+	}{
+		"matching owner UID deletes Pod": {
+			ownerUID: "pod-uid",
+			podUID:   "pod-uid",
+		},
+		"replacement UID preserves Pod": {
+			ownerUID: "original-pod-uid",
+			podUID:   "replacement-pod-uid",
+			wantPod:  true,
+		},
+		"empty owner UID preserves Pod": {
+			podUID:  "pod-uid",
+			wantPod: true,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			remoteWorkload := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+				Name:      workloadKey.Name,
+				Namespace: workloadKey.Namespace,
+				Labels:    map[string]string{kueue.MultiKueueOriginLabel: defaultOrigin},
+				OwnerReferences: []metav1.OwnerReference{{
+					APIVersion: corev1.SchemeGroupVersion.String(),
+					Kind:       "Pod",
+					Name:       podKey.Name,
+					UID:        tc.ownerUID,
+					Controller: new(true),
+				}},
+			}}
+			remotePod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+				Name:      podKey.Name,
+				Namespace: podKey.Namespace,
+				UID:       tc.podUID,
+				Labels: map[string]string{
+					kueue.MultiKueueOriginLabel:               defaultOrigin,
+					controllerconstants.PrebuiltWorkloadLabel: workloadName,
+				},
+			}}
+
+			managerClient := getClientBuilder(ctx).Build()
+			workerClient := NewNeverCachingClient(getClientBuilder(ctx).WithObjects(remoteWorkload, remotePod).Build())
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("pod"))
+			remote := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+			remote.client = workerClient
+			remote.connState.markConnected()
+
+			remote.runGC(ctx)
+
+			if err := workerClient.Get(ctx, workloadKey, &kueue.Workload{}); !apierrors.IsNotFound(err) {
+				t.Fatalf("remote Workload Get() error = %v, want NotFound", err)
+			}
+			gotPod := &corev1.Pod{}
+			err := workerClient.Get(ctx, podKey, gotPod)
+			if tc.wantPod {
+				if err != nil {
+					t.Fatalf("replacement Pod Get() error = %v", err)
+				}
+				if gotPod.UID != tc.podUID {
+					t.Fatalf("replacement Pod UID = %q, want %q", gotPod.UID, tc.podUID)
+				}
+			} else if !apierrors.IsNotFound(err) {
+				t.Fatalf("remote Pod Get() error = %v, want NotFound", err)
+			}
+		})
+	}
+}
+
+func TestRemoteClientGCRetriesPodGroupCleanupBeforeDeletingWorkload(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	const (
+		workloadName = "group"
+		anchorName   = "group-0"
+		memberName   = "group-1"
+	)
+	workloadKey := types.NamespacedName{Name: workloadName, Namespace: TestNamespace}
+	anchorKey := types.NamespacedName{Name: anchorName, Namespace: TestNamespace}
+	memberKey := types.NamespacedName{Name: memberName, Namespace: TestNamespace}
+	remoteWorkload := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:      workloadKey.Name,
+		Namespace: workloadKey.Namespace,
+		UID:       "workload-uid",
+		Labels:    map[string]string{kueue.MultiKueueOriginLabel: defaultOrigin},
+		Annotations: map[string]string{
+			podconstants.IsGroupWorkloadAnnotationKey: podconstants.IsGroupWorkloadAnnotationValue,
+		},
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion: corev1.SchemeGroupVersion.String(),
+			Kind:       "Pod",
+			Name:       anchorName,
+			UID:        "anchor-uid",
+			Controller: new(true),
+		}},
+	}}
+	makeRemotePod := func(key types.NamespacedName, uid types.UID) *corev1.Pod {
+		return &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+			Name:      key.Name,
+			Namespace: key.Namespace,
+			UID:       uid,
+			Labels: map[string]string{
+				kueue.MultiKueueOriginLabel:               defaultOrigin,
+				controllerconstants.PrebuiltWorkloadLabel: workloadName,
+				podconstants.GroupNameLabel:               workloadName,
+			},
+		}}
+	}
+	anchor := makeRemotePod(anchorKey, "anchor-uid")
+	member := makeRemotePod(memberKey, "member-uid")
+	pageErr := errors.New("Pod list unavailable")
+	failPodList := true
+	baseWorkerClient := getClientBuilder(ctx).WithObjects(remoteWorkload, anchor, member).Build()
+	workerClient := NewNeverCachingClient(interceptor.NewClient(baseWorkerClient, interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			if _, isPodList := list.(*corev1.PodList); isPodList && failPodList {
+				failPodList = false
+				return pageErr
+			}
+			return c.List(ctx, list, opts...)
+		},
+	}))
+	managerClient := getClientBuilder(ctx).Build()
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("pod"))
+	remote := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	remote.client = workerClient
+	remote.connState.markConnected()
+
+	remote.runGC(ctx)
+	for key, obj := range map[types.NamespacedName]client.Object{
+		workloadKey: &kueue.Workload{},
+		anchorKey:   &corev1.Pod{},
+		memberKey:   &corev1.Pod{},
+	} {
+		if err := workerClient.Get(ctx, key, obj); err != nil {
+			t.Fatalf("object %q was deleted after failed cleanup: %v", key, err)
+		}
+	}
+
+	remote.runGC(ctx)
+	for key, obj := range map[types.NamespacedName]client.Object{
+		workloadKey: &kueue.Workload{},
+		anchorKey:   &corev1.Pod{},
+		memberKey:   &corev1.Pod{},
+	} {
+		if err := workerClient.Get(ctx, key, obj); !apierrors.IsNotFound(err) {
+			t.Errorf("object %q Get() error = %v after retry, want NotFound", key, err)
+		}
+	}
+}
+
+func TestRemoteClientGCUsesWorkloadUIDPrecondition(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	key := types.NamespacedName{Name: "workload", Namespace: TestNamespace}
+	original := &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+		Name:      key.Name,
+		Namespace: key.Namespace,
+		UID:       "original-workload-uid",
+		Labels:    map[string]string{kueue.MultiKueueOriginLabel: defaultOrigin},
+	}}
+	replacement := original.DeepCopy()
+	replacement.UID = "replacement-workload-uid"
+	baseWorkerClient := getClientBuilder(ctx).WithObjects(original).Build()
+	workerClient := NewNeverCachingClient(interceptor.NewClient(baseWorkerClient, interceptor.Funcs{
+		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			if _, isWorkload := obj.(*kueue.Workload); !isWorkload {
+				return c.Delete(ctx, obj, opts...)
+			}
+			deleteOptions := &client.DeleteOptions{}
+			for _, opt := range opts {
+				opt.ApplyToDelete(deleteOptions)
+			}
+			if deleteOptions.Preconditions == nil || deleteOptions.Preconditions.UID == nil || *deleteOptions.Preconditions.UID != original.UID {
+				t.Errorf("Workload Delete() UID precondition = %v, want %q", deleteOptions.Preconditions, original.UID)
+			}
+			if err := c.Delete(ctx, obj); err != nil {
+				return err
+			}
+			if err := c.Create(ctx, replacement); err != nil {
+				return err
+			}
+			return apierrors.NewConflict(kueue.Resource("workloads"), key.Name, errors.New("UID precondition failed"))
+		},
+	}))
+	remote := newRemoteClient(getClientBuilder(ctx).Build(), nil, nil, nil, defaultOrigin, "", nil)
+	remote.client = workerClient
+	remote.connState.markConnected()
+
+	remote.runGC(ctx)
+
+	got := &kueue.Workload{}
+	if err := workerClient.Get(ctx, key, got); err != nil {
+		t.Fatalf("replacement Workload Get() error = %v", err)
+	}
+	if got.UID != replacement.UID {
+		t.Fatalf("replacement Workload UID = %q, want %q", got.UID, replacement.UID)
 	}
 }
 
