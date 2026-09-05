@@ -128,7 +128,12 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 	return dra.MergeDRAResources(draResources, capacityResources), false, ctrl.Result{}, nil
 }
 
-func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, err error) {
+// handleDRA preprocesses DRA-backed resources for a pending workload. It does not
+// queue the workload; Reconcile does that once with the returned queueOptions.
+// Returns done=true when reconciliation should stop (error or terminal DRA outcome).
+// When done=false, queueOptions holds the InfoOptions Reconcile must pass to
+// AddOrUpdateWorkload.
+func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, queueOptions []workload.InfoOption, err error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	workload.AdjustResources(ctx, r.client, wl)
@@ -143,9 +148,9 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 			return updated, nil
 		})
 		if err != nil {
-			return true, ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
+			return true, ctrl.Result{}, nil, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
 		}
-		return true, ctrl.Result{}, nil
+		return true, ctrl.Result{}, nil, nil
 	}
 
 	log.V(3).Info("Processing DRA resources for workload")
@@ -155,7 +160,8 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	// Process ResourceClaimTemplates (existing DRA path)
 	draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl)
 	if len(fieldErrs) > 0 {
-		return r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to process DRA resources for workload")
+		done, result, err := r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to process DRA resources for workload")
+		return done, result, nil, err
 	}
 
 	// Process Extended Resources backed by DRA
@@ -163,7 +169,8 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 		extendedResources, replaced, extFieldErrs := dra.ResolveExtendedResourceQuota(ctx, r.client, r.draMapper, wl)
 		if len(extFieldErrs) > 0 {
-			return r.markDRAInadmissible(ctx, wl, extFieldErrs, "Failed to process DRA extended resources for workload")
+			done, result, err := r.markDRAInadmissible(ctx, wl, extFieldErrs, "Failed to process DRA extended resources for workload")
+			return done, result, nil, err
 		}
 		// Merge extended resources into draResources. When a DeviceClass appears
 		// in both paths, the extended resources path uses the deviceClassMappings
@@ -176,7 +183,8 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && r.resourceSliceAPIAvailable {
 		counterResources, counterFieldErrs := dra.GetCounterResourcesForWorkload(ctx, r.client, sliceCache, r.draMapper, wl)
 		if len(counterFieldErrs) > 0 {
-			return r.markDRAInadmissible(ctx, wl, counterFieldErrs, "Failed to process DRA counter resources for workload")
+			done, result, err := r.markDRAInadmissible(ctx, wl, counterFieldErrs, "Failed to process DRA counter resources for workload")
+			return done, result, nil, err
 		}
 		draResources = dra.MergeDRAResources(draResources, counterResources)
 	}
@@ -185,45 +193,27 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && r.resourceSliceAPIAvailable {
 		ccResources, ccDone, ccResult, ccErr := r.handleDRAConsumableCapacity(ctx, wl, sliceCache, draResources)
 		if ccDone {
-			return true, ccResult, ccErr
+			return true, ccResult, nil, ccErr
 		}
 		draResources = ccResources
 	}
 
-	quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
-
-	var conditionsCleared bool
-	if quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
-		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-		conditionsCleared = true
-	}
-	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse {
-		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
-		conditionsCleared = true
+	// Flip a stale Requeued=False/Inadmissible back to True so the workload is
+	// eligible again. We flip instead of removing the condition because the status
+	// patch only adds or updates conditions, so a removal wouldn't persist.
+	if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued); cond != nil && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadInadmissible {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true), nil
+		}); err != nil {
+			return true, ctrl.Result{}, nil, fmt.Errorf("failed to persist cleared inadmissible conditions after DRA processing: %w", err)
+		}
 	}
 
-	if conditionsCleared {
-		log.V(3).Info("Cleared previous inadmissible conditions after successful DRA processing")
-	}
-
-	var queueOptions []workload.InfoOption
 	if len(draResources) > 0 || len(replacedExtendedResources) > 0 {
 		queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
 	}
-
-	if workload.IsAdmissible(wl) {
-		if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), queueOptions...); err != nil {
-			log.V(2).Info("Failed to add DRA workload to queue", "error", err)
-			return true, ctrl.Result{}, err
-		}
-	} else {
-		if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
-			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
-		}
-	}
-	log.V(3).Info("Successfully pre-processed and queued DRA workload in scheduler")
-	return false, ctrl.Result{}, nil
+	log.V(3).Info("Successfully pre-processed DRA workload")
+	return false, ctrl.Result{}, queueOptions, nil
 }
 
 func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.Workload, fieldErrs field.ErrorList, logMsg string) (bool, ctrl.Result, error) {
@@ -521,10 +511,15 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		}
 		return ctrl.Result{}, nil
 	}
+	var draQueueOptions []workload.InfoOption
+	var draPreprocessed bool
 	if workload.Status(&wl) == workload.StatusPending && dra.NeedsDRAReconcile(&wl, r.draBackedResources) {
-		if done, result, err := r.handleDRA(ctx, &wl); done {
+		done, result, opts, err := r.handleDRA(ctx, &wl)
+		if done {
 			return result, err
 		}
+		draQueueOptions = opts
+		draPreprocessed = true
 	}
 
 	if workload.IsActive(&wl) {
@@ -564,7 +559,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					return ctrl.Result{}, nil
 				}
 
-				if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy()); err != nil {
+				if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), draQueueOptions...); err != nil {
 					log.V(2).Info("failed to put the workload back into queue", "error", err)
 					return ctrl.Result{}, err
 				}
@@ -784,6 +779,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					r.roleTracker,
 				)
 			}
+		}
+	}
+
+	// Queue the DRA-preprocessed workload with the options from handleDRA. The
+	// backoff-requeue path above already queues and returns early, so only one of
+	// the two runs.
+	if draPreprocessed && !workload.IsAdmitted(&wl) {
+		if workload.IsAdmissible(&wl) {
+			if err := r.queues.AddOrUpdateWorkload(log, wl.DeepCopy(), draQueueOptions...); err != nil {
+				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
+				return ctrl.Result{}, err
+			}
+		} else if !r.cache.AddOrUpdateWorkload(log, wl.DeepCopy()) {
+			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 	}
 
