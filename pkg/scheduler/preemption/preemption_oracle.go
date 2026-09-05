@@ -26,16 +26,17 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-func NewOracle(preemptor *Preemptor, snapshot *schdcache.Snapshot) *PreemptionOracle {
-	return &PreemptionOracle{preemptor, snapshot}
+func NewOracle(preemptor *Preemptor, simCtx *simulation.SimulationContext) *PreemptionOracle {
+	return &PreemptionOracle{preemptor, simCtx}
 }
 
 type PreemptionOracle struct {
-	preemptor *Preemptor
-	snapshot  *schdcache.Snapshot
+	preemptor         *Preemptor
+	simulationContext *simulation.SimulationContext
 }
 
 // SimulatePreemption runs the preemption algorithm for a given flavor resource to check if
@@ -46,40 +47,45 @@ func (p *PreemptionOracle) SimulatePreemption(
 	wl workload.Info,
 	fr resources.FlavorResource,
 	quantity resources.Amount,
-) (preemptioncommon.PreemptionPossibility, int) {
+) (possibility preemptioncommon.PreemptionPossibility, borrow int, simErr error) {
 	log := log.FromContext(ctx)
-	candidates := p.preemptor.getTargets(&preemptionCtx{
-		ctx:               ctx,
-		clock:             p.preemptor.clock,
-		log:               log,
-		preemptor:         wl,
-		preemptorCQ:       p.snapshot.ClusterQueue(wl.ClusterQueue),
-		snapshot:          p.snapshot,
-		frsNeedPreemption: sets.New(fr),
-		workloadUsage: workload.Usage{
-			Quota: workload.ResourceUsage{
-				Assigned: resources.FlavorResourceQuantities{fr: quantity},
+	simErr = simulation.SimulateNested(p.simulationContext, func(simCtx *simulation.SimulationContext) error {
+		candidates, err := p.preemptor.getTargets(simCtx, &preemptionCtx{
+			ctx:               ctx,
+			clock:             p.preemptor.clock,
+			log:               log,
+			preemptor:         wl,
+			preemptorCQ:       simCtx.ClusterQueue(wl.ClusterQueue),
+			frsNeedPreemption: sets.New(fr),
+			workloadUsage: workload.Usage{
+				Quota: workload.ResourceUsage{
+					Assigned: resources.FlavorResourceQuantities{fr: quantity},
+				},
 			},
-		},
-	})
+		})
 
-	if len(candidates) == 0 {
-		borrow, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
-		return preemptioncommon.NoCandidates, borrow
-	}
-
-	workloadsToPreempt := make([]*workload.Info, len(candidates))
-	for i, c := range candidates {
-		workloadsToPreempt[i] = c.WorkloadInfo
-	}
-	revertRemoval := p.snapshot.SimulateWorkloadUsageRemoval(workloadsToPreempt)
-	borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
-	revertRemoval()
-
-	for _, candidate := range candidates {
-		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
-			return preemptioncommon.Preempt, borrowAfterPreemptions
+		if err != nil {
+			return err
 		}
+
+		if len(candidates) == 0 {
+			possibility = preemptioncommon.NoCandidates
+			borrow, _ = classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
+			return nil
+		}
+
+		borrowAfterPreemptions, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
+		for _, candidate := range candidates {
+			if candidate.WorkloadInfo.ClusterQueue == cq.Name {
+				possibility, borrow = preemptioncommon.Preempt, borrowAfterPreemptions
+				return nil
+			}
+		}
+		possibility, borrow = preemptioncommon.Reclaim, borrowAfterPreemptions
+		return nil
+	})
+	if simErr != nil {
+		return preemptioncommon.NoCandidates, 0, simErr
 	}
-	return preemptioncommon.Reclaim, borrowAfterPreemptions
+	return
 }

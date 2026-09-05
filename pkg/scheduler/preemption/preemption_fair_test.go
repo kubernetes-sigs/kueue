@@ -17,6 +17,7 @@ limitations under the License.
 package preemption
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -1247,13 +1249,21 @@ func TestFairPreemptions(t *testing.T) {
 			}
 			wlInfo := workload.NewInfo(tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			targets := preemptor.GetTargets(ctx, *wlInfo, singlePodSetAssignment(
-				flavorassigner.ResourceAssignment{
-					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
-						Name: flavorName, Mode: flavorassigner.Preempt,
+			var targets []*Target
+			err = simulation.Simulate(ctx, snapshotWorkingCopy, func(simulator *simulation.SimulationContext) error {
+				var inErr error
+				targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, singlePodSetAssignment(
+					flavorassigner.ResourceAssignment{
+						corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+							Name: flavorName, Mode: flavorassigner.Preempt,
+						},
 					},
-				},
-			), snapshotWorkingCopy)
+				))
+				return inErr
+			})
+			if err != nil {
+				t.Errorf("Failed to get targets: %v", err)
+			}
 			gotTargets := sets.New(utilslices.Map(targets, func(t **Target) string {
 				return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
 			})...)
@@ -1374,13 +1384,21 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 				false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 			wlInfo := workload.NewInfo(unitWl.Clone().Name("a_incoming").Obj())
 			wlInfo.ClusterQueue = "a"
-			targets := preemptor.GetTargets(ctx, *wlInfo, singlePodSetAssignment(
-				flavorassigner.ResourceAssignment{
-					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
-						Name: "default", Mode: flavorassigner.Preempt,
+			var targets []*Target
+			err = simulation.Simulate(ctx, snapshot, func(simulator *simulation.SimulationContext) error {
+				var inErr error
+				targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, singlePodSetAssignment(
+					flavorassigner.ResourceAssignment{
+						corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+							Name: "default", Mode: flavorassigner.Preempt,
+						},
 					},
-				},
-			), snapshot)
+				))
+				return inErr
+			})
+			if err != nil {
+				t.Errorf("Failed to get targets: %v", err)
+			}
 
 			// The preemptor's share is at or above the target's either way, so
 			// no candidate wins and nothing is preempted.
@@ -1398,6 +1416,187 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 			if skippedQueues != tc.wantSkippedQueues {
 				t.Errorf("Skipped target ClusterQueues: got %d, want %d",
 					skippedQueues, tc.wantSkippedQueues)
+			}
+		})
+	}
+}
+
+func TestFairPreemptionErrorPaths(t *testing.T) {
+	errRestoreFailed := errors.New("fair preemption restore error")
+	now := time.Now()
+
+	cases := map[string]struct {
+		cohortQuota       string
+		cq1Quota          string
+		cq2Quota          string
+		workloads         []kueue.Workload
+		preemptorWorkload kueue.Workload
+		revertErr         error
+		wantErr           error
+	}{
+		"error in restoreSnapshot when fair preemption fails to fit preemptor (!fits)": {
+			cohortQuota: "5",
+			cq1Quota:    "10",
+			cq2Quota:    "10",
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("c1", "").
+					Priority(10).
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq2").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "10").
+							Obj()).
+						Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("c2", "").
+					Priority(30).
+					Request(corev1.ResourceCPU, "15").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq2").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "15").
+							Obj()).
+						Obj(), now).
+					Obj(),
+			},
+			preemptorWorkload: *utiltestingapi.MakeWorkload("preemptor", "").
+				Priority(20).
+				Request(corev1.ResourceCPU, "12").
+				Obj(),
+			revertErr: errRestoreFailed,
+			wantErr:   errRestoreFailed,
+		},
+		"error in fillBackWorkloads during fair preemption": {
+			cohortQuota: "20",
+			cq1Quota:    "10",
+			cq2Quota:    "0",
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("c1", "").
+					Priority(10).
+					Request(corev1.ResourceCPU, "5").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq2").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "5").
+							Obj()).
+						Obj(), now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("c2", "").
+					Priority(10).
+					Request(corev1.ResourceCPU, "5").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq2").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "5").
+							Obj()).
+						Obj(), now).
+					Obj(),
+			},
+			preemptorWorkload: *utiltestingapi.MakeWorkload("preemptor", "").
+				Priority(20).
+				Request(corev1.ResourceCPU, "10").
+				Obj(),
+			revertErr: errRestoreFailed,
+			wantErr:   errRestoreFailed,
+		},
+		"error in restoreSnapshot on success path during fair preemption": {
+			cohortQuota: "20",
+			cq1Quota:    "10",
+			cq2Quota:    "0",
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("c1", "").
+					Priority(10).
+					Request(corev1.ResourceCPU, "10").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq2").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment(corev1.ResourceCPU, "default", "10").
+							Obj()).
+						Obj(), now).
+					Obj(),
+			},
+			preemptorWorkload: *utiltestingapi.MakeWorkload("preemptor", "").
+				Priority(20).
+				Request(corev1.ResourceCPU, "10").
+				Obj(),
+			revertErr: errRestoreFailed,
+			wantErr:   errRestoreFailed,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			allWorkloads := make([]kueue.Workload, 0, len(tc.workloads)+1)
+			allWorkloads = append(allWorkloads, tc.workloads...)
+			allWorkloads = append(allWorkloads, tc.preemptorWorkload)
+
+			cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: allWorkloads}).Build()
+			cqCache := schdcache.New(cl)
+			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+
+			cohort := utiltestingapi.MakeCohort("cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, tc.cohortQuota).Obj(),
+				).
+				Obj()
+
+			if err := cqCache.AddOrUpdateCohort(cohort); err != nil {
+				t.Fatalf("Couldn't add Cohort: %v", err)
+			}
+			clusterQueues := []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq1").
+					Cohort("cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, tc.cq1Quota).Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq2").
+					Cohort("cohort").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, tc.cq2Quota).Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			}
+
+			for _, cq := range clusterQueues {
+				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatalf("Couldn't add ClusterQueue: %v", err)
+				}
+			}
+
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Snapshot failed: %v", err)
+			}
+
+			snapshot.SimulatorSnapshot = &mockErrSimulatorSnapshot{
+				SimulatorSnapshot: snapshot.SimulatorSnapshot,
+				revertErr:         tc.revertErr,
+			}
+
+			preemptorWlInfo := workload.NewInfo(&tc.preemptorWorkload)
+			preemptorWlInfo.ClusterQueue = "cq1"
+
+			fsConfig := &config.FairSharing{
+				PreemptionStrategies: []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare},
+			}
+			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, fsConfig, true, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+
+			if err := simulation.Simulate(ctx, snapshot, func(simulator *simulation.SimulationContext) error {
+				_, inErr := preemptor.GetTargets(ctx, simulator, *preemptorWlInfo, singlePodSetAssignment(
+					flavorassigner.ResourceAssignment{
+						corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+							Name: "default", Mode: flavorassigner.Preempt,
+						},
+					},
+				))
+				return inErr
+			}); !errors.Is(err, tc.wantErr) {
+				t.Errorf("GetTargets() error = %v, want %v", err, tc.wantErr)
 			}
 		})
 	}

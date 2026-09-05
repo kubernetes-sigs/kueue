@@ -37,6 +37,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -64,6 +65,7 @@ func newObservedLogger(enabledUpToV int) (logr.Logger, *observer.ObservedLogs) {
 
 type fsLogFixture struct {
 	preemptionCtx *preemptionCtx
+	snapshot      *schdcache.Snapshot
 	candidates    []*workload.Info
 }
 
@@ -151,7 +153,6 @@ func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fs
 		log:               log,
 		preemptor:         *wlInfo,
 		preemptorCQ:       snapshot.ClusterQueue("a"),
-		snapshot:          snapshot,
 		frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
 		workloadUsage: workload.Usage{
 			Quota: workload.ResourceUsage{
@@ -167,7 +168,7 @@ func newFsLogFixture(tb testing.TB, log logr.Logger, cqs []fsLogClusterQueue) fs
 	for i := range admitted {
 		candidates = append(candidates, workload.NewInfo(&admitted[i]))
 	}
-	return fsLogFixture{preemptionCtx: preemptionCtx, candidates: candidates}
+	return fsLogFixture{preemptionCtx: preemptionCtx, snapshot: snapshot, candidates: candidates}
 }
 
 func alwaysFails(fairsharing.PreemptorNewShare, fairsharing.TargetOldShare, fairsharing.TargetNewShare) bool {
@@ -326,7 +327,17 @@ func TestRunFirstFsStrategyLogging(t *testing.T) {
 				evaluated++
 				return tc.passOnEvaluation != 0 && evaluated == tc.passOnEvaluation
 			}
-			fits, targets, retryCandidates := runFirstFsStrategy(fixture.preemptionCtx, fixture.candidates, strategy)
+			var fits bool
+			var targets []*Target
+			var retryCandidates []*workload.Info
+			err := simulation.Simulate(fixture.preemptionCtx.ctx, fixture.snapshot, func(simCtx *simulation.SimulationContext) error {
+				var err error
+				fits, targets, retryCandidates, err = runFirstFsStrategy(simCtx, fixture.preemptionCtx, fixture.candidates, strategy)
+				return err
+			})
+			if err != nil {
+				t.Error("unexpected error", err)
+			}
 
 			if tc.wantAllRejected {
 				if fits {
@@ -452,7 +463,13 @@ func TestRunSecondFsStrategyLog(t *testing.T) {
 				{name: "b", candidates: 3, fairWeight: tc.fairWeight},
 			})
 
-			runSecondFsStrategy(fixture.candidates, fixture.preemptionCtx, nil)
+			err := simulation.Simulate(fixture.preemptionCtx.ctx, fixture.snapshot, func(simCtx *simulation.SimulationContext) error {
+				_, _, err := runSecondFsStrategy(simCtx, fixture.preemptionCtx, fixture.candidates, nil)
+				return err
+			})
+			if err != nil {
+				t.Error("unexpected error", err)
+			}
 
 			entries := observed.FilterMessage(strategyLogMessage).All()
 			if len(entries) == 0 {

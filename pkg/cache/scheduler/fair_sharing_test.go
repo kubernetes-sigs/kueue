@@ -819,7 +819,10 @@ func TestDominantResourceShare(t *testing.T) {
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("workload-%d", i), "default-namespace").ReserveQuotaAt(admission.Obj(), now).Obj()
 
 				cache.AddOrUpdateWorkload(log, wl)
-				snapshot.AddWorkload(workload.NewInfo(wl))
+				wlInfo := workload.NewInfo(wl)
+				cqSnap := snapshot.ClusterQueue("cq")
+				cqSnap.Workloads[workload.Key(wlInfo.Obj)] = wlInfo
+				cqSnap.AddUsage(wlInfo.Usage())
 				i++
 			}
 
@@ -967,7 +970,10 @@ func TestIsBorrowingOn(t *testing.T) {
 				wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", i), "default-namespace").
 					ReserveQuotaAt(admission.Obj(), now).Obj()
 				cache.AddOrUpdateWorkload(log, wl)
-				snapshot.AddWorkload(workload.NewInfo(wl))
+				wlInfo := workload.NewInfo(wl)
+				cqSnap := snapshot.ClusterQueue("cq")
+				cqSnap.Workloads[workload.Key(wlInfo.Obj)] = wlInfo
+				cqSnap.AddUsage(wlInfo.Usage())
 				i++
 			}
 

@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/simulation"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -1852,7 +1853,15 @@ func TestHierarchicalPreemptions(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
-				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy)
+				var targets []*Target
+				err = simulation.Simulate(ctx, snapshotWorkingCopy, func(simulator *simulation.SimulationContext) error {
+					var inErr error
+					targets, inErr = preemptor.GetTargets(ctx, simulator, *wlInfo, tc.assignment)
+					return inErr
+				})
+				if err != nil {
+					t.Errorf("Failed to get targets: %v", err)
+				}
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Failed doing preemption")
