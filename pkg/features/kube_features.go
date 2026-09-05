@@ -456,6 +456,15 @@ const (
 	// Requires TopologyAwareScheduling to be enabled.
 	TASRecomputeAssignmentWithinSchedulingCycle featuregate.Feature = "TASRecomputeAssignmentWithinSchedulingCycle"
 
+	// owner: @vsyal
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/13658
+	//
+	// When enabled, an in-cycle TAS recomputation (see TASRecomputeAssignmentWithinSchedulingCycle)
+	// is allowed to try a different ResourceFlavor instead of remaining pinned to the previously
+	// nominated one. This helps workloads escape a ResourceFlavor whose topology cannot satisfy
+	// placement, at the cost of releasing the earlier same-cycle quota nomination for that flavor.
+	TASFlavorFallback featuregate.Feature = "TASFlavorFallback"
+
 	// owner: @j-skiba
 	// kep: https://github.com/kubernetes-sigs/kueue/issues/10852
 	//
@@ -892,6 +901,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASRecomputeAssignmentWithinSchedulingCycle: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	TASFlavorFallback: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	UnadmittedWorkloadsExplicitStatus: {

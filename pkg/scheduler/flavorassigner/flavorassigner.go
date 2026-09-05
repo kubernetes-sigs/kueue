@@ -1410,6 +1410,10 @@ func (a *FlavorAssigner) shouldRespectNominationMapping() bool {
 // shouldSkipBasedOnNominationMapping returns true if the flavor should be skipped to enforce stickiness.
 // We stick to nominated flavors from the initial attempt to avoid flavor switching during recomputation.
 //
+// When TASFlavorFallback is enabled the semantics are inverted: flavors that WERE nominated in the
+// initial pass are skipped, so the recompute tries the remaining flavors in the ClusterQueue and can
+// fall back when the previously nominated flavor's topology cannot fit the workload.
+//
 // Note: Assumes NominationMapping is complete. If a resource is not requested by a pod set in the group,
 // it returns "" which won't match fName. We rely on the upstream guarantee that at least one pod set
 // in the group requests the resource and has a nominated flavor, otherwise it would incorrectly skip.
@@ -1418,12 +1422,23 @@ func (a *FlavorAssigner) shouldSkipBasedOnNominationMapping(log logr.Logger,
 	psIDs []int,
 	resName corev1.ResourceName,
 ) bool {
+	inMapping := false
 	for _, psID := range psIDs {
 		psName := a.wl.Obj.Spec.PodSets[psID].Name
 		if fName == a.wl.NominationMapping[psName][resName] {
-			log.V(5).Info("Found flavor in the nomination mapping - cannot skip", "psName", psName, "resName", resName, "flavorName", fName)
-			return false
+			inMapping = true
+			break
 		}
+	}
+	if features.Enabled(features.TASFlavorFallback) {
+		if inMapping {
+			log.V(5).Info("TASFlavorFallback: skipping previously nominated flavor", "resName", resName, "flavorName", fName)
+		}
+		return inMapping
+	}
+	if inMapping {
+		log.V(5).Info("Found flavor in the nomination mapping - cannot skip", "resName", resName, "flavorName", fName)
+		return false
 	}
 	log.V(5).Info("Didn't find the flavor in the nomination mapping - skipping", "resName", resName, "flavorName", fName)
 	return true

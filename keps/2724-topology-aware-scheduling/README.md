@@ -58,6 +58,7 @@
       - [Until v0.14](#until-v014)
       - [Since v0.15](#since-v015)
     - [Re-computation of TAS assignments within the workload evaluation phase](#re-computation-of-tas-assignments-within-the-workload-evaluation-phase)
+      - [Optional flavor fallback during recomputation](#optional-flavor-fallback-during-recomputation)
   - [Two-level Topology Aware scheduling](#two-level-topology-aware-scheduling)
     - [Example](#example-1)
   - [Multi-level Topology Aware scheduling](#multi-level-topology-aware-scheduling)
@@ -1684,6 +1685,36 @@ previously evaluated Workloads. During this recomputation, the PodSet-to-Resourc
 remains sticky so that the quota calculations made earlier in the cycle remain valid.
 This behavior was introduced in 0.19.0 and guarded by the `TASRecomputeAssignmentWithinSchedulingCycle`
 feature gate (enabled by defualt as Beta). The fix is also cherry-picked to 0.17.6 and 0.18.2.
+
+##### Optional flavor fallback during recomputation
+
+The sticky recomputation described above always retries the initially nominated flavor. When a
+ClusterQueue has multiple TAS ResourceFlavors backed by disjoint node pools, a Workload whose
+topology cannot be satisfied by the nominated flavor will keep failing even if another flavor in
+the same ClusterQueue has free capacity. Under sustained load, `AllocatableResourceGeneration`
+churn also invalidates the Workload's `LastAssignment` between cycles, so the flavor-fungibility
+`LastTriedFlavorIdx` never advances and the Workload effectively pins to the first flavor for its
+lifetime (see [issue #13658](https://github.com/kubernetes-sigs/kueue/issues/13658)).
+
+The `TASFlavorFallback` feature gate (alpha, off by default; introduced in 0.20) opts a cluster
+into a different recompute behavior: the recompute inverts the `NominationMapping` semantics so
+that the flavor(s) tried in the initial pass are *excluded* rather than pinned. The flavor
+iterator then considers the remaining flavors in the ClusterQueue's resource group. This
+releases the same-cycle quota nomination on the failing flavor. The gate is scoped to the
+same-cycle recompute triggered by `TASRecomputeAssignmentWithinSchedulingCycle`; the cross-cycle
+`LastAssignment` invalidation problem is not addressed by this gate, and workloads with three or
+more ResourceFlavors will still require additional cycles (or a follow-up fix) to iterate past
+the second one because only one recompute runs per `processEntry` call.
+
+Tradeoff: breaking stickiness does not affect correctness — `fits()` is re-checked against the
+live snapshot after the recompute, and `SimulateWorkloadAdmission` reflects the flavor the
+Workload actually lands on. It does introduce mild fairness staleness: the entry ordering
+(classical `Borrows()` sort, or fair-sharing DRS tournament) is computed against each Workload's
+nomination-time flavor, so a Workload that switches flavors during recompute may have won its
+slot on slightly wrong data. The tournament self-corrects on the next `pop()` because DRS is
+recomputed against the live snapshot. Users who require the strongest fairness guarantee should
+leave the gate off; users whose Workloads pin to an under-capacity flavor and never advance
+should enable it.
 
 ### Two-level Topology Aware scheduling
 In consideration of a [Story 5](#story-5) a two-level scheduling is introduced.
