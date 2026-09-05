@@ -31,7 +31,6 @@ import (
 	"k8s.io/klog/v2"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -40,6 +39,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
@@ -123,12 +124,12 @@ func TestRemoteRetentionRemaining(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.MultiKueueRemoteObjectRetention, tc.gate)
-			wl := &kueue.Workload{}
+			wl := utiltestingapi.MakeWorkload("wl", TestNamespace)
 			if tc.condition != nil {
-				wl.Status.Conditions = []metav1.Condition{*tc.condition}
+				wl.Condition(*tc.condition)
 			}
 			reconciler := &wlReconciler{clock: testingclock.NewFakeClock(now), remoteObjectsAfterFinished: tc.duration}
-			if got := reconciler.remoteRetentionRemaining(wl); got != tc.want {
+			if got := reconciler.remoteRetentionRemaining(wl.Obj()); got != tc.want {
 				t.Fatalf("remoteRetentionRemaining() = %v, want %v", got, tc.want)
 			}
 		})
@@ -209,15 +210,13 @@ func TestReconcileGroupRemoteRetention(t *testing.T) {
 			if tc.selectedEvicted {
 				workloadevict.SetEvictedCondition(selectedRemote, now, kueue.WorkloadEvictedByPreemption, "preempted")
 			}
-			remoteJob := func() *batchv1.Job {
-				return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job", Namespace: TestNamespace,
-					Labels:      map[string]string{kueue.MultiKueueOriginLabel: defaultOrigin},
-					Annotations: map[string]string{constants.PrebuiltWorkloadAnnotation: local.Name}}}
-			}
+			remoteJob := testingjob.MakeJob("job", TestNamespace).
+				Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+				PrebuiltWorkloadAnnotation(local.Name)
 
 			managerClient := getClientBuilder(ctx).Build()
-			worker1Client := getClientBuilder(ctx).WithObjects(selectedRemote, remoteJob()).Build()
-			worker2Client := getClientBuilder(ctx).WithObjects(nonSelectedRemote, remoteJob()).Build()
+			worker1Client := getClientBuilder(ctx).WithObjects(selectedRemote, remoteJob.Clone().Obj()).Build()
+			worker2Client := getClientBuilder(ctx).WithObjects(nonSelectedRemote, remoteJob.Clone().Obj()).Build()
 			adapter := retentionTestAdapter{}
 			worker1 := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker1", nil)
 			worker1.client = NewNeverCachingClient(worker1Client)
@@ -319,21 +318,18 @@ func TestSameNameReplacementChecksOwnershipAndCurrentManager(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			managerJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job", Namespace: TestNamespace, UID: currentManagerUID}}
+			managerJob := testingjob.MakeJob("job", TestNamespace).UID(string(currentManagerUID)).Obj()
 			managerClient := getClientBuilder(ctx).WithObjects(managerJob).Build()
-			oldRemoteJob := func() *batchv1.Job {
-				job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: managerJob.Name, Namespace: managerJob.Namespace,
-					Annotations: map[string]string{constants.PrebuiltWorkloadAnnotation: "old-workload"}}}
-				if !tc.emptyOrigin {
-					job.Labels = map[string]string{kueue.MultiKueueOriginLabel: tc.remoteObjectOrigin}
-				}
-				return job
+			oldRemoteJob := testingjob.MakeJob(managerJob.Name, managerJob.Namespace).
+				PrebuiltWorkloadAnnotation("old-workload")
+			if !tc.emptyOrigin {
+				oldRemoteJob.Label(kueue.MultiKueueOriginLabel, tc.remoteObjectOrigin)
 			}
 			worker1Builder := getClientBuilder(ctx)
 			worker2Builder := getClientBuilder(ctx)
 			if tc.remoteObjectPresent {
-				worker1Builder = worker1Builder.WithObjects(oldRemoteJob())
-				worker2Builder = worker2Builder.WithObjects(oldRemoteJob())
+				worker1Builder = worker1Builder.WithObjects(oldRemoteJob.Clone().Obj())
+				worker2Builder = worker2Builder.WithObjects(oldRemoteJob.Clone().Obj())
 			}
 			worker1Client := worker1Builder.Build()
 			worker2Client := worker2Builder.Build()
@@ -399,11 +395,9 @@ func TestSameNameReplacementSkipsPodGroups(t *testing.T) {
 	local := utiltestingapi.MakeWorkload("new-group", TestNamespace).
 		Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
 		Obj()
-	remotePod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
-		Name: "pod", Namespace: TestNamespace,
-		Labels:      map[string]string{kueue.MultiKueueOriginLabel: defaultOrigin},
-		Annotations: map[string]string{constants.PrebuiltWorkloadAnnotation: "old-group"},
-	}}
+	remotePod := testingpod.MakePod("pod", TestNamespace).
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		PrebuiltWorkloadAnnotation("old-group").Obj()
 	managerClient := getClientBuilder(ctx).Build()
 	workerClient := getClientBuilder(ctx).WithObjects(remotePod).Build()
 	worker := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker", nil)
@@ -430,28 +424,12 @@ func TestSameNameReplacementSkipsPodGroups(t *testing.T) {
 func TestSameNameReplacementPreservesConcurrentOwnershipChange(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, true)
 	ctx, _ := utiltesting.ContextWithLog(t)
-	managerJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: "job", Namespace: TestNamespace, UID: "manager"}}
+	managerJob := testingjob.MakeJob("job", TestNamespace).UID("manager").Obj()
 	managerClient := getClientBuilder(ctx).WithObjects(managerJob).Build()
-	remoteJob := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{
-		Name: managerJob.Name, Namespace: managerJob.Namespace, UID: "remote",
-		Labels:      map[string]string{kueue.MultiKueueOriginLabel: defaultOrigin},
-		Annotations: map[string]string{constants.PrebuiltWorkloadAnnotation: "old-workload"},
-	}}
-	workerClient := getClientBuilder(ctx).WithObjects(remoteJob).
-		WithInterceptorFuncs(interceptor.Funcs{
-			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
-				// Ownership changes after the reconciler reads the old metadata.
-				current := &batchv1.Job{}
-				if err := c.Get(ctx, client.ObjectKeyFromObject(remoteJob), current); err != nil {
-					return err
-				}
-				current.Labels[kueue.MultiKueueOriginLabel] = "other-origin"
-				if err := c.Update(ctx, current); err != nil {
-					return err
-				}
-				return c.Delete(ctx, obj, opts...)
-			},
-		}).Build()
+	remoteJob := testingjob.MakeJob(managerJob.Name, managerJob.Namespace).UID("remote").
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		PrebuiltWorkloadAnnotation("old-workload").Obj()
+	workerClient := &ownershipChangingClient{WithWatch: getClientBuilder(ctx).WithObjects(remoteJob).Build()}
 	worker := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker", nil)
 	worker.client = NewNeverCachingClient(workerClient)
 	local := utiltestingapi.MakeWorkload("new-workload", TestNamespace).
@@ -467,10 +445,31 @@ func TestSameNameReplacementPreservesConcurrentOwnershipChange(t *testing.T) {
 	if !apierrors.IsConflict(err) {
 		t.Errorf("syncToSingleCluster() error = %v, want Conflict", err)
 	}
-	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remoteJob), &batchv1.Job{}); err != nil {
+	updatedRemoteJob := &batchv1.Job{}
+	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remoteJob), updatedRemoteJob); err != nil {
 		t.Fatalf("remote Job with changed ownership was deleted: %v", err)
+	}
+	if got := updatedRemoteJob.Labels[kueue.MultiKueueOriginLabel]; got != "other-origin" {
+		t.Errorf("remote Job origin = %q, want other-origin", got)
 	}
 	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(local), &kueue.Workload{}); !apierrors.IsNotFound(err) {
 		t.Fatalf("remote Workload was created before resolving the conflict, error = %v", err)
 	}
+}
+
+type ownershipChangingClient struct {
+	client.WithWatch
+}
+
+func (c *ownershipChangingClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	// Ownership changes after the reconciler reads the old metadata.
+	current := &batchv1.Job{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(obj), current); err != nil {
+		return err
+	}
+	current.Labels[kueue.MultiKueueOriginLabel] = "other-origin"
+	if err := c.Update(ctx, current); err != nil {
+		return err
+	}
+	return c.WithWatch.Delete(ctx, obj, opts...)
 }
