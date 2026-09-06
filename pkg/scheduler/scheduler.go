@@ -448,7 +448,7 @@ func (s *Scheduler) processEntry(
 	usage, fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
 	mode := e.assignment.RepresentativeMode()
 
-	if features.Enabled(features.TASFailedNodeReplacementFailFast) && workload.HasTopologyAssignmentWithUnhealthyNode(e.Obj) && mode != flavorassigner.Fit {
+	if shouldFailFastTASReplacement(log, e.Obj, mode) {
 		s.handleFailedTASReplacement(ctx, log, e)
 		return
 	}
@@ -546,6 +546,22 @@ func (s *Scheduler) processEntry(
 	if err := s.admit(ctx, e, cq, oldWorkloadSlice); err != nil {
 		e.inadmissibleMsg = fmt.Sprintf("Failed to admit workload: %v", err)
 	}
+}
+
+func shouldFailFastTASReplacement(log logr.Logger, wl *kueue.Workload, mode flavorassigner.FlavorAssignmentMode) bool {
+	if !features.Enabled(features.TASFailedNodeReplacementFailFast) ||
+		!workload.HasTopologyAssignmentWithUnhealthyNode(wl) ||
+		mode == flavorassigner.Fit {
+		return false
+	}
+	if !features.Enabled(features.TASReplaceMultipleFailedNodes) {
+		return true
+	}
+	threshold, err := workload.UnhealthyNodesEvictionThreshold(wl)
+	if err != nil {
+		log.Error(err, "Invalid unhealthy nodes eviction threshold")
+	}
+	return len(wl.Status.UnhealthyNodes) > threshold
 }
 
 func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry) {
@@ -1041,14 +1057,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 
 	newWorkload := e.Obj.DeepCopy()
 	s.admissionRoutineWrapper.Run(func() {
-		err := workloadpatching.PatchAdmissionStatus(ctx, s.client, newWorkload, s.clock, func(wl *kueue.Workload) (bool, error) {
-			s.prepareWorkload(log, wl, cq, admission)
-			if features.Enabled(features.TopologyAwareScheduling) && workload.HasUnhealthyNodes(e.Obj) {
-				log.V(5).Info("Clearing the topology assignment recovery field from the workload status after successful recovery")
-				wl.Status.UnhealthyNodes = nil
-			}
-			return true, nil
-		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict())
+		err := s.patchWorkloadAdmission(ctx, log, newWorkload, cq, admission)
 		if err == nil {
 			// Make sure the preemption expectation for an assumed workload is satisfied.
 			// See: https://github.com/kubernetes-sigs/kueue/issues/11480
@@ -1080,6 +1089,47 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	})
 
 	return nil
+}
+
+func (s *Scheduler) patchWorkloadAdmission(
+	ctx context.Context,
+	log logr.Logger,
+	wl *kueue.Workload,
+	cq *schdcache.ClusterQueueSnapshot,
+	admission *kueue.Admission,
+) error {
+	replacedNodeName := ""
+	if len(wl.Status.UnhealthyNodes) > 0 {
+		replacedNodeName = wl.Status.UnhealthyNodes[0].Name
+	}
+	patchOptions := []workloadpatching.PatchStatusOption{workloadpatching.WithRetryOnConflict()}
+	if !features.Enabled(features.TASReplaceMultipleFailedNodes) {
+		patchOptions = append(patchOptions, workloadpatching.WithLooseOnApply())
+	}
+	return workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
+		s.prepareWorkload(log, wl, cq, admission)
+		updateUnhealthyNodesAfterTASReplacement(log, wl, replacedNodeName)
+		return true, nil
+	}, patchOptions...)
+}
+
+func updateUnhealthyNodesAfterTASReplacement(log logr.Logger, wl *kueue.Workload, replacedNodeName string) {
+	if !features.Enabled(features.TopologyAwareScheduling) || !workload.HasUnhealthyNodes(wl) {
+		return
+	}
+	if features.Enabled(features.TASReplaceMultipleFailedNodes) && replacedNodeName != "" {
+		// Remove only the node replaced by this admission. A retry on conflict may
+		// observe additional failures appended after the entry was queued.
+		wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
+			return n.Name == replacedNodeName
+		})
+		log.V(5).Info("Dropping the replaced head node from the workload recovery field, keeping the remaining unhealthy nodes",
+			"replacedNode", replacedNodeName,
+			"remainingUnhealthyNodes", len(wl.Status.UnhealthyNodes))
+		return
+	}
+	log.V(5).Info("Clearing the topology assignment recovery field from the workload status after successful recovery")
+	wl.Status.UnhealthyNodes = nil
 }
 
 func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) {

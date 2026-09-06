@@ -1001,8 +1001,15 @@ func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey queue.LocalQueueRefer
 	return "", false
 }
 
+// DeleteSecondPass deletes the pending workload from the second pass queue.
+func (m *Manager) DeleteSecondPass(wlKey workload.Reference) {
+	m.Lock()
+	defer m.Unlock()
+	m.DeleteSecondPassWithoutLock(wlKey)
+}
+
 // DeleteSecondPassWithoutLock deletes the pending workload from the second
-// pass queue.
+// pass queue. The caller must hold the manager lock.
 func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
 	m.secondPassQueue.deleteByKey(wlKey)
 }
@@ -1034,10 +1041,22 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 }
 
 func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration int) {
+	log := ctrl.LoggerFrom(ctx)
+	if features.Enabled(features.TASReplaceMultipleFailedNodes) && workload.HasTopologyAssignmentWithUnhealthyNode(w) {
+		var latest kueue.Workload
+		if err := m.client.Get(ctx, client.ObjectKeyFromObject(w), &latest); err == nil {
+			w = &latest
+		} else if apierrors.IsNotFound(err) {
+			m.DeleteSecondPass(workload.Key(w))
+			return
+		} else {
+			log.Error(err, "Failed to refresh workload before the second pass", "workload", workload.Key(w))
+		}
+	}
+
 	m.Lock()
 	defer m.Unlock()
 
-	log := ctrl.LoggerFrom(ctx)
 	wInfo := workload.NewInfo(log, w, m.workloadInfoOptions...)
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queue(wInfo) {

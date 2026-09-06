@@ -143,6 +143,20 @@ const (
 	// In TAS, treat node as failed if the node is not ready and the pods assigned to this node terminate.
 	TASReplaceNodeOnPodTermination featuregate.Feature = "TASReplaceNodeOnPodTermination"
 
+	// TASReplaceMultipleFailedNodes enables replacing multiple failed nodes for
+	// a TAS workload instead of evicting the workload. Without this gate, TAS
+	// replaces a single failed node, but evicts the workload as soon as a
+	// second distinct node fails while a replacement is still in flight. With
+	// this gate enabled and an eviction threshold in the range [1, 8] configured
+	// via the kueue.x-k8s.io/tas-unhealthy-nodes-eviction-threshold annotation,
+	// the workload stays admitted: failed nodes are queued in Status.UnhealthyNodes
+	// and replaced incrementally, head-of-queue first, as fits become available. While
+	// within threshold, it suppresses both the node-controller eviction on the second
+	// distinct failure and the scheduler fail-fast eviction (TASFailedNodeReplacementFailFast),
+	// ignore other queued unhealthy-node domains during the stale-assignment
+	// check so a stuck tail entry does not block head replacement.
+	TASReplaceMultipleFailedNodes featuregate.Feature = "TASReplaceMultipleFailedNodes"
+
 	// owner: @yakticus
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -732,6 +746,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASReplaceNodeOnPodTermination: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASReplaceMultipleFailedNodes: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	SkipReassignmentForPodOwnedWorkloads: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},

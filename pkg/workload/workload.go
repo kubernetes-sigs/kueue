@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1457,6 +1458,49 @@ func HasTopologyAssignmentWithUnhealthyNode(w *kueue.Workload) bool {
 		}
 	}
 	return false
+}
+
+// DefaultUnhealthyNodesEvictionThreshold is used when the
+// TASUnhealthyNodesEvictionThresholdAnnotation is absent or invalid. It
+// reproduces the default single-node-replacement behavior: the Workload is
+// evicted as soon as a second distinct node fails (i.e. it tolerates one
+// unhealthy node while a replacement is in flight).
+const DefaultUnhealthyNodesEvictionThreshold = 1
+
+// MaxUnhealthyNodesEvictionThreshold is the maximum supported threshold,
+// matching the API limit on Workload.Status.UnhealthyNodes.
+const MaxUnhealthyNodesEvictionThreshold = 8
+
+// UnhealthyNodesEvictionThreshold returns the maximum number of the Workload's
+// nodes that may be unhealthy at once before the Workload is evicted instead of
+// having its failed nodes replaced in place, as configured by the
+// TASUnhealthyNodesEvictionThresholdAnnotation:
+//   - an integer N in the range [1, MaxUnhealthyNodesEvictionThreshold]
+//     tolerates up to N unhealthy nodes;
+//   - an absent value returns DefaultUnhealthyNodesEvictionThreshold (1);
+//   - an invalid value returns DefaultUnhealthyNodesEvictionThreshold (1)
+//     together with an error.
+func UnhealthyNodesEvictionThreshold(w *kueue.Workload) (int, error) {
+	if w == nil {
+		return DefaultUnhealthyNodesEvictionThreshold, nil
+	}
+	if v, ok := w.Annotations[kueue.TASUnhealthyNodesEvictionThresholdAnnotation]; ok {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return DefaultUnhealthyNodesEvictionThreshold, fmt.Errorf("invalid %s annotation value %q: %w", kueue.TASUnhealthyNodesEvictionThresholdAnnotation, v, err)
+		}
+		if n >= DefaultUnhealthyNodesEvictionThreshold && n <= MaxUnhealthyNodesEvictionThreshold {
+			return n, nil
+		}
+		return DefaultUnhealthyNodesEvictionThreshold, fmt.Errorf(
+			"invalid %s annotation value %q: must be between %d and %d",
+			kueue.TASUnhealthyNodesEvictionThresholdAnnotation,
+			v,
+			DefaultUnhealthyNodesEvictionThreshold,
+			MaxUnhealthyNodesEvictionThreshold,
+		)
+	}
+	return DefaultUnhealthyNodesEvictionThreshold, nil
 }
 
 // IsAdmittedByTAS checks if a workload is admitted by TAS.

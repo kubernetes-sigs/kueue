@@ -858,7 +858,8 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
-		"workload with unhealthyNode annotation; second pass; preferred; no fit; FailFast": {
+		"workload with unhealthyNode annotation; second pass; preferred; no fit; FailFast above eviction threshold": {
+			featureGates:    map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueue.Topology{defaultThreeLevelTopology},
@@ -866,7 +867,8 @@ func TestScheduleForTAS(t *testing.T) {
 			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo", "default").
-					UnhealthyNodes("x0").
+					Annotation(kueue.TASUnhealthyNodesEvictionThresholdAnnotation, "1").
+					UnhealthyNodes("x0", "x1").
 					Queue("tas-main").
 					PodSets(*utiltestingapi.MakePodSet("one", 1).
 						PreferredTopologyRequest(tasRackLabel).
@@ -897,7 +899,7 @@ func TestScheduleForTAS(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "foo", "EvictedDueToNodeFailures", corev1.EventTypeNormal).
-					Message("Workload was evicted as there was no replacement for unhealthy node(s): x0").
+					Message("Workload was evicted as there was no replacement for unhealthy node(s): x0,x1").
 					Obj(),
 			},
 		},
