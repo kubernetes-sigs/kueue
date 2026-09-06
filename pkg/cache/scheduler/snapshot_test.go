@@ -19,6 +19,8 @@ package scheduler
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -51,6 +53,7 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(hierarchy.Cohort[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
+	cmpopts.IgnoreUnexported(Snapshot{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	cmpopts.IgnoreFields(Snapshot{}, "SimulatorSnapshot"),
 }
@@ -74,6 +77,13 @@ func TestSnapshot(t *testing.T) {
 		wantSnapshot     Snapshot
 		// wantTASUsage asserts per-flavor domain usage (and that none was skipped).
 		wantTASUsage map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests
+		// wantTASUsage is asserted after the simulation is reverted.
+		removalSimulationWorkload      workload.Reference
+		usageRemovalSimulationWorkload workload.Reference
+		// wantSimulatedTASUsage and wantSimulatedWorkloads cover the window while
+		// the simulation is in effect.
+		wantSimulatedTASUsage  map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests
+		wantSimulatedWorkloads []workload.Reference
 		// featureGates set per case before the snapshot is taken.
 		featureGates map[featuregate.Feature]bool
 	}{
@@ -997,6 +1007,118 @@ func TestSnapshot(t *testing.T) {
 				"tas-moved": {},
 			},
 		},
+		"overlapping flavors: simulated removal of a Workload frees its node on the sibling flavor": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:     true,
+				features.TASHandleOverlappingFlavors: true,
+			},
+			// tas-sibling counts the victim because it shares x1 with tas-victim, so
+			// simulating the victim away has to give the capacity back on both.
+			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
+			rfs: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("tas-victim").TopologyName("topology").NodeLabel("zone", "a").Obj(),
+				utiltestingapi.MakeResourceFlavor("tas-sibling").TopologyName("topology").NodeLabel("zone", "a").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-victim").Resource(corev1.ResourceCPU, "100").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-sibling").Resource(corev1.ResourceCPU, "100").Obj(),
+				).Obj(),
+			},
+			nodes: []*corev1.Node{
+				node.MakeNode("x1").Label(corev1.LabelHostname, "x1").Label("zone", "a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).Ready().Obj(),
+			},
+			wls: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("victim", "").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment("main").
+								Assignment(corev1.ResourceCPU, "tas-victim", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+						now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantTASUsage: map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests{
+				"tas-victim":  {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, corev1.ResourcePods: 1})},
+				"tas-sibling": {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, corev1.ResourcePods: 1})},
+			},
+			removalSimulationWorkload: "/victim",
+			wantSimulatedTASUsage: map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests{
+				"tas-victim":  {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 0, corev1.ResourcePods: 0})},
+				"tas-sibling": {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 0, corev1.ResourcePods: 0})},
+			},
+			// SimulateWorkloadRemoval drops the Workload from the ClusterQueue.
+			wantSimulatedWorkloads: nil,
+		},
+		"overlapping flavors: simulated removal of a Workload's usage keeps it on the ClusterQueue": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:     true,
+				features.TASHandleOverlappingFlavors: true,
+			},
+			topologies: []*kueue.Topology{utiltestingapi.MakeDefaultOneLevelTopology("topology")},
+			rfs: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("tas-victim").TopologyName("topology").NodeLabel("zone", "a").Obj(),
+				utiltestingapi.MakeResourceFlavor("tas-sibling").TopologyName("topology").NodeLabel("zone", "a").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-victim").Resource(corev1.ResourceCPU, "100").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-sibling").Resource(corev1.ResourceCPU, "100").Obj(),
+				).Obj(),
+			},
+			nodes: []*corev1.Node{
+				node.MakeNode("x1").Label(corev1.LabelHostname, "x1").Label("zone", "a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).Ready().Obj(),
+			},
+			wls: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("victim", "").
+					PodSets(*utiltestingapi.MakePodSet("main", 1).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment("main").
+								Assignment(corev1.ResourceCPU, "tas-victim", "1").
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(),
+						now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantTASUsage: map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests{
+				"tas-victim":  {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, corev1.ResourcePods: 1})},
+				"tas-sibling": {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000, corev1.ResourcePods: 1})},
+			},
+			usageRemovalSimulationWorkload: "/victim",
+			wantSimulatedTASUsage: map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests{
+				"tas-victim":  {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 0, corev1.ResourcePods: 0})},
+				"tas-sibling": {"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 0, corev1.ResourcePods: 0})},
+			},
+			// SimulateWorkloadUsageRemoval only withdraws the usage.
+			wantSimulatedWorkloads: []workload.Reference{"/victim"},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -1070,6 +1192,39 @@ func TestSnapshot(t *testing.T) {
 				cqSnapshot := snapshot.ClusterQueue(cqName)
 				if cqSnapshot == nil {
 					t.Fatalf("ClusterQueue %q is missing from the snapshot", cqName)
+				}
+				if tc.removalSimulationWorkload != "" || tc.usageRemovalSimulationWorkload != "" {
+					workloadsAsBuilt := slices.Sorted(maps.Keys(cqSnapshot.Workloads))
+					var revert func()
+					if tc.removalSimulationWorkload != "" {
+						revert = snapshot.SimulateWorkloadRemoval([]*workload.Info{cqSnapshot.Workloads[tc.removalSimulationWorkload]})
+					} else {
+						revert = snapshot.SimulateWorkloadUsageRemoval([]*workload.Info{cqSnapshot.Workloads[tc.usageRemovalSimulationWorkload]})
+					}
+					gotSimulatedTASUsage := make(map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests, len(tc.wantSimulatedTASUsage))
+					for flavor := range tc.wantSimulatedTASUsage {
+						flavorSnapshot := cqSnapshot.TASFlavors[flavor]
+						if flavorSnapshot == nil {
+							t.Fatalf("flavor %q is missing from the ClusterQueue snapshot", flavor)
+						}
+						domainUsage := make(map[utiltas.TopologyDomainID]resources.Requests)
+						for domainID, leaf := range flavorSnapshot.leaves {
+							if leafCapacity := flavorSnapshot.leafCapacityOf(leaf); leafCapacity.tasUsage != nil {
+								domainUsage[domainID] = leafCapacity.tasUsage
+							}
+						}
+						gotSimulatedTASUsage[flavor] = domainUsage
+					}
+					if diff := cmp.Diff(tc.wantSimulatedTASUsage, gotSimulatedTASUsage, cmp.Comparer(resources.Equal)); diff != "" {
+						t.Errorf("unexpected TAS usage while the simulation is in effect (-want,+got):\n%s", diff)
+					}
+					if diff := cmp.Diff(tc.wantSimulatedWorkloads, slices.Sorted(maps.Keys(cqSnapshot.Workloads))); diff != "" {
+						t.Errorf("unexpected Workloads while the simulation is in effect (-want,+got):\n%s", diff)
+					}
+					revert()
+					if diff := cmp.Diff(workloadsAsBuilt, slices.Sorted(maps.Keys(cqSnapshot.Workloads))); diff != "" {
+						t.Errorf("unexpected Workloads after the simulation was reverted (-want,+got):\n%s", diff)
+					}
 				}
 				gotTASUsage := make(map[kueue.ResourceFlavorReference]map[utiltas.TopologyDomainID]resources.Requests, len(tc.wantTASUsage))
 				for flavor := range tc.wantTASUsage {
