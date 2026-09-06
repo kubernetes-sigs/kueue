@@ -36,7 +36,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -73,33 +72,6 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
-func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
-	return func(ctx context.Context, mgr manager.Manager) {
-		integrationManager := jobcontrollers.NewIntegrationManager()
-		opts = append(opts, jobframework.WithIntegrationManager(integrationManager))
-		reconciler, err := raycluster.NewReconciler(
-			ctx,
-			mgr.GetClient(),
-			mgr.GetFieldIndexer(),
-			mgr.GetEventRecorder(constants.JobControllerName),
-			opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = indexer.Setup(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = raycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = rayjob.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = reconciler.SetupWithManager(mgr)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = raycluster.SetupRayClusterWebhook(mgr, opts...)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		failedWebhook, err := webhooks.Setup(mgr, nil)
-		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
-		integrationManager.EnableIntegration(rayjob.FrameworkName)
-	}
-}
-
 func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		// Production wiring: the RayCluster (defaulting/validating) webhooks need
@@ -131,9 +103,10 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 
 		err = raycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		r, _ := raycluster.NewReconciler(ctx, mgr.GetClient(), mgr.GetFieldIndexer(),
+		r, err := raycluster.NewReconciler(ctx, mgr.GetClient(), mgr.GetFieldIndexer(),
 			mgr.GetEventRecorder(constants.JobControllerName), opts...)
-		_ = r.SetupWithManager(mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = r.SetupWithManager(mgr)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = raycluster.SetupRayClusterWebhook(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
