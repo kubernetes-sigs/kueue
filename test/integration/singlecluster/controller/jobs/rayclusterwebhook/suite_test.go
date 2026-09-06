@@ -1,0 +1,141 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+// Package rayclusterwebhook holds the end-to-end integration suite for elastic partial
+// scale-up (KEP-12100) on RayClusters, running the RayCluster reconciler, the Workload
+// webhooks, the elastic-jobs controllers and the scheduler together against real webhook
+// configurations, exactly like a deployed kueue-manager.
+//
+// The suite is a separate package because this scenario needs the real mutating Workload
+// webhook: it is the component that must preserve the minCounts the reconciler attaches to
+// the prepared workload slice (and would erase them if the annotation ordering regressed).
+// The existing raycluster controller suite installs no webhook configurations, and enabling
+// the full webhook manifest there fails every create with unregistered job webhook handlers
+// (e.g. mrayjob.kb.io); the webhook/core suite covers Workload shapes only and never goes
+// through the RayCluster reconciler.
+package rayclusterwebhook
+
+import (
+	"context"
+	"testing"
+
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/elasticjobs"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/scheduler"
+	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/webhooks"
+	"sigs.k8s.io/kueue/test/integration/framework"
+	"sigs.k8s.io/kueue/test/util"
+)
+
+var (
+	cfg       *rest.Config
+	k8sClient client.Client
+	ctx       context.Context
+	fwk       *framework.Framework
+)
+
+func TestAPIs(t *testing.T) {
+	util.RunSuite(t, "RayCluster Elastic Partial Scale-Up Suite (Production Wiring)")
+}
+
+var _ = ginkgo.BeforeSuite(func() {
+	fwk = &framework.Framework{
+		DepCRDPaths: []string{util.RayOperatorCrds},
+		// Production wiring: install the real webhook configurations so that
+		// Workload creates go through the validating webhook exactly like in a
+		// deployed kueue-manager.
+		WebhookPath: util.WebhookPath,
+	}
+
+	cfg = fwk.Init()
+	ctx, k8sClient = fwk.SetupClient(cfg)
+})
+
+var _ = ginkgo.AfterSuite(func() {
+	fwk.Teardown()
+})
+
+func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	return func(ctx context.Context, mgr manager.Manager) {
+		// Production wiring: the RayCluster (defaulting/validating) webhooks need
+		// the full jobframework options (integration manager, queues, cache) to
+		// avoid nil dereferences when the API server actually calls them.
+		integrationManager := jobcontrollers.NewIntegrationManager()
+		opts = append(opts, jobframework.WithIntegrationManager(integrationManager))
+
+		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		cCache := schdcache.New(mgr.GetClient())
+		preemptionExpectations := preemptexpectations.New()
+		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
+		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
+
+		failedCtrl, err := core.SetupControllers(
+			mgr,
+			queues,
+			cCache,
+			&config.Configuration{},
+			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+		)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+		failedWebhook, err := webhooks.Setup(mgr, nil)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
+
+		err = raycluster.SetupIndexes(ctx, mgr.GetFieldIndexer())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		r, err := raycluster.NewReconciler(ctx, mgr.GetClient(), mgr.GetFieldIndexer(),
+			mgr.GetEventRecorder(constants.JobControllerName), opts...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = r.SetupWithManager(mgr)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		err = raycluster.SetupRayClusterWebhook(mgr, opts...)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+			failedCtrl, err := elasticjobs.SetupWithManager(mgr, &config.Configuration{}, nil)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+		}
+
+		sched := scheduler.New(
+			queues,
+			cCache,
+			mgr.GetClient(),
+			mgr.GetEventRecorder(constants.AdmissionName),
+			scheduler.WithPreemptionExpectations(preemptionExpectations),
+		)
+		err = sched.Start(ctx)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
+}
