@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -1002,9 +1003,15 @@ func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey queue.LocalQueueRefer
 }
 
 // DeleteSecondPassWithoutLock deletes the pending workload from the second
-// pass queue.
+// pass queue. The caller must hold the manager lock.
 func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
 	m.secondPassQueue.deleteByKey(wlKey)
+}
+
+func (m *Manager) deleteSecondPassForWorkload(w *kueue.Workload) {
+	m.Lock()
+	defer m.Unlock()
+	m.secondPassQueue.deleteByKeyIfUID(workload.Key(w), w.UID)
 }
 
 // QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential
@@ -1017,31 +1024,68 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 			return false
 		}
 		iteration++
-		delay := m.secondPassQueue.nextDelay(iteration)
+		delay := m.scheduleSecondPass(ctx, w, iteration)
 		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", wlKey, "delay", delay)
-		m.clock.AfterFunc(delay, func() {
-			m.queueSecondPass(ctx, w, iteration)
-		})
 		return true
 	} else if iteration > 0 {
 		// Remove the workload from the second-pass queue only after at least one
 		// retry iteration, to avoid canceling the initial backoff window.
 		// See https://github.com/kubernetes-sigs/kueue/issues/8357.
 		log.V(3).Info("Workload removed from second pass queue", "workload", wlKey)
-		m.secondPassQueue.deleteByKey(wlKey)
+		m.secondPassQueue.deleteByKeyIfUID(wlKey, w.UID)
 	}
 	return false
 }
 
-func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration int) {
+func (m *Manager) scheduleSecondPass(ctx context.Context, w *kueue.Workload, iteration int) time.Duration {
+	delay := m.secondPassQueue.nextDelay(iteration)
+	m.clock.AfterFunc(delay, func() {
+		m.queueSecondPass(ctx, w, iteration, 0)
+	})
+	return delay
+}
+
+func (m *Manager) rescheduleSecondPass(ctx context.Context, w *kueue.Workload, iteration, refreshIteration int) time.Duration {
+	delay := m.secondPassQueue.nextDelay(refreshIteration)
+	// Clock callbacks aren't guaranteed to support registering another timer
+	// synchronously from inside the callback.
+	go m.clock.AfterFunc(delay, func() {
+		m.queueSecondPass(ctx, w, iteration, refreshIteration)
+	})
+	return delay
+}
+
+func (m *Manager) queueSecondPass(ctx context.Context, w *kueue.Workload, iteration, refreshIteration int) {
+	log := ctrl.LoggerFrom(ctx)
+	wlKey := workload.Key(w)
+	var latest kueue.Workload
+	if err := m.client.Get(ctx, client.ObjectKeyFromObject(w), &latest); err != nil {
+		switch {
+		case apierrors.IsNotFound(err), ctx.Err() != nil:
+			m.deleteSecondPassForWorkload(w)
+		default:
+			refreshIteration++
+			delay := m.rescheduleSecondPass(ctx, w, iteration, refreshIteration)
+			log.Error(err, "Failed to refresh workload before the second pass; retrying", "workload", wlKey, "delay", delay)
+		}
+		return
+	}
+	if latest.UID != w.UID {
+		log.V(3).Info("Workload was replaced before the second pass; resetting the retry", "workload", wlKey, "oldUID", w.UID, "newUID", latest.UID)
+		m.deleteSecondPassForWorkload(w)
+		go m.QueueSecondPassIfNeeded(ctx, &latest, 0)
+		return
+	}
+	workload.AdjustResources(ctx, m.client, &latest)
+	w = &latest
+
 	m.Lock()
 	defer m.Unlock()
 
-	log := ctrl.LoggerFrom(ctx)
 	wInfo := workload.NewInfo(log, w, m.workloadInfoOptions...)
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queue(wInfo) {
-		log.V(3).Info("Workload queued for second pass of scheduling", "workload", workload.Key(w))
+		log.V(3).Info("Workload queued for second pass of scheduling", "workload", wlKey)
 		m.Broadcast()
 	}
 }
