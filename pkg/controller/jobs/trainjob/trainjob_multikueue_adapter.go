@@ -104,6 +104,10 @@ func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (b *multiKueueAdapter) FrameworkName() string {
+	return FrameworkName
+}
+
 var _ jobframework.MultiKueueWatcher = (*multiKueueAdapter)(nil)
 
 func (*multiKueueAdapter) GetEmptyList() client.ObjectList {

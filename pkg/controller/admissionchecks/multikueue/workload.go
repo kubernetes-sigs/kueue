@@ -110,6 +110,7 @@ type wlGroup struct {
 	localClient         client.Client
 	remotes             map[string]*kueue.Workload
 	remoteClients       map[string]*remoteClient
+	eligibleClusters    sets.Set[string]
 	acName              kueue.AdmissionCheckReference
 	jobAdapter          jobframework.MultiKueueAdapter
 	controllerKey       types.NamespacedName
@@ -117,6 +118,12 @@ type wlGroup struct {
 }
 
 type Option func(reconciler *wlReconciler)
+
+func (g *wlGroup) isEligible(cluster string) bool {
+	// A nil set preserves the behavior of unit tests and callers that construct
+	// wlGroup directly; readGroup always initializes the set.
+	return g.eligibleClusters == nil || g.eligibleClusters.Has(cluster)
+}
 
 func WithClock(_ testing.TB, c clock.Clock) Option {
 	return func(r *wlReconciler) {
@@ -291,20 +298,25 @@ func (w *wlReconciler) admittingWorkerLostSince(clusterName string) time.Time {
 	return w.clock.Now()
 }
 
-func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
+func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference, adapter jobframework.MultiKueueAdapter) (availableClients map[string]*remoteClient, eligibleClusters sets.Set[string], unavailableClusters []string, err error) {
 	cfg, err := w.helper.ConfigForAdmissionCheck(ctx, acName)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	availableClients = make(map[string]*remoteClient, len(cfg.Spec.Clusters))
+	eligibleClusters = sets.New[string]()
+	adapterKey := adapter.GVK().String()
 	for _, clusterName := range cfg.Spec.Clusters {
 		if client, found := w.clusters.controllerFor(clusterName); found && client.connState.isConnected() {
 			availableClients[clusterName] = client
+			if client.supportsAdapter(adapterKey) {
+				eligibleClusters.Insert(clusterName)
+			}
 		} else {
 			unavailableClusters = append(unavailableClusters, clusterName)
 		}
 	}
-	return availableClients, unavailableClusters, nil
+	return availableClients, eligibleClusters, unavailableClusters, nil
 }
 
 func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAdapter, *metav1.OwnerReference) {
@@ -333,7 +345,7 @@ func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAd
 }
 
 func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName kueue.AdmissionCheckReference, adapter jobframework.MultiKueueAdapter, controllerName string) (*wlGroup, error) {
-	rClients, unavailable, err := w.remoteClientsForAC(ctx, acName)
+	rClients, eligible, unavailable, err := w.remoteClientsForAC(ctx, acName, adapter)
 	if err != nil {
 		return nil, fmt.Errorf("admission check %q: %w", acName, err)
 	}
@@ -343,6 +355,7 @@ func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acN
 		localClient:         w.client,
 		remotes:             make(map[string]*kueue.Workload, len(rClients)),
 		remoteClients:       rClients,
+		eligibleClusters:    eligible,
 		acName:              acName,
 		jobAdapter:          adapter,
 		controllerKey:       types.NamespacedName{Name: controllerName, Namespace: local.Namespace},
@@ -877,7 +890,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 
 	if assignedWorkerCluster != "" {
 		log.V(3).Info("Using cluster from component workloads", "cluster", assignedWorkerCluster)
-		if _, ok := group.remotes[assignedWorkerCluster]; ok {
+		if _, ok := group.remotes[assignedWorkerCluster]; ok && group.isEligible(assignedWorkerCluster) {
 			if !slices.Contains(group.local.Status.NominatedClusterNames, assignedWorkerCluster) {
 				if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, w.clock, func(wl *kueue.Workload) (bool, error) {
 					wl.Status.NominatedClusterNames = []string{assignedWorkerCluster}
@@ -907,7 +920,9 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		nominatedWorkers = []string{clusterName}
 	} else if w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
 		for workerName := range group.remotes {
-			nominatedWorkers = append(nominatedWorkers, workerName)
+			if group.isEligible(workerName) {
+				nominatedWorkers = append(nominatedWorkers, workerName)
+			}
 		}
 
 		// group.remotes is a map, so iteration order is non-deterministic; sort only
@@ -933,13 +948,16 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		if _, ok := group.remoteClients[nom]; !ok {
 			log.V(3).Info("Nominated cluster not yet connected", "cluster", nom)
 			errs = append(errs, fmt.Errorf("cluster %s: %w", nom, admissioncheck.ErrNoRemoteClientForNominatedCluster))
+		} else if !group.isEligible(nom) {
+			log.V(3).Info("Nominated cluster does not support the workload framework", "cluster", nom, "framework", group.jobAdapter.GVK())
+			errs = append(errs, fmt.Errorf("cluster %s does not support framework %s", nom, group.jobAdapter.GVK()))
 		}
 	}
 
 	log.V(4).Info("Synchronize nominated worker clusters", "dispatcherName", w.dispatcherName, "nominatedWorkerClusterNames", nominatedWorkers)
 
 	for rem, remoteWl := range group.remotes {
-		if slices.Contains(nominatedWorkers, rem) {
+		if slices.Contains(nominatedWorkers, rem) && group.isEligible(rem) {
 			if remoteWl == nil {
 				clone := cloneForCreate(group.local, group.remoteClients[rem].origin, true)
 				if err := group.remoteClients[rem].getClient().Create(ctx, clone); err != nil {
@@ -1012,6 +1030,40 @@ type configHandler struct {
 type admissionCheckHandler struct {
 	client            client.Client
 	eventsBatchPeriod time.Duration
+}
+
+type clusterHandler struct {
+	client            client.Client
+	eventsBatchPeriod time.Duration
+}
+
+func (h *clusterHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *clusterHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+	oldCluster, oldOK := e.ObjectOld.(*kueue.MultiKueueCluster)
+	newCluster, newOK := e.ObjectNew.(*kueue.MultiKueueCluster)
+	if !oldOK || !newOK || equality.Semantic.DeepEqual(oldCluster.Spec.SupportedFrameworks, newCluster.Spec.SupportedFrameworks) {
+		return
+	}
+
+	configs := &kueue.MultiKueueConfigList{}
+	if err := h.client.List(ctx, configs, client.MatchingFields{UsingMultiKueueClusters: newCluster.Name}); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to list MultiKueueConfigs for cluster update", "multiKueueCluster", klog.KObj(newCluster))
+		return
+	}
+	configHandler := configHandler{client: h.client, eventsBatchPeriod: h.eventsBatchPeriod}
+	for i := range configs.Items {
+		if err := configHandler.queueWorkloadsForConfig(ctx, configs.Items[i].Name, q); err != nil {
+			ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads for cluster update", "multiKueueCluster", klog.KObj(newCluster))
+		}
+	}
+}
+
+func (h *clusterHandler) Delete(context.Context, event.DeleteEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+}
+
+func (h *clusterHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
 func (c *configHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -1191,6 +1243,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
+		Watches(&kueue.MultiKueueCluster{}, &clusterHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod})
 
 	c, err := builder.

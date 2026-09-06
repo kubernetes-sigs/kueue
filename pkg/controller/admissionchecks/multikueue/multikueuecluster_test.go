@@ -1830,3 +1830,77 @@ func TestStopWatchersJoinsParkedWatcher(t *testing.T) {
 		t.Fatal("StopWatchers did not return: the watcher goroutine was never joined")
 	}
 }
+
+func TestRemoteClientSupportsAdapter(t *testing.T) {
+	const (
+		jobAdapterKey = "batch/v1, Kind=Job"
+		jobFramework  = "batch/job"
+		rayAdapterKey = "ray.io/v1, Kind=RayJob"
+	)
+
+	adapters, err := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New(jobFramework))
+	if err != nil {
+		t.Fatalf("getting adapters: %v", err)
+	}
+	rc := newRemoteClient(nil, nil, nil, nil, defaultOrigin, "worker", adapters)
+
+	rc.setSupportedFrameworks(nil)
+	if !rc.supportsAdapter(jobAdapterKey) || !rc.supportsAdapter(rayAdapterKey) {
+		t.Fatal("empty supportedFrameworks should support every adapter")
+	}
+
+	rc.setSupportedFrameworks([]string{jobFramework})
+	if !rc.supportsAdapter(jobAdapterKey) {
+		t.Errorf("supported framework %q should enable adapter %q", jobFramework, jobAdapterKey)
+	}
+	if rc.supportsAdapter(rayAdapterKey) {
+		t.Errorf("did not expect framework %q to support adapter %q", jobFramework, rayAdapterKey)
+	}
+
+	// Canonical adapter keys are accepted for generic external adapters, for
+	// which there may be no built-in framework name.
+	rc.setSupportedFrameworks([]string{rayAdapterKey})
+	if !rc.supportsAdapter(rayAdapterKey) {
+		t.Errorf("expected canonical adapter key %q to be supported", rayAdapterKey)
+	}
+}
+
+func TestRemoteClientWatchesOnlySupportedFrameworks(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	adapters, err := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	if err != nil {
+		t.Fatalf("getting adapters: %v", err)
+	}
+
+	var watchedTypes []string
+	var watchedTypesMu sync.Mutex
+	rc := newRemoteClient(getClientBuilder(ctx).Build(), nil, nil, nil, defaultOrigin, "worker", adapters)
+	rc.setSupportedFrameworks([]string{"ray.io/rayjob"})
+	rc.builderOverride = func(_ context.Context, _ *clientConfig, _ client.Options) (SelectivelyCachingClient, error) {
+		remote := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+			Watch: func(watchCtx context.Context, _ client.WithWatch, list client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+				watchedTypesMu.Lock()
+				watchedTypes = append(watchedTypes, fmt.Sprintf("%T", list))
+				watchedTypesMu.Unlock()
+				fw := watch.NewFake()
+				go func() {
+					<-watchCtx.Done()
+					fw.Stop()
+				}()
+				return fw, nil
+			},
+		}).Build()
+		return NewNeverCachingClient(remote), nil
+	}
+	t.Cleanup(rc.StopWatchers)
+
+	if _, err := rc.updateConfigAndRefreshWatchers(ctx, &clientConfig{Kubeconfig: []byte("unused")}); err != nil {
+		t.Fatalf("updating remote client: %v", err)
+	}
+
+	watchedTypesMu.Lock()
+	defer watchedTypesMu.Unlock()
+	if diff := cmp.Diff([]string{"*v1beta2.WorkloadList"}, watchedTypes); diff != "" {
+		t.Errorf("unexpected watched resource types (-want +got):\n%s", diff)
+	}
+}
