@@ -894,3 +894,89 @@ files:
         value: |
           {{- end }}
         onFileCondition: '.kind == "Certificate"'
+  - path: ./config/components/networkpolicy/manager-ingress.yaml
+    outputDir: ./charts/kueue/templates/networkpolicy
+    removeComments: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .spec.ingress
+        value: |
+          {{- with .Values.networkPolicy.extraIngress }}
+          {{- toYaml . | nindent 4 }}
+          {{- end }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if .Values.networkPolicy.enabled }}
+          {{- if .Values.controllerManager.hostNetwork }}
+          {{- fail "networkPolicy.enabled cannot be used with controllerManager.hostNetwork: most CNI plugins do not apply NetworkPolicy to host-network pods, so the policy would silently have no effect." }}
+          {{- end }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+  - path: ./config/components/networkpolicy/manager-egress.yaml
+    outputDir: ./charts/kueue/templates/networkpolicy
+    removeComments: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+    postOperations:
+      - type: INSERT_TEXT
+        key: .metadata
+        value: |
+          labels:
+          {{- include "kueue.labels" . | nindent 4 }}
+        indentation: 2
+      - type: INSERT_TEXT
+        key: .spec.egress
+        value: |
+          {{- with .Values.networkPolicy.egress.extraEgress }}
+          {{- toYaml . | nindent 4 }}
+          {{- end }}
+        indentation: 2
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if and .Values.networkPolicy.enabled .Values.networkPolicy.egress.enabled }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}
+  - path: ./config/components/networkpolicy/kueueviz-*.yaml
+    outputDir: ./charts/kueue/templates/networkpolicy
+    removeComments: true
+    operations:
+      - type: APPEND
+        key: .metadata.name
+        value: '"{{ include \"kueue.fullname\" . }}-"'
+      - type: UPDATE
+        key: .metadata.namespace
+        value: '"{{ .Release.Namespace }}"'
+    postOperations:
+      - type: INSERT_TEXT
+        position: START
+        value: |
+          {{- if and .Values.networkPolicy.enabled .Values.enableKueueViz }}
+      - type: INSERT_TEXT
+        position: END
+        value: |
+          {{- end }}

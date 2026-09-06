@@ -112,6 +112,8 @@ make test-e2e-extended
 make test-e2e-sequential-baseline
 make test-e2e-sequential-extended
 make test-e2e-certmanager
+make test-e2e-networkpolicy
+make test-e2e-networkpolicy-sequential
 make test-e2e-kueueviz
 make test-tas-e2e-baseline
 make test-tas-e2e-extended
@@ -119,6 +121,12 @@ make test-multikueue-e2e-baseline
 make test-multikueue-e2e-extended
 make test-multikueue-e2e-sequential
 ```
+
+The `test-e2e-networkpolicy` suites install Kueue together with the NetworkPolicies and
+an enforcing CNI agent. `test-e2e-networkpolicy` covers the policies themselves;
+`test-e2e-networkpolicy-sequential` re-runs the baseline sequential suite — visibility,
+metrics and the webhooks — with those policies enforcing, which is what shows the
+policies do not block anything Kueue needs.
 
 You can specify the Kubernetes version:
 ```shell
