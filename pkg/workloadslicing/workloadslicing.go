@@ -20,6 +20,7 @@ package workloadslicing
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"slices"
 
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -79,6 +81,15 @@ const (
 	// WorkloadSliceReplacementFor is the annotation key set on a new workload slice to indicate
 	// the key of the workload slice it is intended to replace (i.e., the "old" slice being preempted).
 	WorkloadSliceReplacementFor = "kueue.x-k8s.io/workload-slice-replacement-for"
+
+	// PreviousPodSetCountsAnnotation stores the JSON-encoded EffectivePodSetCounts of the
+	// slice a new replacement is based on, captured once at replacement-creation time (when
+	// the predecessor is guaranteed to still exist). Unlike WorkloadSliceReplacementFor, this
+	// value survives the predecessor being garbage collected by workload retention: callers
+	// that need the previous admitted capacity (e.g. to request only the incremental delta
+	// for a new ProvisioningRequest) can read it directly off the new slice without depending
+	// on the predecessor object still being live.
+	PreviousPodSetCountsAnnotation = "kueue.x-k8s.io/workload-slice-previous-podset-counts"
 )
 
 // ReplacementForKey returns a value for workload "WorkloadSliceReplacementFor" annotation
@@ -175,6 +186,59 @@ func FindLatestActiveWorkload(ctx context.Context, clnt client.Client, jobObject
 		}
 	}
 	return nil, nil
+}
+
+// EffectivePodSetCounts returns, per PodSet, min(Spec.Count, Admission assignment count)
+// for the given workload. Spec handles elastic scale-down (where the old admitted
+// assignment remains at its peak), while the admission assignment handles partial
+// admission (where Spec can exceed the number of pods actually running). A workload
+// with no quota reservation simply reports its Spec counts.
+func EffectivePodSetCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
+	var assignments map[kueue.PodSetReference]*kueue.PodSetAssignment
+	if wl.Status.Admission != nil {
+		assignments = make(map[kueue.PodSetReference]*kueue.PodSetAssignment, len(wl.Status.Admission.PodSetAssignments))
+		for i := range wl.Status.Admission.PodSetAssignments {
+			psa := &wl.Status.Admission.PodSetAssignments[i]
+			assignments[psa.Name] = psa
+		}
+	}
+	counts := make(map[kueue.PodSetReference]int32, len(wl.Spec.PodSets))
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		count := ps.Count
+		if psa, found := assignments[ps.Name]; found {
+			count = min(count, ptr.Deref(psa.Count, ps.Count))
+		}
+		counts[ps.Name] = count
+	}
+	return counts
+}
+
+// EncodePreviousPodSetCounts JSON-encodes the given counts for storage in the
+// PreviousPodSetCountsAnnotation.
+func EncodePreviousPodSetCounts(counts map[kueue.PodSetReference]int32) (string, error) {
+	b, err := json.Marshal(counts)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+// DecodePreviousPodSetCounts reads and decodes the PreviousPodSetCountsAnnotation from the
+// given workload, returning nil, nil if the annotation is absent (e.g. a slice created
+// before this annotation was introduced). A present but malformed annotation is reported
+// as an error; callers that want to fall back to another lookup on a malformed annotation
+// should treat a non-nil error the same as a nil, nil result.
+func DecodePreviousPodSetCounts(wl *kueue.Workload) (map[kueue.PodSetReference]int32, error) {
+	raw, found := wl.Annotations[PreviousPodSetCountsAnnotation]
+	if !found {
+		return nil, nil
+	}
+	var counts map[kueue.PodSetReference]int32
+	if err := json.Unmarshal([]byte(raw), &counts); err != nil {
+		return nil, fmt.Errorf("malformed %s annotation: %w", PreviousPodSetCountsAnnotation, err)
+	}
+	return counts, nil
 }
 
 // ScaledDown returns true if the new pod sets represent a scale-down operation.

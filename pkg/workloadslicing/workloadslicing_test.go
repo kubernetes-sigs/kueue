@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -1402,6 +1403,82 @@ func TestScaledDown(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestEffectivePodSetCounts(t *testing.T) {
+	now := time.Now()
+	cases := map[string]struct {
+		wl   *kueue.Workload
+		want map[kueue.PodSetReference]int32
+	}{
+		"no admission reports spec counts": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("workers", 5).Obj()).
+				Obj(),
+			want: map[kueue.PodSetReference]int32{"workers": 5},
+		},
+		"partial admission caps at assignment count": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("workers", 5).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+					kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](3)},
+				).Obj(), now).
+				Obj(),
+			want: map[kueue.PodSetReference]int32{"workers": 3},
+		},
+		"scale-down caps at spec, ignoring a stale higher assignment": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+					kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](5)},
+				).Obj(), now).
+				Obj(),
+			want: map[kueue.PodSetReference]int32{"workers": 2},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := EffectivePodSetCounts(tc.wl)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("EffectivePodSetCounts() (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestEncodeDecodePreviousPodSetCounts(t *testing.T) {
+	counts := map[kueue.PodSetReference]int32{"head": 1, "workers": 4}
+	encoded, err := EncodePreviousPodSetCounts(counts)
+	if err != nil {
+		t.Fatalf("EncodePreviousPodSetCounts: %v", err)
+	}
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Annotation(PreviousPodSetCountsAnnotation, encoded).
+		Obj()
+	got, err := DecodePreviousPodSetCounts(wl)
+	if err != nil {
+		t.Fatalf("DecodePreviousPodSetCounts: %v", err)
+	}
+	if diff := cmp.Diff(counts, got); diff != "" {
+		t.Errorf("round-trip mismatch (-want,+got):\n%s", diff)
+	}
+
+	t.Run("absent annotation returns nil, nil", func(t *testing.T) {
+		got, err := DecodePreviousPodSetCounts(utiltestingapi.MakeWorkload("bare", "ns").Obj())
+		if err != nil || got != nil {
+			t.Errorf("DecodePreviousPodSetCounts() = %v, %v; want nil, nil", got, err)
+		}
+	})
+
+	t.Run("malformed annotation returns an error", func(t *testing.T) {
+		malformed := utiltestingapi.MakeWorkload("malformed", "ns").
+			Annotation(PreviousPodSetCountsAnnotation, "not-json").
+			Obj()
+		if _, err := DecodePreviousPodSetCounts(malformed); err == nil {
+			t.Error("DecodePreviousPodSetCounts() = nil error, want an error")
+		}
+	})
 }
 
 func TestFindLatestActiveWorkload(t *testing.T) {

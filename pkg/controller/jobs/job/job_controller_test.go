@@ -3542,6 +3542,7 @@ func TestReconciler(t *testing.T) {
 					Priority(baseWPCWrapper.Value).
 					WorkloadPriorityClassRef(baseWPCWrapper.Name).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					AdmittedAt(true, now).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -3555,6 +3556,7 @@ func TestReconciler(t *testing.T) {
 					Priority(highWPCWrapper.Value).
 					WorkloadPriorityClassRef(highWPCWrapper.Name).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					AdmittedAt(true, now).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
 					}).
@@ -3566,9 +3568,10 @@ func TestReconciler(t *testing.T) {
 					Priority(highWPCWrapper.Value).
 					WorkloadPriorityClassRef(highWPCWrapper.Name).
 					Annotations(map[string]string{
-						constants.ElasticJobAnnotation:              "true",
-						kueue.WorkloadSliceNameAnnotation:           "admitted",
-						workloadslicing.WorkloadSliceReplacementFor: "ns/admitted",
+						constants.ElasticJobAnnotation:                 "true",
+						kueue.WorkloadSliceNameAnnotation:              "admitted",
+						workloadslicing.WorkloadSliceReplacementFor:    "ns/admitted",
+						workloadslicing.PreviousPodSetCountsAnnotation: `{"main":1}`,
 					}).
 					Labels(map[string]string{
 						controllerconsts.JobUIDLabel: "test-uid",
@@ -3582,6 +3585,77 @@ func TestReconciler(t *testing.T) {
 					Reason:    "UpdatedWorkload",
 					Message:   "Updated workload priority class: ns/admitted",
 				},
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/job-job-2e122",
+				},
+			},
+		},
+		// Regression test: a predecessor that only reserved quota, but whose own
+		// admission checks (e.g. a ProvisioningRequest) haven't finished yet, has no
+		// confirmed cluster capacity. Snapshotting its EffectivePodSetCounts here would
+		// let the replacement's ProvisioningRequest subtract capacity that was never
+		// actually provisioned. The replacement must get no PreviousPodSetCountsAnnotation
+		// at all - the predecessor has none of its own to carry forward either - so
+		// previousSlicePodSetCounts falls back to a live chain-walk, which already knows
+		// to skip a non-admitted predecessor.
+		"a replacement slice does not snapshot counts from a quota-reserved but not yet admitted predecessor": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("pending", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("pending", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).Obj(), now).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("job-job-2e122", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(0).
+					Annotations(map[string]string{
+						constants.ElasticJobAnnotation:              "true",
+						kueue.WorkloadSliceNameAnnotation:           "pending",
+						workloadslicing.WorkloadSliceReplacementFor: "ns/pending",
+					}).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
 					EventType: "Normal",

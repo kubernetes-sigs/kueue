@@ -174,11 +174,30 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	}
 	r.expectationsStore.ExpectUIDs(log, sliceKey, uids)
 
+	// Every pod in the batch is admitted against the same active Workload, and
+	// typically only a couple of distinct PodSets are represented (e.g. head,
+	// workers). Resolve each distinct PodSet's admission update once up front
+	// instead of re-scanning wl.Status.AdmissionChecks per pod inside the
+	// parallel loop below.
+	podSetUpdates := make(map[kueue.PodSetReference]podAdmissionUpdate)
+	for _, pod := range pods {
+		podSetName := kueue.PodSetReference(pod.Labels[constants.PodSetLabel])
+		if _, cached := podSetUpdates[podSetName]; cached {
+			continue
+		}
+		update, err := admissionUpdateForPodSet(active, podSetName)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		podSetUpdates[podSetName] = update
+	}
+
 	err = parallelize.Until(ctx, len(pods), func(i int) error {
 		pod := pods[i]
 		var ungated bool
 		e := utilclient.Patch(ctx, r.client, pod, func() (bool, error) {
-			changed, err := refreshPodAdmission(pod, active)
+			update := podSetUpdates[kueue.PodSetReference(pod.Labels[constants.PodSetLabel])]
+			changed, err := refreshPodAdmission(pod, update)
 			if err != nil {
 				return false, err
 			}
@@ -210,7 +229,12 @@ type podAdmissionUpdate struct {
 
 func admissionUpdateForPodSet(wl *kueue.Workload, podSetName kueue.PodSetReference) (podAdmissionUpdate, error) {
 	update := podAdmissionUpdate{
-		annotations:  make(map[string]string),
+		// Workload identity is Kueue-owned and mutable: refresh it on every
+		// replacement slice. PRQ consume/class below are immutable once set.
+		annotations: map[string]string{
+			kueue.WorkloadAnnotation:          wl.Name,
+			kueue.WorkloadSliceNameAnnotation: workloadslicing.SliceName(wl),
+		},
 		nodeSelector: make(map[string]string),
 	}
 	for _, check := range wl.Status.AdmissionChecks {
@@ -241,8 +265,20 @@ func admissionUpdateForPodSet(wl *kueue.Workload, podSetName kueue.PodSetReferen
 }
 
 func podAdmissionCompatible(pod *corev1.Pod, update podAdmissionUpdate) bool {
-	for key, value := range update.annotations {
-		if existing, found := pod.Annotations[key]; found && existing != value {
+	// Only the immutable per PRQ identity can conflict. Workload identity
+	// annotations are Kueue-owned and mutable so they never block ungating.
+	// Keys absent from the update are ignored: an active slice without a
+	// ProvisioningRequest admission check must not treat a leftover consume
+	// annotation as a conflict that permanently keeps the pod gated.
+	for _, key := range []string{
+		autoscaling.ProvisioningRequestPodAnnotationKey,
+		autoscaling.ProvisioningClassPodAnnotationKey,
+	} {
+		wanted, specified := update.annotations[key]
+		if !specified {
+			continue
+		}
+		if existing, found := pod.Annotations[key]; found && existing != wanted {
 			return false
 		}
 	}
@@ -254,11 +290,7 @@ func podAdmissionCompatible(pod *corev1.Pod, update podAdmissionUpdate) bool {
 	return true
 }
 
-func refreshPodAdmission(pod *corev1.Pod, wl *kueue.Workload) (bool, error) {
-	update, err := admissionUpdateForPodSet(wl, kueue.PodSetReference(pod.Labels[constants.PodSetLabel]))
-	if err != nil {
-		return false, err
-	}
+func refreshPodAdmission(pod *corev1.Pod, update podAdmissionUpdate) (bool, error) {
 	if !podAdmissionCompatible(pod, update) {
 		return false, fmt.Errorf("pod %s/%s has immutable admission metadata from a different ProvisioningRequest", pod.Namespace, pod.Name)
 	}
@@ -267,12 +299,17 @@ func refreshPodAdmission(pod *corev1.Pod, wl *kueue.Workload) (bool, error) {
 	}
 	changed := false
 	for key, value := range update.annotations {
-		// PRQ consume/class identity is immutable after first assignment.
-		if _, exists := pod.Annotations[key]; exists {
-			continue
+		// Workload identity is Kueue-owned and mutable. PRQ consume/class are
+		// immutable after first assignment, so only fill them when absent.
+		if key == autoscaling.ProvisioningRequestPodAnnotationKey || key == autoscaling.ProvisioningClassPodAnnotationKey {
+			if _, exists := pod.Annotations[key]; exists {
+				continue
+			}
 		}
-		pod.Annotations[key] = value
-		changed = true
+		if pod.Annotations[key] != value {
+			pod.Annotations[key] = value
+			changed = true
+		}
 	}
 	if pod.Spec.NodeSelector == nil && len(update.nodeSelector) != 0 {
 		pod.Spec.NodeSelector = make(map[string]string, len(update.nodeSelector))

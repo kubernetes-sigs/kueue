@@ -94,6 +94,7 @@ func TestReconcileGenericJob(t *testing.T) {
 	// No pod set assignments, so equivalence compares against the workload spec.
 	reservedIn := &kueue.Admission{ClusterQueue: "cq"}
 	reservedAt := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	admittedAt := time.Now().Truncate(time.Hour)
 
 	testCases := map[string]struct {
 		featureGates      map[featuregate.Feature]bool
@@ -335,6 +336,62 @@ func TestReconcileGenericJob(t *testing.T) {
 					Obj(),
 			},
 			wantEvents: nil,
+		},
+		"running elastic job refreshes admitted workload slice metadata": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+				features.TopologyAwareScheduling:      false,
+				features.AssignQueueLabelsForPods:     false,
+			},
+			req: baseReq,
+			job: baseJob.Clone().
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					Annotations(map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						kueue.WorkloadSliceNameAnnotation:    "job-test-job-root",
+					}).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("default-cq").
+							PodSets(utiltestingapi.MakePodSetAssignment("main").Obj()).
+							Obj(),
+						admittedAt,
+					).
+					AdmittedAt(true, admittedAt).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").
+					Annotations(map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						kueue.WorkloadSliceNameAnnotation:    "job-test-job-root",
+					}).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("default-cq").
+							PodSets(utiltestingapi.MakePodSetAssignment("main").Obj()).
+							Obj(),
+						admittedAt,
+					).
+					AdmittedAt(true, admittedAt).
+					Obj(),
+			},
+			wantPodSets: []podset.PodSetInfo{
+				{
+					Name:  "main",
+					Count: 1,
+					Annotations: map[string]string{
+						kueue.WorkloadSliceNameAnnotation: "job-test-job-root",
+					},
+					Labels: map[string]string{
+						kueueconstants.PodSetLabel: "main",
+					},
+					NodeSelector: map[string]string{},
+				},
+			},
 		},
 		"MultiKueue worker pod label is propagated to PodTemplate if workload has Multikueue origin label": {
 			req: baseReq,
@@ -626,7 +683,12 @@ func TestReconcileGenericJob(t *testing.T) {
 			mgj.EXPECT().GVK().Return(testGVK).AnyTimes()
 			mgj.EXPECT().IsSuspended().Return(ptr.Deref(tc.job.Spec.Suspend, false)).AnyTimes()
 			mgj.EXPECT().IsActive().Return(tc.job.Status.Active != 0).AnyTimes()
-			mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).AnyTimes()
+			if tc.wantPodSets != nil {
+				// The elastic refresh path must invoke startJob → RunWithPodSetsInfo.
+				mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), tc.wantPodSets).Return(nil).Times(1)
+			} else {
+				mgj.EXPECT().RunWithPodSetsInfo(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			}
 			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
 			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(tc.podSets, nil).AnyTimes()
 
@@ -650,7 +712,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				t.Fatalf("Failed to List workloads: %v", err)
 			}
 
-			if diff := cmp.Diff(tc.wantWorkloads, wls.Items, cmpopts.IgnoreFields(corev1.ResourceRequirements{}, "Requests")); diff != "" {
+			if diff := cmp.Diff(tc.wantWorkloads, wls.Items, cmpopts.EquateEmpty(), cmpopts.IgnoreFields(corev1.ResourceRequirements{}, "Requests")); diff != "" {
 				t.Errorf("Workloads mismatch (-want +got):\n%s", diff)
 			}
 

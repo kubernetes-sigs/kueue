@@ -656,7 +656,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// start the job if the workload has been admitted, and the job is still suspended
 		if workload.IsAdmitted(wl) {
 			log.V(2).Info("Job admitted, unsuspending")
-			err := r.startJob(ctx, job, object, wl)
+			err := r.startJob(ctx, job, object, wl, false)
 			if err != nil {
 				log.Error(err, "Unsuspending job")
 				if podset.IsPermanent(err) {
@@ -699,7 +699,29 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// workload is admitted and job is running, nothing to do.
+	// Elastic jobs replace their Workload with a new WorkloadSlice on every
+	// resize instead of admitting the same Workload again, so this path never
+	// reruns startJob for them. That leaves the running job's PodSets stale:
+	// pods created later by the job's own controller/autoscaler pick up an
+	// out-of-date WorkloadSlice/PodSet identity because RunWithPodSetsInfo was
+	// never called for the latest admitted slice.
+	if WorkloadSliceEnabled(job) {
+		log.V(3).Info("Refreshing admitted PodSet metadata on running elastic job")
+		if err := r.startJob(ctx, job, object, wl, true); err != nil {
+			if apierrors.IsInvalid(err) {
+				// Some job types (e.g. a plain batch/v1 Job) make their pod template
+				// immutable once running, so this best-effort refresh can never be
+				// applied there and there is nothing more Kueue can do about it for
+				// this resize. Log instead of erroring every reconcile.
+				log.V(2).Info("Skipping admitted PodSet metadata refresh: job's pod template is immutable while running", "error", err)
+				return ctrl.Result{}, nil
+			}
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
+
+	// workload is admitted and non-elastic job is running, nothing to do.
 	// For elastic jobs, pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
@@ -1540,7 +1562,13 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 }
 
 // startJob will unsuspend the job, and also inject the node affinity.
-func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
+// startJob starts a suspended job once admitted, or refreshes admitted
+// PodSet metadata on an already-running elastic job after a resize.
+// refreshingRunning distinguishes the latter: it is true only when the job
+// is already unsuspended and running, so a first-time start (which always
+// changes the object by unsuspending it) never pays the extra
+// DeepCopy/DeepEqual cost that refreshingRunning needs to detect a noop.
+func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload, refreshingRunning bool) error {
 	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl)
 	if err != nil {
 		return err
@@ -1569,12 +1597,27 @@ func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object cli
 			return err
 		}
 	} else {
+		updated := !refreshingRunning
 		if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
-			return true, job.RunWithPodSetsInfo(ctx, r.client, info)
+			if !refreshingRunning {
+				return true, job.RunWithPodSetsInfo(ctx, r.client, info)
+			}
+			before := object.DeepCopyObject()
+			if err := job.RunWithPodSetsInfo(ctx, r.client, info); err != nil {
+				return false, err
+			}
+			updated = !apiequality.Semantic.DeepEqual(before, object)
+			return updated, nil
 		}); err != nil {
 			return err
 		}
-		r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonStarted, "Started", msg)
+		if updated {
+			reason, action := ReasonStarted, "Started"
+			if refreshingRunning {
+				reason, action = ReasonRefreshedPodSets, "RefreshedPodSets"
+			}
+			r.record.Eventf(object, nil, corev1.EventTypeNormal, reason, action, msg)
+		}
 	}
 
 	return nil
@@ -1754,6 +1797,8 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 
 // prepareWorkloadSlice adds necessary workload slice annotations.
 func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJob, wl *kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
+
 	// Annotate the workload to indicate that elastic-job support is enabled.
 	// This annotation makes it possible to distinguish workloads with elastic-job
 	// support directly at the workload level, without requiring access to the
@@ -1781,6 +1826,40 @@ func prepareWorkloadSlice(ctx context.Context, clnt client.Client, job GenericJo
 			originName = oldSlice.Name
 		}
 		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, kueue.WorkloadSliceNameAnnotation, originName)
+
+		// Snapshot the old slice's effective counts now, while it's guaranteed to still
+		// exist, so a later incremental-capacity lookup (e.g. for a ProvisioningRequest)
+		// doesn't depend on the predecessor surviving workload retention's GC.
+		//
+		// Guard on the old slice being fully Admitted, not merely quota-reserved.
+		// EnsureWorkloadSlices only ever lets a *new* replacement slice be created
+		// (reaching this branch) once the old slice it's superseding has a quota
+		// reservation, so HasQuotaReservation alone is always true here and would make
+		// this check a no-op. What actually matters for a ProvisioningRequest-backed
+		// PodSet is whether the old slice's own admission checks (e.g. its
+		// ProvisioningRequest) finished: EffectivePodSetCounts reports Kueue's intended
+		// flavor assignment, which exists as soon as quota is reserved, but the
+		// corresponding cluster capacity is only guaranteed once admission actually
+		// completes. Snapshotting an unfinished old slice would let the new
+		// ProvisioningRequest subtract capacity that was never provisioned. This must
+		// match the (stricter) condition previousSlicePodSetCounts's live chain-walk
+		// fallback already requires of a predecessor, so the fast annotation path and
+		// the fallback agree on what counts as usable prior capacity.
+		if workload.IsAdmitted(&oldSlice) {
+			if encoded, err := workloadslicing.EncodePreviousPodSetCounts(workloadslicing.EffectivePodSetCounts(&oldSlice)); err == nil {
+				metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.PreviousPodSetCountsAnnotation, encoded)
+			} else {
+				log.V(2).Info("Failed to encode previous PodSet counts onto replacement slice", "workload", klog.KObj(wl), "error", err)
+			}
+		} else if encoded, found := oldSlice.Annotations[workloadslicing.PreviousPodSetCountsAnnotation]; found {
+			// oldSlice itself isn't (yet) fully admitted, so it has no fresh, provisioned
+			// capacity of its own to snapshot. But if it already carries a
+			// PreviousPodSetCountsAnnotation inherited from its own predecessor, carry
+			// that forward rather than losing it, so previousSlicePodSetCounts's fast
+			// path keeps working instead of always falling back to a live chain-walk
+			// from here on.
+			metav1.SetMetaDataAnnotation(&wl.ObjectMeta, workloadslicing.PreviousPodSetCountsAnnotation, encoded)
+		}
 		return nil
 	default:
 		// Any other slices length is invalid. I.E, we expect to have at most 1 "current/old" workload slice.

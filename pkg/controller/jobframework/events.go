@@ -19,6 +19,7 @@ package jobframework
 // JobReconciler event reason list
 const (
 	ReasonStarted               = "Started"
+	ReasonRefreshedPodSets      = "RefreshedPodSets"
 	ReasonSuspended             = "Suspended"
 	ReasonStopped               = "Stopped"
 	ReasonDeleted               = "Deleted"
