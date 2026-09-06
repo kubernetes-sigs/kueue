@@ -14,6 +14,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package rayclusterwebhook holds the end-to-end integration suite for elastic partial
+// scale-up (KEP-12100) on RayClusters, running the RayCluster reconciler, the Workload
+// webhooks, the elastic-jobs controllers and the scheduler together against real webhook
+// configurations, exactly like a deployed kueue-manager.
+//
+// The suite is a separate package because this scenario needs the real mutating Workload
+// webhook: it is the component that must preserve the minCounts the reconciler attaches to
+// the prepared workload slice (and would erase them if the annotation ordering regressed).
+// The existing raycluster controller suite installs no webhook configurations, and enabling
+// the full webhook manifest there fails every create with unregistered job webhook handlers
+// (e.g. mrayjob.kb.io); the webhook/core suite covers Workload shapes only and never goes
+// through the RayCluster reconciler.
 package rayclusterwebhook
 
 import (

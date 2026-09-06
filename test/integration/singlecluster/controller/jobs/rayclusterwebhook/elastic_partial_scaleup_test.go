@@ -63,7 +63,7 @@ func expectWorkloadAdmitted(obj client.Object) {
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
 }
 
-var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (PartialAdmission on)", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (PartialAdmission on)", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -81,10 +81,6 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 	})
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
-		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
-			string(features.ElasticJobsViaWorkloadSlices):                          false,
-			string(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp): false,
-		})).Should(gomega.Succeed())
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -273,7 +269,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 // The reconciler must attach the elastic annotation before it decides whether minCounts are usable,
 // and the mutating webhook must not wipe them; otherwise the partial scale-up feature silently
 // degrades to an atomic workload even though its feature gate is on.
-var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (PartialAdmission off)", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (PartialAdmission off)", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -291,11 +287,6 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 	})
 	ginkgo.AfterAll(func() {
 		fwk.StopManager(ctx)
-		gomega.Expect(utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
-			string(features.ElasticJobsViaWorkloadSlices):                          false,
-			string(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp): false,
-			string(features.PartialAdmission):                                      true,
-		})).Should(gomega.Succeed())
 	})
 
 	ginkgo.BeforeEach(func() {

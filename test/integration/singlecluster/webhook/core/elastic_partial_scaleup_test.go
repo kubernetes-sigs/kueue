@@ -39,7 +39,7 @@ import (
 // feature gate is on, with and without the classic PartialAdmission gate, and
 // must stay rejected while the partial scale-up gate is off.
 // See https://github.com/kubernetes-sigs/kueue/issues/15249.
-var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shapes", ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shapes", func() {
 	var (
 		ns *corev1.Namespace
 	)
