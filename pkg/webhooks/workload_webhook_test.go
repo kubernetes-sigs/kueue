@@ -705,6 +705,46 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(specPath.Child("podSets"), 1, ""),
 			}.ToAggregate(),
 		},
+		"elastic partial scale-up first-create shape (one minCount podSet) is accepted": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("main", 10).SetMinimumCount(5).Obj()).
+				Obj(),
+			wantErr: nil,
+		},
+		"elastic partial scale-up probe shape (multiple minCount podSets) is accepted": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(
+					*utiltestingapi.MakePodSet("group-a", 10).SetMinimumCount(5).Obj(),
+					*utiltestingapi.MakePodSet("group-b", 10).SetMinimumCount(5).Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"non-elastic multiple minCount podSets stay rejected with the partial scale-up gate on": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("group-a", 10).SetMinimumCount(5).Obj(),
+					*utiltestingapi.MakePodSet("group-b", 10).SetMinimumCount(5).Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(specPath.Child("podSets"), 2, ""),
+			}.ToAggregate(),
+		},
 		"non-negative subGroupCount is accepted without warning": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
 				*utiltestingapi.MakePodSet("main", 1).SubGroupCount(new(int32(0))).Obj(),
@@ -1447,6 +1487,79 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantWarnings, gotWarnings); diff != "" {
 				t.Errorf("ValidateUpdate() warnings mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestWorkloadWebhookDefault(t *testing.T) {
+	elasticWorkload := func() *kueue.Workload {
+		return utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			PodSets(*utiltestingapi.MakePodSet("main", 10).SetMinimumCount(5).Obj()).
+			Obj()
+	}
+	plainWorkload := func() *kueue.Workload {
+		return utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			PodSets(*utiltestingapi.MakePodSet("main", 10).SetMinimumCount(5).Obj()).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		workload     *kueue.Workload
+		wantCleared  bool
+	}{
+		"PartialAdmission off, plain workload: minCount cleared": {
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: false},
+			workload:     plainWorkload(),
+			wantCleared:  true,
+		},
+		"PartialAdmission on, plain workload: minCount kept": {
+			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
+			workload:     plainWorkload(),
+			wantCleared:  false,
+		},
+		"PartialAdmission off, partial scale-up on, elastic workload: minCount kept": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialAdmission:                                      false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			workload:    elasticWorkload(),
+			wantCleared: false,
+		},
+		"PartialAdmission off, partial scale-up off, elastic workload: minCount cleared": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialAdmission:                                      false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
+			},
+			workload:    elasticWorkload(),
+			wantCleared: true,
+		},
+		"PartialAdmission off, partial scale-up on, plain workload: minCount cleared": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialAdmission:                                      false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			workload:    plainWorkload(),
+			wantCleared: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			wl := tc.workload.DeepCopy()
+			if err := (&WorkloadWebhook{}).Default(t.Context(), wl); err != nil {
+				t.Fatalf("Default() returned error: %v", err)
+			}
+			for _, ps := range wl.Spec.PodSets {
+				if cleared := ps.MinCount == nil; cleared != tc.wantCleared {
+					t.Errorf("podSet %q: minCount cleared = %v, want %v", ps.Name, cleared, tc.wantCleared)
+				}
 			}
 		})
 	}
