@@ -763,6 +763,9 @@ have labels with some key from the list, the values of these labels must
 match or otherwise the workload creation would fail. The labels are copied only
 during the workload creation and are not updated even if the labels of the
 underlying job are changed.</p>
+<p>A label a Kueue controller writes on a Workload as its own control
+metadata cannot travel here. Naming one is refused by startup validation,
+which reports the key it refused.</p>
 </td>
 </tr>
 </tbody>

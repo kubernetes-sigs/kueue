@@ -62,6 +62,7 @@ var (
 	integrationsPath                      = field.NewPath("integrations")
 	integrationsFrameworksPath            = integrationsPath.Child("frameworks")
 	integrationsExternalFrameworkPath     = integrationsPath.Child("externalFrameworks")
+	integrationsLabelKeysToCopyPath       = integrationsPath.Child("labelKeysToCopy")
 	managedJobsNamespaceSelectorPath      = field.NewPath("managedJobsNamespaceSelector")
 	quotaReleaseStrategyPath              = field.NewPath("quotaReleaseStrategy")
 	waitForPodsReadyPath                  = field.NewPath("waitForPodsReady")
@@ -339,6 +340,10 @@ func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme, in
 	}
 	if c.Integrations.Frameworks == nil {
 		return field.ErrorList{field.Required(integrationsFrameworksPath, "cannot be empty")}
+	}
+
+	for idx, key := range c.Integrations.LabelKeysToCopy {
+		allErrs = append(allErrs, validateCopiedLabelKey(integrationsLabelKeysToCopyPath.Index(idx), key)...)
 	}
 
 	managedFrameworks := sets.New[string]()
@@ -828,6 +833,10 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 		sourceKind := ptr.Deref(entry.SourceKind, configapi.DefaultCustomMetricLabelSourceKind)
 		countPerSourceKind[sourceKind]++
 		if sourceKind == configapi.SourceKindWorkload {
+			// A source names metadata to read off the Workload, and a Workload
+			// MultiKueue really did place here carries the origin label honestly.
+			// What the key must not do is travel here from the object below, and
+			// that is refused where the Workload is built rather than at load.
 			if len(entry.TrackedValues) == 0 {
 				allErrs = append(allErrs, field.Invalid(fldPath.Child("trackedValues"), entry.TrackedValues,
 					"must not be empty when sourceKind is 'Workload'"))
@@ -862,6 +871,18 @@ func validateCustomLabels(c *configapi.Configuration) field.ErrorList {
 	}
 
 	return allErrs
+}
+
+// This field asks for a label to travel from a managed object onto the Workload
+// built from it. A Kueue controller writes some of them to decide what it may
+// act on later, and a Workload this cluster owns must not arrive already
+// carrying one.
+func validateCopiedLabelKey(fldPath *field.Path, key string) field.ErrorList {
+	if jobframework.IsNonInheritableWorkloadLabel(key) {
+		return field.ErrorList{field.Invalid(fldPath, key,
+			"is written by a Kueue controller and must not be copied onto a Workload")}
+	}
+	return nil
 }
 
 func validateLabelKey(fldPath *field.Path, value string) field.ErrorList {

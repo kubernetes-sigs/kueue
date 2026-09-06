@@ -594,6 +594,10 @@ type Integrations struct {
 	// match or otherwise the workload creation would fail. The labels are copied only
 	// during the workload creation and are not updated even if the labels of the
 	// underlying job are changed.
+	//
+	// A label a Kueue controller writes on a Workload as its own control
+	// metadata cannot travel here. Naming one is refused by startup validation,
+	// which reports the key it refused.
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
 }
 

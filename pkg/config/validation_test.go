@@ -37,6 +37,8 @@ import (
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
 )
@@ -3688,4 +3690,104 @@ func TestValidateCustomLabels(t *testing.T) {
 			t.Errorf("unexpected error details (-want,+got):\n%s", diff)
 		}
 	})
+}
+
+func TestValidateCopiedLabelKey(t *testing.T) {
+	testScheme := runtime.NewScheme()
+	if err := configapi.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientgoscheme.AddToScheme(testScheme); err != nil {
+		t.Fatal(err)
+	}
+
+	integrations := func(keys ...string) *configapi.Configuration {
+		return &configapi.Configuration{
+			Integrations: &configapi.Integrations{
+				Frameworks:      []string{"batch/job"},
+				LabelKeysToCopy: keys,
+			},
+		}
+	}
+	// A Workload-scoped custom metric label joins labelKeysToCopy in the set the
+	// job framework copies from; the other kinds are read off their own object.
+	customLabel := func(kind configapi.SourceKind, sourceLabelKey string) *configapi.Configuration {
+		cfg := integrations()
+		cfg.Metrics = configapi.ControllerMetrics{
+			CustomLabels: []configapi.ControllerMetricsCustomLabel{{
+				Name:           "mk_origin",
+				SourceKind:     &kind,
+				SourceLabelKey: sourceLabelKey,
+				TrackedValues:  []string{"multikueue"},
+			}},
+		}
+		return cfg
+	}
+	// The annotation half of the same contract.
+	customAnnotation := func(kind configapi.SourceKind, sourceAnnotationKey string) *configapi.Configuration {
+		cfg := integrations()
+		cfg.Metrics = configapi.ControllerMetrics{
+			CustomLabels: []configapi.ControllerMetricsCustomLabel{{
+				Name:                "priority_boost",
+				SourceKind:          &kind,
+				SourceAnnotationKey: sourceAnnotationKey,
+				TrackedValues:       []string{"10"},
+			}},
+		}
+		return cfg
+	}
+
+	refused := func(index int, key string) *field.Error {
+		return field.Invalid(integrationsLabelKeysToCopyPath.Index(index), key,
+			"is written by a Kueue controller and must not be copied onto a Workload")
+	}
+
+	cases := map[string]struct {
+		cfg  *configapi.Configuration
+		want field.ErrorList
+	}{
+		"an ordinary label is copied as before": {
+			cfg: integrations("team", "cost-centre"),
+		},
+		"the MultiKueue origin label is refused": {
+			cfg:  integrations(kueueapi.MultiKueueOriginLabel),
+			want: field.ErrorList{refused(0, kueueapi.MultiKueueOriginLabel)},
+		},
+		"and refused wherever it sits in the list": {
+			cfg:  integrations("team", kueueapi.MultiKueueOriginLabel),
+			want: field.ErrorList{refused(1, kueueapi.MultiKueueOriginLabel)},
+		},
+		"the parent label the variant controller trusts is refused as well": {
+			cfg:  integrations(controllerconstants.ConcurrentAdmissionParentLabelKey),
+			want: field.ErrorList{refused(0, controllerconstants.ConcurrentAdmissionParentLabelKey)},
+		},
+		"the job UID label is refused as well": {
+			cfg:  integrations(controllerconstants.JobUIDLabel),
+			want: field.ErrorList{refused(0, controllerconstants.JobUIDLabel)},
+		},
+		// A source says what to read off a Workload, not what may travel onto one,
+		// and a Workload MultiKueue really did place here carries the label honestly.
+		"a Workload custom metric may observe what a controller wrote": {
+			cfg: customLabel(configapi.SourceKindWorkload, kueueapi.MultiKueueOriginLabel),
+		},
+		// A boost an authorized external controller set is worth graphing; the key
+		// is refused where the Workload is built rather than at load.
+		"a Workload custom metric may observe the priority boost": {
+			cfg: customAnnotation(configapi.SourceKindWorkload, controllerconstants.PriorityBoostAnnotationKey),
+		},
+		"a ClusterQueue one never lands on a Workload, so it stands": {
+			cfg: customLabel(configapi.SourceKindClusterQueue, kueueapi.MultiKueueOriginLabel),
+		},
+		"an ordinary Workload custom metric label still passes": {
+			cfg: customLabel(configapi.SourceKindWorkload, "team"),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := Validate(tc.cfg, testScheme, jobs.NewIntegrationManager())
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("Validate (-want +got):\n%s", diff)
+			}
+		})
+	}
 }
