@@ -109,4 +109,4 @@ Workload 的 `PriorityClassSource` 和 `PriorityClassName` 字段是不可变的
 
 - 了解如何[运行作业](/docs/tasks/run/jobs)
 - 了解如何[使用 Workload 优先级运行作业](/docs/tasks/manage/run_job_with_workload_priority)
-- 阅读 `WorkloadPriorityClass` 的 [API 参考](/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-WorkloadPriorityClass)
+- 阅读 `WorkloadPriorityClass` 的 [API 参考](/zh-cn/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-WorkloadPriorityClass)

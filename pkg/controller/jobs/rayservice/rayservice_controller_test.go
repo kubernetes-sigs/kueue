@@ -20,28 +20,28 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-// headSpecWithAutoscaler returns the head PodSpec with the autoscaler sidecar
-// container appended, matching what BuildPodSets adds when in-tree autoscaling
-// is enabled (KubeRay's default 500m CPU / 512Mi memory).
-func headSpecWithAutoscaler(rayService *RayService) corev1.PodSpec {
-	spec := rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()
-	spec.Containers = append(spec.Containers, corev1.Container{
+func TestPodSets(t *testing.T) {
+	collectorImage := "quay.io/kuberay/collector:v1.7.0"
+
+	// autoscaler mirrors the sidecar KubeRay injects into the head Pod when
+	// in-tree autoscaling is enabled, with KubeRay's default resources.
+	autoscaler := corev1.Container{
 		Name: "autoscaler",
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
@@ -53,15 +53,28 @@ func headSpecWithAutoscaler(rayService *RayService) corev1.PodSpec {
 				corev1.ResourceMemory: resource.MustParse("512Mi"),
 			},
 		},
-	})
-	return *spec
-}
+	}
+	// collector mirrors the History Server collector KubeRay injects into every
+	// head and worker Pod, with KubeRay's default resources.
+	collector := corev1.Container{
+		Name:  rayutils.CollectorContainerName,
+		Image: collectorImage,
+		Resources: corev1.ResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("50m"),
+				corev1.ResourceMemory: resource.MustParse("64Mi"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("200m"),
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		},
+	}
 
-func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		rayService   *RayService
 		rayCluster   *rayv1.RayCluster
-		wantPodSets  func(rayService *RayService) []kueue.PodSet
+		wantPodSets  []kueue.PodSet
 		featureGates map[featuregate.Feature]bool
 	}{
 		"no annotations": {
@@ -86,7 +99,7 @@ func TestPodSets(t *testing.T) {
 							},
 							{
 								GroupName: "group2",
-								Replicas:  ptr.To[int32](3),
+								Replicas:  new(int32(3)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}},
 								},
@@ -95,18 +108,46 @@ func TestPodSets(t *testing.T) {
 					},
 				},
 			}),
-			wantPodSets: func(rayService *RayService) []kueue.PodSet {
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(*rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
-						Obj(),
-					*utiltestingapi.MakePodSet("group1", 1).
-						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
-						Obj(),
-					*utiltestingapi.MakePodSet("group2", 3).
-						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
-						Obj(),
-				}
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}}).
+					Obj(),
+				*utiltestingapi.MakePodSet("group1", 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
+					Obj(),
+				*utiltestingapi.MakePodSet("group2", 3).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group2_c"}}}).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
+		"with history server collector": {
+			rayService: (*RayService)(testingrayservice.MakeService("rayservice", "ns").
+				WithHeadGroupSpec(rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+					},
+				}).
+				WithWorkerGroups(rayv1.WorkerGroupSpec{
+					GroupName: "group1",
+					Replicas:  new(int32(2)),
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+					},
+				}).
+				WithHistoryServerOptions(&rayv1.HistoryServerOptions{
+					CollectorOptions: &rayv1.CollectorOptions{
+						Image: &collectorImage,
+					},
+				}).
+				Obj()),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}, collector}}).
+					Obj(),
+				*utiltestingapi.MakePodSet("group1", 2).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}, collector}}).
+					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
@@ -144,19 +185,17 @@ func TestPodSets(t *testing.T) {
 					},
 				},
 			}),
-			wantPodSets: func(rayService *RayService) []kueue.PodSet {
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(*rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
-						Annotations(rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
-						RequiredTopologyRequest("cloud.com/block").
-						Obj(),
-					*utiltestingapi.MakePodSet("group1", 1).
-						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
-						Annotations(rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
-						RequiredTopologyRequest("cloud.com/block").
-						Obj(),
-				}
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}}).
+					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
+					RequiredTopologyRequest("cloud.com/block").
+					Obj(),
+				*utiltestingapi.MakePodSet("group1", 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
+					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
+					RequiredTopologyRequest("cloud.com/block").
+					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
@@ -176,7 +215,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName:  "group1",
-								Replicas:   ptr.To[int32](2),
+								Replicas:   new(int32(2)),
 								NumOfHosts: 3,
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
@@ -186,15 +225,14 @@ func TestPodSets(t *testing.T) {
 					},
 				},
 			}),
-			wantPodSets: func(rayService *RayService) []kueue.PodSet {
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(*rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
-						Obj(),
-					*utiltestingapi.MakePodSet("group1", 6). // 2 replicas * 3 NumOfHosts
-											PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
-											Obj(),
-				}
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}}).
+					Obj(),
+				// 2 replicas * 3 NumOfHosts
+				*utiltestingapi.MakePodSet("group1", 6).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
+					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
@@ -223,7 +261,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
-								Replicas:  ptr.To[int32](1),
+								Replicas:  new(int32(1)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},
@@ -232,27 +270,25 @@ func TestPodSets(t *testing.T) {
 					},
 				},
 			}),
-			wantPodSets: func(rayService *RayService) []kueue.PodSet {
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(corev1.PodSpec{
-							Containers: []corev1.Container{{
-								Name:  "head_c",
-								Image: "rayproject/ray:2.0.0",
-								Resources: corev1.ResourceRequirements{
-									Requests: corev1.ResourceList{
-										corev1.ResourceCPU:    resource.MustParse("200m"),
-										corev1.ResourceMemory: resource.MustParse("256Mi"),
-									},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:  "head_c",
+							Image: "rayproject/ray:2.0.0",
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("200m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
 								},
-							}},
-						}).
-						Labels(rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Labels).
-						Obj(),
-					*utiltestingapi.MakePodSet("group1", 1).
-						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
-						Obj(),
-				}
+							},
+						}},
+					}).
+					Labels(map[string]string{"ray.io/cluster": "rayservice"}).
+					Obj(),
+				*utiltestingapi.MakePodSet("group1", 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
+					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 		},
@@ -276,7 +312,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
-								Replicas:  ptr.To[int32](1),
+								Replicas:  new(int32(1)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},
@@ -304,7 +340,7 @@ func TestPodSets(t *testing.T) {
 					WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 						{
 							GroupName: "group1",
-							Replicas:  ptr.To[int32](5), // RayCluster has scaled to 5 replicas
+							Replicas:  new(int32(5)), // RayCluster has scaled to 5 replicas
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 							},
@@ -312,15 +348,14 @@ func TestPodSets(t *testing.T) {
 					},
 				},
 			},
-			wantPodSets: func(rayService *RayService) []kueue.PodSet {
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(headSpecWithAutoscaler(rayService)).
-						Obj(),
-					*utiltestingapi.MakePodSet("group1", 5). // Updated from RayCluster
-											PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
-											Obj(),
-				}
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}, autoscaler}}).
+					Obj(),
+				// Updated from RayCluster
+				*utiltestingapi.MakePodSet("group1", 5).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
+					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:      false,
@@ -347,7 +382,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
-								Replicas:  ptr.To[int32](2),
+								Replicas:  new(int32(2)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},
@@ -370,20 +405,19 @@ func TestPodSets(t *testing.T) {
 					WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 						{
 							GroupName: "group1",
-							Replicas:  ptr.To[int32](10), // RayCluster has different count
+							Replicas:  new(int32(10)), // RayCluster has different count
 						},
 					},
 				},
 			},
-			wantPodSets: func(rayService *RayService) []kueue.PodSet {
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(*rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
-						Obj(),
-					*utiltestingapi.MakePodSet("group1", 2). // Uses spec count, not RayCluster
-											PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
-											Obj(),
-				}
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}}).
+					Obj(),
+				// Uses spec count, not RayCluster
+				*utiltestingapi.MakePodSet("group1", 2).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
+					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:      false,
@@ -410,7 +444,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
-								Replicas:  ptr.To[int32](3),
+								Replicas:  new(int32(3)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},
@@ -425,15 +459,14 @@ func TestPodSets(t *testing.T) {
 				},
 			}),
 			rayCluster: nil, // No RayCluster exists
-			wantPodSets: func(rayService *RayService) []kueue.PodSet {
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(headSpecWithAutoscaler(rayService)).
-						Obj(),
-					*utiltestingapi.MakePodSet("group1", 3). // Fallback to spec count
-											PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
-											Obj(),
-				}
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}, autoscaler}}).
+					Obj(),
+				// Fallback to spec count
+				*utiltestingapi.MakePodSet("group1", 3).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
+					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:      false,
@@ -460,7 +493,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
-								Replicas:  ptr.To[int32](2),
+								Replicas:  new(int32(2)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},
@@ -475,15 +508,14 @@ func TestPodSets(t *testing.T) {
 				},
 			}),
 			rayCluster: nil,
-			wantPodSets: func(rayService *RayService) []kueue.PodSet {
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-						PodSpec(headSpecWithAutoscaler(rayService)).
-						Obj(),
-					*utiltestingapi.MakePodSet("group1", 2). // Uses spec count
-											PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
-											Obj(),
-				}
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}, autoscaler}}).
+					Obj(),
+				// Uses spec count
+				*utiltestingapi.MakePodSet("group1", 2).
+					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
+					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:      false,
@@ -513,8 +545,7 @@ func TestPodSets(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
-			wantPodSets := tc.wantPodSets(tc.rayService)
-			if diff := cmp.Diff(wantPodSets, gotPodSets, cmpopts.EquateEmpty()); diff != "" {
+			if diff := cmp.Diff(tc.wantPodSets, gotPodSets); diff != "" {
 				t.Errorf("PodSets() mismatch (-want +got):\n%s", diff)
 			}
 		})

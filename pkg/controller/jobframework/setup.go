@@ -94,7 +94,7 @@ func (m *IntegrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 					return fmt.Errorf("%s: unable to create webhook: %w", fwkNamePrefix, err)
 				}
 				logger.Info("No matching API in the server for job framework, deferring setting up controller")
-				go waitForAPI(ctx, mgr, log, gvk, func() {
+				go WaitForAPI(ctx, mgr, log, gvk, func() {
 					log.Info("API now available, starting controller", "gvk", gvk)
 					if err := m.setupControllerAndWebhook(ctx, mgr, name, fwkNamePrefix, cb, options, opts...); err != nil {
 						log.Error(err, "Failed to setup controller for job framework")
@@ -147,7 +147,12 @@ func (m *IntegrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 	return nil
 }
 
-func waitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
+// WaitForAPI runs action once the CRD for gvk is served by the API server: it invokes
+// action immediately if the CRD is already installed, otherwise it polls (with backoff)
+// until the CRD appears, then invokes action. It returns early if ctx is cancelled. This
+// lets callers set up watches on optional CRDs without hard-depending on the CRD being
+// present at manager start.
+func WaitForAPI(ctx context.Context, mgr ctrl.Manager, log logr.Logger, gvk schema.GroupVersionKind, action func()) {
 	rateLimiter := workqueue.NewTypedItemExponentialFailureRateLimiter[string](baseBackoffWaitForIntegration, maxBackoffWaitForIntegration)
 	item := gvk.String()
 	for {

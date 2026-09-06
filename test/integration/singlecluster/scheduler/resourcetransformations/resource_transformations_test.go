@@ -23,7 +23,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -45,7 +44,7 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 		transformations := []config.ResourceTransformation{
 			{
 				Input:    "nvidia.com/mig-1g.5gb",
-				Strategy: ptr.To(config.Replace),
+				Strategy: new(config.Replace),
 				Outputs: corev1.ResourceList{
 					"example.com/accelerator-memory": resource.MustParse("5Ki"),
 					"example.com/credits":            resource.MustParse("10"),
@@ -53,7 +52,7 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 			},
 			{
 				Input:      "nvidia.com/gpucores",
-				Strategy:   ptr.To(config.Replace),
+				Strategy:   new(config.Replace),
 				MultiplyBy: "nvidia.com/gpu",
 				Outputs: corev1.ResourceList{
 					"nvidia.com/total-gpucores": resource.MustParse("1"),
@@ -61,7 +60,7 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 			},
 			{
 				Input:      "nvidia.com/gpumem",
-				Strategy:   ptr.To(config.Replace),
+				Strategy:   new(config.Replace),
 				MultiplyBy: "nvidia.com/gpu",
 				Outputs: corev1.ResourceList{
 					"nvidia.com/total-gpumem": resource.MustParse("1"),
@@ -203,7 +202,7 @@ var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Sh
 		// Starts the manager with a single retain transformation: 1 CPU → 1 cpu_credits
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup([]config.ResourceTransformation{{
 			Input:    corev1.ResourceCPU,
-			Strategy: ptr.To(config.Retain),
+			Strategy: new(config.Retain),
 			Outputs:  corev1.ResourceList{cpuCredits: resource.MustParse("1")},
 		}}))
 	})
@@ -317,7 +316,7 @@ var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Sh
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(admitted[0]), createdWl)).To(gomega.Succeed())
 					createdWl.Spec.PriorityClassRef.Name = lowPriorityClassName
-					createdWl.Spec.Priority = ptr.To[int32](lowPriority)
+					createdWl.Spec.Priority = new(int32(lowPriority))
 					g.Expect(k8sClient.Update(ctx, createdWl)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				util.FinishEvictionForWorkloads(ctx, k8sClient, admitted[0])

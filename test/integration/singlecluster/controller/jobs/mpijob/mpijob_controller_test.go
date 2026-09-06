@@ -984,16 +984,16 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(utiltesting.DefaultBlockTopologyLevel),
-							PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel),
+							Required:      new(utiltesting.DefaultBlockTopologyLevel),
+							PodIndexLabel: new(kfmpi.ReplicaIndexLabel),
 						},
 					},
 					{
 						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:     ptr.To(utiltesting.DefaultRackTopologyLevel),
-							PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel),
+							Preferred:     new(utiltesting.DefaultRackTopologyLevel),
+							PodIndexLabel: new(kfmpi.ReplicaIndexLabel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
@@ -1064,16 +1064,16 @@ var _ = ginkgo.Describe("MPIJob controller with TopologyAwareScheduling", ginkgo
 						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeLauncher)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:      ptr.To(utiltesting.DefaultBlockTopologyLevel),
-							PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel),
+							Required:      new(utiltesting.DefaultBlockTopologyLevel),
+							PodIndexLabel: new(kfmpi.ReplicaIndexLabel),
 						},
 					},
 					{
 						Name:  kueue.NewPodSetReference(string(kfmpi.MPIReplicaTypeWorker)),
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:     ptr.To(utiltesting.DefaultRackTopologyLevel),
-							PodIndexLabel: ptr.To(kfmpi.ReplicaIndexLabel),
+							Preferred:     new(utiltesting.DefaultRackTopologyLevel),
+							PodIndexLabel: new(kfmpi.ReplicaIndexLabel),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))

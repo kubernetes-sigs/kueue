@@ -24,8 +24,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -320,10 +320,13 @@ func TestValidateCreate(t *testing.T) {
 
 			jsw := &JobSetWebhook{}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, gotErr := jsw.ValidateCreate(ctx, tc.job)
+			warns, gotErr := jsw.ValidateCreate(ctx, tc.job)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
-				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("validateCreate() errors mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+				t.Errorf("validateCreate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -404,7 +407,7 @@ func TestDefault(t *testing.T) {
 			name: "TestDefault_JobSetManagedBy_jobsetapi.JobSetControllerName",
 			jobSet: &jobset.JobSet{
 				Spec: jobset.JobSetSpec{
-					ManagedBy: ptr.To(jobset.JobSetControllerName),
+					ManagedBy: new(jobset.JobSetControllerName),
 				},
 				ObjectMeta: ctrl.ObjectMeta{
 					Labels: map[string]string{
@@ -428,7 +431,7 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To(kueue.MultiKueueControllerName),
+			wantManagedBy: new(kueue.MultiKueueControllerName),
 		},
 		{
 			name: "TestDefault_WithQueueLabel",
@@ -455,7 +458,7 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To(kueue.MultiKueueControllerName),
+			wantManagedBy: new(kueue.MultiKueueControllerName),
 		},
 		{
 			name: "TestDefault_WithoutQueueLabel",

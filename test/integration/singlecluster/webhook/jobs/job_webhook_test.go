@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/discovery"
-	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -192,7 +192,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		createdJob := &batchv1.Job{}
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-		createdJob.Spec.Parallelism = ptr.To[int32](4)
+		createdJob.Spec.Parallelism = new(int32(4))
 		createdJob.Spec.Suspend = new(false)
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 	})
@@ -214,7 +214,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		createdJob := &batchv1.Job{}
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 
-		createdJob.Spec.Parallelism = ptr.To[int32](3)
+		createdJob.Spec.Parallelism = new(int32(3))
 		createdJob.Spec.Suspend = new(false)
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 	})
@@ -232,7 +232,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		updatedJob := &batchv1.Job{}
 		gomega.Expect(k8sClient.Get(ctx, lookupKey, updatedJob)).Should(gomega.Succeed())
 
-		updatedJob.Spec.Parallelism = ptr.To[int32](6)
+		updatedJob.Spec.Parallelism = new(int32(6))
 		delete(updatedJob.Annotations, job.StoppingAnnotation)
 		gomega.Expect(k8sClient.Update(ctx, updatedJob)).Should(gomega.Succeed())
 	})
@@ -317,15 +317,12 @@ var _ = ginkgo.Describe("Job Webhook with WorkloadPriorityClassDefaulting enable
 	ginkgo.It("Should not set the label when the default WPC does not exist", func() {
 		gomega.Expect(k8sClient.Delete(ctx, defaultWPC)).To(gomega.Succeed())
 
-		j := testingjob.MakeJob("job-no-default-wpc", ns.Name).Queue("test-queue").Obj()
-		util.MustCreate(ctx, k8sClient, j)
+		gomega.Eventually(func(g gomega.Gomega) {
+			j := testingjob.MakeJob("job-no-default-wpc", ns.Name).Queue("test-queue").Obj()
 
-		lookupKey := types.NamespacedName{Name: j.Name, Namespace: j.Namespace}
-		createdJob := &batchv1.Job{}
-		gomega.Consistently(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
-			g.Expect(createdJob.Labels).ShouldNot(gomega.HaveKey(constants.WorkloadPriorityClassLabel))
-		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			g.Expect(k8sClient.Create(ctx, j, client.DryRunAll)).Should(gomega.Succeed())
+			g.Expect(j.Labels).ShouldNot(gomega.HaveKey(constants.WorkloadPriorityClassLabel))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		defaultWPC = utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
 		util.MustCreate(ctx, k8sClient, defaultWPC)

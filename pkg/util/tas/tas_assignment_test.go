@@ -24,7 +24,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -641,7 +640,7 @@ func TestCompactTopologyAssignmentEncodingWithHostnamePrefixRuns(t *testing.T) {
 					{
 						DomainCount: 2,
 						PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-							Universal: ptr.To[int32](3),
+							Universal: new(int32(3)),
 						},
 						ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 							{
@@ -1389,7 +1388,7 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 								{
 									DomainCount: 1,
 									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-										Universal: ptr.To[int32](1),
+										Universal: new(int32(1)),
 									},
 									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 										{
@@ -1417,7 +1416,7 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 								{
 									DomainCount: 1,
 									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-										Universal: ptr.To[int32](1),
+										Universal: new(int32(1)),
 									},
 									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 										{
@@ -1445,7 +1444,7 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 								{
 									DomainCount: 1,
 									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-										Universal: ptr.To[int32](1),
+										Universal: new(int32(1)),
 									},
 									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 										{
@@ -1503,7 +1502,7 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 								{
 									DomainCount: 1,
 									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-										Universal: ptr.To[int32](1),
+										Universal: new(int32(1)),
 									},
 									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 										{
@@ -1522,7 +1521,7 @@ func TestHasTASAssignmentOnNode(t *testing.T) {
 								{
 									DomainCount: 1,
 									PodCounts: kueue.TopologyAssignmentSlicePodCounts{
-										Universal: ptr.To[int32](5),
+										Universal: new(int32(5)),
 									},
 									ValuesPerLevel: []kueue.TopologyAssignmentSliceLevelValues{
 										{

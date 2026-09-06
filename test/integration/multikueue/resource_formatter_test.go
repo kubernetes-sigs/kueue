@@ -19,10 +19,10 @@ package multikueue
 import (
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -56,7 +56,7 @@ func workerResourceUsageStrings(c cluster, resources ...corev1.ResourceName) map
 		flavorName       = "formatter-isolation"
 	)
 
-	log := logr.Discard()
+	log := ctrl.LoggerFrom(c.ctx)
 	resourceFlavor := utiltestingapi.MakeResourceFlavor(flavorName).Obj()
 	c.schedulerCache.AddOrUpdateResourceFlavor(log, resourceFlavor)
 	ginkgo.DeferCleanup(func() {

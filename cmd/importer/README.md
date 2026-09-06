@@ -29,7 +29,11 @@ The importer will perform following checks:
 - For every Pod a  mapping to a LocalQueue is available.
 - The target LocalQueue exists.
 - The LocalQueues involved in the import are using an existing ClusterQueue.
-- The ClusterQueues involved have at least one ResourceGroup using an existing ResourceFlavor. This ResourceFlavor is used when the importer creates the admission for the created workloads.
+- The ClusterQueues involved have ResourceGroups that reference existing ResourceFlavors.
+- For each Pod, the check validates that Workload construction succeeds (using the same construction path used by import) before any Pod mutation.
+- For each Pod, the check validates that every non-zero resource request in the constructed Workload is covered by the target ClusterQueue ResourceGroups.
+- Pass the configured prefixes with `--exclude-resource-prefixes` so excluded resources are ignored during validation and admission.
+- If a Pod specifies a PriorityClass, the check validates that the PriorityClass exists.
 
 There are two ways the mapping from a pod to a LocalQueue can be specified:
 
@@ -76,16 +80,17 @@ Usage:
   importer import [flags]
 
 Flags:
-      --add-labels stringToString     additional label=value pairs to be added to the imported pods and created workloads (default [])
-      --burst int                     client Burst, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit (default 50)
-  -c, --concurrent-workers uint       number of concurrent import workers (default 8)
-      --dry-run                       don't import, check the config only (default true)
-  -h, --help                          help for import
-  -n, --namespace strings             target namespaces (at least one should be provided)
-      --qps float32                   client QPS, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit (default 50)
-      --queuelabel string             label used to identify the target local queue
-      --queuemapping stringToString   mapping from "queuelabel" label values to local queue names (default [])
-      --queuemapping-file string      yaml file containing extra mappings from "queuelabel" label values to local queue names
+      --add-labels stringToString           additional label=value pairs to be added to the imported pods and created workloads (default [])
+      --burst int                           client Burst, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit (default 50)
+  -c, --concurrent-workers uint             number of concurrent import workers (default 8)
+      --dry-run                             don't import, check the config only (default true)
+      --exclude-resource-prefixes strings   resource name prefixes ignored by Kueue during workload quota accounting
+  -h, --help                                help for import
+  -n, --namespace strings                   target namespaces (at least one should be provided)
+      --qps float32                         client QPS, as described in https://kubernetes.io/docs/reference/config-api/apiserver-eventratelimit.v1alpha1/#eventratelimit-admission-k8s-io-v1alpha1-Limit (default 50)
+      --queuelabel string                   label used to identify the target local queue
+      --queuemapping stringToString         mapping from "queuelabel" label values to local queue names (default [])
+      --queuemapping-file string            yaml file containing extra mappings from "queuelabel" label values to local queue names
 
 Global Flags:
   -v, --verbose count   verbosity (specify multiple times to increase the log level)
@@ -172,7 +177,7 @@ Note: `dry-run` is set to `false` by default.
 
 5. (Optional) Check your config by dry-running it locally e.g.
 ```bash
-./bin/importer --dry-run=true <your-custom-flags> --queuemapping-file=cmd/importer/run-in-cluster/mapping.yaml
+./bin/importer import --dry-run=true <your-custom-flags> --queuemapping-file=cmd/importer/run-in-cluster/mapping.yaml
 ```
 
 6. Deploy the configuration:

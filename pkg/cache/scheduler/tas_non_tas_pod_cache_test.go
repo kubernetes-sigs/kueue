@@ -138,7 +138,7 @@ func verifyNodeUsageConsistency(t *testing.T, cache *nonTasUsageCache) {
 	expected := make(map[string]resources.Requests)
 	for _, pv := range cache.podUsage {
 		if _, found := expected[pv.node]; !found {
-			expected[pv.node] = resources.CreateEmpty()
+			expected[pv.node] = resources.NewRequests()
 		}
 		expected[pv.node].Add(pv.usage)
 		expected[pv.node].Add(resources.OnePodRequest)

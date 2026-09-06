@@ -24,9 +24,9 @@ A Pod might not have the `kueue.x-k8s.io/managed` due to one of the following re
 
 1. The [Pod integration is disabled](/v0.18/docs/tasks/run/plain_pods/#before-you-begin).
 2. The Pod belongs to a namespace that don't satisfy the requirements of
-   the [`managedJobsNamespaceSelector`](/v0.18/docs/reference/kueue-config.v1beta1/#Configuration).
+   the [`managedJobsNamespaceSelector`](/v0.18/docs/reference/kueue-config.v1beta2/#config-kueue-x-k8s-io-v1beta2-Configuration).
 3. The Pod is owned by a Job or equivalent CRD that is managed by Kueue.
-4. The Pod doesn't have a `kueue.x-k8s.io/queue-name` label and [`manageJobsWithoutQueueName`](/v0.18/docs/reference/kueue-config.v1beta1/#Configuration)
+4. The Pod doesn't have a `kueue.x-k8s.io/queue-name` label and [`manageJobsWithoutQueueName`](/v0.18/docs/reference/kueue-config.v1beta2/#config-kueue-x-k8s-io-v1beta2-Configuration)
    is set to `false`.
 
 {{% alert title="Note" color="primary" %}}

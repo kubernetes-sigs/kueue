@@ -95,6 +95,19 @@
   links:
     article: "https://medium.com/google-cloud/making-best-effort-even-better-improving-the-kueue-scheduler-72b1be6b37db"
 
+- title: "Topology-Aware Scheduling for AI Training & Inference with Kueue"
+  event: "KubeCon Japan, Yokohama"
+  date: 2026-07-30
+  type: "case-study"
+  presenters:
+    - name: "Michał Woźniak"
+      company: "Google"
+    - name: "Wei Huang"
+      company: "Meta"
+  links:
+    details: "https://events.linuxfoundation.org/kubecon-cloudnativecon-japan/program/schedule/?id=1194393"
+    video: "https://youtu.be/yvIW_fx2ms8"
+
 - title: "Rules of the Road for Shared GPUs: AI Inference Scheduling at Wayve"
   event: "KubeCon EU, Amsterdam"
   date: 2026-03-10

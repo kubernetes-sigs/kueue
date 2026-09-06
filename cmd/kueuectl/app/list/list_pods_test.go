@@ -106,6 +106,40 @@ valid-pod-1   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none>           <none>
 `,
 		}, {
+			name: "list pods with JSONPath containing wide",
+			job: &batchv1.Job{
+				TypeMeta: metav1.TypeMeta{
+					Kind: "Job",
+				},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-job",
+					Namespace: metav1.NamespaceDefault,
+					Labels: map[string]string{
+						batchv1.JobNameLabel: "test-job",
+					},
+				},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().
+					Name("valid-pod-1").
+					Label(batchv1.JobNameLabel, "test-job").
+					Label("wide", "selected-value").
+					Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{
+				{
+					Group:   "batch",
+					Version: "v1",
+					Kind:    "Job",
+				}, {
+					Group:   "",
+					Version: "v1",
+					Kind:    "Pod",
+				},
+			},
+			args:    []string{"--for", "job/test-job", "-o", "jsonpath={.metadata.labels.wide}"},
+			wantOut: "selected-value",
+		}, {
 			name: "list pods for valid batch/job type",
 			job: &batchv1.Job{
 				TypeMeta: metav1.TypeMeta{
@@ -651,14 +685,7 @@ func buildTestRuntimeScheme() (*runtime.Scheme, error) {
 }
 
 func mockRESTClient(codec runtime.Codec, tc podTestCase) (*restfake.RESTClient, error) {
-	var podRespBody io.ReadCloser
-
 	podList := &corev1.PodList{Items: tc.pods}
-	if len(podList.Items) == 0 {
-		podRespBody = emptyTableObjBody(codec)
-	} else {
-		podRespBody = podTableObjBody(codec, podList.Items...)
-	}
 
 	reqPathPrefix := fmt.Sprintf("/namespaces/%s", metav1.NamespaceDefault)
 	if slices.Contains(tc.args, "-A") || slices.Contains(tc.args, "all-namespaces") {
@@ -679,6 +706,16 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase) (*restfake.RESTClient, 
 					Body:       io.NopCloser(strings.NewReader(runtime.EncodeOrDie(codec, tc.job))),
 				}, nil
 			case fmt.Sprintf("%s/pods", reqPathPrefix):
+				var podRespBody io.ReadCloser
+				if strings.Contains(request.Header.Get("Accept"), "as=Table") {
+					if len(podList.Items) == 0 {
+						podRespBody = emptyTableObjBody(codec)
+					} else {
+						podRespBody = podTableObjBody(codec, podList.Items...)
+					}
+				} else {
+					podRespBody = io.NopCloser(strings.NewReader(runtime.EncodeOrDie(codec, podList)))
+				}
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     getDefaultHeader(),

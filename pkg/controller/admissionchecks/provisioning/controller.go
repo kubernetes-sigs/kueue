@@ -170,7 +170,10 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		checkConfig[checkName] = prc
 	}
 
-	activeOrLastPRForChecks := c.activeOrLastPRForChecks(ctx, wl, checkConfig, provReqs.Items)
+	activeOrLastPRForChecks, err := c.activeOrLastPRForChecks(ctx, wl, checkConfig, provReqs.Items)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
 
 	wlInfo := workloadInfo{
 		checkStates: make([]kueue.AdmissionCheckState, 0),
@@ -201,18 +204,22 @@ func (c *Controller) activeOrLastPRForChecks(
 	wl *kueue.Workload,
 	checkConfig map[kueue.AdmissionCheckReference]*kueue.ProvisioningRequestConfig,
 	ownedPRs []autoscaling.ProvisioningRequest,
-) map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest {
+) (map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest, error) {
 	activeOrLastPRForChecks := make(map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest)
 	log := ctrl.LoggerFrom(ctx)
 	for checkName, prc := range checkConfig {
 		if prc == nil {
 			continue
 		}
+		reqNeeded, err := reqIsNeeded(wl, prc)
+		if err != nil {
+			return nil, err
+		}
 		for i := range ownedPRs {
 			req := &ownedPRs[i]
 			// PRs relevant for the admission check
 			if matchesWorkloadAndCheck(req, wl.Name, checkName) {
-				if c.reqIsNeeded(wl, prc) && provReqSyncedWithConfig(req, prc) {
+				if reqNeeded && provReqSyncedWithConfig(req, prc) {
 					currPr, exists := activeOrLastPRForChecks[checkName]
 					if !exists || getAttempt(log, currPr, wl.Name, checkName) < getAttempt(log, req, wl.Name, checkName) {
 						activeOrLastPRForChecks[checkName] = req
@@ -221,7 +228,7 @@ func (c *Controller) activeOrLastPRForChecks(
 			}
 		}
 	}
-	return activeOrLastPRForChecks
+	return activeOrLastPRForChecks, nil
 }
 
 func (c *Controller) deleteUnusedProvisioningRequests(
@@ -259,7 +266,11 @@ func (c *Controller) syncOwnedProvisionRequest(
 			// the check is not active
 			continue
 		}
-		if !c.reqIsNeeded(wl, prc) {
+		reqNeeded, err := reqIsNeeded(wl, prc)
+		if err != nil {
+			return err
+		}
+		if !reqNeeded {
 			continue
 		}
 		ac := admissioncheck.FindAdmissionCheck(wlInfo.checkStates, checkName)
@@ -306,7 +317,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			}
 			passProvReqParams(wl, req)
 
-			mergedPodSets, err := mergePodSets(wl, &prc.Spec)
+			mergedPodSets, err := mergePodSets(ctx, wl, &prc.Spec)
 			if err != nil {
 				return err
 			}
@@ -464,8 +475,25 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 	return nil
 }
 
-func (c *Controller) reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) bool {
-	return len(requiredPodSets(wl.Spec.PodSets, prc.Spec.ManagedResources)) > 0
+func reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) (bool, error) {
+	assignments := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(psa *kueue.PodSetAssignment) kueue.PodSetReference {
+		return psa.Name
+	})
+	managedResources := sets.New(prc.Spec.ManagedResources...)
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		if ps.Count <= 0 || (managedResources.Len() > 0 && !podUses(&ps.Template.Spec, managedResources)) {
+			continue
+		}
+		psa, found := assignments[ps.Name]
+		if !found {
+			return false, fmt.Errorf("%w: missing assignment for PodSet %q", errInconsistentPodSetAssignments, ps.Name)
+		}
+		if ptr.Deref(psa.Count, ps.Count) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []kueue.PodSetReference {
@@ -473,7 +501,7 @@ func requiredPodSets(podSets []kueue.PodSet, resources []corev1.ResourceName) []
 	users := make([]kueue.PodSetReference, 0, len(podSets))
 	for i := range podSets {
 		ps := &podSets[i]
-		if len(resources) == 0 || podUses(&ps.Template.Spec, resourcesSet) {
+		if ps.Count > 0 && (len(resources) == 0 || podUses(&ps.Template.Spec, resourcesSet)) {
 			users = append(users, ps.Name)
 		}
 	}
@@ -558,12 +586,13 @@ func (c *Controller) syncCheckStates(
 
 		for check, prc := range checkConfig {
 			checkState := *checksMap[check]
-			//nolint:gocritic // ignore ifElseChain
 			if prc == nil {
 				// the check is not active
 				updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 				updated = updateCheckMessage(&checkState, CheckInactiveMessage) || updated
-			} else if !c.reqIsNeeded(wl, prc) {
+			} else if reqNeeded, err := reqIsNeeded(wl, prc); err != nil {
+				return false, err
+			} else if !reqNeeded {
 				if updateCheckState(&checkState, kueue.CheckStateReady) {
 					updated = true
 					checkState.Message = NoRequestNeeded
@@ -905,9 +934,11 @@ type MergedPodSet struct {
 }
 
 func mergePodSets(
+	ctx context.Context,
 	wl *kueue.Workload,
 	prcSpec *kueue.ProvisioningRequestConfigSpec,
 ) ([]MergedPodSet, error) {
+	log := ctrl.LoggerFrom(ctx)
 	expectedPodSets := requiredPodSets(wl.Spec.PodSets, prcSpec.ManagedResources)
 	psaMap := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(p *kueue.PodSetAssignment) kueue.PodSetReference { return p.Name })
 	podSetMap := slices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
@@ -921,11 +952,17 @@ func mergePodSets(
 			return nil, errInconsistentPodSetAssignments
 		}
 
+		count := ptr.Deref(psa.Count, ps.Count)
+		if count <= 0 {
+			log.V(4).Info("Skipping non-positive PodSet", "workload", klog.KObj(wl), "podSet", psName, "count", count)
+			continue
+		}
+
 		merged := false
 		if mergePolicy != nil {
 			for i, mps := range mergedPodSets {
 				if merged = canMergePodSets(mps.PodSet, ps, mergePolicy); merged {
-					mergedPodSets[i].Count += ptr.Deref(psa.Count, ps.Count)
+					mergedPodSets[i].Count += count
 					break
 				}
 			}
@@ -936,7 +973,7 @@ func mergePodSets(
 				Name:             psName,
 				PodSet:           ps,
 				PodSetAssignment: psa,
-				Count:            ptr.Deref(psa.Count, ps.Count),
+				Count:            count,
 			})
 		}
 	}

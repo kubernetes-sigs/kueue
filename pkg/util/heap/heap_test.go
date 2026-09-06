@@ -261,3 +261,35 @@ func TestHeap_List(t *testing.T) {
 		}
 	}
 }
+
+// TestHeap_Init verifies that Init re-establishes the heap invariant after the
+// ordering values of several items change at once. It mutates every item's value
+// in place (a batch reorder, as happens when a LocalQueue fair-sharing weight
+// changes and all its workloads move together) and checks that Init restores
+// ascending Pop order. Fixing the moved items one by one is unsafe here because
+// each heap.Fix assumes only a single item moved.
+func TestHeap_Init(t *testing.T) {
+	h := New(testHeapObjectKeyFunc, compareInts)
+	// Push already-ordered values so the backing array is a valid min-heap
+	// laid out as [0, 1, 2, 3].
+	for i := range 4 {
+		h.PushOrUpdate(mkHeapObj(string(rune('a'+i)), i))
+	}
+
+	// Fully reverse every value; the array [0, 1, 2, 3] is now [3, 2, 1, 0],
+	// which violates the heap invariant everywhere at once.
+	for i := range 4 {
+		h.GetByKey(string(rune('a' + i))).val = 3 - i
+	}
+
+	h.Init()
+
+	prev := -1
+	for h.Len() > 0 {
+		obj := h.Pop()
+		if obj.val < prev {
+			t.Fatalf("Init did not restore heap order: got %d after %d", obj.val, prev)
+		}
+		prev = obj.val
+	}
+}

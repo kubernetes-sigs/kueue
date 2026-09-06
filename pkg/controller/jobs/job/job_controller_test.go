@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
@@ -33,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -63,8 +61,8 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; no progress": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
-					Completions: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
+					Completions: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{},
 			},
@@ -73,11 +71,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; not enough progress": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
-					Completions: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
+					Completions: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
-					Ready:     ptr.To[int32](1),
+					Ready:     new(int32(1)),
 					Succeeded: 1,
 				},
 			},
@@ -86,11 +84,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; all ready": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
-					Completions: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
+					Completions: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
-					Ready:     ptr.To[int32](3),
+					Ready:     new(int32(3)),
 					Succeeded: 0,
 				},
 			},
@@ -99,11 +97,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; some ready, some succeeded": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
-					Completions: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
+					Completions: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
-					Ready:     ptr.To[int32](2),
+					Ready:     new(int32(2)),
 					Succeeded: 1,
 				},
 			},
@@ -112,8 +110,8 @@ func TestPodsReady(t *testing.T) {
 		"parallelism = completions; all succeeded": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
-					Completions: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
+					Completions: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
 					Succeeded: 3,
@@ -124,11 +122,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism < completions; reaching parallelism is enough": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](2),
-					Completions: ptr.To[int32](3),
+					Parallelism: new(int32(2)),
+					Completions: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
-					Ready: ptr.To[int32](2),
+					Ready: new(int32(2)),
 				},
 			},
 			want: true,
@@ -136,11 +134,11 @@ func TestPodsReady(t *testing.T) {
 		"parallelism > completions; reaching completions is enough": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
-					Completions: ptr.To[int32](2),
+					Parallelism: new(int32(3)),
+					Completions: new(int32(2)),
 				},
 				Status: batchv1.JobStatus{
-					Ready: ptr.To[int32](2),
+					Ready: new(int32(2)),
 				},
 			},
 			want: true,
@@ -148,10 +146,10 @@ func TestPodsReady(t *testing.T) {
 		"parallelism specified only; not enough progress": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
-					Ready: ptr.To[int32](2),
+					Ready: new(int32(2)),
 				},
 			},
 			want: false,
@@ -159,10 +157,10 @@ func TestPodsReady(t *testing.T) {
 		"parallelism specified only; all ready": {
 			job: Job{
 				Spec: batchv1.JobSpec{
-					Parallelism: ptr.To[int32](3),
+					Parallelism: new(int32(3)),
 				},
 				Status: batchv1.JobStatus{
-					Ready: ptr.To[int32](3),
+					Ready: new(int32(3)),
 				},
 			},
 			want: true,
@@ -409,7 +407,7 @@ func TestPodSets(t *testing.T) {
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
@@ -426,7 +424,7 @@ func TestPodSets(t *testing.T) {
 					PodSpec(jobTemplate.Clone().Spec.Template.Spec).
 					Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 					PreferredTopologyRequest("cloud.com/block").
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
@@ -446,7 +444,7 @@ func TestPodSets(t *testing.T) {
 						kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
 						kueue.PodSetSliceSizeAnnotation:             "1",
 					}).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					SliceRequiredTopologyRequest("cloud.com/block").
 					SliceSizeTopologyRequest(1).
 					Obj(),
@@ -485,7 +483,7 @@ func TestPodSets(t *testing.T) {
 					Annotations(map[string]string{
 						kueue.PodSetSliceRequiredTopologyAnnotation: "cloud.com/block",
 					}).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
@@ -503,7 +501,7 @@ func TestPodSets(t *testing.T) {
 					Annotations(map[string]string{
 						kueue.PodSetSliceSizeAnnotation: "1",
 					}).
-					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
 					Obj(),
 			},
 		},
@@ -3063,6 +3061,128 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"a warning names the WorkloadPriorityClass that does not exist": {
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				WorkloadPriorityClass("missing-wpc").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				WorkloadPriorityClass("missing-wpc").
+				UID("test-uid").
+				Obj(),
+			// missing-wpc is deliberately absent here.
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(),
+			},
+			// The error identity is pinned in jobframework, where it is classified.
+			wantErr: cmpopts.AnyError,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
+					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+				},
+			},
+		},
+		// The boundary the concept page draws. A Workload whose priority came from
+		// a Pod PriorityClass is not re-resolved, so the label is taken and does
+		// nothing, and nothing is reported. Tracked separately; pinned here so the
+		// documented contract and the code cannot drift apart quietly.
+		"a Pod PriorityClass-backed workload is left alone and reports nothing": {
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				WorkloadPriorityClass("missing-wpc").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				WorkloadPriorityClass("missing-wpc").
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(2000).
+					PodPriorityClassRef("pod-high").
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(2000).
+					PodPriorityClassRef("pod-high").
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+		},
+		// Same warning when the label is changed to a class that does not exist,
+		// which reaches extractPriority through two more error wraps.
+		"a warning names the WorkloadPriorityClass the label was changed to": {
+			job: baseJobWrapper.
+				Clone().
+				Suspend(true).
+				WorkloadPriorityClass("missing-wpc").
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(true).
+				WorkloadPriorityClass("missing-wpc").
+				UID("test-uid").
+				Obj(),
+			priorityClasses: []client.Object{
+				baseWPCWrapper.Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("job", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localQueueName).
+					Priority(baseWPCWrapper.Value).
+					WorkloadPriorityClassRef(baseWPCWrapper.Name).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					Obj(),
+			},
+			wantErr: cmpopts.AnyError,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
+					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+				},
+			},
+		},
 		"the workload is updated when priority class has changed for suspended job": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
@@ -3171,6 +3291,16 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantErr: cmpopts.AnyError,
+			// The compatible slice path now reaches the class lookup, so the failure
+			// is reported rather than passing silently.
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
+					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+				},
+			},
 		},
 		"the workload slice is updated when priority class has changed for suspended job": {
 			featureGates: map[featuregate.Feature]bool{
@@ -3663,7 +3793,7 @@ func TestReconciler(t *testing.T) {
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
 					Queue("queue").
-					UID("parent-uid").
+					UID("parent").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
@@ -3671,7 +3801,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
 					AdmittedAt(true, now).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -3679,7 +3809,7 @@ func TestReconciler(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
 					AdmittedAt(true, now).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 		},
@@ -3705,21 +3835,21 @@ func TestReconciler(t *testing.T) {
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
 					Queue("queue").
-					UID("parent-uid").
+					UID("parent").
 					Obj(),
 			},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("parent-workload", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
@@ -3751,7 +3881,7 @@ func TestReconciler(t *testing.T) {
 				Obj(),
 			otherJobs: []batchv1.Job{
 				*utiltestingjob.MakeJob("parent", "ns").
-					UID("parent-uid").
+					UID("parent").
 					Queue("queue").
 					Obj(),
 			},
@@ -3760,7 +3890,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -3769,7 +3899,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueName)).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(10).Obj()).Obj(), now).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent-uid").
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
 					AdmittedAt(true, now).
 					Obj(),
 			},
@@ -4261,6 +4391,143 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"admitted prebuilt workload with implicit TAS remains in sync": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:  true,
+				features.AssignQueueLabelsForPods: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				PodAnnotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				SchedulingGate(kueue.TopologySchedulingGate).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				Suspend(false).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				UID("test-uid").
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				PodAnnotation(kueue.WorkloadAnnotation, "prebuilt-workload").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				SchedulingGate(kueue.TopologySchedulingGate).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Count(10).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 10).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						Obj()).
+					Queue(localQueueName).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Count(10).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 10).Obj()).
+								Obj()).
+							Obj()).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Labels(map[string]string{controllerconsts.JobUIDLabel: "test-uid"}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Obj(),
+			},
+		},
+		"prebuilt workload with a different topology request is out of sync": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: true,
+
+				features.AssignQueueLabelsForPods: true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				Suspend(false).
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+				UID("test-uid").
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				PrebuiltWorkloadLabel("prebuilt-workload").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+				UID("test-uid").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						PriorityClass("test-pc").
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: corev1.LabelTopologyZone}).
+						RequiredTopologyRequest(corev1.LabelTopologyZone).
+						Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).
+						Request(corev1.ResourceCPU, "1").
+						PriorityClass("test-pc").
+						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: corev1.LabelTopologyZone}).
+						RequiredTopologyRequest(corev1.LabelTopologyZone).
+						Obj()).
+					Queue("test-queue").
+					WorkloadPriorityClassRef("test-wpc").
+					Priority(100).
+					Labels(map[string]string{
+						controllerconsts.JobUIDLabel: "test-uid",
+					}).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job", "test-uid").
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  "OutOfSync",
+						Message: "The prebuilt workload is out of sync with its user job",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "missing workload",
+				},
+			},
+			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
+		},
 		"when the prebuilt workload is owned by another object": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
@@ -4476,7 +4743,7 @@ func TestReconciler(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
-						Count: ptr.To[int32](10),
+						Count: new(int32(10)),
 					}).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
@@ -4505,7 +4772,7 @@ func TestReconciler(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
-						Count: ptr.To[int32](10),
+						Count: new(int32(10)),
 					}).Obj(), now).
 					AdmittedAt(true, now).
 					Obj(),
@@ -4552,7 +4819,7 @@ func TestReconciler(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "default",
 						},
-						Count: ptr.To[int32](10),
+						Count: new(int32(10)),
 					}).Obj(), now).
 					Obj(),
 			},
@@ -4839,7 +5106,8 @@ func TestReconciler(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 
 				ctx, _ := utiltesting.ContextWithLog(t)
-				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(
+					interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
 				indexer := utiltesting.AsIndexer(clientBuilder)
 				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)
@@ -5009,7 +5277,8 @@ func TestTerminalIndexesCount(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if got := terminalIndexesCount(logr.Discard(), tc.completedIndexes, tc.failedIndexes, tc.completions); got != tc.want {
+			_, log := utiltesting.ContextWithLog(t)
+			if got := terminalIndexesCount(log, tc.completedIndexes, tc.failedIndexes, tc.completions); got != tc.want {
 				t.Errorf("terminalIndexesCount(%q, %q, %d) = %d, want %d", tc.completedIndexes, tc.failedIndexes, tc.completions, got, tc.want)
 			}
 		})
@@ -5027,13 +5296,13 @@ func TestReclaimablePods(t *testing.T) {
 		j.Status.Failed = failed
 		j.Status.CompletedIndexes = completedIndexes
 		if failedIndexes != "" {
-			j.Spec.BackoffLimitPerIndex = ptr.To[int32](0)
+			j.Spec.BackoffLimitPerIndex = new(int32(0))
 			j.Status.FailedIndexes = new(failedIndexes)
 		}
 		return (*Job)(j)
 	}
 	retryableFailureJob := indexedJob(1, 1, "0", "")
-	retryableFailureJob.Spec.BackoffLimitPerIndex = ptr.To[int32](1)
+	retryableFailureJob.Spec.BackoffLimitPerIndex = new(int32(1))
 	cases := map[string]struct {
 		job  *Job
 		want []kueue.ReclaimablePod

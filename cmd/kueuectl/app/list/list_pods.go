@@ -138,7 +138,7 @@ func (o *PodOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 	}
 
 	outputOption := ptr.Deref(o.PrintFlags.OutputFormat, "")
-	if outputOption == "" || strings.Contains(outputOption, "wide") {
+	if outputOption == "" || outputOption == "wide" {
 		o.ServerPrint = true
 	}
 

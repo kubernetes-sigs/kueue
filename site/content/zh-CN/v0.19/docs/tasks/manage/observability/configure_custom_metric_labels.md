@@ -96,6 +96,6 @@ metrics:
 
 ## 下一步
 
-- 查看 [Prometheus 指标](/v0.19/docs/reference/metrics)，获取 Kueue 指标的完整列表。
+- 查看 [Prometheus 指标](/zh-cn/v0.19/docs/reference/metrics)，获取 Kueue 指标的完整列表。
 - 查看[常用 Grafana 查询](/v0.19/docs/tasks/manage/observability/common_grafana_queries)，
   获取用于在 Grafana 中监控 Kueue 的 PromQL 查询。

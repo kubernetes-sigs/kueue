@@ -84,14 +84,14 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 				Timeout:         metav1.Duration{Duration: util.TinyTimeout},
 				RecoveryTimeout: nil,
 				RequeuingStrategy: &configapi.RequeuingStrategy{
-					Timestamp:          ptr.To(configapi.EvictionTimestamp),
+					Timestamp:          new(configapi.EvictionTimestamp),
 					BackoffBaseSeconds: new(int32(10)),
 					BackoffLimitCount:  new(int32(1)),
 				},
 			}
 		})
 
-		curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+		curlPod = testingjobspod.MakePod("curl-metrics", util.GetKueueNamespace()).
 			ServiceAccountName(serviceAccountName).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
@@ -224,7 +224,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 				{
 					Kind:      "ServiceAccount",
 					Name:      serviceAccountName,
-					Namespace: configapi.DefaultNamespace,
+					Namespace: kueueNS,
 				},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -241,7 +241,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 				BlockAdmission:  new(true),
 				RecoveryTimeout: &metav1.Duration{Duration: util.TinyTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
-					Timestamp:          ptr.To(configapi.EvictionTimestamp),
+					Timestamp:          new(configapi.EvictionTimestamp),
 					BackoffBaseSeconds: new(int32(1)),
 					// Allow at least one requeue cycle before deactivation so the test
 					// can verify the requeue behavior.
@@ -250,7 +250,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 			}
 		})
 
-		curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+		curlPod = testingjobspod.MakePod("curl-metrics", util.GetKueueNamespace()).
 			ServiceAccountName(serviceAccountName).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
@@ -371,7 +371,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 				{
 					Kind:      "ServiceAccount",
 					Name:      serviceAccountName,
-					Namespace: configapi.DefaultNamespace,
+					Namespace: kueueNS,
 				},
 			},
 			RoleRef: rbacv1.RoleRef{
@@ -388,14 +388,14 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 				BlockAdmission:  new(true),
 				RecoveryTimeout: &metav1.Duration{Duration: util.LongTimeout},
 				RequeuingStrategy: &configapi.RequeuingStrategy{
-					Timestamp:          ptr.To(configapi.EvictionTimestamp),
+					Timestamp:          new(configapi.EvictionTimestamp),
 					BackoffBaseSeconds: new(int32(1)),
 					BackoffLimitCount:  new(int32(1)),
 				},
 			}
 		})
 
-		curlPod = testingjobspod.MakePod("curl-metrics", configapi.DefaultNamespace).
+		curlPod = testingjobspod.MakePod("curl-metrics", util.GetKueueNamespace()).
 			ServiceAccountName(serviceAccountName).
 			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
@@ -467,8 +467,15 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
 				{"kueue_ready_wait_time_seconds_count", cq.Name, ""},
 				{"kueue_admitted_until_ready_wait_time_seconds_count", cq.Name, ""},
-				{"kueue_local_queue_ready_wait_time_seconds", ns.Name, lq.Name, ""},
-				{"kueue_local_queue_admitted_until_ready_wait_time_seconds", ns.Name, lq.Name, ""}})
+				{"kueue_local_queue_ready_wait_time_seconds_count", ns.Name, lq.Name, ""},
+				{"kueue_local_queue_admitted_until_ready_wait_time_seconds_count", ns.Name, lq.Name, ""}})
+		})
+
+		ginkgo.By("verifying that the recovery metric is not updated before failure", func() {
+			util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+				{"kueue_workload_recovery_wait_time_seconds_count", cq.Name},
+				{"kueue_local_queue_workload_recovery_wait_time_seconds_count", ns.Name, lq.Name},
+			})
 		})
 
 		ginkgo.By("simulating pod failure", func() {
@@ -482,10 +489,25 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.By("verifying that the recovery metric is updated", func() {
+			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+				{"kueue_workload_recovery_wait_time_seconds_count", cq.Name, "} 1"},
+				{"kueue_local_queue_workload_recovery_wait_time_seconds_count", ns.Name, lq.Name, "} 1"},
+			})
+		})
+
 		ginkgo.By("verifying that the metric is not updated", func() {
 			util.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
 				{"kueue_evicted_workloads_once_total", ns.Name},
 			})
+		})
+
+		ginkgo.By("verifying that the time-to-readiness metrics were not re-emitted after recovery", func() {
+			util.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, [][]string{
+				{"kueue_ready_wait_time_seconds_count", cq.Name, "} 1"},
+				{"kueue_admitted_until_ready_wait_time_seconds_count", cq.Name, "} 1"},
+				{"kueue_local_queue_ready_wait_time_seconds_count", ns.Name, lq.Name, "} 1"},
+				{"kueue_local_queue_admitted_until_ready_wait_time_seconds_count", ns.Name, lq.Name, "} 1"}})
 		})
 	})
 })

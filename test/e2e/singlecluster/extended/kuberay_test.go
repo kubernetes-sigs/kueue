@@ -785,7 +785,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		})
 	})
 
-	ginkgo.It("Should run a RayService if admitted", ginkgo.Label("shard:kuberay-a", "requires:fullray"), func() {
+	ginkgo.It("Should run a RayService if admitted", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a simple Ray Serve application
@@ -900,7 +900,7 @@ app = HelloWorld.bind()`,
 		})
 	})
 
-	ginkgo.It("Should run the Redis cleanup Job when a GCS fault-tolerant RayService is deleted", ginkgo.Label("shard:kuberay-a", "requires:fullray"), func() {
+	ginkgo.It("Should run the Redis cleanup Job when a GCS fault-tolerant RayService is deleted", ginkgo.Label("shard:kuberay-a"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Deploy an in-cluster Redis backing the RayCluster's GCS fault tolerance.
@@ -1010,7 +1010,7 @@ app = HelloWorld.bind()`,
 		})
 	})
 
-	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Label("shard:kuberay-b", "requires:fullray"), func() {
+	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Label("shard:kuberay-b"), func() {
 		kuberayTestImage := util.GetKuberayTestImage()
 
 		// Create ConfigMap with a Ray Serve application that supports a delay parameter

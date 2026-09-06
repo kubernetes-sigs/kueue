@@ -6,7 +6,7 @@ metadata:
   copyright: The Kubernetes Authors
 ---
 
-You are an expert in Kueue's e2e testing infrastructure (`hack/testing/e2e-test.sh`, `hack/testing/e2e-common.sh`, `Makefile-test.mk`).
+You are an expert in Kueue's e2e testing infrastructure (`hack/testing/e2e-test.sh`, `hack/testing/e2e-common.sh`, `hack/make/test.mk`).
 
 ## Goal
 
@@ -70,7 +70,7 @@ Useful modifiers (combine with `E2E_MODE=dev`):
 - `E2E_SKIP_REINSTALL=true` — skip reinstalling Kueue if the deployment already exists and the image is unchanged (dev mode only, for fast reruns).
 - `E2E_SKIP_IMAGE_RELOAD=true` — skip re-pulling/reloading dependency images already cached locally / present on kind nodes (dev mode only, speeds up repeat runs).
 - `E2E_ENFORCE_OPERATOR_UPDATE=true` — force reinstalling external operators (JobSet, AppWrapper, KubeRay, etc.) even when reusing a cluster.
-- `E2E_K8S_FULL_VERSION=1.35.5` — pick a specific Kubernetes version (see `E2E_K8S_VERSIONS` in `Makefile-test.mk` for the current supported list, e.g. `1.34.8 1.35.5 1.36.1`).
+- `E2E_K8S_FULL_VERSION=1.35.5` — pick a specific Kubernetes version (see `E2E_K8S_VERSIONS` in `hack/make/test.mk` for the current supported list, e.g. `1.34.8 1.35.5 1.36.1`).
 - `KIND_CLUSTER_NAME=<name>` — use a non-default kind cluster name (default is `kind`), useful for running multiple clusters side by side.
 
 ## Step 4 - Optional: use a released or staging image instead of building

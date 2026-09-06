@@ -26,7 +26,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -37,7 +36,6 @@ import (
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -49,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -65,6 +64,9 @@ const (
 
 var cmpDump = cmp.Options{
 	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+	// Queue dumps have no defined order: DumpInadmissible iterates a map, DumpActive
+	// walks the heap. Sort so cases with several workloads per ClusterQueue are stable.
+	cmpopts.SortSlices(func(a, b workload.Reference) bool { return a < b }),
 }
 
 // scheduleTestCase is the shared case definition for the core scheduling tests
@@ -102,6 +104,10 @@ type scheduleTestCase struct {
 	eventCmpOpts cmp.Options
 
 	wantSkippedPreemptions map[string]int
+
+	// wantPreemptionTargetRecomputations is a map of (cluster_queue, result) -> expected counter value
+	// for the preemption_target_recomputations_total metric.
+	wantPreemptionTargetRecomputations map[string]map[string]int
 }
 
 // scheduleTestConfig carries the per-suite fixtures and knobs shared by the core
@@ -150,6 +156,7 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 				func(t *testing.T) {
 					features.SetFeatureGatesDuringTest(t, scenario)
 					metrics.AdmissionCyclePreemptionSkips.Reset()
+					metrics.PreemptionTargetRecomputationsTotal.Reset()
 					fg := map[featuregate.Feature]bool{}
 					maps.Copy(fg, tc.featureGates)
 					features.SetFeatureGatesDuringTest(t, fg)
@@ -335,9 +342,21 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 						if err != nil {
 							t.Fatalf("Couldn't get value for metric admission_cycle_preemption_skips for %q: %v", cqName, err)
 						}
-						got := int(val)
-						if want != got {
-							t.Errorf("Counted %d skips for %q, want %d", got, cqName, want)
+						if want != int(val) {
+							t.Errorf("Counted %d skips for %q, want %d", int(val), cqName, want)
+						}
+					}
+
+					for cqName, resultWants := range tc.wantPreemptionTargetRecomputations {
+						for result, want := range resultWants {
+							lvs := []string{cqName, result, roletracker.RoleStandalone}
+							val, err := testutil.GetCounterMetricValue(metrics.PreemptionTargetRecomputationsTotal.WithLabelValues(lvs...))
+							if err != nil {
+								t.Fatalf("Couldn't get value for metric preemption_target_recomputations_total for cq=%q result=%q: %v", cqName, result, err)
+							}
+							if want != int(val) {
+								t.Errorf("preemption_target_recomputations_total: cq=%q result=%q: got %d, want %d", cqName, result, int(val), want)
+							}
 						}
 					}
 				},
@@ -2846,12 +2865,12 @@ func TestSchedule(t *testing.T) {
 									Count(20).
 									Obj(),
 								utiltestingapi.MakePodSetAssignment("two").
-									Assignment(corev1.ResourceCPU, "default", "20").
-									Count(20).
+									Assignment(corev1.ResourceCPU, "default", "25").
+									Count(25).
 									Obj(),
 								utiltestingapi.MakePodSetAssignment("three").
-									Assignment(corev1.ResourceCPU, "default", "10").
-									Count(10).
+									Assignment(corev1.ResourceCPU, "default", "5").
+									Count(5).
 									Obj(),
 							).
 							Obj(),
@@ -2867,12 +2886,12 @@ func TestSchedule(t *testing.T) {
 							Count(20).
 							Obj(),
 						utiltestingapi.MakePodSetAssignment("two").
-							Assignment(corev1.ResourceCPU, "default", "20000m").
-							Count(20).
+							Assignment(corev1.ResourceCPU, "default", "25000m").
+							Count(25).
 							Obj(),
 						utiltestingapi.MakePodSetAssignment("three").
-							Assignment(corev1.ResourceCPU, "default", "10000m").
-							Count(10).
+							Assignment(corev1.ResourceCPU, "default", "5000m").
+							Count(5).
 							Obj(),
 					},
 				},
@@ -5776,6 +5795,388 @@ func TestSchedule(t *testing.T) {
 				utiltesting.MakeEventRecord("sales", "foo-1", kueue.WorkloadSliceReplaced, corev1.EventTypeNormal).Obj(),
 			},
 		},
+		"workload-slice with partial replica scale up partially fits in single clusterQueue": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialAdmission:                                      false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 30).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30000m").Count(30).Obj()).Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 60).
+						SetMinimumCount(40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"sales/foo-1": *utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30").Count(30).Obj()).Obj(),
+				"sales/foo-2": *utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "50").Count(50).Obj()).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					ResourceVersion("2").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 30).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Admission(
+						utiltestingapi.MakeAdmission("sales").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "30000m").
+								Count(30).
+								Obj()).
+							Obj(),
+					).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadSliceReplaced,
+						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("2").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 60).
+						SetMinimumCount(40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Admission(
+						utiltestingapi.MakeAdmission("sales").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "50000m").
+								Count(50).
+								Obj()).
+							Obj(),
+					).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("sales", "foo-2", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "foo-2", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "foo-1", kueue.WorkloadSliceReplaced, corev1.EventTypeNormal).Obj(),
+			},
+		},
+		"workload-slice with partial replica scale up does not partially scale up when feature is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialAdmission:                                      false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 30).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30000m").Count(30).Obj()).Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 60).
+						SetMinimumCount(40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"sales/foo-1": *utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30").Count(30).Obj()).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 30).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Admission(
+						utiltestingapi.MakeAdmission("sales").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "30000m").
+								Count(30).
+								Obj()).
+							Obj(),
+					).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, "true").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 60).
+						SetMinimumCount(40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 10 more needed",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(
+						kueue.PodSetRequest{
+							Name: "one",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("60"),
+							},
+						},
+					).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"sales": {"sales/foo-2"},
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("sales", "foo-2", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		"workload-slice with partial replica scale up does not partially scale up when annotation is not present": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialAdmission:                                      false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 30).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30000m").Count(30).Obj()).Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 60).
+						SetMinimumCount(40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"sales/foo-1": *utiltestingapi.MakeAdmission("sales").PodSets(utiltestingapi.MakePodSetAssignment("one").Assignment(corev1.ResourceCPU, "default", "30").Count(30).Obj()).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 30).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Admission(
+						utiltestingapi.MakeAdmission("sales").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "default", "30000m").
+								Count(30).
+								Obj()).
+							Obj(),
+					).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue sales",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					ResourceVersion("1").
+					Queue("main").
+					PodSets(*utiltestingapi.MakePodSet("one", 60).
+						SetMinimumCount(40).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Generation(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+						Message:            "couldn't assign flavors to pod set one: insufficient unused quota for cpu in flavor default, 10 more needed",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(
+						kueue.PodSetRequest{
+							Name: "one",
+							Resources: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("60"),
+							},
+						},
+					).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"sales": {"sales/foo-2"},
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("sales", "foo-2", kueue.WorkloadQuotaReservedReasonWaitingForQuota, corev1.EventTypeWarning).Obj(),
+			},
+		},
 		"pending admission check with nofit and fit flavors": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("pending-check", "eng-beta").
@@ -6104,7 +6505,7 @@ func TestSchedule(t *testing.T) {
 					FlavorFungibility(kueue.FlavorFungibility{
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
-						Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+						Preference:     new(kueue.PreemptionOverBorrowing),
 					}).
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("on-demand").
@@ -6248,7 +6649,7 @@ func TestSchedule(t *testing.T) {
 					FlavorFungibility(kueue.FlavorFungibility{
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
-						Preference:     ptr.To(kueue.PreemptionOverBorrowing),
+						Preference:     new(kueue.PreemptionOverBorrowing),
 					}).
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("on-demand").
@@ -6352,7 +6753,7 @@ func TestSchedule(t *testing.T) {
 					FlavorFungibility(kueue.FlavorFungibility{
 						WhenCanBorrow:  kueue.TryNextFlavor,
 						WhenCanPreempt: kueue.TryNextFlavor,
-						Preference:     ptr.To(kueue.BorrowingOverPreemption),
+						Preference:     new(kueue.BorrowingOverPreemption),
 					}).
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("on-demand").
@@ -6764,6 +7165,515 @@ func TestSchedule(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "vuln-wl", kueue.WorkloadQuotaReservedReasonExceedsMaxQuota, corev1.EventTypeWarning).Obj(),
 			},
 		},
+		// The scheduler pops one head per ClusterQueue per cycle, so only wl-head is
+		// evaluated. It fails with NoFit, so the siblings sharing its hash are bulk-moved
+		// to inadmissible and carry no condition.
+		"equivalent workloads sharing PodSet names are bulk-moved to inadmissible": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:          true,
+				features.FlavorFungibility:                     true,
+				features.FlavorFungibilityPreserveScanProgress: true,
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("hash-cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("hash-queue", "default").ClusterQueue("hash-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("two", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("two", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-2", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("two", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(2 * time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("two", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+						Message:            "couldn't assign flavors to pod set one: insufficient quota for cpu in flavor on-demand, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2), insufficient quota for cpu in flavor spot, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "one",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}, kueue.PodSetRequest{
+						Name: "two",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("two", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-2", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("one", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("two", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(2 * time.Second)).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"hash-cq": {"default/wl-head", "default/wl-sibling-1", "default/wl-sibling-2"},
+			},
+		},
+		// Same as above, but each workload names its PodSets uniquely, as Pod-group clients
+		// do via the kueue.x-k8s.io/role-hash annotation. With the name in the hash the
+		// bulk-move matches nothing and the siblings stay in the active heap.
+		"equivalent workloads with distinct PodSet names are not bulk-moved; SchedulingEquivalenceHashingIgnorePodSetName disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:                 true,
+				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
+				features.FlavorFungibility:                            true,
+				features.FlavorFungibilityPreserveScanProgress:        true,
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("hash-cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("hash-queue", "default").ClusterQueue("hash-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("4f7aac39", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("f8172213", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-2", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("8e163c4e", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("4601f5b4", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(2 * time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("4f7aac39", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+						Message:            "couldn't assign flavors to pod set 4f7aac39: insufficient quota for cpu in flavor on-demand, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2), insufficient quota for cpu in flavor spot, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "4f7aac39",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}, kueue.PodSetRequest{
+						Name: "12b10b3c",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("f8172213", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-2", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("8e163c4e", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("4601f5b4", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(2 * time.Second)).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"hash-cq": {"default/wl-sibling-1", "default/wl-sibling-2"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"hash-cq": {"default/wl-head"},
+			},
+		},
+		// The same distinct-name workloads once the name is out of the hash. They now
+		// share one class, so the siblings are bulk-moved after the head fails.
+		"equivalent workloads with distinct PodSet names are bulk-moved; SchedulingEquivalenceHashingIgnorePodSetName enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:                 true,
+				features.SchedulingEquivalenceHashingIgnorePodSetName: true,
+				features.FlavorFungibility:                            true,
+				features.FlavorFungibilityPreserveScanProgress:        true,
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("hash-cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("hash-queue", "default").ClusterQueue("hash-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("4f7aac39", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("f8172213", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-2", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("8e163c4e", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("4601f5b4", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(2 * time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("4f7aac39", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+						Message:            "couldn't assign flavors to pod set 4f7aac39: insufficient quota for cpu in flavor on-demand, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2), insufficient quota for cpu in flavor spot, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "4f7aac39",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}, kueue.PodSetRequest{
+						Name: "12b10b3c",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("f8172213", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-2", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("8e163c4e", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("4601f5b4", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(2 * time.Second)).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"hash-cq": {"default/wl-head", "default/wl-sibling-1", "default/wl-sibling-2"},
+			},
+		},
+		// ConcurrentAdmission puts the allowed-flavors annotation in the shape. That is
+		// independent of the PodSet name, so the siblings still get their own class.
+		"equivalent workloads with distinct PodSet names are not bulk-moved; ConcurrentAdmission enabled, SchedulingEquivalenceHashingIgnorePodSetName disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing:                 true,
+				features.SchedulingEquivalenceHashingIgnorePodSetName: false,
+				features.FlavorFungibility:                            true,
+				features.FlavorFungibilityPreserveScanProgress:        true,
+				features.ConcurrentAdmission:                          true,
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("hash-cq").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("on-demand").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("spot").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("hash-queue", "default").ClusterQueue("hash-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("4f7aac39", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("f8172213", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-head", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("4f7aac39", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("12b10b3c", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+						Message:            "couldn't assign flavors to pod set 4f7aac39: insufficient quota for cpu in flavor on-demand, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2), insufficient quota for cpu in flavor spot, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "4f7aac39",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("3"),
+						},
+					}, kueue.PodSetRequest{
+						Name: "12b10b3c",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("1"),
+						},
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-sibling-1", "default").
+					Queue("hash-queue").
+					PodSets(
+						*utiltestingapi.MakePodSet("f8172213", 1).Request(corev1.ResourceCPU, "3").Obj(),
+						*utiltestingapi.MakePodSet("a4586327", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Creation(now.Add(time.Second)).
+					Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"hash-cq": {"default/wl-sibling-1"},
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"hash-cq": {"default/wl-head"},
+			},
+		},
+		"admit workload using EffectiveQuotas when DynamicQuotaOrchestration is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.DynamicQuotaOrchestration: true},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("eff-cq").
+					NamespaceSelector(&metav1.LabelSelector{}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					EffectiveQuotas(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("eff-queue", "default").ClusterQueue("eff-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("eff-wl", "default").
+					Queue("eff-queue").
+					PodSets(*utiltestingapi.MakePodSet("ps", 1).Request(corev1.ResourceCPU, "5").Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("eff-wl", "default").
+					Queue("eff-queue").
+					PodSets(*utiltestingapi.MakePodSet("ps", 1).Request(corev1.ResourceCPU, "5").Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue eff-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("eff-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment("ps").
+							Assignment(corev1.ResourceCPU, "default", "5").
+							Count(1).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				workload.Key(utiltestingapi.MakeWorkload("eff-wl", "default").Obj()): *utiltestingapi.MakeAdmission("eff-cq").
+					PodSets(utiltestingapi.MakePodSetAssignment("ps").
+						Assignment(corev1.ResourceCPU, "default", "5").
+						Count(1).
+						Obj()).
+					Obj(),
+			},
+		},
+		"ignore EffectiveQuotas when DynamicQuotaOrchestration is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.DynamicQuotaOrchestration: false},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("eff-cq-disabled").
+					NamespaceSelector(&metav1.LabelSelector{}).
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "1").Obj()).
+					EffectiveQuotas(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("eff-queue-disabled", "default").ClusterQueue("eff-cq-disabled").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("eff-wl-disabled", "default").
+					Queue("eff-queue-disabled").
+					PodSets(*utiltestingapi.MakePodSet("ps", 1).Request(corev1.ResourceCPU, "5").Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("eff-wl-disabled", "default").
+					Queue("eff-queue-disabled").
+					PodSets(*utiltestingapi.MakePodSet("ps", 1).Request(corev1.ResourceCPU, "5").Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+						Message:            "couldn't assign flavors to pod set ps: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (5) > maximum capacity (1)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: "ps",
+						Resources: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("5"),
+						},
+					}).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"eff-cq-disabled": {"default/eff-wl-disabled"},
+			},
+		},
 	}
 	runScheduleTestCases(t, scheduleTestConfig{
 		queues:          queues,
@@ -6777,103 +7687,119 @@ func TestEntryOrdering(t *testing.T) {
 	now := time.Now()
 	input := []entry{
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "old_borrowing",
-					CreationTimestamp: metav1.NewTime(now),
-				}},
-			},
-			assignment: flavorassigner.Assignment{
-				Borrowing: 1,
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "old",
-					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-				}},
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "new",
-					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
-				}},
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "high_pri_borrowing",
-					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
-				}},
-			},
-			assignment: flavorassigner.Assignment{
-				Borrowing: 1,
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "new_high_pri",
-					CreationTimestamp: metav1.NewTime(now.Add(4 * time.Second)),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
-				}},
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "new_borrowing",
-					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
-				}},
-			},
-			assignment: flavorassigner.Assignment{
-				Borrowing: 1,
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:              "evicted_borrowing",
-						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-					},
-					Status: kueue.WorkloadStatus{
-						Conditions: []metav1.Condition{
-							{
-								Type:               kueue.WorkloadEvicted,
-								Status:             metav1.ConditionTrue,
-								LastTransitionTime: metav1.NewTime(now.Add(2 * time.Second)),
-								Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
-							},
-						},
-					},
-				},
-			},
-			assignment: flavorassigner.Assignment{
-				Borrowing: 1,
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:              "recently_evicted",
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "old_borrowing",
 						CreationTimestamp: metav1.NewTime(now),
+					}},
+				},
+			},
+			assignment: flavorassigner.Assignment{
+				Borrowing: 1,
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "old",
+						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+					}},
+				},
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "new",
+						CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+					}},
+				},
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "high_pri_borrowing",
+						CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}},
+				},
+			},
+			assignment: flavorassigner.Assignment{
+				Borrowing: 1,
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "new_high_pri",
+						CreationTimestamp: metav1.NewTime(now.Add(4 * time.Second)),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}},
+				},
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "new_borrowing",
+						CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+					}},
+				},
+			},
+			assignment: flavorassigner.Assignment{
+				Borrowing: 1,
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "evicted_borrowing",
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						},
+						Status: kueue.WorkloadStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:               kueue.WorkloadEvicted,
+									Status:             metav1.ConditionTrue,
+									LastTransitionTime: metav1.NewTime(now.Add(2 * time.Second)),
+									Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+								},
+							},
+						},
 					},
-					Status: kueue.WorkloadStatus{
-						Conditions: []metav1.Condition{
-							{
-								Type:               kueue.WorkloadEvicted,
-								Status:             metav1.ConditionTrue,
-								LastTransitionTime: metav1.NewTime(now.Add(2 * time.Second)),
-								Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+				},
+			},
+			assignment: flavorassigner.Assignment{
+				Borrowing: 1,
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "recently_evicted",
+							CreationTimestamp: metav1.NewTime(now),
+						},
+						Status: kueue.WorkloadStatus{
+							Conditions: []metav1.Condition{
+								{
+									Type:               kueue.WorkloadEvicted,
+									Status:             metav1.ConditionTrue,
+									LastTransitionTime: metav1.NewTime(now.Add(2 * time.Second)),
+									Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+								},
 							},
 						},
 					},
@@ -6881,13 +7807,15 @@ func TestEntryOrdering(t *testing.T) {
 			},
 		},
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "high_pri_borrowing_more",
-					CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
-				}},
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "high_pri_borrowing_more",
+						CreationTimestamp: metav1.NewTime(now.Add(3 * time.Second)),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}},
+				},
 			},
 			assignment: flavorassigner.Assignment{
 				Borrowing: 2,
@@ -6896,80 +7824,142 @@ func TestEntryOrdering(t *testing.T) {
 	}
 	inputForOrderingPreemptedWorkloads := []entry{
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "old-mid-recently-preempted-in-queue",
-					CreationTimestamp: metav1.NewTime(now),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
-				}, Status: kueue.WorkloadStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:               kueue.WorkloadPreempted,
-							Status:             metav1.ConditionTrue,
-							Reason:             kueue.InClusterQueueReason,
-							LastTransitionTime: metav1.NewTime(now.Add(5 * time.Second)),
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "old-mid-recently-preempted-in-queue",
+						CreationTimestamp: metav1.NewTime(now),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}, Status: kueue.WorkloadStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               kueue.WorkloadPreempted,
+								Status:             metav1.ConditionTrue,
+								Reason:             kueue.InClusterQueueReason,
+								LastTransitionTime: metav1.NewTime(now.Add(5 * time.Second)),
+							},
+						},
+					}},
+				},
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "old-mid-recently-reclaimed-while-borrowing",
+						CreationTimestamp: metav1.NewTime(now),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}, Status: kueue.WorkloadStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               kueue.WorkloadPreempted,
+								Status:             metav1.ConditionTrue,
+								Reason:             kueue.InCohortReclaimWhileBorrowingReason,
+								LastTransitionTime: metav1.NewTime(now.Add(6 * time.Second)),
+							},
+						},
+					}},
+				},
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "old-mid-more-recently-reclaimed-while-borrowing",
+						CreationTimestamp: metav1.NewTime(now),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}, Status: kueue.WorkloadStatus{
+						Conditions: []metav1.Condition{
+							{
+								Type:               kueue.WorkloadPreempted,
+								Status:             metav1.ConditionTrue,
+								Reason:             kueue.InCohortReclaimWhileBorrowingReason,
+								LastTransitionTime: metav1.NewTime(now.Add(7 * time.Second)),
+							},
+						},
+					}},
+				},
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "old-mid-not-preempted-yet",
+						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(1)),
+					}},
+				},
+			},
+		},
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+						Name:              "preemptor",
+						CreationTimestamp: metav1.NewTime(now.Add(7 * time.Second)),
+					}, Spec: kueue.WorkloadSpec{
+						Priority: new(int32(2)),
+					}},
+				},
+			},
+		},
+	}
+	inputForOrderingPreemptorWorkloads := []entry{
+		{
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "preemptor-borrowing",
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						},
+						Spec: kueue.WorkloadSpec{
+							Priority: new(int32(1)),
 						},
 					},
-				}},
+				},
+				IsPreemptor: true,
+			},
+			assignment: flavorassigner.Assignment{
+				Borrowing: 1,
 			},
 		},
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "old-mid-recently-reclaimed-while-borrowing",
-					CreationTimestamp: metav1.NewTime(now),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
-				}, Status: kueue.WorkloadStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:               kueue.WorkloadPreempted,
-							Status:             metav1.ConditionTrue,
-							Reason:             kueue.InCohortReclaimWhileBorrowingReason,
-							LastTransitionTime: metav1.NewTime(now.Add(6 * time.Second)),
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "preemptor-not-borrowing",
+							CreationTimestamp: metav1.NewTime(now.Add(2 * time.Second)),
+						},
+						Spec: kueue.WorkloadSpec{
+							Priority: new(int32(1)),
 						},
 					},
-				}},
+				},
+				IsPreemptor: true,
 			},
 		},
 		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "old-mid-more-recently-reclaimed-while-borrowing",
-					CreationTimestamp: metav1.NewTime(now),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
-				}, Status: kueue.WorkloadStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:               kueue.WorkloadPreempted,
-							Status:             metav1.ConditionTrue,
-							Reason:             kueue.InCohortReclaimWhileBorrowingReason,
-							LastTransitionTime: metav1.NewTime(now.Add(7 * time.Second)),
+			Head: qcache.Head{
+				Info: workload.Info{
+					Obj: &kueue.Workload{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:              "not-preemptor-not-borrowing",
+							CreationTimestamp: metav1.NewTime(now),
+						},
+						Spec: kueue.WorkloadSpec{
+							Priority: new(int32(2)),
 						},
 					},
-				}},
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "old-mid-not-preempted-yet",
-					CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](1),
-				}},
-			},
-		},
-		{
-			Info: workload.Info{
-				Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-					Name:              "preemptor",
-					CreationTimestamp: metav1.NewTime(now.Add(7 * time.Second)),
-				}, Spec: kueue.WorkloadSpec{
-					Priority: ptr.To[int32](2),
-				}},
+				},
 			},
 		},
 	}
@@ -7030,6 +8020,32 @@ func TestEntryOrdering(t *testing.T) {
 				"old-mid-recently-reclaimed-while-borrowing",
 				"old-mid-more-recently-reclaimed-while-borrowing",
 				"old-mid-not-preempted-yet",
+			},
+		},
+		{
+			name:  "Some workloads are preemptors; PrioritizePreemptorWorkloads is disabled",
+			input: inputForOrderingPreemptorWorkloads,
+			featureGates: map[featuregate.Feature]bool{
+				features.PrioritySortingWithinCohort:  true,
+				features.PrioritizePreemptorWorkloads: false,
+			},
+			wantOrder: []string{
+				"not-preemptor-not-borrowing",
+				"preemptor-not-borrowing",
+				"preemptor-borrowing",
+			},
+		},
+		{
+			name:  "Some workloads are preemptors; PrioritizePreemptorWorkloads is enabled",
+			input: inputForOrderingPreemptorWorkloads,
+			featureGates: map[featuregate.Feature]bool{
+				features.PrioritySortingWithinCohort:  true,
+				features.PrioritizePreemptorWorkloads: true,
+			},
+			wantOrder: []string{
+				"preemptor-not-borrowing",
+				"preemptor-borrowing",
+				"not-preemptor-not-borrowing",
 			},
 		},
 	} {
@@ -8123,7 +9139,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 				if len(wInfos) != 1 {
 					t.Fatalf("Failed getting heads in cluster queue")
 				}
-				tc.e.Info = wInfos[0]
+				tc.e.Head = wInfos[0]
 				scheduler.requeueAndUpdate(ctx, tc.e)
 
 				qDump := qManager.Dump()
@@ -8190,10 +9206,12 @@ func TestEntryMarkSkipped(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityPreserveScanProgress, tc.preserveProgress)
 
 			e := entry{
-				Info: workload.Info{
-					LastAssignment: &workload.AssignmentClusterQueueState{
-						LastTriedFlavorIdx: []map[corev1.ResourceName]int{
-							{corev1.ResourceCPU: 0},
+				Head: qcache.Head{
+					Info: workload.Info{
+						LastAssignment: &workload.AssignmentClusterQueueState{
+							LastTriedFlavorIdx: []map[corev1.ResourceName]int{
+								{corev1.ResourceCPU: 0},
+							},
 						},
 					},
 				},
@@ -8261,8 +9279,10 @@ func TestEntryMarkPreemptionOutcome(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			e := entry{
 				inadmissibleMsg: "fits with preemption",
-				Info: workload.Info{
-					LastAssignment: assignmentState,
+				Head: qcache.Head{
+					Info: workload.Info{
+						LastAssignment: assignmentState,
+					},
 				},
 			}
 
@@ -8293,26 +9313,31 @@ func TestEntryComparerLess(t *testing.T) {
 		b            *entry
 		drsValues    map[drsKey]schdcache.DRS
 		requestedFRs map[workload.Reference]resources.FlavorResourceQuantities
+		featureGates map[featuregate.Feature]bool
 		wantLess     bool
 	}{
 		{
 			name: "non-borrowing subtree preferred over borrowing subtree",
 			a: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "nominal",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "nominal",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						}},
+					},
 				},
 			},
 			b: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "borrowing",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "borrowing",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now),
+						}},
+					},
 				},
 			},
 			drsValues: map[drsKey]schdcache.DRS{
@@ -8328,21 +9353,25 @@ func TestEntryComparerLess(t *testing.T) {
 		{
 			name: "both borrowing on requested flavors falls through to FIFO",
 			a: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "borrow-a",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "borrow-a",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						}},
+					},
 				},
 			},
 			b: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "borrow-b",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "borrow-b",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now),
+						}},
+					},
 				},
 			},
 			drsValues: map[drsKey]schdcache.DRS{
@@ -8358,21 +9387,25 @@ func TestEntryComparerLess(t *testing.T) {
 		{
 			name: "lower DRS preferred over higher DRS",
 			a: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "lower-drs",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "lower-drs",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						}},
+					},
 				},
 			},
 			b: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "higher-drs",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "higher-drs",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now),
+						}},
+					},
 				},
 			},
 			drsValues: map[drsKey]schdcache.DRS{
@@ -8384,27 +9417,155 @@ func TestEntryComparerLess(t *testing.T) {
 		{
 			name: "both non-borrowing falls through to FIFO",
 			a: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "older",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "older",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now),
+						}},
+					},
 				},
 			},
 			b: &entry{
-				Info: workload.Info{
-					Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-						Name:              "newer",
-						Namespace:         "default",
-						CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
-					}},
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
+							Name:              "newer",
+							Namespace:         "default",
+							CreationTimestamp: metav1.NewTime(now.Add(time.Second)),
+						}},
+					},
 				},
 			},
 			wantLess: true,
 		},
+		{
+			name: "a is preemptor, b not, feature enabled",
+			a: &entry{
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "preemptor-borrowing",
+								Namespace: "default",
+							},
+						},
+					},
+					IsPreemptor: true,
+				},
+			},
+			b: &entry{
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "not-preemptor-nominal",
+								Namespace: "default",
+							},
+						},
+					},
+				},
+			},
+			drsValues: map[drsKey]schdcache.DRS{
+				{parentCohort: cohort, workloadKey: "default/preemptor-borrowing"}:   schdcache.BorrowingDRS(cpuDefault),
+				{parentCohort: cohort, workloadKey: "default/not-preemptor-nominal"}: {},
+			},
+			requestedFRs: map[workload.Reference]resources.FlavorResourceQuantities{
+				"default/preemptor-borrowing":   {cpuDefault: resources.NewAmount(1)},
+				"default/not-preemptor-nominal": {cpuDefault: resources.NewAmount(1)},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PrioritizePreemptorWorkloads: true,
+			},
+			wantLess: true,
+		},
+		{
+			name: "a is preemptor, b not, feature disabled",
+			a: &entry{
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "preemptor-borrowing",
+								Namespace: "default",
+							},
+						},
+					},
+					IsPreemptor: true,
+				},
+			},
+			b: &entry{
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "not-preemptor-nominal",
+								Namespace: "default",
+							},
+						},
+					},
+				},
+			},
+			drsValues: map[drsKey]schdcache.DRS{
+				{parentCohort: cohort, workloadKey: "default/preemptor-borrowing"}:   schdcache.BorrowingDRS(cpuDefault),
+				{parentCohort: cohort, workloadKey: "default/not-preemptor-nominal"}: {},
+			},
+			requestedFRs: map[workload.Reference]resources.FlavorResourceQuantities{
+				"default/preemptor-borrowing":   {cpuDefault: resources.NewAmount(1)},
+				"default/not-preemptor-nominal": {cpuDefault: resources.NewAmount(1)},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PrioritizePreemptorWorkloads: false,
+			},
+			wantLess: false,
+		},
+		{
+			name: "both are preemptors, feature enabled",
+			a: &entry{
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "preemptor-borrowing",
+								Namespace: "default",
+							},
+						},
+					},
+					IsPreemptor: true,
+				},
+			},
+			b: &entry{
+				Head: qcache.Head{
+					Info: workload.Info{
+						Obj: &kueue.Workload{
+							ObjectMeta: metav1.ObjectMeta{
+								Name:      "preemptor-nominal",
+								Namespace: "default",
+							},
+						},
+					},
+					IsPreemptor: true,
+				},
+			},
+			drsValues: map[drsKey]schdcache.DRS{
+				{parentCohort: cohort, workloadKey: "default/preemptor-borrowing"}: schdcache.BorrowingDRS(cpuDefault),
+				{parentCohort: cohort, workloadKey: "default/preemptor-nominal"}:   {},
+			},
+			requestedFRs: map[workload.Reference]resources.FlavorResourceQuantities{
+				"default/preemptor-borrowing": {cpuDefault: resources.NewAmount(1)},
+				"default/preemptor-nominal":   {cpuDefault: resources.NewAmount(1)},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PrioritizePreemptorWorkloads: true,
+			},
+			wantLess: false,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.featureGates != nil {
+				features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			}
 			drsValues := tc.drsValues
 			if drsValues == nil {
 				drsValues = make(map[drsKey]schdcache.DRS)
@@ -8583,9 +9744,9 @@ func TestResourcesToReserve(t *testing.T) {
 				Borrowing: tc.borrowing,
 				Usage:     workload.Usage{Quota: workload.ResourceUsage{Assigned: tc.assignmentUsage}},
 			}
-			e := &entry{assignment: assignment, Info: *workload.NewInfo(
+			e := &entry{assignment: assignment, Head: qcache.Head{Info: *workload.NewInfo(log,
 				&kueue.Workload{},
-			)}
+			)}}
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.ClusterQueueList{Items: []kueue.ClusterQueue{*cq}}).
 				Build()
@@ -8616,7 +9777,7 @@ func TestResourcesToReserve(t *testing.T) {
 			}
 			cqSnapshot := snapshot.ClusterQueue("cq")
 
-			got := resourcesToReserve(logr.Discard(), e, cqSnapshot)
+			got := resourcesToReserve(log, e, cqSnapshot)
 			if !reflect.DeepEqual(tc.wantReserved, got.Quota.Assigned) {
 				t.Errorf("%s failed\n: Want reservedMem: %v, got: %v", tc.name, tc.wantReserved, got)
 			}
@@ -9103,5 +10264,82 @@ func TestLastAssignmentOutdated(t *testing.T) {
 				t.Errorf("LastAssignmentOutdated() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestFitsDedupsOverlappingVictims ensures fits() subtracts a victim only once when
+// it appears in both preemptedWorkloads and the entry's targets (kueue#14155).
+func TestFitsDedupsOverlappingVictims(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now()
+
+	cqObj := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+			Resource(corev1.ResourceCPU, "10").
+			Obj()).
+		Obj()
+	flavor := utiltestingapi.MakeResourceFlavor("default").Obj()
+
+	victimWL := utiltestingapi.MakeWorkload("victim", "ns").
+		Request(corev1.ResourceCPU, "6").
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "6").
+					Obj()).
+				Obj(),
+			now,
+		).
+		Obj()
+	otherWL := utiltestingapi.MakeWorkload("other", "ns").
+		Request(corev1.ResourceCPU, "2").
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "2").
+					Obj()).
+				Obj(),
+			now,
+		).
+		Obj()
+
+	cache := schdcache.New(utiltesting.NewFakeClient())
+	cache.AddOrUpdateResourceFlavor(log, flavor)
+	if err := cache.AddClusterQueue(ctx, cqObj); err != nil {
+		t.Fatalf("Failed to add ClusterQueue: %v", err)
+	}
+
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to build snapshot: %v", err)
+	}
+	cq := snapshot.ClusterQueue("cq")
+	if cq == nil {
+		t.Fatal("ClusterQueue snapshot missing")
+	}
+
+	victimInfo := workload.NewInfo(log, victimWL)
+	otherInfo := workload.NewInfo(log, otherWL)
+	snapshot.AddWorkload(victimInfo)
+	snapshot.AddWorkload(otherInfo)
+
+	// CQ usage is 8 CPU (victim 6 + other 2). Incoming needs 9.
+	// Freeing victim once leaves usage 2 → 8 free → 9 does not fit.
+	// Double-subtracting victim would leave usage -4 and wrongly report Ok.
+	incomingUsage := workload.Usage{
+		Quota: workload.ResourceUsage{
+			Assigned: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(9000),
+			},
+		},
+	}
+	preempted := preemption.PreemptedWorkloads{
+		workload.Key(victimWL): victimInfo,
+	}
+	targets := []*preemption.Target{{WorkloadInfo: victimInfo}}
+
+	got := fits(snapshot, cq, &incomingUsage, preempted, targets)
+	if got != schdcache.FitsCheckNoQuota {
+		t.Fatalf("fits() = %v, want %v (overlapping victim must be subtracted once)", got, schdcache.FitsCheckNoQuota)
 	}
 }

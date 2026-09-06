@@ -32,9 +32,11 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -299,7 +301,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig", 1).
+					Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig; connection attempts: 1", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -378,7 +380,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
+					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch; connection attempts: 1", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -406,7 +408,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch", 1).
+					Active(metav1.ConditionFalse, "ClientConnectionFailed", "client cannot watch; connection attempts: 3", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -461,7 +463,7 @@ func TestUpdateConfig(t *testing.T) {
 			wantClusters: []kueue.MultiKueueCluster{
 				*utiltestingapi.MakeMultiKueueCluster("worker1").
 					KubeConfig(kueue.SecretLocationType, "worker1").
-					Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig", 1).
+					Active(metav1.ConditionFalse, "ClientConnectionFailed", "invalid kubeconfig; connection attempts: 1", 1).
 					Generation(1).
 					Obj(),
 			},
@@ -744,6 +746,17 @@ func TestUpdateConfig(t *testing.T) {
 				t.Errorf("unexpected list clusters error: %s", gotErr)
 			}
 
+			// The next-retry timestamp in the Active message is derived from the wall
+			// clock, so strip it before comparing; TestActiveConditionSurfacesBackoff
+			// asserts the full message (including the timestamp) deterministically.
+			for i := range lst.Items {
+				if cond := apimeta.FindStatusCondition(lst.Items[i].Status.Conditions, kueue.MultiKueueClusterActive); cond != nil {
+					if idx := strings.Index(cond.Message, ", next connection attempt: "); idx != -1 {
+						cond.Message = cond.Message[:idx]
+					}
+				}
+			}
+
 			if diff := cmp.Diff(tc.wantClusters, lst.Items, cmpopts.EquateEmpty(),
 				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
 				cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
@@ -978,6 +991,53 @@ func TestConnectionStateTransitions(t *testing.T) {
 	}
 }
 
+func TestActiveConditionSurfacesBackoff(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").Obj()
+	managerClient := getClientBuilder(ctx).WithObjects(cluster).WithStatusSubresource(cluster).Build()
+	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+	recorder := &utiltesting.EventRecorder{}
+	cRec := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, adapters, &NoOpClusterProfileAccessProvider{}, nil, recorder)
+
+	nextRetry := time.Now().Truncate(time.Second).Add(20 * time.Second)
+	rc := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+	rc.failedConnAttempts = 3
+	rc.retryConnNextAttempt = metav1.NewTime(nextRetry)
+	cRec.remoteClients["worker1"] = rc
+
+	// Disconnected: the Active message appends the failed reconnect attempts and the
+	// next retry time.
+	if err := cRec.updateStatus(ctx, cluster, false, "ClientConnectionFailed", "client cannot watch"); err != nil {
+		t.Fatalf("updateStatus(disconnected): %v", err)
+	}
+	got := &kueue.MultiKueueCluster{}
+	if err := managerClient.Get(ctx, client.ObjectKeyFromObject(cluster), got); err != nil {
+		t.Fatalf("get cluster: %v", err)
+	}
+	act := apimeta.FindStatusCondition(got.Status.Conditions, kueue.MultiKueueClusterActive)
+	if act == nil || act.Status != metav1.ConditionFalse {
+		t.Fatalf("want Active=False, got %+v", act)
+	}
+	wantMsg := fmt.Sprintf("client cannot watch; connection attempts: 3, next connection attempt: %s", nextRetry.UTC().Format(time.RFC3339))
+	if act.Message != wantMsg {
+		t.Errorf("Active message:\n got: %q\nwant: %q", act.Message, wantMsg)
+	}
+
+	// Reconnected: the Active message is used as-is (no backoff suffix).
+	if err := cRec.updateStatus(ctx, got, true, "Active", "Connected"); err != nil {
+		t.Fatalf("updateStatus(connected): %v", err)
+	}
+	got2 := &kueue.MultiKueueCluster{}
+	if err := managerClient.Get(ctx, client.ObjectKeyFromObject(cluster), got2); err != nil {
+		t.Fatalf("get cluster: %v", err)
+	}
+	if act := apimeta.FindStatusCondition(got2.Status.Conditions, kueue.MultiKueueClusterActive); act == nil ||
+		act.Status != metav1.ConditionTrue || act.Message != "Connected" {
+		t.Fatalf("want Active=True message %q, got %+v", "Connected", act)
+	}
+}
+
 func TestRemoteClientGC(t *testing.T) {
 	baseJobBuilder := testingjob.MakeJob("job1", TestNamespace)
 	baseWlBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "test-uuid")
@@ -1126,22 +1186,19 @@ func TestValidateKubeconfig(t *testing.T) {
 	}{
 		"tokenFile not allowed": {
 			cfgFn: func() *clientcmdapi.Config {
-				c := kubeconfigBase.Clone().TokenFileAuthInfo("u", "/tmp/tokenfile").Obj()
-				return &c
+				return new(kubeconfigBase.Clone().TokenFileAuthInfo("u", "/tmp/tokenfile").Obj())
 			},
 			wantErr: true,
 		},
 		"insecure skip-tls": {
 			cfgFn: func() *clientcmdapi.Config {
-				c := kubeconfigBase.Clone().InsecureSkipTLSVerify("test", true).Obj()
-				return &c
+				return new(kubeconfigBase.Clone().InsecureSkipTLSVerify("test", true).Obj())
 			},
 			wantErr: true,
 		},
 		"certificate-authority file disallowed": {
 			cfgFn: func() *clientcmdapi.Config {
-				c := kubeconfigBase.Clone().CAFileCluster("test", "/tmp/ca").Obj()
-				return &c
+				return new(kubeconfigBase.Clone().CAFileCluster("test", "/tmp/ca").Obj())
 			},
 			wantErr: true,
 		},
@@ -1293,9 +1350,10 @@ func TestEstablishWatch(t *testing.T) {
 	errBoom := errors.New("boom")
 
 	cases := map[string]struct {
-		interceptor interceptor.Funcs
-		wantErr     error
-		maxElapsed  time.Duration
+		interceptor  interceptor.Funcs
+		establishing *atomic.Bool
+		wantErr      error
+		maxElapsed   time.Duration
 	}{
 		"hung Watch times out": {
 			interceptor: interceptor.Funcs{
@@ -1315,6 +1373,14 @@ func TestEstablishWatch(t *testing.T) {
 			},
 			wantErr: errBoom,
 		},
+		"watch establishment in progress returns error": {
+			establishing: func() *atomic.Bool {
+				b := &atomic.Bool{}
+				b.Store(true)
+				return b
+			}(),
+			wantErr: errWatchEstablishInProgress,
+		},
 		"success returns without waiting": {
 			maxElapsed: testTimeout,
 		},
@@ -1324,8 +1390,13 @@ func TestEstablishWatch(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			c := getClientBuilder(ctx).WithInterceptorFuncs(tc.interceptor).Build()
 
+			establishing := tc.establishing
+			if establishing == nil {
+				establishing = &atomic.Bool{}
+			}
+
 			start := time.Now()
-			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
+			w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, establishing, true)
 			elapsed := time.Since(start)
 
 			if !errors.Is(err, tc.wantErr) {
@@ -1344,8 +1415,50 @@ func TestEstablishWatch(t *testing.T) {
 	}
 
 	// Watch races with the timeout: returns a non-nil watcher just after
-	// time.After fires. Must Stop() it to avoid leaking the stream.
+	// time.After fires. Must Stop() it to avoid leaking the stream, and
+	// establishWatch must return immediately without blocking on the late Watch call.
 	t.Run("racing watcher is stopped on timeout", func(t *testing.T) {
+		fw := watch.NewFake()
+		releaseWatch := make(chan struct{})
+		c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
+			Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
+				time.Sleep(2 * testTimeout)
+				<-releaseWatch
+				return fw, nil
+			},
+		}).Build()
+
+		var establishing atomic.Bool
+		start := time.Now()
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
+		elapsed := time.Since(start)
+		if !errors.Is(err, errWatchEstablishTimeout) {
+			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
+		}
+		if w != nil {
+			t.Fatalf("want nil watcher, got: %v", w)
+		}
+		if elapsed >= 2*testTimeout {
+			t.Fatalf("took %v, expected < %v; establishWatch blocked on the late watch call", elapsed, 2*testTimeout)
+		}
+		close(releaseWatch)
+		select {
+		case _, ok := <-fw.ResultChan():
+			if ok {
+				t.Fatal("unexpected event before watcher was stopped")
+			}
+		case <-time.After(5 * testTimeout):
+			t.Fatal("racing watcher was not Stop()ed; would leak")
+		}
+
+		if err := wait.PollUntilContextTimeout(ctx, 10*time.Millisecond, 5*testTimeout, true, func(context.Context) (bool, error) {
+			return !establishing.Load(), nil
+		}); err != nil {
+			t.Fatal("watch establishment guard was not released")
+		}
+	})
+
+	t.Run("watch establishment in progress blocks concurrent attempt until finished", func(t *testing.T) {
 		fw := watch.NewFake()
 		c := getClientBuilder(ctx).WithInterceptorFuncs(interceptor.Funcs{
 			Watch: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) (watch.Interface, error) {
@@ -1354,16 +1467,43 @@ func TestEstablishWatch(t *testing.T) {
 			},
 		}).Build()
 
-		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout)
+		var establishing atomic.Bool
+		w, err := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
 		if !errors.Is(err, errWatchEstablishTimeout) {
 			t.Fatalf("want errWatchEstablishTimeout, got: %v", err)
 		}
 		if w != nil {
 			t.Fatalf("want nil watcher, got: %v", w)
 		}
-		if !fw.IsStopped() {
+		// Subsequent attempt while background watch establishment is still running must fail with errWatchEstablishInProgress.
+		w2, err2 := establishWatch(ctx, c, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
+		if !errors.Is(err2, errWatchEstablishInProgress) {
+			t.Fatalf("want errWatchEstablishInProgress, got: %v", err2)
+		}
+		if w2 != nil {
+			t.Fatalf("want nil watcher, got: %v", w2)
+		}
+
+		// Wait for the background watch to complete and clean up.
+		select {
+		case _, ok := <-fw.ResultChan():
+			if ok {
+				t.Fatal("unexpected event before watcher was stopped")
+			}
+		case <-time.After(5 * testTimeout):
 			t.Fatal("racing watcher was not Stop()ed; would leak")
 		}
+
+		// Now that the late watch is cleaned up and establishing reset to false, another attempt should succeed.
+		cFast := getClientBuilder(ctx).Build()
+		w3, err3 := establishWatch(ctx, cFast, &kueue.WorkloadList{}, "test-origin", testTimeout, &establishing, true)
+		if err3 != nil {
+			t.Fatalf("unexpected error establishing watch after background finished: %v", err3)
+		}
+		if w3 == nil {
+			t.Fatal("expected non-nil watcher")
+		}
+		w3.Stop()
 	})
 }
 

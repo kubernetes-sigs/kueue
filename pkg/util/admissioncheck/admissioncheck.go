@@ -30,6 +30,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 )
 
 var (
@@ -173,23 +175,13 @@ func NewAdmissionChecks(cq *kueue.ClusterQueue) map[kueue.AdmissionCheckReferenc
 			if len(check.OnFlavors) > 0 {
 				checks[check.Name] = sets.New(check.OnFlavors...)
 			} else {
-				checks[check.Name] = allFlavors(cq)
+				checks[check.Name] = utilqueue.AllFlavors(resourcegroups.EffectiveResourceGroups(cq))
 			}
 		}
 	} else {
 		checks = make(map[kueue.AdmissionCheckReference]sets.Set[kueue.ResourceFlavorReference], 0)
 	}
 	return checks
-}
-
-func allFlavors(cq *kueue.ClusterQueue) sets.Set[kueue.ResourceFlavorReference] {
-	flavors := sets.New[kueue.ResourceFlavorReference]()
-	for _, rg := range cq.Spec.ResourceGroups {
-		for _, fv := range rg.Flavors {
-			flavors.Insert(fv.Name)
-		}
-	}
-	return flavors
 }
 
 // FindAdmissionCheck - returns a pointer to the check identified by checkName if found in checks.

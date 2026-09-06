@@ -11,20 +11,13 @@ labels: area/release
 <!--
 Please do not remove items from the checklist
 -->
+- [ ] Verify that the changelog in this issue is up-to-date by running `/sync-release-notes` (or locally `./hack/releasing/sync-notes.sh $VERSION`).
 - [ ] [OWNERS](https://github.com/kubernetes-sigs/kueue/blob/main/OWNERS) must LGTM the release proposal.
   At least two for minor or major releases. At least one for a patch release.
-- [ ] Verify that the changelog in this issue and the CHANGELOG folder is up-to-date
-  - [ ] Use `/sync-release-notes` to generate and publish the release notes
 - [ ] For major or minor releases (`v$MAJ.$MIN.0`), use the `/create-release-branch` ChatOps command to create a new release branch.
 - [ ] Update the release branch:
-  - [ ] Run `/prepare-pull release` ChatOps command (or locally: `./hack/releasing/prepare_pull.sh --target release $VERSION`)
+  - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION` locally.
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_RELEASE --> <!-- example #211 -->
-- [ ] Versioned docs are handled automatically during releases -- major, minor, and patch: the
-      `main`-update PR from `prepare_pull.sh` runs `hack/releasing/snapshot-docs.py`, which
-      freezes the release's docs into `site/content/<locale>/v$MAJ.$MIN/docs`, adds it to the
-      version dropdown, and prunes old snapshots. Patch releases re-freeze the existing snapshot
-      to the new patch version (e.g. v0.17.7 -> v0.17.8). No Netlify/DNS steps are required. Just
-      confirm the snapshot dirs and the `[[params.versions]]` entry are present in that PR.
 - [ ] Run ChatOps command `/tag-release` on this issue. This will:
   - Extract the changelog from the issue description.
   - Create the release tag at the tip of the release branch.
@@ -35,6 +28,8 @@ Please do not remove items from the checklist
   - Write the change log into the draft release.
   - Generate the artifacts in the `release-artifacts` folder.
   - Upload the files in the `release-artifacts` folder to the draft release.
+  - Generate openvex data.
+  - Generate the SBOM and add it to the release.
 - [ ] Promote images and Helm Charts to production:
   - [ ] Use `/wait-for-images` to await for the staging images.
   - [ ] Run `./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
@@ -42,14 +37,18 @@ Please do not remove items from the checklist
   - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available.
 - [ ] Use `/publish-release` to publish the release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- RELEASE_LINK --> <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
-- [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
-- [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
 - [ ] Update the `main` branch :
-  - [ ] Run `/prepare-pull main` ChatOps command (or locally: `./hack/releasing/prepare_pull.sh --target main $VERSION`)
+  - [ ] Run `./hack/releasing/prepare_pull.sh --target main $VERSION` locally.
         *Note: The script automatically detects if a newer version is already out and skips version updates if so. Specifying `--skip-version-updates` is not necessary in a default workflow.*
+  - [ ] Versioned docs are handled automatically during releases -- major, minor, and patch: the
+    `main`-update PR from `prepare_pull.sh` runs `hack/releasing/snapshot-docs.py`, which
+    freezes the release's docs into `site/content/<locale>/v$MAJ.$MIN/docs`, adds it to the
+    version dropdown, and prunes old snapshots. Patch releases re-freeze the existing snapshot
+    to the new patch version (e.g. v0.17.7 -> v0.17.8). No Netlify/DNS steps are required. Just
+    confirm the snapshot dirs and the `[[params.versions]]` entry are present in that PR.
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_MAIN --> <!-- example #214 -->
   - [ ] Cherry-pick the pull request onto the `website` branch
-- [ ] For major, minor, or patch releases, merge the `main` branch into the `website` branch to publish the updated documentation.
+- [ ] For major and minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
 - [ ] For a major or minor release, prepare the repo for the next version:
   - [ ] Create an unannotated _devel_ tag in the

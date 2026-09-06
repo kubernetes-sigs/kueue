@@ -110,6 +110,13 @@ type JobWithSkip interface {
 	Skip(ctx context.Context) bool
 }
 
+// JobWithOnHold is an optional interface that should be implemented by generic jobs
+// when the job can request its Workload to be put on hold.
+type JobWithOnHold interface {
+	// IsOnHold returns whether the job should be put on hold.
+	IsOnHold() bool
+}
+
 // JobWithPriorityClass is an optional interface that should be implemented by generic jobs
 // when a custom priority class is needed.
 type JobWithPriorityClass interface {

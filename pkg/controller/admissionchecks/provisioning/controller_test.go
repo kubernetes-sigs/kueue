@@ -35,7 +35,6 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -101,6 +100,151 @@ func requestWithCondition(r *autoscaling.ProvisioningRequest, conditionType stri
 	return r
 }
 
+func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
+	makeWorkload := func(specCounts, admissionCounts []int32) *kueue.Workload {
+		podSets := make([]kueue.PodSet, len(specCounts))
+		assignments := make([]kueue.PodSetAssignment, len(admissionCounts))
+		for i := range specCounts {
+			name := kueue.PodSetReference(fmt.Sprintf("ps%d", i))
+			podSets[i] = *utiltestingapi.MakePodSet(name, int(specCounts[i])).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			assignments[i] = kueue.PodSetAssignment{
+				Name:  name,
+				Count: new(admissionCounts[i]),
+			}
+		}
+		return utiltestingapi.MakeWorkload("wl", TestNamespace).
+			PodSets(podSets...).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("q").PodSets(assignments...).Obj(), time.Now()).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		workload    *kueue.Workload
+		mergePolicy *kueue.ProvisioningRequestConfigPodSetMergePolicy
+		wantNames   []kueue.PodSetReference
+		wantCounts  []int32
+	}{
+		"zero spec count": {
+			workload:   makeWorkload([]int32{0, 2}, []int32{0, 2}),
+			wantNames:  []kueue.PodSetReference{"ps1"},
+			wantCounts: []int32{2},
+		},
+		"zero admission count override": {
+			workload:   makeWorkload([]int32{1, 2}, []int32{0, 2}),
+			wantNames:  []kueue.PodSetReference{"ps1"},
+			wantCounts: []int32{2},
+		},
+		"zero count does not block compatible merging": {
+			workload:    makeWorkload([]int32{1, 2, 3}, []int32{0, 2, 3}),
+			mergePolicy: new(kueue.IdenticalPodTemplates),
+			wantNames:   []kueue.PodSetReference{"ps1"},
+			wantCounts:  []int32{5},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := mergePodSets(t.Context(), tc.workload, &kueue.ProvisioningRequestConfigSpec{
+				PodSetMergePolicy: tc.mergePolicy,
+			})
+			if err != nil {
+				t.Fatalf("mergePodSets() error = %v", err)
+			}
+			gotNames := make([]kueue.PodSetReference, len(got))
+			gotCounts := make([]int32, len(got))
+			for i := range got {
+				gotNames[i] = got[i].Name
+				gotCounts[i] = got[i].Count
+			}
+			if diff := cmp.Diff(tc.wantNames, gotNames); diff != "" {
+				t.Errorf("unexpected PodSet names (-want/+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantCounts, gotCounts); diff != "" {
+				t.Errorf("unexpected PodSet counts (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestReqIsNeeded(t *testing.T) {
+	makeWorkload := func(specCount int32, admissionCount *int32, includeAssignment bool) *kueue.Workload {
+		builder := utiltestingapi.MakeWorkload("wl", TestNamespace).
+			PodSets(*utiltestingapi.MakePodSet("ps", int(specCount)).
+				Request(corev1.ResourceCPU, "1").
+				Obj())
+		admission := utiltestingapi.MakeAdmission("q")
+		if includeAssignment {
+			admission = admission.PodSets(kueue.PodSetAssignment{
+				Name:  "ps",
+				Count: admissionCount,
+			})
+		}
+		return builder.ReserveQuotaAt(admission.Obj(), time.Now()).Obj()
+	}
+
+	prc := utiltestingapi.MakeProvisioningRequestConfig("config").
+		ManagedResources([]corev1.ResourceName{corev1.ResourceCPU}).
+		Obj()
+
+	cases := map[string]struct {
+		workload *kueue.Workload
+		want     bool
+		wantErr  error
+	}{
+		"positive admitted count needs request": {
+			workload: makeWorkload(1, new(int32(1)), true),
+			want:     true,
+		},
+		"missing admitted count falls back to spec count": {
+			workload: makeWorkload(1, nil, true),
+			want:     true,
+		},
+		"zero admitted count does not need request": {
+			workload: makeWorkload(1, new(int32(0)), true),
+		},
+		"zero spec count does not require assignment": {
+			workload: makeWorkload(0, nil, false),
+		},
+		"missing assignment returns inconsistency error": {
+			workload: makeWorkload(1, nil, false),
+			wantErr:  errInconsistentPodSetAssignments,
+		},
+		"needed podset short circuits later missing assignment": {
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ps1", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					*utiltestingapi.MakePodSet("ps2", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("q").
+						PodSets(kueue.PodSetAssignment{Name: "ps1", Count: new(int32(1))}).
+						Obj(),
+					time.Now(),
+				).
+				Obj(),
+			want: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := reqIsNeeded(tc.workload, prc)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			}
+			if got != tc.want {
+				t.Errorf("reqIsNeeded() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReconcile(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
@@ -123,7 +267,7 @@ func TestReconcile(t *testing.T) {
 				ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 					corev1.ResourceCPU: resource.MustParse("4"),
 				},
-				Count: ptr.To[int32](4),
+				Count: new(int32(4)),
 			},
 			kueue.PodSetAssignment{
 				Name: "ps2",
@@ -133,7 +277,7 @@ func TestReconcile(t *testing.T) {
 				ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 					corev1.ResourceCPU: resource.MustParse("3M"),
 				},
-				Count: ptr.To[int32](3),
+				Count: new(int32(3)),
 			},
 		).
 			Obj(), now).
@@ -232,9 +376,9 @@ func TestReconcile(t *testing.T) {
 
 	var backoffBaseSeconds int32 = 60
 	baseConfigWithRetryStrategy := baseConfig.Clone().RetryStrategy(&kueue.ProvisioningRequestRetryStrategy{
-		BackoffLimitCount:  ptr.To[int32](3),
+		BackoffLimitCount:  new(int32(3)),
 		BackoffBaseSeconds: new(backoffBaseSeconds),
-		BackoffMaxSeconds:  ptr.To[int32](1800),
+		BackoffMaxSeconds:  new(int32(1800)),
 	})
 
 	baseConfigWithPodSetUpdates := baseConfigWithRetryStrategy.Clone().PodSetUpdate(kueue.ProvisioningRequestPodSetUpdates{
@@ -251,6 +395,12 @@ func TestReconcile(t *testing.T) {
 		Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 		Obj()
 
+	allZeroCountWorkload := baseWorkload.DeepCopy()
+	for i := range allZeroCountWorkload.Spec.PodSets {
+		allZeroCountWorkload.Spec.PodSets[i].Count = 0
+		allZeroCountWorkload.Status.Admission.PodSetAssignments[i].Count = new(int32(0))
+	}
+
 	podSetMergePolicyAssignemnt := []kueue.PodSetAssignment{
 		{
 			Name: "ps1",
@@ -260,7 +410,7 @@ func TestReconcile(t *testing.T) {
 			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceCPU: resource.MustParse("1"),
 			},
-			Count: ptr.To[int32](1),
+			Count: new(int32(1)),
 		},
 		{
 			Name: "ps2",
@@ -270,7 +420,7 @@ func TestReconcile(t *testing.T) {
 			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceCPU: resource.MustParse("1"),
 			},
-			Count: ptr.To[int32](2),
+			Count: new(int32(2)),
 		},
 		{
 			Name: "ps3",
@@ -280,7 +430,7 @@ func TestReconcile(t *testing.T) {
 			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceMemory: resource.MustParse("1M"),
 			},
-			Count: ptr.To[int32](2),
+			Count: new(int32(2)),
 		},
 		{
 			Name: "ps4",
@@ -290,7 +440,7 @@ func TestReconcile(t *testing.T) {
 			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceMemory: resource.MustParse("1M"),
 			},
-			Count: ptr.To[int32](1),
+			Count: new(int32(1)),
 		},
 		{
 			Name: "ps5",
@@ -300,7 +450,7 @@ func TestReconcile(t *testing.T) {
 			ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 				corev1.ResourceMemory: resource.MustParse("1M"),
 			},
-			Count: ptr.To[int32](1),
+			Count: new(int32(1)),
 		},
 	}
 
@@ -376,6 +526,36 @@ func TestReconcile(t *testing.T) {
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
 					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"with only zero-count PodSets": {
+			workload: allZeroCountWorkload.DeepCopy(),
+			requests: []autoscaling.ProvisioningRequest{
+				*baseRequest.DeepCopy(),
+			},
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				allZeroCountWorkload.GetName(): (&utiltestingapi.WorkloadWrapper{Workload: *allZeroCountWorkload.DeepCopy()}).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateReady,
+						Message: NoRequestNeeded,
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).
+					Obj(),
+			},
+			wantRequestsNotFound: []string{baseRequest.Name},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(allZeroCountWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "AdmissionCheckUpdated",
+					Message:   `Admission check check1 updated state from Pending to Ready with message: the provisioning request is not needed`,
 				},
 			},
 		},
@@ -618,7 +798,7 @@ func TestReconcile(t *testing.T) {
 				AdmissionChecks(kueue.AdmissionCheckState{
 					Name:       "check1",
 					State:      kueue.CheckStatePending,
-					RetryCount: ptr.To[int32](1),
+					RetryCount: new(int32(1)),
 				}, kueue.AdmissionCheckState{
 					Name:  "not-provisioning",
 					State: kueue.CheckStatePending,
@@ -632,7 +812,7 @@ func TestReconcile(t *testing.T) {
 					AdmissionChecks(kueue.AdmissionCheckState{
 						Name:       "check1",
 						State:      kueue.CheckStatePending,
-						RetryCount: ptr.To[int32](1),
+						RetryCount: new(int32(1)),
 					}, kueue.AdmissionCheckState{
 						Name:  "not-provisioning",
 						State: kueue.CheckStatePending,
@@ -2079,7 +2259,7 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				ResourceUsage: map[corev1.ResourceName]resource.Quantity{
 					corev1.ResourceCPU: resource.MustParse("4"),
 				},
-				Count: ptr.To[int32](4),
+				Count: new(int32(4)),
 			},
 		).
 			Obj(), now).
@@ -2180,7 +2360,10 @@ func TestActiveOrLastPRForChecks(t *testing.T) {
 				t.Fatalf("Setting up the provisioning request controller: %v", err)
 			}
 
-			gotResult := controller.activeOrLastPRForChecks(ctx, workload, checkConfig, tc.requests)
+			gotResult, err := controller.activeOrLastPRForChecks(ctx, workload, checkConfig, tc.requests)
+			if err != nil {
+				t.Fatalf("activeOrLastPRForChecks() error = %v", err)
+			}
 			if diff := cmp.Diff(tc.wantResult, gotResult, reqCmpOptions...); diff != "" {
 				t.Errorf("unexpected request %q (-want/+got):\n%s", name, diff)
 			}

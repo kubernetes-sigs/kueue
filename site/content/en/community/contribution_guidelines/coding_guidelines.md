@@ -13,6 +13,9 @@ these when writing new code or reviewing pull requests.
 Kueue is a Kubernetes project and follows the upstream Kubernetes conventions.
 Be familiar with these core guidelines:
 
+- [SIG Scheduling Contributor Guide](https://git.k8s.io/community/sig-scheduling/CONTRIBUTING.md)
+  — contribution guidance specific to the Kubernetes scheduling ecosystem that
+  Kueue is part of.
 - [Kubernetes Deprecation Policy](https://kubernetes.io/docs/reference/using-api/deprecation-policy/)
   — rules for API version lifetimes (alpha, beta, GA) and removal timelines.
 - [Kubernetes API Changes](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api_changes.md)

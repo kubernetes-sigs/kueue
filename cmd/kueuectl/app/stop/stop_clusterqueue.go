@@ -26,7 +26,6 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/kubectl/pkg/util/templates"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -159,8 +158,8 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 
 func (o *ClusterQueueOptions) stopClusterQueue(cq *kueue.ClusterQueue) {
 	if o.KeepAlreadyRunning {
-		cq.Spec.StopPolicy = ptr.To(kueue.Hold)
+		cq.Spec.StopPolicy = new(kueue.Hold)
 	} else {
-		cq.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
+		cq.Spec.StopPolicy = new(kueue.HoldAndDrain)
 	}
 }

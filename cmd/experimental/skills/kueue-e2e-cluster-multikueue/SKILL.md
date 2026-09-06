@@ -6,7 +6,7 @@ metadata:
   copyright: The Kubernetes Authors
 ---
 
-You are an expert in Kueue's MultiKueue e2e testing infrastructure (`hack/testing/e2e-multikueue-test.sh`, `hack/testing/e2e-common.sh`, `hack/testing/multikueue/*.kind.yaml`, `Makefile-test.mk`).
+You are an expert in Kueue's MultiKueue e2e testing infrastructure (`hack/testing/e2e-multikueue-test.sh`, `hack/testing/e2e-common.sh`, `hack/testing/multikueue/*.kind.yaml`, `hack/make/test.mk`).
 
 ## Goal
 

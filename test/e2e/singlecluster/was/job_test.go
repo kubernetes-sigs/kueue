@@ -39,10 +39,12 @@ import (
 // with Job), which builds on the GenericWorkload prerequisite gate.
 //
 // The tests require:
-// - A kind cluster built from Kubernetes main (not a release)
-// - The GenericWorkload and WorkloadWithJob feature gates enabled
-// - The scheduling.k8s.io/v1beta1 API enabled via runtime-config
-// See hack/testing/kind-cluster-was.yaml.
+//   - A kind cluster running Kubernetes 1.37 or newer, either a release
+//     (make test-e2e-was) or k/k main (make test-e2e-k8s-main-was)
+//   - The GenericWorkload and WorkloadWithJob feature gates enabled
+//   - The scheduling.k8s.io/v1beta1 API enabled via runtime-config
+//
+// See patch_kind_config_for_was in hack/testing/e2e-common.sh.
 var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", "feature:was", "feature:was-job"), func() {
 	var ns *corev1.Namespace
 

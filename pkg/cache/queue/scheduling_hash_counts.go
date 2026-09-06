@@ -194,12 +194,12 @@ func (s *schedulingHashCounts) pendingUnionLen() int {
 // ClusterQueue-wide lock. When SchedulingEquivalenceHashing is disabled the
 // counts are naturally empty, because hashes are never recorded.
 func (c *ClusterQueue) PendingSchedulingHashes() (int, int) {
-	return c.schedulingHashes.pendingLens()
+	return c.workloads.schedulingHashes.pendingLens()
 }
 
 // pendingSchedulingHashesForInactiveClusterQueue reports all pending hashes
 // as inadmissible, mirroring how inactive ClusterQueues report their pending
 // workloads.
 func (c *ClusterQueue) pendingSchedulingHashesForInactiveClusterQueue() (int, int) {
-	return 0, c.schedulingHashes.pendingUnionLen()
+	return 0, c.workloads.schedulingHashes.pendingUnionLen()
 }

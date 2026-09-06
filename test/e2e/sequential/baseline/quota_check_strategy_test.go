@@ -24,7 +24,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -49,7 +48,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 				cfg.FeatureGates = make(map[string]bool)
 			}
 			cfg.Resources = &configapi.Resources{
-				QuotaCheckStrategy: ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+				QuotaCheckStrategy: new(configapi.QuotaCheckIgnoreUndeclared),
 			}
 			cfg.Metrics = configapi.ControllerMetrics{
 				EnableClusterQueueResources: true,

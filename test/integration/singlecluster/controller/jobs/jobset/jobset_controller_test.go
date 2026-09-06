@@ -426,7 +426,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 							*utiltestingapi.MakePodSet("replicated-job-1", 4).
 								PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 								SubGroupIndexLabel(new("jobset.sigs.k8s.io/job-index")).
-								SubGroupCount(ptr.To[int32](2)).
+								SubGroupCount(new(int32(2))).
 								Obj(),
 							checkPSOpts,
 						),
@@ -434,7 +434,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 							*utiltestingapi.MakePodSet("replicated-job-2-empty", 0).
 								PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
 								SubGroupIndexLabel(new("jobset.sigs.k8s.io/job-index")).
-								SubGroupCount(ptr.To[int32](1)).
+								SubGroupCount(new(int32(1))).
 								Obj(),
 							checkPSOpts,
 						),
@@ -1255,20 +1255,20 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 						Name:  "rj1",
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:           ptr.To(utiltesting.DefaultBlockTopologyLevel),
-							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
-							SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
-							SubGroupCount:      ptr.To[int32](1),
+							Required:           new(utiltesting.DefaultBlockTopologyLevel),
+							PodIndexLabel:      new(batchv1.JobCompletionIndexAnnotation),
+							SubGroupIndexLabel: new(jobsetapi.JobIndexKey),
+							SubGroupCount:      new(int32(1)),
 						},
 					},
 					{
 						Name:  "rj2",
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:          ptr.To(utiltesting.DefaultRackTopologyLevel),
-							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
-							SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
-							SubGroupCount:      ptr.To[int32](1),
+							Preferred:          new(utiltesting.DefaultRackTopologyLevel),
+							PodIndexLabel:      new(batchv1.JobCompletionIndexAnnotation),
+							SubGroupIndexLabel: new(jobsetapi.JobIndexKey),
+							SubGroupCount:      new(int32(1)),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
@@ -1422,12 +1422,12 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 
 				// job-a (completed, count=0) should have no topology assignment
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].Name).Should(gomega.Equal(kueue.NewPodSetReference("job-a")))
-				g.Expect(wl.Status.Admission.PodSetAssignments[0].Count).Should(gomega.Equal(ptr.To[int32](0)))
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].Count).Should(gomega.Equal(new(int32(0))))
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeNil())
 
 				// job-b (still running, count=1) should have a valid topology assignment
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].Name).Should(gomega.Equal(kueue.NewPodSetReference("job-b")))
-				g.Expect(wl.Status.Admission.PodSetAssignments[1].Count).Should(gomega.Equal(ptr.To[int32](1)))
+				g.Expect(wl.Status.Admission.PodSetAssignments[1].Count).Should(gomega.Equal(new(int32(1))))
 				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).ShouldNot(gomega.BeNil())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})

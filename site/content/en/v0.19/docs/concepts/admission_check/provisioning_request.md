@@ -155,7 +155,7 @@ specific) supports setting unique node label on the newly provisioned nodes.
 
 #### Reference
 
-Check the [API definition](https://github.com/kubernetes-sigs/kueue/blob/main/apis/kueue/v1beta1/provisioningrequestconfig_types.go) for more details.
+Check the [API definition](https://github.com/kubernetes-sigs/kueue/blob/main/apis/kueue/v1beta2/provisioningrequestconfig_types.go) for more details.
 
 ### Job annotations
 

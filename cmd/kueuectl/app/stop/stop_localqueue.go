@@ -26,7 +26,6 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/kubectl/pkg/util/templates"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -169,8 +168,8 @@ func (o *LocalQueueOptions) Run(ctx context.Context) error {
 
 func (o *LocalQueueOptions) stopLocalQueue(lq *kueue.LocalQueue) {
 	if o.KeepAlreadyRunning {
-		lq.Spec.StopPolicy = ptr.To(kueue.Hold)
+		lq.Spec.StopPolicy = new(kueue.Hold)
 	} else {
-		lq.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
+		lq.Spec.StopPolicy = new(kueue.HoldAndDrain)
 	}
 }

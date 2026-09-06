@@ -424,19 +424,28 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 		}
 
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
+		if fsStrategyUnsatisfiable(preemptorNewShare, targetOldShare) {
+			// No candidate in this ClusterQueue can pass the strategy, so
+			// skip the per-candidate simulation. The candidates are still
+			// collected for rule S2-b, which recomputes the shares on a
+			// snapshot that this loop may have changed in the meantime.
+			if logV := preemptionCtx.log.V(4); logV.Enabled() {
+				logV.Info("Skipping FairSharing strategy evaluation, no candidate can pass",
+					"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShareSerialized(),
+					"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
+					"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShareSerialized())
+			}
+			for candCQ.HasWorkload() {
+				retryCandidates = append(retryCandidates, candCQ.PopWorkload())
+			}
+			continue
+		}
+		strategyLog := newFsStrategyLog(preemptionCtx.log, candCQ, preemptorNewShare, targetOldShare)
 		for candCQ.HasWorkload() {
 			candWl := candCQ.PopWorkload()
 			targetNewShare := candCQ.ComputeTargetShareAfterRemoval(candWl)
 			passed := strategy(preemptorNewShare, targetOldShare, targetNewShare)
-			if logV := preemptionCtx.log.V(4); logV.Enabled() {
-				logV.Info("Evaluating FairSharing strategy",
-					"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
-					"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
-					"targetWorkload", klog.KObj(candWl.Obj),
-					"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
-					"targetNewShare", schdcache.DRS(targetNewShare).PreciseWeightedShare(),
-					"strategyPassed", passed)
-			}
+			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
 				preemptionCtx.snapshot.RemoveWorkload(candWl)
 				targets = append(targets, &Target{
@@ -445,6 +454,7 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 					WorkloadCq:   candCQ.GetTargetCq(),
 				})
 				if workloadFitsForFairSharing(preemptionCtx) {
+					strategyLog.flush()
 					return true, targets, nil
 				}
 				// Might need to pick a different CQ due to changing values.
@@ -453,8 +463,36 @@ func runFirstFsStrategy(preemptionCtx *preemptionCtx, candidates []*workload.Inf
 				retryCandidates = append(retryCandidates, candWl)
 			}
 		}
+		strategyLog.flush()
 	}
 	return false, targets, retryCandidates
+}
+
+// fsStrategyUnsatisfiable reports whether, given the preemptor's and the
+// target's shares before any workload is removed, no candidate workload in
+// the target ClusterQueue can pass either FairSharing strategy. When it
+// returns true the per-candidate simulation in runFirstFsStrategy can be
+// skipped, because every candidate is guaranteed to fail.
+//
+// A DominantResourceShare of +Inf means the node borrows while having a fair
+// weight of 0, which the API defines as an infinite share. It cannot arise any
+// other way, since a non-zero weight is validated to be greater than 10^-9.
+// CompareDRS ranks such a node above every node that is not itself borrowing
+// on a zero weight, so it returns 1. Both strategies require the comparison to
+// be <= 0 or < 0, so both fail:
+//
+//   - LessThanInitialShare compares against targetOldShare directly, which
+//     this function already has.
+//   - LessThanOrEqualToFinalShare compares against the target's share after
+//     the candidate's usage is removed. Removing usage never changes the
+//     target node's fair weight, and the lendable capacity the usage is
+//     compared against is derived from quota alone, so the target's share
+//     after removal is at most its share before removal. A target whose share
+//     is not +Inf before removal is therefore not +Inf after removal either,
+//     and CompareDRS returns 1 for it as well.
+func fsStrategyUnsatisfiable(preemptorNewShare fairsharing.PreemptorNewShare, targetOldShare fairsharing.TargetOldShare) bool {
+	return schdcache.DRS(preemptorNewShare).ZeroWeightBorrows() &&
+		!schdcache.DRS(targetOldShare).ZeroWeightBorrows()
 }
 
 // runSecondFsStrategy implements Fair Sharing Rule S2-b. It returns
@@ -468,10 +506,10 @@ func runSecondFsStrategy(retryCandidates []*workload.Info, preemptionCtx *preemp
 		candWl := candCQ.PopWorkload()
 		if logV := preemptionCtx.log.V(4); logV.Enabled() {
 			logV.Info("Evaluating FairSharing strategy",
-				"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShare(),
+				"preemptorNewShare", schdcache.DRS(preemptorNewShare).PreciseWeightedShareSerialized(),
 				"targetClusterQueue", klog.KRef("", string(candCQ.GetTargetCq().Name)),
 				"targetWorkload", klog.KObj(candWl.Obj),
-				"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShare(),
+				"targetOldShare", schdcache.DRS(targetOldShare).PreciseWeightedShareSerialized(),
 				"strategyPassed", passed)
 		}
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
@@ -518,6 +556,21 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
 
 	fits, targets, retryCandidates := runFirstFsStrategy(preemptionCtx, candidates, strategies[0])
+
+	if features.Enabled(features.FairSharingReevaluatePreemptionCandidates) {
+		if !fits && containsWorkloadFromPreemptorCQ(preemptionCtx, targets) {
+			// If "targets" contains workload from the same CQ as the preemptor, it means
+			// that DRS of the preemptor was decreased during the first run, and we can run
+			// the same strategy again with remaining candidates as they have chance to
+			// succeed now.
+			// No need to run the strategy a third time as first run already iterated
+			// though whole tree and removed all the preemptor's workloads.
+			var additionalTargets []*Target
+			fits, additionalTargets, retryCandidates = runFirstFsStrategy(preemptionCtx, retryCandidates, strategies[0])
+			targets = append(targets, additionalTargets...)
+		}
+	}
+
 	if !fits && len(strategies) > 1 {
 		if logV := preemptionCtx.log.V(6); logV.Enabled() {
 			logV.Info("First fair sharing strategy failed, trying second strategy",
@@ -547,6 +600,15 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 			"targets", logging.GetObjectReferences(targets))
 	}
 	return targets
+}
+
+func containsWorkloadFromPreemptorCQ(preemptionCtx *preemptionCtx, targets []*Target) bool {
+	for _, t := range targets {
+		if t.WorkloadInfo.ClusterQueue == preemptionCtx.preemptorCQ.Name {
+			return true
+		}
+	}
+	return false
 }
 
 func flavorResourcesNeedPreemption(assignment flavorassigner.Assignment) sets.Set[resources.FlavorResource] {

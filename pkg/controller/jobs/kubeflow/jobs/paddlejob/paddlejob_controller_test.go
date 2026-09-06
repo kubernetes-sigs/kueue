@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -290,13 +289,13 @@ func TestPodSets(t *testing.T) {
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeMaster].Template.Spec).
 						Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/rack"}).
 						RequiredTopologyRequest("cloud.com/rack").
-						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 						Obj(),
 					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(string(kftraining.PaddleJobReplicaTypeWorker)), 1).
 						PodSpec(job.Spec.PaddleReplicaSpecs[kftraining.PaddleJobReplicaTypeWorker].Template.Spec).
 						Annotations(map[string]string{kueue.PodSetPreferredTopologyAnnotation: "cloud.com/block"}).
 						PreferredTopologyRequest("cloud.com/block").
-						PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+						PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 						Obj(),
 				}
 			},
@@ -522,10 +521,10 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("paddlejob", "ns").
 					PodSets(
 						*utiltestingapi.MakePodSet("master", 1).
-							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 							Obj(),
 						*utiltestingapi.MakePodSet("worker", 2).
-							PodIndexLabel(ptr.To(kftraining.ReplicaIndexLabel)).
+							PodIndexLabel(new(kftraining.ReplicaIndexLabel)).
 							Obj(),
 					).
 					Obj(),
@@ -566,14 +565,14 @@ func TestReconciler(t *testing.T) {
 								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 									corev1.ResourceCPU: "default",
 								},
-								Count: ptr.To[int32](1),
+								Count: new(int32(1)),
 							},
 							kueue.PodSetAssignment{
 								Name: "worker",
 								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 									corev1.ResourceCPU: "default",
 								},
-								Count: ptr.To[int32](10),
+								Count: new(int32(10)),
 							},
 						).
 						Obj(), now).
@@ -609,14 +608,14 @@ func TestReconciler(t *testing.T) {
 								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 									corev1.ResourceCPU: "default",
 								},
-								Count: ptr.To[int32](1),
+								Count: new(int32(1)),
 							},
 							kueue.PodSetAssignment{
 								Name: "worker",
 								Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 									corev1.ResourceCPU: "default",
 								},
-								Count: ptr.To[int32](10),
+								Count: new(int32(10)),
 							},
 						).
 						Obj(), now).

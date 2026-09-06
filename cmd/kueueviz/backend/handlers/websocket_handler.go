@@ -210,6 +210,15 @@ func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Co
 		authTickerC = authTicker.C
 	}
 
+	var heartbeatTicker *time.Ticker
+	var heartbeatTickerC <-chan time.Time
+
+	if h.heartbeatInterval > 0 {
+		heartbeatTicker = time.NewTicker(h.heartbeatInterval)
+		defer heartbeatTicker.Stop()
+		heartbeatTickerC = heartbeatTicker.C
+	}
+
 	// Handle updates from the informers
 	for {
 		select {
@@ -238,6 +247,16 @@ func (h *Handlers) handleInformerUpdates(ctx context.Context, conn *websocket.Co
 		case <-updateChan:
 			if err := h.sendData(ctx, conn, dataFetcher); err != nil {
 				slog.Error("Error sending update", "error", err)
+				return
+			}
+
+		case <-heartbeatTickerC:
+			if err := conn.WriteControl(
+				websocket.PingMessage,
+				nil,
+				time.Now().Add(writeDeadlineExtension),
+			); err != nil {
+				slog.Warn("Failed to send WebSocket heartbeat", "error", err)
 				return
 			}
 		}

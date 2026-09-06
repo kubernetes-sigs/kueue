@@ -25,6 +25,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
@@ -38,7 +39,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -189,7 +189,7 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 					},
 				},
 			},
-			waitForPodsReady:    &waitForPodsReadyConfig{recoveryTimeout: ptr.To(3 * time.Minute)},
+			waitForPodsReady:    &waitForPodsReadyConfig{recoveryTimeout: new(3 * time.Minute)},
 			wantUnderlyingCause: kueue.WorkloadWaitForRecovery,
 			wantRecheckAfter:    3 * time.Minute,
 		},
@@ -556,9 +556,8 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 			Request(corev1.ResourceCPU, "4")
 	}
 	// A reserved Workload's requests are read back from the admission rather than
-	// from the PodSets, so the assignment has to carry them: without it the
-	// settlement recomputes an empty penalty and the test cannot tell the
-	// transitions apart.
+	// from the PodSets, so the assignment carries them to keep the fixtures
+	// realistic for the transitions under test.
 	makeAdmission := func() *kueue.Admission {
 		return utiltestingapi.MakeAdmission("cq").
 			PodSets(utiltestingapi.MakePodSetAssignment("main").Assignment(corev1.ResourceCPU, "rf", "4").Obj()).
@@ -579,34 +578,40 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 		Obj()
 
 	cases := map[string]struct {
-		oldWl       *kueue.Workload
-		newWl       *kueue.Workload
-		wantSettled bool
+		oldWl *kueue.Workload
+		newWl *kueue.Workload
+		// wantFolded is whether the penalty must end up in the consumed
+		// history; wantPending is whether its record must remain pending.
+		// A dropped record (deactivation) is neither folded nor pending.
+		wantFolded  bool
+		wantPending bool
 	}{
 		"Pending to Admitted settles the entry penalty": {
-			oldWl:       pending,
-			newWl:       admitted,
-			wantSettled: true,
+			oldWl:      pending,
+			newWl:      admitted,
+			wantFolded: true,
 		},
 		"QuotaReserved to Admitted settles the entry penalty": {
-			oldWl:       quotaReserved,
-			newWl:       admitted,
-			wantSettled: true,
+			oldWl:      quotaReserved,
+			newWl:      admitted,
+			wantFolded: true,
 		},
 		"Pending to QuotaReserved does not settle the entry penalty": {
 			oldWl:       pending,
 			newWl:       quotaReserved,
-			wantSettled: false,
+			wantPending: true,
 		},
 		"Admitted to Admitted does not settle the entry penalty again": {
 			oldWl:       admitted,
 			newWl:       admitted,
-			wantSettled: false,
+			wantPending: true,
 		},
-		"deactivation in the same event does not settle the entry penalty": {
+		"deactivation in the same event does not settle and keeps the record": {
+			// The reservation is still held, so the penalty may yet settle if
+			// the Workload is reactivated in place.
 			oldWl:       quotaReserved,
 			newWl:       deactivatedAdmitted,
-			wantSettled: false,
+			wantPending: true,
 		},
 	}
 	for name, tc := range cases {
@@ -621,7 +626,7 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithAdmissionFairSharing(afsConfig))
 			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder, WithAdmissionFairSharing(afsConfig))
 
-			ctx, _ := utiltesting.ContextWithLog(t)
+			ctx, log := utiltesting.ContextWithLog(t)
 			cq := utiltestingapi.MakeClusterQueue("cq").
 				AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
 				Active(metav1.ConditionTrue).
@@ -633,27 +638,33 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 				t.Fatalf("couldn't add the local queue to the scheduler cache: %v", err)
 			}
 
-			// Seed the penalty with the same amount the settlement recomputes,
-			// mirroring the push done by the scheduler at assume time.
-			seeded := afs.CalculateEntryPenalty(workload.NewInfo(tc.newWl).SumTotalRequests(reconciler.resourceFormatter), afsConfig)
+			// Seed the per-Workload penalty record the scheduler would have
+			// pushed at assume time; the settlement folds exactly this record.
+			seeded := afs.CalculateEntryPenalty(workload.NewInfo(log, tc.newWl).SumTotalRequests(reconciler.resourceFormatter), afsConfig)
 			if len(seeded) == 0 {
 				t.Fatal("the seeded penalty is empty, so the settlement would subtract nothing and every case would pass")
 			}
-			qManager.AfsEntryPenalties.Push(lqKey, seeded)
+			qManager.AfsUsageLedger.PushPenalty(lqKey, queueafs.WorkloadReference(workload.Key(tc.newWl)), seeded, time.Now())
 
 			reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
 				ObjectOld: tc.oldWl.DeepCopy(),
 				ObjectNew: tc.newWl.DeepCopy(),
 			})
 
-			if hasPending := qManager.AfsEntryPenalties.HasPendingFor(lqKey); hasPending == tc.wantSettled {
-				t.Errorf("HasPendingFor() = %v, want settled = %v", hasPending, tc.wantSettled)
+			if hasPending := qManager.AfsUsageLedger.HasPendingPenalty(lqKey); hasPending != tc.wantPending {
+				t.Errorf("HasPendingPenalty() = %t, want %t", hasPending, tc.wantPending)
+			}
+			entry, _ := qManager.AfsUsageLedger.Get(lqKey)
+			cpu := entry.Resources[corev1.ResourceCPU]
+			if folded := !cpu.IsZero(); folded != tc.wantFolded {
+				t.Errorf("penalty folded into consumed usage = %t, want %t (consumed: %v)", folded, tc.wantFolded, entry.Resources)
 			}
 		})
 	}
 }
 
 func TestReconcile(t *testing.T) {
+	_, log := utiltesting.ContextWithLog(t)
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
 	now := time.Now().Truncate(time.Second)
@@ -886,6 +897,37 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		// The state a Workload reaches once a max-execution-time deactivation has been carried
+		// out: inactive, evicted, and with the DeactivationTarget already consumed. Re-targeting
+		// it here would re-emit the warning on every reconcile.
+		"should not re-target an already deactivated workload that exceeded the maximum execution time": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				MaximumExecutionTimeSeconds(60).
+				AdmittedAt(true, now.Add(-2*time.Minute)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated due to exceeding the maximum execution time",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				MaximumExecutionTimeSeconds(60).
+				AdmittedAt(true, now.Add(-2*time.Minute)).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadDeactivated,
+					Message: "The workload is deactivated due to exceeding the maximum execution time",
+				}).
+				Obj(),
+		},
 		"should handle finished workload logic for orphaned workloads when FinishOrphanedWorkloads enabled": {
 			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -966,7 +1008,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: ptr.To(util.MediumTimeout),
+						afterFinished: new(util.MediumTimeout),
 					},
 				),
 			},
@@ -989,7 +1031,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: ptr.To(util.MediumTimeout),
+						afterFinished: new(util.MediumTimeout),
 					},
 				),
 			},
@@ -1018,7 +1060,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: ptr.To(util.MediumTimeout),
+						afterFinished: new(util.MediumTimeout),
 					},
 				),
 			},
@@ -1045,7 +1087,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: ptr.To(util.MediumTimeout),
+						afterFinished: new(util.MediumTimeout),
 					},
 				),
 			},
@@ -1685,7 +1727,7 @@ func TestReconcile(t *testing.T) {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
-				wInfo := workload.NewInfo(wl)
+				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1723,7 +1765,7 @@ func TestReconcile(t *testing.T) {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
-				wInfo := workload.NewInfo(wl)
+				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1755,7 +1797,7 @@ func TestReconcile(t *testing.T) {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
-				wInfo := workload.NewInfo(wl)
+				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1793,7 +1835,7 @@ func TestReconcile(t *testing.T) {
 					panic(err)
 				}
 				qManager.Heads(ctx) // Pop from active heap
-				wInfo := workload.NewInfo(wl)
+				wInfo := workload.NewInfo(log, wl)
 				qManager.RequeueWorkload(ctx, wInfo, qcache.RequeueReasonNoFit, qcache.QuotaReservedReasonWaitingForQuota)
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -2056,7 +2098,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 
 									if tc.wantDRAResourceTotal != nil {
 										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
-											gpuVal := wlInfo.TotalRequests[0].Requests.GetValue("gpu")
+											gpuVal := wlInfo.TotalRequests[0].Requests.ResourceValue("gpu")
 											if gpuVal > 0 {
 												if gpuVal != *tc.wantDRAResourceTotal {
 													t.Errorf("Expected gpu resource total to be %d, got %d", *tc.wantDRAResourceTotal, gpuVal)
@@ -2293,7 +2335,7 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 	// With halfLifeTime == samplingInterval the entry penalty is half of the
 	// request, so the 4 CPU workload settles a 2 CPU penalty.
 	cases := map[string]struct {
-		initialEntry        *queueafs.ConsumedResourcesEntry
+		initialEntry        *queueafs.UsageLedgerEntry
 		wantCPUMilli        int64
 		wantStatusAccounted bool
 		// wantLastUpdate defaults to now when zero.
@@ -2306,7 +2348,7 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 			wantStatusAccounted: false,
 		},
 		"folds into an existing entry and preserves StatusAccounted": {
-			initialEntry: &queueafs.ConsumedResourcesEntry{
+			initialEntry: &queueafs.UsageLedgerEntry{
 				Resources:       corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
 				LastUpdate:      now,
 				StatusAccounted: true,
@@ -2320,7 +2362,7 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 			// usage is kept verbatim and only the 2 CPU penalty folds in (8+2=10),
 			// instead of the negative-elapsed path inflating it. The stored
 			// timestamp stays monotonic at the later value rather than rewinding.
-			initialEntry: &queueafs.ConsumedResourcesEntry{
+			initialEntry: &queueafs.UsageLedgerEntry{
 				Resources:       corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
 				LastUpdate:      now.Add(5 * time.Minute),
 				StatusAccounted: true,
@@ -2357,16 +2399,21 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 
 			lqKey := utilqueue.KeyFromWorkload(wl)
 			if tc.initialEntry != nil {
-				qManager.AfsConsumedResources.Update(lqKey, func(queueafs.ConsumedResourcesEntry, bool) queueafs.ConsumedResourcesEntry {
+				qManager.AfsUsageLedger.Update(lqKey, func(queueafs.UsageLedgerEntry, bool) queueafs.UsageLedgerEntry {
 					return *tc.initialEntry
 				})
 			}
+			// The settlement folds this Workload's recorded penalty, so seed the
+			// push the scheduler would have done at assume time: half of the 4 CPU
+			// request under halfLifeTime == samplingInterval.
+			qManager.AfsUsageLedger.PushPenalty(lqKey, queueafs.WorkloadReference(workload.Key(wl)),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, now)
 
 			reconciler.updateAfsConsumedUsage(log, wl)
 
-			gotEntry, found := qManager.AfsConsumedResources.Get(lqKey)
+			gotEntry, found := qManager.AfsUsageLedger.Get(lqKey)
 			if !found {
-				t.Fatal("expected an AfsConsumedResources entry after settlement")
+				t.Fatal("expected an AfsUsageLedger entry after settlement")
 			}
 			gotCPU := gotEntry.Resources[corev1.ResourceCPU]
 			if gotCPU.MilliValue() != tc.wantCPUMilli {
@@ -2383,5 +2430,170 @@ func TestUpdateAfsConsumedUsage(t *testing.T) {
 				t.Errorf("unexpected StatusAccounted: want %t, got %t", tc.wantStatusAccounted, gotEntry.StatusAccounted)
 			}
 		})
+	}
+}
+
+// setupAfsPenaltyTest builds the shared fixture for the AFS penalty-lifecycle
+// tests: an active ClusterQueue "cq" with LocalQueue ns/lq registered in both
+// caches, and a reconciler with AFS enabled and a fake clock at now.
+func setupAfsPenaltyTest(t *testing.T, now time.Time) (*qcache.Manager, *WorkloadReconciler, context.Context, logr.Logger) {
+	t.Helper()
+	afsConfig := &configapi.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+		UsageSamplingInterval: metav1.Duration{Duration: 5 * time.Minute},
+	}
+	fakeClock := testingclock.NewFakeClock(now)
+	cl := utiltesting.NewClientBuilder().Build()
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+		qcache.WithClock(fakeClock),
+		qcache.WithAdmissionFairSharing(afsConfig),
+		qcache.WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{},
+		WithAdmissionFairSharing(afsConfig), WithPreemptionExpectations(preemptexpectations.New()))
+	reconciler.clock = fakeClock
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj()
+	setupClusterQueue(ctx, t, cl, qManager, cqCache, cq, false)
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+	setupLocalQueue(ctx, t, cl, qManager, lq, false)
+	if err := cqCache.AddLocalQueue(lq); err != nil {
+		t.Fatalf("couldn't add the local queue to the scheduler cache: %v", err)
+	}
+	return qManager, reconciler, ctx, log
+}
+
+// A Workload deleted between its penalty push and its settlement must have its
+// pending penalty dropped, not settled: the penalty never reaches the consumed
+// history, and it stops inflating the LocalQueue's fair-sharing usage.
+func TestDeleteSubtractsPendingAfsEntryPenalty(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	qManager, reconciler, _, _ := setupAfsPenaltyTest(t, now)
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "4").
+		SimpleReserveQuota("cq", "rf", now).
+		Obj()
+	lqKey := utilqueue.KeyFromWorkload(wl)
+	qManager.AfsUsageLedger.PushPenalty(lqKey, queueafs.WorkloadReference(workload.Key(wl)),
+		corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, now)
+
+	reconciler.Delete(event.TypedDeleteEvent[*kueue.Workload]{Object: wl})
+
+	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
+		t.Errorf("deleting a quota-reserved workload left its entry penalty pending: %v",
+			qManager.AfsUsageLedger.PeekPenalty(lqKey))
+	}
+	if entry, found := qManager.AfsUsageLedger.Get(lqKey); found {
+		if gotCPU := entry.Resources[corev1.ResourceCPU]; !gotCPU.IsZero() {
+			t.Errorf("deletion settled the penalty into consumed usage instead of dropping it: got %s CPU", gotCPU.String())
+		}
+	}
+}
+
+// Transitions that make settlement unreachable must drop the pending record,
+// while eviction on the same LocalQueue keeps it (penalty policy unchanged).
+func TestUpdateDropsUnsettleableAfsEntryPenalty(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	makeWl := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			Queue("lq").
+			Request(corev1.ResourceCPU, "4")
+	}
+	quotaReserved := makeWl().SimpleReserveQuota("cq", "rf", now).Obj()
+
+	cases := map[string]struct {
+		oldWl *kueue.Workload
+		newWl *kueue.Workload
+		// wantPendingOn maps a LocalQueue key to whether a penalty must still
+		// be pending there after the update.
+		wantPendingOn map[utilqueue.LocalQueueReference]bool
+	}{
+		"moving to another LocalQueue drops the record under the previous one": {
+			oldWl: makeWl().Obj(),
+			newWl: makeWl().Queue("lq2").Obj(),
+			wantPendingOn: map[utilqueue.LocalQueueReference]bool{
+				"ns/lq": false, "ns/lq2": false,
+			},
+		},
+		"deactivation with the reservation gone drops the record": {
+			oldWl:         quotaReserved,
+			newWl:         makeWl().Active(false).Obj(),
+			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": false},
+		},
+		"deactivation that keeps the reservation keeps the record": {
+			// Reactivated in place, the Workload can reach Admitted without a
+			// new scheduler assume, so its penalty must still be settleable.
+			oldWl:         quotaReserved,
+			newWl:         makeWl().Active(false).SimpleReserveQuota("cq", "rf", now).Obj(),
+			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": true},
+		},
+		"finishing without admission drops the record": {
+			oldWl:         quotaReserved,
+			newWl:         makeWl().Finished().Obj(),
+			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": false},
+		},
+		"eviction back to pending on the same LocalQueue keeps the record": {
+			oldWl:         quotaReserved,
+			newWl:         makeWl().Obj(),
+			wantPendingOn: map[utilqueue.LocalQueueReference]bool{"ns/lq": true},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			qManager, reconciler, _, _ := setupAfsPenaltyTest(t, now)
+			qManager.AfsUsageLedger.PushPenalty("ns/lq", queueafs.WorkloadReference(workload.Key(tc.oldWl)),
+				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, now)
+
+			reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+				ObjectOld: tc.oldWl.DeepCopy(),
+				ObjectNew: tc.newWl.DeepCopy(),
+			})
+
+			for lqKey, wantPending := range tc.wantPendingOn {
+				if got := qManager.AfsUsageLedger.HasPendingPenalty(lqKey); got != wantPending {
+					t.Errorf("HasPendingPenalty(%q) = %t, want %t (peek: %v)",
+						lqKey, got, wantPending, qManager.AfsUsageLedger.PeekPenalty(lqKey))
+				}
+			}
+			// The subtraction must not materialize an entry for an untracked queue.
+			if _, found := qManager.AfsUsageLedger.Get("ns/lq2"); found {
+				t.Error("the update created a ledger entry for a LocalQueue that had none")
+			}
+		})
+	}
+}
+
+// Settling twice for the same Workload must fold its penalty exactly once: the
+// first settlement consumes the record, so the second finds nothing to fold.
+func TestRepeatedAfsSettlementFoldsPenaltyOnce(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	qManager, reconciler, _, log := setupAfsPenaltyTest(t, now)
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		Request(corev1.ResourceCPU, "4").
+		SimpleReserveQuota("cq", "rf", now).
+		AdmittedAt(true, now).
+		Obj()
+	lqKey := utilqueue.KeyFromWorkload(wl)
+	qManager.AfsUsageLedger.PushPenalty(lqKey, queueafs.WorkloadReference(workload.Key(wl)),
+		corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, now)
+
+	reconciler.updateAfsConsumedUsage(log, wl)
+	reconciler.updateAfsConsumedUsage(log, wl)
+
+	entry, found := qManager.AfsUsageLedger.Get(lqKey)
+	if !found {
+		t.Fatal("expected an AfsUsageLedger entry after settlement")
+	}
+	if gotCPU := entry.Resources[corev1.ResourceCPU]; gotCPU.MilliValue() != 2_000 {
+		t.Errorf("consumed CPU after settling twice = %dm, want 2000m (folded once)", gotCPU.MilliValue())
+	}
+	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
+		t.Errorf("penalty still pending after settlement: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
 	}
 }

@@ -25,7 +25,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
@@ -109,7 +108,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainer.RuntimeRef{
 				APIGroup: new(kftrainer.GroupVersion.Group),
 				Name:     "test-trainingruntime",
-				Kind:     ptr.To(kftrainer.TrainingRuntimeKind),
+				Kind:     new(kftrainer.TrainingRuntimeKind),
 			}).
 				Queue(localQueue.Name).
 				Obj()
@@ -181,7 +180,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainer.RuntimeRef{
 				APIGroup: new(kftrainer.GroupVersion.Group),
 				Name:     "test-trainingruntime",
-				Kind:     ptr.To(kftrainer.TrainingRuntimeKind),
+				Kind:     new(kftrainer.TrainingRuntimeKind),
 			}).
 				Queue(localQueue.Name).
 				Obj()
@@ -252,7 +251,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 			trainjob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainer.RuntimeRef{
 				APIGroup: new(kftrainer.GroupVersion.Group),
 				Name:     "test-trainingruntime",
-				Kind:     ptr.To(kftrainer.TrainingRuntimeKind),
+				Kind:     new(kftrainer.TrainingRuntimeKind),
 			}).
 				Queue(localQueue.Name).
 				Obj()

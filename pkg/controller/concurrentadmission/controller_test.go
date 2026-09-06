@@ -30,7 +30,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -70,6 +69,16 @@ func blockedOnPreemptionCondition(t time.Time) metav1.Condition {
 		Status:             metav1.ConditionTrue,
 		Reason:             kueue.PreemptionGated,
 		Message:            "Workload requires preemption, but it's gated",
+		LastTransitionTime: metav1.NewTime(t),
+	}
+}
+
+func evaluatedForAdmissionCondition(t time.Time) metav1.Condition {
+	return metav1.Condition{
+		Type:               kueue.WorkloadQuotaReserved,
+		Status:             metav1.ConditionFalse,
+		Reason:             kueue.WorkloadPending, //nolint:staticcheck // SA1019: legacy reason
+		Message:            "Workload does not fit",
 		LastTransitionTime: metav1.NewTime(t),
 	}
 }
@@ -578,6 +587,50 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"waits for a more-preferred variant to be evaluated before ungating a lower-preference variant": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(blockedOnPreemptionCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(blockedOnPreemptionCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+		},
 		"the most-preferred blocked variant is selected for ungating": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq").
@@ -815,7 +868,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "spot",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1108,7 +1161,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "spot",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1200,7 +1253,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "on-demand",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1292,7 +1345,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "reservation",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1391,7 +1444,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "spot",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1474,7 +1527,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "on-demand",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1566,7 +1619,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "reservation",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -1665,7 +1718,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "spot",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -2051,7 +2104,7 @@ func TestReconcile(t *testing.T) {
 						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 							corev1.ResourceCPU: "spot",
 						},
-						Count:         ptr.To[int32](1),
+						Count:         new(int32(1)),
 						ResourceUsage: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
 					}).Obj()).
 				Condition(metav1.Condition{
@@ -2229,6 +2282,44 @@ func TestReconcile(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestFirstCandidateVariant(t *testing.T) {
+	now := time.Now()
+	blocked := utiltestingapi.MakeWorkload("blocked", "default").
+		AllowedFlavors("spot").
+		PreemptionGates(caGate()).
+		Condition(blockedOnPreemptionCondition(now)).
+		Obj()
+
+	testCases := map[string]struct {
+		first *kueue.Workload
+		want  *kueue.Workload
+	}{
+		"waits when the preferred variant has no evaluation condition": {
+			first: utiltestingapi.MakeWorkload("preferred", "default").
+				AllowedFlavors("on-demand").
+				PreemptionGates(caGate()).
+				Obj(),
+		},
+		"skips a preferred variant with an existing quota reservation condition": {
+			first: utiltestingapi.MakeWorkload("preferred", "default").
+				AllowedFlavors("on-demand").
+				PreemptionGates(caGate()).
+				Condition(evaluatedForAdmissionCondition(now)).
+				Obj(),
+			want: blocked,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got := firstCandidateVariant(ctrl.Log, []*kueue.Workload{tc.first, blocked})
+			if got != tc.want {
+				t.Errorf("firstCandidateVariant() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

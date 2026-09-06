@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -66,9 +65,9 @@ func MakeJob(name, ns string) *JobWrapper {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName:      "workers-group-0",
-						Replicas:       ptr.To[int32](1),
-						MinReplicas:    ptr.To[int32](1),
-						MaxReplicas:    ptr.To[int32](5),
+						Replicas:       new(int32(1)),
+						MinReplicas:    new(int32(1)),
+						MaxReplicas:    new(int32(5)),
 						RayStartParams: map[string]string{},
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
@@ -156,6 +155,11 @@ func (j *JobWrapper) ClusterSelector(value map[string]string) *JobWrapper {
 
 func (j *JobWrapper) WithEnableAutoscaling(value *bool) *JobWrapper {
 	j.Spec.RayClusterSpec.EnableInTreeAutoscaling = value
+	return j
+}
+
+func (j *JobWrapper) WithHistoryServerOptions(value *rayv1.HistoryServerOptions) *JobWrapper {
+	j.Spec.RayClusterSpec.HistoryServerOptions = value
 	return j
 }
 

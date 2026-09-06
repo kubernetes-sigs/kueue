@@ -213,7 +213,7 @@ func parseLabels(targetKind configapi.SourceKind, labelSpecs []configapi.Control
 	specs = make([]configapi.ControllerMetricsCustomLabel, 0)
 	for _, spec := range labelSpecs {
 		if spec.SourceKind == nil {
-			spec.SourceKind = ptr.To(configapi.DefaultCustomMetricLabelSourceKind)
+			spec.SourceKind = new(configapi.DefaultCustomMetricLabelSourceKind)
 		}
 		if *spec.SourceKind == targetKind {
 			names = append(names, "custom_"+spec.Name)

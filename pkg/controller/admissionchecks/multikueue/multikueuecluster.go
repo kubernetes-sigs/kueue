@@ -28,6 +28,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -88,7 +89,8 @@ const (
 )
 
 var (
-	errWatchEstablishTimeout = errors.New("watch establishment timed out")
+	errWatchEstablishTimeout    = errors.New("watch establishment timed out")
+	errWatchEstablishInProgress = errors.New("watch establishment is already in progress")
 
 	establishBackoff = utilwait.NewBackoff(initialEstablishTimeout, maxEstablishTimeout, 2, 0)
 )
@@ -128,6 +130,8 @@ type remoteClient struct {
 	config       *clientConfig
 	origin       string
 	adapters     map[string]jobframework.MultiKueueAdapter
+
+	watchEstablishing atomic.Bool
 
 	connState connectionState
 
@@ -284,6 +288,13 @@ func (rc *remoteClient) increaseFailedConnAttempt() *time.Duration {
 	return &d
 }
 
+func (rc *remoteClient) deferConnAttempt(d time.Duration) *time.Duration {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.retryConnNextAttempt = metav1.NewTime(rc.clock.Now().Add(d))
+	return &d
+}
+
 // updateConfigAndRefreshWatchers - will try to recreate the k8s client and restart watching if the new config is different than
 // the one currently used, a reconnect was requested, or the client was marked as disconnected.
 // If the encountered error is not permanent the duration after which a retry should be done is returned.
@@ -330,6 +341,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 
 	startWatcher, err := rc.establishWatcher(watchCtx, kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
+		if errors.Is(err, errWatchEstablishInProgress) {
+			return rc.deferConnAttempt(retryIncrement), err
+		}
 		return rc.increaseFailedConnAttempt(), err
 	}
 	startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
@@ -342,6 +356,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		}
 		startWatcher, err := rc.establishWatcher(watchCtx, kind, watcher)
 		if err != nil {
+			if errors.Is(err, errWatchEstablishInProgress) {
+				return rc.deferConnAttempt(retryIncrement), err
+			}
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to establish the watcher", "kind", kind)
 			// however let's not accept this for now.
@@ -381,7 +398,18 @@ func (cw *cancelOnStopWatcher) Stop() {
 // timeout. On timeout the in-flight Watch is canceled and
 // errWatchEstablishTimeout is returned so the caller falls back to the
 // standard failedConnAttempts / retryAfter backoff in updateConfigAndRefreshWatchers.
-func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectList, origin string, timeout time.Duration) (watch.Interface, error) {
+func establishWatch(
+	ctx context.Context,
+	c client.WithWatch,
+	obj client.ObjectList,
+	origin string,
+	timeout time.Duration,
+	establishing *atomic.Bool,
+	shouldWatchHonorsCancellation bool,
+) (watch.Interface, error) {
+	if !establishing.CompareAndSwap(false, true) {
+		return nil, errWatchEstablishInProgress
+	}
 	type result struct {
 		w   watch.Interface
 		err error
@@ -399,6 +427,7 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 
 	select {
 	case r := <-resultCh:
+		establishing.Store(false)
 		if r.err != nil {
 			cancel()
 			return nil, r.err
@@ -406,8 +435,16 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 		return &cancelOnStopWatcher{Interface: r.w, cancel: cancel}, nil
 	case <-time.After(timeout):
 		cancel()
-		if r := <-resultCh; r.w != nil {
-			r.w.Stop()
+		cleanup := func() {
+			defer establishing.Store(false)
+			if r := <-resultCh; r.w != nil {
+				r.w.Stop()
+			}
+		}
+		if shouldWatchHonorsCancellation {
+			go cleanup()
+		} else {
+			cleanup()
 		}
 		return nil, errWatchEstablishTimeout
 	}
@@ -415,7 +452,8 @@ func establishWatch(ctx context.Context, c client.WithWatch, obj client.ObjectLi
 
 func (rc *remoteClient) establishWatcher(ctx context.Context, kind string, w jobframework.MultiKueueWatcher) (func(), error) {
 	log := ctrl.LoggerFrom(ctx).WithValues("watchKind", kind)
-	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1))
+	shouldWatchHonorsCancellation := rc.config == nil || rc.config.RestConfig == nil || rc.config.RestConfig.ExecProvider == nil
+	newWatcher, err := establishWatch(ctx, rc.client, w.GetEmptyList(), rc.origin, establishBackoff.WaitTime(int(rc.failedConnAttempts)+1), &rc.watchEstablishing, shouldWatchHonorsCancellation)
 	if err != nil {
 		return nil, err
 	}
@@ -816,7 +854,9 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		return retryAfter, err
 	} else if retryAfter != nil {
-		ctrl.LoggerFrom(ctx).V(2).Info("reconnect deferred, backoff not elapsed", "retryAfter", retryAfter, "failedAttempts", client.getFailedConnAttempts())
+		if logV := ctrl.LoggerFrom(ctx).V(2); logV.Enabled() {
+			logV.Info("reconnect deferred, backoff not elapsed", "retryAfter", retryAfter, "failedAttempts", client.getFailedConnAttempts())
+		}
 		return retryAfter, nil
 	}
 	return nil, nil
@@ -1108,6 +1148,15 @@ func (c *clustersReconciler) getKubeConfigFromPath(rawPath string) ([]byte, erro
 }
 
 func (c *clustersReconciler) updateStatus(ctx context.Context, cluster *kueue.MultiKueueCluster, active bool, reason, message string) error {
+	if !active {
+		if rc, found := c.controllerFor(cluster.Name); found {
+			if attempts := rc.getFailedConnAttempts(); attempts > 0 {
+				message = fmt.Sprintf("%s; connection attempts: %d, next connection attempt: %s",
+					message, attempts, rc.getRetryConnNextAttempt().UTC().Format(time.RFC3339))
+			}
+		}
+	}
+
 	newCondition := metav1.Condition{
 		Type:               kueue.MultiKueueClusterActive,
 		Status:             metav1.ConditionFalse,

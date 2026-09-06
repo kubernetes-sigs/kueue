@@ -17,7 +17,11 @@ limitations under the License.
 package leaderworkerset
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,8 +34,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -66,9 +70,40 @@ var (
 	stsGVK = appsv1.SchemeGroupVersion.WithKind("StatefulSet")
 )
 
+func TestEnqueue(t *testing.T) {
+	queued := []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: testNS, Name: testLWS}}}
+	cases := map[string]struct {
+		current string
+		update  string
+		want    []reconcile.Request
+	}{
+		"a rollout in progress is queued":     {current: "rev1", update: "rev2", want: queued},
+		"a settled revision is left alone":    {current: "rev1", update: "rev1"},
+		"and so is an unset update revision":  {current: "rev1", update: ""},
+		"and so is an unset current revision": {current: "", update: "rev1"},
+		"and so are two unset revisions":      {current: "", update: ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			sts := statefulset.MakeStatefulSet(testSTS, testNS).
+				Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				CurrentRevision(tc.current).
+				UpdateRevision(tc.update).
+				Obj()
+			q := &utiltesting.MockTypedRateLimitingInterface{}
+			(&lwsStsHandler{}).enqueue(t.Context(), sts, q)
+			if diff := cmp.Diff(tc.want, q.Items); diff != "" {
+				t.Errorf("enqueue() queued (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestReconciler(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
+	workloadUpdateErr := errors.New("workload update failed")
 
 	cases := map[string]struct {
 		featureGates            map[featuregate.Feature]bool
@@ -484,7 +519,7 @@ func TestReconciler(t *testing.T) {
 							Image(utiltestingjobs.TestDefaultContainerImage).
 							Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 							RequiredTopologyRequest("cloud.com/block").
-							PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey)).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
 							Obj(),
 					).
 					Priority(0).
@@ -650,6 +685,142 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		// Two replicas, and each component resolves the class for itself, so the
+		// warning arrives once per component. The fix for #13820 collapses those
+		// into a single resolution, and the event follows it.
+		"should report a missing workload priority class when creating the workloads": {
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				WorkloadPriorityClass("missing-wpc").
+				Replicas(2).
+				UID(testLWS).
+				Obj(),
+			// missing-wpc is deliberately not created.
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					WorkloadPriorityClass("missing-wpc").
+					Replicas(2).
+					UID(testLWS).
+					Obj(),
+			},
+			wantErr: cmpopts.AnyError,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeWarning,
+					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
+					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+				},
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeWarning,
+					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
+					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+				},
+			},
+		},
+		// The other path into the boundary: the label is changed on a set that
+		// already has Workloads, so this goes through updateWorkload rather than
+		// createWorkload. Neither Workload is rewritten.
+		"should report a missing workload priority class when the label is changed": {
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				WorkloadPriorityClass("missing-wpc").
+				Replicas(2).
+				UID(testLWS).
+				Obj(),
+			workloadPriorityClasses: []kueue.WorkloadPriorityClass{
+				*utiltestingapi.MakeWorkloadPriorityClass("existing-wpc").PriorityValue(1000).Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					WorkloadPriorityClassRef("existing-wpc").
+					Priority(1000).
+					Obj(),
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "1"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					WorkloadPriorityClassRef("existing-wpc").
+					Priority(1000).
+					Obj(),
+			},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					WorkloadPriorityClass("missing-wpc").
+					Replicas(2).
+					UID(testLWS).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					WorkloadPriorityClassRef("existing-wpc").
+					Priority(1000).
+					Obj(),
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "1"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "1").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					WorkloadPriorityClassRef("existing-wpc").
+					Priority(1000).
+					Obj(),
+			},
+			wantErr: cmpopts.AnyError,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeWarning,
+					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
+					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+				},
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeWarning,
+					Reason:    jobframework.ReasonWorkloadPriorityClassNotFound,
+					Message:   `WorkloadPriorityClass "missing-wpc" not found`,
+				},
+			},
+		},
 		"should update prebuilt workload if queue-name label is set": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
@@ -773,6 +944,148 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 			wantEvents: nil,
+		},
+		"should atomically update prebuilt workload queue name and AdmissionGatedBy": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations: false,
+				features.AdmissionGatedBy:              true,
+			},
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				UID(testLWS).
+				Queue("queue").
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testLWS).
+					Queue("queue").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Queue("old-queue").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Queue("queue").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonUpdatedWorkload,
+					Message:   `Updated workload AdmissionGatedBy to "example.com/controller1"`,
+				},
+			},
+		},
+		"should not persist workload metadata when the combined update fails": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations: false,
+				features.AdmissionGatedBy:              true,
+			},
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				UID(testLWS).
+				Queue("queue").
+				Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+				Obj(),
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testLWS).
+					Queue("queue").
+					Annotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/controller1").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Queue("old-queue").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
+			wantErr: workloadUpdateErr,
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Queue("old-queue").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).
+							Obj(),
+						now,
+					).
+					Obj(),
+			},
 		},
 		// Simulates a scale-down (spec.Replicas=1) while status.Replicas=2 hasn't caught up yet.
 		// During scale-down, the LWS controller updates status.Replicas asynchronously, so
@@ -1120,7 +1433,240 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"should finalize pods if leaderworkerset is deleted": {
+		"should backfill queue-name on an already adopted pod": {
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				UID(testLWS).
+				Queue("queue").
+				Obj(),
+			statefulSets: []appsv1.StatefulSet{
+				*statefulset.MakeStatefulSet(testSTS, testNS).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Obj(),
+			},
+			// Migration case: the pod was already adopted but carries a stale queue name,
+			// because it came from a template the webhook never stamped.
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", testNS).
+					OwnerReference(testSTS, stsGVK).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					ManagedByKueueLabel().
+					Queue("old-queue").
+					GroupNameLabel(GetWorkloadName(testLWS, testLWS, "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkloadLabel(GetWorkloadName(testLWS, testLWS, "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					KueueSchedulingGate().
+					KueueFinalizer().
+					Obj(),
+			},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testLWS).
+					Queue("queue").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", testNS).
+					OwnerReference(testSTS, stsGVK).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					ManagedByKueueLabel().
+					Queue("queue").
+					GroupNameLabel(GetWorkloadName(testLWS, testLWS, "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkloadLabel(GetWorkloadName(testLWS, testLWS, "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					KueueSchedulingGate().
+					KueueFinalizer().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Queue("queue").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
+							Obj()).
+					Priority(0).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message: fmt.Sprintf(
+						"Created Workload: %s/%s",
+						testNS,
+						GetWorkloadName(testLWS, testLWS, "0"),
+					),
+				},
+			},
+		},
+		"should not backfill queue-name on an ungated pod": {
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				UID(testLWS).
+				Queue("queue").
+				Obj(),
+			statefulSets: []appsv1.StatefulSet{
+				*statefulset.MakeStatefulSet(testSTS, testNS).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Obj(),
+			},
+			// The pod is already ungated, so the pod webhook rejects a queue-name
+			// change as immutable. Leave it alone: it is running and does not need it.
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", testNS).
+					OwnerReference(testSTS, stsGVK).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					ManagedByKueueLabel().
+					GroupNameLabel(GetWorkloadName(testLWS, testLWS, "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkloadLabel(GetWorkloadName(testLWS, testLWS, "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					KueueFinalizer().
+					Obj(),
+			},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testLWS).
+					Queue("queue").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", testNS).
+					OwnerReference(testSTS, stsGVK).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					ManagedByKueueLabel().
+					GroupNameLabel(GetWorkloadName(testLWS, testLWS, "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkloadLabel(GetWorkloadName(testLWS, testLWS, "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					KueueFinalizer().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Queue("queue").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
+							Obj()).
+					Priority(0).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message: fmt.Sprintf(
+						"Created Workload: %s/%s",
+						testNS,
+						GetWorkloadName(testLWS, testLWS, "0"),
+					),
+				},
+			},
+		},
+		"should set queue-name when adopting a pod without it": {
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+				UID(testLWS).
+				Queue("queue").
+				Obj(),
+			statefulSets: []appsv1.StatefulSet{
+				*statefulset.MakeStatefulSet(testSTS, testNS).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Obj(),
+			},
+			// Migration case: unlike the test above, this pod comes from a template the
+			// webhook never stamped, so the reconciler sets the queue name while adopting
+			// it instead of leaving the pod unlabelled for a later reconcile to backfill.
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", testNS).
+					OwnerReference(testSTS, stsGVK).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					KueueSchedulingGate().
+					Obj(),
+			},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+					UID(testLWS).
+					Queue("queue").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", testNS).
+					OwnerReference(testSTS, stsGVK).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					ManagedByKueueLabel().
+					Queue("queue").
+					GroupNameAnnotation(GetWorkloadName(testLWS, testLWS, "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkloadAnnotation(GetWorkloadName(testLWS, testLWS, "0")).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					KueueSchedulingGate().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Queue("queue").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
+							Obj()).
+					Priority(0).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: testLWS, Namespace: testNS},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonCreatedWorkload,
+					Message: fmt.Sprintf(
+						"Created Workload: %s/%s",
+						testNS,
+						GetWorkloadName(testLWS, testLWS, "0"),
+					),
+				},
+			},
+		},
+		"should ungate pods if leaderworkerset is deleted": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: nil,
 			statefulSets: []appsv1.StatefulSet{
@@ -1136,6 +1682,7 @@ func TestReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
 					Obj(),
 			},
@@ -1148,10 +1695,11 @@ func TestReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					KueueFinalizer().
 					Obj(),
 			},
 		},
-		"should finalize pods if statefulSet is deleted": {
+		"should ungate pods if statefulSet is deleted": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets:    nil,
@@ -1179,6 +1727,7 @@ func TestReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
 					Obj(),
 			},
@@ -1209,10 +1758,80 @@ func TestReconciler(t *testing.T) {
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					KueueFinalizer().
 					Obj(),
 			},
 		},
-		"should finalize succeeded pod": {
+		"should ungate current revision pods during a statefulSet rollout without removing finalizers": {
+			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
+			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
+			statefulSets: []appsv1.StatefulSet{
+				*statefulset.MakeStatefulSet(testSTS, testNS).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					CurrentRevision("revision-1").
+					UpdateRevision("revision-2").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", testNS).
+					OwnerReference(testSTS, stsGVK).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Gate(podconstants.SchedulingGateName).
+					KueueFinalizer().
+					Obj(),
+			},
+			wantLeaderWorkerSets: []leaderworkersetv1.LeaderWorkerSet{
+				*leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					JobUID(testLWS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(constants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(constants.JobOwnerNameAnnotation, testLWS).
+					Annotation(constants.ComponentWorkloadIndexAnnotation, "0").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", testNS).
+					OwnerReference(testSTS, stsGVK).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					KueueFinalizer().
+					Obj(),
+			},
+		},
+		"should ignore succeeded pod": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
@@ -1276,10 +1895,11 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					StatusPhase(corev1.PodSucceeded).
+					KueueFinalizer().
 					Obj(),
 			},
 		},
-		"should finalize failed pod": {
+		"should ignore failed pod": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
@@ -1353,10 +1973,11 @@ func TestReconciler(t *testing.T) {
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
 					StatusPhase(corev1.PodFailed).
+					KueueFinalizer().
 					Obj(),
 			},
 		},
-		"should finalize deleted pod": {
+		"should ignore deleted pod": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
@@ -1417,7 +2038,22 @@ func TestReconciler(t *testing.T) {
 					Priority(0).
 					Obj(),
 			},
-			wantPods: nil,
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", testNS).
+					OwnerReference(testSTS, stsGVK).
+					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
+					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					ManagedByKueueLabel().
+					GroupNameLabel(GetWorkloadName(testLWS, testLWS, "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkloadLabel(GetWorkloadName(testLWS, testLWS, "0")).
+					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					DeletionTimestamp(now).
+					KueueFinalizer().
+					Obj(),
+			},
 		},
 		"shouldn't set default values with managed-by-kueue label": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -1581,11 +2217,14 @@ func TestReconciler(t *testing.T) {
 					).
 					Obj(),
 			},
+			// Normal case: the webhook stamped the queue name on the pod template, so the
+			// pod already carries it when the reconciler adopts it.
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", testNS).
 					OwnerReference(testSTS, stsGVK).
 					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
+					Queue("queue").
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 					Annotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 					Obj(),
@@ -1623,6 +2262,7 @@ func TestReconciler(t *testing.T) {
 					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					ManagedByKueueLabel().
+					Queue("queue").
 					GroupNameLabel(GetWorkloadName(testLWS, testLWS, "0")).
 					GroupTotalCount("1").
 					PrebuiltWorkloadLabel(GetWorkloadName(testLWS, testLWS, "0")).
@@ -2065,6 +2705,14 @@ func TestReconciler(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme)
+			clientBuilder = clientBuilder.WithInterceptorFuncs(interceptor.Funcs{
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					if _, ok := obj.(*kueue.Workload); ok && errors.Is(tc.wantErr, workloadUpdateErr) {
+						return workloadUpdateErr
+					}
+					return c.Update(ctx, obj, opts...)
+				},
+			})
 			indexer := utiltesting.AsIndexer(clientBuilder)
 
 			objs := make([]client.Object, 0, len(tc.workloads)+len(tc.workloadPriorityClasses)+1)
@@ -2130,5 +2778,90 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Unexpected events (-want/+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestReconcileWorkloadsDoesNotCancelTheOtherBranches pins that a failing
+// branch leaves the others' context alone. The three hold disjoint sets of
+// Workloads, and parallelize.Until checks for cancellation before each item,
+// so under a derived context a delete that failed first could stop the create
+// and update branches before they ran at all.
+func TestReconcileWorkloadsDoesNotCancelTheOtherBranches(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).
+		UID(testLWS).
+		Replicas(1).
+		Queue("lq").
+		WorkloadPriorityClass("wpc").
+		Obj()
+	// Not among the names replicas=1 asks for, so the delete branch takes it.
+	surplus := utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "7"), testNS).
+		JobUID(testLWS).
+		OwnerReference(gvk, testLWS, testLWS).
+		Obj()
+	wpc := utiltestingapi.MakeWorkloadPriorityClass("wpc").PriorityValue(100).Obj()
+
+	var (
+		createReached = make(chan struct{})
+		deleteFailed  = make(chan struct{})
+		reachedOnce   sync.Once
+		failedOnce    sync.Once
+		cancelledHere atomic.Bool
+		errNotOrdered = errors.New("the delete branch never failed")
+		errDeleting   = errors.New("deleting the surplus workload")
+	)
+
+	clientBuilder := utiltesting.NewClientBuilder(leaderworkersetv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
+		// The class lookup stands in for the create branch: it announces that
+		// the branch is inside a work item, then waits for the delete to fail,
+		// so a cancellation would have landed by the time it looks.
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if _, isClass := obj.(*kueue.WorkloadPriorityClass); isClass {
+				reachedOnce.Do(func() { close(createReached) })
+				if !utiltesting.AwaitBranch(deleteFailed) {
+					return errNotOrdered
+				}
+				if utiltesting.ObserveCancellation(ctx) {
+					cancelledHere.Store(true)
+				}
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			if _, isWorkload := obj.(*kueue.Workload); isWorkload {
+				if !utiltesting.AwaitBranch(createReached) {
+					return errNotOrdered
+				}
+				failedOnce.Do(func() { close(deleteFailed) })
+				return errDeleting
+			}
+			return c.Delete(ctx, obj, opts...)
+		},
+	})
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	kClient := clientBuilder.WithObjects(lws, surplus, wpc).Build()
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("Creating the reconciler: %v", err)
+	}
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}})
+	if errors.Is(err, errNotOrdered) {
+		t.Fatalf("Reconcile() error = %v, so the branches never interleaved and the ordering below was not exercised", err)
+	}
+	if !errors.Is(err, errDeleting) {
+		t.Fatalf("Reconcile() error = %v, want %v", err, errDeleting)
+	}
+	if cancelledHere.Load() {
+		t.Error("the create branch ran under a context the delete failure had cancelled")
+	}
+	// An uncancelled context is only half of it: the branch also has to have finished its work.
+	created := &kueue.Workload{}
+	if err := kClient.Get(ctx, types.NamespacedName{Name: GetWorkloadName(testLWS, testLWS, "0"), Namespace: testNS}, created); err != nil {
+		t.Fatalf("Getting the Workload the create branch was to make: %v", err)
+	}
+	if created.Spec.Priority == nil || *created.Spec.Priority != 100 {
+		t.Errorf("created Workload priority = %v, want the class value 100", created.Spec.Priority)
 	}
 }

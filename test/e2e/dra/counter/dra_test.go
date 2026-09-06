@@ -17,12 +17,9 @@ limitations under the License.
 package counter
 
 import (
-	"context"
-
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -34,21 +31,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
-
-func expectWorkloadCounterCharge(ctx context.Context, wlKey types.NamespacedName, expectedMemory string) {
-	createdWorkload := &kueue.Workload{}
-	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).To(gomega.Succeed())
-		g.Expect(workload.HasQuotaReservation(createdWorkload)).To(gomega.BeTrue())
-		g.Expect(createdWorkload.Status.Admission).NotTo(gomega.BeNil())
-		g.Expect(createdWorkload.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
-
-		assignment := createdWorkload.Status.Admission.PodSetAssignments[0]
-		g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu.memory")))
-		memUsage := assignment.ResourceUsage["gpu.memory"]
-		g.Expect(memUsage.Cmp(resource.MustParse(expectedMemory))).To(gomega.Equal(0))
-	}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("workload should have counter charge of "+expectedMemory, createdWorkload))
-}
 
 var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 	var ns *corev1.Namespace
@@ -112,7 +94,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			}
 
 			ginkgo.By("Verifying workload is admitted with counter charge of 20Gi")
-			expectWorkloadCounterCharge(ctx, wlLookupKey, "20Gi")
+			util.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "20Gi")
 
 			ginkgo.By("Verifying job completes successfully")
 			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
@@ -142,7 +124,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			}
 
 			ginkgo.By("Verifying counter charge is 40Gi (20Gi x 2)")
-			expectWorkloadCounterCharge(ctx, wlLookupKey, "40Gi")
+			util.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "40Gi")
 
 			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
 		})
@@ -170,7 +152,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			}
 
 			ginkgo.By("Verifying counter charge is 80Gi (largest across matched devices)")
-			expectWorkloadCounterCharge(ctx, wlLookupKey, "80Gi")
+			util.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "80Gi")
 
 			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
 		})
@@ -197,7 +179,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			}
 
 			ginkgo.By("Verifying counter charge is 80Gi (largest across all devices)")
-			expectWorkloadCounterCharge(ctx, wlLookupKey, "80Gi")
+			util.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "80Gi")
 
 			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
 		})
@@ -231,7 +213,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			}
 
 			ginkgo.By("Verifying combined counter charge is 100Gi (80Gi full + 20Gi partition)")
-			expectWorkloadCounterCharge(ctx, wlLookupKey, "100Gi")
+			util.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "100Gi")
 
 			ginkgo.By("Verifying job completes successfully")
 			util.ExpectJobToBeCompleted(ctx, k8sClient, job)
@@ -309,7 +291,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			}
 
 			for _, wlKey := range []types.NamespacedName{wlLookupKey1, wlLookupKey2} {
-				expectWorkloadCounterCharge(ctx, wlKey, "20Gi")
+				util.ExpectWorkloadResourceUsage(ctx, k8sClient, wlKey, "gpu.memory", "20Gi")
 			}
 
 			ginkgo.By("Verifying both jobs complete")

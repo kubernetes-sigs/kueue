@@ -93,4 +93,4 @@ Such ResourceFlavor is called an empty ResourceFlavor and its definition looks l
 ## What's next?
 
 - Learn about [cluster queues](/v0.18/docs/concepts/cluster_queue).
-- Read the [API reference](/v0.18/docs/reference/kueue.v1beta1/#kueue-x-k8s-io-v1beta1-ResourceFlavor) for `ResourceFlavor`
+- Read the [API reference](/v0.18/docs/reference/kueue.v1beta2/#kueue-x-k8s-io-v1beta2-ResourceFlavor) for `ResourceFlavor`

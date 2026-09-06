@@ -134,6 +134,11 @@ func (f *Framework) RunPodNetworkPlugins(info *runtime.Info, trainJob *trainer.T
 }
 
 func (f *Framework) RunComponentBuilderPlugins(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
+	for _, plugin := range f.componentBuilderPlugins {
+		if err := plugin.SyncParallelCount(info); err != nil {
+			return nil, err
+		}
+	}
 	var objs []apiruntime.ApplyConfiguration
 	for _, plugin := range f.componentBuilderPlugins {
 		components, err := plugin.Build(ctx, info, trainJob)

@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -73,6 +74,18 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
 					Field: "integrations",
+				},
+			},
+		},
+		"invalid quota release strategy": {
+			cfg: &configapi.Configuration{
+				Integrations:         defaultIntegrations,
+				QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseStrategy("InvalidStrategy")),
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "quotaReleaseStrategy",
 				},
 			},
 		},
@@ -242,7 +255,7 @@ func TestValidate(t *testing.T) {
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						Timestamp: ptr.To[configapi.RequeuingTimestamp]("NoSupported"),
+						Timestamp: new(configapi.RequeuingTimestamp("NoSupported")),
 					},
 				},
 			},
@@ -312,10 +325,10 @@ func TestValidate(t *testing.T) {
 					},
 					BlockAdmission: new(false),
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						Timestamp:          ptr.To(configapi.CreationTimestamp),
-						BackoffLimitCount:  ptr.To[int32](10),
-						BackoffBaseSeconds: ptr.To[int32](30),
-						BackoffMaxSeconds:  ptr.To[int32](1800),
+						Timestamp:          new(configapi.CreationTimestamp),
+						BackoffLimitCount:  new(int32(10)),
+						BackoffBaseSeconds: new(int32(30)),
+						BackoffMaxSeconds:  new(int32(1800)),
 					},
 				},
 			},
@@ -326,7 +339,7 @@ func TestValidate(t *testing.T) {
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						BackoffLimitCount: ptr.To[int32](-1),
+						BackoffLimitCount: new(int32(-1)),
 					},
 				},
 			},
@@ -343,7 +356,7 @@ func TestValidate(t *testing.T) {
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						BackoffBaseSeconds: ptr.To[int32](-1),
+						BackoffBaseSeconds: new(int32(-1)),
 					},
 				},
 			},
@@ -360,7 +373,7 @@ func TestValidate(t *testing.T) {
 				WaitForPodsReady: &configapi.WaitForPodsReady{
 					Timeout: metav1.Duration{Duration: 5 * time.Minute},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						BackoffMaxSeconds: ptr.To[int32](-1),
+						BackoffMaxSeconds: new(int32(-1)),
 					},
 				},
 			},
@@ -435,7 +448,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					DispatcherName: ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					DispatcherName: new(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(2)),
 					},
@@ -446,7 +459,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					DispatcherName: ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName: new(configapi.MultiKueueDispatcherModeAllAtOnce),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(2)),
 					},
@@ -463,7 +476,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				MultiKueue: &configapi.MultiKueue{
-					DispatcherName: ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					DispatcherName: new(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(0)),
 					},
@@ -882,7 +895,7 @@ func TestValidate(t *testing.T) {
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: ptr.To(configapi.ResourceTransformationStrategy("invalid")),
+							Strategy: new(configapi.ResourceTransformationStrategy("invalid")),
 						},
 					},
 				},
@@ -902,15 +915,15 @@ func TestValidate(t *testing.T) {
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: ptr.To(configapi.Retain),
+							Strategy: new(configapi.Retain),
 						},
 						{
 							Input:    corev1.ResourceMemory,
-							Strategy: ptr.To(configapi.Retain),
+							Strategy: new(configapi.Retain),
 						},
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: ptr.To(configapi.Retain),
+							Strategy: new(configapi.Retain),
 						},
 					},
 				},
@@ -930,11 +943,11 @@ func TestValidate(t *testing.T) {
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: ptr.To(configapi.Retain),
+							Strategy: new(configapi.Retain),
 						},
 						{
 							Input:    corev1.ResourceMemory,
-							Strategy: ptr.To(configapi.Replace),
+							Strategy: new(configapi.Replace),
 						},
 					},
 				},
@@ -1146,7 +1159,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				VisibilityServer: &configapi.VisibilityServerConfiguration{
-					BindPort: ptr.To[int32](0),
+					BindPort: new(int32(0)),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -1160,7 +1173,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				VisibilityServer: &configapi.VisibilityServerConfiguration{
-					BindPort: ptr.To[int32](8080),
+					BindPort: new(int32(8080)),
 				},
 			},
 		},
@@ -1168,7 +1181,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
-					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+					QuotaCheckStrategy:      new(configapi.QuotaCheckIgnoreUndeclared),
 					ExcludeResourcePrefixes: []string{"foo.com/device"},
 				},
 			},
@@ -1184,7 +1197,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
-					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+					QuotaCheckStrategy: new(configapi.QuotaCheckIgnoreUndeclared),
 				},
 			},
 		},
@@ -1192,7 +1205,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
-					QuotaCheckStrategy:      ptr.To(configapi.QuotaCheckBlockUndeclared),
+					QuotaCheckStrategy:      new(configapi.QuotaCheckBlockUndeclared),
 					ExcludeResourcePrefixes: []string{"foo.com/device"},
 				},
 			},
@@ -1201,7 +1214,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
-					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+					QuotaCheckStrategy: new(configapi.QuotaCheckStrategy("test")),
 				},
 			},
 			wantErr: field.ErrorList{
@@ -1215,7 +1228,7 @@ func TestValidate(t *testing.T) {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
 				Resources: &configapi.Resources{
-					QuotaCheckStrategy: ptr.To(configapi.QuotaCheckStrategy("test")),
+					QuotaCheckStrategy: new(configapi.QuotaCheckStrategy("test")),
 				},
 			},
 			featureGates: map[featuregate.Feature]bool{
@@ -1320,6 +1333,262 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
 					Field: "resources.deviceClassMappings[1].deviceClassNames[0]",
+				},
+			},
+		},
+		// Kueue owns the bare pods key for Pod-count accounting.
+		// Only that exact name is reserved; a qualified name ending in /pods
+		// is a different resource.
+		"qualified names ending in pods accepted": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "dra.example.com/pods",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "input.example.com/pods",
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: "multiplier.example.com/pods",
+							Outputs: corev1.ResourceList{
+								"output.example.com/pods": resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+		},
+		// The case above rules out a match that only ends in the reserved name.
+		// These rule out one that only starts with it, and one that differs from
+		// it in case alone.
+		"names that merely resemble the reserved one accepted": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "pods.example.com/gpu",
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "Pods",
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: "pods-per-node",
+							Outputs: corev1.ResourceList{
+								"PODS": resource.MustParse("1"),
+							},
+						},
+					},
+				},
+			},
+		},
+		"device class mapping named pods rejected when DRA is enabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             corev1.ResourcePods,
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].name",
+				},
+			},
+		},
+		// The mapper is only built behind the gate, so nothing reads this name
+		// while it is off and refusing it would fail an upgrade about something
+		// else. It is refused the day the gate goes on, which is the case above.
+		"device class mapping named pods accepted when DRA is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             corev1.ResourcePods,
+							DeviceClassNames: []corev1.ResourceName{"gpu.nvidia.com"},
+						},
+					},
+				},
+			},
+		},
+		// Transformations are installed whatever the DRA gate says, so the name is
+		// refused there whatever it says too.
+		"transformation output named pods rejected when DRA is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegration: false},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    "example.com/credits",
+							Strategy: new(configapi.Retain),
+							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[pods]",
+				},
+			},
+		},
+		"transformation output named pods rejected": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    "example.com/credits",
+							Strategy: new(configapi.Retain),
+							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[pods]",
+				},
+			},
+		},
+		"transformation taking pods as input rejected": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    corev1.ResourcePods,
+							Strategy: new(configapi.Replace),
+							Outputs:  corev1.ResourceList{"example.com/license": resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].input",
+				},
+			},
+		},
+		"transformation multiplying by pods rejected": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "example.com/credits",
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: corev1.ResourcePods,
+							Outputs:    corev1.ResourceList{"example.com/charge": resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].multiplyBy",
+				},
+			},
+		},
+		// The escape hatch: a configuration every released version accepted, loaded
+		// by a manager told not to refuse it.
+		"every position naming pods is accepted while the gate is off": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ReservedResourceNameValidation: false,
+				features.KueueDRAIntegration:            true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      corev1.ResourcePods,
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: corev1.ResourcePods,
+							Outputs:    corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             corev1.ResourcePods,
+							DeviceClassNames: []corev1.ResourceName{"gpu.example.com"},
+						},
+					},
+				},
+			},
+		},
+		"transformation naming pods twice reports both": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:      "example.com/credits",
+							Strategy:   new(configapi.Retain),
+							MultiplyBy: corev1.ResourcePods,
+							Outputs:    corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[pods]",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].multiplyBy",
+				},
+			},
+		},
+		// Reported per entry rather than once for the Configuration, and in the
+		// order the transformations are written.
+		"pods reported for each transformation naming it": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					Transformations: []configapi.ResourceTransformation{
+						{
+							Input:    "example.com/credits",
+							Strategy: new(configapi.Retain),
+							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+						{
+							Input:    "example.com/tokens",
+							Strategy: new(configapi.Retain),
+							Outputs:  corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[0].outputs[pods]",
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.transformations[1].outputs[pods]",
 				},
 			},
 		},
@@ -1665,6 +1934,35 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"capacity source with malformed qualified name (more than one slash)": {
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationConsumableCapacity: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Resources: &configapi.Resources{
+					DeviceClassMappings: []configapi.DeviceClassMapping{
+						{
+							Name:             "gpu.memory",
+							DeviceClassNames: []corev1.ResourceName{"vgpu.example.com"},
+							Sources: []configapi.DeviceClassSourceConfig{
+								{Capacity: &configapi.DeviceClassCapacitySource{
+									Name:   "a/b/c",
+									Driver: "gpu.example.com",
+									DeviceSelector: resourcev1.DeviceSelector{
+										CEL: &resourcev1.CELDeviceSelector{Expression: "device.driver == 'gpu.example.com'"},
+									},
+								}},
+							},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "resources.deviceClassMappings[0].sources[0].capacity.name",
+				},
+			},
+		},
 		"capacity source with CC gate disabled": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -1840,14 +2138,16 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"cannot set TAS profile with TAS disabled": {
 			featureGateMap: map[string]bool{
-				string(features.TASProfileMixed):                  true,
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TASProfileMixed):                             true,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1891,16 +2191,18 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"ElasticJobsViaWorkloadSlicesWithTAS requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
-				string(features.ElasticJobsViaWorkloadSlices):        true,
-				string(features.TopologyAwareScheduling):             false,
-				string(features.TASHandleOverlappingFlavors):         false,
-				string(features.TASProfileMixed):                     false,
-				string(features.TASFailedNodeReplacement):            false,
-				string(features.TASFailedNodeReplacementFailFast):    false,
-				string(features.TASReplaceNodeOnPodTermination):      false,
-				string(features.TASReplaceNodeOnNodeTaints):          false,
-				string(features.TASMultiLayerTopology):               false,
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS):         true,
+				string(features.ElasticJobsViaWorkloadSlices):                true,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1920,16 +2222,18 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"multiple FG validation errors at once": {
 			featureGateMap: map[string]bool{
-				string(features.TASProfileMixed):                     true,
-				string(features.TopologyAwareScheduling):             false,
-				string(features.TASHandleOverlappingFlavors):         true,
-				string(features.ElasticJobsViaWorkloadSlicesWithTAS): true,
-				string(features.ElasticJobsViaWorkloadSlices):        false,
-				string(features.TASFailedNodeReplacement):            false,
-				string(features.TASFailedNodeReplacementFailFast):    false,
-				string(features.TASReplaceNodeOnPodTermination):      false,
-				string(features.TASReplaceNodeOnNodeTaints):          false,
-				string(features.TASMultiLayerTopology):               false,
+				string(features.TASProfileMixed):                             true,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASHandleOverlappingFlavors):                 true,
+				string(features.ElasticJobsViaWorkloadSlicesWithTAS):         true,
+				string(features.ElasticJobsViaWorkloadSlices):                false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1940,14 +2244,16 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASHandleOverlappingFlavors requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      true,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 true,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1963,16 +2269,39 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASHandleOverlappingFlavors): true,
 			},
 		},
+		"TASRecomputeAssignmentWithinSchedulingCycle requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): true,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASGroupedPodSetSlicing):                     false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASRecomputeAssignmentWithinSchedulingCycle is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
+				},
+			},
+		},
 		"TASFailedNodeReplacement requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         true,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    true,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -1984,15 +2313,17 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASBalancedPlacement requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASBalancedPlacement):             true,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASBalancedPlacement):                        true,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2004,14 +2335,16 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASReplaceNodeOnNodeTaints requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       true,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  true,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2023,14 +2356,16 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASMultiLayerTopology requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            true,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       true,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2042,21 +2377,44 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASRespectNodeAffinityPreferred requires TopologyAwareScheduling": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASRespectNodeAffinityPreferred):  true,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASRespectNodeAffinityPreferred):             true,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "TASRespectNodeAffinityPreferred is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
+				},
+			},
+		},
+		"TASGroupedPodSetSlicing requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TASGroupedPodSetSlicing):                     true,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASGroupedPodSetSlicing is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
 				},
 			},
 		},
@@ -2093,14 +2451,16 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASFailedNodeReplacementFailFast requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): true,
-				string(features.TASReplaceNodeOnPodTermination):   false,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            true,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2111,14 +2471,16 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"TASReplaceNodeOnPodTermination requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          false,
-				string(features.TASProfileMixed):                  false,
-				string(features.TASHandleOverlappingFlavors):      false,
-				string(features.TASFailedNodeReplacement):         false,
-				string(features.TASFailedNodeReplacementFailFast): false,
-				string(features.TASReplaceNodeOnPodTermination):   true,
-				string(features.TASReplaceNodeOnNodeTaints):       false,
-				string(features.TASMultiLayerTopology):            false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              true,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASGroupedPodSetSlicing):                     false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2138,6 +2500,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):            true,
 				string(features.TASRespectNodeAffinityPreferred):  true,
 				string(features.TASHandleOverlappingFlavors):      true,
+				string(features.TASGroupedPodSetSlicing):          true,
 			},
 		},
 		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
@@ -2898,7 +3261,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:          "team",
-								SourceKind:    ptr.To(configapi.SourceKindWorkload),
+								SourceKind:    new(configapi.SourceKindWorkload),
 								TrackedValues: []string{"a"},
 							},
 						},
@@ -2913,7 +3276,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:          "team",
-								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								SourceKind:    new(configapi.SourceKindCohort),
 								TrackedValues: []string{"a"},
 							},
 						},
@@ -3059,7 +3422,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:       "team",
-								SourceKind: ptr.To(configapi.SourceKind("Unknown")),
+								SourceKind: new(configapi.SourceKind("Unknown")),
 							},
 						},
 					},
@@ -3105,15 +3468,15 @@ func TestValidateCustomLabels(t *testing.T) {
 				ControllerManager: configapi.ControllerManager{
 					Metrics: configapi.ControllerMetrics{
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
-							{Name: "c1", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c2", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c3", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c4", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c5", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c6", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c7", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c8", SourceKind: ptr.To(configapi.SourceKindCohort)},
-							{Name: "c9", SourceKind: ptr.To(configapi.SourceKindCohort)},
+							{Name: "c1", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c2", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c3", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c4", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c5", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c6", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c7", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c8", SourceKind: new(configapi.SourceKindCohort)},
+							{Name: "c9", SourceKind: new(configapi.SourceKindCohort)},
 						},
 					},
 				},
@@ -3126,6 +3489,50 @@ func TestValidateCustomLabels(t *testing.T) {
 				},
 			},
 		},
+		"too many custom labels for local queue": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "lq1", SourceKind: new(configapi.SourceKindLocalQueue)},
+							{Name: "lq2", SourceKind: new(configapi.SourceKindLocalQueue)},
+							{Name: "lq3", SourceKind: new(configapi.SourceKindLocalQueue)},
+							{Name: "lq4", SourceKind: new(configapi.SourceKindLocalQueue)},
+							{Name: "lq5", SourceKind: new(configapi.SourceKindLocalQueue)},
+							{Name: "lq6", SourceKind: new(configapi.SourceKindLocalQueue)},
+							{Name: "lq7", SourceKind: new(configapi.SourceKindLocalQueue)},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels",
+					Detail: "too many custom labels for source kind LocalQueue: found 7, expected <= 6",
+				},
+			},
+		},
+		"too many custom labels for workload": {
+			cfg: &configapi.Configuration{
+				ControllerManager: configapi.ControllerManager{
+					Metrics: configapi.ControllerMetrics{
+						CustomLabels: []configapi.ControllerMetricsCustomLabel{
+							{Name: "wl1", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"v"}},
+							{Name: "wl2", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"v"}},
+							{Name: "wl3", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"v"}},
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "metrics.customLabels",
+					Detail: "too many custom labels for source kind Workload: found 3, expected <= 2",
+				},
+			},
+		},
 		"workload without tracked values": {
 			cfg: &configapi.Configuration{
 				ControllerManager: configapi.ControllerManager{
@@ -3133,7 +3540,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:       "team",
-								SourceKind: ptr.To(configapi.SourceKindWorkload),
+								SourceKind: new(configapi.SourceKindWorkload),
 							},
 						},
 					},
@@ -3154,7 +3561,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:          "team",
-								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								SourceKind:    new(configapi.SourceKindCohort),
 								TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17"},
 							},
 						},
@@ -3176,7 +3583,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:          "team",
-								SourceKind:    ptr.To(configapi.SourceKindWorkload),
+								SourceKind:    new(configapi.SourceKindWorkload),
 								TrackedValues: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13"},
 							},
 						},
@@ -3198,7 +3605,7 @@ func TestValidateCustomLabels(t *testing.T) {
 						CustomLabels: []configapi.ControllerMetricsCustomLabel{
 							{
 								Name:          "team",
-								SourceKind:    ptr.To(configapi.SourceKindCohort),
+								SourceKind:    new(configapi.SourceKindCohort),
 								TrackedValues: []string{"a", "b", "a"},
 							},
 						},
@@ -3229,30 +3636,30 @@ func TestValidateCustomLabels(t *testing.T) {
 			ControllerManager: configapi.ControllerManager{
 				Metrics: configapi.ControllerMetrics{
 					CustomLabels: []configapi.ControllerMetricsCustomLabel{
-						{Name: "c1", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c2", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c3", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c4", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c5", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c6", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c7", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c8", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "c9", SourceKind: ptr.To(configapi.SourceKindCohort)},
-						{Name: "l1", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l2", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l3", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l4", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l5", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l6", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l7", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l8", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l9", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "l10", SourceKind: ptr.To(configapi.SourceKindLocalQueue)},
-						{Name: "w1", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-						{Name: "w2", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-						{Name: "w3", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-						{Name: "w4", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
-						{Name: "w5", SourceKind: ptr.To(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "c1", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c2", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c3", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c4", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c5", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c6", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c7", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c8", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "c9", SourceKind: new(configapi.SourceKindCohort)},
+						{Name: "l1", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l2", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l3", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l4", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l5", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l6", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l7", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l8", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l9", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "l10", SourceKind: new(configapi.SourceKindLocalQueue)},
+						{Name: "w1", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w2", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w3", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w4", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
+						{Name: "w5", SourceKind: new(configapi.SourceKindWorkload), TrackedValues: []string{"a"}},
 					},
 				},
 			},

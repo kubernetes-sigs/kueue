@@ -22,7 +22,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
@@ -78,7 +77,7 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecs(replicaSpecs ...PyTorchReplicaSp
 
 func (j *PyTorchJobWrapper) PyTorchReplicaSpecsOnlyMasterDefault() *PyTorchJobWrapper {
 	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeMaster] = &kftraining.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
+		Replicas: new(int32(1)),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: "Never",
@@ -94,7 +93,7 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecsOnlyMasterDefault() *PyTorchJobWr
 					},
 				},
 				NodeSelector:                  map[string]string{},
-				TerminationGracePeriodSeconds: ptr.To[int64](1),
+				TerminationGracePeriodSeconds: new(int64(1)),
 			},
 		},
 	}
@@ -106,7 +105,7 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecsDefault() *PyTorchJobWrapper {
 	j.PyTorchReplicaSpecsOnlyMasterDefault()
 
 	j.Spec.PyTorchReplicaSpecs[kftraining.PyTorchJobReplicaTypeWorker] = &kftraining.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
+		Replicas: new(int32(1)),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: "Never",
@@ -122,7 +121,7 @@ func (j *PyTorchJobWrapper) PyTorchReplicaSpecsDefault() *PyTorchJobWrapper {
 					},
 				},
 				NodeSelector:                  map[string]string{},
-				TerminationGracePeriodSeconds: ptr.To[int64](1),
+				TerminationGracePeriodSeconds: new(int64(1)),
 			},
 		},
 	}

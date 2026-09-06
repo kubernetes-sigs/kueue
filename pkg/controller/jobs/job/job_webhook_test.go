@@ -32,7 +32,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -135,7 +134,7 @@ func TestValidateCreate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(
 					field.NewPath("spec", "completions"),
-					ptr.To[int32](6),
+					new(int32(6)),
 					fmt.Sprintf("should be equal to parallelism when %s annotation is true", JobCompletionsEqualParallelismAnnotation),
 				),
 			},

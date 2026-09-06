@@ -19,6 +19,8 @@ package workload
 import (
 	"maps"
 
+	"k8s.io/utils/ptr"
+
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 )
@@ -62,6 +64,21 @@ func ExtractPodSetCounts(podSets []kueue.PodSet) PodSetsCounts {
 	return utilslices.ToMap(podSets, func(i int) (kueue.PodSetReference, int32) {
 		return podSets[i].Name, podSets[i].Count
 	})
+}
+
+// ExtractGrantedPodSetCounts builds a PodSetsCounts map from a list of PodSetAssignments.
+// Each entry maps PodSet name to its replica count.
+func ExtractGrantedPodSetCounts(wl *kueue.Workload) PodSetsCounts {
+	if wl.Status.Admission == nil {
+		return nil
+	}
+	counts := ExtractPodSetCounts(wl.Spec.PodSets)
+	granted := make(PodSetsCounts, len(wl.Status.Admission.PodSetAssignments))
+	for _, psa := range wl.Status.Admission.PodSetAssignments {
+		count := counts[psa.Name]
+		granted[psa.Name] = min(ptr.Deref(psa.Count, count), count)
+	}
+	return granted
 }
 
 // ExtractPodSetCountsFromWorkload returns a PodSetsCounts map derived from the provided Workload.

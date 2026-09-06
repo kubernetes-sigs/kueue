@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/utils/ptr"
 	"k8s.io/utils/set"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -123,9 +122,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName:      "workers-group-0",
-						Replicas:       ptr.To[int32](workerReplicas),
-						MinReplicas:    ptr.To[int32](workerReplicas),
-						MaxReplicas:    ptr.To[int32](10),
+						Replicas:       new(int32(workerReplicas)),
+						MinReplicas:    new(int32(workerReplicas)),
+						MaxReplicas:    new(int32(10)),
 						RayStartParams: map[string]string{},
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{

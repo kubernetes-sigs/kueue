@@ -25,7 +25,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -58,19 +57,19 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 				},
 			},
-			podIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation),
+			podIndexLabel: new(batchv1.JobCompletionIndexAnnotation),
 			wantReq: &kueue.PodSetTopologyRequest{
 				Required:      new("cloud.com/block"),
-				PodIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation),
+				PodIndexLabel: new(batchv1.JobCompletionIndexAnnotation),
 			},
 		},
 		"pod index label only": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{},
 			},
-			podIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation),
+			podIndexLabel: new(batchv1.JobCompletionIndexAnnotation),
 			wantReq: &kueue.PodSetTopologyRequest{
-				PodIndexLabel: ptr.To(batchv1.JobCompletionIndexAnnotation),
+				PodIndexLabel: new(batchv1.JobCompletionIndexAnnotation),
 			},
 		},
 		"required annotation with sub group": {
@@ -80,12 +79,12 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 					kueue.PodSetGroupName:                  "block",
 				},
 			},
-			subGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
-			subGroupCount:      ptr.To[int32](1),
+			subGroupIndexLabel: new(jobsetapi.JobIndexKey),
+			subGroupCount:      new(int32(1)),
 			wantReq: &kueue.PodSetTopologyRequest{
 				Required:           new("cloud.com/block"),
-				SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
-				SubGroupCount:      ptr.To[int32](1),
+				SubGroupIndexLabel: new(jobsetapi.JobIndexKey),
+				SubGroupCount:      new(int32(1)),
 				PodSetGroupName:    new("block"),
 			},
 		},
@@ -96,12 +95,12 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 					kueue.PodSetGroupName:                  "block",
 				},
 			},
-			subGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
-			subGroupCount:      ptr.To[int32](1),
+			subGroupIndexLabel: new(jobsetapi.JobIndexKey),
+			subGroupCount:      new(int32(1)),
 			wantReq: &kueue.PodSetTopologyRequest{
 				Required:           new("cloud.com/block"),
-				SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
-				SubGroupCount:      ptr.To[int32](1),
+				SubGroupIndexLabel: new(jobsetapi.JobIndexKey),
+				SubGroupCount:      new(int32(1)),
 				PodSetGroupName:    new("block"),
 			},
 		},
@@ -144,7 +143,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			},
 			wantReq: &kueue.PodSetTopologyRequest{
 				PodSetSliceRequiredTopology: new("cloud.com/block"),
-				PodSetSliceSize:             ptr.To[int32](1),
+				PodSetSliceSize:             new(int32(1)),
 			},
 		},
 		"slice-only topology – only slice required annotation": {
@@ -169,13 +168,13 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 					kueue.PodSetGroupName:                       "block",
 				},
 			},
-			subGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
-			subGroupCount:      ptr.To[int32](1),
+			subGroupIndexLabel: new(jobsetapi.JobIndexKey),
+			subGroupCount:      new(int32(1)),
 			wantReq: &kueue.PodSetTopologyRequest{
 				PodSetSliceRequiredTopology: new("cloud.com/block"),
-				PodSetSliceSize:             ptr.To[int32](1),
-				SubGroupIndexLabel:          ptr.To(jobsetapi.JobIndexKey),
-				SubGroupCount:               ptr.To[int32](1),
+				PodSetSliceSize:             new(int32(1)),
+				SubGroupIndexLabel:          new(jobsetapi.JobIndexKey),
+				SubGroupCount:               new(int32(1)),
 			},
 		},
 		"invalid unconstrained topology annotation value": {
@@ -267,7 +266,7 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			wantReq: &kueue.PodSetTopologyRequest{
 				Required:                    new("cloud.com/block"),
 				PodSetSliceRequiredTopology: new("cloud.com/rack"),
-				PodSetSliceSize:             ptr.To[int32](16),
+				PodSetSliceSize:             new(int32(16)),
 			},
 		},
 		"multi-layer: invalid JSON in constraints annotation": {

@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utilResource "sigs.k8s.io/kueue/pkg/util/resource"
@@ -111,6 +110,17 @@ func MakeLimitRange(name, namespace string) *LimitRangeWrapper {
 
 func (lr *LimitRangeWrapper) WithType(t corev1.LimitType) *LimitRangeWrapper {
 	lr.Spec.Limits[0].Type = t
+	return lr
+}
+
+// LimitTypes replaces the LimitRange's items with one bare item per given type,
+// or clears them when called with no arguments.
+func (lr *LimitRangeWrapper) LimitTypes(types ...corev1.LimitType) *LimitRangeWrapper {
+	items := make([]corev1.LimitRangeItem, len(types))
+	for i, t := range types {
+		items[i] = corev1.LimitRangeItem{Type: t}
+	}
+	lr.Spec.Limits = items
 	return lr
 }
 
@@ -202,7 +212,7 @@ func (c *ContainerWrapper) WithEnvVar(envVar corev1.EnvVar) *ContainerWrapper {
 
 // AsSidecar makes the container a sidecar when used as an Init Container.
 func (c *ContainerWrapper) AsSidecar() *ContainerWrapper {
-	c.RestartPolicy = ptr.To(corev1.ContainerRestartPolicyAlways)
+	c.RestartPolicy = new(corev1.ContainerRestartPolicyAlways)
 
 	return c
 }

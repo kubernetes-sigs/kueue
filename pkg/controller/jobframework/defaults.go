@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -131,7 +130,7 @@ func ApplyDefaultForManagedBy(job GenericJob, queues *qcache.Manager, cache *sch
 			for _, admissionCheck := range cache.AdmissionChecksForClusterQueue(clusterQueueName) {
 				if admissionCheck.Controller == kueue.MultiKueueControllerName {
 					log.V(5).Info("Defaulting ManagedBy", "oldManagedBy", managedJob.ManagedBy(), "managedBy", kueue.MultiKueueControllerName)
-					managedJob.SetManagedBy(ptr.To(kueue.MultiKueueControllerName))
+					managedJob.SetManagedBy(new(kueue.MultiKueueControllerName))
 					return
 				}
 			}

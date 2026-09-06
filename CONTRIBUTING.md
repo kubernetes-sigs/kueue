@@ -17,7 +17,7 @@ If your repo has certain guidelines for contribution, put them here ahead of the
 - [Contributor Cheat Sheet](https://k8s.dev/cheatsheet) - Common resources for existing developers
 - [AI Tool Usage Policy](https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance) - 🤖 Guidelines for using AI tools when contributing.
 - [SIG Scheduling Contributor's Guide](https://git.k8s.io/community/sig-scheduling/CONTRIBUTING.md) - Guidelines specific to SIG Scheduling.
-- [Coding Guidelines](https://kueue.sigs.k8s.io/docs/contribution_guidelines/coding_guidelines/) - Coding conventions and patterns for Kueue product and test code.
+- [Coding Guidelines](https://kueue.sigs.k8s.io/community/contribution_guidelines/coding_guidelines/) - Coding conventions and patterns for Kueue product and test code.
 
 ## Mentorship
 
@@ -35,7 +35,7 @@ If your repo has certain guidelines for contribution, put them here ahead of the
 - **What it does (high level)**:
   - **Regenerates** checked-in artifacts (codegen/mocks, docs site data, Helm-related outputs).
   - **Runs checks** (Go linters, Go formatting verification, shellcheck, TOC verification, Helm rendering + unit tests, frontend dependency checks).
-  - **Asserts git cleanliness** for the main “generated/output” paths (see `PATHS_TO_VERIFY` in `Makefile-verify.mk`).
+  - **Asserts git cleanliness** for the main “generated/output” paths (see `PATHS_TO_VERIFY` in `hack/make/verify.mk`).
 
 - **Requirements / notes**:
   - **Go**: uses the Go version declared in `go.mod`.
@@ -49,7 +49,7 @@ If your repo has certain guidelines for contribution, put them here ahead of the
 
 ### Adding a new step to `make verify`
 
-The `verify` pipeline is defined in `Makefile-verify.mk` and intentionally split into:
+The `verify` pipeline is defined in `hack/make/verify.mk` and intentionally split into:
 
 - **`verify-tree-prereqs`**: steps that **may update files** that are checked into git (generators, docs, Helm docs/manifests, etc.).
 - **`verify-checks`**: steps that should be **read-only** (linters, formatting verification, helm rendering/unit tests, dependency checks, etc.).
@@ -61,8 +61,8 @@ To add a new verify step:
   - If your step **only validates** and should not modify files → add it to `verify-checks`.
 
 - **Pick where to implement the target**:
-  - If it’s verify-specific, define it in `Makefile-verify.mk`.
-  - If it belongs to another area (tests, tooling, etc.), define it in the relevant included fragment (for example `Makefile-test.mk`) and just reference it from `Makefile-verify.mk`.
+  - If it’s verify-specific, define it in `hack/make/verify.mk`.
+  - If it belongs to another area (tests, tooling, etc.), define it in the relevant included fragment (for example `hack/make/test.mk`) and just reference it from `hack/make/verify.mk`.
 
 - **Wire it into the aggregator**:
   - Add your target name as a dependency of the appropriate aggregator (`verify-*-prereqs` or `verify-checks`).

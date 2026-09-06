@@ -23,16 +23,35 @@ filters:
   "package(-lock)?\\.json$":
     approvers:
       - dependency-approvers
+      - release-team
 
-  # Any directory depth: Makefile-deps.mk
-  "Makefile-deps\\.mk$":
+  "^Makefile$":
+    approvers:
+      - release-team
+
+  # Any directory depth: README.md or README.md.gotmpl
+  "README\\.md(\\.gotmpl)?$":
+    approvers:
+      - release-team
+
+  # Any directory depth: INSTALL.md
+  "INSTALL\\.md(\\.gotmpl)?$":
+    approvers:
+      - release-team
+
+  # Any directory depth: Chart.yaml
+  "Chart\\.yaml$":
+    approvers:
+      - release-team
+
+  "^SECURITY-INSIGHTS\\.yaml$":
+    approvers:
+      - release-team
+
+  # Dependency makefile
+  "^hack/make/deps\\.mk$":
     approvers:
       - dependency-approvers
-
-  "^site/hugo\\.toml$":
-    approvers:
-      - hugo-approvers
-      - infra-approvers
 
   "^netlify\\.toml$":
     approvers:
@@ -48,8 +67,8 @@ filters:
     approvers:
       - test-approvers
 
-  # Any directory depth: Makefile-test.mk
-  "Makefile-(verify|test)\\.mk$":
+  # Test and verification makefiles
+  "^hack/make/(verify|test)\\.mk$":
     approvers:
       - test-approvers
 

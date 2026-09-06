@@ -19,7 +19,6 @@ package scheduler
 import (
 	"testing"
 
-	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 
@@ -49,8 +48,9 @@ func TestTASCacheUpdateFlavorTolerationsPreservesUsage(t *testing.T) {
 			corev1.ResourceCPU: 1,
 		}),
 	}}
+	_, log := utiltesting.ContextWithLog(t)
 	originalFlavorCache := tasCache.Get("tas-flavor")
-	originalFlavorCache.addUsage(logr.Discard(), wlKey, topologyRequests)
+	originalFlavorCache.addUsage(log, wlKey, topologyRequests)
 
 	toleration := corev1.Toleration{
 		Key:      "example.com/dedicated",
@@ -115,8 +115,10 @@ func TestTASCacheUpdateFlavorNodeLabelsPreservesUsage(t *testing.T) {
 			corev1.ResourceCPU: 1,
 		}),
 	}}
+	_, log := utiltesting.ContextWithLog(t)
 	originalFlavorCache := tasCache.Get("tas-flavor")
-	originalFlavorCache.addUsage(logr.Discard(), wlKey, topologyRequests)
+	originalTree, _ := originalFlavorCache.cachedOrBuiltTree()
+	originalFlavorCache.addUsage(log, wlKey, topologyRequests)
 
 	updatedNodeLabels := map[string]string{"node-group": "other"}
 	flavor.Spec.NodeLabels = updatedNodeLabels
@@ -125,6 +127,10 @@ func TestTASCacheUpdateFlavorNodeLabelsPreservesUsage(t *testing.T) {
 	updatedFlavorCache := tasCache.Get("tas-flavor")
 	if updatedFlavorCache != originalFlavorCache {
 		t.Fatal("TAS flavor cache was replaced while updating nodeLabels")
+	}
+	updatedTree, _ := updatedFlavorCache.cachedOrBuiltTree()
+	if updatedTree == originalTree {
+		t.Error("Topology tree was reused after updating nodeLabels")
 	}
 
 	wantUsage := map[utiltas.TopologyDomainID]resources.Requests{
@@ -165,8 +171,10 @@ func TestTASCacheUpdateTopologyLevelsPreservesUsage(t *testing.T) {
 			corev1.ResourceCPU: 1,
 		}),
 	}}
+	_, log := utiltesting.ContextWithLog(t)
 	originalFlavorCache := tasCache.Get("tas-flavor")
-	originalFlavorCache.addUsage(logr.Discard(), wlKey, topologyRequests)
+	originalTree, _ := originalFlavorCache.cachedOrBuiltTree()
+	originalFlavorCache.addUsage(log, wlKey, topologyRequests)
 
 	updatedTopology := utiltestingapi.MakeTopology("default").
 		Levels(utiltesting.DefaultBlockTopologyLevel, corev1.LabelHostname).
@@ -177,10 +185,17 @@ func TestTASCacheUpdateTopologyLevelsPreservesUsage(t *testing.T) {
 	if updatedFlavorCache != originalFlavorCache {
 		t.Fatal("TAS flavor cache was replaced while updating topology levels")
 	}
+	updatedTree, _ := updatedFlavorCache.cachedOrBuiltTree()
+	if updatedTree == originalTree {
+		t.Error("Topology tree was reused after updating topology levels")
+	}
 
 	wantLevels := []string{utiltesting.DefaultBlockTopologyLevel, corev1.LabelHostname}
 	if diff := cmp.Diff(wantLevels, updatedFlavorCache.TopologyLevels()); diff != "" {
 		t.Errorf("Unexpected levels after update (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(wantLevels, updatedTree.levelKeys); diff != "" {
+		t.Errorf("Unexpected topology tree levels after update (-want +got):\n%s", diff)
 	}
 	wantUsage := map[utiltas.TopologyDomainID]resources.Requests{
 		"x1": resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
@@ -193,5 +208,11 @@ func TestTASCacheUpdateTopologyLevelsPreservesUsage(t *testing.T) {
 	}
 	if _, found := updatedFlavorCache.wlUsage[wlKey]; !found {
 		t.Error("Workload usage was removed after updating topology levels")
+	}
+
+	tasCache.AddTopology(updatedTopology)
+	resyncedTree, _ := updatedFlavorCache.cachedOrBuiltTree()
+	if resyncedTree != updatedTree {
+		t.Error("Topology tree was rebuilt after re-applying unchanged topology levels")
 	}
 }

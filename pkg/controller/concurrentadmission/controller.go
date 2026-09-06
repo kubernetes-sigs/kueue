@@ -48,6 +48,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -142,7 +143,7 @@ func clusterQueueFlavorsChanged() predicate.TypedPredicate[*kueue.ClusterQueue] 
 		DeleteFunc:  func(event.TypedDeleteEvent[*kueue.ClusterQueue]) bool { return false },
 		GenericFunc: func(event.TypedGenericEvent[*kueue.ClusterQueue]) bool { return false },
 		UpdateFunc: func(e event.TypedUpdateEvent[*kueue.ClusterQueue]) bool {
-			return !slices.EqualFunc(e.ObjectOld.Spec.ResourceGroups, e.ObjectNew.Spec.ResourceGroups,
+			return !slices.EqualFunc(resourcegroups.EffectiveResourceGroups(e.ObjectOld), resourcegroups.EffectiveResourceGroups(e.ObjectNew),
 				func(a, b kueue.ResourceGroup) bool {
 					return slices.EqualFunc(a.Flavors, b.Flavors,
 						func(x, y kueue.FlavorQuotas) bool {
@@ -197,8 +198,14 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
-	flavorOrder := make(map[kueue.ResourceFlavorReference]int, len(cq.Spec.ResourceGroups[0].Flavors))
-	for i, flavor := range cq.Spec.ResourceGroups[0].Flavors {
+	cqResourceGroups := resourcegroups.EffectiveResourceGroups(cq)
+	var cqFlavors []kueue.FlavorQuotas
+	if len(cqResourceGroups) > 0 {
+		cqFlavors = cqResourceGroups[0].Flavors
+	}
+
+	flavorOrder := make(map[kueue.ResourceFlavorReference]int, len(cqFlavors))
+	for i, flavor := range cqFlavors {
 		flavorOrder[flavor.Name] = i
 	}
 	variants = sortVariantsByFlavorOrder(variants, flavorOrder)
@@ -209,7 +216,7 @@ func (r *variantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 	// TODO: If ConcurrentAdmission is no longer enabled for this CQ, delete parent and variants.
 
 	log.V(3).Info("Reconciling variants against ClusterQueue flavors", "desired", len(flavorOrder), "actual", len(variants))
-	if err := r.createVariants(ctx, parent, variants, cq.Spec.ResourceGroups[0].Flavors); err != nil {
+	if err := r.createVariants(ctx, parent, variants, cqFlavors); err != nil {
 		return ctrl.Result{}, err
 	}
 	variants, err = r.deleteStaleVariants(ctx, parent, variants, flavorOrder)
@@ -473,8 +480,10 @@ func (r *variantReconciler) deactivateMatchingVariants(ctx context.Context, vari
 		if match != nil && !match(v) {
 			continue
 		}
-		logFields := append([]any{"variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "reason", reason}, logArgs...)
-		log.V(2).Info("Deactivating variant", logFields...)
+		if logV := log.V(2); logV.Enabled() {
+			logFields := append([]any{"variant", klog.KObj(v), "flavor", concurrentadmission.GetVariantFlavor(v), "reason", reason}, logArgs...)
+			logV.Info("Deactivating variant", logFields...)
+		}
 		if err := r.deactivateVariant(ctx, v, reason); err != nil {
 			return err
 		}
@@ -769,12 +778,20 @@ func firstCandidateVariant(log logr.Logger, admissibleVariants []*kueue.Workload
 		if workload.HasOpenPreemptionGate(wl, controllerconsts.ConcurrentAdmissionPreemptionGate) {
 			continue
 		}
-		wlLog := log.WithValues("candidateVariant", klog.KObj(wl), "flavor", concurrentadmission.GetVariantFlavor(wl))
+		wlLog := log.V(4)
+		if wlLog.Enabled() {
+			wlLog = wlLog.WithValues("candidateVariant", klog.KObj(wl), "flavor", concurrentadmission.GetVariantFlavor(wl))
+		}
 		if workload.BlockedOnPreemptionGatesCondition(wl) == nil {
-			wlLog.V(4).Info("Variant does not require preemption")
+			quotaReserved := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if quotaReserved == nil {
+				wlLog.Info("Variant has not been evaluated for admission yet")
+				return nil
+			}
+			wlLog.Info("Variant does not require preemption")
 			continue
 		}
-		wlLog.V(4).Info("Variant is the candidate for ungating")
+		wlLog.Info("Variant is the candidate for ungating")
 		return wl
 	}
 	return nil
@@ -788,7 +805,9 @@ func latestOpenGateTime(log logr.Logger, admissibleVariants []*kueue.Workload) *
 			continue
 		}
 		if lastUngateTime == nil || openGate.LastTransitionTime.After(lastUngateTime.Time) {
-			log.V(4).Info("Variant has the latest preemption ungating time", "openPreemptionGateVariant", klog.KObj(wl), "flavor", concurrentadmission.GetVariantFlavor(wl))
+			if logV := log.V(4); logV.Enabled() {
+				logV.Info("Variant has the latest preemption ungating time", "openPreemptionGateVariant", klog.KObj(wl), "flavor", concurrentadmission.GetVariantFlavor(wl))
+			}
 			lastUngateTime = &openGate.LastTransitionTime
 		}
 	}
@@ -807,7 +826,9 @@ func admissibleVariants(variants []kueue.Workload) []*kueue.Workload {
 
 func (r *variantReconciler) openPreemptionGate(ctx context.Context, variant *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(2).Info("Opening preemption gate for variant", "variant", klog.KObj(variant), "flavor", concurrentadmission.GetVariantFlavor(variant))
+	if logV := log.V(2); logV.Enabled() {
+		logV.Info("Opening preemption gate for variant", "variant", klog.KObj(variant), "flavor", concurrentadmission.GetVariantFlavor(variant))
+	}
 	var opened bool
 	if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, variant, r.clock, func(wl *kueue.Workload) (bool, error) {
 		opened = workload.OpenPreemptionGate(wl, controllerconsts.ConcurrentAdmissionPreemptionGate, metav1.NewTime(r.clock.Now()))

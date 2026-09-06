@@ -20,7 +20,7 @@ and any of the following events happen:
 - The preemptee belongs to the same [cohort](/v0.19/docs/concepts/cluster_queue#cohort) as the preemptor and the preemptee's ClusterQueue has a usage above
   the [nominal quota](/v0.19/docs/concepts/cluster_queue#resources) for at least one resource that the preemptee and preemptor require.
 
-The configured settings for preemption in the [Kueue Configuration](/v0.19/docs/reference/kueue-config.v1beta1#FairSharing)
+The configured settings for preemption in the [Kueue Configuration](/v0.19/docs/reference/kueue-config.v1beta2/#config-kueue-x-k8s-io-v1beta2-FairSharing)
 and in the [ClusterQueue](/v0.19/docs/concepts/cluster_queue#preemption) can limit whether a Workload can preempt others, in addition
 to the criteria above.
 
@@ -156,6 +156,15 @@ The `preemptionStrategies` field in the Kueue Configuration indicates which cons
 preemption satisfy, with regards to the share values of the target and preempting ClusterQueues,
 before and after preempting a particular Workload.
 
+In a hierarchical cohort, the share values compared by the preemption strategies are the shares of
+the AlmostLeastCommonAncestors (AlmostLCA) of the preempting and target ClusterQueues, as defined
+in the [fair sharing KEP](https://github.com/kubernetes-sigs/kueue/blob/main/keps/1714-fair-sharing/README.md),
+rather than the shares of the ClusterQueues themselves. AlmostLCA(x, y) is the last but one
+node on the path from x to the lowest common ancestor of x and y; the strategies compare
+AlmostLCA(preemptor, target) with AlmostLCA(target, preemptor). In a flat cohort, where the
+preempting and target ClusterQueues share the same parent cohort, each AlmostLCA is the
+corresponding ClusterQueue itself.
+
 Different `preemptionStrategies` can lead to less or more preemptions under specific scenarios.
 These are the factors you should consider when configuring `preemptionStrategies`:
 - Tolerance to disruptions, in particular when single Workloads use a significant amount of the borrowable resources.
@@ -168,14 +177,15 @@ strategy in the list if there aren't any more Workloads that are candidates for 
 satisfy the current strategy and the preemptor still doesn't fit.
 
 The values you can put in the `preemptionStrategies` list are:
-- `LessThanOrEqualToFinalShare`: Only preempt a Workload if the share of the preempting ClusterQueue
-  with the preemptor Workload is less than or equal to the share of the target ClusterQueue
-  without the preempted Workload.
+- `LessThanOrEqualToFinalShare`: Only preempt a Workload if the share of
+  AlmostLCA(preemptor, target) with the preemptor Workload admitted is less than or equal to the
+  share of AlmostLCA(target, preemptor) without the workload to be preempted.
   This strategy might favor preemption of smaller workloads in the target ClusterQueue,
-  regardless of priority or start time, in an effort to keep the share of the ClusterQueue
+  regardless of priority or start time, in an effort to keep the share of AlmostLCA(target, preemptor)
   as high as possible.
-- `LessThanInitialShare`: Only preempt a Workload if the share of the preempting ClusterQueue
-  with the preemptor Workload is strictly less than the share of the target ClusterQueue.
+- `LessThanInitialShare`: Only preempt a Workload if the share of AlmostLCA(preemptor, target)
+  with the preemptor Workload admitted is strictly less than the share of
+  AlmostLCA(target, preemptor) with the workload to be preempted.
   Note that this strategy doesn't depend on the share usage of the Workload being preempted.
   As a result, the strategy chooses to first preempt workloads with the lowest priority and
   newest start time within the target ClusterQueue.

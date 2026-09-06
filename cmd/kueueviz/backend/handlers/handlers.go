@@ -37,6 +37,10 @@ type Handlers struct {
 	// tokenRevalidationInterval controls how often a live WebSocket connection
 	// re-verifies the bearer token. Defaults to 30 s; overridable in tests.
 	tokenRevalidationInterval time.Duration
+
+	// heartbeatInterval controls how often a WebSocket ping control frame is sent.
+	// Defaults to 30 s; overridable in tests.
+	heartbeatInterval time.Duration
 }
 
 func New(client Client, validator TokenValidator) *Handlers {
@@ -44,6 +48,7 @@ func New(client Client, validator TokenValidator) *Handlers {
 		client:                    client,
 		validator:                 validator,
 		tokenRevalidationInterval: 30 * time.Second,
+		heartbeatInterval:         30 * time.Second,
 	}
 }
 

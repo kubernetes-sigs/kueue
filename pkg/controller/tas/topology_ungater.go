@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 
 	"github.com/go-logr/logr"
@@ -267,6 +268,25 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 				}
 			}
 			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], maxRank[psa.Name])
+			// While a node is recorded in Status.UnhealthyNodes the assignment still
+			// points at it until the scheduler's second pass swaps in a replacement
+			// domain. Gated pods must not be ungated onto such a node in the
+			// meantime: they can never schedule there, and the node controller then
+			// terminates them with UnschedulableOnAssignedNode, so every recreated
+			// pod is killed again immediately. Leaving them gated lets them wait for
+			// the replacement domain and be ungated onto a healthy node instead.
+			if workload.HasUnhealthyNodes(wl) {
+				levels := psa.TopologyAssignment.Levels
+				gatedPodsToDomains = slices.DeleteFunc(gatedPodsToDomains, func(pd podWithDomain) bool {
+					nodeName, ok := utiltas.NodeNameFromDomainID(levels, pd.domainID)
+					if !ok || !workload.HasUnhealthyNode(wl, nodeName) {
+						return false
+					}
+					log.V(3).Info("skipping ungate; the assigned node is unhealthy and awaiting replacement",
+						"pod", klog.KObj(pd.pod), "domain", pd.domainID, "node", nodeName)
+					return true
+				})
+			}
 			if len(gatedPodsToDomains) > 0 {
 				toUngate := podsToUngateInfo(&psa, gatedPodsToDomains)
 				log.V(2).Info("identified pods to ungate for podset", "podset", psa.Name, "count", len(toUngate))
@@ -305,7 +325,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 			// We don't expect an event in this case.
 			r.expectationsStore.ObservedUID(log, req.NamespacedName, podWithUngateInfo.pod.UID)
 		} else {
-			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.TopologySchedulingGate, wl, utilpod.IsPodGroup(podWithUngateInfo.pod))
+			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.TopologySchedulingGate, wl, utilpod.IsPodGroup(podWithUngateInfo.pod), r.roleTracker)
 		}
 		return e
 	})

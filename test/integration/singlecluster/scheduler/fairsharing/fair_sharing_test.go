@@ -27,7 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/metrics/testutil"
-	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -404,6 +404,77 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			util.ExpectEvictedWorkloadsTotalMetric(cqB.Name, kueue.WorkloadEvictedByPreemption, "", "", 0)
 		})
 
+		ginkgo.It("Should prevent other workloads from stealing quota when preemptor is waiting for multiple evictions", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PrioritizePreemptorWorkloads, true)
+
+			cohort := createCohort(utiltestingapi.MakeCohort(kueue.CohortReference("thrash-cohort-" + ns.Name)).Obj())
+
+			cq1 := createQueue(utiltestingapi.MakeClusterQueue("cq-1-" + ns.Name).
+				Cohort(kueue.CohortReference(cohort.Name)).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "10").
+						Resource(corev1.ResourceMemory, "0").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj())
+
+			cq2 := createQueue(utiltestingapi.MakeClusterQueue("cq-2-" + ns.Name).
+				Cohort(kueue.CohortReference(cohort.Name)).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").
+						Resource(corev1.ResourceMemory, "10").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				Obj())
+
+			createWorkloadWithCPUAndMemory := func(queue string, cpu, memory string, priority int32) *kueue.Workload {
+				wl := utiltestingapi.MakeWorkloadWithGeneratedName("wl-", ns.Name).
+					Priority(priority).
+					Queue(kueue.LocalQueueName(queue)).
+					Request(corev1.ResourceCPU, cpu).
+					Request(corev1.ResourceMemory, memory).Obj()
+				wls = append(wls, wl)
+				util.MustCreate(ctx, k8sClient, wl)
+				return wl
+			}
+
+			ginkgo.By("Creating wlA in cq-2")
+			wlA := createWorkloadWithCPUAndMemory(cq2.Name, "1", "0", 100)
+
+			ginkgo.By("Creating wlB in cq-2")
+			wlB := createWorkloadWithCPUAndMemory(cq2.Name, "1", "0", 100)
+
+			ginkgo.By("Waiting for wlA and wlB to be admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA, wlB)
+
+			ginkgo.By("Creating preemptor-wl in cq-1")
+			preemptorWl := createWorkloadWithCPUAndMemory(cq1.Name, "10", "10", 0)
+
+			ginkgo.By("Waiting for wlA and wlB to be preempted/evicted")
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlA, wlB)
+
+			ginkgo.By("Finishing eviction for wlA")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+
+			ginkgo.By("Ensuring wlA is not re-admitted in the interim")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlA), wlA)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(wlA)).To(gomega.BeFalse())
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Finishing eviction for wlB")
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlB)
+
+			ginkgo.By("Waiting for preemptorWl to be re-admitted")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, preemptorWl)
+		})
+
 		ginkgo.It("should have NaN weighted share metric", func() {
 			ginkgo.By("Creating a workload in cqA")
 			wlA1 := createWorkloadWithPriority(cqA.Name, "4", 100)
@@ -419,6 +490,80 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				g.Expect(err).ToNot(gomega.HaveOccurred())
 				g.Expect(math.IsNaN(v)).Should(gomega.BeTrue())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("RecomputeAssignmentUponPreemptionTargetsOverlap with multiple flavors", func() {
+		var (
+			cqHero *kueue.ClusterQueue
+			cqTiny *kueue.ClusterQueue
+			cqRest *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			createCohort(utiltestingapi.MakeCohort("cohort-a").Obj())
+
+			cqHero = createQueue(utiltestingapi.MakeClusterQueue("cq-hero").
+				Cohort("cohort-a").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+						Resource(corev1.ResourceCPU, "100").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavor2.Name).
+						Resource(corev1.ResourceCPU, "100").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).Obj())
+
+			cqTiny = createQueue(utiltestingapi.MakeClusterQueue("cq-tiny").
+				Cohort("cohort-a").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+						Resource(corev1.ResourceCPU, "50").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavor2.Name).
+						Resource(corev1.ResourceCPU, "50").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).Obj())
+			cqRest = createQueue(utiltestingapi.MakeClusterQueue("cq-rest").
+				Cohort("cohort-a").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(flavor1.Name).
+						Resource(corev1.ResourceCPU, "0").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(flavor2.Name).
+						Resource(corev1.ResourceCPU, "0").Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				}).Obj())
+		})
+
+		ginkgo.It("hero workload sticks to preferred flavor if overlap resolved", framework.SlowSpec, func() {
+			ginkgo.By("Admitting initial workloads")
+			wlA := createWorkloadWithPriority(cqRest.Name, "150", 10) // flavor1
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+
+			wlB := createWorkloadWithPriority(cqRest.Name, "150", 10) // flavor2
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
+
+			ginkgo.By("Creating competing workloads")
+			wlHero := createWorkloadWithPriority(cqHero.Name, "100", 100)
+			wlTiny := createWorkloadWithPriority(cqTiny.Name, "50", 50)
+
+			ginkgo.By("Waiting for preemption and eviction")
+			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlA)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+
+			ginkgo.By("Hero and Tiny workloads are admitted in preferred flavor")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlHero, wlTiny)
+
+			// Verify that wlB was NOT preempted (flavor2 untouched)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlB), wlB)).To(gomega.Succeed())
+			gomega.Expect(wlB.Status.Conditions).NotTo(gomega.ContainElement(gomega.HaveField("Type", kueue.WorkloadPreempted)))
 		})
 	})
 
@@ -991,7 +1136,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			ginkgo.By("Pausing admissions to CQ")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).To(gomega.Succeed())
-				cq1.Spec.StopPolicy = ptr.To(kueue.Hold)
+				cq1.Spec.StopPolicy = new(kueue.Hold)
 				g.Expect(k8sClient.Update(ctx, cq1)).Should(gomega.Succeed())
 			}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
@@ -1020,7 +1165,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			ginkgo.By("Resuming admissions to CQ")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).To(gomega.Succeed())
-				cq1.Spec.StopPolicy = ptr.To(kueue.None)
+				cq1.Spec.StopPolicy = new(kueue.None)
 				g.Expect(k8sClient.Update(ctx, cq1)).Should(gomega.Succeed())
 			}, util.Timeout, util.ShortInterval).Should(gomega.Succeed())
 
@@ -1142,7 +1287,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 			ginkgo.By("Verifying no entry penalty exists after workload admission")
 			gomega.Eventually(func(g gomega.Gomega) {
-				penalty := qManager.AfsEntryPenalties.HasPendingFor(lqAKey)
+				penalty := qManager.AfsUsageLedger.HasPendingPenalty(lqAKey)
 				g.Expect(penalty).To(gomega.BeFalse(), "entry penalty should be absent for lq-a")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -1155,7 +1300,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 			ginkgo.By("Verifying no entry penalty exists after second admission")
 			gomega.Eventually(func(g gomega.Gomega) {
-				penalty := qManager.AfsEntryPenalties.HasPendingFor(lqAKey)
+				penalty := qManager.AfsUsageLedger.HasPendingPenalty(lqAKey)
 				g.Expect(penalty).To(gomega.BeFalse(), "entry penalty should be absent for lq-a")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -1206,7 +1351,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 			ginkgo.By("Verifying the entry penalty is pending while the workload is in QuotaReserved")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(qManager.AfsEntryPenalties.HasPendingFor(lqKey)).To(gomega.BeTrue(), "entry penalty should be pending for lq-a")
+				g.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeTrue(), "entry penalty should be pending for lq-a")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Marking the admission check Ready so the workload transitions from QuotaReserved to Admitted")
@@ -1215,8 +1360,57 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 			ginkgo.By("Verifying the entry penalty is subtracted after admission")
 			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(qManager.AfsEntryPenalties.HasPendingFor(lqKey)).To(gomega.BeFalse(), "entry penalty should be subtracted for lq-a after admission via admission check")
+				g.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeFalse(), "entry penalty should be subtracted for lq-a after admission via admission check")
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should drop the entry penalty when the workload is deleted while waiting for the admission check", func() {
+			lqKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lq.Name))
+
+			ginkgo.By("Creating a workload which reserves quota and waits for the admission check")
+			wl := createWorkload("lq-a", "4")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+
+			ginkgo.By("Verifying the entry penalty is pending while the workload is in QuotaReserved")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeTrue(), "entry penalty should be pending for lq-a")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Deleting the workload before the admission check approves it")
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+
+			ginkgo.By("Verifying the entry penalty is dropped instead of pending forever")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeFalse(), "entry penalty should be dropped when the workload is deleted before admission")
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("should not stack entry penalties when an evicted workload reserves quota again", func() {
+			lqKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lq.Name))
+
+			ginkgo.By("Creating a workload which reserves quota and waits for the admission check")
+			wl := createWorkload("lq-a", "4")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+
+			ginkgo.By("Capturing the single pushed entry penalty")
+			var firstPenalty corev1.ResourceList
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(qManager.AfsUsageLedger.HasPendingPenalty(lqKey)).To(gomega.BeTrue(), "entry penalty should be pending for lq-a")
+				firstPenalty = qManager.AfsUsageLedger.PeekPenalty(lqKey).DeepCopy()
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Retrying the admission check so the workload is evicted back to pending")
+			util.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateRetry, true)
+			util.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, client.ObjectKeyFromObject(wl))
+
+			ginkgo.By("Waiting for the workload to reserve quota again")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
+
+			ginkgo.By("Verifying the re-push replaced the record instead of stacking a second penalty")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(qManager.AfsUsageLedger.PeekPenalty(lqKey)).To(gomega.BeComparableTo(firstPenalty),
+					"re-reserving quota for the same workload must not accumulate entry penalties")
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
@@ -1475,24 +1669,22 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 2)
 			util.ExpectReservingActiveWorkloadsMetric(cq1, 2)
 
-			wlHighAInfo := workload.NewInfo(wlHighA)
-			wlLowBInfo := workload.NewInfo(wlLowB)
+			wlHighAInfo := workload.NewInfo(ctrl.LoggerFrom(ctx), wlHighA)
+			wlLowBInfo := workload.NewInfo(ctrl.LoggerFrom(ctx), wlLowB)
 			ginkgo.By("Checking that the scheduler sees higher recent usage for lq-a")
 			gomega.Eventually(func(g gomega.Gomega) {
 				lqAUsage, err := wlHighAInfo.CalcLocalQueueFSUsage(
 					ctx,
 					k8sClient,
 					nil,
-					qManager.AfsEntryPenalties,
-					qManager.AfsConsumedResources,
+					qManager.AfsUsageLedger,
 				)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				lqBUsage, err := wlLowBInfo.CalcLocalQueueFSUsage(
 					ctx,
 					k8sClient,
 					nil,
-					qManager.AfsEntryPenalties,
-					qManager.AfsConsumedResources,
+					qManager.AfsUsageLedger,
 				)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(lqAUsage).To(gomega.BeNumerically(">", lqBUsage),
@@ -1505,6 +1697,45 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 
 			ginkgo.By("Checking that the workload from lq-A is preempted despite having bigger priority")
 			util.ExpectWorkloadsToBePreempted(ctx, k8sClient, wlHighA)
+		})
+
+		ginkgo.It("admits from the LocalQueue whose weight is raised through the API", framework.SlowSpec, func() {
+			// This exercises the controller update path: changing
+			// spec.fairSharing.weight reconciles the LocalQueue, which reheapifies
+			// the ClusterQueue so the next admission reflects the new weight.
+			ginkgo.By("Accumulating recent usage on lq-b")
+			wlBUsage := createWorkload("lq-b", "32")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlBUsage)
+			util.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), ">", 0)
+			util.FinishWorkloads(ctx, k8sClient, wlBUsage)
+
+			ginkgo.By("Admitting a blocker on lq-a that holds the whole cohort quota")
+			// The blocker keeps both pending workloads waiting (so no admission
+			// happens before the weight change) and gives lq-a high recent usage,
+			// so at weight 1 lq-b would be preferred.
+			wlBlocker := createWorkload("lq-a", "32")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlBlocker)
+
+			ginkgo.By("Creating two competing pending workloads, one per LocalQueue")
+			wlA := createWorkload("lq-a", "32")
+			wlB := createWorkload("lq-b", "32")
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlA, wlB)
+
+			ginkgo.By("Raising lq-a's fair-sharing weight through the Kubernetes API")
+			// A large weight drives lq-a's effective usage (usage/weight) below
+			// lq-b's, so the admission order must flip to lq-a.
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lqA), lqA)).To(gomega.Succeed())
+				lqA.Spec.FairSharing.Weight = new(resource.MustParse("1000000"))
+				g.Expect(k8sClient.Update(ctx, lqA)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Releasing the quota so the scheduler picks with the new weight")
+			util.FinishWorkloads(ctx, k8sClient, wlBlocker)
+
+			ginkgo.By("Admitting lq-a's workload and keeping lq-b's pending")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlB)
 		})
 	})
 

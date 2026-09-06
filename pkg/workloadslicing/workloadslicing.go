@@ -87,8 +87,7 @@ func ReplacementForKey(wl *kueue.Workload) *workload.Reference {
 	if !found {
 		return nil
 	}
-	ref := workload.Reference(key)
-	return &ref
+	return new(workload.Reference(key))
 }
 
 // SliceName returns the workload slice name for the given workload.
@@ -102,6 +101,23 @@ func SliceName(wl *kueue.Workload) string {
 	return wl.Name
 }
 
+func sortAndFilterNotFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
+	workloads = slices.Clone(workloads)
+
+	// Sort oldest-first; break same-second ties by UID for stable ordering.
+	slices.SortFunc(workloads, func(a, b kueue.Workload) int {
+		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.UID, b.UID)
+	})
+
+	// Filter out workloads with activated "Finished" condition.
+	return slices.DeleteFunc(workloads, func(w kueue.Workload) bool {
+		return workloadfinish.IsFinished(&w)
+	})
+}
+
 // FindNotFinishedWorkloads returns a sorted list of workloads "owned by" the provided job object/gvk combination and
 // without "Finished" condition with status = "True".
 func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) ([]kueue.Workload, error) {
@@ -110,18 +126,30 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 		return nil, err
 	}
 
-	// Sort oldest-first; break same-second ties by UID for stable ordering.
-	slices.SortFunc(list.Items, func(a, b kueue.Workload) int {
-		if c := a.CreationTimestamp.Compare(b.CreationTimestamp.Time); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.UID, b.UID)
-	})
+	return sortAndFilterNotFinishedWorkloads(list.Items), nil
+}
 
-	// Filter out workloads with activated "Finished" condition.
-	return slices.DeleteFunc(list.Items, func(w kueue.Workload) bool {
-		return workloadfinish.IsFinished(&w)
-	}), nil
+// FindLatestAdmittedWorkloadForSlice returns the admitted slice of the chain
+// identified by its first slice's name (sliceName), which every slice and pod of an
+// elastic job carries, or nil if none is admitted.
+func FindLatestAdmittedWorkloadForSlice(ctx context.Context, clnt client.Client, namespace, sliceName string) (*kueue.Workload, error) {
+	list := &kueue.WorkloadList{}
+	if err := clnt.List(ctx, list, client.InNamespace(namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
+		return nil, err
+	}
+
+	workloads := sortAndFilterNotFinishedWorkloads(list.Items)
+	for i := range slices.Backward(workloads) {
+		wl := &workloads[i]
+		// Eviction is two writes: the condition is set before the reservation is
+		// released, so an evicted slice can still report itself admitted while its
+		// capacity is on the way out.
+		if workload.IsAdmitted(wl) && !workloadevict.IsEvicted(wl) {
+			return wl, nil
+		}
+	}
+	return nil, nil
 }
 
 // FindLatestActiveWorkload returns the newest non-finished, non-evicted workload
@@ -132,6 +160,10 @@ func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject
 // Eviction is two writes: the condition is set first, and the reservation is
 // released after. A slice in between still reports a reservation while its
 // capacity is on the way out, so it is not the one to measure against.
+//
+// Quota reservation alone does not mean every AdmissionCheck is Ready: callers
+// that must not act before full admission (e.g. releasing an elastic scheduling
+// gate) need an additional workload.IsAdmitted check on the result.
 func FindLatestActiveWorkload(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) (*kueue.Workload, error) {
 	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
 	if err != nil {
@@ -196,8 +228,16 @@ func EnsureWorkloadSlices(
 			return nil, false, nil
 		}
 
-		// If counts match, return the existing workload slice.
+		// If counts match, return the existing workload slice or nil if the workload was partially admitted.
 		if jobPodSetsCounts.EqualTo(wlPodSetsCounts) {
+			if workload.IsAdmitted(wl) {
+				for _, psa := range wl.Status.Admission.PodSetAssignments {
+					if wlPodSetsCounts[psa.Name] > *psa.Count {
+						// The workload was partially admitted, create the full scale up probe
+						return nil, true, nil
+					}
+				}
+			}
 			return wl, true, nil
 		}
 

@@ -554,7 +554,7 @@ type TopologyAssignmentSlicePodCounts struct {
 	Individual []int32 `json:"individual,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
+// +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be less or equal to count"
 type PodSet struct {
 	// name is the PodSet name.
 	// +kubebuilder:default=main
@@ -594,7 +594,7 @@ type PodSet struct {
 	// This is an alpha field and requires enabling PartialAdmission feature gate.
 	//
 	// +optional
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=0
 	MinCount *int32 `json:"minCount,omitempty"`
 
 	// topologyRequest defines the topology request for the PodSet.

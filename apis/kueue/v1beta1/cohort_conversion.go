@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
+	conversionapi "k8s.io/apimachinery/pkg/conversion"
 	"sigs.k8s.io/controller-runtime/pkg/conversion"
 
 	"sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -33,4 +34,8 @@ func (src *Cohort) ConvertTo(dstRaw conversion.Hub) error {
 func (dst *Cohort) ConvertFrom(srcRaw conversion.Hub) error {
 	src := srcRaw.(*v1beta2.Cohort)
 	return Convert_v1beta2_Cohort_To_v1beta1_Cohort(src, dst, nil)
+}
+
+func Convert_v1beta2_CohortStatus_To_v1beta1_CohortStatus(in *v1beta2.CohortStatus, out *CohortStatus, s conversionapi.Scope) error {
+	return autoConvert_v1beta2_CohortStatus_To_v1beta1_CohortStatus(in, out, s)
 }

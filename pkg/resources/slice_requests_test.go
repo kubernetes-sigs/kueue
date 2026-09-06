@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"maps"
 	"math"
 	"testing"
 
@@ -273,6 +274,79 @@ func TestSliceRequests_AddAndSub(t *testing.T) {
 	})
 }
 
+// TestSliceRequests_SaturationMatchesMapRequests pins the two Requests
+// implementations to the same answer where int64 runs out. Which one runs is a
+// feature gate decision, so a difference here is the same cluster accounting two
+// ways.
+func TestSliceRequests_SaturationMatchesMapRequests(t *testing.T) {
+	const res = corev1.ResourceCPU
+	cases := map[string]struct {
+		start MapRequests
+		other MapRequests
+		sub   bool
+		want  MapRequests
+	}{
+		"adding past MaxInt64": {
+			start: MapRequests{res: math.MaxInt64},
+			other: MapRequests{res: 1},
+			want:  MapRequests{res: math.MaxInt64},
+		},
+		"adding past MinInt64": {
+			start: MapRequests{res: math.MinInt64},
+			other: MapRequests{res: -1},
+			want:  MapRequests{res: math.MinInt64},
+		},
+		"two halves that do not fit": {
+			start: MapRequests{res: math.MaxInt64/2 + 1},
+			other: MapRequests{res: math.MaxInt64/2 + 1},
+			want:  MapRequests{res: math.MaxInt64},
+		},
+		"subtracting a negative past MaxInt64": {
+			start: MapRequests{res: math.MaxInt64},
+			other: MapRequests{res: -1},
+			sub:   true,
+			want:  MapRequests{res: math.MaxInt64},
+		},
+		"subtracting past MinInt64": {
+			start: MapRequests{res: math.MinInt64},
+			other: MapRequests{res: 1},
+			sub:   true,
+			want:  MapRequests{res: math.MinInt64},
+		},
+		// A key the receiver does not hold takes a different route through
+		// SliceRequests: mergeInto reaches it as fn(0, b), which none of the
+		// cases above enter.
+		"subtracting MinInt64 from a key the receiver lacks": {
+			start: MapRequests{},
+			other: MapRequests{res: math.MinInt64},
+			sub:   true,
+			want:  MapRequests{res: math.MaxInt64},
+		},
+		"adding MinInt64 to a key the receiver lacks": {
+			start: MapRequests{},
+			other: MapRequests{res: math.MinInt64},
+			want:  MapRequests{res: math.MinInt64},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			mapReq := maps.Clone(tc.start)
+			sliceReq := NewSliceRequests(tc.start)
+			if tc.sub {
+				mapReq.Sub(tc.other)
+				sliceReq.Sub(tc.other)
+			} else {
+				mapReq.Add(tc.other)
+				sliceReq.Add(tc.other)
+			}
+			if diff := cmp.Diff(tc.want, mapReq); diff != "" {
+				t.Errorf("MapRequests mismatch (-want +got):\n%s", diff)
+			}
+			checkRequestsEquivalence(t, name, mapReq, sliceReq)
+		})
+	}
+}
+
 func TestSliceRequests_GetValue(t *testing.T) {
 	cases := map[string]struct {
 		req  *SliceRequests
@@ -298,7 +372,7 @@ func TestSliceRequests_GetValue(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := tc.req.GetValue(tc.res)
+			got := tc.req.ResourceValue(tc.res)
 			if got != tc.want {
 				t.Errorf("GetValue(%s) = %d, want %d", tc.res, got, tc.want)
 			}

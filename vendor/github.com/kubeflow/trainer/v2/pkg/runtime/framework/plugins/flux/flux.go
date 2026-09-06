@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
-	jobsetapply "sigs.k8s.io/jobset/client-go/applyconfiguration/jobset/v1alpha2"
 
 	configapi "github.com/kubeflow/trainer/v2/pkg/apis/config/v1alpha1"
 	trainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
@@ -110,9 +109,13 @@ func (f *Flux) Validate(_ context.Context, runtimeInfo *runtime.Info, _, newJobO
 	fluxPolicy := runtimeInfo.RuntimePolicy.MLPolicySource.Flux
 
 	// We require at least 1 proc per node. Zero or fewer does not make sense.
-	if fluxPolicy.NumProcPerNode != nil && *fluxPolicy.NumProcPerNode < 1 {
+	numProcPerNode := fluxPolicy.NumProcPerNode
+	if newJobObj.Spec.Trainer != nil && newJobObj.Spec.Trainer.NumProcPerNode != nil {
+		numProcPerNode = newJobObj.Spec.Trainer.NumProcPerNode
+	}
+	if numProcPerNode != nil && *numProcPerNode < 1 {
 		numProcPerNodePath := field.NewPath("spec").Child("trainer").Child("numProcPerNode")
-		allErrs = append(allErrs, field.Invalid(numProcPerNodePath, *fluxPolicy.NumProcPerNode, "must be greater than or equal to 1 for Flux TrainJob"))
+		allErrs = append(allErrs, field.Invalid(numProcPerNodePath, *numProcPerNode, "must be greater than or equal to 1 for Flux TrainJob"))
 	}
 
 	// Iterate through Trainer's internal PodSet abstraction
@@ -128,7 +131,6 @@ func (f *Flux) Validate(_ context.Context, runtimeInfo *runtime.Info, _, newJobO
 	return nil, allErrs
 }
 
-// EnforceMLPolicy updates the JobSet
 func (f *Flux) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) error {
 	if info == nil || info.RuntimePolicy.MLPolicySource == nil || info.RuntimePolicy.MLPolicySource.Flux == nil {
 		return nil
@@ -151,26 +153,19 @@ func (f *Flux) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) e
 
 	// Define the Init Container. This has a spack view with flux pre-built, and we add to an emptyDir
 	// with configuration that is then accessible to the application. The OS/version should match.
-	// For VolumeMounts, you can still use corev1ac because runtime.Container
-	// methods accept the corev1ac types for nested fields
-	fluxInstaller := corev1ac.Container().
-		WithName(constants.FluxInstallerContainerName).
-		WithImage(settings["FLUX_VIEW_IMAGE"]).
-		WithCommand([]string{"/bin/bash", "/etc/flux-config/init.sh"}...).
-		WithVolumeMounts(
-			corev1ac.VolumeMount().
+	fluxInstaller := runtime.Container{
+		Name:    constants.FluxInstallerContainerName,
+		Image:   settings["FLUX_VIEW_IMAGE"],
+		Command: []string{"/bin/bash", "/etc/flux-config/init.sh"},
+		VolumeMounts: []corev1ac.VolumeMountApplyConfiguration{
+			*corev1ac.VolumeMount().
 				WithName(constants.FluxInstallVolumeName).
 				WithMountPath(constants.FluxVolumePath),
-			corev1ac.VolumeMount().
+			*corev1ac.VolumeMount().
 				WithName(configMapName).
 				WithMountPath(constants.FluxConfigVolumeName).
 				WithReadOnly(true),
-		)
-
-	// Making changes directly to the PodSet allows them to persist
-	jobSetSpec, ok := runtime.TemplateSpecApply[jobsetapply.JobSetSpecApplyConfiguration](info)
-	if !ok {
-		return nil
+		},
 	}
 
 	// Update the PodSets (Abstractions for the ReplicatedJobs)
@@ -187,10 +182,12 @@ func (f *Flux) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) e
 		apply.UpsertVolumes(&info.TemplateSpec.PodSets[psIdx].Volumes, sharedVolumes...)
 		apply.UpsertVolumes(&info.TemplateSpec.PodSets[psIdx].Volumes, *curveVolume)
 
-		// Important! We have to add this to the JobSet to actually take
-		jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers = append(
-			jobSetSpec.ReplicatedJobs[psIdx].Template.Spec.Template.Spec.InitContainers,
-			*fluxInstaller,
+		// Append to the PodSet abstract structure.
+		// The JobSet plugin's Build() sync loop will automatically create a
+		// matching initContainer slot in the JobSetSpec.
+		info.TemplateSpec.PodSets[psIdx].InitContainers = append(
+			info.TemplateSpec.PodSets[psIdx].InitContainers,
+			fluxInstaller,
 		)
 
 		// Update Containers in the PodSet
@@ -202,12 +199,15 @@ func (f *Flux) EnforceMLPolicy(info *runtime.Info, trainJob *trainer.TrainJob) e
 					*corev1ac.VolumeMount().WithName(constants.FluxSpackViewVolumeName).WithMountPath(constants.FluxSpackViewVolumePath),
 					*corev1ac.VolumeMount().WithName(configMapName).WithMountPath(constants.FluxConfigVolumeName).WithReadOnly(true),
 					*corev1ac.VolumeMount().WithName(constants.FluxCurveVolumeName).WithMountPath(constants.FluxCurveVolumePath).WithReadOnly(true),
+					*corev1ac.VolumeMount().WithName(constants.FluxMemoryVolumeName).WithMountPath(constants.FluxMemoryVolumePath).WithReadOnly(true),
 				)
 			}
 		}
 	}
 	return nil
 }
+
+func (f *Flux) SyncParallelCount(_ *runtime.Info) error { return nil }
 
 // Build creates the extra config map (configuration) and curve secret for Flux.
 func (f *Flux) Build(ctx context.Context, info *runtime.Info, trainJob *trainer.TrainJob) ([]apiruntime.ApplyConfiguration, error) {
@@ -296,6 +296,10 @@ func getViewVolumes(configMapName string) []corev1ac.VolumeApplyConfiguration {
 	spackInstallAC := corev1ac.Volume().
 		WithName(constants.FluxSpackViewVolumeName).
 		WithEmptyDir(corev1ac.EmptyDirVolumeSource())
+	memoryVolumeAC := corev1ac.Volume().
+		WithName(constants.FluxMemoryVolumeName).
+		WithEmptyDir(corev1ac.EmptyDirVolumeSource().
+			WithMedium(corev1.StorageMediumMemory))
 	fluxVolumeAC := corev1ac.Volume().
 		WithEmptyDir(corev1ac.EmptyDirVolumeSource()).
 		WithName(constants.FluxInstallVolumeName)
@@ -306,7 +310,7 @@ func getViewVolumes(configMapName string) []corev1ac.VolumeApplyConfiguration {
 				WithName(configMapName).
 				WithDefaultMode(0755),
 		)
-	return []corev1ac.VolumeApplyConfiguration{*spackInstallAC, *fluxVolumeAC, *cmAC}
+	return []corev1ac.VolumeApplyConfiguration{*spackInstallAC, *fluxVolumeAC, *cmAC, *memoryVolumeAC}
 }
 
 // buildInitScriptConfigMap creates a ConfigMapApplyConfiguration to support server-side Apply
@@ -403,13 +407,16 @@ func (f *Flux) generateFluxEntrypoint(trainJob *trainer.TrainJob, info *runtime.
 	// Derive number of tasks
 	// This may not technically be the number of processes per node,
 	// but that is all the TrainJob can currently represent.
-	var tasks string
+	var tasks int32
+	var flags string
+
 	nodes := *trainJob.Spec.Trainer.NumNodes
 	if trainJob.Spec.Trainer.NumProcPerNode != nil {
-		tasks = fmt.Sprintf("-N %d -n %d", nodes, *trainJob.Spec.Trainer.NumProcPerNode*nodes)
+		tasks = *trainJob.Spec.Trainer.NumProcPerNode
 	} else {
-		tasks = fmt.Sprintf("-N %d -n %d", nodes, *info.RuntimePolicy.MLPolicySource.Flux.NumProcPerNode*nodes)
+		tasks = *info.RuntimePolicy.MLPolicySource.Flux.NumProcPerNode
 	}
+	flags = fmt.Sprintf("-N %d -n %d", nodes, tasks*nodes)
 
 	// Derive number of GPUs from resources. In Flux, -g is --gpus-per-task
 	resourcesPerNode := ptr.Deref(runtime.ExtractResourcePerNodeFromRuntime(info), corev1.ResourceRequirements{})
@@ -417,11 +424,17 @@ func (f *Flux) generateFluxEntrypoint(trainJob *trainer.TrainJob, info *runtime.
 		resourcesPerNode = ptr.Deref(jobTrainer.ResourcesPerNode, corev1.ResourceRequirements{})
 	}
 	gpus := runtime.GetNumGPUPerNode(&resourcesPerNode)
-	if gpus > 0 {
-		tasks = fmt.Sprintf("%s -g %d", tasks, gpus)
-	}
 
-	return fmt.Sprintf(entrypointTemplate, mainHost, tasks)
+	// Resource file for cluster includes GPUs or not
+	// flux R encode --hosts=${hosts} --cores=0-1 --gpu=0
+	coreSpec := generateRange(int32(tasks), 0)
+	Rspec := fmt.Sprintf("--cores=%s", coreSpec)
+	if gpus > 0 {
+		flags = fmt.Sprintf("%s -g %d", flags, gpus)
+		gpuSpec := generateRange(int32(gpus), 0)
+		Rspec = fmt.Sprintf("%s --gpu=%s", Rspec, gpuSpec)
+	}
+	return fmt.Sprintf(entrypointTemplate, Rspec, mainHost, flags)
 }
 
 // generateInitEntrypoint generates the flux entrypoint to prepare flux

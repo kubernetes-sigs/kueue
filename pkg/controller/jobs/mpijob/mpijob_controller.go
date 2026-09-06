@@ -121,7 +121,7 @@ func (j *MPIJob) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, 
 		if features.Enabled(features.TopologyAwareScheduling) {
 			topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 				&j.Spec.MPIReplicaSpecs[mpiReplicaType].Template.ObjectMeta).PodIndexLabel(
-				ptr.To(kfmpi.ReplicaIndexLabel)).Build()
+				new(kfmpi.ReplicaIndexLabel)).Build()
 			if err != nil {
 				return nil, err
 			}

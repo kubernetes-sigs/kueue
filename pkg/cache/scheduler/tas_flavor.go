@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"sync"
 
@@ -97,6 +98,19 @@ type TASFlavorCache struct {
 	schedulingSimulator simulator.SchedulingSimulator
 
 	resourceFormatter *resources.ResourceFormatter
+
+	// nodesCache provides the nodes matching the flavor, and the generation
+	// used to decide whether the cached topology tree can still be reused.
+	nodesCache *nodesCache
+
+	// treeLock guards tree. It is separate from the embedded RWMutex because
+	// snapshot() holds only the read lock, but must store the tree it built.
+	treeLock sync.Mutex
+
+	// tree caches the static topology structure derived from the node set at
+	// tree.generation. It is shared read-only by the snapshots of the flavor
+	// and reused across scheduling cycles until the node set changes.
+	tree *topologyTree
 }
 
 func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
@@ -110,6 +124,7 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 		nonTasUsageCache:    t.nonTasUsageCache,
 		schedulingSimulator: t.schedulingSimulator,
 		resourceFormatter:   t.resourceFormatter,
+		nodesCache:          t.nodesCache,
 	}
 }
 
@@ -122,13 +137,26 @@ func (c *TASFlavorCache) updateTolerations(tolerations []corev1.Toleration) {
 func (c *TASFlavorCache) updateNodeLabels(nodeLabels map[string]string) {
 	c.Lock()
 	defer c.Unlock()
+	if maps.Equal(c.flavor.NodeLabels, nodeLabels) {
+		return
+	}
 	c.flavor.NodeLabels = nodeLabels
+	c.treeLock.Lock()
+	defer c.treeLock.Unlock()
+	c.tree = nil
 }
 
 func (c *TASFlavorCache) updateTopology(topology topologyInformation) {
 	c.Lock()
 	defer c.Unlock()
+	levelsChanged := !slices.Equal(c.topology.Levels, topology.Levels)
 	c.topology = topology
+	if !levelsChanged {
+		return
+	}
+	c.treeLock.Lock()
+	defer c.treeLock.Unlock()
+	c.tree = nil
 }
 
 // NodeLabels returns the node labels of the flavor. The returned map is safe to
@@ -155,47 +183,82 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 }
 
 func (c *TASFlavorCache) snapshot(
-	ctx context.Context, log logr.Logger, nodes []*corev1.Node, aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
+	ctx context.Context,
+	log logr.Logger,
+	simulatorSnapshot simulator.SimulatorSnapshot,
+	aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
 ) (*TASFlavorSnapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
 
+	tree, treeReused := c.cachedOrBuiltTree()
+
 	infoKV := []any{
 		"nodeLabels", c.flavor.NodeLabels,
 		"levels", c.topology.Levels,
-		"nodeCount", len(nodes),
+		"nodeCount", len(tree.nodes),
+		"treeReused", treeReused,
 	}
 	if features.Enabled(features.TASHandleOverlappingFlavors) {
 		infoKV = append(infoKV, "crossFlavorAggregation", aggregatedDomainUsages != nil)
 	}
 	log.V(3).Info("Constructing TAS snapshot", infoKV...)
 
-	feasibilityChecker, err := c.schedulingSimulator.NewFeasibilityChecker(ctx, nodes)
-	if err != nil {
-		return nil, err
-	}
-
-	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, c.topology.Levels, c.flavor.Tolerations, feasibilityChecker, withResourceFormatter(c.resourceFormatter))
-
-	nodeToDomain := make(map[string]utiltas.TopologyDomainID)
-	for _, node := range nodes {
-		nodeToDomain[node.Name] = snapshot.addNode(node)
-	}
-	snapshot.initialize()
-
+	snapshot := newTASFlavorSnapshot(log, c.flavor.TopologyName, tree, c.flavor.Tolerations, simulatorSnapshot, withResourceFormatter(c.resourceFormatter))
 	tasDomainUsages := c.usage
 	if features.Enabled(features.TASHandleOverlappingFlavors) && aggregatedDomainUsages != nil {
 		tasDomainUsages = aggregatedDomainUsages
 	}
-	for domainID, usage := range tasDomainUsages {
-		snapshot.addTASUsage(domainID, usage)
-	}
+	snapshot.addTASUsageForHeldDomains(tasDomainUsages)
 	c.nonTasUsageCache.forEachNodeUsage(func(nodeName string, usage resources.Requests) {
-		if domainID, ok := nodeToDomain[nodeName]; ok {
+		if domainID, ok := tree.nodeToDomain[nodeName]; ok {
 			snapshot.addNonTASUsage(domainID, usage)
 		}
 	})
 	return snapshot, nil
+}
+
+// cachedOrBuiltTree returns the cached topology tree when its nodesCache
+// generation is current. Otherwise, it builds a candidate and returns the
+// newest tree retained in the cache, which may have been stored by a concurrent
+// caller. The returned tree must not be mutated.
+//
+// With TASCacheTopologyTree disabled the cache is neither read nor written, so
+// every snapshot gets a tree of its own and no tree is ever shared. Note that
+// storeTree must be skipped too: it returns the newest retained tree, which a
+// concurrent caller may have stored, and that would share a tree after all.
+func (c *TASFlavorCache) cachedOrBuiltTree() (*topologyTree, bool) {
+	cacheTree := features.Enabled(features.TASCacheTopologyTree)
+	if cacheTree {
+		if tree := c.cachedTree(); tree != nil && tree.generation == c.nodesCache.currentGeneration() {
+			return tree, true
+		}
+	}
+	// snapshot already holds c.RLock. Do not use c.NodeLabels here: a recursive
+	// RLock can deadlock if a writer is waiting between the two acquisitions.
+	nodes, generation := c.nodesCache.find(c.flavor.NodeLabels, c.topology.Levels)
+	tree := newTopologyTree(c.topology.Levels, nodes, generation)
+	if !cacheTree {
+		return tree, false
+	}
+	return c.storeTree(tree), false
+}
+
+func (c *TASFlavorCache) cachedTree() *topologyTree {
+	c.treeLock.Lock()
+	defer c.treeLock.Unlock()
+	return c.tree
+}
+
+func (c *TASFlavorCache) storeTree(tree *topologyTree) *topologyTree {
+	c.treeLock.Lock()
+	defer c.treeLock.Unlock()
+	// Concurrent snapshot callers may race to store a rebuilt tree; keep the
+	// newest one so the cache cannot regress to an older generation.
+	if c.tree == nil || tree.generation > c.tree.generation {
+		c.tree = tree
+	}
+	return c.tree
 }
 
 func (c *TASFlavorCache) addUsage(log logr.Logger, key workload.Reference, topologyRequests []workload.TopologyDomainRequests) {
@@ -224,7 +287,7 @@ func (c *TASFlavorCache) updateUsage(topologyRequests []workload.TopologyDomainR
 		domainID := utiltas.DomainID(tr.Values)
 		_, found := c.usage[domainID]
 		if !found {
-			c.usage[domainID] = resources.CreateEmpty()
+			c.usage[domainID] = resources.NewRequests()
 		}
 		if op == subtract {
 			c.usage[domainID].Sub(tr.TotalRequests())
